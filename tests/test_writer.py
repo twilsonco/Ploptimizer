@@ -5,6 +5,7 @@ Tests the HPGL output generation, formatting accuracy, and file handling.
 
 from __future__ import annotations
 
+import os
 import tempfile
 from pathlib import Path
 
@@ -168,6 +169,142 @@ class TestPLTWriterValidation:
         # Should be valid for well-formed output
         assert len(errors) == 0 or len(errors) > 0
 
+    def test_validate_segment_count_mismatch(self) -> None:
+        """Test validate_output detects segment count mismatch (line 265)."""
+        writer = PLTWriter()
+
+        # Create a document with 2 segments
+        doc_two_seg = PLTDocument(
+            stroke_paths=[
+                StrokePath(
+                    segments=(
+                        StrokeSegment(
+                            start=Coordinate(x=0.0, y=0.0),
+                            end=Coordinate(x=100.0, y=0.0),
+                            is_cutting=True,
+                        ),
+                        StrokeSegment(
+                            start=Coordinate(x=100.0, y=0.0),
+                            end=Coordinate(x=200.0, y=100.0),
+                            is_cutting=True,
+                        ),
+                    )
+                )
+            ]
+        )
+
+        # Write a document with only 1 segment
+        doc_one_seg = PLTDocument(
+            stroke_paths=[
+                StrokePath(
+                    segments=(
+                        StrokeSegment(
+                            start=Coordinate(x=0.0, y=0.0),
+                            end=Coordinate(x=100.0, y=0.0),
+                            is_cutting=True,
+                        ),
+                    )
+                )
+            ]
+        )
+
+        output_one = writer.write_string(doc_one_seg)
+
+        # Validate doc_two_seg against output_one (should mismatch)
+        is_valid, errors = writer.validate_output(doc_two_seg, output_one)
+
+        assert not is_valid
+        assert any("Segment count mismatch" in e for e in errors)
+
+    def test_validate_distance_mismatch(self) -> None:
+        """Test validate_output detects distance mismatch (lines 276-282)."""
+        writer = PLTWriter()
+
+        # Create a document with 10 units cutting distance
+        doc_10 = PLTDocument(
+            stroke_paths=[
+                StrokePath(
+                    segments=(
+                        StrokeSegment(
+                            start=Coordinate(x=0.0, y=0.0),
+                            end=Coordinate(x=10.0, y=0.0),
+                            is_cutting=True,
+                        ),
+                    )
+                )
+            ]
+        )
+
+        output_10 = writer.write_string(doc_10)
+
+        # Create a document with 100 units cutting distance
+        doc_100 = PLTDocument(
+            stroke_paths=[
+                StrokePath(
+                    segments=(
+                        StrokeSegment(
+                            start=Coordinate(x=0.0, y=0.0),
+                            end=Coordinate(x=100.0, y=0.0),
+                            is_cutting=True,
+                        ),
+                    )
+                )
+            ]
+        )
+
+        # Validate doc_100 against output_10 (should detect distance mismatch)
+        is_valid, errors = writer.validate_output(doc_100, output_10)
+
+        assert not is_valid
+        assert any("Distance mismatch" in e for e in errors)
+
+    def test_validate_reparse_failure(self) -> None:
+        """Test validate_output handles re-parsing failure (line 282)."""
+        writer = PLTWriter()
+
+        doc = PLTDocument(header_commands=[HeaderCommand("IN")])
+
+        # Mock the parser's parse_string to raise ParseError
+        original_parse = PLTParser.parse_string
+
+        def mock_parse(self, content: str) -> PLTDocument:
+            raise ParseError("mock parse failure")
+
+        try:
+            PLTParser.parse_string = mock_parse
+            is_valid, errors = writer.validate_output(doc, "IN;")
+
+            assert not is_valid
+            assert any("Re-parsing failed" in e for e in errors)
+        finally:
+            PLTParser.parse_string = original_parse
+
+    def test_validate_output_valid_document(self) -> None:
+        """Test validate_output with a valid document."""
+        writer = PLTWriter()
+
+        doc = PLTDocument(
+            header_commands=[HeaderCommand("IN")],
+            stroke_paths=[
+                StrokePath(
+                    segments=(
+                        StrokeSegment(
+                            start=Coordinate(x=0.0, y=0.0),
+                            end=Coordinate(x=100.0, y=50.0),
+                            is_cutting=True,
+                        ),
+                    )
+                )
+            ],
+            footer_commands=[FooterCommand("SP")],
+        )
+
+        output = writer.write_string(doc)
+        is_valid, errors = writer.validate_output(doc, output)
+
+        assert is_valid
+        assert len(errors) == 0
+
 
 class TestPLTWriterFormatting:
     """Tests for specific formatting requirements."""
@@ -200,6 +337,79 @@ class TestPLTWriterFormatting:
 
         fc = FooterCommand("SP")
         assert writer._format_footer(fc) == "SP;"
+
+
+class TestPLTWriterStrokePathFormatting:
+    """Tests for stroke path formatting edge cases."""
+
+    def test_empty_stroke_path(self) -> None:
+        """Test formatting an empty stroke path (line 187)."""
+        writer = PLTWriter()
+
+        path = StrokePath(segments=())
+        result = writer._format_stroke_path(path)
+
+        assert result == ""
+
+    def test_stroke_path_with_pen_up_position(self) -> None:
+        """Test stroke path with explicit pen-up position (lines 195-196)."""
+        writer = PLTWriter()
+
+        segment = StrokeSegment(
+            start=Coordinate(x=50.0, y=60.0),
+            end=Coordinate(x=100.0, y=200.0),
+            is_cutting=True,
+        )
+
+        path = StrokePath(
+            segments=(segment,),
+            pen_up_position=Coordinate(x=10.0, y=20.0),
+        )
+
+        result = writer._format_stroke_path(path)
+
+        assert "PU10.000,20.000;" in result
+        assert "PD100.000,200.000;" in result
+
+    def test_stroke_path_no_pen_up_first_segment_rapid(self) -> None:
+        """Test stroke path with no pen-up position but first segment is rapid (lines 197->204)."""
+        writer = PLTWriter()
+
+        # First segment is rapid (not cutting), so implicit PU should NOT be added
+        segment = StrokeSegment(
+            start=Coordinate(x=50.0, y=60.0),
+            end=Coordinate(x=100.0, y=200.0),
+            is_cutting=False,  # rapid move
+        )
+
+        path = StrokePath(segments=(segment,), pen_up_position=None)
+
+        result = writer._format_stroke_path(path)
+
+        # Should NOT have PU for start since segment is rapid
+        assert "PU50.000,60.000;" not in result
+        # But should have PU for the segment end
+        assert "PU100.000,200.000;" in result
+
+    def test_stroke_path_no_pen_up_first_segment_cutting(self) -> None:
+        """Test stroke path with no pen-up position but first segment is cutting."""
+        writer = PLTWriter()
+
+        # First segment is cutting, so implicit PU should be added
+        segment = StrokeSegment(
+            start=Coordinate(x=50.0, y=60.0),
+            end=Coordinate(x=100.0, y=200.0),
+            is_cutting=True,  # cutting
+        )
+
+        path = StrokePath(segments=(segment,), pen_up_position=None)
+
+        result = writer._format_stroke_path(path)
+
+        # Should have implicit PU for start
+        assert "PU50.000,60.000;" in result
+        # And PD for the segment end
+        assert "PD100.000,200.000;" in result
 
 
 class TestPLTWriterRoundTrip:
@@ -238,3 +448,45 @@ class TestPLTWriterRoundTrip:
 
         # Key structural elements should be preserved
         assert doc1.total_segments == doc2.total_segments
+
+
+class TestWriteError:
+    """Tests for WriteError exception."""
+
+    def test_write_error_without_document_part(self) -> None:
+        """Test WriteError without document part."""
+        err = WriteError("something failed")
+        assert err.message == "something failed"
+        assert err.document_part is None
+
+    def test_write_error_with_document_part(self) -> None:
+        """Test WriteError with document part (line 51 coverage)."""
+        err = WriteError("something failed", document_part="header")
+        assert err.message == "something failed"
+        assert err.document_part == "header"
+        full_msg = str(err)
+        assert "(in header)" in full_msg
+
+    def test_write_error_os_error(self) -> None:
+        """Test WriteError raised from OSError in write_file."""
+        writer = PLTWriter()
+        doc = PLTDocument()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a subdirectory and make it read-only
+            sub = Path(tmpdir) / "subdir"
+            sub.mkdir()
+
+            # Try to write a nested file inside the read-only dir (should fail)
+            readonly_file = sub / "readonly.plt"
+            readonly_file.write_text("test")
+
+            # Make directory read-only then try to write inside it
+            sub.chmod(0o555)
+            try:
+                impossible_path = Path(tmpdir) / "subdir" / "nested" / "output.plt"
+                writer.write_file(doc, impossible_path)
+            except WriteError:
+                pass
+            finally:
+                sub.chmod(0o755)
