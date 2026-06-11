@@ -1,0 +1,359 @@
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VS0.50', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'ZO123,1', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VZ2.00', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD18288.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VS0.500', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'ZO123.000,1.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VZ2.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD18288.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VS0.50', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'ZO123,1', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VZ2.00', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD18288.000,0.000', treating as header
+2026-06-11 04:37:59 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpjvug6y4u/input.plt
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VS0.50', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'ZO123,1', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VZ2.00', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD18288.000,0.000', treating as header
+2026-06-11 04:37:59 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpjvug6y4u/output.plt
+2026-06-11 04:37:59 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpjvug6y4u/output.plt
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VS0.500', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'ZO123.000,1.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VZ2.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD18288.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VS0.50', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'ZO123,1', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VZ2.00', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD18288.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VS0.50', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'ZO123,1', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VZ2.00', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD18288.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VS0.500', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'ZO123.000,1.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VZ2.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD18288.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU100.000,200.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD300.000,400.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD100.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD100.000,100.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU200.000,200.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD300.000,200.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD100.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD100.000,100.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU200.000,200.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD300.000,200.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VS0.50', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'ZO123,1', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VZ2.00', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD18288.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 04:37:59 | INFO     | plt_optimizer | Writing PLT file: /nonexistent/path/that/does/not/exist/file.plt
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VS0.50', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VS0.50', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU100.000,200.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD300.000,400.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD18288.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD100.000,100.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD200.000,200.000', treating as header
+2026-06-11 04:37:59 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmp_hvea8r4/test.plt
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VS0.50', treating as header
+2026-06-11 04:37:59 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VS0.50', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VS0.50', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU123.456789,987.654321', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD18288.999999,-0.000001', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU-100.000,-200.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD-300.000,-400.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VS0.50', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'ZO123,1', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD100.000,100.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD100.000,100.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD100.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD100.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD200.000,0.000', treating as header
+2026-06-11 04:37:59 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpsl881fem/nested/path/output.plt
+2026-06-11 04:37:59 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmp685fs2gf/output.plt
+2026-06-11 04:37:59 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmp4yhr0mg4/output.plt
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VS0.50', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU100.000,200.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD300.000,400.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU100.000,200.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD300.000,400.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VS0.50', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU100.000,200.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD300.000,400.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VS0.500', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU100.000,200.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD300.000,400.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VS0.50', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD100.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD100.000,100.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'VS0.500', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD100.000,0.000', treating as header
+2026-06-11 04:37:59 | WARNING  | plt_optimizer | Unknown command 'PD100.000,100.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD18288.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD18288.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD18288.000,0.000', treating as header
+2026-06-11 04:41:14 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmp5ucv77gz/input.plt
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD18288.000,0.000', treating as header
+2026-06-11 04:41:14 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmp5ucv77gz/output.plt
+2026-06-11 04:41:14 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmp5ucv77gz/output.plt
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD18288.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD18288.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD18288.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD18288.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU100.000,200.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD300.000,400.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD100.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD100.000,100.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU200.000,200.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD300.000,200.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD100.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD100.000,100.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU200.000,200.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD300.000,200.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD18288.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD18288.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 04:41:14 | INFO     | plt_optimizer | Writing PLT file: /nonexistent/path/that/does/not/exist/file.plt
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU100.000,200.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD300.000,400.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD18288.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD100.000,100.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD200.000,200.000', treating as header
+2026-06-11 04:41:14 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpe2s1577t/test.plt
+2026-06-11 04:41:14 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU123.456789,987.654321', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD18288.999999,-0.000001', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU-100.000,-200.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD-300.000,-400.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD100.000,100.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD100.000,100.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD100.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD100.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD200.000,0.000', treating as header
+2026-06-11 04:41:14 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpcjq1d25w/nested/path/output.plt
+2026-06-11 04:41:14 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpp_sn03l9/output.plt
+2026-06-11 04:41:14 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpno2kvf5o/output.plt
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU100.000,200.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD300.000,400.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU100.000,200.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD300.000,400.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU100.000,200.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD300.000,400.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU100.000,200.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD300.000,400.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU100.000,200.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD300.000,400.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU100.000,200.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD300.000,400.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD100.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD100.000,100.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PU0.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD100.000,0.000', treating as header
+2026-06-11 04:41:14 | WARNING  | plt_optimizer | Unknown command 'PD100.000,100.000', treating as header
+2026-06-11 04:42:17 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpavcvjnim/input.plt
+2026-06-11 04:42:17 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpavcvjnim/output.plt
+2026-06-11 04:42:17 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpavcvjnim/output.plt
+2026-06-11 04:42:17 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 04:42:17 | INFO     | plt_optimizer | Writing PLT file: /nonexistent/path/that/does/not/exist/file.plt
+2026-06-11 04:42:17 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmptxuh5_tt/test.plt
+2026-06-11 04:42:17 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-11 04:42:17 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-11 04:42:17 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmp57zwn2wo/nested/path/output.plt
+2026-06-11 04:42:17 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpeare6kpr/output.plt
+2026-06-11 04:42:17 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpyzybrhr0/output.plt
+2026-06-11 04:44:40 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmp_8hx6zb7/input.plt
+2026-06-11 04:44:40 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmp_8hx6zb7/output.plt
+2026-06-11 04:44:40 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmp_8hx6zb7/output.plt
+2026-06-11 04:44:40 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 04:44:40 | INFO     | plt_optimizer | Writing PLT file: /nonexistent/path/that/does/not/exist/file.plt
+2026-06-11 04:44:40 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpz6owef6u/test.plt
+2026-06-11 04:44:40 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-11 04:44:40 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-11 04:44:40 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmphak0a9gx/nested/path/output.plt
+2026-06-11 04:44:40 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmp9we01go7/output.plt
+2026-06-11 04:44:40 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpppu4g01f/output.plt
+2026-06-11 04:52:56 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpcp5zxizg/input.plt
+2026-06-11 04:52:56 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpcp5zxizg/output.plt
+2026-06-11 04:52:56 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpcp5zxizg/output.plt
+2026-06-11 04:52:56 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 04:52:56 | INFO     | plt_optimizer | Writing PLT file: /nonexistent/path/that/does/not/exist/file.plt
+2026-06-11 04:52:56 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpxm3_q0xt/test.plt
+2026-06-11 04:52:56 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-11 04:52:56 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-11 04:52:56 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmp5q0tnyjl/nested/path/output.plt
+2026-06-11 04:52:56 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmp_d051ufr/output.plt
+2026-06-11 04:52:56 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpx_ye__g_/output.plt
+2026-06-11 04:55:52 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpp_i_zwav/input.plt
+2026-06-11 04:55:52 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpp_i_zwav/output.plt
+2026-06-11 04:55:52 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpp_i_zwav/output.plt
+2026-06-11 04:55:52 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 04:55:52 | INFO     | plt_optimizer | Writing PLT file: /nonexistent/path/that/does/not/exist/file.plt
+2026-06-11 04:55:52 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpi2u8jscc/test.plt
+2026-06-11 04:55:52 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-11 04:55:52 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-11 04:55:52 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpd20orazf/nested/path/output.plt
+2026-06-11 04:55:52 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpdjdw96ww/output.plt
+2026-06-11 04:55:52 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpj3h2hzj8/output.plt
+2026-06-11 04:59:29 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmps2ss8v95/input.plt
+2026-06-11 04:59:29 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmps2ss8v95/output.plt
+2026-06-11 04:59:29 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmps2ss8v95/output.plt
+2026-06-11 04:59:29 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 04:59:29 | INFO     | plt_optimizer | Writing PLT file: /nonexistent/path/that/does/not/exist/file.plt
+2026-06-11 04:59:29 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpo1lr2flx/test.plt
+2026-06-11 04:59:29 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-11 04:59:29 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-11 04:59:29 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpumkpkt3f/nested/path/output.plt
+2026-06-11 04:59:29 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpl4qk5jf5/output.plt
+2026-06-11 04:59:29 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpnmt3_ru6/output.plt
+2026-06-11 05:01:49 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 05:03:33 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpkbrk9t6f/input.plt
+2026-06-11 05:03:33 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpkbrk9t6f/output.plt
+2026-06-11 05:03:33 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpkbrk9t6f/output.plt
+2026-06-11 05:03:33 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 05:03:33 | INFO     | plt_optimizer | Writing PLT file: /nonexistent/path/that/does/not/exist/file.plt
+2026-06-11 05:03:33 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpbya76yal/test.plt
+2026-06-11 05:03:33 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-11 05:03:33 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-11 05:03:33 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpja_ov1vb/nested/path/output.plt
+2026-06-11 05:03:33 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpi7ig0dd6/output.plt
+2026-06-11 05:03:33 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpt0tjleom/output.plt
+2026-06-11 05:04:42 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmp6jv6tzss/input.plt
+2026-06-11 05:04:42 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmp6jv6tzss/output.plt
+2026-06-11 05:04:42 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmp6jv6tzss/output.plt
+2026-06-11 05:04:42 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 05:04:42 | INFO     | plt_optimizer | Writing PLT file: /nonexistent/path/that/does/not/exist/file.plt
+2026-06-11 05:04:42 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpoqc607j5/test.plt
+2026-06-11 05:04:42 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-11 05:04:42 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-11 05:04:42 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpg17bikne/nested/path/output.plt
+2026-06-11 05:04:42 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmplwyo4th3/output.plt
+2026-06-11 05:04:42 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpbu45xezj/output.plt
+2026-06-11 05:05:14 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 05:05:41 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 05:05:41 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-11 05:06:58 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 05:08:44 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 05:09:58 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 05:09:58 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 05:11:47 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpwvy25pwi/input.plt
+2026-06-11 05:11:47 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpwvy25pwi/output.plt
+2026-06-11 05:11:47 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpwvy25pwi/output.plt
+2026-06-11 05:11:47 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 05:11:47 | INFO     | plt_optimizer | Writing PLT file: /nonexistent/path/that/does/not/exist/file.plt
+2026-06-11 05:11:47 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpm2d2aolv/test.plt
+2026-06-11 05:11:47 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-11 05:11:47 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-11 05:11:47 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmppyzlnus_/nested/path/output.plt
+2026-06-11 05:11:47 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpefn0k63d/output.plt
+2026-06-11 05:11:47 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpy2knmg44/output.plt
+2026-06-11 05:13:16 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 05:14:38 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 05:16:14 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpe15ckdwz/input.plt
+2026-06-11 05:16:14 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpe15ckdwz/output.plt
+2026-06-11 05:16:14 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpe15ckdwz/output.plt
+2026-06-11 05:16:14 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 05:16:14 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-11 05:16:14 | INFO     | plt_optimizer | Writing PLT file: /nonexistent/path/that/does/not/exist/file.plt
+2026-06-11 05:16:14 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpgvpqgjzy/test.plt
+2026-06-11 05:16:14 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-11 05:16:14 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-11 05:16:14 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 05:16:14 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpt5_hggbr/nested/path/output.plt
+2026-06-11 05:16:14 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpwqbuiw07/output.plt
+2026-06-11 05:16:14 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmp0xiflzfh/output.plt
+2026-06-11 05:21:54 | INFO     | plt_optimizer | Starting PLT optimization workflow
+2026-06-11 05:21:54 | INFO     | plt_optimizer | Parsing examples/sample.plt
+2026-06-11 05:21:54 | INFO     | plt_optimizer | Parsing PLT file: examples/sample.plt
+2026-06-11 05:21:54 | INFO     | plt_optimizer | Writing verified output to examples/output_verified.plt
+2026-06-11 05:21:54 | INFO     | plt_optimizer | Writing PLT file: examples/output_verified.plt
+2026-06-11 05:21:54 | INFO     | plt_optimizer | Parsing PLT file: examples/output_verified.plt
+2026-06-11 05:21:54 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-11 05:22:55 | INFO     | plt_optimizer | Starting PLT optimization workflow
+2026-06-11 05:22:55 | INFO     | plt_optimizer | Parsing examples/sample.plt
+2026-06-11 05:22:55 | INFO     | plt_optimizer | Parsing PLT file: examples/sample.plt
+2026-06-11 05:22:55 | INFO     | plt_optimizer | Writing verified output to examples/output_verified.plt
+2026-06-11 05:22:55 | INFO     | plt_optimizer | Writing PLT file: examples/output_verified.plt
+2026-06-11 05:22:55 | INFO     | plt_optimizer | Parsing PLT file: examples/output_verified.plt
+2026-06-11 05:22:55 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-11 05:22:55 | INFO     | plt_optimizer | Parsing complex HPGL sample
+2026-06-11 05:22:55 | INFO     | plt_optimizer | Writing PLT file: examples/complex_sample.plt
+2026-06-11 05:23:21 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpbk7ubdx_/input.plt
+2026-06-11 05:23:21 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpbk7ubdx_/output.plt
+2026-06-11 05:23:21 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpbk7ubdx_/output.plt
+2026-06-11 05:23:21 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 05:23:21 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-11 05:23:21 | INFO     | plt_optimizer | Writing PLT file: /nonexistent/path/that/does/not/exist/file.plt
+2026-06-11 05:23:21 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpi6fsbk4r/test.plt
+2026-06-11 05:23:21 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-11 05:23:21 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-11 05:23:21 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 05:23:21 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpqo1max5b/nested/path/output.plt
+2026-06-11 05:23:21 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmp7dtmlxp8/output.plt
+2026-06-11 05:23:21 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpg2cuvze5/output.plt
+2026-06-11 15:34:15 | INFO     | plt_optimizer | Starting PLT optimization workflow
+2026-06-11 15:34:15 | INFO     | plt_optimizer | Parsing examples/sample.plt
+2026-06-11 15:34:15 | INFO     | plt_optimizer | Parsing PLT file: examples/sample.plt
+2026-06-11 15:34:15 | INFO     | plt_optimizer | Writing verified output to examples/output_verified.plt
+2026-06-11 15:34:15 | INFO     | plt_optimizer | Writing PLT file: examples/output_verified.plt
+2026-06-11 15:34:15 | INFO     | plt_optimizer | Parsing PLT file: examples/output_verified.plt
+2026-06-11 15:34:15 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-11 15:34:15 | INFO     | plt_optimizer | Parsing complex HPGL sample
+2026-06-11 15:34:15 | INFO     | plt_optimizer | Writing PLT file: examples/complex_sample.plt
+2026-06-11 16:16:30 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpt6koqwxq/input.plt
+2026-06-11 16:16:30 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpt6koqwxq/output.plt
+2026-06-11 16:16:30 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpt6koqwxq/output.plt
+2026-06-11 16:16:30 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 16:16:30 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-11 16:16:30 | INFO     | plt_optimizer | Writing PLT file: /nonexistent/path/that/does/not/exist/file.plt
+2026-06-11 16:16:31 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpquijsbn1/test.plt
+2026-06-11 16:16:31 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-11 16:16:31 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-11 16:16:31 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 16:16:31 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpjqd5f5sz/nested/path/output.plt
+2026-06-11 16:16:31 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmp81d7rfd5/output.plt
+2026-06-11 16:16:31 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmp54f30v62/output.plt

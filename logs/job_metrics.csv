@@ -1,0 +1,4 @@
+timestamp,job_id,original_file,optimized_file,original_total_distance,optimized_total_distance,percent_improvement,status
+2026-06-11T05:21:54.854736,demo_20260611_052154,examples/sample.plt,,18288.000,18288.000,0.00%,demo
+2026-06-11T05:22:55.558377,demo_20260611_052255,examples/sample.plt,,18288.000,18288.000,0.00%,demo
+2026-06-11T15:34:15.137418,demo_20260611_153415,examples/sample.plt,,18288.000,18288.000,0.00%,demo
