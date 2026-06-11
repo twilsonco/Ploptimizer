@@ -357,3 +357,16 @@
 2026-06-11 16:16:31 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpjqd5f5sz/nested/path/output.plt
 2026-06-11 16:16:31 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmp81d7rfd5/output.plt
 2026-06-11 16:16:31 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmp54f30v62/output.plt
+2026-06-11 16:27:28 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpyhe_gig2/input.plt
+2026-06-11 16:27:28 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpyhe_gig2/output.plt
+2026-06-11 16:27:28 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpyhe_gig2/output.plt
+2026-06-11 16:27:28 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 16:27:28 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-11 16:27:28 | INFO     | plt_optimizer | Writing PLT file: /nonexistent/path/that/does/not/exist/file.plt
+2026-06-11 16:27:28 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmp7kv05k54/test.plt
+2026-06-11 16:27:28 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-11 16:27:28 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-11 16:27:28 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 16:27:28 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpuazqng98/nested/path/output.plt
+2026-06-11 16:27:28 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpdf1nxl4e/output.plt
+2026-06-11 16:27:28 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpts4kl10m/output.plt
