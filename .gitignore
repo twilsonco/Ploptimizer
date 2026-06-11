@@ -1,0 +1,9 @@
+# os files
+.DS_Store
+Thumbs.db
+
+# python build files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
