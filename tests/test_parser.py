@@ -11,7 +11,7 @@ import tempfile
 
 import pytest
 
-from plt_optimizer.core.models import Coordinate, HeaderCommand, PenState, StrokeSegment
+from plt_optimizer.core.models import Coordinate, HeaderCommand, PenState, PLTDocument, StrokeSegment
 from plt_optimizer.core.parser import PLTParser, ParseError
 
 
@@ -231,3 +231,279 @@ class TestDistanceCalculation:
         if len(doc.stroke_paths) >= 1:
             path_dist = doc.stroke_paths[0].total_distance
             assert math.isclose(path_dist, 200.0, abs_tol=0.001)
+
+class TestParseErrorFormatting:
+    """Tests for ParseError message formatting with line_number and token."""
+
+    def test_parse_error_with_line_number(self) -> None:
+        """Test ParseError message includes line number when provided."""
+        error = ParseError("bad input", line_number=5)
+        assert "line 5" in str(error)
+
+    def test_parse_error_with_token(self) -> None:
+        """Test ParseError message includes token when provided."""
+        error = ParseError("bad input", token="FOO")
+        assert "'FOO'" in str(error)
+
+    def test_parse_error_with_both(self) -> None:
+        """Test ParseError message includes both line number and token."""
+        error = ParseError("bad input", line_number=10, token="BAR")
+        msg = str(error)
+        assert "line 10" in msg
+        assert "'BAR'" in msg
+
+    def test_parse_error_without_optional_params(self) -> None:
+        """Test ParseError with only message has no extras."""
+        error = ParseError("just a message")
+        assert str(error) == "just a message"
+
+
+class TestUnknownCommandHandling:
+    """Tests for unknown command handling in parser."""
+
+    def test_unknown_command_treated_as_header(self) -> None:
+        """Test that unknown commands are treated as header commands."""
+        parser = PLTParser()
+
+        doc = parser.parse_string("IN;UNKNOWN123;SP;")
+
+        # UNKNOWN123 should be parsed as a header command
+        assert len(doc.header_commands) >= 2
+
+    def test_unknown_command_with_parameters_treated_as_header(self) -> None:
+        """Test unknown commands with parameters are treated as headers."""
+        parser = PLTParser()
+
+        doc = parser.parse_string("IN;FOO:1,2;SP;")
+
+        # FOO:1,2 should be parsed as header with parameters
+        foo_cmds = [hc for hc in doc.header_commands if hc.instruction == "FOO"]
+        assert len(foo_cmds) >= 1
+        assert foo_cmds[0].parameters == (1.0, 2.0)
+
+
+class TestCoordinateExtractionEdgeCases:
+    """Tests for edge cases in coordinate extraction."""
+
+    def test_empty_tokens_do_not_break_parsing(self) -> None:
+        """Test that empty tokens are skipped without error."""
+        content = "IN;;VS0.50;SP;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        assert len(doc.header_commands) >= 2
+
+    def test_exhausted_tokens_edge_case(self) -> None:
+        """Test handling when token list is exhausted mid-extraction."""
+        content = "PU100.000,200.000;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        assert isinstance(doc, PLTDocument)
+
+    def test_multiple_coordinates_in_sequence(self) -> None:
+        """Test parsing multiple coordinate pairs in sequence."""
+        content = "PU0.000,0.000;PD100.000,100.000;PD200.000,200.000;SP;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        total_segments = sum(len(p.segments) for p in doc.stroke_paths)
+        assert total_segments >= 2
+
+    def test_next_token_is_command_not_coordinates(self) -> None:
+        """Test that non-coordinate tokens after PU/PD are not consumed."""
+        content = "PU0.000,0.000;VS1.50;SP;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        vs_cmds = [hc for hc in doc.header_commands if hc.instruction == "VS"]
+        assert len(vs_cmds) >= 1
+
+    def test_header_command_with_numeric_params(self) -> None:
+        """Test header commands with numeric colon-separated parameters."""
+        content = "IN;SC0.5:1;SP;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        sc_cmds = [hc for hc in doc.header_commands if hc.instruction == "SC0.5"]
+        assert len(sc_cmds) >= 1
+
+    def test_header_command_from_token_with_no_params(self) -> None:
+        """Test HeaderCommand.from_token with no parameters."""
+        content = "IN;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        in_cmds = [hc for hc in doc.header_commands if hc.instruction == "IN"]
+        assert len(in_cmds) >= 1
+
+    def test_parse_with_empty_content(self) -> None:
+        """Test parsing empty content doesn't crash."""
+        parser = PLTParser()
+
+        doc = parser.parse_string("")
+
+        assert isinstance(doc, PLTDocument)
+        assert len(doc.stroke_paths) == 0
+
+    def test_parse_with_only_semicolons(self) -> None:
+        """Test parsing content with only semicolons."""
+        parser = PLTParser()
+
+        doc = parser.parse_string(";;")
+
+        assert isinstance(doc, PLTDocument)
+
+
+class TestExtractCoordinatesEdgeCases:
+    """Tests for edge cases in _extract_coordinates method."""
+
+    def test_exhausted_tokens_returns_empty_coords(self) -> None:
+        """Test that exhausted token list returns empty coordinates."""
+        content = "PD;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        # PD with no coordinates - should handle gracefully
+        assert isinstance(doc, PLTDocument)
+
+    def test_pd_without_last_position(self) -> None:
+        """Test PD without prior PU doesn't create segments."""
+        content = "PD100.000,200.000;SP;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        # PD without preceding PU has no last_position, so no segments
+        assert len(doc.stroke_paths) == 0
+
+    def test_coordinates_from_next_token(self) -> None:
+        """Test extracting coordinates from a subsequent token."""
+        parser = PLTParser()
+
+        # Pass tokens where next token contains coordinate pair after semicolon
+        coords, idx = parser._extract_coordinates(
+            "PD;", 0, ["PD;", "10.5,20.3;"]
+        )
+
+        assert len(coords) == 1
+        assert math.isclose(coords[0].x, 10.5, abs_tol=0.001)
+        assert math.isclose(coords[0].y, 20.3, abs_tol=0.001)
+        assert idx == 2
+
+    def test_empty_tokens_list(self) -> None:
+        """Test _extract_coordinates with empty token list."""
+        parser = PLTParser()
+
+        coords, idx = parser._extract_coordinates("PD;", 0, [])
+
+        assert len(coords) == 0
+        assert idx == 1
+
+    def test_single_token_exhaustion(self) -> None:
+        """Test _extract_coordinates when only one token exists."""
+        parser = PLTParser()
+
+        coords, idx = parser._extract_coordinates("PD;", 0, ["PD;"])
+
+        assert len(coords) == 0
+        assert idx == 1
+
+
+class TestFooterCommandParsing:
+    """Tests for footer command parsing."""
+
+    def test_parse_sp_footer(self) -> None:
+        """Test parsing SP (select pen) footer command."""
+        content = "SP;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        assert len(doc.footer_commands) >= 1
+        assert doc.footer_commands[0].instruction == "SP"
+
+    def test_parse_multiple_footers(self) -> None:
+        """Test parsing multiple footer commands."""
+        content = "SP;SP;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        assert len(doc.footer_commands) >= 2
+
+
+class TestPLTDocumentMethods:
+    """Tests for PLTDocument methods."""
+
+    def test_total_distance_method(self) -> None:
+        """Test PLTDocument.total_distance() method."""
+        content = "PU0.000,0.000;PD100.000,0.000;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        total = doc.total_distance()
+        assert math.isclose(total, 100.0, abs_tol=0.001)
+
+    def test_cutting_distance_method(self) -> None:
+        """Test PLTDocument.cutting_distance() method."""
+        content = "PU0.000,0.000;PD100.000,0.000;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        cutting = doc.cutting_distance()
+        assert math.isclose(cutting, 100.0, abs_tol=0.001)
+
+    def test_rapid_distance_method(self) -> None:
+        """Test PLTDocument.rapid_distance() method returns float."""
+        content = "PU0.000,100.000;PD200.000,100.000;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        # rapid_distance should return 0.0 since PU doesn't create segments
+        rapid = doc.rapid_distance()
+        assert rapid == 0.0
+
+    def test_total_segments_property(self) -> None:
+        """Test PLTDocument.total_segments property."""
+        content = "PU0.000,0.000;PD100.000,0.000;PD200.000,100.000;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        total = doc.total_segments
+        assert total >= 2
+
+
+class TestIsHeaderCommand:
+    """Tests for the _is_header_command method."""
+
+    def test_known_header_commands(self) -> None:
+        """Test that known header commands return True."""
+        parser = PLTParser()
+
+        for cmd in ["IN", "VS0.50", "ZO123,1"]:
+            assert parser._is_header_command(cmd) is True
+
+    def test_path_commands_not_headers(self) -> None:
+        """Test that PU and PD are not treated as header commands."""
+        parser = PLTParser()
+
+        assert parser._is_header_command("PU0.000,0.000") is False
+        assert parser._is_header_command("PD100.000,0.000") is False
+
+    def test_lowercase_command_not_header(self) -> None:
+        """Test that lowercase commands return False (no match)."""
+        parser = PLTParser()
+
+        assert parser._is_header_command("abc") is False
