@@ -11,7 +11,16 @@ import tempfile
 
 import pytest
 
-from plt_optimizer.core.models import Coordinate, HeaderCommand, PenState, PLTDocument, StrokeSegment
+from plt_optimizer.core.models import (
+    ArcSegment,
+    Coordinate,
+    HeaderCommand,
+    PenState,
+    PLTDocument,
+    Segment,
+    StrokePath,
+    StrokeSegment,
+)
 from plt_optimizer.core.parser import PLTParser, ParseError
 
 
@@ -507,3 +516,185 @@ class TestIsHeaderCommand:
         parser = PLTParser()
 
         assert parser._is_header_command("abc") is False
+
+
+class TestArcParsing:
+    """Tests for arc command parsing."""
+
+    def test_parse_aa_command_separate_tokens(self) -> None:
+        """Test parsing AA (Arc Absolute) from separate PD;AA tokens."""
+        content = "PU0.000,0.000;PD1016.000,1016.000;AA1016.000,1016.000,90.000;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        arc_segments = [
+            seg for path in doc.stroke_paths
+            for seg in path.segments if isinstance(seg, ArcSegment)
+        ]
+        assert len(arc_segments) >= 1
+
+    def test_parse_aa_command_compound_token(self) -> None:
+        """Test parsing AA after PD with no semicolon between them."""
+        content = "PU0.000,0.000;PDAA1016.000,1016.000,90.000;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        arc_segments = [
+            seg for path in doc.stroke_paths
+            for seg in path.segments if isinstance(seg, ArcSegment)
+        ]
+        assert len(arc_segments) >= 1
+
+    def test_parse_ar_command(self) -> None:
+        """Test parsing AR (Arc Relative - counter-clockwise)."""
+        content = "PU0.000,0.000;PD1016.000,1016.000;AR1016.000,1016.000,90.000;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        arc_segments = [
+            seg for path in doc.stroke_paths
+            for seg in path.segments if isinstance(seg, ArcSegment)
+        ]
+        assert len(arc_segments) >= 1
+
+    def test_parse_ci_command(self) -> None:
+        """Test parsing CI (Circle) command."""
+        content = "PU0.000,1000.000;PDCI500;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        arc_segments = [
+            seg for path in doc.stroke_paths
+            for seg in path.segments if isinstance(seg, ArcSegment)
+        ]
+        assert len(arc_segments) >= 1
+
+    def test_arc_endpoint_calculation(self) -> None:
+        """Test that arc endpoint is calculated correctly.
+
+        For AA with center at (1016, 1016), start at (0, 0):
+        - Radius = distance((0,0), (1016,1016)) ≈ 1437.0
+        - Start angle = atan2(0-1016, 0-1016) = atan2(-1016, -1016) = -135 degrees
+        - Sweep 90 degrees clockwise: delta_theta = -90 * pi/180 = -pi/2
+        - End position should be at (1437.0 + 1016*something)
+        """
+        content = "PU0.000,0.000;PDAA1016.000,1016.000,90.000;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        arc_segments = [
+            seg for path in doc.stroke_paths
+            for seg in path.segments if isinstance(seg, ArcSegment)
+        ]
+        assert len(arc_segments) >= 1
+
+        arc = arc_segments[0]
+        expected_radius = math.sqrt(2 * (1016.0 ** 2))
+        assert math.isclose(arc.radius, expected_radius, abs_tol=0.001)
+
+    def test_arc_segment_has_correct_sweep_angle(self) -> None:
+        """Test that ArcSegment stores the correct sweep angle."""
+        content = "PU0.000,0.000;PDAA1016.000,1016.000,90.000;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        arc_segments = [
+            seg for path in doc.stroke_paths
+            for seg in path.segments if isinstance(seg, ArcSegment)
+        ]
+        assert len(arc_segments) >= 1
+
+        arc = arc_segments[0]
+        assert math.isclose(abs(arc.sweep_angle), 90.0, abs_tol=0.001)
+
+    def test_arc_center_extraction(self) -> None:
+        """Test that ArcSegment correctly stores center coordinates."""
+        content = "PU0.000,0.000;PDAA500.000,500.000,45.000;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        arc_segments = [
+            seg for path in doc.stroke_paths
+            for seg in path.segments if isinstance(seg, ArcSegment)
+        ]
+        assert len(arc_segments) >= 1
+
+        arc = arc_segments[0]
+        assert math.isclose(arc.center.x, 500.0, abs_tol=0.001)
+        assert math.isclose(arc.center.y, 500.0, abs_tol=0.001)
+
+    def test_multiple_arcs_in_sequence(self) -> None:
+        """Test parsing multiple arc commands in sequence."""
+        content = (
+            "PU0.000,0.000;"
+            "PDAA1016.000,1016.000,90.000;"
+            "PDAA2032.000,0.000,180.000;"
+        )
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        arc_segments = [
+            seg for path in doc.stroke_paths
+            for seg in path.segments if isinstance(seg, ArcSegment)
+        ]
+        assert len(arc_segments) >= 2
+
+
+class TestArcSegmentInStrokePath:
+    """Tests for StrokePath containing ArcSegments."""
+
+    def test_stroke_path_with_arc_segment(self) -> None:
+        """Test that StrokePath can contain both line and arc segments."""
+        content = "PU0.000,0.000;PD100.000,100.000;AA200.000,200.000,90.000;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        assert len(doc.stroke_paths) >= 1
+        path = doc.stroke_paths[0]
+        arc_segments = [seg for seg in path.segments if isinstance(seg, ArcSegment)]
+        line_segments = [seg for seg in path.segments if isinstance(seg, StrokeSegment)]
+        assert len(arc_segments) >= 1
+        assert len(line_segments) >= 1
+
+    def test_path_with_arc_has_correct_cutting_distance(self) -> None:
+        """Test that cutting distance is calculated correctly with arcs."""
+        content = "PU0.000,0.000;PDAA1016.000,1016.000,90.000;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        if len(doc.stroke_paths) >= 1:
+            path = doc.stroke_paths[0]
+            cutting_dist = path.cutting_distance
+            assert cutting_dist > 0
+
+    def test_arc_chord_length_used_for_distance(self) -> None:
+        """Test that arc chord length (not arc length) is used for distance.
+
+        The distance property should return straight-line distance from start to end,
+        not the actual curved arc length.
+        """
+        content = "PU0.000,0.000;PDAA1016.000,1016.000,90.000;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        if len(doc.stroke_paths) >= 1:
+            path = doc.stroke_paths[0]
+            arc_seg = [seg for seg in path.segments if isinstance(seg, ArcSegment)][0]
+
+            chord_length = math.sqrt(
+                (arc_seg.end.x - arc_seg.start.x) ** 2 +
+                (arc_seg.end.y - arc_seg.start.y) ** 2
+            )
+
+            assert math.isclose(path.cutting_distance, chord_length, abs_tol=0.001)

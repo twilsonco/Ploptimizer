@@ -12,11 +12,13 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from plt_optimizer.core.models import (
+    ArcSegment,
     Coordinate,
     FooterCommand,
     HeaderCommand,
     PenState,
     PLTDocument,
+    Segment,
     StrokePath,
     StrokeSegment,
 )
@@ -188,24 +190,37 @@ class PLTWriter:
 
         parts: List[str] = []
 
-        # If we have a pen-up position, emit PU first
-        # OR if the first segment is cutting but has no explicit pen_up_position,
-        # use the segment's start coordinate as an implicit move-to (PU)
         if path.pen_up_position is not None:
             pos = path.pen_up_position
             parts.append(f"PU{self._format_coord(pos)};")
         elif path.segments and path.segments[0].is_cutting:
-            # First segment is cutting but no explicit pen-up position recorded.
-            # Use the segment's start as implicit move-to (pen up to start point)
             first_seg = path.segments[0]
             parts.append(f"PU{self._format_coord(first_seg.start)};")
 
-        # Emit each segment's command based on cutting state
         for segment in path.segments:
-            cmd = "PD" if segment.is_cutting else "PU"
-            parts.append(f"{cmd}{self._format_coord(segment.end)};")
+            if isinstance(segment, ArcSegment):
+                arc_str = self._format_arc_segment(segment)
+                parts.append(arc_str)
+            else:
+                cmd = "PD" if segment.is_cutting else "PU"
+                parts.append(f"{cmd}{self._format_coord(segment.end)};")
 
         return "".join(parts)
+
+    def _format_arc_segment(self, arc: ArcSegment) -> str:
+        """Format an arc segment as PD;AA or PU;AA command.
+
+        Args:
+            arc: The arc segment to format.
+
+        Returns:
+            Formatted command string (e.g., 'PD;AA1016.000,1016.000,90.000;').
+        """
+        cmd = "PD" if arc.is_cutting else "PU"
+        cx = self._format_number(arc.center.x)
+        cy = self._format_number(arc.center.y)
+        angle = self._format_number(abs(arc.sweep_angle))
+        return f"{cmd};AA{cx},{cy},{angle};"
 
     def _format_coord(self, coord: Coordinate) -> str:
         """Format a coordinate pair for HPGL output.

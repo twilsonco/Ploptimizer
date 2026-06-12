@@ -7,16 +7,19 @@ for optimization processing.
 
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path
 from typing import Iterator, List, Optional, Tuple
 
 from plt_optimizer.core.models import (
+    ArcSegment,
     Coordinate,
     FooterCommand,
     HeaderCommand,
     PenState,
     PLTDocument,
+    Segment,
     StrokePath,
     StrokeSegment,
 )
@@ -153,29 +156,48 @@ class PLTParser:
         pen_state = PenState.UP
         last_position: Optional[Coordinate] = None
 
-        for i, token in enumerate(tokens):
+        i = 0
+        while i < len(tokens):
+            token = tokens[i]
             if not token or token == ";":
-                continue  # Skip empty tokens
+                i += 1
+                continue
 
-            # Remove trailing semicolon for parsing
             cmd = token.rstrip(";")
             self._logger.debug(f"Processing command: {cmd}")
 
-            # Determine command type and handle appropriately
+            arc_cmd_match = re.match(r'^(AA|AR|CI)(.*)$', cmd)
+            if arc_cmd_match and last_position is not None:
+                arc_type = arc_cmd_match.group(1)
+                params_str = arc_cmd_match.group(2)
+
+                arc_segment, end_pos = self._parse_arc_command(
+                    arc_type, params_str, last_position
+                )
+                if arc_segment is not None and current_path is not None and pen_state == PenState.DOWN:
+                    new_segments = current_path.segments + (arc_segment,)
+                    object.__setattr__(current_path, 'segments', new_segments)
+                    last_position = end_pos
+
+                i += 1
+                continue
+
             if self._is_header_command(cmd):
                 header = HeaderCommand.from_token(token)
                 doc.header_commands.append(header)
-                last_position = None  # Some commands reset position state
+                last_position = None
+                i += 1
+                continue
 
             elif cmd.startswith("PU") or cmd.startswith("PD"):
                 new_pen_state = PenState.DOWN if cmd.startswith("PD") else PenState.UP
+                coords, next_i = self._extract_coordinates(cmd, i, tokens)
 
-                # Extract coordinates from same token or next tokens
-                coords, _ = self._extract_coordinates(cmd, i, tokens)
+                rest_after_pupd = cmd[2:] if len(cmd) > 2 else ""
+                arc_in_same_token = re.match(r'^(AA|AR|CI)(.*)$', rest_after_pupd)
 
                 for coord in coords:
                     if new_pen_state == PenState.DOWN and last_position is not None:
-                        # PD creates a cutting segment from last position to current
                         segment = StrokeSegment(
                             start=last_position,
                             end=coord,
@@ -183,26 +205,62 @@ class PLTParser:
                         )
 
                         if pen_state == PenState.UP or current_path is None:
-                            # Starting fresh after PU or first ever path
                             current_path = StrokePath(segments=(segment,))
                             doc.stroke_paths.append(current_path)
                         else:
-                            # Continuing same cutting operation - append to existing path
                             new_segments = current_path.segments + (segment,)
                             object.__setattr__(current_path, 'segments', new_segments)
 
-                    # Update position for both PU and PD
                     last_position = coord
 
                 pen_state = new_pen_state
+                i += 1
+
+                if not coords and arc_in_same_token and last_position is not None:
+                    arc_type = arc_in_same_token.group(1)
+                    params_str = arc_in_same_token.group(2)
+
+                    arc_segment, end_pos = self._parse_arc_command(
+                        arc_type, params_str, last_position
+                    )
+                    if arc_segment is not None:
+                        if pen_state == PenState.UP or current_path is None:
+                            current_path = StrokePath(segments=(arc_segment,))
+                            doc.stroke_paths.append(current_path)
+                        elif pen_state == PenState.DOWN:
+                            new_segments = current_path.segments + (arc_segment,)
+                            object.__setattr__(current_path, 'segments', new_segments)
+                        last_position = end_pos
+
+                elif not coords and not arc_in_same_token and last_position is not None and i < len(tokens):
+                    next_token = tokens[i].rstrip(";")
+                    arc_match = re.match(r'^(AA|AR|CI)(.*)$', next_token)
+                    if arc_match:
+                        arc_type = arc_match.group(1)
+                        params_str = arc_match.group(2)
+
+                        arc_segment, end_pos = self._parse_arc_command(
+                            arc_type, params_str, last_position
+                        )
+                        if arc_segment is not None:
+                            if pen_state == PenState.UP or current_path is None:
+                                current_path = StrokePath(segments=(arc_segment,))
+                                doc.stroke_paths.append(current_path)
+                            elif pen_state == PenState.DOWN:
+                                new_segments = current_path.segments + (arc_segment,)
+                                object.__setattr__(current_path, 'segments', new_segments)
+                            last_position = end_pos
+
+                        i += 1
+
+                continue
 
             elif cmd == "SP":
-                # Footer command - select pen
                 footer = FooterCommand(instruction="SP")
                 doc.footer_commands.append(footer)
+                i += 1
 
             else:
-                # Unknown command - treat as header for safety
                 self._logger.warning(f"Unknown command '{cmd}', treating as header")
                 try:
                     header = HeaderCommand.from_token(token)
@@ -212,6 +270,7 @@ class PLTParser:
                         f"Failed to parse command",
                         token=token,
                     ) from e
+                i += 1
 
         return doc
 
@@ -313,7 +372,69 @@ class PLTParser:
         if base_cmd in ("PU", "PD"):
             return False
 
-        return base_cmd in header_commands
+        return base_cmd in header_commands or base_cmd in ("AA", "AR")
+
+    def _parse_arc_command(
+        self,
+        arc_type: str,
+        params_str: str,
+        start_pos: Coordinate,
+    ) -> Tuple[Optional[ArcSegment], Optional[Coordinate]]:
+        """Parse an AA/AR/CI arc command and compute the end position.
+
+        Args:
+            arc_type: One of 'AA' (Arc Absolute), 'AR' (Arc Relative), or 'CI' (Circle).
+            params_str: Parameter string after the command (e.g., '1016.000,1016.000,90.000').
+            start_pos: Starting coordinate of the arc.
+
+        Returns:
+            Tuple of (ArcSegment, end_position) or (None, None) if parsing fails.
+        """
+        try:
+            parts = params_str.split(",")
+
+            cx: float
+            cy: float
+            sweep_angle: float
+
+            if arc_type == "CI":
+                radius = float(parts[0])
+                sweep_angle = 360.0
+                cx = start_pos.x
+                cy = start_pos.y
+                end_pos = start_pos
+            else:
+                if len(parts) < 3:
+                    self._logger.warning(f"Arc command {arc_type} requires 3 parameters")
+                    return None, None
+                cx = float(parts[0])
+                cy = float(parts[1])
+                sweep_angle = float(parts[2])
+
+                if arc_type == "AR":
+                    sweep_angle = -sweep_angle
+
+                radius = start_pos.distance_to(Coordinate(cx, cy))
+                theta_start = math.atan2(start_pos.y - cy, start_pos.x - cx)
+                delta_theta = -sweep_angle * math.pi / 180
+                end_x = cx + radius * math.cos(theta_start + delta_theta)
+                end_y = cy + radius * math.sin(theta_start + delta_theta)
+
+                end_pos = Coordinate(end_x, end_y)
+
+            arc_segment = ArcSegment(
+                start=start_pos,
+                end=end_pos,
+                center=Coordinate(cx, cy),
+                sweep_angle=sweep_angle,
+                is_cutting=True,
+            )
+
+            return arc_segment, end_pos
+
+        except (ValueError, IndexError) as e:
+            self._logger.warning(f"Failed to parse arc command {arc_type}: {e}")
+            return None, None
 
     def _extract_coordinates(
         self,

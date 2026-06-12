@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from plt_optimizer.core.models import (
+    ArcSegment,
     Coordinate,
     FooterCommand,
     HeaderCommand,
@@ -490,3 +491,137 @@ class TestWriteError:
                 pass
             finally:
                 sub.chmod(0o755)
+
+
+class TestArcSegmentWriting:
+    """Tests for ArcSegment writing and formatting."""
+
+    def test_format_arc_segment_cutting(self) -> None:
+        """Test formatting a cutting arc segment."""
+        writer = PLTWriter()
+
+        arc = ArcSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=1437.0, y=-1437.0),
+            center=Coordinate(x=1016.0, y=1016.0),
+            sweep_angle=90.0,
+            is_cutting=True,
+        )
+
+        result = writer._format_arc_segment(arc)
+
+        assert "PD;" in result
+        assert "AA" in result
+        assert "1016.000,1016.000" in result
+        assert "90.000" in result
+
+    def test_format_arc_segment_rapid(self) -> None:
+        """Test formatting a rapid (pen-up) arc segment."""
+        writer = PLTWriter()
+
+        arc = ArcSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=1437.0, y=-1437.0),
+            center=Coordinate(x=1016.0, y=1016.0),
+            sweep_angle=90.0,
+            is_cutting=False,
+        )
+
+        result = writer._format_arc_segment(arc)
+
+        assert "PU;" in result
+        assert "AA" in result
+
+    def test_format_stroke_path_with_arc(self) -> None:
+        """Test formatting a stroke path that contains arc segments."""
+        writer = PLTWriter()
+
+        line_seg = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=100.0, y=0.0),
+            is_cutting=True,
+        )
+        arc_seg = ArcSegment(
+            start=Coordinate(x=100.0, y=0.0),
+            end=Coordinate(x=200.0, y=100.0),
+            center=Coordinate(x=150.0, y=50.0),
+            sweep_angle=90.0,
+            is_cutting=True,
+        )
+
+        path = StrokePath(segments=(line_seg, arc_seg))
+        doc = PLTDocument(stroke_paths=[path])
+
+        result = writer.write_string(doc)
+
+        assert "PD100.000,0.000;" in result
+        assert "AA150.000,50.000" in result
+
+    def test_arc_absolute_value_in_output(self) -> None:
+        """Test that AA command is used for clockwise arcs (positive angle)."""
+        writer = PLTWriter()
+
+        arc_positive = ArcSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=100.0, y=-100.0),
+            center=Coordinate(x=50.0, y=50.0),
+            sweep_angle=180.0,
+            is_cutting=True,
+        )
+
+        result = writer._format_arc_segment(arc_positive)
+
+        assert "AA" in result
+
+    def test_roundtrip_with_arc(self) -> None:
+        """Test that documents with arcs survive round-trip."""
+        parser = PLTParser()
+        writer = PLTWriter()
+
+        original = "PU0.000,0.000;PD1016.000,1016.000;AA1016.000,1016.000,90.000;"
+        doc1 = parser.parse_string(original)
+        output = writer.write_string(doc1)
+
+        doc2 = parser.parse_string(output)
+
+        arc_segments_1 = [
+            seg for path in doc1.stroke_paths
+            for seg in path.segments if isinstance(seg, ArcSegment)
+        ]
+        arc_segments_2 = [
+            seg for path in doc2.stroke_paths
+            for seg in path.segments if isinstance(seg, ArcSegment)
+        ]
+
+        assert len(arc_segments_1) >= 1
+        assert len(arc_segments_2) >= 1
+
+    def test_write_string_with_multiple_arcs(self) -> None:
+        """Test writing a document with multiple arc segments."""
+        writer = PLTWriter()
+
+        path = StrokePath(
+            segments=(
+                ArcSegment(
+                    start=Coordinate(x=0.0, y=0.0),
+                    end=Coordinate(x=100.0, y=-100.0),
+                    center=Coordinate(x=50.0, y=50.0),
+                    sweep_angle=90.0,
+                    is_cutting=True,
+                ),
+                ArcSegment(
+                    start=Coordinate(x=100.0, y=-100.0),
+                    end=Coordinate(x=200.0, y=0.0),
+                    center=Coordinate(x=150.0, y=50.0),
+                    sweep_angle=90.0,
+                    is_cutting=True,
+                ),
+            )
+        )
+
+        doc = PLTDocument(stroke_paths=[path])
+        output = writer.write_string(doc)
+
+        assert "AA" in output
+        count = output.count("AA")
+        assert count >= 2

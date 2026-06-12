@@ -6,6 +6,7 @@ including color-coded path visualization based on cumulative distance traveled.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -13,8 +14,10 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
 
 from plt_optimizer.core.models import (
+    ArcSegment,
     Coordinate,
     PLTDocument,
+    Segment,
     StrokePath,
     StrokeSegment,
 )
@@ -28,6 +31,30 @@ PLT_UNITS_TO_INCHES = 1 / 1000
 def _flip_y(y: float) -> float:
     """Negate y-coordinate to flip vertical direction for display."""
     return -y
+
+
+def _arc_to_points(arc: ArcSegment, num_segments: int = 32) -> list[Coordinate]:
+    """Sample points along an arc for linear approximation.
+
+    Args:
+        arc: The arc segment to sample.
+        num_segments: Number of line segments to use for approximation.
+
+    Returns:
+        List of Coordinates sampled along the arc from start to end.
+    """
+    theta_start = math.atan2(arc.start.y - arc.center.y, arc.start.x - arc.center.x)
+    delta_theta = -arc.sweep_angle * math.pi / 180 / num_segments
+    radius = arc.radius
+
+    points: list[Coordinate] = []
+    for i in range(num_segments + 1):
+        theta = theta_start + i * delta_theta
+        x = arc.center.x + radius * math.cos(theta)
+        y = arc.center.y + radius * math.sin(theta)
+        points.append(Coordinate(x, y))
+
+    return points
 
 
 # Default figure size in inches (16:9 aspect ratio suitable for wide tables)
@@ -79,8 +106,7 @@ def plot_plt_document(
     try:
         fig, ax = plt.subplots(figsize=figure_size)
 
-        # Collect all segments and their properties
-        all_segments: list[StrokeSegment] = []
+        all_segments: list[Segment] = []
         segment_is_cutting: list[bool] = []
 
         for path in document.stroke_paths:
@@ -149,16 +175,29 @@ def plot_plt_document(
         # First, plot all rapid moves (dotted gray lines)
         for i, seg in enumerate(all_segments):
             if not seg.is_cutting:  # Rapid travel
-                ax.plot(
-                    [seg.start.x * PLT_UNITS_TO_INCHES, seg.end.x * PLT_UNITS_TO_INCHES],
-                    [_flip_y(seg.start.y) * PLT_UNITS_TO_INCHES,
-                     _flip_y(seg.end.y) * PLT_UNITS_TO_INCHES],
-                    color="gray",
-                    linewidth=0.5,
-                    linestyle="dotted",
-                    alpha=1.234,
-                    label="Rapid Travel (PU)" if i == 0 else "",
-                )
+                if isinstance(seg, ArcSegment):
+                    arc_points = _arc_to_points(seg)
+                    xs = [p.x * PLT_UNITS_TO_INCHES for p in arc_points]
+                    ys = [_flip_y(p.y) * PLT_UNITS_TO_INCHES for p in arc_points]
+                    ax.plot(
+                        xs, ys,
+                        color="gray",
+                        linewidth=0.5,
+                        linestyle="dotted",
+                        alpha=1.234,
+                        label="Rapid Travel (PU)" if i == 0 else "",
+                    )
+                else:
+                    ax.plot(
+                        [seg.start.x * PLT_UNITS_TO_INCHES, seg.end.x * PLT_UNITS_TO_INCHES],
+                        [_flip_y(seg.start.y) * PLT_UNITS_TO_INCHES,
+                         _flip_y(seg.end.y) * PLT_UNITS_TO_INCHES],
+                        color="gray",
+                        linewidth=0.5,
+                        linestyle="dotted",
+                        alpha=1.234,
+                        label="Rapid Travel (PU)" if i == 0 else "",
+                    )
 
         # Then, plot all cutting moves with plasma colormap
         for i, seg in enumerate(all_segments):
@@ -166,15 +205,28 @@ def plot_plt_document(
                 color_val = norm_distances[i]
                 cmap = plt.cm.get_cmap("plasma")
                 color = cmap(color_val)
-                ax.plot(
-                    [seg.start.x * PLT_UNITS_TO_INCHES, seg.end.x * PLT_UNITS_TO_INCHES],
-                    [_flip_y(seg.start.y) * PLT_UNITS_TO_INCHES,
-                     _flip_y(seg.end.y) * PLT_UNITS_TO_INCHES],
-                    color=color,
-                    linewidth=1.5,
-                    alpha=0.9,
-                    label="Cutting Path" if i == 2 else "",
-                )
+
+                if isinstance(seg, ArcSegment):
+                    arc_points = _arc_to_points(seg)
+                    xs = [p.x * PLT_UNITS_TO_INCHES for p in arc_points]
+                    ys = [_flip_y(p.y) * PLT_UNITS_TO_INCHES for p in arc_points]
+                    ax.plot(
+                        xs, ys,
+                        color=color,
+                        linewidth=1.5,
+                        alpha=0.9,
+                        label="Cutting Path" if i == 2 else "",
+                    )
+                else:
+                    ax.plot(
+                        [seg.start.x * PLT_UNITS_TO_INCHES, seg.end.x * PLT_UNITS_TO_INCHES],
+                        [_flip_y(seg.start.y) * PLT_UNITS_TO_INCHES,
+                         _flip_y(seg.end.y) * PLT_UNITS_TO_INCHES],
+                        color=color,
+                        linewidth=1.5,
+                        alpha=0.9,
+                        label="Cutting Path" if i == 2 else "",
+                    )
 
         # Add colorbar for cutting paths
         if any(seg.is_cutting for seg in all_segments):
