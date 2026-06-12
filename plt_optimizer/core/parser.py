@@ -416,7 +416,7 @@ class PLTParser:
 
                 radius = start_pos.distance_to(Coordinate(cx, cy))
                 theta_start = math.atan2(start_pos.y - cy, start_pos.x - cx)
-                delta_theta = -sweep_angle * math.pi / 180
+                delta_theta = sweep_angle * math.pi / 180
                 end_x = cx + radius * math.cos(theta_start + delta_theta)
                 end_y = cy + radius * math.sin(theta_start + delta_theta)
 
