@@ -6,12 +6,10 @@ including color-coded path visualization based on cumulative distance traveled.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
 
 import matplotlib.pyplot as plt
-import matplotlib.collections as mcoll
-import numpy as np
 
 from plt_optimizer.core.models import (
     Coordinate,
@@ -20,6 +18,11 @@ from plt_optimizer.core.models import (
     StrokeSegment,
 )
 from plt_optimizer.utils.geometry import calculate_cumulative_distances
+
+
+def _flip_y(y: float) -> float:
+    """Negate y-coordinate to flip vertical direction for display."""
+    return -y
 
 
 # Default figure size in inches (16:9 aspect ratio suitable for wide tables)
@@ -41,10 +44,10 @@ class PlotterError(Exception):
 
 def plot_plt_document(
     document: PLTDocument,
-    output_path: Optional[Path] = None,
+    output_path: Path | None = None,
     title: str = "PLT Toolpath Visualization",
     show_plot: bool = False,
-    figure_size: Tuple[float, float] = DEFAULT_FIGURE_SIZE,
+    figure_size: tuple[float, float] = DEFAULT_FIGURE_SIZE,
 ) -> plt.Figure:
     """Plot a complete PLT document with color-coded path segments.
 
@@ -72,8 +75,8 @@ def plot_plt_document(
         fig, ax = plt.subplots(figsize=figure_size)
 
         # Collect all segments and their properties
-        all_segments: List[StrokeSegment] = []
-        segment_is_cutting: List[bool] = []
+        all_segments: list[StrokeSegment] = []
+        segment_is_cutting: list[bool] = []
 
         for path in document.stroke_paths:
             for seg in path.segments:
@@ -82,9 +85,11 @@ def plot_plt_document(
 
         if not all_segments:
             ax.text(
-                0.5, 0.5,
+                0.5,
+                0.5,
                 "No segments to plot",
-                ha="center", va="center",
+                ha="center",
+                va="center",
                 transform=ax.transAxes,
                 fontsize=14,
             )
@@ -100,20 +105,15 @@ def plot_plt_document(
             max_distance = 1.0
 
         # Normalize distances to [0, 1] for colormap
-        norm_distances = [
-            d / max_distance if max_distance > 0 else 0.0
-            for d in cum_distances
-        ]
+        norm_distances = [d / max_distance if max_distance > 0 else 0.0 for d in cum_distances]
 
         # Separate cutting and rapid segments
-        cutting_lines: List[Tuple[float, float]] = []
-        cutting_colors: List[float] = []
-        rapid_lines: List[Tuple[float, float]] = []
+        cutting_lines: list[tuple[float, float]] = []
+        cutting_colors: list[float] = []
+        rapid_lines: list[tuple[float, float]] = []
 
-        for i, (seg, is_cutting) in enumerate(
-            zip(all_segments, segment_is_cutting)
-        ):
-            line_coords = [(seg.start.x, seg.start.y), (seg.end.x, seg.end.y)]
+        for i, (seg, is_cutting) in enumerate(zip(all_segments, segment_is_cutting)):
+            line_coords = [(seg.start.x, _flip_y(seg.start.y)), (seg.end.x, _flip_y(seg.end.y))]
             if is_cutting:
                 cutting_lines.append(line_coords)
                 cutting_colors.append(norm_distances[i])
@@ -123,7 +123,9 @@ def plot_plt_document(
         # Calculate axis limits from all segments
         if all_segments:
             all_x = [seg.start.x for seg in all_segments] + [seg.end.x for seg in all_segments]
-            all_y = [seg.start.y for seg in all_segments] + [seg.end.y for seg in all_segments]
+            all_y = [_flip_y(seg.start.y) for seg in all_segments] + [
+                _flip_y(seg.end.y) for seg in all_segments
+            ]
             x_min, x_max = min(all_x), max(all_x)
             y_min, y_max = min(all_y), max(all_y)
             ax.set_xlim(x_min, x_max)
@@ -135,8 +137,12 @@ def plot_plt_document(
 
         # Debug: print some segment coordinates
         if len(all_segments) > 1:
-            print(f"First segment: start=({all_segments[0].start.x}, {all_segments[0].start.y}), end=({all_segments[0].end.x}, {all_segments[1].end.y})")
-            print(f"Last segment: start=({all_segments[-2].start.x}, {all_segments[-2].start.y}), end=({all_segments[-1].end.x}, {all_segments[-1].end.y})")
+            print(
+                f"First segment: start=({all_segments[0].start.x}, {_flip_y(all_segments[0].start.y)}), end=({all_segments[0].end.x}, {all_segments[1].end.y})"
+            )
+            print(
+                f"Last segment: start=({all_segments[-2].start.x}, {_flip_y(all_segments[-2].start.y)}), end=({all_segments[-1].end.x}, {all_segments[-1].end.y})"
+            )
 
         # Plot each segment individually for better visibility and axis handling
         # First, plot all rapid moves (dotted gray lines)
@@ -144,12 +150,12 @@ def plot_plt_document(
             if not seg.is_cutting:  # Rapid travel
                 ax.plot(
                     [seg.start.x, seg.end.x],
-                    [seg.start.y, seg.end.y],
+                    [_flip_y(seg.start.y), _flip_y(seg.end.y)],
                     color="gray",
                     linewidth=0.5,
                     linestyle="dotted",
                     alpha=1.234,
-                    label="Rapid Travel (PU)" if i == 0 else ""
+                    label="Rapid Travel (PU)" if i == 0 else "",
                 )
 
         # Then, plot all cutting moves with plasma colormap
@@ -160,11 +166,11 @@ def plot_plt_document(
                 color = cmap(color_val)
                 ax.plot(
                     [seg.start.x, seg.end.x],
-                    [seg.start.y, seg.end.y],
+                    [_flip_y(seg.start.y), _flip_y(seg.end.y)],
                     color=color,
                     linewidth=1.5,
                     alpha=0.9,
-                    label="Cutting Path" if i == 2 else ""
+                    label="Cutting Path" if i == 2 else "",
                 )
 
         # Add colorbar for cutting paths
@@ -178,14 +184,22 @@ def plot_plt_document(
         last_seg = all_segments[-1]
 
         ax.plot(
-            first_seg.start.x, first_seg.start.y,
-            marker="o", markersize=12, color="green",
-            zorder=10, label="Start"
+            first_seg.start.x,
+            _flip_y(first_seg.start.y),
+            marker="o",
+            markersize=12,
+            color="green",
+            zorder=10,
+            label="Start",
         )
         ax.plot(
-            last_seg.end.x, last_seg.end.y,
-            marker="s", markersize=12, color="red",
-            zorder=10, label="End"
+            last_seg.end.x,
+            _flip_y(last_seg.end.y),
+            marker="s",
+            markersize=12,
+            color="red",
+            zorder=10,
+            label="End",
         )
 
         # Configure axes
@@ -208,7 +222,9 @@ def plot_plt_document(
             f"Rapid Travel: {rapid_dist:,.2f}"
         )
         ax.text(
-            0.02, 0.98, summary_text,
+            0.02,
+            0.98,
+            summary_text,
             transform=ax.transAxes,
             verticalalignment="top",
             fontsize=9,
@@ -232,7 +248,7 @@ def plot_plt_document(
 
 def plot_stroke_path(
     path: StrokePath,
-    output_path: Optional[Path] = None,
+    output_path: Path | None = None,
     title: str = "Stroke Path",
     show_plot: bool = False,
 ) -> plt.Figure:
@@ -288,7 +304,7 @@ def save_figure(fig: plt.Figure, path: Path) -> None:
 def create_path_diagram(
     coordinates: Sequence[Coordinate],
     cutting_mask: Sequence[bool],
-    output_path: Optional[Path] = None,
+    output_path: Path | None = None,
     title: str = "Toolpath Diagram",
 ) -> plt.Figure:
     """Create a simple path diagram without full document parsing.
@@ -316,17 +332,17 @@ def create_path_diagram(
 
     fig, ax = plt.subplots(figsize=DEFAULT_FIGURE_SIZE)
 
-    # Extract x, y for all points
+    # Extract x, y for all points (flip y for display)
     xs = [c.x for c in coordinates]
-    ys = [c.y for c in coordinates]
+    ys = [_flip_y(c.y) for c in coordinates]
 
     # Calculate cumulative distances
     cum_dist = [0.0]
     total = 0.0
     for i in range(1, len(coordinates)):
-        dx = coordinates[i].x - coordinates[i-1].x
-        dy = coordinates[i].y - coordinates[i-1].y
-        total += (dx*dx + dy*dy) ** 0.5
+        dx = coordinates[i].x - coordinates[i - 1].x
+        dy = coordinates[i].y - coordinates[i - 1].y
+        total += (dx * dx + dy * dy) ** 0.5
         cum_dist.append(total)
 
     # Normalize for coloring
@@ -337,15 +353,15 @@ def create_path_diagram(
     cmap = plt.cm.get_cmap("plasma")
 
     for i in range(len(coordinates) - 1):
-        color_val = (norm_dist[i] + norm_dist[i+1]) / 2
+        color_val = (norm_dist[i] + norm_dist[i + 1]) / 2
         is_cutting = cutting_mask[i]
 
         line_style = "-" if is_cutting else "--"
         color = cmap(color_val) if is_cutting else "lightgray"
 
         ax.plot(
-            [coordinates[i].x, coordinates[i+1].x],
-            [coordinates[i].y, coordinates[i+1].y],
+            [coordinates[i].x, coordinates[i + 1].x],
+            [_flip_y(coordinates[i].y), _flip_y(coordinates[i + 1].y)],
             color=color,
             linewidth=2 if is_cutting else 1,
             linestyle=line_style,
