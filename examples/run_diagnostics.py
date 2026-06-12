@@ -1,4 +1,4 @@
-"""Example: Run diagnostics on a sample PLT file.
+"""Example: Run diagnostics on a PLT file.
 
 This script demonstrates how to use the PLT-Optimizer tools to:
 1. Load a PLT file from disk or string content
@@ -6,11 +6,17 @@ This script demonstrates how to use the PLT-Optimizer tools to:
 3. Perform identity validation by writing and re-parsing
 4. Generate diagnostic plots with color-coded path visualization
 
-Run this script to see the complete workflow in action.
+Usage:
+    # Run on a specific PLT file:
+    python examples/run_diagnostics.py /path/to/your/file.plt
+
+    # Run demonstration mode with sample data:
+    python examples/run_diagnostics.py
 """
 
 from __future__ import annotations
 
+import argparse
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -50,6 +56,78 @@ PD20000.000,0.000;
 PD20000.000,4000.000;
 SP;
 """
+
+
+def process_user_file(input_path: Path) -> int:
+    """Process a user-specified PLT file and generate diagnostics.
+
+    Args:
+        input_path: Path to the user's PLT/HPGL file.
+
+    Returns:
+        Exit code (0 for success).
+    """
+    print("PLT-Optimizer - Processing User File")
+    print("=" * 60)
+    print(f"Input file: {input_path}")
+
+    if not input_path.exists():
+        print(f"\nError: File not found: {input_path}", file=sys.stderr)
+        return 1
+
+    text_logger = get_text_logger()
+    metrics_logger = get_metrics_logger()
+
+    try:
+        # Parse the file
+        parser = PLTParser()
+        text_logger.info(f"Parsing user file: {input_path}")
+        doc = parser.parse_file(input_path)
+
+        print(f"\nDocument statistics:")
+        print(f"  Header commands: {len(doc.header_commands)}")
+        print(f"  Stroke paths: {len(doc.stroke_paths)}")
+        print(f"  Total segments: {doc.total_segments}")
+        print(f"  Cutting distance: {doc.cutting_distance():,.2f}")
+        print(f"  Rapid travel: {doc.rapid_distance():,.2f}")
+
+        # Generate output filename
+        output_stem = input_path.stem
+        plot_path = input_path.parent / f"{output_stem}_diagnostic.png"
+
+        text_logger.info("Generating diagnostic plot")
+        fig = plot_plt_document(
+            doc,
+            output_path=plot_path,
+            title=f"Toolpath Diagnostic: {input_path.name}",
+        )
+
+        print(f"\nDiagnostic plot saved to: {plot_path}")
+
+        # Close figure to free memory
+        import matplotlib.pyplot as plt
+        plt.close(fig)
+
+        # Log metrics
+        job_id = f"user_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        metrics_logger.log_job(
+            job_id=job_id,
+            original_file=input_path,
+            optimized_file=None,
+            original_distance=doc.cutting_distance(),
+            optimized_distance=doc.cutting_distance(),
+            status="diagnostic",
+        )
+
+        print(f"\n✓ Processing complete")
+        return 0
+
+    except Exception as e:
+        text_logger.error(f"Failed to process {input_path}: {e}")
+        print(f"\nError: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        return 1
 
 
 def create_sample_plt_file(output_path: Path) -> None:
@@ -233,6 +311,33 @@ def main() -> int:
     Returns:
         Exit code (0 for success).
     """
+    parser = argparse.ArgumentParser(
+        description="PLT-Optimizer Diagnostics Tool",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Process a specific PLT file:
+  python examples/run_diagnostics.py /path/to/your/file.plt
+
+  # Run demonstration mode with sample data:
+  python examples/run_diagnostics.py
+""",
+    )
+    parser.add_argument(
+        "input_file",
+        nargs="?",
+        type=Path,
+        default=None,
+        help="Path to a PLT/HPGL file to process and visualize",
+    )
+
+    args = parser.parse_args()
+
+    # If user provided an input file, process it directly
+    if args.input_file is not None:
+        return process_user_file(args.input_file)
+
+    # Otherwise run demonstration mode with sample data
     print("PLT-Optimizer Diagnostics Demonstration")
     print("=" * 60)
 

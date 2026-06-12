@@ -120,32 +120,57 @@ def plot_plt_document(
             else:
                 rapid_lines.append(line_coords)
 
-        # Plot rapid moves first (so they appear behind cutting lines)
-        if rapid_lines:
-            rapid_collection = mcoll.LineCollection(
-                rapid_lines,
-                colors="lightgray",
-                linewidths=0.5,
-                linestyles="dashed",
-                alpha=0.6,
-                label="Rapid Travel (PU)",
-            )
-            ax.add_collection(rapid_collection)
+        # Calculate axis limits from all segments
+        if all_segments:
+            all_x = [seg.start.x for seg in all_segments] + [seg.end.x for seg in all_segments]
+            all_y = [seg.start.y for seg in all_segments] + [seg.end.y for seg in all_segments]
+            x_min, x_max = min(all_x), max(all_x)
+            y_min, y_max = min(all_y), max(all_y)
+            ax.set_xlim(x_min, x_max)
+            if y_min == y_max:
+                y_range = abs(x_max - x_min) * 0.05 if x_max != x_min else 1.0
+                y_min -= y_range
+                y_max += y_range
+            ax.set_ylim(y_min, y_max)
 
-        # Plot cutting moves with plasma colormap
-        if cutting_lines:
-            cmap = plt.cm.get_cmap("plasma")
-            cutting_collection = mcoll.LineCollection(
-                cutting_lines,
-                cmap=cmap,
-                linewidths=1.5,
-                alpha=0.9,
-            )
-            cutting_collection.set_array(np.array(cutting_colors))
-            ax.add_collection(cutting_collection)
+        # Debug: print some segment coordinates
+        if len(all_segments) > 1:
+            print(f"First segment: start=({all_segments[0].start.x}, {all_segments[0].start.y}), end=({all_segments[0].end.x}, {all_segments[1].end.y})")
+            print(f"Last segment: start=({all_segments[-2].start.x}, {all_segments[-2].start.y}), end=({all_segments[-1].end.x}, {all_segments[-1].end.y})")
 
-            # Add colorbar
-            cbar = plt.colorbar(cutting_collection, ax=ax, shrink=0.8)
+        # Plot each segment individually for better visibility and axis handling
+        # First, plot all rapid moves (dotted gray lines)
+        for i, seg in enumerate(all_segments):
+            if not seg.is_cutting:  # Rapid travel
+                ax.plot(
+                    [seg.start.x, seg.end.x],
+                    [seg.start.y, seg.end.y],
+                    color="gray",
+                    linewidth=0.5,
+                    linestyle="dotted",
+                    alpha=1.234,
+                    label="Rapid Travel (PU)" if i == 0 else ""
+                )
+
+        # Then, plot all cutting moves with plasma colormap
+        for i, seg in enumerate(all_segments):
+            if seg.is_cutting:  # Cutting
+                color_val = norm_distances[i]
+                cmap = plt.cm.get_cmap("plasma")
+                color = cmap(color_val)
+                ax.plot(
+                    [seg.start.x, seg.end.x],
+                    [seg.start.y, seg.end.y],
+                    color=color,
+                    linewidth=1.5,
+                    alpha=0.9,
+                    label="Cutting Path" if i == 2 else ""
+                )
+
+        # Add colorbar for cutting paths
+        if any(seg.is_cutting for seg in all_segments):
+            # Create a dummy plot to create colorbar
+            cbar = plt.colorbar(plt.cm.ScalarMappable(cmap=plt.cm.plasma), ax=ax, shrink=0.8)
             cbar.set_label("Cumulative Distance (%)", rotation=270, labelpad=15)
 
         # Mark start and end points

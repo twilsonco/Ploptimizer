@@ -370,3 +370,151 @@
 2026-06-11 16:27:28 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpuazqng98/nested/path/output.plt
 2026-06-11 16:27:28 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpdf1nxl4e/output.plt
 2026-06-11 16:27:28 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpts4kl10m/output.plt
+2026-06-11 17:36:56 | INFO     | plt_optimizer | Starting PLT optimization workflow
+2026-06-11 17:36:56 | INFO     | plt_optimizer | Parsing examples/sample.plt
+2026-06-11 17:36:56 | INFO     | plt_optimizer | Parsing PLT file: examples/sample.plt
+2026-06-11 17:36:56 | INFO     | plt_optimizer | Writing verified output to examples/output_verified.plt
+2026-06-11 17:36:56 | INFO     | plt_optimizer | Writing PLT file: examples/output_verified.plt
+2026-06-11 17:36:56 | INFO     | plt_optimizer | Parsing PLT file: examples/output_verified.plt
+2026-06-11 17:36:56 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-11 17:36:56 | INFO     | plt_optimizer | Parsing complex HPGL sample
+2026-06-11 17:36:56 | INFO     | plt_optimizer | Writing PLT file: examples/complex_sample.plt
+2026-06-11 22:21:32 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpq_h_n53c/input.plt
+2026-06-11 22:21:32 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpq_h_n53c/output.plt
+2026-06-11 22:21:32 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpq_h_n53c/output.plt
+2026-06-11 22:21:32 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 22:21:32 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-11 22:21:32 | INFO     | plt_optimizer | Writing PLT file: /nonexistent/path/that/does/not/exist/file.plt
+2026-06-11 22:21:32 | INFO     | plt_optimizer | info message
+2026-06-11 22:21:32 | WARNING  | plt_optimizer | warning message
+2026-06-11 22:21:32 | ERROR    | plt_optimizer | error message
+2026-06-11 22:21:32 | CRITICAL | plt_optimizer | critical message
+2026-06-11 22:21:32 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpju_dzua1/test.plt
+2026-06-11 22:21:32 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-11 22:21:32 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-11 22:21:32 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-11 22:21:32 | WARNING  | plt_optimizer | Unknown command 'UNKNOWN123', treating as header
+2026-06-11 22:21:32 | WARNING  | plt_optimizer | Unknown command 'FOO:1,2', treating as header
+2026-06-11 22:21:34 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmp3c9gyeoo/nested/path/output.plt
+2026-06-11 22:21:34 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmp19r9thy8/output.plt
+2026-06-11 22:21:34 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpob2k8_tx/output.plt
+2026-06-11 22:21:34 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpautk6dcz/subdir/nested/output.plt
+2026-06-11 22:22:11 | INFO     | plt_optimizer | Starting PLT optimization workflow
+2026-06-11 22:22:11 | INFO     | plt_optimizer | Parsing examples/sample.plt
+2026-06-11 22:22:11 | INFO     | plt_optimizer | Parsing PLT file: examples/sample.plt
+2026-06-11 22:22:11 | INFO     | plt_optimizer | Writing verified output to examples/output_verified.plt
+2026-06-11 22:22:11 | INFO     | plt_optimizer | Writing PLT file: examples/output_verified.plt
+2026-06-11 22:22:11 | INFO     | plt_optimizer | Parsing PLT file: examples/output_verified.plt
+2026-06-11 22:22:11 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-11 22:22:11 | INFO     | plt_optimizer | Parsing complex HPGL sample
+2026-06-11 22:22:11 | INFO     | plt_optimizer | Writing PLT file: examples/complex_sample.plt
+2026-06-11 22:23:01 | INFO     | plt_optimizer | Starting PLT optimization workflow
+2026-06-11 22:23:01 | INFO     | plt_optimizer | Parsing examples/sample.plt
+2026-06-11 22:23:01 | INFO     | plt_optimizer | Parsing PLT file: examples/sample.plt
+2026-06-11 22:23:01 | INFO     | plt_optimizer | Writing verified output to examples/output_verified.plt
+2026-06-11 22:23:01 | INFO     | plt_optimizer | Writing PLT file: examples/output_verified.plt
+2026-06-11 22:23:01 | INFO     | plt_optimizer | Parsing PLT file: examples/output_verified.plt
+2026-06-11 22:23:01 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-11 22:23:01 | INFO     | plt_optimizer | Parsing complex HPGL sample
+2026-06-11 22:23:01 | INFO     | plt_optimizer | Writing PLT file: examples/complex_sample.plt
+2026-06-11 22:26:09 | INFO     | plt_optimizer | Starting PLT optimization workflow
+2026-06-11 22:26:09 | INFO     | plt_optimizer | Parsing examples/sample.plt
+2026-06-11 22:26:09 | INFO     | plt_optimizer | Parsing PLT file: examples/sample.plt
+2026-06-11 22:26:09 | INFO     | plt_optimizer | Writing verified output to examples/output_verified.plt
+2026-06-11 22:26:09 | INFO     | plt_optimizer | Writing PLT file: examples/output_verified.plt
+2026-06-11 22:26:09 | INFO     | plt_optimizer | Parsing PLT file: examples/output_verified.plt
+2026-06-11 22:26:09 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-11 22:26:09 | INFO     | plt_optimizer | Parsing complex HPGL sample
+2026-06-11 22:26:09 | INFO     | plt_optimizer | Writing PLT file: examples/complex_sample.plt
+2026-06-11 22:26:46 | INFO     | plt_optimizer | Starting PLT optimization workflow
+2026-06-11 22:26:46 | INFO     | plt_optimizer | Parsing examples/sample.plt
+2026-06-11 22:26:46 | INFO     | plt_optimizer | Parsing PLT file: examples/sample.plt
+2026-06-11 22:26:46 | INFO     | plt_optimizer | Writing verified output to examples/output_verified.plt
+2026-06-11 22:26:46 | INFO     | plt_optimizer | Writing PLT file: examples/output_verified.plt
+2026-06-11 22:26:46 | INFO     | plt_optimizer | Parsing PLT file: examples/output_verified.plt
+2026-06-11 22:26:46 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-11 22:26:46 | INFO     | plt_optimizer | Parsing complex HPGL sample
+2026-06-11 22:26:46 | INFO     | plt_optimizer | Writing PLT file: examples/complex_sample.plt
+2026-06-11 22:28:23 | INFO     | plt_optimizer | Starting PLT optimization workflow
+2026-06-11 22:28:23 | INFO     | plt_optimizer | Parsing examples/sample.plt
+2026-06-11 22:28:23 | INFO     | plt_optimizer | Parsing PLT file: examples/sample.plt
+2026-06-11 22:28:23 | INFO     | plt_optimizer | Writing verified output to examples/output_verified.plt
+2026-06-11 22:28:23 | INFO     | plt_optimizer | Writing PLT file: examples/output_verified.plt
+2026-06-11 22:28:23 | INFO     | plt_optimizer | Parsing PLT file: examples/output_verified.plt
+2026-06-11 22:28:23 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-11 22:28:23 | INFO     | plt_optimizer | Parsing complex HPGL sample
+2026-06-11 22:28:23 | INFO     | plt_optimizer | Writing PLT file: examples/complex_sample.plt
+2026-06-11 22:35:45 | INFO     | plt_optimizer | Starting PLT optimization workflow
+2026-06-11 22:35:45 | INFO     | plt_optimizer | Parsing examples/sample.plt
+2026-06-11 22:35:45 | INFO     | plt_optimizer | Parsing PLT file: examples/sample.plt
+2026-06-11 22:35:45 | INFO     | plt_optimizer | Writing verified output to examples/output_verified.plt
+2026-06-11 22:35:45 | INFO     | plt_optimizer | Writing PLT file: examples/output_verified.plt
+2026-06-11 22:35:45 | INFO     | plt_optimizer | Parsing PLT file: examples/output_verified.plt
+2026-06-11 22:35:45 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-11 22:35:45 | INFO     | plt_optimizer | Parsing complex HPGL sample
+2026-06-11 22:35:45 | INFO     | plt_optimizer | Writing PLT file: examples/complex_sample.plt
+2026-06-11 22:36:47 | INFO     | plt_optimizer | Starting PLT optimization workflow
+2026-06-11 22:36:47 | INFO     | plt_optimizer | Parsing examples/sample.plt
+2026-06-11 22:36:47 | INFO     | plt_optimizer | Parsing PLT file: examples/sample.plt
+2026-06-11 22:36:47 | INFO     | plt_optimizer | Writing verified output to examples/output_verified.plt
+2026-06-11 22:36:47 | INFO     | plt_optimizer | Writing PLT file: examples/output_verified.plt
+2026-06-11 22:36:47 | INFO     | plt_optimizer | Parsing PLT file: examples/output_verified.plt
+2026-06-11 22:36:47 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-11 22:36:48 | INFO     | plt_optimizer | Parsing complex HPGL sample
+2026-06-11 22:36:48 | INFO     | plt_optimizer | Writing PLT file: examples/complex_sample.plt
+2026-06-11 22:38:13 | INFO     | plt_optimizer | Starting PLT optimization workflow
+2026-06-11 22:38:13 | INFO     | plt_optimizer | Parsing examples/sample.plt
+2026-06-11 22:38:13 | INFO     | plt_optimizer | Parsing PLT file: examples/sample.plt
+2026-06-11 22:38:13 | INFO     | plt_optimizer | Writing verified output to examples/output_verified.plt
+2026-06-11 22:38:13 | INFO     | plt_optimizer | Writing PLT file: examples/output_verified.plt
+2026-06-11 22:38:13 | INFO     | plt_optimizer | Parsing PLT file: examples/output_verified.plt
+2026-06-11 22:38:13 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-11 22:41:28 | INFO     | plt_optimizer | Starting PLT optimization workflow
+2026-06-11 22:41:28 | INFO     | plt_optimizer | Parsing examples/sample.plt
+2026-06-11 22:41:28 | INFO     | plt_optimizer | Parsing PLT file: examples/sample.plt
+2026-06-11 22:41:28 | INFO     | plt_optimizer | Writing verified output to examples/output_verified.plt
+2026-06-11 22:41:28 | INFO     | plt_optimizer | Writing PLT file: examples/output_verified.plt
+2026-06-11 22:41:28 | INFO     | plt_optimizer | Parsing PLT file: examples/output_verified.plt
+2026-06-11 22:41:28 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-11 23:54:29 | INFO     | plt_optimizer | Starting PLT optimization workflow
+2026-06-11 23:54:29 | INFO     | plt_optimizer | Parsing examples/sample.plt
+2026-06-11 23:54:29 | INFO     | plt_optimizer | Parsing PLT file: examples/sample.plt
+2026-06-11 23:54:29 | INFO     | plt_optimizer | Writing verified output to examples/output_verified.plt
+2026-06-11 23:54:29 | INFO     | plt_optimizer | Writing PLT file: examples/output_verified.plt
+2026-06-11 23:54:29 | INFO     | plt_optimizer | Parsing PLT file: examples/output_verified.plt
+2026-06-11 23:54:29 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-12 00:14:57 | INFO     | plt_optimizer | Starting PLT optimization workflow
+2026-06-12 00:14:57 | INFO     | plt_optimizer | Parsing examples/sample.plt
+2026-06-12 00:14:57 | INFO     | plt_optimizer | Parsing PLT file: examples/sample.plt
+2026-06-12 00:14:57 | INFO     | plt_optimizer | Writing verified output to examples/output_verified.plt
+2026-06-12 00:14:57 | INFO     | plt_optimizer | Writing PLT file: examples/output_verified.plt
+2026-06-12 00:14:57 | INFO     | plt_optimizer | Parsing PLT file: examples/output_verified.plt
+2026-06-12 00:14:57 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-12 00:29:14 | INFO     | plt_optimizer | Starting PLT optimization workflow
+2026-06-12 00:29:14 | INFO     | plt_optimizer | Parsing examples/sample.plt
+2026-06-12 00:29:14 | INFO     | plt_optimizer | Parsing PLT file: examples/sample.plt
+2026-06-12 00:29:14 | INFO     | plt_optimizer | Writing verified output to examples/output_verified.plt
+2026-06-12 00:29:14 | INFO     | plt_optimizer | Writing PLT file: examples/output_verified.plt
+2026-06-12 00:29:14 | INFO     | plt_optimizer | Parsing PLT file: examples/output_verified.plt
+2026-06-12 00:29:14 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-12 02:41:51 | INFO     | plt_optimizer | Starting PLT optimization workflow
+2026-06-12 02:41:51 | INFO     | plt_optimizer | Parsing examples/sample.plt
+2026-06-12 02:41:51 | INFO     | plt_optimizer | Parsing PLT file: examples/sample.plt
+2026-06-12 02:41:51 | INFO     | plt_optimizer | Writing verified output to examples/output_verified.plt
+2026-06-12 02:41:51 | INFO     | plt_optimizer | Writing PLT file: examples/output_verified.plt
+2026-06-12 02:41:51 | INFO     | plt_optimizer | Parsing PLT file: examples/output_verified.plt
+2026-06-12 02:41:51 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-12 02:41:51 | INFO     | plt_optimizer | Parsing complex HPGL sample
+2026-06-12 02:41:51 | INFO     | plt_optimizer | Writing PLT file: examples/complex_sample.plt
+2026-06-12 04:03:04 | INFO     | plt_optimizer | Starting PLT optimization workflow
+2026-06-12 04:03:04 | INFO     | plt_optimizer | Parsing examples/sample.plt
+2026-06-12 04:03:04 | INFO     | plt_optimizer | Parsing PLT file: examples/sample.plt
+2026-06-12 04:03:04 | INFO     | plt_optimizer | Writing verified output to examples/output_verified.plt
+2026-06-12 04:03:04 | INFO     | plt_optimizer | Writing PLT file: examples/output_verified.plt
+2026-06-12 04:03:04 | INFO     | plt_optimizer | Parsing PLT file: examples/output_verified.plt
+2026-06-12 04:03:04 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-12 04:03:04 | INFO     | plt_optimizer | Parsing complex HPGL sample
+2026-06-12 04:03:04 | INFO     | plt_optimizer | Writing PLT file: examples/complex_sample.plt
+2026-06-12 04:14:27 | INFO     | plt_optimizer | Parsing user file: 2026-06-1022sheet0.plt
+2026-06-12 04:14:27 | INFO     | plt_optimizer | Parsing PLT file: 2026-06-1022sheet0.plt
+2026-06-12 04:14:27 | INFO     | plt_optimizer | Generating diagnostic plot
