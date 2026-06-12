@@ -6173,3 +6173,273 @@
 2026-06-12 05:14:55 | WARNING  | plt_optimizer | Unknown command 'AA2472.981,586.054,-4.129', treating as header
 2026-06-12 05:14:55 | WARNING  | plt_optimizer | Unknown command 'AA2613.813,567.666,-6.237', treating as header
 2026-06-12 05:14:55 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-12 05:23:06 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmp16xa_eoc/test.plt
+2026-06-12 05:23:06 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-12 05:23:06 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-12 05:23:06 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-12 05:23:06 | WARNING  | plt_optimizer | Unknown command 'UNKNOWN123', treating as header
+2026-06-12 05:23:06 | WARNING  | plt_optimizer | Unknown command 'FOO:1,2', treating as header
+2026-06-12 05:23:06 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpxjk2wcxl/input.plt
+2026-06-12 05:23:06 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpxjk2wcxl/output.plt
+2026-06-12 05:23:06 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpxjk2wcxl/output.plt
+2026-06-12 05:23:06 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-12 05:23:06 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-12 05:23:06 | INFO     | plt_optimizer | Writing PLT file: /nonexistent/path/that/does/not/exist/file.plt
+2026-06-12 05:23:10 | WARNING  | plt_optimizer | Unknown command 'AA1016.000,1016.000,90.000', treating as header
+2026-06-12 05:23:10 | WARNING  | plt_optimizer | Unknown command 'AA1016.000,1016.000,90.000', treating as header
+2026-06-12 05:23:10 | WARNING  | plt_optimizer | Unknown command 'AA1016.000,1016.000,90.000', treating as header
+2026-06-12 05:23:10 | WARNING  | plt_optimizer | Unknown command 'AA1016.000,1016.000,90.000', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA130.131,567.507,-6.718', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA139.983,565.943,-6.778', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA174.588,557.281,-3.817', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA213.091,544.454,-6.865', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA248.514,528.006,-8.595', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA266.463,516.350,-13.125', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA271.406,511.153,-26.572', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA273.816,502.697,-13.915', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA274.553,491.159,-15.450', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA275.061,492.469,-15.087', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA281.440,504.700,-6.481', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA292.585,520.955,-7.928', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA299.324,528.686,-6.967', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA290.779,521.450,-9.361', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA286.833,518.859,-8.870', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA301.727,524.777,-7.095', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA350.943,538.814,-2.380', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA447.731,561.527,-1.477', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA555.269,584.491,-4.250', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA581.219,587.809,-4.185', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA582.763,669.501,24.915', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA588.663,679.561,13.863', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA592.056,690.292,7.836', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA593.195,698.350,17.423', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA594.688,688.826,11.524', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA598.680,677.889,10.172', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA601.121,673.414,13.100', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA604.592,669.914,13.059', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA617.187,661.534,5.978', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA642.105,648.793,7.575', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA679.912,635.041,6.258', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA753.524,617.841,6.235', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA897.309,599.075,4.128', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA994.621,592.383,6.667', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA897.309,585.690,4.128', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA753.524,566.925,6.235', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA672.955,547.722,8.606', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA636.675,533.401,5.219', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA617.187,523.231,5.978', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA604.592,514.852,13.059', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA601.121,511.352,13.100', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA597.809,505.128,13.830', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA594.297,494.091,7.856', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA593.195,486.425,17.420', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA591.652,496.440,11.481', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA587.793,507.086,10.179', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA585.608,511.111,13.164', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA581.990,514.761,13.079', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA569.451,523.116,5.988', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA545.577,535.316,7.647', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA510.096,548.162,6.390', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA454.939,561.378,3.354', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA361.366,577.824,3.525', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA277.180,588.041,3.910', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA484.752,578.132,3.538', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA534.454,578.629,4.097', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA906.398,656.342,2.837', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA887.506,689.403,3.666', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA949.410,599.750,1.442', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA856.216,731.300,11.694', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA862.638,726.388,10.223', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA871.885,721.135,9.703', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA882.727,717.376,4.744', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA898.715,713.384,4.294', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA911.764,711.340,4.206', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA995.116,703.610,3.657', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1178.550,697.654,1.897', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1060.755,656.342,2.837', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1041.864,689.403,3.666', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1103.767,599.750,1.442', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1010.573,731.300,11.694', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1016.995,726.388,10.223', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1026.243,721.135,9.703', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1037.084,717.376,4.744', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1053.073,713.384,4.294', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1066.121,711.340,4.206', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1149.473,703.610,3.657', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1332.908,697.654,1.897', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1218.748,678.930,-13.724', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1215.042,690.584,-7.839', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1213.878,698.708,-17.468', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1212.342,688.857,-11.517', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1208.323,677.827,-10.161', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1205.924,673.423,-13.098', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1202.493,669.962,-13.061', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1189.391,661.254,-5.947', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1161.949,647.194,-7.399', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1117.897,630.989,-5.937', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1074.068,619.730,-6.781', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1064.028,618.135,-6.721', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1064.028,566.943,-6.721', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1074.068,565.348,-6.781', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1109.326,556.519,-3.819', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1148.556,543.443,-6.867', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1184.647,526.678,-8.597', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1202.493,515.117,-13.061', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1205.924,511.655,-13.098', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1209.194,505.501,-13.813', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1212.740,494.338,-7.853', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1213.878,486.370,-17.468', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1215.453,496.437,-11.489', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1219.672,508.009,-10.085', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1222.090,512.512,-13.007', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1224.704,515.138,-13.124', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1237.105,523.382,-6.011', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1264.610,537.500,-7.455', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1309.391,553.965,-5.946', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1353.861,565.390,-6.770', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1363.616,566.947,-6.718', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1363.616,618.131,-6.718', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1353.861,619.688,-6.770', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1318.182,628.624,-3.820', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1278.150,641.956,-6.907', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1241.835,658.841,-8.686', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1224.704,669.940,-13.124', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1222.090,672.566,-13.007', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2098.809,678.930,-13.724', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2095.103,690.584,-7.839', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2093.940,698.708,-17.468', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2092.404,688.857,-11.517', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2088.384,677.827,-10.161', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2085.986,673.423,-13.098', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2082.555,669.962,-13.061', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2069.452,661.254,-5.947', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2042.011,647.194,-7.399', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1997.959,630.989,-5.937', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1954.129,619.730,-6.781', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1944.090,618.135,-6.721', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1944.090,566.943,-6.721', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1954.129,565.348,-6.781', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA1989.388,556.519,-3.819', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2028.618,543.443,-6.867', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2064.708,526.678,-8.597', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2082.555,515.117,-13.061', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2085.986,511.655,-13.098', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2089.255,505.501,-13.813', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2092.802,494.338,-7.853', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2093.940,486.370,-17.468', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2095.514,496.437,-11.489', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2099.733,508.009,-10.085', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2102.152,512.512,-13.007', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2104.766,515.138,-13.124', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2117.166,523.382,-6.011', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2144.672,537.500,-7.455', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2189.452,553.965,-5.946', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2233.923,565.390,-6.770', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2243.678,566.947,-6.718', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2243.678,618.131,-6.718', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2233.923,619.688,-6.770', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2198.244,628.624,-3.820', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2158.211,641.956,-6.907', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2121.897,658.841,-8.686', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2104.766,669.940,-13.124', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2102.152,672.566,-13.007', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2371.534,470.759,-17.134', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2372.843,469.860,-8.766', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2375.740,467.245,-9.395', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2377.123,465.625,-19.179', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2378.114,462.861,-9.919', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2378.812,458.629,-10.770', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2378.876,456.740,-11.057', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2380.200,462.089,-14.278', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2384.633,471.321,-5.815', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2389.984,479.772,-4.961', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2395.774,487.311,-12.033', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2403.215,493.637,-11.553', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2417.056,501.442,-5.204', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2443.611,512.987,-6.433', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2490.143,527.624,-5.049', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2548.648,540.533,-5.479', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2568.216,543.256,-5.330', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2623.577,656.342,2.837', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2604.686,689.403,3.666', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2666.589,599.750,1.442', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2573.395,731.300,11.694', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2579.817,726.388,10.223', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2589.065,721.135,9.703', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2599.906,717.376,4.744', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2615.895,713.384,4.294', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2628.943,711.340,4.206', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2712.295,703.610,3.657', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2895.730,697.654,1.897', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2692.720,548.853,-8.609', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2728.246,534.824,-5.221', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2747.329,524.861,-5.979', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2759.657,516.657,-13.060', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2763.041,513.243,-13.099', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2766.259,507.192,-13.818', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2769.740,496.241,-7.856', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2770.856,488.428,-17.476', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2772.401,498.299,-11.493', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2776.541,509.651,-10.088', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2778.924,514.083,-13.009', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2781.507,516.678,-13.123', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2793.158,524.433,-6.043', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2817.653,536.987,-7.633', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2855.371,550.704,-6.269', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2928.134,567.714,-6.226', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA3068.804,586.074,-4.126', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA3163.823,592.612,-6.669', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA3068.804,599.150,-4.126', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2928.134,617.509,-6.226', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2862.489,632.564,-4.050', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2829.326,643.425,-7.135', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2797.448,658.203,-8.760', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2781.507,668.545,-13.123', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2778.924,671.141,-13.009', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2775.635,677.397,-13.728', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2771.997,688.829,-7.842', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2770.856,696.795,-17.476', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2769.349,687.135,-11.521', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2765.404,676.314,-10.164', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2763.041,671.980,-13.099', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2759.657,668.566,-13.060', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2747.329,660.362,-5.979', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2722.929,647.881,-7.577', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2685.907,634.409,-6.260', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2613.813,617.557,-6.237', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2472.981,599.170,-4.129', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2377.667,592.612,-6.669', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2472.981,586.054,-4.129', treating as header
+2026-06-12 05:23:19 | WARNING  | plt_optimizer | Unknown command 'AA2613.813,567.666,-6.237', treating as header
+2026-06-12 06:36:46 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpj3th_zi_/test.plt
+2026-06-12 06:36:46 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-12 06:36:46 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-12 06:36:46 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-12 06:36:46 | WARNING  | plt_optimizer | Unknown command 'UNKNOWN123', treating as header
+2026-06-12 06:36:46 | WARNING  | plt_optimizer | Unknown command 'FOO:1,2', treating as header
+2026-06-12 06:37:05 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpspv49a82/nested/path/output.plt
+2026-06-12 06:37:05 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpbjik41_u/output.plt
+2026-06-12 06:37:05 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpjxkxugjf/output.plt
+2026-06-12 06:37:05 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpihpvk22y/subdir/nested/output.plt
+2026-06-12 06:38:07 | INFO     | plt_optimizer | Parsing PLT file: 1-inch-circle.plt
+2026-06-12 06:38:31 | INFO     | plt_optimizer | Parsing PLT file: hello-world.plt
+2026-06-12 06:39:04 | INFO     | plt_optimizer | Parsing PLT file: 1-inch-circle.plt
+2026-06-12 06:39:04 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpl5rzni_5.plt
+2026-06-12 06:40:26 | INFO     | plt_optimizer | Parsing user file: 1-inch-circle.plt
+2026-06-12 06:40:26 | INFO     | plt_optimizer | Parsing PLT file: 1-inch-circle.plt
+2026-06-12 06:40:26 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-12 16:59:14 | INFO     | plt_optimizer | Parsing user file: hello-world.plt
+2026-06-12 16:59:14 | INFO     | plt_optimizer | Parsing PLT file: hello-world.plt
+2026-06-12 16:59:14 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-12 16:59:16 | INFO     | plt_optimizer | Parsing user file: 1-inch-circle.plt
+2026-06-12 16:59:16 | INFO     | plt_optimizer | Parsing PLT file: 1-inch-circle.plt
+2026-06-12 16:59:16 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-12 16:59:18 | INFO     | plt_optimizer | Parsing user file: 1-inch-circle.plt
+2026-06-12 16:59:18 | INFO     | plt_optimizer | Parsing PLT file: 1-inch-circle.plt
+2026-06-12 16:59:18 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-12 16:59:20 | INFO     | plt_optimizer | Parsing user file: 1-inch-square.plt
+2026-06-12 16:59:20 | INFO     | plt_optimizer | Parsing PLT file: 1-inch-square.plt
+2026-06-12 16:59:20 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-12 17:00:08 | INFO     | plt_optimizer | Parsing user file: 2026-06-1011sheet0.plt
+2026-06-12 17:00:08 | INFO     | plt_optimizer | Parsing PLT file: 2026-06-1011sheet0.plt
+2026-06-12 17:00:08 | INFO     | plt_optimizer | Generating diagnostic plot
