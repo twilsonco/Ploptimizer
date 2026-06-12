@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 
 class PenState(Enum):
@@ -151,6 +151,42 @@ class StrokeSegment:
 
 
 @dataclass(frozen=True)
+class ArcSegment:
+    """An arc segment in a stroke path.
+
+    Attributes:
+        start: Starting coordinate of the arc.
+        end: Ending coordinate of the arc (computed from center + angle).
+        center: Center of the arc circle.
+        sweep_angle: Sweep angle in degrees (+ = clockwise, - = counter-clockwise).
+        is_cutting: True if pen was down during this segment.
+    """
+    start: Coordinate
+    end: Coordinate
+    center: Coordinate
+    sweep_angle: float
+    is_cutting: bool
+
+    @property
+    def radius(self) -> float:
+        """Calculate the radius of the arc."""
+        return self.start.distance_to(self.center)
+
+
+Segment = Union[StrokeSegment, ArcSegment]
+
+
+def _segment_length(seg: Segment) -> float:
+    """Calculate the length of a segment (line or arc).
+
+    For arcs, returns chord length (straight-line distance from start to end).
+    """
+    if isinstance(seg, ArcSegment):
+        return seg.start.distance_to(seg.end)
+    return seg.length
+
+
+@dataclass(frozen=True)
 class StrokePath:
     """A complete stroke path from a PU (pen up) to one or more PD (pen down) commands.
 
@@ -160,10 +196,10 @@ class StrokePath:
 
     Attributes:
         pen_up_position: Position after the initial pen-up move (or None if starts with PD).
-        segments: Ordered list of stroke segments.
+        segments: Ordered tuple of stroke segments (line and/or arc).
     """
     pen_up_position: Optional[Coordinate] = None
-    segments: Tuple[StrokeSegment, ...] = field(default_factory=tuple)
+    segments: Tuple[Segment, ...] = field(default_factory=tuple)
 
     @property
     def is_empty(self) -> bool:
@@ -172,21 +208,25 @@ class StrokePath:
 
     @property
     def total_distance(self) -> float:
-        """Calculate the total Euclidean distance of all segments in this path."""
-        return sum(seg.length for seg in self.segments)
+        """Calculate the total Euclidean distance of all segments in this path.
+
+        For ArcSegments, uses chord length (straight-line distance from start to end).
+        For StrokeSegments, uses actual segment length.
+        """
+        return sum(_segment_length(seg) for seg in self.segments)
 
     @property
     def cutting_distance(self) -> float:
         """Calculate the total distance of cutting (pen down) segments only."""
         return sum(
-            seg.length for seg in self.segments if seg.is_cutting
+            _segment_length(seg) for seg in self.segments if seg.is_cutting
         )
 
     @property
     def rapid_distance(self) -> float:
         """Calculate the total distance of rapid (pen up) moves only."""
         return sum(
-            seg.length for seg in self.segments if not seg.is_cutting
+            _segment_length(seg) for seg in self.segments if not seg.is_cutting
         )
 
 
