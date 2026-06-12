@@ -214,12 +214,12 @@ class PLTWriter:
             arc: The arc segment to format.
 
         Returns:
-            Formatted command string (e.g., 'PD;AA1016.000,1016.000,90.000;').
+            Formatted command string (e.g., 'PD;AA1016.000,1016.000,-90.000;').
         """
         cmd = "PD" if arc.is_cutting else "PU"
         cx = self._format_number(arc.center.x)
         cy = self._format_number(arc.center.y)
-        angle = self._format_number(abs(arc.sweep_angle))
+        angle = self._format_number(arc.sweep_angle)
         return f"{cmd};AA{cx},{cy},{angle};"
 
     def _format_coord(self, coord: Coordinate) -> str:
