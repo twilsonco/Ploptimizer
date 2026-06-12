@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MultipleLocator
 
 from plt_optimizer.core.models import (
     Coordinate,
@@ -18,6 +19,10 @@ from plt_optimizer.core.models import (
     StrokeSegment,
 )
 from plt_optimizer.utils.geometry import calculate_cumulative_distances
+
+
+# Plotter units are 1/1000ths of an inch; divide by 1000 for inches
+PLT_UNITS_TO_INCHES = 1 / 1000
 
 
 def _flip_y(y: float) -> float:
@@ -120,37 +125,34 @@ def plot_plt_document(
             else:
                 rapid_lines.append(line_coords)
 
-        # Calculate axis limits from all segments
+        # Calculate axis limits from all segments with 10% padding (in inches)
         if all_segments:
-            all_x = [seg.start.x for seg in all_segments] + [seg.end.x for seg in all_segments]
-            all_y = [_flip_y(seg.start.y) for seg in all_segments] + [
-                _flip_y(seg.end.y) for seg in all_segments
+            all_x = [seg.start.x * PLT_UNITS_TO_INCHES for seg in all_segments] + [
+                seg.end.x * PLT_UNITS_TO_INCHES for seg in all_segments
+            ]
+            all_y = [_flip_y(seg.start.y) * PLT_UNITS_TO_INCHES for seg in all_segments] + [
+                _flip_y(seg.end.y) * PLT_UNITS_TO_INCHES for seg in all_segments
             ]
             x_min, x_max = min(all_x), max(all_x)
             y_min, y_max = min(all_y), max(all_y)
-            ax.set_xlim(x_min, x_max)
-            if y_min == y_max:
-                y_range = abs(x_max - x_min) * 0.05 if x_max != x_min else 1.0
-                y_min -= y_range
-                y_max += y_range
-            ax.set_ylim(y_min, y_max)
 
-        # Debug: print some segment coordinates
-        if len(all_segments) > 1:
-            print(
-                f"First segment: start=({all_segments[0].start.x}, {_flip_y(all_segments[0].start.y)}), end=({all_segments[0].end.x}, {all_segments[1].end.y})"
-            )
-            print(
-                f"Last segment: start=({all_segments[-2].start.x}, {_flip_y(all_segments[-2].start.y)}), end=({all_segments[-1].end.x}, {all_segments[-1].end.y})"
-            )
+            # Add 10% padding (5% on each side)
+            x_range = x_max - x_min if x_max != x_min else abs(x_max) * 0.1 if x_max != 0 else 1.0
+            y_range = y_max - y_min if y_max != y_min else abs(y_max) * 0.1 if y_max != 0 else 1.0
+            padding_x = x_range * 0.1
+            padding_y = y_range * 0.1
+
+            ax.set_xlim(x_min - padding_x, x_max + padding_x)
+            ax.set_ylim(y_min - padding_y, y_max + padding_y)
 
         # Plot each segment individually for better visibility and axis handling
         # First, plot all rapid moves (dotted gray lines)
         for i, seg in enumerate(all_segments):
             if not seg.is_cutting:  # Rapid travel
                 ax.plot(
-                    [seg.start.x, seg.end.x],
-                    [_flip_y(seg.start.y), _flip_y(seg.end.y)],
+                    [seg.start.x * PLT_UNITS_TO_INCHES, seg.end.x * PLT_UNITS_TO_INCHES],
+                    [_flip_y(seg.start.y) * PLT_UNITS_TO_INCHES,
+                     _flip_y(seg.end.y) * PLT_UNITS_TO_INCHES],
                     color="gray",
                     linewidth=0.5,
                     linestyle="dotted",
@@ -165,8 +167,9 @@ def plot_plt_document(
                 cmap = plt.cm.get_cmap("plasma")
                 color = cmap(color_val)
                 ax.plot(
-                    [seg.start.x, seg.end.x],
-                    [_flip_y(seg.start.y), _flip_y(seg.end.y)],
+                    [seg.start.x * PLT_UNITS_TO_INCHES, seg.end.x * PLT_UNITS_TO_INCHES],
+                    [_flip_y(seg.start.y) * PLT_UNITS_TO_INCHES,
+                     _flip_y(seg.end.y) * PLT_UNITS_TO_INCHES],
                     color=color,
                     linewidth=1.5,
                     alpha=0.9,
@@ -184,8 +187,8 @@ def plot_plt_document(
         last_seg = all_segments[-1]
 
         ax.plot(
-            first_seg.start.x,
-            _flip_y(first_seg.start.y),
+            first_seg.start.x * PLT_UNITS_TO_INCHES,
+            _flip_y(first_seg.start.y) * PLT_UNITS_TO_INCHES,
             marker="o",
             markersize=12,
             color="green",
@@ -193,8 +196,8 @@ def plot_plt_document(
             label="Start",
         )
         ax.plot(
-            last_seg.end.x,
-            _flip_y(last_seg.end.y),
+            last_seg.end.x * PLT_UNITS_TO_INCHES,
+            _flip_y(last_seg.end.y) * PLT_UNITS_TO_INCHES,
             marker="s",
             markersize=12,
             color="red",
@@ -203,9 +206,11 @@ def plot_plt_document(
         )
 
         # Configure axes
-        ax.set_xlabel("X (plotter units)")
-        ax.set_ylabel("Y (plotter units)")
+        ax.set_xlabel("X (inches)")
+        ax.set_ylabel("Y (inches)")
         ax.set_title(title)
+        ax.xaxis.set_major_locator(MultipleLocator(1))
+        ax.yaxis.set_major_locator(MultipleLocator(1))
         ax.legend(loc="upper right")
         ax.grid(True, alpha=0.3)
 
@@ -372,9 +377,11 @@ def create_path_diagram(
     ax.plot(xs[0], ys[0], "go", markersize=12, zorder=10, label="Start")
     ax.plot(xs[-1], ys[-1], "rs", markersize=12, zorder=10, label="End")
 
-    ax.set_xlabel("X (plotter units)")
-    ax.set_ylabel("Y (plotter units)")
+    ax.set_xlabel("X (inches)")
+    ax.set_ylabel("Y (inches)")
     ax.set_title(title)
+    ax.xaxis.set_major_locator(MultipleLocator(1))
+    ax.yaxis.set_major_locator(MultipleLocator(1))
     ax.legend()
     ax.grid(True, alpha=0.3)
     ax.set_aspect("equal", adjustable="box")
