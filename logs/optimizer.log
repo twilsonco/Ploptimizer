@@ -6443,3 +6443,59 @@
 2026-06-12 17:00:08 | INFO     | plt_optimizer | Parsing user file: 2026-06-1011sheet0.plt
 2026-06-12 17:00:08 | INFO     | plt_optimizer | Parsing PLT file: 2026-06-1011sheet0.plt
 2026-06-12 17:00:08 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-12 17:24:41 | INFO     | plt_optimizer | Parsing PLT file: hello-world.plt
+2026-06-12 17:24:54 | INFO     | plt_optimizer | Parsing PLT file: hello-world.plt
+2026-06-12 17:25:02 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmp68qm54i7/input.plt
+2026-06-12 17:25:02 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmp68qm54i7/output.plt
+2026-06-12 17:25:02 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmp68qm54i7/output.plt
+2026-06-12 17:25:02 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-12 17:25:02 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-12 17:25:02 | INFO     | plt_optimizer | Writing PLT file: /nonexistent/path/that/does/not/exist/file.plt
+2026-06-12 17:25:02 | INFO     | plt_optimizer | info message
+2026-06-12 17:25:02 | WARNING  | plt_optimizer | warning message
+2026-06-12 17:25:02 | ERROR    | plt_optimizer | error message
+2026-06-12 17:25:02 | CRITICAL | plt_optimizer | critical message
+2026-06-12 17:25:02 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmp4jozg6lo/test.plt
+2026-06-12 17:25:02 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-12 17:25:02 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-12 17:25:02 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-12 17:25:02 | WARNING  | plt_optimizer | Unknown command 'UNKNOWN123', treating as header
+2026-06-12 17:25:02 | WARNING  | plt_optimizer | Unknown command 'FOO:1,2', treating as header
+2026-06-12 17:25:25 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpuwlzsax7/nested/path/output.plt
+2026-06-12 17:25:25 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmp1fkmniyd/output.plt
+2026-06-12 17:25:25 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmp0iktxy73/output.plt
+2026-06-12 17:25:25 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmp7hy5y6o1/subdir/nested/output.plt
+2026-06-12 17:26:07 | INFO     | plt_optimizer | Parsing PLT file: hello-world.plt
+2026-06-12 17:26:07 | INFO     | plt_optimizer | Parsing PLT file: 1-inch-circle.plt
+2026-06-12 17:26:07 | INFO     | plt_optimizer | Parsing PLT file: 1-inch-square.plt
+2026-06-12 17:31:40 | INFO     | plt_optimizer | Parsing user file: hello-world.plt
+2026-06-12 17:31:40 | INFO     | plt_optimizer | Parsing PLT file: hello-world.plt
+2026-06-12 17:31:40 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-12 17:31:57 | INFO     | plt_optimizer | Parsing user file: hello-world.plt
+2026-06-12 17:31:57 | INFO     | plt_optimizer | Parsing PLT file: hello-world.plt
+2026-06-12 17:31:57 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-12 17:37:30 | INFO     | plt_optimizer | Parsing PLT file: hello-world.plt
+2026-06-12 17:42:16 | INFO     | plt_optimizer | Parsing user file: hello-world.plt
+2026-06-12 17:42:16 | INFO     | plt_optimizer | Parsing PLT file: hello-world.plt
+2026-06-12 17:42:16 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-12 17:43:20 | INFO     | plt_optimizer | Parsing PLT file: hello-world.plt
+2026-06-12 17:45:27 | INFO     | plt_optimizer | Parsing PLT file: hello-world.plt
+2026-06-12 17:45:37 | INFO     | plt_optimizer | Parsing user file: hello-world.plt
+2026-06-12 17:45:37 | INFO     | plt_optimizer | Parsing PLT file: hello-world.plt
+2026-06-12 17:45:37 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-12 17:45:52 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmp534lev3x/test.plt
+2026-06-12 17:45:52 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-12 17:45:52 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-12 17:45:52 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-12 17:45:52 | WARNING  | plt_optimizer | Unknown command 'UNKNOWN123', treating as header
+2026-06-12 17:45:52 | WARNING  | plt_optimizer | Unknown command 'FOO:1,2', treating as header
+2026-06-12 17:45:52 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpuuxozufh/nested/path/output.plt
+2026-06-12 17:45:52 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpqz6c1l9q/output.plt
+2026-06-12 17:45:52 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpxhxmv1s0/output.plt
+2026-06-12 17:45:52 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpo_f1qjv5/subdir/nested/output.plt
+2026-06-12 17:58:32 | INFO     | plt_optimizer | Parsing user file: hello-world.plt
+2026-06-12 17:58:32 | INFO     | plt_optimizer | Parsing PLT file: hello-world.plt
+2026-06-12 17:58:32 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-12 17:58:52 | INFO     | plt_optimizer | Parsing user file: 2026-06-1011sheet0.plt
+2026-06-12 17:58:52 | INFO     | plt_optimizer | Parsing PLT file: 2026-06-1011sheet0.plt
+2026-06-12 17:58:52 | INFO     | plt_optimizer | Generating diagnostic plot

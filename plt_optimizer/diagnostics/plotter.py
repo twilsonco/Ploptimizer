@@ -44,7 +44,7 @@ def _arc_to_points(arc: ArcSegment, num_segments: int = 32) -> list[Coordinate]:
         List of Coordinates sampled along the arc from start to end.
     """
     theta_start = math.atan2(arc.start.y - arc.center.y, arc.start.x - arc.center.x)
-    delta_theta = -arc.sweep_angle * math.pi / 180 / num_segments
+    delta_theta = arc.sweep_angle * math.pi / 180 / num_segments
     radius = arc.radius
 
     points: list[Coordinate] = []
