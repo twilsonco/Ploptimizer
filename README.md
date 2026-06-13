@@ -19,15 +19,19 @@ Designed for Vision 1624 engraving tables driven by S3 Controllers, PLT-Optimize
 ```
 PLT-Optimizer/
 ├── plt_optimizer/           # Main package
-│   ├── core/               # Parser and writer modules
+│   ├── core/               # Core optimization pipeline
 │   │   ├── __init__.py
 │   │   ├── models.py       # Data classes for PLT representation
 │   │   ├── parser.py       # HPGL tokenization and parsing
-│   │   └── writer.py       # PLT file generation
+│   │   ├── writer.py       # PLT file generation
+│   │   ├── profiler.py     # Baseline extent calculation (95th percentile)
+│   │   ├── chunker.py      # Stroke grouping into MacroBlocks
+│   │   ├── optimizer.py    # Block traversal optimization (NN + 2-opt)
+│   │   └── reassembler.py  # Document reconstruction from optimized blocks
 │   ├── utils/              # Utility modules
 │   │   ├── __init__.py
-│   │   ├── geometry.py     # Distance calculations
-│   │   └── logging.py      # Dual logging system
+│   │   ├── geometry.py     # Distance calculations and geometry utilities
+│   │   └── logging.py      # Dual logging system (text + CSV metrics)
 │   └── diagnostics/        # Visualization tools
 │       ├── __init__.py
 │       └── plotter.py      # Matplotlib-based path visualization
@@ -35,7 +39,12 @@ PLT-Optimizer/
 │   ├── __init__.py
 │   ├── test_identity.py    # Identity validation tests
 │   ├── test_parser.py      # Parser unit tests
-│   └── test_writer.py      # Writer unit tests
+│   ├── test_writer.py      # Writer unit tests
+│   ├── test_models.py      # Model dataclass tests
+│   ├── test_geometry.py    # Geometry utility tests
+│   ├── test_logging.py     # Logging system tests
+│   ├── test_diagnostics.py # Diagnostics module tests
+│   └── test_plotter.py     # Plotting functionality tests
 ├── examples/               # Example scripts
 │   └── run_diagnostics.py  # Full workflow demonstration
 ├── logs/                   # Generated log files
