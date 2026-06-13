@@ -330,14 +330,20 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
                 initial_position=None,
             )
 
-        # Determine starting position
+        # Determine starting position - find endpoint closest to origin if not specified
         if initial_position is None:
-            start_pos = (blocks[0].entrance.x, blocks[0].entrance.y)
+            start_pos, first_block_idx, start_at_exit = self._find_nearest_origin_endpoint(
+                blocks, origin=(0.0, 0.0)
+            )
+            # Phase 1: Greedy nearest neighbor construction with forced first block
+            tour = self._greedy_nearest_neighbor_from_start(
+                blocks, start_pos, forced_first_block=first_block_idx,
+                forced_first_reversed=start_at_exit
+            )
         else:
             start_pos = initial_position
-
-        # Phase 1: Greedy nearest neighbor construction
-        tour = self._greedy_nearest_neighbor(blocks, start_pos)
+            # Phase 1: Greedy nearest neighbor construction
+            tour = self._greedy_nearest_neighbor(blocks, start_pos)
 
         # Phase 2: 2-opt refinement
         if len(tour) > 3:
@@ -371,6 +377,146 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
         tour: List[BlockTraverseState] = []
         current_pos = start_pos
 
+        while unvisited:
+            best_block_idx = -1
+            best_cost = float('inf')
+            best_reversed = False
+
+            for block_idx in unvisited:
+                block = blocks[block_idx]
+                cost, reversed_flag = self._calculate_block_cost(
+                    current_pos,
+                    (block.entrance.x, block.entrance.y),
+                    (block.exit.x, block.exit.y),
+                )
+
+                if cost < best_cost:
+                    best_cost = cost
+                    best_block_idx = block_idx
+                    best_reversed = reversed_flag
+
+            # Add to tour
+            block = blocks[best_block_idx]
+            if best_reversed:
+                traverse_state = BlockTraverseState(
+                    block_id=block.block_id,
+                    reversed=True,
+                    entrance=(block.exit.x, block.exit.y),
+                    exit=(block.entrance.x, block.entrance.y),
+                )
+                current_pos = (block.entrance.x, block.entrance.y)
+            else:
+                traverse_state = BlockTraverseState(
+                    block_id=block.block_id,
+                    reversed=False,
+                    entrance=(block.entrance.x, block.entrance.y),
+                    exit=(block.exit.x, block.exit.y),
+                )
+                current_pos = (block.exit.x, block.exit.y)
+
+            tour.append(traverse_state)
+            unvisited.remove(best_block_idx)
+
+        return tour
+
+    def _find_nearest_origin_endpoint(
+        self,
+        blocks: List[MacroBlock],
+        origin: Tuple[float, float] = (0.0, 0.0),
+    ) -> Tuple[Tuple[float, float], int, bool]:
+        """Find the block endpoint nearest to the origin.
+
+        This ensures the optimization always starts from the stroke end closest
+        to where the tool begins (typically at machine origin).
+
+        Args:
+            blocks: List of MacroBlocks to search.
+            origin: Reference point for distance calculation (default origin).
+
+        Returns:
+            Tuple of (nearest_position, block_index, is_exit).
+            - nearest_position: (x, y) coordinates closest to origin
+            - block_index: index of the block containing this endpoint
+            - is_exit: True if nearest position is block's exit (needs reversal)
+        """
+        min_distance = float('inf')
+        nearest_pos: Tuple[float, float] = (0.0, 0.0)
+        best_block_idx = 0
+        best_is_exit = False
+
+        for i, block in enumerate(blocks):
+            # Check entrance
+            dist_entrance = math.sqrt(
+                (block.entrance.x - origin[0]) ** 2
+                + (block.entrance.y - origin[1]) ** 2
+            )
+            if dist_entrance < min_distance:
+                min_distance = dist_entrance
+                nearest_pos = (block.entrance.x, block.entrance.y)
+                best_block_idx = i
+                best_is_exit = False
+
+            # Check exit
+            dist_exit = math.sqrt(
+                (block.exit.x - origin[0]) ** 2
+                + (block.exit.y - origin[1]) ** 2
+            )
+            if dist_exit < min_distance:
+                min_distance = dist_exit
+                nearest_pos = (block.exit.x, block.exit.y)
+                best_block_idx = i
+                best_is_exit = True
+
+        return (nearest_pos, best_block_idx, best_is_exit)
+
+    def _greedy_nearest_neighbor_from_start(
+        self,
+        blocks: List[MacroBlock],
+        start_pos: Tuple[float, float],
+        forced_first_block: int,
+        forced_first_reversed: bool,
+    ) -> List[BlockTraverseState]:
+        """Build tour starting with a specific block in a specific direction.
+
+        This variant forces the first block to be visited first (potentially
+        reversed) regardless of greedy distance cost, ensuring we always start
+        from the endpoint nearest the origin.
+
+        Args:
+            blocks: All macro blocks.
+            start_pos: Starting position.
+            forced_first_block: Index of block to visit first.
+            forced_first_reversed: Whether to traverse first block in reverse.
+
+        Returns:
+            Initial traverse order with guaranteed starting point.
+        """
+        unvisited = set(range(len(blocks)))
+        tour: List[BlockTraverseState] = []
+
+        # Handle the forced first block
+        first_block = blocks[forced_first_block]
+        if forced_first_reversed:
+            current_pos = (first_block.entrance.x, first_block.entrance.y)
+            traverse_state = BlockTraverseState(
+                block_id=first_block.block_id,
+                reversed=True,
+                entrance=(first_block.exit.x, first_block.exit.y),
+                exit=(first_block.entrance.x, first_block.entrance.y),
+            )
+        else:
+            current_pos = (first_block.exit.x, first_block.exit.y)
+            traverse_state = BlockTraverseState(
+                block_id=first_block.block_id,
+                reversed=False,
+                entrance=(first_block.entrance.x, first_block.entrance.y),
+                exit=(first_block.exit.x, first_block.exit.y),
+            )
+
+        tour.append(traverse_state)
+        unvisited.remove(forced_first_block)
+
+        # Continue with standard greedy for remaining blocks
         while unvisited:
             best_block_idx = -1
             best_cost = float('inf')

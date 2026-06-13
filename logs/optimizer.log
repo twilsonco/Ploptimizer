@@ -6615,3 +6615,22 @@
 2026-06-13 20:23:50 | INFO     | plt_optimizer | Generating before-optimization plot
 2026-06-13 20:23:51 | INFO     | plt_optimizer | Generating after-optimization plot
 2026-06-13 20:23:52 | INFO     | plt_optimizer | Writing PLT file: 2026-06-1011sheet0_optimized.plt
+2026-06-13 22:37:31 | INFO     | plt_optimizer | Parsing user file: 2026-06-1011sheet0.plt
+2026-06-13 22:37:31 | INFO     | plt_optimizer | Parsing PLT file: 2026-06-1011sheet0.plt
+2026-06-13 22:37:31 | INFO     | plt_optimizer | Starting optimization pipeline
+2026-06-13 22:37:31 | INFO     | plt_optimizer | Step 1/4: Profiling document for baseline extent
+2026-06-13 22:37:31 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-13 22:37:31 | INFO     | plt_optimizer | Profiling complete: baseline_extent=1016.453, total_cutting_strokes=383
+2026-06-13 22:37:31 | INFO     | plt_optimizer | Step 2/4: Chunking stroke paths into MacroBlocks
+2026-06-13 22:37:31 | INFO     | plt_optimizer | Chunking 214 stroke paths with threshold=1524.680 (baseline_extent=1016.453, multiplier=1.5)
+2026-06-13 22:37:31 | INFO     | plt_optimizer | Created 12 MacroBlocks
+2026-06-13 22:37:31 | INFO     | plt_optimizer | Step 3/4: Optimizing block traversal order
+2026-06-13 22:37:31 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 12 blocks
+2026-06-13 22:37:31 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 12 blocks
+2026-06-13 22:37:31 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=29500.717
+2026-06-13 22:37:31 | INFO     | plt_optimizer | Step 4/4: Reassembling document with optimized block order
+2026-06-13 22:37:31 | INFO     | plt_optimizer | Reassembling document with 12 blocks
+2026-06-13 22:37:31 | INFO     | plt_optimizer | Reassembly complete: 214 paths
+2026-06-13 22:37:31 | INFO     | plt_optimizer | Generating before-optimization plot
+2026-06-13 22:37:32 | INFO     | plt_optimizer | Generating after-optimization plot
+2026-06-13 22:37:33 | INFO     | plt_optimizer | Writing PLT file: 2026-06-1011sheet0_optimized.plt
