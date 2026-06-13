@@ -184,7 +184,7 @@ def plot_plt_document(
                         color="gray",
                         linewidth=0.5,
                         linestyle="dotted",
-                        alpha=1.234,
+                        alpha=0.7,
                         label="Rapid Travel (PU)" if i == 0 else "",
                     )
                 else:
@@ -195,9 +195,34 @@ def plot_plt_document(
                         color="gray",
                         linewidth=0.5,
                         linestyle="dotted",
-                        alpha=1.234,
+                        alpha=0.7,
                         label="Rapid Travel (PU)" if i == 0 else "",
                     )
+
+        # Plot tool-up (rapid) connections between strokes as dashed gray lines
+        paths = document.stroke_paths
+        for i in range(len(paths) - 1):
+            curr_path = paths[i]
+            next_path = paths[i + 1]
+
+            if not curr_path.segments or next_path.pen_up_position is None:
+                continue
+
+            last_seg = curr_path.segments[-1]
+            start_x = last_seg.end.x * PLT_UNITS_TO_INCHES
+            start_y = _flip_y(last_seg.end.y) * PLT_UNITS_TO_INCHES
+            end_x = next_path.pen_up_position.x * PLT_UNITS_TO_INCHES
+            end_y = _flip_y(next_path.pen_up_position.y) * PLT_UNITS_TO_INCHES
+
+            ax.plot(
+                [start_x, end_x],
+                [start_y, end_y],
+                color="gray",
+                linewidth=1.0,
+                linestyle="dashed",
+                alpha=0.7,
+                label="Rapid Travel (PU)" if i == 0 else "",
+            )
 
         # Then, plot all cutting moves with plasma colormap
         for i, seg in enumerate(all_segments):
