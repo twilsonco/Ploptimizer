@@ -205,7 +205,10 @@ class PLTParser:
                         )
 
                         if pen_state == PenState.UP or current_path is None:
-                            current_path = StrokePath(segments=(segment,))
+                            current_path = StrokePath(
+                                pen_up_position=last_position,
+                                segments=(segment,),
+                            )
                             doc.stroke_paths.append(current_path)
                         else:
                             new_segments = current_path.segments + (segment,)
@@ -225,7 +228,10 @@ class PLTParser:
                     )
                     if arc_segment is not None:
                         if pen_state == PenState.UP or current_path is None:
-                            current_path = StrokePath(segments=(arc_segment,))
+                            current_path = StrokePath(
+                                pen_up_position=last_position,
+                                segments=(arc_segment,),
+                            )
                             doc.stroke_paths.append(current_path)
                         elif pen_state == PenState.DOWN:
                             new_segments = current_path.segments + (arc_segment,)
@@ -244,7 +250,10 @@ class PLTParser:
                         )
                         if arc_segment is not None:
                             if pen_state == PenState.UP or current_path is None:
-                                current_path = StrokePath(segments=(arc_segment,))
+                                current_path = StrokePath(
+                                    pen_up_position=last_position,
+                                    segments=(arc_segment,),
+                                )
                                 doc.stroke_paths.append(current_path)
                             elif pen_state == PenState.DOWN:
                                 new_segments = current_path.segments + (arc_segment,)
