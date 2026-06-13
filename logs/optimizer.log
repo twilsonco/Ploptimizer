@@ -6499,3 +6499,49 @@
 2026-06-12 17:58:52 | INFO     | plt_optimizer | Parsing user file: 2026-06-1011sheet0.plt
 2026-06-12 17:58:52 | INFO     | plt_optimizer | Parsing PLT file: 2026-06-1011sheet0.plt
 2026-06-12 17:58:52 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-13 06:04:43 | INFO     | plt_optimizer | Starting PLT optimization workflow
+2026-06-13 06:04:43 | INFO     | plt_optimizer | Parsing examples/sample.plt
+2026-06-13 06:04:43 | INFO     | plt_optimizer | Parsing PLT file: examples/sample.plt
+2026-06-13 06:04:43 | INFO     | plt_optimizer | Writing verified output to examples/output_verified.plt
+2026-06-13 06:04:43 | INFO     | plt_optimizer | Writing PLT file: examples/output_verified.plt
+2026-06-13 06:04:43 | INFO     | plt_optimizer | Parsing PLT file: examples/output_verified.plt
+2026-06-13 06:04:43 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-13 06:04:43 | INFO     | plt_optimizer | Parsing complex HPGL sample
+2026-06-13 06:04:43 | INFO     | plt_optimizer | Writing PLT file: examples/complex_sample.plt
+2026-06-13 16:02:15 | INFO     | plt_optimizer | Parsing user file: 2026-06-1011sheet0.plt
+2026-06-13 16:02:15 | INFO     | plt_optimizer | Parsing PLT file: 2026-06-1011sheet0.plt
+2026-06-13 16:02:15 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-13 16:02:45 | INFO     | plt_optimizer | Parsing user file: 2026-06-1011sheet0.plt
+2026-06-13 16:02:45 | INFO     | plt_optimizer | Parsing PLT file: 2026-06-1011sheet0.plt
+2026-06-13 16:02:45 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-13 16:09:55 | INFO     | plt_optimizer | Parsing user file: 2026-06-1011sheet0.plt
+2026-06-13 16:09:55 | INFO     | plt_optimizer | Parsing PLT file: 2026-06-1011sheet0.plt
+2026-06-13 16:09:55 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-13 16:10:07 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpjlac7rxy/test.plt
+2026-06-13 16:10:07 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-13 16:10:07 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-13 16:10:07 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-13 16:10:07 | WARNING  | plt_optimizer | Unknown command 'UNKNOWN123', treating as header
+2026-06-13 16:10:07 | WARNING  | plt_optimizer | Unknown command 'FOO:1,2', treating as header
+2026-06-13 16:10:59 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmp69y8h71f/input.plt
+2026-06-13 16:10:59 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmp69y8h71f/output.plt
+2026-06-13 16:10:59 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmp69y8h71f/output.plt
+2026-06-13 16:10:59 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-13 16:10:59 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-13 16:10:59 | INFO     | plt_optimizer | Writing PLT file: /nonexistent/path/that/does/not/exist/file.plt
+2026-06-13 16:10:59 | INFO     | plt_optimizer | info message
+2026-06-13 16:10:59 | WARNING  | plt_optimizer | warning message
+2026-06-13 16:10:59 | ERROR    | plt_optimizer | error message
+2026-06-13 16:10:59 | CRITICAL | plt_optimizer | critical message
+2026-06-13 16:10:59 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpbqdqz0oj/test.plt
+2026-06-13 16:10:59 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-13 16:10:59 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-13 16:10:59 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-13 16:10:59 | WARNING  | plt_optimizer | Unknown command 'UNKNOWN123', treating as header
+2026-06-13 16:10:59 | WARNING  | plt_optimizer | Unknown command 'FOO:1,2', treating as header
+2026-06-13 16:11:21 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpnlhcmwyy/nested/path/output.plt
+2026-06-13 16:11:21 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpo3a81z7_/output.plt
+2026-06-13 16:11:21 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpodk151rp/output.plt
+2026-06-13 16:11:21 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpv1hy2crh/subdir/nested/output.plt
+2026-06-13 16:11:52 | INFO     | plt_optimizer | Parsing PLT file: 2026-06-1011sheet0.plt
+2026-06-13 16:12:10 | INFO     | plt_optimizer | Parsing PLT file: 2026-06-1011sheet0.plt
