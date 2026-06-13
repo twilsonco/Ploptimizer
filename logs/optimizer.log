@@ -6545,3 +6545,73 @@
 2026-06-13 16:11:21 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpv1hy2crh/subdir/nested/output.plt
 2026-06-13 16:11:52 | INFO     | plt_optimizer | Parsing PLT file: 2026-06-1011sheet0.plt
 2026-06-13 16:12:10 | INFO     | plt_optimizer | Parsing PLT file: 2026-06-1011sheet0.plt
+2026-06-13 19:33:18 | INFO     | plt_optimizer | Parsing user file: 2026-06-1011sheet0.plt
+2026-06-13 19:33:18 | INFO     | plt_optimizer | Parsing PLT file: 2026-06-1011sheet0.plt
+2026-06-13 19:33:18 | INFO     | plt_optimizer | Generating diagnostic plot
+2026-06-13 20:13:18 | INFO     | plt_optimizer | Parsing user file: 2026-06-1011sheet0.plt
+2026-06-13 20:13:18 | INFO     | plt_optimizer | Parsing PLT file: 2026-06-1011sheet0.plt
+2026-06-13 20:13:18 | INFO     | plt_optimizer | Starting optimization pipeline
+2026-06-13 20:13:18 | INFO     | plt_optimizer | Step 1/4: Profiling document for baseline extent
+2026-06-13 20:13:18 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-13 20:13:18 | INFO     | plt_optimizer | Profiling complete: baseline_extent=1016.453, total_cutting_strokes=383
+2026-06-13 20:13:18 | INFO     | plt_optimizer | Step 2/4: Chunking stroke paths into MacroBlocks
+2026-06-13 20:13:18 | INFO     | plt_optimizer | Chunking 214 stroke paths with threshold=1524.680 (baseline_extent=1016.453, multiplier=1.5)
+2026-06-13 20:13:18 | ERROR    | plt_optimizer | Failed to process 2026-06-1011sheet0.plt: ArcSegments are not supported in linear chunker
+2026-06-13 20:17:45 | INFO     | plt_optimizer | Parsing user file: 2026-06-1011sheet0.plt
+2026-06-13 20:17:45 | INFO     | plt_optimizer | Parsing PLT file: 2026-06-1011sheet0.plt
+2026-06-13 20:17:45 | INFO     | plt_optimizer | Starting optimization pipeline
+2026-06-13 20:17:45 | INFO     | plt_optimizer | Step 1/4: Profiling document for baseline extent
+2026-06-13 20:17:45 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-13 20:17:45 | INFO     | plt_optimizer | Profiling complete: baseline_extent=1016.453, total_cutting_strokes=383
+2026-06-13 20:17:45 | INFO     | plt_optimizer | Step 2/4: Chunking stroke paths into MacroBlocks
+2026-06-13 20:17:45 | INFO     | plt_optimizer | Chunking 214 stroke paths with threshold=1524.680 (baseline_extent=1016.453, multiplier=1.5)
+2026-06-13 20:17:45 | INFO     | plt_optimizer | Created 12 MacroBlocks
+2026-06-13 20:17:45 | INFO     | plt_optimizer | Step 3/4: Optimizing block traversal order
+2026-06-13 20:17:45 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 12 blocks
+2026-06-13 20:17:45 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 12 blocks
+2026-06-13 20:17:45 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=43859.383
+2026-06-13 20:17:45 | INFO     | plt_optimizer | Step 4/4: Reassembling document with optimized block order
+2026-06-13 20:17:45 | INFO     | plt_optimizer | Reassembling document with 12 blocks
+2026-06-13 20:17:45 | INFO     | plt_optimizer | Reassembly complete: 214 paths
+2026-06-13 20:17:45 | INFO     | plt_optimizer | Generating before-optimization plot
+2026-06-13 20:17:46 | INFO     | plt_optimizer | Generating after-optimization plot
+2026-06-13 20:17:47 | INFO     | plt_optimizer | Writing PLT file: 2026-06-1011sheet0_optimized.plt
+2026-06-13 20:18:00 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpkoo6gkot/input.plt
+2026-06-13 20:18:00 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpkoo6gkot/output.plt
+2026-06-13 20:18:00 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpkoo6gkot/output.plt
+2026-06-13 20:18:00 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-13 20:18:00 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-13 20:18:00 | INFO     | plt_optimizer | Writing PLT file: /nonexistent/path/that/does/not/exist/file.plt
+2026-06-13 20:18:00 | INFO     | plt_optimizer | info message
+2026-06-13 20:18:00 | WARNING  | plt_optimizer | warning message
+2026-06-13 20:18:00 | ERROR    | plt_optimizer | error message
+2026-06-13 20:18:00 | CRITICAL | plt_optimizer | critical message
+2026-06-13 20:18:01 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmp6h7xyfm6/test.plt
+2026-06-13 20:18:01 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-13 20:18:01 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-13 20:18:01 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-13 20:18:01 | WARNING  | plt_optimizer | Unknown command 'UNKNOWN123', treating as header
+2026-06-13 20:18:01 | WARNING  | plt_optimizer | Unknown command 'FOO:1,2', treating as header
+2026-06-13 20:18:22 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpn9dpnkrk/nested/path/output.plt
+2026-06-13 20:18:22 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpi_l16szl/output.plt
+2026-06-13 20:18:22 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmp2_3waudj/output.plt
+2026-06-13 20:18:22 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpqagoq5gl/subdir/nested/output.plt
+2026-06-13 20:23:50 | INFO     | plt_optimizer | Parsing user file: 2026-06-1011sheet0.plt
+2026-06-13 20:23:50 | INFO     | plt_optimizer | Parsing PLT file: 2026-06-1011sheet0.plt
+2026-06-13 20:23:50 | INFO     | plt_optimizer | Starting optimization pipeline
+2026-06-13 20:23:50 | INFO     | plt_optimizer | Step 1/4: Profiling document for baseline extent
+2026-06-13 20:23:50 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-13 20:23:50 | INFO     | plt_optimizer | Profiling complete: baseline_extent=1016.453, total_cutting_strokes=383
+2026-06-13 20:23:50 | INFO     | plt_optimizer | Step 2/4: Chunking stroke paths into MacroBlocks
+2026-06-13 20:23:50 | INFO     | plt_optimizer | Chunking 214 stroke paths with threshold=1524.680 (baseline_extent=1016.453, multiplier=1.5)
+2026-06-13 20:23:50 | INFO     | plt_optimizer | Created 12 MacroBlocks
+2026-06-13 20:23:50 | INFO     | plt_optimizer | Step 3/4: Optimizing block traversal order
+2026-06-13 20:23:50 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 12 blocks
+2026-06-13 20:23:50 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 12 blocks
+2026-06-13 20:23:50 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=43859.383
+2026-06-13 20:23:50 | INFO     | plt_optimizer | Step 4/4: Reassembling document with optimized block order
+2026-06-13 20:23:50 | INFO     | plt_optimizer | Reassembling document with 12 blocks
+2026-06-13 20:23:50 | INFO     | plt_optimizer | Reassembly complete: 214 paths
+2026-06-13 20:23:50 | INFO     | plt_optimizer | Generating before-optimization plot
+2026-06-13 20:23:51 | INFO     | plt_optimizer | Generating after-optimization plot
+2026-06-13 20:23:52 | INFO     | plt_optimizer | Writing PLT file: 2026-06-1011sheet0_optimized.plt
