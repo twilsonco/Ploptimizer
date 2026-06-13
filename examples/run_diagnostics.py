@@ -1,10 +1,11 @@
-"""Example: Run diagnostics on a PLT file.
+"""Example: Run diagnostics and optimization on a PLT file.
 
 This script demonstrates how to use the PLT-Optimizer tools to:
 1. Load a PLT file from disk or string content
 2. Log actions using the dual logging topology (text + CSV metrics)
 3. Perform identity validation by writing and re-parsing
 4. Generate diagnostic plots with color-coded path visualization
+5. Run full optimization pipeline with before/after comparison
 
 Usage:
     # Run on a specific PLT file:
@@ -12,6 +13,9 @@ Usage:
 
     # Run demonstration mode with sample data:
     python examples/run_diagnostics.py
+
+    # Skip optimization (diagnostics only):
+    python examples/run_diagnostics.py --no-optimize
 """
 
 from __future__ import annotations
@@ -26,6 +30,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from plt_optimizer.core.models import Coordinate, PLTDocument, StrokePath, StrokeSegment
 from plt_optimizer.core.parser import PLTParser
+from plt_optimizer.core.profiler import Profiler
+from plt_optimizer.core.chunker import Chunker, ChunkerConfig
+from plt_optimizer.core.optimizer import OptimizerEngine, NearestNeighbor2OptStrategy
+from plt_optimizer.core.reassembler import Reassembler, MetricsCalculator
 from plt_optimizer.core.writer import PLTWriter
 from plt_optimizer.diagnostics.plotter import plot_plt_document
 from plt_optimizer.utils.logging import (
@@ -39,7 +47,7 @@ from plt_optimizer.utils.logging import (
 # Sample HPGL content from Cadlink EngraveLab Expert v10 for Vision 1624 table
 SAMPLE_HPGL = """IN;VS0.50;ZO123,1;VZ2.00;PA;PU0.000,0.000;PD18288.000,0.000;SP;"""
 
-# Longer sample with multiple paths
+# Longer sample with multiple paths - simulates text entry left-to-right
 COMPLEX_SAMPLE_HPGL = """
 IN;
 VS0.50;
@@ -47,22 +55,27 @@ ZO123,1;
 VZ2.00;
 PA;
 PU0.000,0.000;
-PD5000.000,0.000;
-PD5000.000,3000.000;
-PD10000.000,3000.000;
-PD10000.000,0.000;
-PU15000.000,0.000;
-PD20000.000,0.000;
-PD20000.000,4000.000;
+PD1000.000,0.000;
+PU1200.000,0.000;
+PD2200.000,0.000;
+PU2400.000,0.000;
+PD3400.000,0.000;
+PU3600.000,0.000;
+PD4600.000,0.000;
+PU5000.000,1000.000;
+PD6000.000,1000.000;
+PU6200.000,1000.000;
+PD7200.000,1000.000;
 SP;
 """
 
 
-def process_user_file(input_path: Path) -> int:
+def process_user_file(input_path: Path, optimize: bool = True) -> int:
     """Process a user-specified PLT file and generate diagnostics.
 
     Args:
         input_path: Path to the user's PLT/HPGL file.
+        optimize: Whether to run optimization pipeline (default True).
 
     Returns:
         Exit code (0 for success).
@@ -81,6 +94,7 @@ def process_user_file(input_path: Path) -> int:
     try:
         # Parse the file
         parser = PLTParser()
+        writer = PLTWriter()
         text_logger.info(f"Parsing user file: {input_path}")
         doc = parser.parse_file(input_path)
 
@@ -89,37 +103,68 @@ def process_user_file(input_path: Path) -> int:
         print(f"  Stroke paths: {len(doc.stroke_paths)}")
         print(f"  Total segments: {doc.total_segments}")
         print(f"  Cutting distance: {doc.cutting_distance():,.2f}")
-        print(f"  Rapid travel: {doc.rapid_distance():,.2f}")
 
-        # Generate output filename
-        output_stem = input_path.stem
-        plot_path = input_path.parent / f"{output_stem}_diagnostic.png"
+        # Calculate before rapid travel
+        metrics_calc = MetricsCalculator()
+        original_rapid = metrics_calc.calculate_original_travel_distance(doc)
+        print(f"  Rapid travel (before): {original_rapid:,.2f}")
 
-        text_logger.info("Generating diagnostic plot")
-        fig = plot_plt_document(
-            doc,
-            output_path=plot_path,
-            title=f"Toolpath Diagnostic: {input_path.name}",
+        if not optimize:
+            # Generate only the diagnostic plot without optimization
+            output_stem = input_path.stem
+            plot_path = input_path.parent / f"{output_stem}_diagnostic.png"
+
+            text_logger.info("Generating diagnostic plot")
+            fig = plot_plt_document(
+                doc,
+                output_path=plot_path,
+                title=f"Toolpath Diagnostic: {input_path.name}",
+            )
+
+            print(f"\nDiagnostic plot saved to: {plot_path}")
+
+            import matplotlib.pyplot as plt
+            plt.close(fig)
+
+            job_id = f"user_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            metrics_logger.log_job(
+                job_id=job_id,
+                original_file=input_path,
+                optimized_file=None,
+                original_distance=original_rapid,
+                optimized_distance=original_rapid,
+                status="diagnostic",
+            )
+            print(f"\n✓ Processing complete (no optimization)")
+            return 0
+
+        # Run full optimization pipeline
+        text_logger.info("Starting optimization pipeline")
+        before_plot_path, after_plot_path, stats = demonstrate_optimization_pipeline(
+            doc, output_prefix=input_path.stem
         )
 
-        print(f"\nDiagnostic plot saved to: {plot_path}")
+        # Write optimized PLT file
+        output_stem = input_path.stem
+        optimized_plt_path = input_path.parent / f"{output_stem}_optimized.plt"
+        writer.write_file(doc, optimized_plt_path)
 
-        # Close figure to free memory
-        import matplotlib.pyplot as plt
-        plt.close(fig)
+        print(f"\n✓ Optimization complete")
+        print(f"  Before plot: {before_plot_path}")
+        print(f"  After plot: {after_plot_path}")
+        print(f"  Optimized PLT: {optimized_plt_path}")
 
         # Log metrics
         job_id = f"user_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         metrics_logger.log_job(
             job_id=job_id,
             original_file=input_path,
-            optimized_file=None,
-            original_distance=doc.cutting_distance(),
-            optimized_distance=doc.cutting_distance(),
-            status="diagnostic",
+            optimized_file=optimized_plt_path,
+            original_distance=stats["before_rapid_distance"],
+            optimized_distance=stats["after_rapid_distance"],
+            status="success",
         )
 
-        print(f"\n✓ Processing complete")
         return 0
 
     except Exception as e:
@@ -305,6 +350,139 @@ def demonstrate_complex_sample() -> tuple[Path, Path]:
     return complex_output, complex_plot
 
 
+def demonstrate_optimization_pipeline(doc: PLTDocument, output_prefix: str = "optimized") -> tuple[Path, Path, dict]:
+    """Run the full optimization pipeline and generate before/after comparison.
+
+    Args:
+        doc: The parsed PLTDocument to optimize.
+        output_prefix: Prefix for output file names.
+
+    Returns:
+        Tuple of (before_plot_path, after_plot_path, stats_dict).
+    """
+    print("\n" + "=" * 60)
+    print("RUNNING OPTIMIZATION PIPELINE")
+    print("=" * 60)
+
+    text_logger = get_text_logger()
+    metrics_calc = MetricsCalculator()
+
+    # Calculate before statistics
+    original_distance = metrics_calc.calculate_original_travel_distance(doc)
+    stroke_count = doc.total_segments
+
+    print(f"\n[BEFORE OPTIMIZATION]")
+    print(f"  Total strokes: {stroke_count}")
+    print(f"  Stroke paths: {len(doc.stroke_paths)}")
+    print(f"  Rapid travel distance: {original_distance:,.2f}")
+
+    # Step 1: Profile - Calculate baseline extent
+    text_logger.info("Step 1/4: Profiling document for baseline extent")
+    profiler = Profiler()
+    profile_result = profiler.profile(doc)
+
+    print(f"\n  Profiler results:")
+    print(f"    Baseline extent (95th percentile): {profile_result.baseline_extent:.2f}")
+    print(f"    Median DX: {profile_result.median_dx:.2f}")
+    print(f"    Median DY: {profile_result.median_dy:.2f}")
+
+    # Step 2: Chunk - Group strokes into MacroBlocks
+    text_logger.info("Step 2/4: Chunking stroke paths into MacroBlocks")
+    chunker = Chunker(config=ChunkerConfig(threshold_multiplier=1.5))
+    blocks = chunker.chunk(doc.stroke_paths, profile_result.baseline_extent)
+
+    print(f"\n  Chunker results:")
+    print(f"    MacroBlocks created: {len(blocks)}")
+
+    # Step 3: Optimize - Find optimal traversal order
+    text_logger.info("Step 3/4: Optimizing block traversal order")
+    optimizer = OptimizerEngine(strategy=NearestNeighbor2OptStrategy())
+    optimization_result = optimizer.optimize(blocks)
+
+    print(f"\n  Optimizer results:")
+    print(f"    Strategy: {optimizer.strategy.name}")
+    print(f"    Blocks in optimized sequence: {optimization_result.block_count}")
+
+    # Step 4: Reassemble - Rebuild PLTDocument with optimized order
+    text_logger.info("Step 4/4: Reassembling document with optimized block order")
+    reassembler = Reassembler()
+    optimized_doc = reassembler.reassemble(doc, blocks, optimization_result)
+
+    # Calculate after statistics
+    optimized_distance = metrics_calc.calculate_optimized_travel_distance(optimization_result)
+    savings, pct_improvement = metrics_calc.calculate_improvement(original_distance, optimized_distance)
+
+    print(f"\n[AFTER OPTIMIZATION]")
+    print(f"  Rapid travel distance: {optimized_distance:,.2f}")
+
+    print(f"\n[OPTIMIZATION SUMMARY]")
+    print(f"  Distance saved: {savings:,.2f}")
+    print(f"  Percent improvement: {pct_improvement:.1f}%")
+
+    # Generate before plot
+    text_logger.info("Generating before-optimization plot")
+    before_plot_path = Path(f"examples/{output_prefix}_before.png")
+    fig_before = plot_plt_document(
+        doc,
+        output_path=before_plot_path,
+        title=f"Before Optimization - Rapid Travel: {original_distance:,.0f}",
+    )
+    import matplotlib.pyplot as plt
+    plt.close(fig_before)
+
+    # Generate after plot
+    text_logger.info("Generating after-optimization plot")
+    after_plot_path = Path(f"examples/{output_prefix}_after.png")
+    fig_after = plot_plt_document(
+        optimized_doc,
+        output_path=after_plot_path,
+        title=f"After Optimization - Rapid Travel: {optimized_distance:,.0f} ({pct_improvement:.1f}% improvement)",
+    )
+    plt.close(fig_after)
+
+    stats = {
+        "before_strokes": stroke_count,
+        "before_paths": len(doc.stroke_paths),
+        "before_rapid_distance": original_distance,
+        "after_rapid_distance": optimized_distance,
+        "blocks_created": len(blocks),
+        "distance_saved": savings,
+        "percent_improvement": pct_improvement,
+    }
+
+    return before_plot_path, after_plot_path, stats
+
+
+def demonstrate_full_optimization() -> list[Path]:
+    """Demonstrate the full optimization pipeline with sample data.
+
+    Returns:
+        List of generated file paths.
+    """
+    print("\n" + "=" * 60)
+    print("DEMONSTRATING FULL OPTIMIZATION PIPELINE")
+    print("=" * 60)
+
+    parser = PLTParser()
+    text_logger = get_text_logger()
+
+    # Use the complex sample which has multiple stroke paths
+    text_logger.info("Parsing HPGL sample for optimization demo")
+    doc = parser.parse_string(COMPLEX_SAMPLE_HPGL.strip())
+
+    print(f"\nInput document:")
+    print(f"  Stroke paths: {len(doc.stroke_paths)}")
+    print(f"  Total segments: {doc.total_segments}")
+    print(f"  Cutting distance: {doc.cutting_distance():,.2f}")
+
+    # Run optimization
+    before_path, after_path, stats = demonstrate_optimization_pipeline(
+        doc, output_prefix="full_demo"
+    )
+
+    return [before_path, after_path]
+
+
 def main() -> int:
     """Main entry point for the diagnostics demonstration.
 
@@ -312,15 +490,18 @@ def main() -> int:
         Exit code (0 for success).
     """
     parser = argparse.ArgumentParser(
-        description="PLT-Optimizer Diagnostics Tool",
+        description="PLT-Optimizer Diagnostics and Optimization Tool",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Process a specific PLT file:
+  # Process a specific PLT file with optimization:
   python examples/run_diagnostics.py /path/to/your/file.plt
 
-  # Run demonstration mode with sample data:
+  # Run demonstration mode (optimization + diagnostics):
   python examples/run_diagnostics.py
+
+  # Diagnostics only (skip optimization):
+  python examples/run_diagnostics.py --no-optimize
 """,
     )
     parser.add_argument(
@@ -330,16 +511,25 @@ Examples:
         default=None,
         help="Path to a PLT/HPGL file to process and visualize",
     )
+    parser.add_argument(
+        "--no-optimize",
+        action="store_true",
+        default=False,
+        help="Skip optimization pipeline (diagnostics only)",
+    )
 
     args = parser.parse_args()
 
     # If user provided an input file, process it directly
     if args.input_file is not None:
-        return process_user_file(args.input_file)
+        optimize = not args.no_optimize
+        return process_user_file(args.input_file, optimize=optimize)
 
     # Otherwise run demonstration mode with sample data
     print("PLT-Optimizer Diagnostics Demonstration")
     print("=" * 60)
+
+    generated_files: list[Path] = []
 
     try:
         # Step 1: Demonstrate logging
@@ -347,18 +537,30 @@ Examples:
 
         # Step 2: Parse, write, and validate
         sample_path, verified_path = demonstrate_parsing_and_writing()
+        generated_files.extend([sample_path, verified_path])
 
         # Step 3: Generate diagnostic plot for simple sample
         simple_plot_path = demonstrate_diagnostics_plot(verified_path)
+        generated_files.append(simple_plot_path)
 
         # Step 4: Demo with complex multi-path sample
-        complex_plt_path, complex_plot_path = demonstrate_complex_sample()
+        if args.no_optimize:
+            print("\n" + "=" * 60)
+            print("SKIPPING OPTIMIZATION (--no-optimize flag set)")
+            print("=" * 60)
+        else:
+            # Step 5: Full optimization pipeline demonstration
+            opt_paths = demonstrate_full_optimization()
+            generated_files.extend(opt_paths)
+
+            complex_plt_path, complex_plot_path = demonstrate_complex_sample()
+            generated_files.extend([complex_plt_path, complex_plot_path])
 
         print("\n" + "=" * 60)
         print("DEMONSTRATION COMPLETE")
         print("=" * 60)
         print(f"\nGenerated files:")
-        for path in [sample_path, verified_path, simple_plot_path, complex_plt_path, complex_plot_path]:
+        for path in generated_files:
             exists = "\u2713" if path.exists() else "\u2717"
             print(f"  {exists} {path}")
         print(f"\nLog files:")
