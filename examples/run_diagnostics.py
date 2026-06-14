@@ -70,12 +70,17 @@ SP;
 """
 
 
-def process_user_file(input_path: Path, optimize: bool = True) -> int:
+def process_user_file(
+    input_path: Path,
+    optimize: bool = True,
+    same_row_preference: float = 1.0,
+) -> int:
     """Process a user-specified PLT file and generate diagnostics.
 
     Args:
         input_path: Path to the user's PLT/HPGL file.
         optimize: Whether to run optimization pipeline (default True).
+        same_row_preference: Penalty multiplier for y-differences (default 1.0).
 
     Returns:
         Exit code (0 for success).
@@ -141,7 +146,9 @@ def process_user_file(input_path: Path, optimize: bool = True) -> int:
         # Run full optimization pipeline
         text_logger.info("Starting optimization pipeline")
         before_plot_path, after_plot_path, stats = demonstrate_optimization_pipeline(
-            doc, output_prefix=input_path.stem
+            doc,
+            output_prefix=input_path.stem,
+            same_row_preference=same_row_preference if optimize else 1.0,
         )
 
         # Write optimized PLT file
@@ -350,12 +357,17 @@ def demonstrate_complex_sample() -> tuple[Path, Path]:
     return complex_output, complex_plot
 
 
-def demonstrate_optimization_pipeline(doc: PLTDocument, output_prefix: str = "optimized") -> tuple[Path, Path, dict]:
+def demonstrate_optimization_pipeline(
+    doc: PLTDocument,
+    output_prefix: str = "optimized",
+    same_row_preference: float = 1.0,
+) -> tuple[Path, Path, dict]:
     """Run the full optimization pipeline and generate before/after comparison.
 
     Args:
         doc: The parsed PLTDocument to optimize.
         output_prefix: Prefix for output file names.
+        same_row_preference: Penalty multiplier for y-differences (default 1.0).
 
     Returns:
         Tuple of (before_plot_path, after_plot_path, stats_dict).
@@ -396,7 +408,9 @@ def demonstrate_optimization_pipeline(doc: PLTDocument, output_prefix: str = "op
 
     # Step 3: Optimize - Find optimal traversal order
     text_logger.info("Step 3/4: Optimizing block traversal order")
-    optimizer = OptimizerEngine(strategy=NearestNeighbor2OptStrategy())
+    optimizer = OptimizerEngine(
+        strategy=NearestNeighbor2OptStrategy(same_row_preference=same_row_preference)
+    )
     optimization_result = optimizer.optimize(blocks)
 
     print(f"\n  Optimizer results:")
@@ -453,8 +467,11 @@ def demonstrate_optimization_pipeline(doc: PLTDocument, output_prefix: str = "op
     return before_plot_path, after_plot_path, stats
 
 
-def demonstrate_full_optimization() -> list[Path]:
+def demonstrate_full_optimization(same_row_preference: float = 1.0) -> list[Path]:
     """Demonstrate the full optimization pipeline with sample data.
+
+    Args:
+        same_row_preference: Penalty multiplier for y-differences (default 1.0).
 
     Returns:
         List of generated file paths.
@@ -477,7 +494,9 @@ def demonstrate_full_optimization() -> list[Path]:
 
     # Run optimization
     before_path, after_path, stats = demonstrate_optimization_pipeline(
-        doc, output_prefix="full_demo"
+        doc,
+        output_prefix="full_demo",
+        same_row_preference=same_row_preference,
     )
 
     return [before_path, after_path]
@@ -517,13 +536,24 @@ Examples:
         default=False,
         help="Skip optimization pipeline (diagnostics only)",
     )
+    parser.add_argument(
+        "--same-row-preference",
+        type=float,
+        default=1.0,
+        help="Penalty multiplier for y-differences during greedy selection "
+             "(default 1.0, values > 1.0 prefer same-row blocks)",
+    )
 
     args = parser.parse_args()
 
     # If user provided an input file, process it directly
     if args.input_file is not None:
         optimize = not args.no_optimize
-        return process_user_file(args.input_file, optimize=optimize)
+        return process_user_file(
+            args.input_file,
+            optimize=optimize,
+            same_row_preference=args.same_row_preference,
+        )
 
     # Otherwise run demonstration mode with sample data
     print("PLT-Optimizer Diagnostics Demonstration")
@@ -550,7 +580,7 @@ Examples:
             print("=" * 60)
         else:
             # Step 5: Full optimization pipeline demonstration
-            opt_paths = demonstrate_full_optimization()
+            opt_paths = demonstrate_full_optimization(same_row_preference=args.same_row_preference)
             generated_files.extend(opt_paths)
 
             complex_plt_path, complex_plot_path = demonstrate_complex_sample()
