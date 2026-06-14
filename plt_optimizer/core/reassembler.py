@@ -238,7 +238,7 @@ class MetricsCalculator:
         Returns:
             Total rapid (pen-up) movement distance.
         """
-        return sum(path.rapid_distance for path in document.stroke_paths)
+        return document.rapid_distance()
 
     def calculate_optimized_travel_distance(
         self,
