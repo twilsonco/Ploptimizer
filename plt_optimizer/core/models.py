@@ -286,8 +286,27 @@ class PLTDocument:
         return sum(path.cutting_distance for path in self.stroke_paths)
 
     def rapid_distance(self) -> float:
-        """Calculate the sum of all rapid (pen-up) moves across all paths."""
-        return sum(path.rapid_distance for path in self.stroke_paths)
+        """Calculate the sum of all rapid (pen-up) moves between stroke paths.
+
+        Rapid travel is the distance the tool moves while pen is up, which occurs
+        when moving from one path's end position to the next path's pen_up_position.
+        """
+        if len(self.stroke_paths) < 2:
+            return 0.0
+
+        total_rapid = 0.0
+        for i in range(len(self.stroke_paths) - 1):
+            curr_path = self.stroke_paths[i]
+            next_path = self.stroke_paths[i + 1]
+
+            if not curr_path.segments or next_path.pen_up_position is None:
+                continue
+
+            last_seg_end = curr_path.segments[-1].end
+            rapid_dist = last_seg_end.distance_to(next_path.pen_up_position)
+            total_rapid += rapid_dist
+
+        return total_rapid
 
     @property
     def total_segments(self) -> int:
