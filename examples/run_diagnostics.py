@@ -388,7 +388,7 @@ def demonstrate_optimization_pipeline(doc: PLTDocument, output_prefix: str = "op
 
     # Step 2: Chunk - Group strokes into MacroBlocks
     text_logger.info("Step 2/4: Chunking stroke paths into MacroBlocks")
-    chunker = Chunker(config=ChunkerConfig(threshold_multiplier=1.5))
+    chunker = Chunker(config=ChunkerConfig(threshold_multiplier=2.0))
     blocks = chunker.chunk(doc.stroke_paths, profile_result.baseline_extent)
 
     print(f"\n  Chunker results:")
