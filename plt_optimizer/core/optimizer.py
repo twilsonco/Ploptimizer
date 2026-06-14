@@ -305,7 +305,19 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
     yields the minimum total travel distance.
     """
 
-    DEFAULT_N_CANDIDATES: int = 3
+    DEFAULT_N_CANDIDATES: int = 2
+
+    def __init__(self, same_row_preference: float = 1.0) -> None:
+        """Initialize the strategy.
+
+        Args:
+            same_row_preference: Penalty multiplier for y-differences during greedy
+                selection. Default 1.0 applies no penalty (backward compatible).
+                Values > 1.0 increase cost for blocks with different y-values,
+                biasing traversal to prefer blocks on the same row.
+        """
+        super().__init__()
+        self._same_row_preference = same_row_preference
 
     @property
     def name(self) -> str:
@@ -604,6 +616,40 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
             unvisited.remove(best_block_idx)
 
         return tour
+
+    def _calculate_block_cost(
+        self,
+        from_pos: Tuple[float, float],
+        to_entrance: Tuple[float, float],
+        to_exit: Tuple[float, float],
+    ) -> Tuple[float, bool]:
+        """Calculate cost with y-difference penalty for same-row preference.
+
+        Args:
+            from_pos: Current position as (x, y).
+            to_entrance: Block's original entrance coordinate.
+            to_exit: Block's original exit coordinate.
+
+        Returns:
+            Tuple of (minimum_cost, should_reverse). If should_reverse is True,
+            the block should be entered at its exit (and traversed backward).
+        """
+        dx = to_entrance[0] - from_pos[0]
+        dy = to_entrance[1] - from_pos[1]
+        base_distance_to_entrance = math.sqrt(dx ** 2 + dy ** 2)
+        y_penalty = (self._same_row_preference - 1.0) * abs(dy)
+        cost_to_entrance = base_distance_to_entrance + y_penalty
+
+        dx = to_exit[0] - from_pos[0]
+        dy = to_exit[1] - from_pos[1]
+        base_distance_to_exit = math.sqrt(dx ** 2 + dy ** 2)
+        y_penalty = (self._same_row_preference - 1.0) * abs(dy)
+        cost_to_exit = base_distance_to_exit + y_penalty
+
+        if cost_to_entrance <= cost_to_exit:
+            return (cost_to_entrance, False)
+        else:
+            return (cost_to_exit, True)
 
     def _two_opt_refinement(
         self,
