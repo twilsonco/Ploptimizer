@@ -12,6 +12,7 @@ from dataclasses import replace
 from typing import List, Optional, Tuple
 
 from plt_optimizer.core.chunker import MacroBlock
+from plt_optimizer.core.intra_chunk_optimizer import IntraChunkResult, PathTraverseState
 from plt_optimizer.core.models import (
     _segment_length,
     ArcSegment,
@@ -76,6 +77,7 @@ class Reassembler:
         original_document: PLTDocument,
         blocks: List[MacroBlock],
         optimization_result: OptimizationResult,
+        intra_chunk_results: Optional[List[IntraChunkResult]] = None,
     ) -> PLTDocument:
         """Reconstruct an optimized PLTDocument from MacroBlocks.
 
@@ -83,6 +85,9 @@ class Reassembler:
             original_document: The original parsed document (for headers/footers).
             blocks: All MacroBlocks that were optimized.
             optimization_result: Result containing optimal traversal order.
+            intra_chunk_results: Optional list of IntraChunkResult, one per block
+                in original block order. If provided, paths within each block are
+                reordered/reversed according to the intra-chunk optimization.
 
         Returns:
             A new PLTDocument with strokes in optimized sequence.
@@ -97,21 +102,36 @@ class Reassembler:
         # Build map of block_id to MacroBlock for quick lookup
         block_map = {block.block_id: block for block in blocks}
 
+        # Build intra-chunk result map if provided
+        intra_map: dict[int, IntraChunkResult] = {}
+        if intra_chunk_results is not None:
+            for i, b in enumerate(blocks):
+                if i < len(intra_chunk_results):
+                    intra_map[b.block_id] = intra_chunk_results[i]
+
         # Reconstruct optimized stroke paths
         optimized_paths: List[StrokePath] = []
 
         for traverse_state in optimization_result.traverse_order:
-            block = block_map.get(traverse_state.block_id)
-            if block is None:
+            maybe_block = block_map.get(traverse_state.block_id)
+            if maybe_block is None:
                 raise ReassemblerError(
                     f"Block {traverse_state.block_id} not found in chunked blocks"
                 )
+            current_block: MacroBlock = maybe_block
+
+            # Get intra-chunk result if available
+            intra_result = intra_map.get(current_block.block_id)
 
             # Process paths based on whether this block should be reversed
             if traverse_state.reversed:
-                processed_paths = self._reverse_block_paths(block.paths)
+                processed_paths = self._reverse_block_paths(
+                    current_block.paths, intra_result
+                )
             else:
-                processed_paths = list(block.paths)
+                processed_paths = self._apply_intra_chunk_order(
+                    current_block.paths, intra_result
+                )
 
             optimized_paths.extend(processed_paths)
 
@@ -126,13 +146,101 @@ class Reassembler:
 
         return result_doc
 
-    def _reverse_block_paths(self, paths: Tuple[StrokePath, ...]) -> List[StrokePath]:
+    def _apply_intra_chunk_order(
+        self,
+        paths: Tuple[StrokePath, ...],
+        intra_result: Optional[IntraChunkResult],
+    ) -> List[StrokePath]:
+        """Apply intra-chunk optimized order without reversing entire block.
+
+        Args:
+            paths: Original tuple of stroke paths.
+            intra_result: Intra-chunk optimization result or None.
+
+        Returns:
+            List of stroke paths in intra-chunk optimized order/direction.
+        """
+        if intra_result is None:
+            return list(paths)
+
+        reordered_paths: List[StrokePath] = []
+
+        for path_state in intra_result.traverse_order:
+            original_path = paths[path_state.path_index]
+            if not original_path.segments:
+                continue
+
+            if path_state.reversed:
+                reversed_segments = self._reverse_segment_order(original_path)
+                new_pen_up: Optional[Coordinate] = (
+                    reversed_segments[0].start if reversed_segments
+                    else original_path.pen_up_position
+                )
+                reordered_paths.append(StrokePath(
+                    pen_up_position=new_pen_up,
+                    segments=tuple(reversed_segments),
+                ))
+            else:
+                reordered_paths.append(original_path)
+
+        return reordered_paths
+
+    def _reverse_block_paths(
+        self,
+        paths: Tuple[StrokePath, ...],
+        intra_result: Optional[IntraChunkResult] = None,
+    ) -> List[StrokePath]:
         """Reverse the order of paths and all segments within each path.
 
         When a block must be traversed in reverse (right-to-left), we need to:
         1. Reverse the sequence of StrokePaths within the block
-        2. For each StrokePath, reverse the segment order
-        3. Swap start/end coordinates of every individual segment
+        2. For each StrokePath, reverse the segment order if not already optimized
+
+        Args:
+            paths: Original tuple of stroke paths.
+            intra_result: Optional intra-chunk result for direction info.
+
+        Returns:
+            List of reversed and transformed stroke paths.
+        """
+        if intra_result is None:
+            return self._reverse_paths_simple(paths)
+
+        reordered = self._apply_intra_chunk_order(paths, intra_result)
+        return list(reversed(reordered))
+
+    def _reverse_segment_order(self, path: StrokePath) -> List[Segment]:
+        """Reverse the order of segments within a path and swap coordinates.
+
+        Args:
+            path: Original stroke path.
+
+        Returns:
+            List of segments in reverse order with swapped start/end.
+        """
+        new_segments: List[Segment] = []
+
+        for segment in reversed(path.segments):
+            if isinstance(segment, ArcSegment):
+                new_segment: Segment = ArcSegment(
+                    start=segment.end,
+                    end=segment.start,
+                    center=segment.center,
+                    sweep_angle=-segment.sweep_angle,
+                    is_cutting=segment.is_cutting,
+                )
+            else:
+                new_segment = StrokeSegment(
+                    start=segment.end,
+                    end=segment.start,
+                    is_cutting=segment.is_cutting,
+                )
+            new_segments.append(new_segment)
+
+        return new_segments
+
+    def _reverse_paths_simple(self, paths: Tuple[StrokePath, ...]) -> List[StrokePath]:
+        """Simple path reversal without intra-chunk optimization.
 
         Args:
             paths: Original tuple of stroke paths.
@@ -142,36 +250,20 @@ class Reassembler:
         """
         reversed_paths: List[StrokePath] = []
 
-        # Reverse path order
         for path in reversed(paths):
             if not path.segments:
                 continue
 
-            # Collect all coordinates from the original path in reverse segment order
-            new_segments: List[StrokeSegment] = []
+            new_segments = self._reverse_segment_order(path)
 
-            # Process segments in reverse, swapping start and end
-            for segment in reversed(path.segments):
-                # Create a new segment with swapped coordinates
-                new_segment = StrokeSegment(
-                    start=segment.end,
-                    end=segment.start,
-                    is_cutting=segment.is_cutting,
-                )
-                new_segments.append(new_segment)
+            new_pen_up: Optional[Coordinate] = (
+                new_segments[0].start if new_segments else path.pen_up_position
+            )
 
-            # The pen_up_position should now point to where we enter this path
-            # (which was the original exit)
-            if new_segments:
-                new_pen_up: Optional[Coordinate] = new_segments[0].start
-            else:
-                new_pen_up = path.pen_up_position
-
-            reversed_path = StrokePath(
+            reversed_paths.append(StrokePath(
                 pen_up_position=new_pen_up,
                 segments=tuple(new_segments),
-            )
-            reversed_paths.append(reversed_path)
+            ))
 
         return reversed_paths
 
