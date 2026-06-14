@@ -299,7 +299,13 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
 
     The 2-opt algorithm iteratively reverses segments of the tour when doing so
     reduces total distance, effectively eliminating crossing paths.
+
+    When no initial position is specified, this strategy evaluates multiple candidate
+    starting points (the N closest endpoints to origin) and selects the one that
+    yields the minimum total travel distance.
     """
+
+    DEFAULT_N_CANDIDATES: int = 3
 
     @property
     def name(self) -> str:
@@ -312,6 +318,10 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
         initial_position: Optional[Tuple[float, float]] = None,
     ) -> OptimizationResult:
         """Optimize using nearest neighbor greedy algorithm with 2-opt refinement.
+
+        When no initial_position is specified, this method evaluates multiple
+        candidate starting points (the N closest endpoints to origin) and selects
+        the one that yields minimum total travel distance.
 
         Args:
             blocks: List of MacroBlocks to optimize.
@@ -332,32 +342,53 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
 
         # Determine starting position - find endpoint closest to origin if not specified
         if initial_position is None:
-            start_pos, first_block_idx, start_at_exit = self._find_nearest_origin_endpoint(
-                blocks, origin=(0.0, 0.0)
+            candidates = self._find_nearest_origin_endpoints(
+                blocks, origin=(0.0, 0.0), n_candidates=self.DEFAULT_N_CANDIDATES
             )
-            # Phase 1: Greedy nearest neighbor construction with forced first block
-            tour = self._greedy_nearest_neighbor_from_start(
-                blocks, start_pos, forced_first_block=first_block_idx,
-                forced_first_reversed=start_at_exit
-            )
+            self._logger.debug(f"Evaluating {len(candidates)} starting candidates")
+
+            best_result: Optional[OptimizationResult] = None
+
+            for start_pos, first_block_idx, start_at_exit, _dist in candidates:
+                tour = self._greedy_nearest_neighbor_from_start(
+                    blocks, start_pos, forced_first_block=first_block_idx,
+                    forced_first_reversed=start_at_exit
+                )
+
+                if len(tour) > 3:
+                    tour = self._two_opt_refinement(tour, blocks)
+
+                connections = self._build_connections(blocks, tour, start_pos)
+                total_distance = sum(c.travel_distance for c in connections if c.source_block_id >= 0)
+
+                candidate_result = OptimizationResult(
+                    traverse_order=tuple(tour),
+                    connections=connections,
+                    total_travel_distance=total_distance,
+                    initial_position=start_pos,
+                )
+
+                if best_result is None or candidate_result.total_travel_distance < best_result.total_travel_distance:
+                    best_result = candidate_result
+                    self._logger.debug(f"New best: distance={candidate_result.total_travel_distance:.3f} from candidate at {start_pos}")
+
+            return best_result  # type: ignore[return-value]
         else:
             start_pos = initial_position
-            # Phase 1: Greedy nearest neighbor construction
             tour = self._greedy_nearest_neighbor(blocks, start_pos)
 
-        # Phase 2: 2-opt refinement
-        if len(tour) > 3:
-            tour = self._two_opt_refinement(tour, blocks)
+            if len(tour) > 3:
+                tour = self._two_opt_refinement(tour, blocks)
 
-        connections = self._build_connections(blocks, tour, start_pos)
-        total_distance = sum(c.travel_distance for c in connections if c.source_block_id >= 0)
+            connections = self._build_connections(blocks, tour, start_pos)
+            total_distance = sum(c.travel_distance for c in connections if c.source_block_id >= 0)
 
-        return OptimizationResult(
-            traverse_order=tuple(tour),
-            connections=connections,
-            total_travel_distance=total_distance,
-            initial_position=start_pos,
-        )
+            return OptimizationResult(
+                traverse_order=tuple(tour),
+                connections=connections,
+                total_travel_distance=total_distance,
+                initial_position=start_pos,
+            )
 
     def _greedy_nearest_neighbor(
         self,
@@ -419,6 +450,47 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
 
         return tour
 
+    def _find_nearest_origin_endpoints(
+        self,
+        blocks: List[MacroBlock],
+        origin: Tuple[float, float] = (0.0, 0.0),
+        n_candidates: int = 5,
+    ) -> List[Tuple[Tuple[float, float], int, bool, float]]:
+        """Find the N block endpoints nearest to the origin.
+
+        This ensures the optimization evaluates multiple starting candidates
+        when there are ties or near-ties for closest endpoint to origin.
+
+        Args:
+            blocks: List of MacroBlocks to search.
+            origin: Reference point for distance calculation (default origin).
+            n_candidates: Number of closest endpoints to return.
+
+        Returns:
+            List of tuples sorted by distance: [(position, block_index, is_exit, distance), ...].
+            - position: (x, y) coordinates of the endpoint
+            - block_index: index of the block containing this endpoint
+            - is_exit: True if endpoint is block's exit (needs reversal)
+            - distance: Euclidean distance from origin
+        """
+        candidates: List[Tuple[float, Tuple[Tuple[float, float], int, bool]]] = []
+
+        for i, block in enumerate(blocks):
+            dist_entrance = math.sqrt(
+                (block.entrance.x - origin[0]) ** 2
+                + (block.entrance.y - origin[1]) ** 2
+            )
+            candidates.append((dist_entrance, ((block.entrance.x, block.entrance.y), i, False)))
+
+            dist_exit = math.sqrt(
+                (block.exit.x - origin[0]) ** 2
+                + (block.exit.y - origin[1]) ** 2
+            )
+            candidates.append((dist_exit, ((block.exit.x, block.exit.y), i, True)))
+
+        candidates.sort(key=lambda x: x[0])
+        return [(pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]]
+
     def _find_nearest_origin_endpoint(
         self,
         blocks: List[MacroBlock],
@@ -439,35 +511,9 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
             - block_index: index of the block containing this endpoint
             - is_exit: True if nearest position is block's exit (needs reversal)
         """
-        min_distance = float('inf')
-        nearest_pos: Tuple[float, float] = (0.0, 0.0)
-        best_block_idx = 0
-        best_is_exit = False
-
-        for i, block in enumerate(blocks):
-            # Check entrance
-            dist_entrance = math.sqrt(
-                (block.entrance.x - origin[0]) ** 2
-                + (block.entrance.y - origin[1]) ** 2
-            )
-            if dist_entrance < min_distance:
-                min_distance = dist_entrance
-                nearest_pos = (block.entrance.x, block.entrance.y)
-                best_block_idx = i
-                best_is_exit = False
-
-            # Check exit
-            dist_exit = math.sqrt(
-                (block.exit.x - origin[0]) ** 2
-                + (block.exit.y - origin[1]) ** 2
-            )
-            if dist_exit < min_distance:
-                min_distance = dist_exit
-                nearest_pos = (block.exit.x, block.exit.y)
-                best_block_idx = i
-                best_is_exit = True
-
-        return (nearest_pos, best_block_idx, best_is_exit)
+        candidates = self._find_nearest_origin_endpoints(blocks, origin, n_candidates=1)
+        pos, idx, is_exit, _ = candidates[0]
+        return (pos, idx, is_exit)
 
     def _greedy_nearest_neighbor_from_start(
         self,
