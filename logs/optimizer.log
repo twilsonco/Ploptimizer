@@ -6838,3 +6838,139 @@
 2026-06-14 00:07:50 | INFO     | plt_optimizer | Generating before-optimization plot
 2026-06-14 00:07:50 | INFO     | plt_optimizer | Generating after-optimization plot
 2026-06-14 00:07:50 | INFO     | plt_optimizer | Writing PLT file: 2026-06-1022sheet0_optimized.plt
+2026-06-14 01:14:55 | INFO     | plt_optimizer | Switching intra-chunk strategy: NoOp-Intra (Baseline) -> NearestNeighbor-Intra + 2-Opt
+2026-06-14 01:15:10 | INFO     | plt_optimizer | Chunking 1 stroke paths with threshold=150.000 (baseline_extent=100.000, multiplier=1.5)
+2026-06-14 01:15:10 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-06-14 01:15:10 | INFO     | plt_optimizer | Chunking 3 stroke paths with threshold=15.000 (baseline_extent=10.000, multiplier=1.5)
+2026-06-14 01:15:10 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-06-14 01:15:10 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=15.000 (baseline_extent=10.000, multiplier=1.5)
+2026-06-14 01:15:10 | INFO     | plt_optimizer | Created 2 MacroBlocks
+2026-06-14 01:15:10 | INFO     | plt_optimizer | Chunking 3 stroke paths with threshold=15.000 (baseline_extent=10.000, multiplier=1.5)
+2026-06-14 01:15:10 | INFO     | plt_optimizer | Chunking 3 stroke paths with threshold=15.000 (baseline_extent=10.000, multiplier=1.5)
+2026-06-14 01:15:10 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=150.000 (baseline_extent=100.000, multiplier=1.5)
+2026-06-14 01:15:10 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-06-14 01:15:10 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=15.000 (baseline_extent=10.000, multiplier=1.5)
+2026-06-14 01:15:10 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-06-14 01:15:10 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=100.000 (baseline_extent=10.000, multiplier=10.0)
+2026-06-14 01:15:10 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-06-14 01:15:10 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmp5d0uw_e6/input.plt
+2026-06-14 01:15:10 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmp5d0uw_e6/output.plt
+2026-06-14 01:15:10 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmp5d0uw_e6/output.plt
+2026-06-14 01:15:10 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-14 01:15:10 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-14 01:15:10 | INFO     | plt_optimizer | Writing PLT file: /nonexistent/path/that/does/not/exist/file.plt
+2026-06-14 01:15:10 | INFO     | plt_optimizer | Switching intra-chunk strategy: NoOp-Intra (Baseline) -> NearestNeighbor-Intra + 2-Opt
+2026-06-14 01:15:10 | INFO     | plt_optimizer | info message
+2026-06-14 01:15:10 | WARNING  | plt_optimizer | warning message
+2026-06-14 01:15:10 | ERROR    | plt_optimizer | error message
+2026-06-14 01:15:10 | CRITICAL | plt_optimizer | critical message
+2026-06-14 01:15:11 | INFO     | plt_optimizer | Running NoOp (Baseline) on 2 blocks
+2026-06-14 01:15:11 | INFO     | plt_optimizer | Running NoOp (Baseline) on 0 blocks
+2026-06-14 01:15:11 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-06-14 01:15:11 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-06-14 01:15:11 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-06-14 01:15:11 | INFO     | plt_optimizer | Switching optimization strategy: NoOp (Baseline) -> NearestNeighbor + 2-Opt
+2026-06-14 01:15:11 | INFO     | plt_optimizer | Starting optimization with NoOp (Baseline) on 1 blocks
+2026-06-14 01:15:11 | INFO     | plt_optimizer | Running NoOp (Baseline) on 1 blocks
+2026-06-14 01:15:11 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-06-14 01:15:11 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 2 blocks
+2026-06-14 01:15:11 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-06-14 01:15:11 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=90.000
+2026-06-14 01:15:11 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpyiujo95j/test.plt
+2026-06-14 01:15:11 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-14 01:15:11 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-14 01:15:11 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-14 01:15:11 | WARNING  | plt_optimizer | Unknown command 'UNKNOWN123', treating as header
+2026-06-14 01:15:11 | WARNING  | plt_optimizer | Unknown command 'FOO:1,2', treating as header
+2026-06-14 01:15:31 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-14 01:15:31 | INFO     | plt_optimizer | Profiling complete: baseline_extent=100.000, total_cutting_strokes=1
+2026-06-14 01:15:31 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-14 01:15:31 | INFO     | plt_optimizer | Profiling complete: baseline_extent=100.000, total_cutting_strokes=5
+2026-06-14 01:15:31 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-14 01:15:31 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-14 01:15:31 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-14 01:15:31 | INFO     | plt_optimizer | Profiling complete: baseline_extent=100.000, total_cutting_strokes=1
+2026-06-14 01:15:31 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-14 01:15:31 | INFO     | plt_optimizer | Profiling complete: baseline_extent=100.000, total_cutting_strokes=20
+2026-06-14 01:15:31 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-14 01:15:31 | INFO     | plt_optimizer | Profiling complete: baseline_extent=42.000, total_cutting_strokes=1
+2026-06-14 01:15:31 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-14 01:15:31 | INFO     | plt_optimizer | Profiling complete: baseline_extent=100.000, total_cutting_strokes=3
+2026-06-14 01:15:31 | INFO     | plt_optimizer | Reassembling document with 2 blocks
+2026-06-14 01:15:31 | INFO     | plt_optimizer | Reassembly complete: 2 paths
+2026-06-14 01:15:31 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-06-14 01:15:31 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-06-14 01:15:31 | INFO     | plt_optimizer | Reassembling document with 2 blocks
+2026-06-14 01:15:31 | INFO     | plt_optimizer | Reassembly complete: 2 paths
+2026-06-14 01:15:31 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-06-14 01:15:31 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpbdx8d1x6/nested/path/output.plt
+2026-06-14 01:15:31 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpo2h1wbh0/output.plt
+2026-06-14 01:15:31 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmptv3i9rnh/output.plt
+2026-06-14 01:15:31 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpo0efmnjb/subdir/nested/output.plt
+2026-06-14 01:16:00 | INFO     | plt_optimizer | Chunking 3 stroke paths with threshold=15.000 (baseline_extent=10.000, multiplier=1.5)
+2026-06-14 01:17:31 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpkipde_tm/input.plt
+2026-06-14 01:17:31 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmpkipde_tm/output.plt
+2026-06-14 01:17:31 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmpkipde_tm/output.plt
+2026-06-14 01:17:31 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-14 01:17:31 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-14 01:17:31 | INFO     | plt_optimizer | Writing PLT file: /nonexistent/path/that/does/not/exist/file.plt
+2026-06-14 01:17:31 | INFO     | plt_optimizer | Reassembling document with 2 blocks
+2026-06-14 01:17:31 | INFO     | plt_optimizer | Reassembly complete: 2 paths
+2026-06-14 01:17:31 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-06-14 01:17:31 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-06-14 01:17:31 | INFO     | plt_optimizer | Reassembling document with 2 blocks
+2026-06-14 01:17:31 | INFO     | plt_optimizer | Reassembly complete: 2 paths
+2026-06-14 01:17:31 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-06-14 01:22:14 | INFO     | plt_optimizer | Switching intra-chunk strategy: NoOp-Intra (Baseline) -> NearestNeighbor-Intra + 2-Opt
+2026-06-14 01:23:04 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmps4it6h3b/input.plt
+2026-06-14 01:23:04 | INFO     | plt_optimizer | Writing PLT file: /tmp/tmps4it6h3b/output.plt
+2026-06-14 01:23:04 | INFO     | plt_optimizer | Parsing PLT file: /tmp/tmps4it6h3b/output.plt
+2026-06-14 01:23:04 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-14 01:23:04 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-14 01:23:04 | INFO     | plt_optimizer | Writing PLT file: /nonexistent/path/that/does/not/exist/file.plt
+2026-06-14 01:23:04 | INFO     | plt_optimizer | Reassembling document with 2 blocks
+2026-06-14 01:23:04 | INFO     | plt_optimizer | Reassembly complete: 2 paths
+2026-06-14 01:23:04 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-06-14 01:23:04 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-06-14 01:23:04 | INFO     | plt_optimizer | Reassembling document with 2 blocks
+2026-06-14 01:23:04 | INFO     | plt_optimizer | Reassembly complete: 2 paths
+2026-06-14 01:23:04 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-06-14 01:23:04 | INFO     | plt_optimizer | Switching intra-chunk strategy: NoOp-Intra (Baseline) -> NearestNeighbor-Intra + 2-Opt
+2026-06-14 02:10:33 | INFO     | plt_optimizer | Parsing user file: 2026-06-1022sheet0.plt
+2026-06-14 02:10:33 | INFO     | plt_optimizer | Parsing PLT file: 2026-06-1022sheet0.plt
+2026-06-14 02:10:33 | INFO     | plt_optimizer | Starting optimization pipeline
+2026-06-14 02:10:33 | INFO     | plt_optimizer | Step 1/4: Profiling document for baseline extent
+2026-06-14 02:10:33 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-14 02:10:33 | INFO     | plt_optimizer | Profiling complete: baseline_extent=18288.000, total_cutting_strokes=44
+2026-06-14 02:10:33 | INFO     | plt_optimizer | Step 2/4: Chunking stroke paths into MacroBlocks
+2026-06-14 02:10:33 | INFO     | plt_optimizer | Chunking 11 stroke paths with threshold=27432.000 (baseline_extent=18288.000, multiplier=1.5)
+2026-06-14 02:10:33 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-06-14 02:10:33 | INFO     | plt_optimizer | Step 3/4: Optimizing block traversal order
+2026-06-14 02:10:33 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 1 blocks
+2026-06-14 02:10:33 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-06-14 02:10:33 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-06-14 02:10:33 | INFO     | plt_optimizer | Step 4/4: Reassembling document with optimized block order
+2026-06-14 02:10:33 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-06-14 02:10:33 | INFO     | plt_optimizer | Reassembly complete: 11 paths
+2026-06-14 02:10:33 | INFO     | plt_optimizer | Generating before-optimization plot
+2026-06-14 02:10:33 | INFO     | plt_optimizer | Generating after-optimization plot
+2026-06-14 02:10:33 | INFO     | plt_optimizer | Writing PLT file: 2026-06-1022sheet0_optimized.plt
+2026-06-14 02:28:04 | INFO     | plt_optimizer | Parsing user file: examples/test_complex_badges11sheet1.plt
+2026-06-14 02:28:04 | INFO     | plt_optimizer | Parsing PLT file: examples/test_complex_badges11sheet1.plt
+2026-06-14 02:28:05 | INFO     | plt_optimizer | Starting optimization pipeline
+2026-06-14 02:28:05 | INFO     | plt_optimizer | Step 1/4: Profiling document for baseline extent
+2026-06-14 02:28:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-14 02:28:05 | INFO     | plt_optimizer | Profiling complete: baseline_extent=225.120, total_cutting_strokes=3295
+2026-06-14 02:28:05 | INFO     | plt_optimizer | Step 2/4: Chunking stroke paths into MacroBlocks
+2026-06-14 02:28:05 | INFO     | plt_optimizer | Chunking 1781 stroke paths with threshold=337.680 (baseline_extent=225.120, multiplier=1.5)
+2026-06-14 02:28:05 | INFO     | plt_optimizer | Created 234 MacroBlocks
+2026-06-14 02:28:05 | INFO     | plt_optimizer | Step 3/4: Optimizing block traversal order
+2026-06-14 02:28:05 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 234 blocks
+2026-06-14 02:28:05 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 234 blocks
+2026-06-14 02:28:05 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=187522.373
+2026-06-14 02:28:05 | INFO     | plt_optimizer | Step 4/4: Reassembling document with optimized block order
+2026-06-14 02:28:05 | INFO     | plt_optimizer | Reassembling document with 234 blocks
+2026-06-14 02:28:05 | INFO     | plt_optimizer | Reassembly complete: 1781 paths
+2026-06-14 02:28:05 | INFO     | plt_optimizer | Generating before-optimization plot
+2026-06-14 02:28:11 | INFO     | plt_optimizer | Generating after-optimization plot
+2026-06-14 02:28:17 | INFO     | plt_optimizer | Writing PLT file: examples/test_complex_badges11sheet1_optimized.plt

@@ -60,3 +60,8 @@ timestamp,job_id,original_file,optimized_file,original_total_distance,optimized_
 2026-06-13T22:59:45.868616,test_job,input.plt,,0.000,100.000,0.00%,success
 2026-06-13T23:00:32.641976,user_20260613_230032,/home/haiiro/dev/PLT-Optimizer/examples/../2026-06-1011sheet0.plt,/home/haiiro/dev/PLT-Optimizer/examples/../2026-06-1011sheet0_optimized.plt,265038.171,29500.717,88.87%,success
 2026-06-14T00:07:50.665645,user_20260614_000750,2026-06-1022sheet0.plt,2026-06-1022sheet0_optimized.plt,30855.226,0.000,100.00%,success
+2026-06-14T01:15:31.169639,test_job,input.plt,,0.000,100.000,0.00%,success
+2026-06-14T01:17:31.965481,test_job,input.plt,,0.000,100.000,0.00%,success
+2026-06-14T01:23:04.091508,test_job,input.plt,,0.000,100.000,0.00%,success
+2026-06-14T02:10:33.558202,user_20260614_021033,2026-06-1022sheet0.plt,2026-06-1022sheet0_optimized.plt,30855.226,0.000,100.00%,success
+2026-06-14T02:28:17.956485,user_20260614_022817,examples/test_complex_badges11sheet1.plt,examples/test_complex_badges11sheet1_optimized.plt,768780.898,187522.373,75.61%,success

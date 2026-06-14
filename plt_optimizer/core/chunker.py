@@ -76,9 +76,13 @@ class ChunkerConfig:
             the jump threshold. Default is 1.5x.
         min_block_size: Minimum number of paths required to form a valid block.
             Blocks smaller than this are merged with neighbors. Default is 1.
+        enable_intra_chunk_optimization: Whether to optimize stroke path order and
+            direction within each block. When enabled, intra-chunk optimization runs
+            before inter-chunk routing to reduce internal rapid travel. Default is True.
     """
     threshold_multiplier: float = 1.5
     min_block_size: int = 1
+    enable_intra_chunk_optimization: bool = True
 
 
 class Chunker:
