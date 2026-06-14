@@ -65,3 +65,7 @@ timestamp,job_id,original_file,optimized_file,original_total_distance,optimized_
 2026-06-14T01:23:04.091508,test_job,input.plt,,0.000,100.000,0.00%,success
 2026-06-14T02:10:33.558202,user_20260614_021033,2026-06-1022sheet0.plt,2026-06-1022sheet0_optimized.plt,30855.226,0.000,100.00%,success
 2026-06-14T02:28:17.956485,user_20260614_022817,examples/test_complex_badges11sheet1.plt,examples/test_complex_badges11sheet1_optimized.plt,768780.898,187522.373,75.61%,success
+2026-06-14T16:12:43.183385,user_20260614_161243,examples/2026-06-1011sheet0.plt,examples/2026-06-1011sheet0_optimized.plt,265038.171,29500.717,88.87%,success
+2026-06-14T16:13:40.384820,user_20260614_161340,examples/test_complex_badges11sheet1.plt,examples/test_complex_badges11sheet1_optimized.plt,768780.898,187023.245,75.67%,success
+2026-06-14T16:19:08.540807,user_20260614_161908,examples/test_complex_badges11sheet1.plt,examples/test_complex_badges11sheet1_optimized.plt,768780.898,144630.509,81.19%,success
+2026-06-14T16:19:40.214335,user_20260614_161940,examples/test_complex_badges11sheet1.plt,examples/test_complex_badges11sheet1_optimized.plt,768780.898,144111.628,81.25%,success

@@ -6974,3 +6974,113 @@
 2026-06-14 02:28:05 | INFO     | plt_optimizer | Generating before-optimization plot
 2026-06-14 02:28:11 | INFO     | plt_optimizer | Generating after-optimization plot
 2026-06-14 02:28:17 | INFO     | plt_optimizer | Writing PLT file: examples/test_complex_badges11sheet1_optimized.plt
+2026-06-14 05:33:36 | INFO     | plt_optimizer | Running NoOp (Baseline) on 2 blocks
+2026-06-14 05:33:36 | INFO     | plt_optimizer | Running NoOp (Baseline) on 0 blocks
+2026-06-14 05:33:36 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-06-14 05:33:36 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-06-14 05:33:36 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-06-14 05:33:36 | INFO     | plt_optimizer | Switching optimization strategy: NoOp (Baseline) -> NearestNeighbor + 2-Opt
+2026-06-14 05:33:36 | INFO     | plt_optimizer | Starting optimization with NoOp (Baseline) on 1 blocks
+2026-06-14 05:33:36 | INFO     | plt_optimizer | Running NoOp (Baseline) on 1 blocks
+2026-06-14 05:33:36 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-06-14 05:33:36 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 2 blocks
+2026-06-14 05:33:36 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-06-14 05:33:36 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=90.000
+2026-06-14 05:35:13 | INFO     | plt_optimizer | Running NoOp (Baseline) on 2 blocks
+2026-06-14 05:35:13 | INFO     | plt_optimizer | Running NoOp (Baseline) on 0 blocks
+2026-06-14 05:35:13 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-06-14 05:35:13 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-06-14 05:35:13 | INFO     | plt_optimizer | Switching optimization strategy: NoOp (Baseline) -> NearestNeighbor + 2-Opt
+2026-06-14 05:35:13 | INFO     | plt_optimizer | Starting optimization with NoOp (Baseline) on 1 blocks
+2026-06-14 05:35:13 | INFO     | plt_optimizer | Running NoOp (Baseline) on 1 blocks
+2026-06-14 05:35:13 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-06-14 05:35:13 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 2 blocks
+2026-06-14 05:35:13 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-06-14 05:35:13 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=90.000
+2026-06-14 05:36:27 | INFO     | plt_optimizer | Running NoOp (Baseline) on 2 blocks
+2026-06-14 05:36:27 | INFO     | plt_optimizer | Running NoOp (Baseline) on 0 blocks
+2026-06-14 05:36:27 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-06-14 05:36:27 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-06-14 05:36:27 | INFO     | plt_optimizer | Switching optimization strategy: NoOp (Baseline) -> NearestNeighbor + 2-Opt
+2026-06-14 05:36:27 | INFO     | plt_optimizer | Starting optimization with NoOp (Baseline) on 1 blocks
+2026-06-14 05:36:27 | INFO     | plt_optimizer | Running NoOp (Baseline) on 1 blocks
+2026-06-14 05:36:27 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-06-14 05:36:27 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 2 blocks
+2026-06-14 05:36:27 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-06-14 05:36:27 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=90.000
+2026-06-14 16:12:41 | INFO     | plt_optimizer | Parsing user file: examples/2026-06-1011sheet0.plt
+2026-06-14 16:12:41 | INFO     | plt_optimizer | Parsing PLT file: examples/2026-06-1011sheet0.plt
+2026-06-14 16:12:41 | INFO     | plt_optimizer | Starting optimization pipeline
+2026-06-14 16:12:41 | INFO     | plt_optimizer | Step 1/4: Profiling document for baseline extent
+2026-06-14 16:12:41 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-14 16:12:41 | INFO     | plt_optimizer | Profiling complete: baseline_extent=1016.453, total_cutting_strokes=383
+2026-06-14 16:12:41 | INFO     | plt_optimizer | Step 2/4: Chunking stroke paths into MacroBlocks
+2026-06-14 16:12:41 | INFO     | plt_optimizer | Chunking 214 stroke paths with threshold=1524.680 (baseline_extent=1016.453, multiplier=1.5)
+2026-06-14 16:12:41 | INFO     | plt_optimizer | Created 12 MacroBlocks
+2026-06-14 16:12:41 | INFO     | plt_optimizer | Step 3/4: Optimizing block traversal order
+2026-06-14 16:12:41 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 12 blocks
+2026-06-14 16:12:41 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 12 blocks
+2026-06-14 16:12:41 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=29500.717
+2026-06-14 16:12:41 | INFO     | plt_optimizer | Step 4/4: Reassembling document with optimized block order
+2026-06-14 16:12:41 | INFO     | plt_optimizer | Reassembling document with 12 blocks
+2026-06-14 16:12:41 | INFO     | plt_optimizer | Reassembly complete: 214 paths
+2026-06-14 16:12:41 | INFO     | plt_optimizer | Generating before-optimization plot
+2026-06-14 16:12:42 | INFO     | plt_optimizer | Generating after-optimization plot
+2026-06-14 16:12:43 | INFO     | plt_optimizer | Writing PLT file: examples/2026-06-1011sheet0_optimized.plt
+2026-06-14 16:13:27 | INFO     | plt_optimizer | Parsing user file: examples/test_complex_badges11sheet1.plt
+2026-06-14 16:13:27 | INFO     | plt_optimizer | Parsing PLT file: examples/test_complex_badges11sheet1.plt
+2026-06-14 16:13:27 | INFO     | plt_optimizer | Starting optimization pipeline
+2026-06-14 16:13:27 | INFO     | plt_optimizer | Step 1/4: Profiling document for baseline extent
+2026-06-14 16:13:27 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-14 16:13:27 | INFO     | plt_optimizer | Profiling complete: baseline_extent=225.120, total_cutting_strokes=3295
+2026-06-14 16:13:27 | INFO     | plt_optimizer | Step 2/4: Chunking stroke paths into MacroBlocks
+2026-06-14 16:13:27 | INFO     | plt_optimizer | Chunking 1781 stroke paths with threshold=337.680 (baseline_extent=225.120, multiplier=1.5)
+2026-06-14 16:13:27 | INFO     | plt_optimizer | Created 234 MacroBlocks
+2026-06-14 16:13:27 | INFO     | plt_optimizer | Step 3/4: Optimizing block traversal order
+2026-06-14 16:13:27 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 234 blocks
+2026-06-14 16:13:27 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 234 blocks
+2026-06-14 16:13:27 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=187023.245
+2026-06-14 16:13:27 | INFO     | plt_optimizer | Step 4/4: Reassembling document with optimized block order
+2026-06-14 16:13:27 | INFO     | plt_optimizer | Reassembling document with 234 blocks
+2026-06-14 16:13:27 | INFO     | plt_optimizer | Reassembly complete: 1781 paths
+2026-06-14 16:13:27 | INFO     | plt_optimizer | Generating before-optimization plot
+2026-06-14 16:13:34 | INFO     | plt_optimizer | Generating after-optimization plot
+2026-06-14 16:13:40 | INFO     | plt_optimizer | Writing PLT file: examples/test_complex_badges11sheet1_optimized.plt
+2026-06-14 16:18:55 | INFO     | plt_optimizer | Parsing user file: examples/test_complex_badges11sheet1.plt
+2026-06-14 16:18:55 | INFO     | plt_optimizer | Parsing PLT file: examples/test_complex_badges11sheet1.plt
+2026-06-14 16:18:55 | INFO     | plt_optimizer | Starting optimization pipeline
+2026-06-14 16:18:55 | INFO     | plt_optimizer | Step 1/4: Profiling document for baseline extent
+2026-06-14 16:18:55 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-14 16:18:55 | INFO     | plt_optimizer | Profiling complete: baseline_extent=225.120, total_cutting_strokes=3295
+2026-06-14 16:18:55 | INFO     | plt_optimizer | Step 2/4: Chunking stroke paths into MacroBlocks
+2026-06-14 16:18:55 | INFO     | plt_optimizer | Chunking 1781 stroke paths with threshold=450.240 (baseline_extent=225.120, multiplier=2.0)
+2026-06-14 16:18:55 | INFO     | plt_optimizer | Created 145 MacroBlocks
+2026-06-14 16:18:55 | INFO     | plt_optimizer | Step 3/4: Optimizing block traversal order
+2026-06-14 16:18:55 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 145 blocks
+2026-06-14 16:18:55 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 145 blocks
+2026-06-14 16:18:55 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=144630.509
+2026-06-14 16:18:55 | INFO     | plt_optimizer | Step 4/4: Reassembling document with optimized block order
+2026-06-14 16:18:55 | INFO     | plt_optimizer | Reassembling document with 145 blocks
+2026-06-14 16:18:55 | INFO     | plt_optimizer | Reassembly complete: 1781 paths
+2026-06-14 16:18:55 | INFO     | plt_optimizer | Generating before-optimization plot
+2026-06-14 16:19:02 | INFO     | plt_optimizer | Generating after-optimization plot
+2026-06-14 16:19:08 | INFO     | plt_optimizer | Writing PLT file: examples/test_complex_badges11sheet1_optimized.plt
+2026-06-14 16:19:27 | INFO     | plt_optimizer | Parsing user file: examples/test_complex_badges11sheet1.plt
+2026-06-14 16:19:27 | INFO     | plt_optimizer | Parsing PLT file: examples/test_complex_badges11sheet1.plt
+2026-06-14 16:19:27 | INFO     | plt_optimizer | Starting optimization pipeline
+2026-06-14 16:19:27 | INFO     | plt_optimizer | Step 1/4: Profiling document for baseline extent
+2026-06-14 16:19:27 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-14 16:19:27 | INFO     | plt_optimizer | Profiling complete: baseline_extent=225.120, total_cutting_strokes=3295
+2026-06-14 16:19:27 | INFO     | plt_optimizer | Step 2/4: Chunking stroke paths into MacroBlocks
+2026-06-14 16:19:27 | INFO     | plt_optimizer | Chunking 1781 stroke paths with threshold=562.800 (baseline_extent=225.120, multiplier=2.5)
+2026-06-14 16:19:27 | INFO     | plt_optimizer | Created 144 MacroBlocks
+2026-06-14 16:19:27 | INFO     | plt_optimizer | Step 3/4: Optimizing block traversal order
+2026-06-14 16:19:27 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 144 blocks
+2026-06-14 16:19:27 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 144 blocks
+2026-06-14 16:19:27 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=144111.628
+2026-06-14 16:19:27 | INFO     | plt_optimizer | Step 4/4: Reassembling document with optimized block order
+2026-06-14 16:19:27 | INFO     | plt_optimizer | Reassembling document with 144 blocks
+2026-06-14 16:19:27 | INFO     | plt_optimizer | Reassembly complete: 1781 paths
+2026-06-14 16:19:27 | INFO     | plt_optimizer | Generating before-optimization plot
+2026-06-14 16:19:33 | INFO     | plt_optimizer | Generating after-optimization plot
+2026-06-14 16:19:40 | INFO     | plt_optimizer | Writing PLT file: examples/test_complex_badges11sheet1_optimized.plt
