@@ -202,38 +202,80 @@ class TestPLTDocumentRapidDistance:
         doc = PLTDocument()
         assert doc.rapid_distance() == 0.0
 
-    def test_document_with_rapid_segments(self) -> None:
-        """Test rapid distance calculation across document paths."""
+    def test_single_path_no_rapid(self) -> None:
+        """Test rapid distance with single path (no between-path travel)."""
         from plt_optimizer.core.models import Coordinate, StrokeSegment
 
         seg = StrokeSegment(
             start=Coordinate(x=0.0, y=0.0),
             end=Coordinate(x=50.0, y=0.0),
-            is_cutting=False,
+            is_cutting=True,
         )
-        path = StrokePath(segments=(seg,))
+        path = StrokePath(segments=(seg,), pen_up_position=Coordinate(x=0.0, y=0.0))
         doc = PLTDocument(stroke_paths=[path])
 
-        assert doc.rapid_distance() == 50.0
+        assert doc.rapid_distance() == 0.0
 
-    def test_document_mixed_segments_rapid(self) -> None:
-        """Test rapid distance excludes cutting segments in document."""
+    def test_two_paths_with_rapid_between(self) -> None:
+        """Test rapid distance calculation between consecutive paths.
+
+        In HPGL, rapid (pen-up) moves occur when moving from one path's end
+        to the next path's pen_up_position.
+        Path1 ends at (100, 0), Path2 pen_up is at (200, 100).
+        Distance = sqrt((200-100)^2 + (100-0)^2) = sqrt(10000+10000) ≈ 141.42
+        """
         from plt_optimizer.core.models import Coordinate, StrokeSegment
 
         seg1 = StrokeSegment(
             start=Coordinate(x=0.0, y=0.0),
             end=Coordinate(x=100.0, y=0.0),
-            is_cutting=False,
-        )
-        seg2 = StrokeSegment(
-            start=Coordinate(x=100.0, y=0.0),
-            end=Coordinate(x=200.0, y=0.0),
             is_cutting=True,
         )
-        path = StrokePath(segments=(seg1, seg2))
-        doc = PLTDocument(stroke_paths=[path])
+        path1 = StrokePath(segments=(seg1,), pen_up_position=Coordinate(x=0.0, y=0.0))
 
-        assert doc.rapid_distance() == 100.0
+        seg2 = StrokeSegment(
+            start=Coordinate(x=200.0, y=100.0),
+            end=Coordinate(x=300.0, y=100.0),
+            is_cutting=True,
+        )
+        path2 = StrokePath(segments=(seg2,), pen_up_position=Coordinate(x=200.0, y=100.0))
+
+        doc = PLTDocument(stroke_paths=[path1, path2])
+
+        expected_rapid = 141.4213562373095
+        assert doc.rapid_distance() == pytest.approx(expected_rapid)
+
+    def test_three_paths_accumulates_rapid(self) -> None:
+        """Test rapid distance accumulates between all consecutive paths."""
+        from plt_optimizer.core.models import Coordinate, StrokeSegment
+
+        seg1 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=100.0, y=0.0),
+            is_cutting=True,
+        )
+        path1 = StrokePath(segments=(seg1,), pen_up_position=Coordinate(x=0.0, y=0.0))
+
+        seg2 = StrokeSegment(
+            start=Coordinate(x=200.0, y=100.0),
+            end=Coordinate(x=300.0, y=100.0),
+            is_cutting=True,
+        )
+        path2 = StrokePath(segments=(seg2,), pen_up_position=Coordinate(x=200.0, y=100.0))
+
+        seg3 = StrokeSegment(
+            start=Coordinate(x=500.0, y=50.0),
+            end=Coordinate(x=600.0, y=50.0),
+            is_cutting=True,
+        )
+        path3 = StrokePath(segments=(seg3,), pen_up_position=Coordinate(x=500.0, y=50.0))
+
+        doc = PLTDocument(stroke_paths=[path1, path2, path3])
+
+        dist_1_to_2 = 141.4213562373095
+        dist_2_to_3 = 206.1552812819245
+        expected_rapid = dist_1_to_2 + dist_2_to_3
+        assert doc.rapid_distance() == pytest.approx(expected_rapid)
 
 
 class TestPLTDocumentCuttingDistance:
