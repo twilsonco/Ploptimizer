@@ -80,6 +80,7 @@ def plot_plt_document(
     title: str = "PLT Toolpath Visualization",
     show_plot: bool = False,
     figure_size: tuple[float, float] = DEFAULT_FIGURE_SIZE,
+    rapid_travel_inches: float | None = None,
 ) -> plt.Figure:
     """Plot a complete PLT document with color-coded path segments.
 
@@ -96,6 +97,10 @@ def plot_plt_document(
         title: Title for the plot window/figure.
         show_plot: If True, call plt.show() to display interactively.
         figure_size: Figure dimensions in inches as (width, height).
+        rapid_travel_inches: Optional pre-calculated rapid travel distance in inches.
+            If provided, uses this value in the summary text box instead of
+            computing it from document.rapid_distance(). This ensures consistency
+            with any external calculation passed via title string.
 
     Returns:
         The matplotlib Figure object.
@@ -294,9 +299,12 @@ def plot_plt_document(
         # Equal aspect ratio for accurate visualization
         ax.set_aspect("equal", adjustable="box")
 
-        # Add summary text (distances in PLT units, convert to inches for display)
+       # Add summary text (distances in PLT units, convert to inches for display)
         cutting_dist = document.cutting_distance() * PLT_UNITS_TO_INCHES
-        rapid_dist = document.rapid_distance() * PLT_UNITS_TO_INCHES
+        # Use provided rapid_travel_inches if available, otherwise calculate from document
+        rapid_dist = rapid_travel_inches if rapid_travel_inches is not None else (
+            document.rapid_distance() * PLT_UNITS_TO_INCHES
+        )
 
         summary_text = (
             f"Total Segments: {len(all_segments)}\n"
