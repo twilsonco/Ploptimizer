@@ -265,7 +265,8 @@ def run_single_strategy_on_file(
         fig_before = plot_plt_document(
             doc,
             output_path=before_plot_path,
-            title=f"Before Optimization - Rapid Travel: {original_rapid / 1000:,.2f} in",
+            title=f"Rapid Travel (before): {original_rapid / 1000:,.2f} in",
+            rapid_travel_inches=original_rapid / 1000,
         )
         import matplotlib.pyplot as plt
         plt.close(fig_before)
@@ -273,7 +274,8 @@ def run_single_strategy_on_file(
         fig_after = plot_plt_document(
             optimized_doc,
             output_path=after_plot_path,
-                title=f"{optimizer.strategy.name} After - Rapid Travel: {optimized_distance / 1000:,.2f} in ({pct_improvement:.1f}% improvement)",
+                title=f"{optimizer.strategy.name}: Rapid Travel (after): {optimized_distance / 1000:,.2f} in ({pct_improvement:.1f}% improvement)",
+                rapid_travel_inches=optimized_distance / 1000,
         )
         plt.close(fig_after)
 
@@ -351,7 +353,8 @@ def run_all_strategies_on_file(
         fig_before = plot_plt_document(
             doc,
             output_path=before_plot_path,
-            title=f"Before Optimization - Rapid Travel: {original_rapid / 1000:,.2f} in",
+            title=f"Rapid Travel (before): {original_rapid / 1000:,.2f} in",
+            rapid_travel_inches=original_rapid / 1000,
         )
         import matplotlib.pyplot as plt
         plt.close(fig_before)
@@ -374,7 +377,8 @@ def run_all_strategies_on_file(
             fig_after = plot_plt_document(
                 optimized_doc,
                 output_path=after_plot_path,
-           title=f"{optimizer.strategy.name} After - Rapid Travel: {optimized_distance / 1000:,.2f} in ({pct_improvement:.1f}% improvement)",
+           title=f"{optimizer.strategy.name}: Rapid Travel (after): {optimized_distance / 1000:,.2f} in ({pct_improvement:.1f}% improvement)",
+                rapid_travel_inches=optimized_distance / 1000,
             )
             plt.close(fig_after)
 
@@ -665,7 +669,8 @@ def demonstrate_optimization_pipeline(
     fig_before = plot_plt_document(
         doc,
         output_path=before_plot_path,
-        title=f"Before Optimization - Rapid Travel: {original_distance / 1000:,.2f} in",
+        title=f"Rapid Travel (before): {original_distance / 1000:,.2f} in",
+        rapid_travel_inches=original_distance / 1000,
     )
     import matplotlib.pyplot as plt
     plt.close(fig_before)
@@ -676,7 +681,8 @@ def demonstrate_optimization_pipeline(
     fig_after = plot_plt_document(
         optimized_doc,
         output_path=after_plot_path,
-        title=f"After Optimization - Rapid Travel: {optimized_distance / 1000:,.2f} in ({pct_improvement:.1f}% improvement)",
+        title=f"Rapid Travel (after): {optimized_distance / 1000:,.2f} in ({pct_improvement:.1f}% improvement)",
+        rapid_travel_inches=optimized_distance / 1000,
     )
     plt.close(fig_after)
 
@@ -732,7 +738,8 @@ def demonstrate_all_strategies(
     fig_before = plot_plt_document(
         doc,
         output_path=before_plot_path,
-        title=f"Before Optimization - Rapid Travel: {original_distance / 1000:,.2f} in",
+        title=f"Rapid Travel (before): {original_distance / 1000:,.2f} in",
+        rapid_travel_inches=original_distance / 1000,
     )
     import matplotlib.pyplot as plt
     plt.close(fig_before)
@@ -759,7 +766,8 @@ def demonstrate_all_strategies(
         fig_after = plot_plt_document(
             optimized_doc,
             output_path=after_plot_path,
-            title=f"{optimizer.strategy.name} - Rapid Travel: {optimized_distance / 1000:,.2f} in ({pct_improvement:.1f}% improvement)",
+            title=f"{optimizer.strategy.name}: Rapid Travel (after): {optimized_distance / 1000:,.2f} in ({pct_improvement:.1f}% improvement)",
+            rapid_travel_inches=optimized_distance / 1000,
         )
         plt.close(fig_after)
 
