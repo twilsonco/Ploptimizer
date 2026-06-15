@@ -32,7 +32,14 @@ from plt_optimizer.core.models import Coordinate, PLTDocument, StrokePath, Strok
 from plt_optimizer.core.parser import PLTParser
 from plt_optimizer.core.profiler import Profiler
 from plt_optimizer.core.chunker import Chunker, ChunkerConfig
-from plt_optimizer.core.optimizer import OptimizerEngine, NearestNeighbor2OptStrategy
+from plt_optimizer.core.optimizer import (
+    GeneticAlgorithmStrategy,
+    ChristofidesStrategy,
+    InsertionHeuristicStrategy,
+    NearestNeighbor2OptStrategy,
+    OptimizerEngine,
+    SimulatedAnnealingStrategy,
+)
 from plt_optimizer.core.reassembler import Reassembler, MetricsCalculator
 from plt_optimizer.core.writer import PLTWriter
 from plt_optimizer.diagnostics.plotter import plot_plt_document
@@ -42,6 +49,18 @@ from plt_optimizer.utils.logging import (
     get_metrics_logger,
     get_text_logger,
 )
+
+
+STRATEGY_REGISTRY = {
+    "nn2opt": NearestNeighbor2OptStrategy,
+    "insertion": InsertionHeuristicStrategy,
+    "christofides": ChristofidesStrategy,
+    "sa": SimulatedAnnealingStrategy,
+    "genetic": GeneticAlgorithmStrategy,
+}
+
+# Strategies that support same_row_preference parameter
+_STRATEGIES_WITH_SAME_ROW_PREFERENCE = {"nn2opt"}
 
 
 # Sample HPGL content from Cadlink EngraveLab Expert v10 for Vision 1624 table
@@ -170,6 +189,213 @@ def process_user_file(
             original_distance=stats["before_rapid_distance"],
             optimized_distance=stats["after_rapid_distance"],
             status="success",
+        )
+
+        return 0
+
+    except Exception as e:
+        text_logger.error(f"Failed to process {input_path}: {e}")
+        print(f"\nError: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        return 1
+
+
+def run_single_strategy_on_file(
+    input_path: Path,
+    strategy_name: str,
+    same_row_preference: float = 1.0,
+) -> int:
+    """Run a single specific optimization strategy on a PLT file.
+
+    Args:
+        input_path: Path to the user's PLT/HPGL file.
+        strategy_name: Name of the strategy from STRATEGY_REGISTRY.
+        same_row_preference: Penalty multiplier for y-differences.
+
+    Returns:
+        Exit code (0 for success).
+    """
+    print(f"PLT-Optimizer - Running {strategy_name} on {input_path.name}")
+    print("=" * 60)
+
+    if not input_path.exists():
+        print(f"\nError: File not found: {input_path}", file=sys.stderr)
+        return 1
+
+    text_logger = get_text_logger()
+    metrics_logger = get_metrics_logger()
+
+    try:
+        parser = PLTParser()
+        writer = PLTWriter()
+        text_logger.info(f"Parsing user file: {input_path}")
+        doc = parser.parse_file(input_path)
+
+        print(f"\nDocument statistics:")
+        print(f"  Stroke paths: {len(doc.stroke_paths)}")
+        print(f"  Total segments: {doc.total_segments}")
+
+        metrics_calc = MetricsCalculator()
+        original_rapid = metrics_calc.calculate_original_travel_distance(doc)
+        print(f"  Rapid travel (before): {original_rapid:,.2f}")
+
+        profiler = Profiler()
+        profile_result = profiler.profile(doc)
+
+        chunker = Chunker(config=ChunkerConfig(threshold_multiplier=2.0))
+        blocks = chunker.chunk(doc.stroke_paths, profile_result.baseline_extent)
+
+        strategy_class = STRATEGY_REGISTRY[strategy_name]
+        if strategy_name in _STRATEGIES_WITH_SAME_ROW_PREFERENCE:
+            optimizer = OptimizerEngine(strategy=strategy_class(same_row_preference=same_row_preference))
+        else:
+            optimizer = OptimizerEngine(strategy=strategy_class())
+        optimization_result = optimizer.optimize(blocks)
+
+        reassembler = Reassembler()
+        optimized_doc = reassembler.reassemble(doc, blocks, optimization_result)
+
+        optimized_distance = metrics_calc.calculate_optimized_travel_distance(optimization_result)
+        savings, pct_improvement = metrics_calc.calculate_improvement(original_rapid, optimized_distance)
+
+        before_plot_path = input_path.parent / f"{input_path.stem}_before.png"
+        after_plot_path = input_path.parent / f"{input_path.stem}_after_{strategy_name}.png"
+
+        fig_before = plot_plt_document(
+            doc,
+            output_path=before_plot_path,
+            title=f"Before Optimization - Rapid Travel: {original_rapid:,.0f}",
+        )
+        import matplotlib.pyplot as plt
+        plt.close(fig_before)
+
+        fig_after = plot_plt_document(
+            optimized_doc,
+            output_path=after_plot_path,
+            title=f"{strategy_class.name} After - Rapid Travel: {optimized_distance:,.0f} ({pct_improvement:.1f}% improvement)",
+        )
+        plt.close(fig_after)
+
+        writer.write_file(optimized_doc, input_path.parent / f"{input_path.stem}_optimized.plt")
+
+        print(f"\n✓ Optimization complete")
+        print(f"  Strategy: {strategy_class.name}")
+        print(f"  Before plot: {before_plot_path}")
+        print(f"  After plot: {after_plot_path}")
+
+        job_id = f"user_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        metrics_logger.log_job(
+            job_id=job_id,
+            original_file=input_path,
+            optimized_file=input_path.parent / f"{input_path.stem}_optimized.plt",
+            original_distance=original_rapid,
+            optimized_distance=optimized_distance,
+            status="success",
+        )
+
+        return 0
+
+    except Exception as e:
+        text_logger.error(f"Failed to process {input_path}: {e}")
+        print(f"\nError: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        return 1
+
+
+def run_all_strategies_on_file(
+    input_path: Path,
+    same_row_preference: float = 1.0,
+) -> int:
+    """Run all optimization strategies on a PLT file.
+
+    Args:
+        input_path: Path to the user's PLT/HPGL file.
+        same_row_preference: Penalty multiplier for y-differences.
+
+    Returns:
+        Exit code (0 for success).
+    """
+    print(f"PLT-Optimizer - Running all strategies on {input_path.name}")
+    print("=" * 60)
+
+    if not input_path.exists():
+        print(f"\nError: File not found: {input_path}", file=sys.stderr)
+        return 1
+
+    text_logger = get_text_logger()
+    metrics_logger = get_metrics_logger()
+
+    try:
+        parser = PLTParser()
+        writer = PLTWriter()
+        text_logger.info(f"Parsing user file: {input_path}")
+        doc = parser.parse_file(input_path)
+
+        print(f"\nDocument statistics:")
+        print(f"  Stroke paths: {len(doc.stroke_paths)}")
+        print(f"  Total segments: {doc.total_segments}")
+
+        metrics_calc = MetricsCalculator()
+        original_rapid = metrics_calc.calculate_original_travel_distance(doc)
+        print(f"  Rapid travel (before): {original_rapid:,.2f}")
+
+        profiler = Profiler()
+        profile_result = profiler.profile(doc)
+
+        chunker = Chunker(config=ChunkerConfig(threshold_multiplier=2.0))
+        blocks = chunker.chunk(doc.stroke_paths, profile_result.baseline_extent)
+
+        before_plot_path = input_path.parent / f"{input_path.stem}_before.png"
+        fig_before = plot_plt_document(
+            doc,
+            output_path=before_plot_path,
+            title=f"Before Optimization - Rapid Travel: {original_rapid:,.0f}",
+        )
+        import matplotlib.pyplot as plt
+        plt.close(fig_before)
+
+        print(f"\nRunning all strategies...")
+        for strategy_name, strategy_class in STRATEGY_REGISTRY.items():
+            if strategy_name in _STRATEGIES_WITH_SAME_ROW_PREFERENCE:
+                optimizer = OptimizerEngine(strategy=strategy_class(same_row_preference=same_row_preference))
+            else:
+                optimizer = OptimizerEngine(strategy=strategy_class())
+            optimization_result = optimizer.optimize(blocks)
+
+            reassembler = Reassembler()
+            optimized_doc = reassembler.reassemble(doc, blocks, optimization_result)
+
+            optimized_distance = metrics_calc.calculate_optimized_travel_distance(optimization_result)
+            savings, pct_improvement = metrics_calc.calculate_improvement(original_rapid, optimized_distance)
+
+            after_plot_path = input_path.parent / f"{input_path.stem}_after_{strategy_name}.png"
+            fig_after = plot_plt_document(
+                optimized_doc,
+                output_path=after_plot_path,
+                title=f"{strategy_class.name} After - Rapid Travel: {optimized_distance:,.0f} ({pct_improvement:.1f}% improvement)",
+            )
+            plt.close(fig_after)
+
+            print(f"  {strategy_name}: {original_rapid:,.2f} -> {optimized_distance:,.2f} ({pct_improvement:.1f}% improvement)")
+
+        writer.write_file(doc, input_path.parent / f"{input_path.stem}_optimized.plt")
+
+        print(f"\n✓ All strategies complete")
+        print(f"  Before plot: {before_plot_path}")
+        for strategy_name in STRATEGY_REGISTRY:
+            after_path = input_path.parent / f"{input_path.stem}_after_{strategy_name}.png"
+            print(f"  After plot ({strategy_name}): {after_path}")
+
+        job_id = f"user_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        metrics_logger.log_job(
+            job_id=job_id,
+            original_file=input_path,
+            optimized_file=None,
+            original_distance=original_rapid,
+            optimized_distance=original_rapid,
+            status="all_strategies",
         )
 
         return 0
@@ -467,6 +693,92 @@ def demonstrate_optimization_pipeline(
     return before_plot_path, after_plot_path, stats
 
 
+def demonstrate_all_strategies(
+    doc: PLTDocument,
+    output_prefix: str = "optimized",
+    same_row_preference: float = 1.0,
+) -> dict[str, tuple[Path, Path, dict]]:
+    """Run full optimization pipeline with each registered strategy.
+
+    Args:
+        doc: The parsed PLTDocument to optimize.
+        output_prefix: Prefix for output file names.
+        same_row_preference: Penalty multiplier for y-differences (default 1.0).
+
+    Returns:
+        Dict mapping strategy names to (before_plot, after_plot, stats) tuples.
+    """
+    print("\n" + "=" * 60)
+    print("RUNNING ALL OPTIMIZATION STRATEGIES")
+    print("=" * 60)
+
+    text_logger = get_text_logger()
+    metrics_calc = MetricsCalculator()
+
+    original_distance = metrics_calc.calculate_original_travel_distance(doc)
+    stroke_count = doc.total_segments
+
+    print(f"\n[BEFORE OPTIMIZATION]")
+    print(f"  Total strokes: {stroke_count}")
+    print(f"  Rapid travel distance: {original_distance:,.2f}")
+
+    profiler = Profiler()
+    profile_result = profiler.profile(doc)
+
+    chunker = Chunker(config=ChunkerConfig(threshold_multiplier=2.0))
+    blocks = chunker.chunk(doc.stroke_paths, profile_result.baseline_extent)
+
+    before_plot_path = Path(f"examples/{output_prefix}_before.png")
+    fig_before = plot_plt_document(
+        doc,
+        output_path=before_plot_path,
+        title=f"Before Optimization - Rapid Travel: {original_distance:,.0f}",
+    )
+    import matplotlib.pyplot as plt
+    plt.close(fig_before)
+
+    results: dict[str, tuple[Path, Path, dict]] = {}
+
+    for strategy_name, strategy_class in STRATEGY_REGISTRY.items():
+        print(f"\n  Strategy: {strategy_class.name}")
+
+        if strategy_name in _STRATEGIES_WITH_SAME_ROW_PREFERENCE:
+            optimizer = OptimizerEngine(strategy=strategy_class(same_row_preference=same_row_preference))
+        else:
+            optimizer = OptimizerEngine(strategy=strategy_class())
+        optimization_result = optimizer.optimize(blocks)
+
+        reassembler = Reassembler()
+        optimized_doc = reassembler.reassemble(doc, blocks, optimization_result)
+
+        optimized_distance = metrics_calc.calculate_optimized_travel_distance(optimization_result)
+        savings, pct_improvement = metrics_calc.calculate_improvement(original_distance, optimized_distance)
+
+        after_plot_path = Path(f"examples/{output_prefix}_after_{strategy_name}.png")
+        fig_after = plot_plt_document(
+            optimized_doc,
+            output_path=after_plot_path,
+            title=f"{strategy_class.name} - Rapid Travel: {optimized_distance:,.0f} ({pct_improvement:.1f}% improvement)",
+        )
+        plt.close(fig_after)
+
+        stats = {
+            "before_strokes": stroke_count,
+            "before_paths": len(doc.stroke_paths),
+            "before_rapid_distance": original_distance,
+            "after_rapid_distance": optimized_distance,
+            "blocks_created": len(blocks),
+            "distance_saved": savings,
+            "percent_improvement": pct_improvement,
+        }
+
+        results[strategy_name] = (before_plot_path, after_plot_path, stats)
+
+        print(f"    Rapid travel: {optimized_distance:,.2f} ({pct_improvement:.1f}% improvement)")
+
+    return results
+
+
 def demonstrate_full_optimization(same_row_preference: float = 1.0) -> list[Path]:
     """Demonstrate the full optimization pipeline with sample data.
 
@@ -521,6 +833,18 @@ Examples:
 
   # Diagnostics only (skip optimization):
   python examples/run_diagnostics.py --no-optimize
+
+  # Run a specific strategy on a PLT file:
+  python examples/run_diagnostics.py /path/to/your/file.plt --strategy nn2opt
+  python examples/run_diagnostics.py /path/to/your/file.plt --strategy insertion
+  python examples/run_diagnostics.py /path/to/your/file.plt --strategy christofides
+  python examples/run_diagnostics.py /path/to/your/file.plt --strategy sa
+  python examples/run_diagnostics.py /path/to/your/file.plt --strategy genetic
+
+  # Run all strategies and generate comparison plots:
+  python examples/run_diagnostics.py /path/to/your/file.plt --all-strategies
+
+Available strategies: nn2opt, insertion, christofides, sa, genetic
 """,
     )
     parser.add_argument(
@@ -543,17 +867,45 @@ Examples:
         help="Penalty multiplier for y-differences during greedy selection "
              "(default 1.0, values > 1.0 prefer same-row blocks)",
     )
+    parser.add_argument(
+        "--strategy",
+        choices=list(STRATEGY_REGISTRY.keys()),
+        default=None,
+        help="Run a specific optimization strategy only",
+    )
+    parser.add_argument(
+        "--all-strategies",
+        action="store_true",
+        default=False,
+        help="Run all optimization strategies and generate individual plots for each",
+    )
 
     args = parser.parse_args()
+
+    if args.all_strategies and args.strategy is not None:
+        print("Error: Cannot use both --all-strategies and --strategy together", file=sys.stderr)
+        return 1
 
     # If user provided an input file, process it directly
     if args.input_file is not None:
         optimize = not args.no_optimize
-        return process_user_file(
-            args.input_file,
-            optimize=optimize,
-            same_row_preference=args.same_row_preference,
-        )
+        if args.all_strategies:
+            return run_all_strategies_on_file(
+                args.input_file,
+                same_row_preference=args.same_row_preference,
+            )
+        elif args.strategy is not None:
+            return run_single_strategy_on_file(
+                args.input_file,
+                args.strategy,
+                same_row_preference=args.same_row_preference,
+            )
+        else:
+            return process_user_file(
+                args.input_file,
+                optimize=optimize,
+                same_row_preference=args.same_row_preference,
+            )
 
     # Otherwise run demonstration mode with sample data
     print("PLT-Optimizer Diagnostics Demonstration")
