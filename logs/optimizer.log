@@ -7329,3 +7329,85 @@
 2026-06-14 17:45:45 | INFO     | plt_optimizer | Generating before-optimization plot
 2026-06-14 17:45:51 | INFO     | plt_optimizer | Generating after-optimization plot
 2026-06-14 17:45:57 | INFO     | plt_optimizer | Writing PLT file: examples/test_complex_badges11sheet1_optimized.plt
+2026-06-15 00:01:23 | INFO     | plt_optimizer | Parsing user file: examples/test_complex_badges11sheet1.plt
+2026-06-15 00:01:23 | INFO     | plt_optimizer | Parsing PLT file: examples/test_complex_badges11sheet1.plt
+2026-06-15 00:01:23 | INFO     | plt_optimizer | Starting optimization pipeline
+2026-06-15 00:01:23 | INFO     | plt_optimizer | Step 1/4: Profiling document for baseline extent
+2026-06-15 00:01:23 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-15 00:01:23 | INFO     | plt_optimizer | Profiling complete: baseline_extent=225.120, total_cutting_strokes=3295
+2026-06-15 00:01:23 | INFO     | plt_optimizer | Step 2/4: Chunking stroke paths into MacroBlocks
+2026-06-15 00:01:23 | INFO     | plt_optimizer | Chunking 1781 stroke paths with threshold=450.240 (baseline_extent=225.120, multiplier=2.0)
+2026-06-15 00:01:23 | INFO     | plt_optimizer | Created 145 MacroBlocks
+2026-06-15 00:01:23 | INFO     | plt_optimizer | Step 3/4: Optimizing block traversal order
+2026-06-15 00:01:23 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 145 blocks
+2026-06-15 00:01:23 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 145 blocks
+2026-06-15 00:01:23 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=134747.795
+2026-06-15 00:01:23 | INFO     | plt_optimizer | Step 4/4: Reassembling document with optimized block order
+2026-06-15 00:01:23 | INFO     | plt_optimizer | Reassembling document with 145 blocks
+2026-06-15 00:01:23 | INFO     | plt_optimizer | Reassembly complete: 1781 paths
+2026-06-15 00:01:23 | INFO     | plt_optimizer | Generating before-optimization plot
+2026-06-15 00:01:30 | INFO     | plt_optimizer | Generating after-optimization plot
+2026-06-15 00:01:36 | INFO     | plt_optimizer | Writing PLT file: examples/test_complex_badges11sheet1_optimized.plt
+2026-06-15 00:03:40 | INFO     | plt_optimizer | Parsing user file: examples/test_complex_badges11sheet1.plt
+2026-06-15 00:03:40 | INFO     | plt_optimizer | Parsing PLT file: examples/test_complex_badges11sheet1.plt
+2026-06-15 00:03:40 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-15 00:03:40 | INFO     | plt_optimizer | Profiling complete: baseline_extent=225.120, total_cutting_strokes=3295
+2026-06-15 00:03:40 | INFO     | plt_optimizer | Chunking 1781 stroke paths with threshold=450.240 (baseline_extent=225.120, multiplier=2.0)
+2026-06-15 00:03:40 | INFO     | plt_optimizer | Created 145 MacroBlocks
+2026-06-15 00:03:46 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 145 blocks
+2026-06-15 00:03:46 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 145 blocks
+2026-06-15 00:03:46 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=134747.795
+2026-06-15 00:03:46 | INFO     | plt_optimizer | Reassembling document with 145 blocks
+2026-06-15 00:03:46 | INFO     | plt_optimizer | Reassembly complete: 1781 paths
+2026-06-15 00:03:53 | ERROR    | plt_optimizer | Failed to process examples/test_complex_badges11sheet1.plt: InsertionHeuristicStrategy.__init__() got an unexpected keyword argument 'same_row_preference'
+2026-06-15 01:43:24 | INFO     | plt_optimizer | Parsing user file: examples/test_complex_badges11sheet1.plt
+2026-06-15 01:43:24 | INFO     | plt_optimizer | Parsing PLT file: examples/test_complex_badges11sheet1.plt
+2026-06-15 01:43:25 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-15 01:43:25 | INFO     | plt_optimizer | Profiling complete: baseline_extent=225.120, total_cutting_strokes=3295
+2026-06-15 01:43:25 | INFO     | plt_optimizer | Chunking 1781 stroke paths with threshold=450.240 (baseline_extent=225.120, multiplier=2.0)
+2026-06-15 01:43:25 | INFO     | plt_optimizer | Created 145 MacroBlocks
+2026-06-15 01:43:31 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 145 blocks
+2026-06-15 01:43:31 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 145 blocks
+2026-06-15 01:43:31 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=134747.795
+2026-06-15 01:43:31 | INFO     | plt_optimizer | Reassembling document with 145 blocks
+2026-06-15 01:43:31 | INFO     | plt_optimizer | Reassembly complete: 1781 paths
+2026-06-15 01:43:37 | INFO     | plt_optimizer | Starting optimization with Cheapest Insertion Heuristic on 145 blocks
+2026-06-15 01:43:37 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 145 blocks
+2026-06-15 01:43:38 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=363404.486
+2026-06-15 01:43:38 | INFO     | plt_optimizer | Reassembling document with 145 blocks
+2026-06-15 01:43:38 | INFO     | plt_optimizer | Reassembly complete: 1781 paths
+2026-06-15 01:43:44 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov Algorithm on 145 blocks
+2026-06-15 01:43:44 | INFO     | plt_optimizer | Running Christofides-Serdyukov Algorithm on 145 blocks
+2026-06-15 01:43:44 | ERROR    | plt_optimizer | Failed to process examples/test_complex_badges11sheet1.plt: Optimization failed: 'tuple' object has no attribute 'x'
+2026-06-15 02:00:17 | INFO     | plt_optimizer | Parsing user file: examples/test_complex_badges11sheet1.plt
+2026-06-15 02:00:17 | INFO     | plt_optimizer | Parsing PLT file: examples/test_complex_badges11sheet1.plt
+2026-06-15 02:00:17 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-15 02:00:17 | INFO     | plt_optimizer | Profiling complete: baseline_extent=225.120, total_cutting_strokes=3295
+2026-06-15 02:00:17 | INFO     | plt_optimizer | Chunking 1781 stroke paths with threshold=450.240 (baseline_extent=225.120, multiplier=2.0)
+2026-06-15 02:00:17 | INFO     | plt_optimizer | Created 145 MacroBlocks
+2026-06-15 02:00:23 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 145 blocks
+2026-06-15 02:00:23 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 145 blocks
+2026-06-15 02:00:23 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=134747.795
+2026-06-15 02:00:23 | INFO     | plt_optimizer | Reassembling document with 145 blocks
+2026-06-15 02:00:23 | INFO     | plt_optimizer | Reassembly complete: 1781 paths
+2026-06-15 02:00:30 | INFO     | plt_optimizer | Starting optimization with Cheapest Insertion Heuristic on 145 blocks
+2026-06-15 02:00:30 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 145 blocks
+2026-06-15 02:00:30 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=363404.486
+2026-06-15 02:00:30 | INFO     | plt_optimizer | Reassembling document with 145 blocks
+2026-06-15 02:00:30 | INFO     | plt_optimizer | Reassembly complete: 1781 paths
+2026-06-15 02:00:37 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov Algorithm on 145 blocks
+2026-06-15 02:00:37 | INFO     | plt_optimizer | Running Christofides-Serdyukov Algorithm on 145 blocks
+2026-06-15 02:00:37 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=176920.873
+2026-06-15 02:00:37 | INFO     | plt_optimizer | Reassembling document with 145 blocks
+2026-06-15 02:00:37 | INFO     | plt_optimizer | Reassembly complete: 1781 paths
+2026-06-15 02:00:44 | INFO     | plt_optimizer | Starting optimization with Simulated Annealing on 145 blocks
+2026-06-15 02:00:44 | INFO     | plt_optimizer | Running Simulated Annealing on 145 blocks
+2026-06-15 02:01:36 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=150160.729
+2026-06-15 02:01:36 | INFO     | plt_optimizer | Reassembling document with 145 blocks
+2026-06-15 02:01:36 | INFO     | plt_optimizer | Reassembly complete: 1781 paths
+2026-06-15 02:01:43 | INFO     | plt_optimizer | Starting optimization with Genetic Algorithm on 145 blocks
+2026-06-15 02:01:43 | INFO     | plt_optimizer | Running Genetic Algorithm on 145 blocks
+2026-06-15 02:01:57 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=18329.210
+2026-06-15 02:01:57 | INFO     | plt_optimizer | Reassembling document with 5 blocks
+2026-06-15 02:01:57 | INFO     | plt_optimizer | Reassembly complete: 57 paths
+2026-06-15 02:01:57 | INFO     | plt_optimizer | Writing PLT file: examples/test_complex_badges11sheet1_optimized.plt
