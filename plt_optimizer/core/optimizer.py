@@ -503,6 +503,48 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
         candidates.sort(key=lambda x: x[0])
         return [(pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]]
 
+    def _find_farthest_origin_endpoints(
+        self,
+        blocks: List[MacroBlock],
+        origin: Tuple[float, float] = (0.0, 0.0),
+        n_candidates: int = 5,
+    ) -> List[Tuple[Tuple[float, float], int, bool, float]]:
+        """Find the N block endpoints farthest from the origin.
+
+        This is used to evaluate candidate ending points for optimization,
+        ensuring the tour ends at a point far from machine origin when desired.
+
+        Args:
+            blocks: List of MacroBlocks to search.
+            origin: Reference point for distance calculation (default origin).
+            n_candidates: Number of farthest endpoints to return.
+
+        Returns:
+            List of tuples sorted by distance descending: [(position, block_index, is_exit, distance), ...].
+            - position: (x, y) coordinates of the endpoint
+            - block_index: index of the block containing this endpoint
+            - is_exit: True if endpoint is block's exit (needs reversal)
+            - distance: Euclidean distance from origin
+        """
+        candidates: List[Tuple[float, Tuple[Tuple[float, float], int, bool]]] = []
+
+        for i, block in enumerate(blocks):
+            dist_entrance = math.sqrt(
+                (block.entrance.x - origin[0]) ** 2
+                + (block.entrance.y - origin[1]) ** 2
+            )
+            candidates.append((dist_entrance, ((block.entrance.x, block.entrance.y), i, False)))
+
+            dist_exit = math.sqrt(
+                (block.exit.x - origin[0]) ** 2
+                + (block.exit.y - origin[1]) ** 2
+            )
+            candidates.append((dist_exit, ((block.exit.x, block.exit.y), i, True)))
+
+        # Sort by distance descending to get farthest first
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        return [(pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]]
+
     def _find_nearest_origin_endpoint(
         self,
         blocks: List[MacroBlock],
@@ -1990,6 +2032,8 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
         self._iterations_per_temp = iterations_per_temp
         self._min_temperature = min_temperature
 
+    DEFAULT_N_CANDIDATES: int = 2
+
     @property
     def name(self) -> str:
         """Return the strategy name."""
@@ -2001,6 +2045,10 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
         initial_position: Optional[Tuple[float, float]] = None,
     ) -> OptimizationResult:
         """Optimize using Simulated Annealing algorithm.
+
+        When no initial_position is specified, this method evaluates multiple
+        candidate starting points (the N closest endpoints to origin) and selects
+        the one that yields minimum total travel distance.
 
         Args:
             blocks: List of MacroBlocks to optimize.
@@ -2021,12 +2069,43 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
             )
 
         start_pos: Tuple[float, float]
+        candidates: List[Tuple[Tuple[float, float], int, bool, float]]
+
         if initial_position is not None:
             start_pos = initial_position
+            candidates = [(start_pos, -1, False, 0.0)]
         else:
-            closest = self._find_nearest_origin_endpoint(blocks)
-            start_pos = closest[0]
+            # Find N closest endpoints to origin and evaluate each
+            candidates = self._find_nearest_origin_endpoints(
+                blocks, origin=(0.0, 0.0), n_candidates=self.DEFAULT_N_CANDIDATES
+            )
+            self._logger.debug(f"Evaluating {len(candidates)} starting candidates")
 
+        best_result: Optional[OptimizationResult] = None
+
+        for start_pos, first_block_idx, start_at_exit, _dist in candidates:
+            candidate_result = self._optimize_from_start(blocks, start_pos)
+
+            if best_result is None or candidate_result.total_travel_distance < best_result.total_travel_distance:
+                best_result = candidate_result
+                self._logger.debug(f"New best: distance={candidate_result.total_travel_distance:.3f} from start at {start_pos}")
+
+        return best_result  # type: ignore[return-value]
+
+    def _optimize_from_start(
+        self,
+        blocks: List[MacroBlock],
+        start_pos: Tuple[float, float],
+    ) -> OptimizationResult:
+        """Optimize starting from a specific position.
+
+        Args:
+            blocks: List of MacroBlocks to optimize.
+            start_pos: Starting position for optimization.
+
+        Returns:
+            OptimizationResult with optimized traversal order.
+        """
         if len(blocks) == 1:
             return self._optimize_single_block(blocks, start_pos)
 
@@ -2314,6 +2393,89 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
 
         return (best_pos, best_idx, best_is_exit)
 
+    def _find_nearest_origin_endpoints(
+        self,
+        blocks: List[MacroBlock],
+        origin: Tuple[float, float] = (0.0, 0.0),
+        n_candidates: int = 5,
+    ) -> List[Tuple[Tuple[float, float], int, bool, float]]:
+        """Find the N block endpoints nearest to the origin.
+
+        This ensures the optimization evaluates multiple starting candidates
+        when there are ties or near-ties for closest endpoint to origin.
+
+        Args:
+            blocks: List of MacroBlocks to search.
+            origin: Reference point for distance calculation (default origin).
+            n_candidates: Number of closest endpoints to return.
+
+        Returns:
+            List of tuples sorted by distance: [(position, block_index, is_exit, distance), ...].
+            - position: (x, y) coordinates of the endpoint
+            - block_index: index of the block containing this endpoint
+            - is_exit: True if endpoint is block's exit (needs reversal)
+            - distance: Euclidean distance from origin
+        """
+        candidates: List[Tuple[float, Tuple[Tuple[float, float], int, bool]]] = []
+
+        for i, block in enumerate(blocks):
+            dist_entrance = math.sqrt(
+                (block.entrance.x - origin[0]) ** 2
+                + (block.entrance.y - origin[1]) ** 2
+            )
+            candidates.append((dist_entrance, ((block.entrance.x, block.entrance.y), i, False)))
+
+            dist_exit = math.sqrt(
+                (block.exit.x - origin[0]) ** 2
+                + (block.exit.y - origin[1]) ** 2
+            )
+            candidates.append((dist_exit, ((block.exit.x, block.exit.y), i, True)))
+
+        candidates.sort(key=lambda x: x[0])
+        return [(pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]]
+
+    def _find_farthest_origin_endpoints(
+        self,
+        blocks: List[MacroBlock],
+        origin: Tuple[float, float] = (0.0, 0.0),
+        n_candidates: int = 5,
+    ) -> List[Tuple[Tuple[float, float], int, bool, float]]:
+        """Find the N block endpoints farthest from the origin.
+
+        This is used to evaluate candidate ending points for optimization,
+        ensuring the tour ends at a point far from machine origin when desired.
+
+        Args:
+            blocks: List of MacroBlocks to search.
+            origin: Reference point for distance calculation (default origin).
+            n_candidates: Number of farthest endpoints to return.
+
+        Returns:
+            List of tuples sorted by distance descending: [(position, block_index, is_exit, distance), ...].
+            - position: (x, y) coordinates of the endpoint
+            - block_index: index of the block containing this endpoint
+            - is_exit: True if endpoint is block's exit (needs reversal)
+            - distance: Euclidean distance from origin
+        """
+        candidates: List[Tuple[float, Tuple[Tuple[float, float], int, bool]]] = []
+
+        for i, block in enumerate(blocks):
+            dist_entrance = math.sqrt(
+                (block.entrance.x - origin[0]) ** 2
+                + (block.entrance.y - origin[1]) ** 2
+            )
+            candidates.append((dist_entrance, ((block.entrance.x, block.entrance.y), i, False)))
+
+            dist_exit = math.sqrt(
+                (block.exit.x - origin[0]) ** 2
+                + (block.exit.y - origin[1]) ** 2
+            )
+            candidates.append((dist_exit, ((block.exit.x, block.exit.y), i, True)))
+
+        # Sort by distance descending to get farthest first
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        return [(pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]]
+
 
 class GeneticAlgorithmStrategy(OptimizationStrategy):
     """Genetic Algorithm (GA) for TSP optimization.
@@ -2366,6 +2528,8 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         self._tournament_size = tournament_size
         self._elitism_count = elitism_count
 
+    DEFAULT_N_CANDIDATES: int = 2
+
     @property
     def name(self) -> str:
         """Return the strategy name."""
@@ -2377,6 +2541,10 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         initial_position: Optional[Tuple[float, float]] = None,
     ) -> OptimizationResult:
         """Optimize using Genetic Algorithm.
+
+        When no initial_position is specified, this method evaluates multiple
+        candidate starting points (the N closest endpoints to origin) and selects
+        the one that yields minimum total travel distance.
 
         Args:
             blocks: List of MacroBlocks to optimize.
@@ -2397,12 +2565,43 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
             )
 
         start_pos: Tuple[float, float]
+        candidates: List[Tuple[Tuple[float, float], int, bool, float]]
+
         if initial_position is not None:
             start_pos = initial_position
+            candidates = [(start_pos, -1, False, 0.0)]
         else:
-            closest = self._find_nearest_origin_endpoint(blocks)
-            start_pos = closest[0]
+            # Find N closest endpoints to origin and evaluate each
+            candidates = self._find_nearest_origin_endpoints(
+                blocks, origin=(0.0, 0.0), n_candidates=self.DEFAULT_N_CANDIDATES
+            )
+            self._logger.debug(f"Evaluating {len(candidates)} starting candidates")
 
+        best_result: Optional[OptimizationResult] = None
+
+        for start_pos, first_block_idx, start_at_exit, _dist in candidates:
+            candidate_result = self._optimize_from_start(blocks, start_pos)
+
+            if best_result is None or candidate_result.total_travel_distance < best_result.total_travel_distance:
+                best_result = candidate_result
+                self._logger.debug(f"New best: distance={candidate_result.total_travel_distance:.3f} from start at {start_pos}")
+
+        return best_result  # type: ignore[return-value]
+
+    def _optimize_from_start(
+        self,
+        blocks: List[MacroBlock],
+        start_pos: Tuple[float, float],
+    ) -> OptimizationResult:
+        """Optimize starting from a specific position.
+
+        Args:
+            blocks: List of MacroBlocks to optimize.
+            start_pos: Starting position for optimization.
+
+        Returns:
+            OptimizationResult with optimized traversal order.
+        """
         if len(blocks) == 1:
             return self._optimize_single_block(blocks, start_pos)
 
@@ -2523,6 +2722,89 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
             population.append(chromosome)
 
         return population[:self._population_size]
+
+    def _find_nearest_origin_endpoints(
+        self,
+        blocks: List[MacroBlock],
+        origin: Tuple[float, float] = (0.0, 0.0),
+        n_candidates: int = 5,
+    ) -> List[Tuple[Tuple[float, float], int, bool, float]]:
+        """Find the N block endpoints nearest to the origin.
+
+        This ensures the optimization evaluates multiple starting candidates
+        when there are ties or near-ties for closest endpoint to origin.
+
+        Args:
+            blocks: List of MacroBlocks to search.
+            origin: Reference point for distance calculation (default origin).
+            n_candidates: Number of closest endpoints to return.
+
+        Returns:
+            List of tuples sorted by distance: [(position, block_index, is_exit, distance), ...].
+            - position: (x, y) coordinates of the endpoint
+            - block_index: index of the block containing this endpoint
+            - is_exit: True if endpoint is block's exit (needs reversal)
+            - distance: Euclidean distance from origin
+        """
+        candidates: List[Tuple[float, Tuple[Tuple[float, float], int, bool]]] = []
+
+        for i, block in enumerate(blocks):
+            dist_entrance = math.sqrt(
+                (block.entrance.x - origin[0]) ** 2
+                + (block.entrance.y - origin[1]) ** 2
+            )
+            candidates.append((dist_entrance, ((block.entrance.x, block.entrance.y), i, False)))
+
+            dist_exit = math.sqrt(
+                (block.exit.x - origin[0]) ** 2
+                + (block.exit.y - origin[1]) ** 2
+            )
+            candidates.append((dist_exit, ((block.exit.x, block.exit.y), i, True)))
+
+        candidates.sort(key=lambda x: x[0])
+        return [(pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]]
+
+    def _find_farthest_origin_endpoints(
+        self,
+        blocks: List[MacroBlock],
+        origin: Tuple[float, float] = (0.0, 0.0),
+        n_candidates: int = 5,
+    ) -> List[Tuple[Tuple[float, float], int, bool, float]]:
+        """Find the N block endpoints farthest from the origin.
+
+        This is used to evaluate candidate ending points for optimization,
+        ensuring the tour ends at a point far from machine origin when desired.
+
+        Args:
+            blocks: List of MacroBlocks to search.
+            origin: Reference point for distance calculation (default origin).
+            n_candidates: Number of farthest endpoints to return.
+
+        Returns:
+            List of tuples sorted by distance descending: [(position, block_index, is_exit, distance), ...].
+            - position: (x, y) coordinates of the endpoint
+            - block_index: index of the block containing this endpoint
+            - is_exit: True if endpoint is block's exit (needs reversal)
+            - distance: Euclidean distance from origin
+        """
+        candidates: List[Tuple[float, Tuple[Tuple[float, float], int, bool]]] = []
+
+        for i, block in enumerate(blocks):
+            dist_entrance = math.sqrt(
+                (block.entrance.x - origin[0]) ** 2
+                + (block.entrance.y - origin[1]) ** 2
+            )
+            candidates.append((dist_entrance, ((block.entrance.x, block.entrance.y), i, False)))
+
+            dist_exit = math.sqrt(
+                (block.exit.x - origin[0]) ** 2
+                + (block.exit.y - origin[1]) ** 2
+            )
+            candidates.append((dist_exit, ((block.exit.x, block.exit.y), i, True)))
+
+        # Sort by distance descending to get farthest first
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        return [(pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]]
 
     def _calculate_fitness(self, chromosome: List[int], blocks: List[MacroBlock]) -> float:
         """Calculate total distance for a tour encoded in chromosome.
