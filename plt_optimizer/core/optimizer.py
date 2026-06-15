@@ -1291,252 +1291,364 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
 
 
 class ChristofidesStrategy(OptimizationStrategy):
-    """Christofides-Serdyukov algorithm for TSP with 3/2 approximation guarantee.
+    """Christofides-Serdyukov algorithm for S-T Path TSP with 5/3 approximation.
 
-    This strategy implements the Christofides-Serdyukov algorithm, a deterministic
-    approximation algorithm for the Traveling Salesman Problem. The algorithm:
+    This strategy implements Hoogeveen's modification of the Christofides-Serdyukov
+    algorithm for the S-T Path TSP problem, where we need to find a minimum-weight
+    path from a fixed start point S to a fixed end point T visiting all blocks.
 
-    1. Build Minimum Spanning Tree (MST) of all block endpoints using Prim's algorithm
-    2. Find vertices with odd degree in MST
-    3. Compute minimum-weight perfect matching on odd-degree vertices
-    4. Combine MST + matching edges to form Eulerian multigraph
-    5. Find Eulerian tour, then shortcut to Hamiltonian tour
+    The algorithm:
 
-    The algorithm provides a theoretical guarantee that the resulting tour length
-    is at most 3/2 of the optimal TSP tour.
+    1. Build Minimum Spanning Tree (MST) of all vertices (block endpoints + S + T)
+       using Prim's algorithm
+    2. Find "wrong parity" vertices: block endpoints with odd MST degree, plus
+       S and T with even MST degree
+    3. Compute minimum-weight perfect matching on wrong-parity vertices
+    4. Combine MST + matching edges to form Eulerian multigraph (exactly two
+       odd-degree vertices: S and T)
+    5. Find Eulerian path from S to T, then shortcut to Hamiltonian path
+
+    The algorithm provides a theoretical guarantee that the resulting path length
+    is at most 5/3 of the optimal S-T Path TSP tour.
 
     Each block has two endpoints (entrance and exit). For MST purposes, we treat
     each endpoint as a vertex but track which block they belong to. When building
     the final tour, we need to decide both sequence AND direction for each block.
     """
 
+    # Special vertex IDs for start and end terminals
+    START_VERTEX_ID: int = -1  # Reserved ID for S terminal
+    END_VERTEX_ID: int = -2   # Reserved ID for T terminal
+
     def __init__(self) -> None:
         """Initialize the Christofides-Serdyukov strategy."""
         super().__init__()
+        self._start_point: Optional[Tuple[float, float]] = None
+        self._end_point: Optional[Tuple[float, float]] = None
 
     @property
     def name(self) -> str:
         """Return the strategy name."""
-        return "Christofides-Serdyukov Algorithm"
+        return "Christofides-Serdyukov S-T Path (5/3 approx)"
 
     def optimize(
         self,
         blocks: List[MacroBlock],
-        initial_position: Optional[Tuple[float, float]] = None,
+        start_point: Tuple[float, float],
+        end_point: Tuple[float, float],
     ) -> OptimizationResult:
-        """Optimize using Christofides-Serdyukov algorithm.
+        """Optimize using Christofides-Serdyukov algorithm for S-T Path.
 
         Args:
             blocks: List of MacroBlocks to optimize.
-            initial_position: Starting position for optimization. If None,
-                uses the closest endpoint to origin as starting point.
+            start_point: Fixed starting point as (x, y) tuple.
+            end_point: Fixed ending point as (x, y) tuple.
 
         Returns:
-            OptimizationResult with optimized traversal order.
+            OptimizationResult with optimized traversal order from start_point
+            to end_point.
         """
         self._logger.info(f"Running {self.name} on {len(blocks)} blocks")
+
+        # Store terminal points as instance variables for access by helper methods
+        self._start_point = start_point
+        self._end_point = end_point
 
         if not blocks:
             return OptimizationResult(
                 traverse_order=(),
                 connections=(),
                 total_travel_distance=0.0,
-                initial_position=None,
+                initial_position=start_point,
             )
 
         if len(blocks) == 1:
-            return self._optimize_single_block(blocks, initial_position)
+            return self._optimize_single_block(blocks, start_point, end_point)
 
         if len(blocks) == 2:
-            return self._optimize_two_blocks(blocks, initial_position)
+            return self._optimize_two_blocks(blocks, start_point, end_point)
 
-        vertices = self._create_vertices(blocks)
-        start_vertex = self._find_nearest_origin_vertex(vertices, initial_position or (0.0, 0.0))
+        vertices = self._create_vertices(blocks, start_point, end_point)
+        start_vertex = self.START_VERTEX_ID
+        end_vertex = self.END_VERTEX_ID
 
         mst_edges = self._build_mst_prim(vertices, start_vertex)
 
-        odd_vertices = self._find_odd_degree_vertices(mst_edges, vertices)
+        wrong_parity_vertices = self._find_wrong_parity_vertices(
+            mst_edges, vertices, start_vertex, end_vertex
+        )
 
-        matching_edges = self._greedy_perfect_matching(odd_vertices, vertices)
+        matching_edges = self._greedy_perfect_matching(wrong_parity_vertices, vertices)
 
         eulerian_edges = list(mst_edges) + matching_edges
 
-        eulerian_tour = self._build_eulerian_tour(eulerian_edges, start_vertex, vertices)
+        eulerian_path = self._build_eulerian_path(
+            eulerian_edges, start_vertex, vertices
+        )
 
-        hamiltonian_sequence = self._euler_to_hamiltonian_shortcut(eulerian_tour, blocks)
+        hamiltonian_sequence = self._euler_to_hamiltonian_shortcut_st_path(
+            eulerian_path, blocks, end_point
+        )
 
-        if initial_position is not None:
-            start_pos = initial_position
-        else:
-            v = vertices[start_vertex]
-            start_pos = (v[0], v[1])  # v is (x, y, block_index, is_exit)
+        tour = self._create_traverse_order_st_path(
+            hamiltonian_sequence, blocks, start_point, end_point
+        )
 
-        tour = self._create_traverse_order(hamiltonian_sequence, blocks, start_pos)
-
-        connections = self._build_connections(blocks, tour, start_pos)
+        connections = self._build_connections(blocks, tour, start_point)
         total_distance = sum(c.travel_distance for c in connections if c.source_block_id >= 0)
 
         return OptimizationResult(
             traverse_order=tuple(tour),
             connections=connections,
             total_travel_distance=total_distance,
-            initial_position=start_pos,
+            initial_position=start_point,
         )
 
     def _optimize_single_block(
         self,
         blocks: List[MacroBlock],
-        initial_position: Optional[Tuple[float, float]],
+        start_point: Tuple[float, float],
+        end_point: Tuple[float, float],
     ) -> OptimizationResult:
-        """Optimize case with single block.
+        """Optimize case with single block for S-T path.
 
         Args:
             blocks: Single-block list.
-            initial_position: Starting position.
+            start_point: Fixed starting point as (x, y).
+            end_point: Fixed ending point as (x, y).
 
         Returns:
-            OptimizationResult for single block.
+            OptimizationResult for single block from start_point to end_point.
         """
         block = blocks[0]
-        origin = initial_position or (0.0, 0.0)
 
-        cost_to_entrance = math.sqrt(
-            (block.entrance.x - origin[0]) ** 2
-            + (block.entrance.y - origin[1]) ** 2
-        )
-        cost_to_exit = math.sqrt(
-            (block.exit.x - origin[0]) ** 2
-            + (block.exit.y - origin[1]) ** 2
-        )
+        # Evaluate all four combinations: entry direction and exit direction
+        # We need to go from start_point to some entry of the block,
+        # traverse it, then go to end_point
 
-        if cost_to_entrance <= cost_to_exit:
-            reversed_flag = False
-            tour_state = BlockTraverseState(
-                block_id=block.block_id,
-                reversed=False,
-                entrance=(block.entrance.x, block.entrance.y),
-                exit=(block.exit.x, block.exit.y),
+        candidates: List[Tuple[float, bool]] = []  # (cost, reversed)
+
+        for entrance_is_exit in [False, True]:
+            if entrance_is_exit:
+                entry_coord = (block.exit.x, block.exit.y)
+                exit_coord = (block.entrance.x, block.entrance.y)
+            else:
+                entry_coord = (block.entrance.x, block.entrance.y)
+                exit_coord = (block.exit.x, block.exit.y)
+
+            cost_to_entry = math.sqrt(
+                (entry_coord[0] - start_point[0]) ** 2
+                + (entry_coord[1] - start_point[1]) ** 2
             )
-        else:
-            reversed_flag = True
+            cost_from_exit = math.sqrt(
+                (end_point[0] - exit_coord[0]) ** 2
+                + (end_point[1] - exit_coord[1]) ** 2
+            )
+            total_cost = cost_to_entry + cost_from_exit
+            candidates.append((total_cost, entrance_is_exit))
+
+        candidates.sort(key=lambda x: x[0])
+        best_cost, best_reversed = candidates[0]
+
+        if best_reversed:
             tour_state = BlockTraverseState(
                 block_id=block.block_id,
                 reversed=True,
                 entrance=(block.exit.x, block.exit.y),
                 exit=(block.entrance.x, block.entrance.y),
             )
+        else:
+            tour_state = BlockTraverseState(
+                block_id=block.block_id,
+                reversed=False,
+                entrance=(block.entrance.x, block.entrance.y),
+                exit=(block.exit.x, block.exit.y),
+            )
 
-        start_pos = origin
-        connections = self._build_connections(blocks, [tour_state], start_pos)
+        connections = self._build_connections(blocks, [tour_state], start_point)
         total_distance = sum(c.travel_distance for c in connections if c.source_block_id >= 0)
 
         return OptimizationResult(
             traverse_order=(tour_state,),
             connections=connections,
             total_travel_distance=total_distance,
-            initial_position=start_pos,
+            initial_position=start_point,
         )
 
     def _optimize_two_blocks(
         self,
         blocks: List[MacroBlock],
-        initial_position: Optional[Tuple[float, float]],
+        start_point: Tuple[float, float],
+        end_point: Tuple[float, float],
     ) -> OptimizationResult:
-        """Optimize case with two blocks.
+        """Optimize case with two blocks for S-T path.
 
         Args:
             blocks: Two-block list.
-            initial_position: Starting position.
+            start_point: Fixed starting point as (x, y).
+            end_point: Fixed ending point as (x, y).
 
         Returns:
-            OptimizationResult for two blocks.
+            OptimizationResult for two blocks from start_point to end_point.
         """
-        origin = initial_position or (0.0, 0.0)
+        best_tour: Optional[List[BlockTraverseState]] = None
+        best_distance = float('inf')
 
-        candidates: List[Tuple[float, int, bool]] = []
+        # Try all orderings and orientations of the two blocks
+        for first_idx, second_idx in [(0, 1), (1, 0)]:
+            for first_rev in [False, True]:
+                for second_rev in [False, True]:
+                    tour = self._try_two_block_configuration(
+                        blocks, first_idx, first_rev, second_idx, second_rev
+                    )
+                    distance = self._calculate_st_path_distance(
+                        tour, blocks, start_point, end_point
+                    )
+                    if distance < best_distance:
+                        best_distance = distance
+                        best_tour = tour
 
-        for i, block in enumerate(blocks):
-            cost_entrance = math.sqrt(
-                (block.entrance.x - origin[0]) ** 2
-                + (block.entrance.y - origin[1]) ** 2
-            )
-            candidates.append((cost_entrance, i, False))
+        if best_tour is None:
+            raise OptimizationError("Failed to find valid two-block path")
 
-            cost_exit = math.sqrt(
-                (block.exit.x - origin[0]) ** 2
-                + (block.exit.y - origin[1]) ** 2
-            )
-            candidates.append((cost_exit, i, True))
+        connections = self._build_connections(blocks, best_tour, start_point)
+        total_distance = sum(c.travel_distance for c in connections if c.source_block_id >= 0)
 
-        candidates.sort(key=lambda x: x[0])
-        first_pos, first_idx, first_rev = candidates[0]
+        return OptimizationResult(
+            traverse_order=tuple(best_tour),
+            connections=connections,
+            total_travel_distance=total_distance,
+            initial_position=start_point,
+        )
 
+    def _try_two_block_configuration(
+        self,
+        blocks: List[MacroBlock],
+        first_idx: int,
+        first_rev: bool,
+        second_idx: int,
+        second_rev: bool,
+    ) -> List[BlockTraverseState]:
+        """Try a specific configuration for two blocks.
+
+        Args:
+            blocks: Two-block list.
+            first_idx: Index of first block in sequence.
+            first_rev: Whether to traverse first block in reverse.
+            second_idx: Index of second block in sequence.
+            second_rev: Whether to traverse second block in reverse.
+
+        Returns:
+            List of BlockTraverseState for this configuration.
+        """
         tour: List[BlockTraverseState] = []
-        remaining_block_idx = 1 - first_idx
 
+        first_block = blocks[first_idx]
         if first_rev:
             tour.append(BlockTraverseState(
-                block_id=blocks[first_idx].block_id,
+                block_id=first_block.block_id,
                 reversed=True,
-                entrance=(blocks[first_idx].exit.x, blocks[first_idx].exit.y),
-                exit=(blocks[first_idx].entrance.x, blocks[first_idx].entrance.y),
+                entrance=(first_block.exit.x, first_block.exit.y),
+                exit=(first_block.entrance.x, first_block.entrance.y),
             ))
         else:
             tour.append(BlockTraverseState(
-                block_id=blocks[first_idx].block_id,
+                block_id=first_block.block_id,
                 reversed=False,
-                entrance=(blocks[first_idx].entrance.x, blocks[first_idx].entrance.y),
-                exit=(blocks[first_idx].exit.x, blocks[first_idx].exit.y),
+                entrance=(first_block.entrance.x, first_block.entrance.y),
+                exit=(first_block.exit.x, first_block.exit.y),
             ))
 
-        second_block = blocks[remaining_block_idx]
-        cost_to_entrance = math.sqrt(
-            (second_block.entrance.x - tour[0].exit[0]) ** 2
-            + (second_block.entrance.y - tour[0].exit[1]) ** 2
-        )
-        cost_to_exit = math.sqrt(
-            (second_block.exit.x - tour[0].exit[0]) ** 2
-            + (second_block.exit.y - tour[0].exit[1]) ** 2
-        )
-
-        if cost_to_entrance <= cost_to_exit:
-            tour.append(BlockTraverseState(
-                block_id=second_block.block_id,
-                reversed=False,
-                entrance=(second_block.entrance.x, second_block.entrance.y),
-                exit=(second_block.exit.x, second_block.exit.y),
-            ))
-        else:
+        second_block = blocks[second_idx]
+        if second_rev:
             tour.append(BlockTraverseState(
                 block_id=second_block.block_id,
                 reversed=True,
                 entrance=(second_block.exit.x, second_block.exit.y),
                 exit=(second_block.entrance.x, second_block.entrance.y),
             ))
+        else:
+            tour.append(BlockTraverseState(
+                block_id=second_block.block_id,
+                reversed=False,
+                entrance=(second_block.entrance.x, second_block.entrance.y),
+                exit=(second_block.exit.x, second_block.exit.y),
+            ))
 
-        connections = self._build_connections(blocks, tour, origin)
-        total_distance = sum(c.travel_distance for c in connections if c.source_block_id >= 0)
+        return tour
 
-        return OptimizationResult(
-            traverse_order=tuple(tour),
-            connections=connections,
-            total_travel_distance=total_distance,
-            initial_position=origin,
+    def _calculate_st_path_distance(
+        self,
+        tour: List[BlockTraverseState],
+        blocks: List[MacroBlock],
+        start_point: Tuple[float, float],
+        end_point: Tuple[float, float],
+    ) -> float:
+        """Calculate total S-T path distance for a tour.
+
+        Args:
+            tour: Traverse order.
+            blocks: All macro blocks.
+            start_point: Fixed starting point.
+            end_point: Fixed ending point.
+
+        Returns:
+            Total travel distance from start_point through all blocks to end_point.
+        """
+        if not tour:
+            return math.sqrt(
+                (end_point[0] - start_point[0]) ** 2
+                + (end_point[1] - start_point[1]) ** 2
+            )
+
+        # Distance from start to first block entrance
+        first_state = tour[0]
+        distance = math.sqrt(
+            (first_state.entrance[0] - start_point[0]) ** 2
+            + (first_state.entrance[1] - start_point[1]) ** 2
         )
+
+        # Distance between blocks
+        for i in range(len(tour) - 1):
+            curr_exit = tour[i].exit
+            next_entrance = tour[i + 1].entrance
+            distance += math.sqrt(
+                (next_entrance[0] - curr_exit[0]) ** 2
+                + (next_entrance[1] - curr_exit[1]) ** 2
+            )
+
+        # Distance from last block exit to end_point
+        last_state = tour[-1]
+        distance += math.sqrt(
+            (end_point[0] - last_state.exit[0]) ** 2
+            + (end_point[1] - last_state.exit[1]) ** 2
+        )
+
+        return distance
 
     def _create_vertices(
         self,
         blocks: List[MacroBlock],
+        start_point: Tuple[float, float],
+        end_point: Tuple[float, float],
     ) -> Dict[int, Tuple[float, float, int, bool]]:
-        """Create vertex mapping from block endpoints.
+        """Create vertex mapping from block endpoints plus S and T terminals.
 
         Args:
             blocks: All macro blocks.
+            start_point: Fixed starting point as (x, y).
+            end_point: Fixed ending point as (x, y).
 
         Returns:
             Dictionary mapping vertex_id to (x, y, block_index, is_exit).
+            Special IDs: START_VERTEX_ID (-1) for S, END_VERTEX_ID (-2) for T.
         """
         vertices: Dict[int, Tuple[float, float, int, bool]] = {}
+
+        # Add start and end terminals with special IDs
+        vertices[self.START_VERTEX_ID] = (start_point[0], start_point[1], -1, False)
+        vertices[self.END_VERTEX_ID] = (end_point[0], end_point[1], -2, True)
+
         vid = 0
 
         for i, block in enumerate(blocks):
@@ -1547,31 +1659,6 @@ class ChristofidesStrategy(OptimizationStrategy):
 
         return vertices
 
-    def _find_nearest_origin_vertex(
-        self,
-        vertices: Dict[int, Tuple[float, float, int, bool]],
-        origin: Tuple[float, float],
-    ) -> int:
-        """Find vertex nearest to the origin point.
-
-        Args:
-            vertices: All vertices.
-            origin: Reference point for distance calculation.
-
-        Returns:
-            Vertex ID of closest vertex to origin.
-        """
-        min_dist = float('inf')
-        best_vid = -1
-
-        for vid, (x, y, _, _) in vertices.items():
-            dist = math.sqrt((x - origin[0]) ** 2 + (y - origin[1]) ** 2)
-            if dist < min_dist:
-                min_dist = dist
-                best_vid = vid
-
-        return best_vid
-
     def _build_mst_prim(
         self,
         vertices: Dict[int, Tuple[float, float, int, bool]],
@@ -1580,8 +1667,8 @@ class ChristofidesStrategy(OptimizationStrategy):
         """Build Minimum Spanning Tree using Prim's algorithm.
 
         Args:
-            vertices: All vertices in the graph.
-            start_vertex: Vertex ID to start from (nearest origin).
+            vertices: All vertices in the graph (including S and T terminals).
+            start_vertex: Vertex ID to start from (should be START_VERTEX_ID).
 
         Returns:
             List of edges (u, v) forming the MST.
@@ -1633,19 +1720,31 @@ class ChristofidesStrategy(OptimizationStrategy):
         """
         return math.sqrt((v2[0] - v1[0]) ** 2 + (v2[1] - v1[1]) ** 2)
 
-    def _find_odd_degree_vertices(
+    def _find_wrong_parity_vertices(
         self,
         mst_edges: List[Tuple[int, int]],
         vertices: Dict[int, Tuple[float, float, int, bool]],
+        start_vertex: int,
+        end_vertex: int,
     ) -> List[int]:
-        """Find vertices with odd degree in the MST.
+        """Find vertices with "wrong" parity for S-T Path TSP.
+
+        For standard block endpoints: add to set O if MST degree is odd.
+        For start_point vertex: add to set O if MST degree is even.
+        For end_point vertex: add to set O if MST degree is even.
+
+        This ensures that after adding the matching edges, exactly S and T
+        will have odd degree (all other vertices even), enabling an Eulerian
+        path from S to T.
 
         Args:
             mst_edges: Edges of the MST.
-            vertices: All vertices.
+            vertices: All vertices including S and T terminals.
+            start_vertex: Vertex ID of start terminal (START_VERTEX_ID).
+            end_vertex: Vertex ID of end terminal (END_VERTEX_ID).
 
         Returns:
-            List of vertex IDs with odd degree.
+            List of vertex IDs that need to be matched ("wrong parity" set O).
         """
         degree: Dict[int, int] = {vid: 0 for vid in vertices}
 
@@ -1653,21 +1752,33 @@ class ChristofidesStrategy(OptimizationStrategy):
             degree[u] += 1
             degree[v] += 1
 
-        return [vid for vid, deg in degree.items() if deg % 2 == 1]
+        wrong_parity: List[int] = []
+
+        for vid, deg in degree.items():
+            if vid == start_vertex or vid == end_vertex:
+                # S and T terminals: add if degree is even (should be odd)
+                if deg % 2 == 0:
+                    wrong_parity.append(vid)
+            else:
+                # Block endpoints: add if degree is odd (should be even)
+                if deg % 2 == 1:
+                    wrong_parity.append(vid)
+
+        return wrong_parity
 
     def _greedy_perfect_matching(
         self,
         odd_vertices: List[int],
         vertices: Dict[int, Tuple[float, float, int, bool]],
     ) -> List[Tuple[int, int]]:
-        """Compute minimum-weight perfect matching on odd-degree vertices.
+        """Compute minimum-weight perfect matching on "wrong parity" vertices.
 
         Uses a simplified greedy approach: iteratively pair the closest
-        unmatched odd vertices. This is not optimal but provides a valid
+        unmatched vertices. This is not optimal but provides a valid
         perfect matching with reasonable quality.
 
         Args:
-            odd_vertices: List of vertex IDs with odd degree.
+            odd_vertices: List of vertex IDs with wrong parity (set O).
             vertices: All vertices for distance calculations.
 
         Returns:
@@ -1698,21 +1809,25 @@ class ChristofidesStrategy(OptimizationStrategy):
 
         return matching_edges
 
-    def _build_eulerian_tour(
+    def _build_eulerian_path(
         self,
         edges: List[Tuple[int, int]],
         start_vertex: int,
         vertices: Dict[int, Tuple[float, float, int, bool]],
     ) -> List[int]:
-        """Build Eulerian tour from edges using Hierholzer's algorithm.
+        """Build Eulerian path from S to T using Hierholzer's algorithm.
+
+        Because of the parity adjustment in Hoogeveen's method, the multigraph
+        (MST + Matching) has exactly two odd-degree vertices: S and T.
+        Starting from S, Hierholzer's algorithm will naturally terminate at T.
 
         Args:
-            edges: Combined MST + matching edges.
-            start_vertex: Vertex ID to start the tour from.
+            edges: Combined MST + matching edges forming Eulerian multigraph.
+            start_vertex: Vertex ID to start the path from (should be START_VERTEX_ID).
             vertices: All vertices for adjacency lookup.
 
         Returns:
-            List of vertex IDs in Eulerian tour order.
+            List of vertex IDs in Eulerian path order from S to T.
         """
         if not edges:
             return [start_vertex]
@@ -1727,7 +1842,7 @@ class ChristofidesStrategy(OptimizationStrategy):
             edge_count[(v, u)] = edge_count.get((v, u), 0) + 1
 
         stack: List[int] = [start_vertex]
-        tour: List[int] = []
+        path: List[int] = []
 
         while stack:
             current = stack[-1]
@@ -1741,70 +1856,71 @@ class ChristofidesStrategy(OptimizationStrategy):
 
                 stack.append(next_v)
             else:
-                tour.append(stack.pop())
+                path.append(stack.pop())
 
-        return tour
+        # Path is built in reverse order; since we start from S and end at T,
+        # the reversal gives us the correct Eulerian path
+        return list(reversed(path))
 
-    def _euler_to_hamiltonian_shortcut(
+    def _euler_to_hamiltonian_shortcut_st_path(
         self,
-        eulerian_tour: List[int],
+        eulerian_path: List[int],
         blocks: List[MacroBlock],
+        end_point: Tuple[float, float],
     ) -> List[Tuple[int, bool]]:
-        """Convert Eulerian tour to Hamiltonian by skipping visited nodes.
+        """Convert Eulerian path to Hamiltonian S-T path by skipping visited nodes.
 
-        When traversing the Eulerian tour, we skip vertices that belong to
-        a block already visited. For each block, we also determine whether
-        to traverse it forward or in reverse based on entry direction.
+        When traversing the Eulerian path from S to T, we skip vertices that belong
+        to a block already visited. For each block, we determine whether to traverse
+        it forward or in reverse based on entry direction. The last vertex in the
+        sequence should be T (end_point), which is not a block endpoint.
 
         Args:
-            eulerian_tour: List of vertex IDs in Eulerian order.
+            eulerian_path: List of vertex IDs in Eulerian path order from S to T.
             blocks: All macro blocks for state lookups.
+            end_point: Fixed ending point as (x, y).
 
         Returns:
-            List of (block_idx, reversed) tuples representing the Hamiltonian tour.
+            List of (block_idx, reversed) tuples representing the Hamiltonian S-T path.
         """
         visited_blocks = set()
         hamiltonian: List[Tuple[int, bool]] = []
         prev_vertex: Optional[int] = None
 
-        num_vertices = len(eulerian_tour)
+        # The Eulerian path starts with S and ends with T
+        num_vertices = len(eulerian_path)
 
         for i in range(num_vertices):
-            vid = eulerian_tour[i]
+            vid = eulerian_path[i]
 
-            x, y, block_idx, is_exit = self._get_vertex_info(vid, blocks)
+            x, y, block_idx, is_exit = self._get_vertex_info_st(vid, blocks)
 
-            if block_idx in visited_blocks:
+            # Skip the start vertex (S) - it's not a block
+            if block_idx == -1:
                 continue
 
-            next_vid = None
-            for j in range(1, num_vertices):
-                check_idx = (i + j) % num_vertices
-                check_vid = eulerian_tour[check_idx]
-                _, check_block_idx, _, _ = self._get_vertex_info(check_vid, blocks)
-                if check_block_idx not in visited_blocks:
-                    next_vid = check_vid
-                    break
+            # Skip T (end terminal) and already visited blocks
+            if block_idx == -2 or block_idx in visited_blocks:
+                continue
 
             should_reverse = False
 
             if prev_vertex is None:
-                should_reverse = is_exit
+                # First real block after S: determine direction based on entry from S
+                # If we enter at an exit point (is_exit=True), reverse the traversal
+                should_reverse = self._determine_reversal_for_first_block(
+                    vid, blocks
+                )
             else:
-                _, _, prev_block_idx, prev_is_exit = self._get_vertex_info(prev_vertex, blocks)
+                _, _, prev_block_idx, _ = self._get_vertex_info_st(prev_vertex, blocks)
 
                 entry_at_prev: Tuple[float, float]
                 if prev_block_idx == block_idx:
-                    if prev_is_exit:
-                        entry_at_prev = (
-                            blocks[prev_block_idx].exit.x,
-                            blocks[prev_block_idx].exit.y,
-                        )
-                    else:
-                        entry_at_prev = (
-                            blocks[prev_block_idx].entrance.x,
-                            blocks[prev_block_idx].entrance.y,
-                        )
+                    # Same block (shouldn't happen in shortcutting normally)
+                    continue
+                elif prev_block_idx == -1:
+                    # Previous was S terminal
+                    entry_at_prev = self._get_start_coords()
                 else:
                     entry_at_prev = self._get_vertex_coords(prev_vertex, blocks)
 
@@ -1828,20 +1944,58 @@ class ChristofidesStrategy(OptimizationStrategy):
 
         return hamiltonian
 
-    def _get_vertex_info(
+    def _determine_reversal_for_first_block(
+        self,
+        first_vid: int,
+        blocks: List[MacroBlock],
+    ) -> bool:
+        """Determine whether to reverse the first block based on entry from S.
+
+        When we enter a block from S at a particular endpoint, we need to decide
+        if that entry point is an exit (meaning we'd be entering "backwards" and
+        should reverse) or entrance (traverse forward).
+
+        Args:
+            first_vid: Vertex ID of first block endpoint.
+            blocks: All macro blocks.
+
+        Returns:
+            True if block should be traversed in reverse.
+        """
+        _, _, block_idx, is_exit = self._get_vertex_info_st(first_vid, blocks)
+
+        # If the Eulerian path hits an exit point as entry, we need to traverse
+        # the block in reverse (enter at exit, go backwards to entrance)
+        if is_exit:
+            return True
+
+        return False
+
+    def _get_vertex_info_st(
         self,
         vid: int,
         blocks: List[MacroBlock],
     ) -> Tuple[float, float, int, bool]:
-        """Get vertex information from a vertex ID.
+        """Get vertex information from a vertex ID including S and T terminals.
 
         Args:
-            vid: Vertex ID.
+            vid: Vertex ID. Special values: START_VERTEX_ID (-1) for S,
+                END_VERTEX_ID (-2) for T.
             blocks: All macro blocks to find the corresponding endpoint.
 
         Returns:
             Tuple of (x, y, block_index, is_exit).
+            - For S terminal: returns start_point coords with block_idx=-1
+            - For T terminal: returns end_point coords with block_idx=-2
+            - For block endpoints: standard behavior
         """
+        if vid == self.START_VERTEX_ID:
+            sp = self._get_start_coords()
+            return (sp[0], sp[1], -1, False)
+        elif vid == self.END_VERTEX_ID:
+            ep = self._get_end_coords()
+            return (ep[0], ep[1], -2, True)
+
         num_endpoints = len(blocks) * 2
 
         if vid < 0 or vid >= num_endpoints:
@@ -1855,6 +2009,26 @@ class ChristofidesStrategy(OptimizationStrategy):
             return (block.exit.x, block.exit.y, block_idx, True)
         else:
             return (block.entrance.x, block.entrance.y, block_idx, False)
+
+    def _get_start_coords(self) -> Tuple[float, float]:
+        """Get the coordinates of the start terminal.
+
+        Returns:
+            Tuple of (x, y) coordinates for the S terminal.
+        """
+        if self._start_point is not None:
+            return self._start_point
+        return (0.0, 0.0)
+
+    def _get_end_coords(self) -> Tuple[float, float]:
+        """Get the coordinates of the end terminal.
+
+        Returns:
+            Tuple of (x, y) coordinates for the T terminal.
+        """
+        if self._end_point is not None:
+            return self._end_point
+        return (0.0, 0.0)
 
     def _get_vertex_coords(
         self,
@@ -1870,82 +2044,77 @@ class ChristofidesStrategy(OptimizationStrategy):
         Returns:
             Tuple of (x, y) coordinates.
         """
-        x, y, _, _ = self._get_vertex_info(vid, blocks)
+        x, y, _, _ = self._get_vertex_info_st(vid, blocks)
         return (x, y)
 
-    def _create_traverse_order(
+    def _create_traverse_order_st_path(
         self,
         hamiltonian_sequence: List[Tuple[int, bool]],
         blocks: List[MacroBlock],
-        start_pos: Tuple[float, float],
+        start_point: Tuple[float, float],
+        end_point: Tuple[float, float],
     ) -> List[BlockTraverseState]:
-        """Create BlockTraverseState list from Hamiltonian sequence.
+        """Create BlockTraverseState list from Hamiltonian S-T path sequence.
 
         Args:
             hamiltonian_sequence: List of (block_idx, reversed) tuples.
             blocks: All macro blocks for coordinate lookups.
-            start_pos: Starting position for the tour.
+            start_point: Fixed starting point as (x, y).
+            end_point: Fixed ending point as (x, y).
 
         Returns:
-            List of BlockTraverseState objects.
+            List of BlockTraverseState objects forming path from start to end.
         """
         if not hamiltonian_sequence:
             return []
 
-        first_block_idx, first_reversed = hamiltonian_sequence[0]
+        first_block_idx, _ = hamiltonian_sequence[0]
         first_block = blocks[first_block_idx]
 
-        current_pos = start_pos
-
-        entry_at_first: Tuple[float, float]
-        if first_reversed:
-            entry_at_first = (first_block.exit.x, first_block.exit.y)
-        else:
-            entry_at_first = (first_block.entrance.x, first_block.entrance.y)
-
-        dist_to_entrance = math.sqrt(
-            (first_block.entrance.x - current_pos[0]) ** 2
-            + (first_block.entrance.y - current_pos[1]) ** 2
+        # Determine actual reversal for first block based on distance from start_point
+        dist_to_entrance_first = math.sqrt(
+            (first_block.entrance.x - start_point[0]) ** 2
+            + (first_block.entrance.y - start_point[1]) ** 2
         )
-        dist_to_exit = math.sqrt(
-            (first_block.exit.x - current_pos[0]) ** 2
-            + (first_block.exit.y - current_pos[1]) ** 2
+        dist_to_exit_first = math.sqrt(
+            (first_block.exit.x - start_point[0]) ** 2
+            + (first_block.exit.y - start_point[1]) ** 2
         )
 
-        if first_reversed:
-            actual_first_reversed = dist_to_exit < dist_to_entrance
+        # Choose the entry point that is closer to start_point
+        if dist_to_entrance_first <= dist_to_exit_first:
+            actual_first_reversed = False
+            first_entry = (first_block.entrance.x, first_block.entrance.y)
+            first_exit = (first_block.exit.x, first_block.exit.y)
         else:
-            actual_first_reversed = dist_to_entrance <= dist_to_exit
+            actual_first_reversed = True
+            first_entry = (first_block.exit.x, first_block.exit.y)
+            first_exit = (first_block.entrance.x, first_block.entrance.y)
 
         tour: List[BlockTraverseState] = []
 
         for block_idx, sequence_reversed in hamiltonian_sequence:
             block = blocks[block_idx]
 
-            if actual_first_reversed and block_idx == first_block_idx:
-                actual_reversed = True
-                state = BlockTraverseState(
-                    block_id=block.block_id,
-                    reversed=True,
-                    entrance=(block.exit.x, block.exit.y),
-                    exit=(block.entrance.x, block.entrance.y),
-                )
-            elif not actual_first_reversed and block_idx == first_block_idx:
-                actual_reversed = False
-                state = BlockTraverseState(
-                    block_id=block.block_id,
-                    reversed=False,
-                    entrance=(block.entrance.x, block.entrance.y),
-                    exit=(block.exit.x, block.exit.y),
-                )
-            else:
-                prev_state = tour[-1] if tour else None
-
-                entry_point: Tuple[float, float]
-                if prev_state is not None:
-                    entry_point = prev_state.exit
+            if block_idx == first_block_idx:
+                # First block - use the actual reversal based on start_point distance
+                if actual_first_reversed:
+                    state = BlockTraverseState(
+                        block_id=block.block_id,
+                        reversed=True,
+                        entrance=(block.exit.x, block.exit.y),
+                        exit=(block.entrance.x, block.entrance.y),
+                    )
                 else:
-                    entry_point = start_pos
+                    state = BlockTraverseState(
+                        block_id=block.block_id,
+                        reversed=False,
+                        entrance=(block.entrance.x, block.entrance.y),
+                        exit=(block.exit.x, block.exit.y),
+                    )
+            else:
+                prev_state = tour[-1]
+                entry_point = prev_state.exit
 
                 dist_to_entrance = math.sqrt(
                     (block.entrance.x - entry_point[0]) ** 2
@@ -3338,12 +3507,16 @@ class OptimizerEngine:
         self,
         blocks: List[MacroBlock],
         initial_position: Optional[Tuple[float, float]] = None,
+        end_point: Optional[Tuple[float, float]] = None,
     ) -> OptimizationResult:
         """Run the active optimization strategy on a list of MacroBlocks.
 
         Args:
             blocks: List of MacroBlocks to optimize.
-            initial_position: Optional starting position as (x, y) tuple.
+            initial_position: Starting position for standard strategies (used as
+                start_point for S-T Path ChristofidesStrategy).
+            end_point: Fixed ending point for S-T Path strategies. If not provided,
+                uses origin (0, 0) for ChristofidesStrategy compatibility.
 
         Returns:
             An OptimizationResult with optimized traversal order.
@@ -3356,7 +3529,17 @@ class OptimizerEngine:
         )
 
         try:
-            result = self._strategy.optimize(blocks, initial_position)
+            # Check if this is ChristofidesStrategy (S-T Path variant)
+            if isinstance(self._strategy, ChristofidesStrategy):
+                # For S-T Path: use initial_position as start_point
+                start_point = initial_position if initial_position is not None else (0.0, 0.0)
+                # Default end_point to origin for backward compatibility when not specified
+                final_end_point = end_point if end_point is not None else (0.0, 0.0)
+                result = self._strategy.optimize(blocks, start_point, final_end_point)
+            else:
+                # Standard strategies use initial_position
+                result = self._strategy.optimize(blocks, initial_position)
+
             self._logger.info(
                 f"Optimization complete: total_travel_distance={result.total_travel_distance:.3f}"
             )
