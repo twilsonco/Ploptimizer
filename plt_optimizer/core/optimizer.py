@@ -1320,6 +1320,9 @@ class ChristofidesStrategy(OptimizationStrategy):
     START_VERTEX_ID: int = -1  # Reserved ID for S terminal
     END_VERTEX_ID: int = -2   # Reserved ID for T terminal
 
+    DEFAULT_N_CANDIDATES: int = 2  # For finding closest to origin (start)
+    DEFAULT_M_CANDIDATES: int = 2  # For finding farthest from origin (end)
+
     def __init__(self) -> None:
         """Initialize the Christofides-Serdyukov strategy."""
         super().__init__()
@@ -1368,7 +1371,67 @@ class ChristofidesStrategy(OptimizationStrategy):
         if len(blocks) == 2:
             return self._optimize_two_blocks(blocks, start_point, end_point)
 
-        vertices = self._create_vertices(blocks, start_point, end_point)
+        # Evaluate multiple candidates for best S-T path
+        # Find closest endpoints to origin for start candidates,
+        # and farthest endpoints from origin for end candidates
+        start_candidates = self._find_nearest_endpoints(
+            blocks, origin=(0.0, 0.0), n_candidates=self.DEFAULT_N_CANDIDATES
+        )
+        end_candidates = self._find_farthest_origin_endpoints(
+            blocks, origin=(0.0, 0.0), n_candidates=self.DEFAULT_M_CANDIDATES
+        )
+
+        best_result: Optional[OptimizationResult] = None
+
+        # Try combinations of start and end endpoint candidates
+        for start_entry, start_block_idx, start_is_exit, _ in start_candidates:
+            for end_entry, end_block_idx, end_is_exit, _ in end_candidates:
+                if start_block_idx == end_block_idx and len(blocks) > 1:
+                    # Can't use same block as both entry and exit unless it's the only one
+                    continue
+
+                result = self._optimize_with_terminals(
+                    blocks,
+                    actual_start_point=start_entry,
+                    actual_end_point=end_entry,
+                )
+
+                if best_result is None or result.total_travel_distance < best_result.total_travel_distance:
+                    best_result = result
+                    self._logger.debug(
+                        f"New best Christofides path: {result.total_travel_distance:.3f} "
+                        f"from candidate ({start_block_idx}, {'exit' if start_is_exit else 'entrance'}) "
+                        f"to ({end_block_idx}, {'exit' if end_is_exit else 'entrance'})"
+                    )
+
+        if best_result is None:
+            raise OptimizationError("Failed to find valid Christofides S-T path")
+
+        return best_result
+
+    def _optimize_with_terminals(
+        self,
+        blocks: List[MacroBlock],
+        actual_start_point: Tuple[float, float],
+        actual_end_point: Tuple[float, float],
+    ) -> OptimizationResult:
+        """Optimize with specific start and end terminal points.
+
+        This is the core optimization that builds the MST + matching and finds
+        the S-T path through all blocks.
+
+        Args:
+            blocks: List of MacroBlocks to optimize.
+            actual_start_point: The actual starting coordinate for this candidate.
+            actual_end_point: The actual ending coordinate for this candidate.
+
+        Returns:
+            OptimizationResult for this terminal configuration.
+        """
+        self._start_point = actual_start_point
+        self._end_point = actual_end_point
+
+        vertices = self._create_vertices(blocks, actual_start_point, actual_end_point)
         start_vertex = self.START_VERTEX_ID
         end_vertex = self.END_VERTEX_ID
 
@@ -1387,21 +1450,21 @@ class ChristofidesStrategy(OptimizationStrategy):
         )
 
         hamiltonian_sequence = self._euler_to_hamiltonian_shortcut_st_path(
-            eulerian_path, blocks, end_point
+            eulerian_path, blocks, actual_end_point
         )
 
         tour = self._create_traverse_order_st_path(
-            hamiltonian_sequence, blocks, start_point, end_point
+            hamiltonian_sequence, blocks, actual_start_point, actual_end_point
         )
 
-        connections = self._build_connections(blocks, tour, start_point)
+        connections = self._build_connections(blocks, tour, actual_start_point)
         total_distance = sum(c.travel_distance for c in connections if c.source_block_id >= 0)
 
         return OptimizationResult(
             traverse_order=tuple(tour),
             connections=connections,
             total_travel_distance=total_distance,
-            initial_position=start_point,
+            initial_position=actual_start_point,
         )
 
     def _optimize_single_block(
@@ -1658,6 +1721,89 @@ class ChristofidesStrategy(OptimizationStrategy):
             vid += 1
 
         return vertices
+
+    def _find_nearest_endpoints(
+        self,
+        blocks: List[MacroBlock],
+        origin: Tuple[float, float] = (0.0, 0.0),
+        n_candidates: int = 5,
+    ) -> List[Tuple[Tuple[float, float], int, bool, float]]:
+        """Find the N block endpoints nearest to a reference point.
+
+        This ensures the optimization evaluates multiple starting/ending candidates
+        when there are ties or near-ties for closest endpoint to origin.
+
+        Args:
+            blocks: List of MacroBlocks to search.
+            origin: Reference point for distance calculation (default origin).
+            n_candidates: Number of closest endpoints to return.
+
+        Returns:
+            List of tuples sorted by distance: [(position, block_index, is_exit, distance), ...].
+            - position: (x, y) coordinates of the endpoint
+            - block_index: index of the block containing this endpoint
+            - is_exit: True if endpoint is block's exit (needs reversal)
+            - distance: Euclidean distance from origin
+        """
+        candidates: List[Tuple[float, Tuple[Tuple[float, float], int, bool]]] = []
+
+        for i, block in enumerate(blocks):
+            dist_entrance = math.sqrt(
+                (block.entrance.x - origin[0]) ** 2
+                + (block.entrance.y - origin[1]) ** 2
+            )
+            candidates.append((dist_entrance, ((block.entrance.x, block.entrance.y), i, False)))
+
+            dist_exit = math.sqrt(
+                (block.exit.x - origin[0]) ** 2
+                + (block.exit.y - origin[1]) ** 2
+            )
+            candidates.append((dist_exit, ((block.exit.x, block.exit.y), i, True)))
+
+        candidates.sort(key=lambda x: x[0])
+        return [(pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]]
+
+    def _find_farthest_origin_endpoints(
+        self,
+        blocks: List[MacroBlock],
+        origin: Tuple[float, float] = (0.0, 0.0),
+        n_candidates: int = 5,
+    ) -> List[Tuple[Tuple[float, float], int, bool, float]]:
+        """Find the N block endpoints farthest from a reference point.
+
+        This is used for finding candidate ending points that are far from
+        the origin (machine home position).
+
+        Args:
+            blocks: List of MacroBlocks to search.
+            origin: Reference point for distance calculation (default origin).
+            n_candidates: Number of farthest endpoints to return.
+
+        Returns:
+            List of tuples sorted by distance descending: [(position, block_index, is_exit, distance), ...].
+            - position: (x, y) coordinates of the endpoint
+            - block_index: index of the block containing this endpoint
+            - is_exit: True if endpoint is block's exit (needs reversal)
+            - distance: Euclidean distance from origin
+        """
+        candidates: List[Tuple[float, Tuple[Tuple[float, float], int, bool]]] = []
+
+        for i, block in enumerate(blocks):
+            dist_entrance = math.sqrt(
+                (block.entrance.x - origin[0]) ** 2
+                + (block.entrance.y - origin[1]) ** 2
+            )
+            candidates.append((dist_entrance, ((block.entrance.x, block.entrance.y), i, False)))
+
+            dist_exit = math.sqrt(
+                (block.exit.x - origin[0]) ** 2
+                + (block.exit.y - origin[1]) ** 2
+            )
+            candidates.append((dist_exit, ((block.exit.x, block.exit.y), i, True)))
+
+        # Sort by distance descending to get farthest first
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        return [(pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]]
 
     def _build_mst_prim(
         self,
@@ -2176,7 +2322,7 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
     """
 
     DEFAULT_INITIAL_TEMPERATURE: float = 10000.0
-    DEFAULT_COOLING_RATE: float = 0.9995
+    DEFAULT_COOLING_RATE: float = 0.99
     DEFAULT_ITERATIONS_PER_TEMP: int = 50
     DEFAULT_MIN_TEMPERATURE: float = 1e-8
 
