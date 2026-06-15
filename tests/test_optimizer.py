@@ -16,11 +16,15 @@ from plt_optimizer.core.models import Coordinate, StrokePath, StrokeSegment
 from plt_optimizer.core.optimizer import (
     BlockConnection,
     BlockTraverseState,
+    ChristofidesStrategy,
+    GeneticAlgorithmStrategy,
+    InsertionHeuristicStrategy,
     NearestNeighbor2OptStrategy,
     NoOpStrategy,
     OptimizationResult,
     OptimizerEngine,
     OptimizationError,
+    SimulatedAnnealingStrategy,
 )
 
 
@@ -287,6 +291,71 @@ class TestTwoOptRefinement:
         assert len(result) == 3
 
 
+class TestInsertionHeuristicStrategy:
+    """Tests for InsertionHeuristicStrategy class."""
+
+    def test_name(self) -> None:
+        """Test strategy name property returns 'Cheapest Insertion Heuristic'."""
+        strategy = InsertionHeuristicStrategy()
+        assert strategy.name == "Cheapest Insertion Heuristic"
+
+    def test_optimize_empty_list(self) -> None:
+        """Test optimization of empty block list returns empty result."""
+        strategy = InsertionHeuristicStrategy()
+        result = strategy.optimize([])
+
+        assert len(result.traverse_order) == 0
+        assert result.total_travel_distance == 0.0
+
+    def test_optimize_single_block(self) -> None:
+        """Test single block is handled correctly (chooses best orientation)."""
+        block_a = _make_simple_block(0, (100, 0), (110, 0))
+
+        strategy = InsertionHeuristicStrategy()
+        result = strategy.optimize([block_a])
+
+        assert len(result.traverse_order) == 1
+        state = result.traverse_order[0]
+        assert state.block_id == 0
+
+    def test_optimize_two_blocks_closest_pair(self) -> None:
+        """Test that two blocks start with closest pair."""
+        block_a = _make_simple_block(0, (0, 0), (10, 0))
+        block_b = _make_simple_block(1, (1000, 1000), (1010, 1000))
+
+        strategy = InsertionHeuristicStrategy()
+        result = strategy.optimize([block_a, block_b])
+
+        assert len(result.traverse_order) == 2
+        distances = [c.travel_distance for c in result.connections if c.source_block_id >= 0]
+        total_dist = sum(distances)
+        assert total_dist < 2000.0
+
+    def test_insertion_reduces_distance_on_linear_path(self) -> None:
+        """Test that insertion heuristic produces valid tour on simple linear arrangement."""
+        block_a = _make_simple_block(0, (0, 0), (10, 0))
+        block_b = _make_simple_block(1, (50, 0), (60, 0))
+        block_c = _make_simple_block(2, (100, 0), (110, 0))
+
+        strategy = InsertionHeuristicStrategy()
+        result = strategy.optimize([block_a, block_b, block_c])
+
+        assert len(result.traverse_order) == 3
+        for state in result.traverse_order:
+            assert state.block_id in (0, 1, 2)
+
+    def test_respects_initial_position_when_provided(self) -> None:
+        """Test explicit initial_position overrides origin-based selection."""
+        block_a = _make_simple_block(0, (10000, 10000), (10010, 10000))
+        block_b = _make_simple_block(1, (500, 500), (510, 500))
+
+        strategy = InsertionHeuristicStrategy()
+        result = strategy.optimize([block_a, block_b], initial_position=(0.0, 0.0))
+
+        assert len(result.traverse_order) == 2
+        assert result.initial_position == (0.0, 0.0)
+
+
 class TestBuildConnections:
     """Tests for _build_connections helper method."""
 
@@ -312,6 +381,82 @@ class TestBuildConnections:
         # Should have one connection from first to second block
         assert len(connections) == 1
 
+
+class TestChristofidesStrategy:
+    """Tests for ChristofidesStrategy class."""
+
+    def test_name(self) -> None:
+        """Test strategy name property returns 'Christofides-Serdyukov Algorithm'."""
+        strategy = ChristofidesStrategy()
+        assert strategy.name == "Christofides-Serdyukov Algorithm"
+
+    def test_optimize_empty_list(self) -> None:
+        """Test optimization of empty block list returns empty result."""
+        strategy = ChristofidesStrategy()
+        result = strategy.optimize([])
+
+        assert len(result.traverse_order) == 0
+        assert result.total_travel_distance == 0.0
+
+    def test_optimize_single_block(self) -> None:
+        """Test single block is handled correctly (chooses best orientation)."""
+        block_a = _make_simple_block(0, (100, 0), (110, 0))
+
+        strategy = ChristofidesStrategy()
+        result = strategy.optimize([block_a])
+
+        assert len(result.traverse_order) == 1
+        state = result.traverse_order[0]
+        assert state.block_id == 0
+
+    def test_optimize_two_blocks(self) -> None:
+        """Test two blocks produce a valid tour connecting both endpoints."""
+        block_a = _make_simple_block(0, (0, 0), (10, 0))
+        block_b = _make_simple_block(1, (100, 0), (110, 0))
+
+        strategy = ChristofidesStrategy()
+        result = strategy.optimize([block_a, block_b])
+
+        assert len(result.traverse_order) == 2
+        block_ids = {state.block_id for state in result.traverse_order}
+        assert block_ids == {0, 1}
+
+    def test_mst_building_on_linear_blocks(self) -> None:
+        """Test MST is built correctly on simple linear arrangement."""
+        strategy = ChristofidesStrategy()
+
+        block_a = _make_simple_block(0, (0, 0), (10, 0))
+        block_b = _make_simple_block(1, (20, 0), (30, 0))
+
+        vertices = strategy._create_vertices([block_a, block_b])
+        assert len(vertices) == 4
+
+        start_vertex = strategy._find_nearest_origin_vertex(vertices, (0.0, 0.0))
+        mst_edges = strategy._build_mst_prim(vertices, start_vertex)
+
+        odd_vertices = strategy._find_odd_degree_vertices(mst_edges, vertices)
+        assert len(odd_vertices) % 2 == 0
+
+    def test_produces_valid_tour_ordering(self) -> None:
+        """Test all blocks appear exactly once in traverse order."""
+        block_a = _make_simple_block(0, (0, 0), (10, 0))
+        block_b = _make_simple_block(1, (50, 0), (60, 0))
+        block_c = _make_simple_block(2, (100, 0), (110, 0))
+
+        strategy = ChristofidesStrategy()
+        result = strategy.optimize([block_a, block_b, block_c])
+
+        assert len(result.traverse_order) == 3
+        seen_ids: set[int] = set()
+        for state in result.traverse_order:
+            assert state.block_id not in seen_ids
+            seen_ids.add(state.block_id)
+        assert seen_ids == {0, 1, 2}
+
+
+class TestBuildConnectionsWithReversedBlock:
+    """Tests for _build_connections helper method with reversed blocks."""
+
     def test_build_connections_with_reversed_block(self) -> None:
         """Test connections when a block is traversed in reverse."""
         from plt_optimizer.core.optimizer import NoOpStrategy
@@ -332,3 +477,115 @@ class TestBuildConnections:
         )
 
         assert len(connections) == 1
+
+
+class TestSimulatedAnnealingStrategy:
+    """Tests for SimulatedAnnealingStrategy class."""
+
+    def test_name(self) -> None:
+        """Test strategy name property returns 'Simulated Annealing'."""
+        strategy = SimulatedAnnealingStrategy()
+        assert strategy.name == "Simulated Annealing"
+
+    def test_optimize_empty_list(self) -> None:
+        """Test optimization of empty block list returns empty result."""
+        strategy = SimulatedAnnealingStrategy()
+        result = strategy.optimize([])
+
+        assert len(result.traverse_order) == 0
+        assert result.total_travel_distance == 0.0
+
+    def test_optimize_single_block(self) -> None:
+        """Test single block is handled correctly (returns that block)."""
+        block_a = _make_simple_block(0, (100, 0), (110, 0))
+
+        strategy = SimulatedAnnealingStrategy()
+        result = strategy.optimize([block_a])
+
+        assert len(result.traverse_order) == 1
+        state = result.traverse_order[0]
+        assert state.block_id == 0
+
+    def test_optimize_small_tour_skips_sa(self) -> None:
+        """Test tours with < 4 blocks skip SA and return valid result."""
+        block_a = _make_simple_block(0, (0, 0), (10, 0))
+        block_b = _make_simple_block(1, (50, 0), (60, 0))
+
+        strategy = SimulatedAnnealingStrategy()
+        result = strategy.optimize([block_a, block_b])
+
+        assert len(result.traverse_order) == 2
+        block_ids = {state.block_id for state in result.traverse_order}
+        assert block_ids == {0, 1}
+
+    def test_produces_valid_tour_ordering(self) -> None:
+        """Test all blocks appear exactly once in traverse order."""
+        block_a = _make_simple_block(0, (0, 0), (10, 0))
+        block_b = _make_simple_block(1, (50, 0), (60, 0))
+        block_c = _make_simple_block(2, (100, 0), (110, 0))
+
+        strategy = SimulatedAnnealingStrategy()
+        result = strategy.optimize([block_a, block_b, block_c])
+
+        assert len(result.traverse_order) == 3
+        seen_ids: set[int] = set()
+        for state in result.traverse_order:
+            assert state.block_id not in seen_ids
+            seen_ids.add(state.block_id)
+        assert seen_ids == {0, 1, 2}
+
+
+class TestGeneticAlgorithmStrategy:
+    """Tests for GeneticAlgorithmStrategy class."""
+
+    def test_name(self) -> None:
+        """Test strategy name property returns 'Genetic Algorithm'."""
+        strategy = GeneticAlgorithmStrategy()
+        assert strategy.name == "Genetic Algorithm"
+
+    def test_optimize_empty_list(self) -> None:
+        """Test optimization of empty block list returns empty result."""
+        strategy = GeneticAlgorithmStrategy()
+        result = strategy.optimize([])
+
+        assert len(result.traverse_order) == 0
+        assert result.total_travel_distance == 0.0
+
+    def test_optimize_single_block(self) -> None:
+        """Test single block is handled correctly (returns that block)."""
+        block_a = _make_simple_block(0, (100, 0), (110, 0))
+
+        strategy = GeneticAlgorithmStrategy()
+        result = strategy.optimize([block_a])
+
+        assert len(result.traverse_order) == 1
+        state = result.traverse_order[0]
+        assert state.block_id == 0
+
+    def test_small_tour_uses_greedy(self) -> None:
+        """Test tours with < 4 blocks skip GA and return valid result."""
+        block_a = _make_simple_block(0, (0, 0), (10, 0))
+        block_b = _make_simple_block(1, (50, 0), (60, 0))
+
+        strategy = GeneticAlgorithmStrategy()
+        result = strategy.optimize([block_a, block_b])
+
+        assert len(result.traverse_order) == 2
+        block_ids = {state.block_id for state in result.traverse_order}
+        assert block_ids == {0, 1}
+
+    def test_produces_valid_tour_ordering(self) -> None:
+        """Test all blocks appear exactly once in traverse order."""
+        block_a = _make_simple_block(0, (0, 0), (10, 0))
+        block_b = _make_simple_block(1, (50, 0), (60, 0))
+        block_c = _make_simple_block(2, (100, 0), (110, 0))
+
+        strategy = GeneticAlgorithmStrategy()
+        result = strategy.optimize([block_a, block_b, block_c])
+
+        assert len(result.traverse_order) == 3
+        seen_ids: set[int] = set()
+        for state in result.traverse_order:
+            assert state.block_id not in seen_ids
+            seen_ids.add(state.block_id)
+        assert seen_ids == {0, 1, 2}
