@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -251,7 +252,9 @@ def run_single_strategy_on_file(
             optimizer = OptimizerEngine(strategy=strategy_class(same_row_preference=same_row_preference))
         else:
             optimizer = OptimizerEngine(strategy=strategy_class())
+        opt_start_time = time.perf_counter()
         optimization_result = optimizer.optimize(blocks)
+        opt_elapsed_ms = (time.perf_counter() - opt_start_time) * 1000
 
         reassembler = Reassembler()
         optimized_doc = reassembler.reassemble(doc, blocks, optimization_result)
@@ -274,7 +277,7 @@ def run_single_strategy_on_file(
         fig_after = plot_plt_document(
             optimized_doc,
             output_path=after_plot_path,
-                title=f"{optimizer.strategy.name}: Rapid Travel (after): {optimized_distance / 1000:,.2f} in ({pct_improvement:.1f}% improvement)",
+                title=f"{optimizer.strategy.name}: Rapid Travel (after): {optimized_distance / 1000:,.2f} in ({pct_improvement:.1f}% improvement, {opt_elapsed_ms:.1f} ms)",
                 rapid_travel_inches=optimized_distance / 1000,
         )
         plt.close(fig_after)
@@ -285,6 +288,7 @@ def run_single_strategy_on_file(
         print(f"  Strategy: {optimizer.strategy.name}")
         print(f"  Before plot: {before_plot_path}")
         print(f"  After plot: {after_plot_path}")
+        print(f"  Optimization time: {opt_elapsed_ms:.2f} ms")
 
         job_id = f"user_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         metrics_logger.log_job(
@@ -365,7 +369,9 @@ def run_all_strategies_on_file(
                 optimizer = OptimizerEngine(strategy=strategy_class(same_row_preference=same_row_preference))
             else:
                 optimizer = OptimizerEngine(strategy=strategy_class())
+            opt_start_time = time.perf_counter()
             optimization_result = optimizer.optimize(blocks)
+            opt_elapsed_ms = (time.perf_counter() - opt_start_time) * 1000
 
             reassembler = Reassembler()
             optimized_doc = reassembler.reassemble(doc, blocks, optimization_result)
@@ -377,12 +383,12 @@ def run_all_strategies_on_file(
             fig_after = plot_plt_document(
                 optimized_doc,
                 output_path=after_plot_path,
-           title=f"{optimizer.strategy.name}: Rapid Travel (after): {optimized_distance / 1000:,.2f} in ({pct_improvement:.1f}% improvement)",
+           title=f"{optimizer.strategy.name}: Rapid Travel (after): {optimized_distance / 1000:,.2f} in ({pct_improvement:.1f}% improvement, {opt_elapsed_ms:.1f} ms)",
                 rapid_travel_inches=optimized_distance / 1000,
             )
             plt.close(fig_after)
 
-            print(f"  {strategy_name}: {original_rapid:,.2f} -> {optimized_distance:,.2f} ({pct_improvement:.1f}% improvement)")
+            print(f"  {strategy_name}: {original_rapid:,.2f} -> {optimized_distance:,.2f} ({pct_improvement:.1f}% improvement) in {opt_elapsed_ms:.1f} ms")
 
         writer.write_file(doc, input_path.parent / f"{input_path.stem}_optimized.plt")
 
@@ -641,11 +647,14 @@ def demonstrate_optimization_pipeline(
     optimizer = OptimizerEngine(
         strategy=NearestNeighbor2OptStrategy(same_row_preference=same_row_preference)
     )
+    opt_start_time = time.perf_counter()
     optimization_result = optimizer.optimize(blocks)
+    opt_elapsed_ms = (time.perf_counter() - opt_start_time) * 1000
 
     print(f"\n  Optimizer results:")
     print(f"    Strategy: {optimizer.strategy.name}")
     print(f"    Blocks in optimized sequence: {optimization_result.block_count}")
+    print(f"    Optimization time: {opt_elapsed_ms:.2f} ms")
 
     # Step 4: Reassemble - Rebuild PLTDocument with optimized order
     text_logger.info("Step 4/4: Reassembling document with optimized block order")
@@ -681,7 +690,7 @@ def demonstrate_optimization_pipeline(
     fig_after = plot_plt_document(
         optimized_doc,
         output_path=after_plot_path,
-        title=f"Rapid Travel (after): {optimized_distance / 1000:,.2f} in ({pct_improvement:.1f}% improvement)",
+        title=f"{optimizer.strategy.name}: Rapid Travel (after): {optimized_distance / 1000:,.2f} in ({pct_improvement:.1f}% improvement, {opt_elapsed_ms:.1f} ms)",
         rapid_travel_inches=optimized_distance / 1000,
     )
     plt.close(fig_after)
@@ -694,6 +703,7 @@ def demonstrate_optimization_pipeline(
         "blocks_created": len(blocks),
         "distance_saved": savings,
         "percent_improvement": pct_improvement,
+        "optimization_time_ms": opt_elapsed_ms,
     }
 
     return before_plot_path, after_plot_path, stats
@@ -754,7 +764,9 @@ def demonstrate_all_strategies(
 
         print(f"\n  Strategy: {optimizer.strategy.name}")
 
+        opt_start_time = time.perf_counter()
         optimization_result = optimizer.optimize(blocks)
+        opt_elapsed_ms = (time.perf_counter() - opt_start_time) * 1000
 
         reassembler = Reassembler()
         optimized_doc = reassembler.reassemble(doc, blocks, optimization_result)
@@ -766,7 +778,7 @@ def demonstrate_all_strategies(
         fig_after = plot_plt_document(
             optimized_doc,
             output_path=after_plot_path,
-            title=f"{optimizer.strategy.name}: Rapid Travel (after): {optimized_distance / 1000:,.2f} in ({pct_improvement:.1f}% improvement)",
+            title=f"{optimizer.strategy.name}: Rapid Travel (after): {optimized_distance / 1000:,.2f} in ({pct_improvement:.1f}% improvement, {opt_elapsed_ms:.1f} ms)",
             rapid_travel_inches=optimized_distance / 1000,
         )
         plt.close(fig_after)
@@ -779,11 +791,12 @@ def demonstrate_all_strategies(
             "blocks_created": len(blocks),
             "distance_saved": savings,
             "percent_improvement": pct_improvement,
+            "optimization_time_ms": opt_elapsed_ms,
         }
 
         results[strategy_name] = (before_plot_path, after_plot_path, stats)
 
-        print(f"    Rapid travel: {optimized_distance:,.2f} ({pct_improvement:.1f}% improvement)")
+        print(f"    Rapid travel: {optimized_distance:,.2f} ({pct_improvement:.1f}% improvement) in {opt_elapsed_ms:.1f} ms")
 
     return results
 
