@@ -2888,7 +2888,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
             parent2: Second parent chromosome.
 
         Returns:
-            Offspring chromosome.
+            Offspring chromosome with unique block indices.
         """
         import random
 
@@ -2896,14 +2896,11 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         if n < 2:
             return list(parent1)
 
-        size = abs(parent2[0]) if self._is_reversed_gene(parent2[0]) else parent2[0]
-        if size < 0:
-            size = -size - 1
-
         start = random.randint(0, n - 1)
         end = random.randint(start + 1, n)
 
-        segment_set = set()
+        # Collect all block indices in the segment from parent1
+        segment_set: set[int] = set()
         for i in range(start, end):
             gene = parent1[i]
             block_idx, _ = self._decode_gene(gene)
@@ -2913,24 +2910,30 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         parent2_pos = 0
 
         for i in range(n):
-            gene = parent2[parent2_pos]
-            block_idx, reversed_flag = self._decode_gene(gene)
-
-            if i < start or i >= end:
-                while block_idx in segment_set and parent2_pos < n - 1:
-                    parent2_pos += 1
-                    next_gene = parent2[parent2_pos]
-                    block_idx, _ = self._decode_gene(next_gene)
-                    reversed_flag = self._is_reversed_gene(parent2[parent2_pos])
-
-                if i < start or i >= end:
-                    offspring.append(gene if not reversed_flag else -block_idx - 1)
-                else:
-                    offspring.append(-block_idx - 1 if reversed_flag else block_idx)
-
-                segment_set.add(block_idx)
-            else:
+            if start <= i < end:
+                # Copy segment from parent1
                 offspring.append(parent1[i])
+            else:
+                # Find next gene from parent2 not in segment_set
+                attempts = 0
+                while attempts < n:
+                    gene = parent2[parent2_pos]
+                    block_idx, _ = self._decode_gene(gene)
+
+                    if block_idx not in segment_set:
+                        # Found a valid unused gene - append it and add to segment_set
+                        offspring.append(gene)
+                        segment_set.add(block_idx)
+                        break
+
+                    # Gene's block is already used, advance to next position with wrap-around
+                    parent2_pos = (parent2_pos + 1) % n
+                    attempts += 1
+                else:
+                    # All genes checked but none unused - shouldn't happen with valid permutation,
+                    # but fall back to current gene to avoid infinite loop
+                    offspring.append(gene)
+
                 parent2_pos = (parent2_pos + 1) % n
 
         return offspring[:n]
