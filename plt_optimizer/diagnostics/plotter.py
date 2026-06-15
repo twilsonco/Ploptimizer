@@ -294,14 +294,14 @@ def plot_plt_document(
         # Equal aspect ratio for accurate visualization
         ax.set_aspect("equal", adjustable="box")
 
-        # Add summary text
-        cutting_dist = document.cutting_distance()
-        rapid_dist = document.rapid_distance()
+        # Add summary text (distances in PLT units, convert to inches for display)
+        cutting_dist = document.cutting_distance() * PLT_UNITS_TO_INCHES
+        rapid_dist = document.rapid_distance() * PLT_UNITS_TO_INCHES
 
         summary_text = (
             f"Total Segments: {len(all_segments)}\n"
-            f"Cutting Distance: {cutting_dist:,.2f}\n"
-            f"Rapid Travel: {rapid_dist:,.2f}"
+            f"Cutting Distance: {cutting_dist:,.2f} in\n"
+            f"Rapid Travel: {rapid_dist:,.2f} in"
         )
         ax.text(
             0.02,
