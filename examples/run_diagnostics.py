@@ -310,6 +310,45 @@ def run_single_strategy_on_file(
         return 1
 
 
+def write_strategy_comparison_csv(
+    results: dict[str, dict],
+    output_path: Path,
+) -> None:
+    """Write strategy comparison results to a CSV file.
+
+    Args:
+        results: Dict mapping strategy names to result dictionaries.
+        output_path: Destination path for the CSV file.
+    """
+    import csv
+
+    fieldnames = [
+        "strategy",
+        "before_rapid_distance",
+        "after_rapid_distance",
+        "distance_saved",
+        "percent_improvement",
+        "optimization_time_ms",
+        "blocks_created",
+    ]
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", newline="", encoding="utf-8") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        for strategy_name, stats in results.items():
+            row = {
+                "strategy": strategy_name,
+                "before_rapid_distance": f"{stats['before_rapid_distance']:.2f}",
+                "after_rapid_distance": f"{stats['after_rapid_distance']:.2f}",
+                "distance_saved": f"{stats['distance_saved']:.2f}",
+                "percent_improvement": f"{stats['percent_improvement']:.1f}",
+                "optimization_time_ms": f"{stats['optimization_time_ms']:.2f}",
+                "blocks_created": stats["blocks_created"],
+            }
+            writer.writerow(row)
+
+
 def run_all_strategies_on_file(
     input_path: Path,
     same_row_preference: float = 1.0,
@@ -352,6 +391,7 @@ def run_all_strategies_on_file(
 
         chunker = Chunker(config=ChunkerConfig(threshold_multiplier=2.0))
         blocks = chunker.chunk(doc.stroke_paths, profile_result.baseline_extent)
+        block_count = len(blocks)
 
         before_plot_path = input_path.parent / f"{input_path.stem}_before.png"
         fig_before = plot_plt_document(
@@ -362,6 +402,9 @@ def run_all_strategies_on_file(
         )
         import matplotlib.pyplot as plt
         plt.close(fig_before)
+
+        # Collect results for CSV
+        strategy_results: dict[str, dict] = {}
 
         print(f"\nRunning all strategies...")
         for strategy_name, strategy_class in STRATEGY_REGISTRY.items():
@@ -388,7 +431,22 @@ def run_all_strategies_on_file(
             )
             plt.close(fig_after)
 
+            # Store results for CSV
+            strategy_results[strategy_name] = {
+                "before_rapid_distance": original_rapid,
+                "after_rapid_distance": optimized_distance,
+                "distance_saved": savings,
+                "percent_improvement": pct_improvement,
+                "optimization_time_ms": opt_elapsed_ms,
+                "blocks_created": block_count,
+            }
+
             print(f"  {strategy_name}: {original_rapid:,.2f} -> {optimized_distance:,.2f} ({pct_improvement:.1f}% improvement) in {opt_elapsed_ms:.1f} ms")
+
+        # Write CSV comparison file
+        csv_path = input_path.parent / f"{input_path.stem}_strategy_comparison.csv"
+        write_strategy_comparison_csv(strategy_results, csv_path)
+        print(f"  Strategy comparison CSV: {csv_path}")
 
         writer.write_file(doc, input_path.parent / f"{input_path.stem}_optimized.plt")
 
@@ -743,6 +801,7 @@ def demonstrate_all_strategies(
 
     chunker = Chunker(config=ChunkerConfig(threshold_multiplier=2.0))
     blocks = chunker.chunk(doc.stroke_paths, profile_result.baseline_extent)
+    block_count = len(blocks)
 
     before_plot_path = Path(f"examples/{output_prefix}_before.png")
     fig_before = plot_plt_document(
@@ -755,6 +814,7 @@ def demonstrate_all_strategies(
     plt.close(fig_before)
 
     results: dict[str, tuple[Path, Path, dict]] = {}
+    strategy_results: dict[str, dict] = {}
 
     for strategy_name, strategy_class in STRATEGY_REGISTRY.items():
         if strategy_name in _STRATEGIES_WITH_SAME_ROW_PREFERENCE:
@@ -788,7 +848,7 @@ def demonstrate_all_strategies(
             "before_paths": len(doc.stroke_paths),
             "before_rapid_distance": original_distance,
             "after_rapid_distance": optimized_distance,
-            "blocks_created": len(blocks),
+            "blocks_created": block_count,
             "distance_saved": savings,
             "percent_improvement": pct_improvement,
             "optimization_time_ms": opt_elapsed_ms,
@@ -796,7 +856,22 @@ def demonstrate_all_strategies(
 
         results[strategy_name] = (before_plot_path, after_plot_path, stats)
 
+        # Collect for CSV
+        strategy_results[strategy_name] = {
+            "before_rapid_distance": original_distance,
+            "after_rapid_distance": optimized_distance,
+            "distance_saved": savings,
+            "percent_improvement": pct_improvement,
+            "optimization_time_ms": opt_elapsed_ms,
+            "blocks_created": block_count,
+        }
+
         print(f"    Rapid travel: {optimized_distance:,.2f} ({pct_improvement:.1f}% improvement) in {opt_elapsed_ms:.1f} ms")
+
+    # Write CSV comparison file
+    csv_path = Path(f"examples/{output_prefix}_strategy_comparison.csv")
+    write_strategy_comparison_csv(strategy_results, csv_path)
+    print(f"\n  Strategy comparison CSV: {csv_path}")
 
     return results
 
