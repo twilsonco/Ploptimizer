@@ -273,14 +273,14 @@ def run_single_strategy_on_file(
         fig_after = plot_plt_document(
             optimized_doc,
             output_path=after_plot_path,
-            title=f"{strategy_class.name} After - Rapid Travel: {optimized_distance:,.0f} ({pct_improvement:.1f}% improvement)",
+            title=f"{optimizer.strategy.name} After - Rapid Travel: {optimized_distance:,.0f} ({pct_improvement:.1f}% improvement)",
         )
         plt.close(fig_after)
 
         writer.write_file(optimized_doc, input_path.parent / f"{input_path.stem}_optimized.plt")
 
         print(f"\n✓ Optimization complete")
-        print(f"  Strategy: {strategy_class.name}")
+        print(f"  Strategy: {optimizer.strategy.name}")
         print(f"  Before plot: {before_plot_path}")
         print(f"  After plot: {after_plot_path}")
 
@@ -374,7 +374,7 @@ def run_all_strategies_on_file(
             fig_after = plot_plt_document(
                 optimized_doc,
                 output_path=after_plot_path,
-                title=f"{strategy_class.name} After - Rapid Travel: {optimized_distance:,.0f} ({pct_improvement:.1f}% improvement)",
+                title=f"{optimizer.strategy.name} After - Rapid Travel: {optimized_distance:,.0f} ({pct_improvement:.1f}% improvement)",
             )
             plt.close(fig_after)
 
@@ -740,12 +740,13 @@ def demonstrate_all_strategies(
     results: dict[str, tuple[Path, Path, dict]] = {}
 
     for strategy_name, strategy_class in STRATEGY_REGISTRY.items():
-        print(f"\n  Strategy: {strategy_class.name}")
-
         if strategy_name in _STRATEGIES_WITH_SAME_ROW_PREFERENCE:
             optimizer = OptimizerEngine(strategy=strategy_class(same_row_preference=same_row_preference))
         else:
             optimizer = OptimizerEngine(strategy=strategy_class())
+
+        print(f"\n  Strategy: {optimizer.strategy.name}")
+
         optimization_result = optimizer.optimize(blocks)
 
         reassembler = Reassembler()
@@ -758,7 +759,7 @@ def demonstrate_all_strategies(
         fig_after = plot_plt_document(
             optimized_doc,
             output_path=after_plot_path,
-            title=f"{strategy_class.name} - Rapid Travel: {optimized_distance:,.0f} ({pct_improvement:.1f}% improvement)",
+            title=f"{optimizer.strategy.name} - Rapid Travel: {optimized_distance:,.0f} ({pct_improvement:.1f}% improvement)",
         )
         plt.close(fig_after)
 
