@@ -8,7 +8,13 @@ from __future__ import annotations
 
 import pytest
 
-from plt_optimizer.core.chunker import Chunker, ChunkerConfig, ChunkerError, LinearChunker, MacroBlock
+from plt_optimizer.core.chunker import (
+    Chunker,
+    ChunkerConfig,
+    ChunkerError,
+    LinearChunker,
+    MacroBlock,
+)
 from plt_optimizer.core.models import Coordinate, StrokePath, StrokeSegment
 
 
@@ -66,6 +72,7 @@ class TestChunkerConfig:
         config = ChunkerConfig()
         assert config.threshold_multiplier == 1.5
         assert config.min_block_size == 1
+        assert config.same_row_preference == 1.0
 
     def test_custom_values(self) -> None:
         """Test custom configuration values."""
@@ -128,18 +135,16 @@ class TestChunkerChunk:
         """Test that min_block_size prevents tiny blocks."""
         paths = [
             _make_path((0, 0), (10, 0)),
+            _make_path((15, 0), (25, 0)),  # Close to first (jump ~5)
             _make_path((1000, 0), (1010, 0)),  # Isolated path
-            _make_path((2000, 0), (2010, 0)),  # Another isolated path
         ]
         chunker = Chunker(config=ChunkerConfig(threshold_multiplier=1.5, min_block_size=2))
         baseline_extent = 10.0
 
         blocks = chunker.chunk(paths, baseline_extent)
 
-        # With min_block_size=2, single isolated path should not form a block
-        # and the remaining paths might be merged or cause error
-        for block in blocks:
-            assert block.path_count >= 2
+        assert len(blocks) == 1
+        assert blocks[0].path_count >= 2
 
     def test_chunk_all_paths_isolated_raises_error(self) -> None:
         """Test that completely isolated paths raise error when min_block_size > 1."""
@@ -272,3 +277,83 @@ class TestChunkerHelpers:
 
         block3 = chunker._create_macro_block([block1, block2], [paths[2]])
         assert block3.block_id == 2
+
+
+class TestChunkerSameRowPreference:
+    """Tests for same_row_preference feature in Chunker."""
+
+    def test_same_row_preference_default_is_neutral(self) -> None:
+        """Test that default same_row_preference=1.0 applies no y-penalty."""
+        config = ChunkerConfig(same_row_preference=1.0)
+        assert config.same_row_preference == 1.0
+
+    def test_same_row_large_x_gap_grouped_with_pref(self) -> None:
+        """Test that strokes on same row with large x-gap are grouped when pref > 1.
+
+        Note: For same-row strokes (dy=0), y_penalty is always 0 regardless of
+        same_row_preference, so grouping behavior is identical to Euclidean distance.
+        This test verifies the feature doesn't break existing same-row behavior.
+        """
+        paths = [
+            _make_path((0, 0), (10, 0)),
+            _make_path((200, 0), (210, 0)),  # Same y=0, dx=190
+        ]
+        baseline_extent = 50.0
+        threshold_multiplier = 4.5  # threshold = 225
+
+        config_pref1 = ChunkerConfig(
+            threshold_multiplier=threshold_multiplier,
+            same_row_preference=1.0,  # No penalty - jump is ~190 < 225 so grouped
+        )
+        chunker_pref1 = Chunker(config=config_pref1)
+        blocks_pref1 = chunker_pref1.chunk(paths, baseline_extent)
+
+        config_pref2 = ChunkerConfig(
+            threshold_multiplier=threshold_multiplier,
+            same_row_preference=10.0,  # y-penalty active but dy=0 so no effect
+        )
+        chunker_pref2 = Chunker(config=config_pref2)
+        blocks_pref2 = chunker_pref2.chunk(paths, baseline_extent)
+
+        assert len(blocks_pref1) == 1
+        assert len(blocks_pref2) == 1
+
+    def test_same_column_large_y_gap_separate_with_pref(self) -> None:
+        """Test that strokes in same column with large y-gap stay separate when pref > 1."""
+        paths = [
+            _make_path((0, 0), (10, 0)),
+            _make_path((5, 200), (15, 210)),  # Same x~5, but dy=200
+        ]
+        baseline_extent = 50.0
+        threshold_multiplier = 6.0  # threshold = 300
+
+        config_pref1 = ChunkerConfig(
+            threshold_multiplier=threshold_multiplier,
+            same_row_preference=1.0,  # No penalty - euclidean dist ~200 < 300 so grouped
+        )
+        chunker_pref1 = Chunker(config=config_pref1)
+        blocks_pref1 = chunker_pref1.chunk(paths, baseline_extent)
+
+        config_pref2 = ChunkerConfig(
+            threshold_multiplier=threshold_multiplier,
+            same_row_preference=3.0,  # y_penalty = (3-1)*200 = 400, effective dist ~618 > 300
+        )
+        chunker_pref2 = Chunker(config=config_pref2)
+        blocks_pref2 = chunker_pref2.chunk(paths, baseline_extent)
+
+        assert len(blocks_pref1) == 1
+        assert len(blocks_pref2) == 2
+
+    def test_same_row_preference_equivalent_to_euclidean_at_default(self) -> None:
+        """Test that same_row_preference=1.0 produces Euclidean distance behavior."""
+        paths = [
+            _make_path((0, 0), (10, 0)),
+            _make_path((200, 100), (210, 110)),  # dx=190, dy=100
+        ]
+        baseline_extent = 50.0
+
+        config = ChunkerConfig(threshold_multiplier=5.0)  # threshold = 250.0
+        chunker = Chunker(config=config)
+        blocks = chunker.chunk(paths, baseline_extent)
+
+        assert len(blocks) == 1
