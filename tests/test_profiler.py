@@ -155,6 +155,7 @@ class TestProfilerProfile:
             start=Coordinate(x=0.0, y=0.0),
             end=Coordinate(x=100.0, y=50.0),
             center=Coordinate(x=50.0, y=25.0),
+            sweep_angle=45.0,
             is_cutting=True,
         )
         path = StrokePath(pen_up_position=None, segments=(arc_segment,))

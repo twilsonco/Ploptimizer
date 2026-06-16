@@ -9,7 +9,9 @@ be traversed forward or in reverse.
 from __future__ import annotations
 
 import math
+import time
 from abc import ABC, abstractmethod
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
@@ -190,10 +192,13 @@ class OptimizationStrategy(ABC):
         """
         connections: List[BlockConnection] = []
 
+        # Build a lookup map from block_id to MacroBlock for correct indexing
+        block_by_id: Dict[int, MacroBlock] = {b.block_id: b for b in blocks}
+
         current_pos = initial_pos
 
         for i, state in enumerate(traverse_order):
-            target_block = blocks[state.block_id]
+            target_block = block_by_id[state.block_id]
 
             # Determine entry and exit coordinates based on reversal
             if state.reversed:
@@ -203,30 +208,23 @@ class OptimizationStrategy(ABC):
                 actual_entrance = (target_block.entrance.x, target_block.entrance.y)
                 actual_exit = (target_block.exit.x, target_block.exit.y)
 
-            if current_pos is not None and i == 0:
-                # First block - connect from initial position
-                travel_dist = math.sqrt(
-                    (actual_entrance[0] - current_pos[0]) ** 2
-                    + (actual_entrance[1] - current_pos[1]) ** 2
-                )
-            elif i > 0 and traverse_order[i - 1].block_id != state.block_id:
-                # Not first block - connect from previous block's exit
+            if i > 0 and traverse_order[i - 1].block_id != state.block_id:
+                # Connect from previous block's exit to current block's entrance
                 prev_state = traverse_order[i - 1]
                 travel_dist = math.sqrt(
                     (actual_entrance[0] - prev_state.exit[0]) ** 2
                     + (actual_entrance[1] - prev_state.exit[1]) ** 2
                 )
-            else:
-                # Same block or no connection needed
-                continue
 
-            connections.append(BlockConnection(
-                source_block_id=traverse_order[i - 1].block_id if i > 0 else -1,
-                target_block_id=state.block_id,
-                travel_distance=travel_dist,
-                entry_at_source=traverse_order[i - 1].exit if i > 0 else current_pos or (0, 0),
-                entry_at_target=actual_entrance,
-            ))
+                connections.append(BlockConnection(
+                    source_block_id=prev_state.block_id,
+                    target_block_id=state.block_id,
+                    travel_distance=travel_dist,
+                    entry_at_source=prev_state.exit,
+                    entry_at_target=actual_entrance,
+                ))
+            # Note: connections from initial_pos to first block are not included here;
+            # they are tracked separately via total_travel_distance calculation.
 
         return tuple(connections)
 
@@ -3771,3 +3769,254 @@ class OptimizerEngine:
             return result
         except Exception as e:
             raise OptimizationError(f"Optimization failed: {e}") from e
+
+
+@dataclass(frozen=True)
+class StrategyBenchmarkResult:
+    """Results from benchmarking a single strategy.
+
+    Attributes:
+        strategy_name: Name of the strategy that produced this result.
+        result: The optimization result from this strategy.
+        execution_time_seconds: Time taken to execute this strategy.
+        improvement_percent: Percent improvement over baseline (if baseline provided).
+    """
+    strategy_name: str
+    result: OptimizationResult
+    execution_time_seconds: float
+    improvement_percent: Optional[float] = None
+
+
+def _run_strategy_worker(
+    strategy_name: str,
+    blocks_serialized: Tuple[Tuple[int, Tuple[float, float], Tuple[float, float]], ...],
+    initial_position: Optional[Tuple[float, float]],
+) -> StrategyBenchmarkResult:
+    """Worker function to run a single strategy in a subprocess.
+
+    This is a module-level function to allow pickling for ProcessPoolExecutor.
+
+    Args:
+        strategy_name: Name of the strategy class to instantiate and run.
+        blocks_serialized: Serializable representation of MacroBlocks.
+        initial_position: Starting position for optimization.
+
+    Returns:
+        StrategyBenchmarkResult with timing and result data.
+    """
+    # Import here to avoid issues with multiprocessing
+    from plt_optimizer.core.chunker import MacroBlock
+    from plt_optimizer.core.models import Coordinate, StrokePath, StrokeSegment
+
+    # Reconstruct blocks from serialized form
+    blocks: List[MacroBlock] = []
+    for block_data in blocks_serialized:
+        block_id, entrance, exit = block_data
+        # We need to reconstruct with actual paths - use a minimal representation
+        # The strategy only needs entrance/exit coordinates
+        seg = StrokeSegment(
+            start=Coordinate(x=entrance[0], y=entrance[1]),
+            end=Coordinate(x=exit[0], y=exit[1]),
+            is_cutting=True,
+        )
+        path = StrokePath(pen_up_position=None, segments=(seg,))
+        block = MacroBlock(
+            block_id=block_id,
+            paths=(path,),
+            entrance=seg.start,
+            exit=seg.end,
+        )
+        blocks.append(block)
+
+    # Import strategies
+    from plt_optimizer.core.optimizer import (
+        GeneticAlgorithmStrategy,
+        InsertionHeuristicStrategy,
+        NearestNeighbor2OptStrategy,
+        NoOpStrategy,
+        SimulatedAnnealingStrategy,
+        ChristofidesStrategy,
+    )
+
+    strategy_map: Dict[str, OptimizationStrategy] = {
+        "NoOp (Baseline)": NoOpStrategy(),
+        "NearestNeighbor + 2-Opt": NearestNeighbor2OptStrategy(),
+        "Insertion Heuristic": InsertionHeuristicStrategy(),
+        "Simulated Annealing": SimulatedAnnealingStrategy(),
+        "Genetic Algorithm": GeneticAlgorithmStrategy(),
+        # ChristofidesStrategy requires start/end points and is S-T Path specific
+    }
+
+    if strategy_name not in strategy_map:
+        raise ValueError(f"Unknown strategy: {strategy_name}")
+
+    strategy = strategy_map[strategy_name]
+    start_time = time.perf_counter()
+    result = strategy.optimize(blocks, initial_position)
+    execution_time = time.perf_counter() - start_time
+
+    return StrategyBenchmarkResult(
+        strategy_name=strategy_name,
+        result=result,
+        execution_time_seconds=execution_time,
+    )
+
+
+class ParallelEnsembleStrategy(OptimizationStrategy):
+    """Parallel ensemble that runs all optimization strategies concurrently.
+
+    This strategy uses a dynamic queue pattern via ProcessPoolExecutor to run
+    all available optimization strategies in parallel. Results are collected
+    as they complete (fast strategies return first), and the best result is
+    selected based on improvement score.
+
+    The selection metric is:
+    - If baseline_distance provided: maximize improvement percent
+    - Otherwise: minimize absolute travel distance
+
+    Note: ChristofidesStrategy is excluded because it requires fixed start/end
+    points and operates as an S-T Path variant rather than a standard tour.
+    """
+
+    def __init__(
+        self,
+        baseline_distance: Optional[float] = None,
+        max_workers: Optional[int] = None,
+    ) -> None:
+        """Initialize the parallel ensemble strategy.
+
+        Args:
+            baseline_distance: Original travel distance for computing improvement %.
+                If None, selection is based on absolute travel distance.
+            max_workers: Maximum number of parallel workers. Defaults to number
+                of available strategies (typically 5-6).
+        """
+        super().__init__()
+        self._baseline_distance = baseline_distance
+        self._max_workers = max_workers
+
+    @property
+    def name(self) -> str:
+        """Return the strategy name."""
+        return "Parallel Ensemble"
+
+    def optimize(
+        self,
+        blocks: List[MacroBlock],
+        initial_position: Optional[Tuple[float, float]] = None,
+    ) -> OptimizationResult:
+        """Run all strategies in parallel and select the best result.
+
+        Args:
+            blocks: List of MacroBlocks to optimize.
+            initial_position: Starting position for optimization.
+
+        Returns:
+            The best OptimizationResult from all concurrent strategy runs.
+        """
+        if len(blocks) == 0:
+            return OptimizationResult(
+                traverse_order=(),
+                connections=(),
+                total_travel_distance=0.0,
+                initial_position=initial_position,
+            )
+
+        self._logger.info(
+            f"Running {self.name} on {len(blocks)} blocks with "
+            f"{self._max_workers or 'auto'} workers"
+        )
+
+        # Serialize blocks for multiprocessing (MacroBlock isn't directly picklable)
+        blocks_serialized: Tuple[Tuple[int, Tuple[float, float], Tuple[float, float]], ...] = tuple(
+            (
+                block.block_id,
+                (block.entrance.x, block.entrance.y),
+                (block.exit.x, block.exit.y),
+            )
+            for block in blocks
+        )
+
+        strategy_names = [
+            "NoOp (Baseline)",
+            "NearestNeighbor + 2-Opt",
+            "Insertion Heuristic",
+            "Simulated Annealing",
+            "Genetic Algorithm",
+        ]
+
+        best_result: Optional[StrategyBenchmarkResult] = None
+        completed_count = 0
+
+        with ProcessPoolExecutor(max_workers=self._max_workers) as executor:
+            futures = {
+                executor.submit(
+                    _run_strategy_worker,
+                    name,
+                    blocks_serialized,
+                    initial_position,
+                ): name
+                for name in strategy_names
+            }
+
+            # Collect results dynamically as they complete (fast strategies first)
+            for future in as_completed(futures):
+                strategy_name = futures[future]
+                try:
+                    benchmark_result = future.result()
+                    completed_count += 1
+
+                    self._logger.debug(
+                        f"Strategy {strategy_name} completed in "
+                        f"{benchmark_result.execution_time_seconds:.3f}s with "
+                        f"distance={benchmark_result.result.total_travel_distance:.3f}"
+                    )
+
+                    # Calculate improvement percent if baseline provided
+                    if self._baseline_distance is not None and self._baseline_distance > 0:
+                        pct_improvement = (
+                            (self._baseline_distance - benchmark_result.result.total_travel_distance)
+                            / self._baseline_distance
+                            * 100
+                        )
+                        # Create new result with improvement percent attached
+                        benchmark_result = StrategyBenchmarkResult(
+                            strategy_name=benchmark_result.strategy_name,
+                            result=benchmark_result.result,
+                            execution_time_seconds=benchmark_result.execution_time_seconds,
+                            improvement_percent=pct_improvement,
+                        )
+
+                    # Select best result based on metric
+                    if best_result is None:
+                        best_result = benchmark_result
+                    elif self._baseline_distance is not None and best_result.improvement_percent is not None:
+                        # Prefer higher improvement percent
+                        if (benchmark_result.improvement_percent or 0) > best_result.improvement_percent:
+                            best_result = benchmark_result
+                    else:
+                        # Fall back to absolute distance minimization
+                        if benchmark_result.result.total_travel_distance < best_result.result.total_travel_distance:
+                            best_result = benchmark_result
+
+                except Exception as e:
+                    self._logger.warning(
+                        f"Strategy {strategy_name} failed: {e}"
+                    )
+
+        if best_result is None:
+            # All strategies failed - fall back to NoOp
+            self._logger.warning("All parallel strategies failed, using NoOp fallback")
+            noop = NoOpStrategy()
+            return noop.optimize(blocks, initial_position)
+
+        self._logger.info(
+            f"Parallel ensemble complete: {completed_count}/{len(strategy_names)} "
+            f"strategies completed. Best: {best_result.strategy_name} "
+            f"(distance={best_result.result.total_travel_distance:.3f}, "
+            f"improvement={best_result.improvement_percent:.2f}% if available)"
+            if best_result.improvement_percent is not None else
+            f"(distance={best_result.result.total_travel_distance:.3f})"
+        )
+
+        return best_result.result

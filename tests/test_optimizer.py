@@ -386,14 +386,14 @@ class TestChristofidesStrategy:
     """Tests for ChristofidesStrategy class."""
 
     def test_name(self) -> None:
-        """Test strategy name property returns 'Christofides-Serdyukov Algorithm'."""
+        """Test strategy name property returns 'Christofides-Serdyukov S-T Path (5/3 approx)'."""
         strategy = ChristofidesStrategy()
-        assert strategy.name == "Christofides-Serdyukov Algorithm"
+        assert strategy.name == "Christofides-Serdyukov S-T Path (5/3 approx)"
 
     def test_optimize_empty_list(self) -> None:
         """Test optimization of empty block list returns empty result."""
         strategy = ChristofidesStrategy()
-        result = strategy.optimize([])
+        result = strategy.optimize([], start_point=(0.0, 0.0), end_point=(10.0, 10.0))
 
         assert len(result.traverse_order) == 0
         assert result.total_travel_distance == 0.0
@@ -403,7 +403,7 @@ class TestChristofidesStrategy:
         block_a = _make_simple_block(0, (100, 0), (110, 0))
 
         strategy = ChristofidesStrategy()
-        result = strategy.optimize([block_a])
+        result = strategy.optimize([block_a], start_point=(0.0, 0.0), end_point=(200.0, 200.0))
 
         assert len(result.traverse_order) == 1
         state = result.traverse_order[0]
@@ -415,7 +415,9 @@ class TestChristofidesStrategy:
         block_b = _make_simple_block(1, (100, 0), (110, 0))
 
         strategy = ChristofidesStrategy()
-        result = strategy.optimize([block_a, block_b])
+        result = strategy.optimize(
+            [block_a, block_b], start_point=(0.0, 0.0), end_point=(200.0, 200.0)
+        )
 
         assert len(result.traverse_order) == 2
         block_ids = {state.block_id for state in result.traverse_order}
@@ -428,14 +430,17 @@ class TestChristofidesStrategy:
         block_a = _make_simple_block(0, (0, 0), (10, 0))
         block_b = _make_simple_block(1, (20, 0), (30, 0))
 
-        vertices = strategy._create_vertices([block_a, block_b])
-        assert len(vertices) == 4
+        vertices = strategy._create_vertices(
+            [block_a, block_b], start_point=(0.0, 0.0), end_point=(100.0, 100.0)
+        )
+        assert len(vertices) == 6  # 2 blocks * 2 endpoints + S + T
 
-        start_vertex = strategy._find_nearest_origin_vertex(vertices, (0.0, 0.0))
-        mst_edges = strategy._build_mst_prim(vertices, start_vertex)
+        mst_edges = strategy._build_mst_prim(vertices, strategy.START_VERTEX_ID)
 
-        odd_vertices = strategy._find_odd_degree_vertices(mst_edges, vertices)
-        assert len(odd_vertices) % 2 == 0
+        wrong_parity_vertices = strategy._find_wrong_parity_vertices(
+            mst_edges, vertices, strategy.START_VERTEX_ID, strategy.END_VERTEX_ID
+        )
+        assert len(wrong_parity_vertices) % 2 == 0
 
     def test_produces_valid_tour_ordering(self) -> None:
         """Test all blocks appear exactly once in traverse order."""
@@ -444,7 +449,9 @@ class TestChristofidesStrategy:
         block_c = _make_simple_block(2, (100, 0), (110, 0))
 
         strategy = ChristofidesStrategy()
-        result = strategy.optimize([block_a, block_b, block_c])
+        result = strategy.optimize(
+            [block_a, block_b, block_c], start_point=(0.0, 0.0), end_point=(200.0, 200.0)
+        )
 
         assert len(result.traverse_order) == 3
         seen_ids: set[int] = set()
@@ -589,3 +596,156 @@ class TestGeneticAlgorithmStrategy:
             assert state.block_id not in seen_ids
             seen_ids.add(state.block_id)
         assert seen_ids == {0, 1, 2}
+
+
+class TestParallelEnsembleStrategy:
+    """Tests for ParallelEnsembleStrategy class."""
+
+    def test_name(self) -> None:
+        """Test strategy name property."""
+        from plt_optimizer.core.optimizer import ParallelEnsembleStrategy
+        strategy = ParallelEnsembleStrategy()
+        assert strategy.name == "Parallel Ensemble"
+
+    def test_optimize_empty_list(self) -> None:
+        """Test optimization of empty block list returns empty result."""
+        from plt_optimizer.core.optimizer import ParallelEnsembleStrategy
+        strategy = ParallelEnsembleStrategy()
+        result = strategy.optimize([])
+
+        assert len(result.traverse_order) == 0
+        assert result.total_travel_distance == 0.0
+
+    def test_optimize_single_block(self) -> None:
+        """Test single block is handled correctly."""
+        from plt_optimizer.core.optimizer import ParallelEnsembleStrategy
+        strategy = ParallelEnsembleStrategy()
+        block_a = _make_simple_block(0, (100, 0), (110, 0))
+
+        result = strategy.optimize([block_a])
+
+        assert len(result.traverse_order) == 1
+
+    def test_optimize_with_baseline_distance(self) -> None:
+        """Test parallel ensemble with baseline distance for improvement calculation."""
+        from plt_optimizer.core.optimizer import ParallelEnsembleStrategy
+        # Create blocks that will benefit from optimization
+        block_a = _make_simple_block(0, (0, 0), (10, 0))
+        block_b = _make_simple_block(1, (100, 0), (110, 0))
+        block_c = _make_simple_block(2, (50, 0), (60, 0))
+
+        # Baseline: going A -> B -> C would be far
+        baseline_distance = 200.0
+
+        strategy = ParallelEnsembleStrategy(baseline_distance=baseline_distance)
+        result = strategy.optimize([block_a, block_b, block_c])
+
+        assert len(result.traverse_order) == 3
+
+    def test_optimize_multiple_blocks_uses_best_strategy(self) -> None:
+        """Test that parallel ensemble returns a valid optimized result."""
+        from plt_optimizer.core.optimizer import ParallelEnsembleStrategy
+        blocks = [
+            _make_simple_block(0, (0, 0), (10, 0)),
+            _make_simple_block(1, (50, 0), (60, 0)),
+            _make_simple_block(2, (100, 0), (110, 0)),
+        ]
+
+        strategy = ParallelEnsembleStrategy()
+        result = strategy.optimize(blocks)
+
+        # Should return a valid optimization result
+        assert len(result.traverse_order) == 3
+        block_ids = {state.block_id for state in result.traverse_order}
+        assert block_ids == {0, 1, 2}
+
+    def test_optimize_respects_initial_position(self) -> None:
+        """Test that initial_position is passed through to strategies."""
+        from plt_optimizer.core.optimizer import ParallelEnsembleStrategy
+        blocks = [
+            _make_simple_block(0, (100, 100), (110, 100)),
+            _make_simple_block(1, (200, 200), (210, 200)),
+        ]
+
+        strategy = ParallelEnsembleStrategy()
+        result = strategy.optimize(blocks, initial_position=(0.0, 0.0))
+
+        assert len(result.traverse_order) == 2
+
+    def test_optimize_with_max_workers(self) -> None:
+        """Test parallel ensemble with explicit max_workers limit."""
+        from plt_optimizer.core.optimizer import ParallelEnsembleStrategy
+        blocks = [
+            _make_simple_block(0, (0, 0), (10, 0)),
+            _make_simple_block(1, (50, 0), (60, 0)),
+        ]
+
+        strategy = ParallelEnsembleStrategy(max_workers=2)
+        result = strategy.optimize(blocks)
+
+        assert len(result.traverse_order) == 2
+
+    def test_produces_valid_tour_ordering(self) -> None:
+        """Test all blocks appear exactly once in traverse order."""
+        from plt_optimizer.core.optimizer import ParallelEnsembleStrategy
+        blocks = [
+            _make_simple_block(0, (0, 0), (10, 0)),
+            _make_simple_block(1, (50, 0), (60, 0)),
+            _make_simple_block(2, (100, 0), (110, 0)),
+        ]
+
+        strategy = ParallelEnsembleStrategy()
+        result = strategy.optimize(blocks)
+
+        assert len(result.traverse_order) == 3
+        seen_ids: set[int] = set()
+        for state in result.traverse_order:
+            assert state.block_id not in seen_ids
+            seen_ids.add(state.block_id)
+        assert seen_ids == {0, 1, 2}
+
+
+class TestStrategyBenchmarkResult:
+    """Tests for StrategyBenchmarkResult dataclass."""
+
+    def test_benchmark_result_fields(self) -> None:
+        """Test StrategyBenchmarkResult has all expected fields."""
+        from plt_optimizer.core.optimizer import StrategyBenchmarkResult
+        states = [
+            BlockTraverseState(block_id=0, reversed=False, entrance=(0, 0), exit=(10, 10)),
+        ]
+        opt_result = OptimizationResult(
+            traverse_order=tuple(states),
+            connections=(),
+            total_travel_distance=100.0,
+            initial_position=None,
+        )
+        benchmark = StrategyBenchmarkResult(
+            strategy_name="TestStrategy",
+            result=opt_result,
+            execution_time_seconds=1.5,
+            improvement_percent=25.0,
+        )
+
+        assert benchmark.strategy_name == "TestStrategy"
+        assert benchmark.result is opt_result
+        assert benchmark.execution_time_seconds == 1.5
+        assert benchmark.improvement_percent == 25.0
+
+    def test_benchmark_result_improvement_optional(self) -> None:
+        """Test that improvement_percent can be None."""
+        from plt_optimizer.core.optimizer import StrategyBenchmarkResult
+        states = [BlockTraverseState(block_id=0, reversed=False, entrance=(0, 0), exit=(10, 10))]
+        opt_result = OptimizationResult(
+            traverse_order=tuple(states),
+            connections=(),
+            total_travel_distance=100.0,
+            initial_position=None,
+        )
+        benchmark = StrategyBenchmarkResult(
+            strategy_name="TestStrategy",
+            result=opt_result,
+            execution_time_seconds=1.5,
+        )
+
+        assert benchmark.improvement_percent is None
