@@ -20,7 +20,11 @@ classifiers = [
 dependencies = [
     "matplotlib>=3.8.0",
     "numpy>=1.26.0",
+    "watchdog>=4.0.0",
 ]
+
+[project.scripts]
+plt-optimizer = "plt_optimizer.cli.watch:main"
 
 [project.optional-dependencies]
 dev = [
