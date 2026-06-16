@@ -30,6 +30,8 @@ from plt_optimizer.core.optimizer import (
     OptimizationStrategy,
     OptimizerEngine,
     NearestNeighbor2OptStrategy,
+    ParallelEnsembleStrategy,
+    StrategyBenchmarkResult,
 )
 from plt_optimizer.core.reassembler import (
     MetricsCalculator,
@@ -73,6 +75,8 @@ __all__ = [
     "OptimizationStrategy",
     "OptimizerEngine",
     "NearestNeighbor2OptStrategy",
+    "ParallelEnsembleStrategy",
+    "StrategyBenchmarkResult",
     # Reassembler
     "MetricsCalculator",
     "Reassembler",

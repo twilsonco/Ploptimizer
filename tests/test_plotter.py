@@ -184,7 +184,7 @@ class TestPlotPltDocumentWithSegments:
         path = self._make_path([seg])
         doc = PLTDocument(stroke_paths=[path])
         fig = plot_plt_document(doc)
-        assert "X (plotter units)" == fig.axes[0].get_xlabel()
+        assert "X (inches)" == fig.axes[0].get_xlabel()
 
     def test_plotting_sets_ylabel(self) -> None:
         """Test plot sets correct y-axis label."""
@@ -192,7 +192,7 @@ class TestPlotPltDocumentWithSegments:
         path = self._make_path([seg])
         doc = PLTDocument(stroke_paths=[path])
         fig = plot_plt_document(doc)
-        assert "Y (plotter units)" == fig.axes[0].get_ylabel()
+        assert "Y (inches)" == fig.axes[0].get_ylabel()
 
     def test_plotting_has_legend(self) -> None:
         """Test plot creates a legend."""
@@ -673,13 +673,13 @@ class TestCreatePathDiagram:
         xlim = fig.axes[0].get_xlim()
         ylim = fig.axes[0].get_ylim()
 
-        # Start point at (0, 0) should be within range
+        # Start point at (0, 0) -> displayed Y = -0 = 0
         assert xlim[0] <= 0 <= xlim[1], "Start X should be in range"
         assert ylim[0] <= 0 <= ylim[1], "Start Y should be in range"
 
-        # End point at (3, 4) should be within range
+        # End point at (3, 4) -> displayed Y = -4
         assert xlim[0] <= 3 <= xlim[1], "End X should be in range"
-        assert ylim[0] <= 4 <= ylim[1], "End Y should be in range"
+        assert ylim[0] <= -4 <= ylim[1], "End Y should be in range"
 
     def test_cumulative_distances_affect_colors(self) -> None:
         """Test that cumulative distances affect color mapping."""
@@ -711,7 +711,7 @@ class TestCreatePathDiagram:
         assert xlim[0] <= 0 <= xlim[1], "X range should include start"
         assert ylim[0] <= 0 <= ylim[1], "Y range should include start"
         assert xlim[0] <= 10000 <= xlim[1], "X range should include end"
-        assert ylim[0] <= 10000 <= ylim[1], "Y range should include end"
+        assert ylim[0] <= -10000 <= ylim[1], "Y range should include end"
 
     def test_diagram_with_negative_coordinates(self) -> None:
         """Test diagram handles negative coordinate values."""
@@ -727,6 +727,7 @@ class TestCreatePathDiagram:
         ylim = fig.axes[0].get_ylim()
 
         assert xlim[0] <= -10 <= xlim[1], "Range should include negative start"
-        assert ylim[0] <= -10 <= ylim[1], "Range should include negative start"
+        # Y is negated: -(-10) = 10 (start), -(5) = -5 (end)
+        assert ylim[0] <= 10 <= ylim[1], "Range should include negated start Y"
         assert xlim[0] <= 5 <= xlim[1], "Range should include positive end"
-        assert ylim[0] <= 5 <= ylim[1], "Range should include positive end"
+        assert ylim[0] <= -5 <= ylim[1], "Range should include negated end Y"
