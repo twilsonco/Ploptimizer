@@ -2322,7 +2322,7 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
     """
 
     DEFAULT_INITIAL_TEMPERATURE: float = 10000.0
-    DEFAULT_COOLING_RATE: float = 0.98
+    DEFAULT_COOLING_RATE: float = 0.95
     DEFAULT_ITERATIONS_PER_TEMP: int = 50
     DEFAULT_MIN_TEMPERATURE: float = 1e-8
 
@@ -2937,7 +2937,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         best_fitness = float('inf')
 
         for generation in range(self._generations):
-            fitness_scores = [(chrom, self._calculate_fitness(chrom, blocks)) for chrom in population]
+            fitness_scores = [(chrom, self._calculate_fitness(chrom, blocks, start_pos)) for chrom in population]
 
             fitness_scores.sort(key=lambda x: x[1])
 
@@ -2952,8 +2952,8 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
                     new_population.append(list(fitness_scores.pop(0)[0]))
 
             while len(new_population) < self._population_size:
-                parent1 = self._tournament_selection(population, blocks)
-                parent2 = self._tournament_selection(population, blocks)
+                parent1 = self._tournament_selection(population, blocks, start_pos)
+                parent2 = self._tournament_selection(population, blocks, start_pos)
 
                 offspring = self._order_crossover(parent1, parent2)
 
@@ -2968,9 +2968,13 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
             population = new_population[:self._population_size]
 
         if best_chromosome is None and population:
-            best_chromosome = min(population, key=lambda c: self._calculate_fitness(c, blocks))
+            best_chromosome = min(population, key=lambda c: self._calculate_fitness(c, blocks, start_pos))
 
-        final_tour = self._create_tour_from_chromosome(best_chromosome, blocks)  # type: ignore[arg-type]
+        final_tour = self._create_tour_from_chromosome(best_chromosome, blocks, start_pos)
+
+        # Apply 2-opt refinement to improve block ordering
+        if len(final_tour) > 3:
+            final_tour = self._two_opt_refinement(final_tour, blocks)
 
         connections = self._build_connections(blocks, final_tour, start_pos)
         total_distance = sum(c.travel_distance for c in connections if c.source_block_id >= 0)
@@ -3121,7 +3125,12 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         candidates.sort(key=lambda x: x[0], reverse=True)
         return [(pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]]
 
-    def _calculate_fitness(self, chromosome: List[int], blocks: List[MacroBlock]) -> float:
+    def _calculate_fitness(
+        self,
+        chromosome: List[int],
+        blocks: List[MacroBlock],
+        start_pos: Tuple[float, float],
+    ) -> float:
         """Calculate total distance for a tour encoded in chromosome.
 
         Lower fitness (distance) is better for selection.
@@ -3129,15 +3138,16 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         Args:
             chromosome: Encoded tour with direction bits.
             blocks: All macro blocks for coordinate lookups.
+            start_pos: Starting position for the tour.
 
         Returns:
-            Total Euclidean distance through the tour.
+            Total Euclidean distance through the tour including travel from start.
         """
         if not chromosome:
             return 0.0
 
         total_distance = 0.0
-        current_pos: Optional[Tuple[float, float]] = None
+        current_pos: Tuple[float, float] = start_pos
 
         for i, gene in enumerate(chromosome):
             block_idx, reversed_flag = self._decode_gene(gene)
@@ -3146,13 +3156,13 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
             entrance = (block.entrance.x, block.entrance.y)
             exit_coord = (block.exit.x, block.exit.y)
 
-            if current_pos is not None:
-                entry_point = exit_coord if reversed_flag else entrance
-                dist = math.sqrt(
-                    (entry_point[0] - current_pos[0]) ** 2
-                    + (entry_point[1] - current_pos[1]) ** 2
-                )
-                total_distance += dist
+            entry_point = exit_coord if reversed_flag else entrance
+
+            dist = math.sqrt(
+                (entry_point[0] - current_pos[0]) ** 2
+                + (entry_point[1] - current_pos[1]) ** 2
+            )
+            total_distance += dist
 
             current_pos = entrance if reversed_flag else exit_coord
 
@@ -3162,6 +3172,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         self,
         population: List[List[int]],
         blocks: List[MacroBlock],
+        start_pos: Tuple[float, float],
     ) -> List[int]:
         """Select parent using tournament selection.
 
@@ -3170,6 +3181,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         Args:
             population: Current population of chromosomes.
             blocks: All macro blocks for fitness evaluation.
+            start_pos: Starting position for fitness calculation.
 
         Returns:
             Selected chromosome for crossover.
@@ -3182,10 +3194,10 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         tournament_indices = random.sample(range(len(population)), min(self._tournament_size, len(population)))
 
         best_idx = tournament_indices[0]
-        best_fitness = self._calculate_fitness(population[best_idx], blocks)
+        best_fitness = self._calculate_fitness(population[best_idx], blocks, start_pos)
 
         for idx in tournament_indices[1:]:
-            fitness = self._calculate_fitness(population[idx], blocks)
+            fitness = self._calculate_fitness(population[idx], blocks, start_pos)
             if fitness < best_fitness:
                 best_fitness = fitness
                 best_idx = idx
@@ -3291,12 +3303,14 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         self,
         chromosome: List[int],
         blocks: List[MacroBlock],
+        start_pos: Tuple[float, float],
     ) -> List[BlockTraverseState]:
         """Convert chromosome (block order + directions) to BlockTraverseState list.
 
         Args:
             chromosome: Encoded tour with direction bits.
             blocks: All macro blocks for coordinate lookups.
+            start_pos: Starting position for the tour.
 
         Returns:
             List of BlockTraverseState objects representing the tour.
@@ -3333,7 +3347,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
             tour.append(state)
             seen_blocks.add(block_idx)
 
-        return self._optimize_tour_directions(tour, blocks)
+        return self._optimize_tour_directions(tour, blocks, start_pos)
 
     def _greedy_initial_tour(
         self,
@@ -3398,6 +3412,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         self,
         tour: List[BlockTraverseState],
         blocks: List[MacroBlock],
+        start_pos: Tuple[float, float],
     ) -> List[BlockTraverseState]:
         """Optimize entry/exit decisions for each block in the tour.
 
@@ -3407,6 +3422,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         Args:
             tour: Tour with potentially sub-optimal directions.
             blocks: All macro blocks.
+            start_pos: Starting position for calculating first block cost.
 
         Returns:
             Optimized traverse order.
@@ -3432,7 +3448,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
             prev_exit: Tuple[float, float]
             if i == 0:
-                prev_exit = state.entrance
+                prev_exit = start_pos
             else:
                 prev_exit = optimized[-1].exit
 
@@ -3462,6 +3478,82 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
         return optimized
 
+    def _two_opt_refinement(
+        self,
+        tour: List[BlockTraverseState],
+        blocks: List[MacroBlock],
+    ) -> List[BlockTraverseState]:
+        """Improve tour using 2-opt local search.
+
+        The 2-opt algorithm considers every pair of edges and checks if swapping
+        them (which effectively reverses the segment between them) reduces total
+        distance. This continues until no improvement can be made.
+
+        Args:
+            tour: Current traverse order.
+            blocks: All macro blocks for coordinate lookups.
+
+        Returns:
+            Improved traverse order.
+        """
+        improved = True
+        iterations = 0
+        max_iterations = len(tour) ** 2  # Safety limit
+
+        while improved and iterations < max_iterations:
+            improved = False
+            iterations += 1
+
+            for i in range(len(tour) - 2):
+                for j in range(i + 2, len(tour)):
+                    if self._two_opt_swap_improves(tour, blocks, i, j):
+                        # Perform the swap by reversing segment [i+1, j]
+                        tour[i + 1:j + 1] = list(reversed(tour[i + 1:j + 1]))
+                        improved = True
+
+        self._logger.debug(f"2-opt completed in {iterations} iterations")
+        return tour
+
+    def _two_opt_swap_improves(
+        self,
+        tour: List[BlockTraverseState],
+        blocks: List[MacroBlock],
+        i: int,
+        j: int,
+    ) -> bool:
+        """Check if a 2-opt swap between edges (i, i+1) and (j, j+1) improves cost.
+
+        Args:
+            tour: Current traverse order.
+            blocks: All macro blocks.
+            i: First edge index.
+            j: Second edge index (where j > i + 1).
+
+        Returns:
+            True if swapping would improve total distance.
+        """
+        # Get coordinates for the four points involved
+        a = tour[i].exit
+        b = tour[i + 1].entrance
+        c = tour[j].exit
+        d = tour[j + 1].entrance if j + 1 < len(tour) else None
+
+        # Current distance: dist(a,b) + dist(c,d)
+        current_dist = math.sqrt((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2)
+
+        new_tour_end_cost = 0.0
+        if d is not None:
+            # After swap: dist(a,c) + dist(b,d)
+            new_dist = math.sqrt((c[0] - a[0]) ** 2 + (c[1] - a[1]) ** 2)
+            new_tour_end_cost = math.sqrt((d[0] - b[0]) ** 2 + (d[1] - b[1]) ** 2)
+        else:
+            # Edge case: j is last element, only one edge to consider after swap
+            new_dist = math.sqrt((c[0] - a[0]) ** 2 + (c[1] - a[1]) ** 2)
+
+        total_new_dist = new_dist + new_tour_end_cost
+
+        return total_new_dist < current_dist
+
     def _tour_to_chromosome(self, tour: List[BlockTraverseState]) -> List[int]:
         """Convert BlockTraverseState list to chromosome encoding.
 
@@ -3471,22 +3563,10 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         Returns:
             Chromosome with direction bits encoded.
         """
-        import random
-
-        original_order = [state.block_id for state in tour]
-
-        block_positions: Dict[int, int] = {}
-        for i, state in enumerate(tour):
-            block_positions[state.block_id] = i
-
-        sorted_blocks = sorted(block_positions.keys(), key=lambda bid: block_positions[bid])
-
         chromosome: List[int] = []
-        current_pos: Optional[Tuple[float, float]] = None
 
         for state in tour:
             reversed_flag = state.reversed
-            gene_value = 0
 
             if reversed_flag:
                 gene_value = -state.block_id - 1
@@ -3495,7 +3575,6 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
             chromosome.append(gene_value)
 
-        random.shuffle(chromosome)
         return chromosome
 
     def _decode_gene(self, gene: int) -> Tuple[int, bool]:
