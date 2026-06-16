@@ -2321,10 +2321,10 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
         - With 30% probability: swap two random blocks in tour
     """
 
-    DEFAULT_INITIAL_TEMPERATURE: float = 10000.0
-    DEFAULT_COOLING_RATE: float = 0.95
-    DEFAULT_ITERATIONS_PER_TEMP: int = 50
-    DEFAULT_MIN_TEMPERATURE: float = 1e-8
+    DEFAULT_INITIAL_TEMPERATURE: float = 5000.0
+    DEFAULT_COOLING_RATE: float = 0.6
+    DEFAULT_ITERATIONS_PER_TEMP: int = 25
+    DEFAULT_MIN_TEMPERATURE: float = 1e-4
 
     def __init__(
         self,
@@ -2806,16 +2806,16 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
     - Elitism: preserve top 2 solutions unchanged to next generation
 
     Default parameters:
-        Population size: 50
-        Generations: 100
-        Mutation rate: 0.15
+        Population size: 10
+        Generations: 20
+        Mutation rate: 0.3
         Tournament size: 3
         Elitism count: 2
     """
 
-    DEFAULT_POPULATION_SIZE: int = 50
-    DEFAULT_GENERATIONS: int = 100
-    DEFAULT_MUTATION_RATE: float = 0.15
+    DEFAULT_POPULATION_SIZE: int = 10
+    DEFAULT_GENERATIONS: int = 20
+    DEFAULT_MUTATION_RATE: float = 0.3
     DEFAULT_TOURNAMENT_SIZE: int = 3
     DEFAULT_ELITISM_COUNT: int = 2
 
