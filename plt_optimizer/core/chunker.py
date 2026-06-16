@@ -8,11 +8,11 @@ pre-sorting that would lose the user's intended flow.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import List, Optional, Sequence, Tuple
+import math
+from collections.abc import Sequence
+from dataclasses import dataclass
 
-from plt_optimizer.core.models import ArcSegment, Coordinate, Segment, StrokePath, StrokeSegment
-from plt_optimizer.utils.geometry import calculate_coordinate_distance
+from plt_optimizer.core.models import Coordinate, Segment, StrokePath
 from plt_optimizer.utils.logging import get_text_logger
 
 
@@ -52,7 +52,7 @@ class MacroBlock:
         exit: Coordinate where traversal of this block ends.
     """
     block_id: int
-    paths: Tuple[StrokePath, ...]
+    paths: tuple[StrokePath, ...]
     entrance: Coordinate
     exit: Coordinate
 
@@ -79,10 +79,15 @@ class ChunkerConfig:
         enable_intra_chunk_optimization: Whether to optimize stroke path order and
             direction within each block. When enabled, intra-chunk optimization runs
             before inter-chunk routing to reduce internal rapid travel. Default is True.
+        same_row_preference: Penalty multiplier for y-differences when computing
+            jump distance between strokes. Values > 1.0 increase the effective cost
+            of vertical jumps, biasing grouping toward strokes on the same horizontal
+            line. Default is 1.0 (no penalty, backward compatible).
     """
     threshold_multiplier: float = 1.5
     min_block_size: int = 1
     enable_intra_chunk_optimization: bool = True
+    same_row_preference: float = 1.0
 
 
 class Chunker:
@@ -108,7 +113,7 @@ class Chunker:
         >>> blocks = chunker.chunk(doc.stroke_paths, profile.baseline_extent)
     """
 
-    def __init__(self, config: Optional[ChunkerConfig] = None) -> None:
+    def __init__(self, config: ChunkerConfig | None = None) -> None:
         """Initialize the Chunker.
 
         Args:
@@ -121,7 +126,7 @@ class Chunker:
         self,
         stroke_paths: Sequence[StrokePath],
         baseline_extent: float,
-    ) -> List[MacroBlock]:
+    ) -> list[MacroBlock]:
         """Group stroke paths into MacroBlocks based on jump distances.
 
         Args:
@@ -145,31 +150,33 @@ class Chunker:
             f"multiplier={self._config.threshold_multiplier})"
         )
 
-        blocks: List[MacroBlock] = []
-        current_block_paths: List[StrokePath] = []
+        blocks: list[MacroBlock] = []
+        current_block_paths: list[StrokePath] = []
 
         for i, path in enumerate(stroke_paths):
             if not path.segments:
                 continue
 
-            # Calculate entrance and exit for this path
+            # Calculate entrance for this path
             first_seg = path.segments[0]
-            last_seg = path.segments[-1]
 
             path_entrance = self._get_segment_start(first_seg)
-            path_exit = self._get_segment_end(last_seg)
 
             if not current_block_paths:
                 # Start first block with this path
                 current_block_paths.append(path)
                 continue
 
-            # Calculate jump distance from previous path's exit to this path's entrance
+            # Calculate weighted jump distance from previous path's exit to this path's entrance
             prev_path = current_block_paths[-1]
             prev_last_seg = prev_path.segments[-1]
             prev_exit = self._get_segment_end(prev_last_seg)
 
-            jump_distance = calculate_coordinate_distance(prev_exit, path_entrance)
+            dx = path_entrance.x - prev_exit.x
+            dy = path_entrance.y - prev_exit.y
+            base_jump_distance = math.sqrt(dx ** 2 + dy ** 2)
+            y_penalty = (self._config.same_row_preference - 1.0) * abs(dy)
+            jump_distance = base_jump_distance + y_penalty
 
             if jump_distance < jump_threshold:
                 # Append to current block
@@ -229,8 +236,8 @@ class Chunker:
 
     def _create_macro_block(
         self,
-        existing_blocks: List[MacroBlock],
-        paths: List[StrokePath],
+        existing_blocks: list[MacroBlock],
+        paths: list[StrokePath],
     ) -> MacroBlock:
         """Create a new MacroBlock from the given paths.
 
@@ -266,7 +273,7 @@ class LinearChunker(Chunker):
     horizontal nature of text entry.
     """
 
-    def __init__(self, config: Optional[ChunkerConfig] = None) -> None:
+    def __init__(self, config: ChunkerConfig | None = None) -> None:
         """Initialize the LinearChunker.
 
         Args:

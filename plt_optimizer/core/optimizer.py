@@ -2322,7 +2322,7 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
     """
 
     DEFAULT_INITIAL_TEMPERATURE: float = 10000.0
-    DEFAULT_COOLING_RATE: float = 0.99
+    DEFAULT_COOLING_RATE: float = 0.98
     DEFAULT_ITERATIONS_PER_TEMP: int = 50
     DEFAULT_MIN_TEMPERATURE: float = 1e-8
 
