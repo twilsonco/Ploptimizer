@@ -233,7 +233,7 @@ def plot_plt_document(
         for i, seg in enumerate(all_segments):
             if seg.is_cutting:  # Cutting
                 color_val = norm_distances[i]
-                cmap = plt.cm.get_cmap("plasma")
+                cmap = plt.colormaps["plasma"]
                 color = cmap(color_val)
 
                 if isinstance(seg, ArcSegment):
@@ -440,7 +440,7 @@ def create_path_diagram(
     norm_dist = [d / max_d if max_d > 0 else 0.0 for d in cum_dist]
 
     # Plot each segment
-    cmap = plt.cm.get_cmap("plasma")
+    cmap = plt.colormaps["plasma"]
 
     for i in range(len(coordinates) - 1):
         color_val = (norm_dist[i] + norm_dist[i + 1]) / 2
