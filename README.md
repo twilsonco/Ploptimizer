@@ -13,12 +13,30 @@ Designed for Vision 1624 engraving tables driven by S3 Controllers, PLT-Optimize
   - Text logging (`logs/optimizer.log`) with DEBUG/INFO/WARNING/ERROR/CRITICAL levels
   - CSV metrics tracking (`logs/job_metrics.csv`) for optimization analysis
 - **Cross-Platform**: Uses `pathlib.Path` throughout; Windows-compatible output
+- **Hot-Watch Daemon**: Automated directory monitoring for batch processing new/modified PLT files
+- **Intra-Chunk Optimization**: Within-block path ordering and direction optimization while preserving fixed entrance/exit points
+
+### Optimization Strategies
+
+PLT-Optimizer provides multiple routing algorithms for MacroBlock traversal:
+
+| Strategy | Description |
+|----------|-------------|
+| `NearestNeighbor + 2-Opt` | Greedy nearest neighbor with 2-opt local search refinement |
+| `InsertionHeuristicStrategy` | Cheapest Insertion Heuristic for TSP (greedy constructive) |
+| `Christofides-Serdyukov` | S-T Path TSP with 5/3 approximation guarantee |
+| `ParallelEnsembleStrategy` | Runs multiple strategies in parallel, selects best result |
+
+For **fast mode** (single strategy), use `--fast-mode` flag.
 
 ## Project Structure
 
 ```
 PLT-Optimizer/
 ├── plt_optimizer/           # Main package
+│   ├── cli/                # Command-line interface
+│   │   ├── __init__.py
+│   │   └── watch.py        # Hot-watch daemon for automated processing
 │   ├── core/               # Core optimization pipeline
 │   │   ├── __init__.py
 │   │   ├── models.py       # Data classes for PLT representation
@@ -26,7 +44,8 @@ PLT-Optimizer/
 │   │   ├── writer.py       # PLT file generation
 │   │   ├── profiler.py     # Baseline extent calculation (95th percentile)
 │   │   ├── chunker.py      # Stroke grouping into MacroBlocks
-│   │   ├── optimizer.py    # Block traversal optimization (NN + 2-opt)
+│   │   ├── optimizer.py    # Block traversal optimization strategies
+│   │   ├── intra_chunk_optimizer.py  # Within-block path optimization
 │   │   └── reassembler.py  # Document reconstruction from optimized blocks
 │   ├── utils/              # Utility modules
 │   │   ├── __init__.py
@@ -110,6 +129,24 @@ fig = plot_plt_document(
     title="Toolpath Diagnostic"
 )
 ```
+
+### CLI Watch Daemon
+
+The watch daemon monitors a directory for new or modified PLT files and automatically optimizes them:
+
+```bash
+uv run plt-optimizer watch --watch-dir /input/plt \
+                           --output-dir ./optimized \
+                           --log-dir ./logs
+```
+
+**Options:**
+- `--watch-dir` (required): Directory to monitor for PLT files
+- `--output-dir` (default: `./optimized`): Where optimized files are saved
+- `--log-dir` (default: `./logs`): Log file directory
+- `--fast-mode`: Use only `NearestNeighbor2OptStrategy` for faster processing
+
+The daemon processes existing files on startup, then continues watching for new changes. Press Ctrl+C for graceful shutdown.
 
 ### Running the Example Script
 
