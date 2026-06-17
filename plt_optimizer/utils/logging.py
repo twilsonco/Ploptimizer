@@ -103,6 +103,8 @@ class CSVMetricsLogger:
     - optimized_total_distance: Total path distance after optimization
     - percent_improvement: Percentage reduction in total distance
     - status: Job completion status (success, failed, skipped)
+    - method: Optimization strategy used (e.g., "NearestNeighbor + 2-Opt", "Parallel Ensemble")
+    - notes: Performance information for the method(s) used
 
     Attributes:
         log_file: Path to the CSV metrics file.
@@ -117,6 +119,8 @@ class CSVMetricsLogger:
         "optimized_total_distance",
         "percent_improvement",
         "status",
+        "method",
+        "notes",
     ]
 
     def __init__(
@@ -147,6 +151,8 @@ class CSVMetricsLogger:
         original_distance: float,
         optimized_distance: float,
         status: str,
+        method: str = "",
+        notes: str = "",
     ) -> None:
         """Log a completed optimization job to the CSV metrics file.
 
@@ -157,6 +163,10 @@ class CSVMetricsLogger:
             original_distance: Total path distance before optimization.
             optimized_distance: Total path distance after optimization.
             status: Job completion status ('success', 'failed', 'skipped').
+            method: Optimization strategy used (e.g., "NearestNeighbor + 2-Opt").
+            notes: Performance information for the method(s) used. If fast-mode,
+                includes performance info for the single method used. Otherwise
+                may include summary of all methods evaluated.
         """
         # Calculate percent improvement
         if original_distance > 0:
@@ -175,6 +185,8 @@ class CSVMetricsLogger:
             f"{optimized_distance:.3f}",
             f"{pct_improvement:.2f}%",
             status,
+            method,
+            notes,
         ]
 
         with open(self.log_file, "a", newline="", encoding="utf-8") as f:

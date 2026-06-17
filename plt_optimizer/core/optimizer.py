@@ -3763,8 +3763,16 @@ class OptimizerEngine:
                 # Standard strategies use initial_position
                 result = self._strategy.optimize(blocks, initial_position)
 
+            # Handle ParallelEnsembleOptimizationResult (unwrap for logging)
+            if isinstance(result, ParallelEnsembleOptimizationResult):
+                inner_result = result.result
+                winner_info = f", winner={result.winner_name}"
+            else:
+                inner_result = result
+                winner_info = ""
+
             self._logger.info(
-                f"Optimization complete: total_travel_distance={result.total_travel_distance:.3f}"
+                f"Optimization complete: total_travel_distance={inner_result.total_travel_distance:.3f}{winner_info}"
             )
             return result
         except Exception as e:
@@ -3785,6 +3793,29 @@ class StrategyBenchmarkResult:
     result: OptimizationResult
     execution_time_seconds: float
     improvement_percent: Optional[float] = None
+
+
+@dataclass(frozen=True)
+class ParallelEnsembleOptimizationResult:
+    """Results from running the parallel ensemble optimization.
+
+    This wraps the winning OptimizationResult along with metadata about
+    which strategy won and benchmark results for all strategies evaluated.
+
+    Attributes:
+        result: The winning OptimizationResult.
+        winner_name: Name of the strategy that produced the best result.
+        all_benchmarks: Tuple of StrategyBenchmarkResult for all strategies run,
+            sorted by improvement percent (best first).
+    """
+    result: OptimizationResult
+    winner_name: str
+    all_benchmarks: Tuple[StrategyBenchmarkResult, ...]
+
+    @property
+    def block_count(self) -> int:
+        """Return number of blocks in the winning route."""
+        return self.result.block_count
 
 
 def _run_strategy_worker(
@@ -3904,7 +3935,7 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
         self,
         blocks: List[MacroBlock],
         initial_position: Optional[Tuple[float, float]] = None,
-    ) -> OptimizationResult:
+    ) -> ParallelEnsembleOptimizationResult:
         """Run all strategies in parallel and select the best result.
 
         Args:
@@ -3912,14 +3943,20 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
             initial_position: Starting position for optimization.
 
         Returns:
-            The best OptimizationResult from all concurrent strategy runs.
+            A ParallelEnsembleOptimizationResult containing the winning
+            OptimizationResult, the name of the winning strategy, and
+            benchmark results for all strategies evaluated.
         """
         if len(blocks) == 0:
-            return OptimizationResult(
-                traverse_order=(),
-                connections=(),
-                total_travel_distance=0.0,
-                initial_position=initial_position,
+            return ParallelEnsembleOptimizationResult(
+                result=OptimizationResult(
+                    traverse_order=(),
+                    connections=(),
+                    total_travel_distance=0.0,
+                    initial_position=initial_position,
+                ),
+                winner_name="NoOp (Baseline)",
+                all_benchmarks=(),
             )
 
         self._logger.info(
@@ -3945,6 +3982,7 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
             "Genetic Algorithm",
         ]
 
+        all_benchmarks: List[StrategyBenchmarkResult] = []
         best_result: Optional[StrategyBenchmarkResult] = None
         completed_count = 0
 
@@ -3987,6 +4025,8 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
                             improvement_percent=pct_improvement,
                         )
 
+                    all_benchmarks.append(benchmark_result)
+
                     # Select best result based on metric
                     if best_result is None:
                         best_result = benchmark_result
@@ -4008,7 +4048,21 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
             # All strategies failed - fall back to NoOp
             self._logger.warning("All parallel strategies failed, using NoOp fallback")
             noop = NoOpStrategy()
-            return noop.optimize(blocks, initial_position)
+            noop_result = noop.optimize(blocks, initial_position)
+            return ParallelEnsembleOptimizationResult(
+                result=noop_result,
+                winner_name="NoOp (Baseline)",
+                all_benchmarks=(),
+            )
+
+        # Sort benchmarks by improvement percent (descending), then by distance (ascending)
+        sorted_benchmarks = sorted(
+            all_benchmarks,
+            key=lambda b: (
+                -(b.improvement_percent if b.improvement_percent is not None else 0.0),
+                b.result.total_travel_distance,
+            ),
+        )
 
         self._logger.info(
             f"Parallel ensemble complete: {completed_count}/{len(strategy_names)} "
@@ -4019,4 +4073,8 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
             f"(distance={best_result.result.total_travel_distance:.3f})"
         )
 
-        return best_result.result
+        return ParallelEnsembleOptimizationResult(
+            result=best_result.result,
+            winner_name=best_result.strategy_name,
+            all_benchmarks=tuple(sorted_benchmarks),
+        )
