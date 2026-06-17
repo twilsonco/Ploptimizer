@@ -34,8 +34,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Set
 
-import matplotlib.pyplot as plt
-
 # Third-party imports
 try:
     from watchdog.events import FileSystemEventHandler, FileSystemEvent
@@ -59,10 +57,7 @@ from plt_optimizer.core.parser import PLTParser
 from plt_optimizer.core.profiler import Profiler
 from plt_optimizer.core.reassembler import MetricsCalculator, Reassembler
 from plt_optimizer.core.writer import PLTWriter
-from plt_optimizer.diagnostics.plotter import (
-    plot_plt_document_on_ax,
-    save_figure,
-)
+from plt_optimizer.diagnostics.plotter import plot_plt_document, save_figure
 from plt_optimizer.utils.logging import CSVMetricsLogger, TextLogger
 
 
@@ -193,7 +188,7 @@ class PLTFileHandler(FileSystemEventHandler):
         original_distance: float,
         optimized_distance: float,
     ) -> None:
-        """Save debug copies of PLT files and comparison plot.
+        """Save debug copies of PLT files and plots.
 
         Args:
             job_id: Unique identifier for this processing job.
@@ -220,35 +215,28 @@ class PLTFileHandler(FileSystemEventHandler):
             opt_plt_path = debug_dir / f"{safe_job_id}_optimized.plt"
             self._writer.write_file(optimized_doc, opt_plt_path)
 
-            # Create and save comparison plot
-            fig_size = (16, 9)
+            # Calculate improvement percentage for titles
             improvement_pct = (
                 ((original_distance - optimized_distance) / original_distance * 100)
                 if original_distance > 0
                 else 0.0
             )
-            title = (
-                f"Job {job_id}\n"
-                f"Original: {original_distance:.3f} | "
-                f"Optimized: {optimized_distance:.3f} | "
-                f"Saved: {improvement_pct:.1f}%"
+
+            # Save plot for original document using plotter.py function
+            orig_plot_path = debug_dir / f"{safe_job_id}_original.png"
+            plot_plt_document(
+                original_doc,
+                output_path=orig_plot_path,
+                title=f"Original - {original_distance:.3f} (Job: {job_id})",
             )
 
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=fig_size)
-
-            # Plot original on left axis
-            plot_plt_document_on_ax(original_doc, ax1, f"Original ({original_distance:.3f})")
-
-            # Plot optimized on right axis
-            plot_plt_document_on_ax(optimized_doc, ax2, f"Optimized ({optimized_distance:.3f})")
-
-            fig.suptitle(title)
-            plt.tight_layout()
-
-            # Save comparison plot
-            plot_path = debug_dir / f"{safe_job_id}_comparison.png"
-            save_figure(fig, plot_path)
-            plt.close(fig)
+            # Save plot for optimized document using plotter.py function
+            opt_plot_path = debug_dir / f"{safe_job_id}_optimized.png"
+            plot_plt_document(
+                optimized_doc,
+                output_path=opt_plot_path,
+                title=f"Optimized - {optimized_distance:.3f} ({improvement_pct:.1f}% saved) (Job: {job_id})",
+            )
 
             self._text_logger.debug(f"[{job_id}] Saved debug files to {debug_dir}")
 
