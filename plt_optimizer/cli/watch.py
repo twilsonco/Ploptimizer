@@ -34,6 +34,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Set
 
+import matplotlib.pyplot as plt
+
 # Third-party imports
 try:
     from watchdog.events import FileSystemEventHandler, FileSystemEvent
@@ -57,6 +59,10 @@ from plt_optimizer.core.parser import PLTParser
 from plt_optimizer.core.profiler import Profiler
 from plt_optimizer.core.reassembler import MetricsCalculator, Reassembler
 from plt_optimizer.core.writer import PLTWriter
+from plt_optimizer.diagnostics.plotter import (
+    plot_plt_document_on_ax,
+    save_figure,
+)
 from plt_optimizer.utils.logging import CSVMetricsLogger, TextLogger
 
 
@@ -91,6 +97,8 @@ class PLTFileHandler(FileSystemEventHandler):
         metrics_logger: CSVMetricsLogger,
         fast_mode: bool = False,
         processed_dir: Optional[Path] = None,
+        debug_save_files: bool = False,
+        log_dir: Optional[Path] = None,
     ) -> None:
         """Initialize the PLT file handler.
 
@@ -101,6 +109,8 @@ class PLTFileHandler(FileSystemEventHandler):
             metrics_logger: Initialized CSV metrics logger instance.
             fast_mode: If True, use NearestNeighbor2OptStrategy exclusively.
             processed_dir: Directory to move processed files to after optimization.
+            debug_save_files: If True, save debug copies of PLT files and plots.
+            log_dir: Directory for debug output (required when debug_save_files=True).
         """
         super().__init__()
         self._watch_dir = watch_dir
@@ -109,6 +119,8 @@ class PLTFileHandler(FileSystemEventHandler):
         self._text_logger = text_logger
         self._metrics_logger = metrics_logger
         self._fast_mode = fast_mode
+        self._debug_save_files = debug_save_files
+        self._log_dir = log_dir if debug_save_files else None
         self._parser = PLTParser()
         self._writer = PLTWriter()
         self._processed_files: Set[Path] = set()
@@ -172,6 +184,76 @@ class PLTFileHandler(FileSystemEventHandler):
         if len(self._processed_files) > 1000:
             # Remove oldest half
             self._processed_files = set(list(self._processed_files)[-500:])
+
+    def _save_debug_files(
+        self,
+        job_id: str,
+        original_doc: PLTDocument,
+        optimized_doc: PLTDocument,
+        original_distance: float,
+        optimized_distance: float,
+    ) -> None:
+        """Save debug copies of PLT files and comparison plot.
+
+        Args:
+            job_id: Unique identifier for this processing job.
+            original_doc: The parsed original document before optimization.
+            optimized_doc: The optimized document after reassembly.
+            original_distance: Total travel distance before optimization.
+            optimized_distance: Total travel distance after optimization.
+        """
+        if not self._debug_save_files or self._log_dir is None:
+            return
+
+        try:
+            debug_dir = self._log_dir / "debug"
+            debug_dir.mkdir(parents=True, exist_ok=True)
+
+            # Sanitize job_id for use in filenames
+            safe_job_id = job_id.replace(":", "-").replace("/", "_")
+
+            # Save original PLT file
+            orig_plt_path = debug_dir / f"{safe_job_id}_original.plt"
+            self._writer.write_file(original_doc, orig_plt_path)
+
+            # Save optimized PLT file
+            opt_plt_path = debug_dir / f"{safe_job_id}_optimized.plt"
+            self._writer.write_file(optimized_doc, opt_plt_path)
+
+            # Create and save comparison plot
+            fig_size = (16, 9)
+            improvement_pct = (
+                ((original_distance - optimized_distance) / original_distance * 100)
+                if original_distance > 0
+                else 0.0
+            )
+            title = (
+                f"Job {job_id}\n"
+                f"Original: {original_distance:.3f} | "
+                f"Optimized: {optimized_distance:.3f} | "
+                f"Saved: {improvement_pct:.1f}%"
+            )
+
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=fig_size)
+
+            # Plot original on left axis
+            plot_plt_document_on_ax(original_doc, ax1, f"Original ({original_distance:.3f})")
+
+            # Plot optimized on right axis
+            plot_plt_document_on_ax(optimized_doc, ax2, f"Optimized ({optimized_distance:.3f})")
+
+            fig.suptitle(title)
+            plt.tight_layout()
+
+            # Save comparison plot
+            plot_path = debug_dir / f"{safe_job_id}_comparison.png"
+            save_figure(fig, plot_path)
+            plt.close(fig)
+
+            self._text_logger.debug(f"[{job_id}] Saved debug files to {debug_dir}")
+
+        except Exception as e:
+            self._text_logger.warning(f"[{job_id}] Failed to save debug files: {e}")
 
     def _process_file(self, input_path: Path) -> bool:
         """Optimize a single PLT file.
@@ -260,6 +342,15 @@ class PLTFileHandler(FileSystemEventHandler):
             else:
                 result_for_reassembly = optimization_result
             optimized_doc = reassembler.reassemble(doc, blocks, result_for_reassembly)
+
+            # Save debug files if enabled (after reassembly but before writing output)
+            self._save_debug_files(
+                job_id=job_id,
+                original_doc=doc,
+                optimized_doc=optimized_doc,
+                original_distance=original_distance,
+                optimized_distance=optimized_distance,
+            )
 
             # Generate output path
             output_path = self._output_dir / f"{input_path.stem}_optimized.plt"
@@ -373,6 +464,12 @@ class WatchCommand:
         Args:
             args: Command-line arguments (defaults to sys.argv).
         """
+        # Check if --log-dir was explicitly provided before parsing
+        self._log_dir_explicitly_set = (
+            args is not None and "--log-dir" in args
+        ) or (
+            args is None and "--log-dir" in sys.argv[1:]
+        )
         self._args = self._parse_args(args)
         self._text_logger: Optional[TextLogger] = None
         self._metrics_logger: Optional[CSVMetricsLogger] = None
@@ -451,6 +548,15 @@ Examples:
                 "Use NearestNeighbor2OptStrategy exclusively for faster processing. "
                 "If not specified, uses ParallelEnsembleStrategy which runs multiple "
                 "strategies and selects the best result."
+            ),
+        )
+        parser.add_argument(
+            "--debug-save-files",
+            action="store_true",
+            help=(
+                "Save before/after PLT files and comparison plots to the log directory. "
+                "Only effective when --log-dir is specified. Creates a 'debug' subdirectory "
+                "containing original.plt, optimized.plt, and comparison.png for each job."
             ),
         )
 
@@ -613,6 +719,10 @@ Examples:
             metrics_logger=self._metrics_logger,
             fast_mode=self._args.fast_mode,
             processed_dir=self._args.processed_dir,
+            debug_save_files=(
+                self._args.debug_save_files and self._log_dir_explicitly_set
+            ),
+            log_dir=self._args.log_dir if self._args.debug_save_files else None,
         )
 
         for path in self._args.watch_dir.iterdir():
@@ -683,6 +793,10 @@ Examples:
             metrics_logger=self._metrics_logger,
             fast_mode=self._args.fast_mode,
             processed_dir=self._args.processed_dir,
+            debug_save_files=(
+                self._args.debug_save_files and self._log_dir_explicitly_set
+            ),
+            log_dir=self._args.log_dir if self._args.debug_save_files else None,
         )
 
         self._observer = Observer()
