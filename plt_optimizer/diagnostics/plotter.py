@@ -19,32 +19,13 @@ from plt_optimizer.core.models import (
     PLTDocument,
     Segment,
     StrokePath,
+    StrokeSegment,
 )
 from plt_optimizer.utils.geometry import calculate_cumulative_distances
 
 
 # Plotter units are 1/1000ths of an inch; divide by 1000 for inches
 PLT_UNITS_TO_INCHES = 1 / 1000
-
-# Default figure size in inches (16:9 aspect ratio suitable for wide tables)
-DEFAULT_FIGURE_SIZE = (16, 9)
-
-# Linewidth constants
-LINEWIDTH_RAPID = 0.5
-LINEWIDTH_CUTTING = 0.6
-
-
-class PlotterError(Exception):
-    """Exception raised when plotting operations fail.
-
-    Attributes:
-        message: Human-readable error description.
-    """
-
-    def __init__(self, message: str) -> None:
-        """Initialize a PlotterError."""
-        self.message = message
-        super().__init__(message)
 
 
 def _flip_y(y: float) -> float:
@@ -76,204 +57,21 @@ def _arc_to_points(arc: ArcSegment, num_segments: int = 32) -> list[Coordinate]:
     return points
 
 
-def _plot_document_on_axis(
-    document: PLTDocument,
-    ax: plt.Axes,
-    title: str | None = None,
-    show_legend: bool = True,
-) -> None:
-    """Internal helper to plot a PLT document onto a matplotlib axis.
+# Default figure size in inches (16:9 aspect ratio suitable for wide tables)
+DEFAULT_FIGURE_SIZE = (16, 9)
 
-    This function renders the toolpath with colors mapped to cumulative
-    distance traveled, making it easy to identify where cutting starts/ends
-    and rapid air travel moves.
 
-    Args:
-        document: The parsed PLTDocument to visualize.
-        ax: The matplotlib Axes to plot on.
-        title: Optional title for the axis subplot.
-        show_legend: Whether to display legend and grid.
+class PlotterError(Exception):
+    """Exception raised when plotting operations fail.
+
+    Attributes:
+        message: Human-readable error description.
     """
-    all_segments: list[Segment] = []
 
-    for path in document.stroke_paths:
-        for seg in path.segments:
-            all_segments.append(seg)
-
-    if not all_segments:
-        ax.text(
-            0.5,
-            0.5,
-            "No segments to plot",
-            ha="center",
-            va="center",
-            transform=ax.transAxes,
-            fontsize=14,
-        )
-        return
-
-    # Calculate cumulative distances for color mapping
-    coord_pairs = [(seg.start, seg.end) for seg in all_segments]
-    cum_distances = calculate_cumulative_distances(coord_pairs)
-
-    max_distance = cum_distances[-1] if cum_distances and cum_distances[-1] > 0 else 1.0
-    norm_distances = [d / max_distance for d in cum_distances]
-
-    # Calculate axis limits from all segments with 10% padding (in inches)
-    all_x = [seg.start.x * PLT_UNITS_TO_INCHES for seg in all_segments] + [
-        seg.end.x * PLT_UNITS_TO_INCHES for seg in all_segments
-    ]
-    all_y = [_flip_y(seg.start.y) * PLT_UNITS_TO_INCHES for seg in all_segments] + [
-        _flip_y(seg.end.y) * PLT_UNITS_TO_INCHES for seg in all_segments
-    ]
-    x_min, x_max = min(all_x), max(all_x)
-    y_min, y_max = min(all_y), max(all_y)
-
-    # Add 10% padding (5% on each side)
-    x_range = x_max - x_min if x_max != x_min else abs(x_max) * 0.1 if x_max != 0 else 1.0
-    y_range = y_max - y_min if y_max != y_min else abs(y_max) * 0.1 if y_max != 0 else 1.0
-    padding_x = x_range * 0.1
-    padding_y = y_range * 0.1
-
-    ax.set_xlim(x_min - padding_x, x_max + padding_x)
-    ax.set_ylim(y_min - padding_y, y_max + padding_y)
-
-    # Plot rapid moves first (dotted gray lines)
-    for i, seg in enumerate(all_segments):
-        if not seg.is_cutting:  # Rapid travel
-            _plot_segment_on_axis(ax, seg, is_cutting=False, index=i)
-
-    # Plot tool-up connections between strokes as dashed gray lines
-    paths = document.stroke_paths
-    for i in range(len(paths) - 1):
-        curr_path = paths[i]
-        next_path = paths[i + 1]
-
-        if not curr_path.segments or next_path.pen_up_position is None:
-            continue
-
-        last_seg = curr_path.segments[-1]
-        start_x = last_seg.end.x * PLT_UNITS_TO_INCHES
-        start_y = _flip_y(last_seg.end.y) * PLT_UNITS_TO_INCHES
-        end_x = next_path.pen_up_position.x * PLT_UNITS_TO_INCHES
-        end_y = _flip_y(next_path.pen_up_position.y) * PLT_UNITS_TO_INCHES
-
-        ax.plot(
-            [start_x, end_x],
-            [start_y, end_y],
-            color="gray",
-            linewidth=LINEWIDTH_RAPID,
-            linestyle="dashed",
-            alpha=0.7,
-        )
-
-    # Plot cutting moves with plasma colormap
-    cmap = plt.colormaps["plasma"]
-    for i, seg in enumerate(all_segments):
-        if seg.is_cutting:  # Cutting
-            color_val = norm_distances[i]
-            color = cmap(color_val)
-
-            if isinstance(seg, ArcSegment):
-                arc_points = _arc_to_points(seg)
-                xs = [p.x * PLT_UNITS_TO_INCHES for p in arc_points]
-                ys = [_flip_y(p.y) * PLT_UNITS_TO_INCHES for p in arc_points]
-                ax.plot(
-                    xs, ys,
-                    color=color,
-                    linewidth=LINEWIDTH_CUTTING,
-                    alpha=0.9,
-                    label="Cutting Path" if i == 2 else "",
-                )
-            else:
-                ax.plot(
-                    [seg.start.x * PLT_UNITS_TO_INCHES, seg.end.x * PLT_UNITS_TO_INCHES],
-                    [_flip_y(seg.start.y) * PLT_UNITS_TO_INCHES,
-                     _flip_y(seg.end.y) * PLT_UNITS_TO_INCHES],
-                    color=color,
-                    linewidth=LINEWIDTH_CUTTING,
-                    alpha=0.9,
-                    label="Cutting Path" if i == 2 else "",
-                )
-
-    # Add colorbar for cutting paths
-    if any(seg.is_cutting for seg in all_segments):
-        cbar = plt.colorbar(plt.cm.ScalarMappable(cmap=plt.cm.plasma), ax=ax, shrink=0.8)
-        cbar.set_label("Cumulative Distance (%)", rotation=270, labelpad=15)
-
-    # Mark start and end points
-    first_seg = all_segments[0]
-    last_seg = all_segments[-1]
-
-    ax.plot(
-        first_seg.start.x * PLT_UNITS_TO_INCHES,
-        _flip_y(first_seg.start.y) * PLT_UNITS_TO_INCHES,
-        marker="o",
-        markersize=6,
-        color="green",
-        zorder=10,
-        label="Start",
-    )
-    ax.plot(
-        last_seg.end.x * PLT_UNITS_TO_INCHES,
-        _flip_y(last_seg.end.y) * PLT_UNITS_TO_INCHES,
-        marker="s",
-        markersize=6,
-        color="red",
-        zorder=10,
-        label="End",
-    )
-
-    # Configure axes
-    ax.set_xlabel("X (inches)")
-    ax.set_ylabel("Y (inches)")
-    if title:
-        ax.set_title(title)
-    if show_legend:
-        ax.legend(loc="upper right")
-        ax.grid(True, alpha=0.3)
-
-
-def _plot_segment_on_axis(
-    ax: plt.Axes,
-    seg: Segment,
-    is_cutting: bool,
-    index: int = 0,
-) -> None:
-    """Plot a single segment onto a matplotlib axis.
-
-    Args:
-        ax: The matplotlib Axes to plot on.
-        seg: The segment to plot.
-        is_cutting: Whether this is a cutting (tool-down) move.
-        index: Segment index for label placement.
-    """
-    if isinstance(seg, ArcSegment):
-        arc_points = _arc_to_points(seg)
-        xs = [p.x * PLT_UNITS_TO_INCHES for p in arc_points]
-        ys = [_flip_y(p.y) * PLT_UNITS_TO_INCHES for p in arc_points]
-    else:
-        xs = [seg.start.x * PLT_UNITS_TO_INCHES, seg.end.x * PLT_UNITS_TO_INCHES]
-        ys = [_flip_y(seg.start.y) * PLT_UNITS_TO_INCHES,
-             _flip_y(seg.end.y) * PLT_UNITS_TO_INCHES]
-
-    if is_cutting:
-        cmap = plt.colormaps["plasma"]
-        # Use placeholder color; caller should set actual color when using this
-        ax.plot(
-            xs, ys,
-            linewidth=LINEWIDTH_CUTTING,
-            alpha=0.9,
-        )
-    else:
-        ax.plot(
-            xs, ys,
-            color="gray",
-            linewidth=LINEWIDTH_RAPID,
-            linestyle="dotted",
-            alpha=0.7,
-            label="Rapid Travel (PU)" if index == 0 else "",
-        )
+    def __init__(self, message: str) -> None:
+        """Initialize a PlotterError."""
+        self.message = message
+        super().__init__(message)
 
 
 def plot_plt_document(
@@ -313,16 +111,197 @@ def plot_plt_document(
     try:
         fig, ax = plt.subplots(figsize=figure_size)
 
-        # Use the internal helper for all plotting logic
-        _plot_document_on_axis(document, ax, title=title, show_legend=True)
-
-        # Add summary text (distances in PLT units, convert to inches for display)
         all_segments: list[Segment] = []
+        segment_is_cutting: list[bool] = []
+
         for path in document.stroke_paths:
             for seg in path.segments:
                 all_segments.append(seg)
+                segment_is_cutting.append(seg.is_cutting)
 
+        if not all_segments:
+            ax.text(
+                0.5,
+                0.5,
+                "No segments to plot",
+                ha="center",
+                va="center",
+                transform=ax.transAxes,
+                fontsize=14,
+            )
+            return fig
+
+        # Calculate cumulative distances for color mapping
+        coord_pairs = [(seg.start, seg.end) for seg in all_segments]
+        cum_distances = calculate_cumulative_distances(coord_pairs)
+
+        if cum_distances:
+            max_distance = cum_distances[-1] if cum_distances else 1.0
+        else:
+            max_distance = 1.0
+
+        # Normalize distances to [0, 1] for colormap
+        norm_distances = [d / max_distance if max_distance > 0 else 0.0 for d in cum_distances]
+
+        # Separate cutting and rapid segments
+        cutting_lines: list[tuple[float, float]] = []
+        cutting_colors: list[float] = []
+        rapid_lines: list[tuple[float, float]] = []
+
+        for i, (seg, is_cutting) in enumerate(zip(all_segments, segment_is_cutting)):
+            line_coords = [(seg.start.x, _flip_y(seg.start.y)), (seg.end.x, _flip_y(seg.end.y))]
+            if is_cutting:
+                cutting_lines.append(line_coords)
+                cutting_colors.append(norm_distances[i])
+            else:
+                rapid_lines.append(line_coords)
+
+        # Calculate axis limits from all segments with 10% padding (in inches)
+        if all_segments:
+            all_x = [seg.start.x * PLT_UNITS_TO_INCHES for seg in all_segments] + [
+                seg.end.x * PLT_UNITS_TO_INCHES for seg in all_segments
+            ]
+            all_y = [_flip_y(seg.start.y) * PLT_UNITS_TO_INCHES for seg in all_segments] + [
+                _flip_y(seg.end.y) * PLT_UNITS_TO_INCHES for seg in all_segments
+            ]
+            x_min, x_max = min(all_x), max(all_x)
+            y_min, y_max = min(all_y), max(all_y)
+
+            # Add 10% padding (5% on each side)
+            x_range = x_max - x_min if x_max != x_min else abs(x_max) * 0.1 if x_max != 0 else 1.0
+            y_range = y_max - y_min if y_max != y_min else abs(y_max) * 0.1 if y_max != 0 else 1.0
+            padding_x = x_range * 0.1
+            padding_y = y_range * 0.1
+
+            ax.set_xlim(x_min - padding_x, x_max + padding_x)
+            ax.set_ylim(y_min - padding_y, y_max + padding_y)
+
+        # Plot each segment individually for better visibility and axis handling
+        # First, plot all rapid moves (dotted gray lines)
+        for i, seg in enumerate(all_segments):
+            if not seg.is_cutting:  # Rapid travel
+                if isinstance(seg, ArcSegment):
+                    arc_points = _arc_to_points(seg)
+                    xs = [p.x * PLT_UNITS_TO_INCHES for p in arc_points]
+                    ys = [_flip_y(p.y) * PLT_UNITS_TO_INCHES for p in arc_points]
+                    ax.plot(
+                        xs, ys,
+                        color="gray",
+                        linewidth=0.5,
+                        linestyle="dotted",
+                        alpha=0.7,
+                        label="Rapid Travel (PU)" if i == 0 else "",
+                    )
+                else:
+                    ax.plot(
+                        [seg.start.x * PLT_UNITS_TO_INCHES, seg.end.x * PLT_UNITS_TO_INCHES],
+                        [_flip_y(seg.start.y) * PLT_UNITS_TO_INCHES,
+                         _flip_y(seg.end.y) * PLT_UNITS_TO_INCHES],
+                        color="gray",
+                        linewidth=0.4,
+                        linestyle="dotted",
+                        alpha=0.7,
+                        label="Rapid Travel (PU)" if i == 0 else "",
+                    )
+
+        # Plot tool-up (rapid) connections between strokes as dashed gray lines
+        paths = document.stroke_paths
+        for i in range(len(paths) - 1):
+            curr_path = paths[i]
+            next_path = paths[i + 1]
+
+            if not curr_path.segments or next_path.pen_up_position is None:
+                continue
+
+            last_seg = curr_path.segments[-1]
+            start_x = last_seg.end.x * PLT_UNITS_TO_INCHES
+            start_y = _flip_y(last_seg.end.y) * PLT_UNITS_TO_INCHES
+            end_x = next_path.pen_up_position.x * PLT_UNITS_TO_INCHES
+            end_y = _flip_y(next_path.pen_up_position.y) * PLT_UNITS_TO_INCHES
+
+            ax.plot(
+                [start_x, end_x],
+                [start_y, end_y],
+                color="gray",
+                linewidth=0.4,
+                linestyle="dashed",
+                alpha=0.7,
+                label="Rapid Travel (PU)" if i == 0 else "",
+            )
+
+        # Then, plot all cutting moves with plasma colormap
+        for i, seg in enumerate(all_segments):
+            if seg.is_cutting:  # Cutting
+                color_val = norm_distances[i]
+                cmap = plt.colormaps["plasma"]
+                color = cmap(color_val)
+
+                if isinstance(seg, ArcSegment):
+                    arc_points = _arc_to_points(seg)
+                    xs = [p.x * PLT_UNITS_TO_INCHES for p in arc_points]
+                    ys = [_flip_y(p.y) * PLT_UNITS_TO_INCHES for p in arc_points]
+                    ax.plot(
+                        xs, ys,
+                        color=color,
+                        linewidth=0.5,
+                        alpha=0.9,
+                        label="Cutting Path" if i == 2 else "",
+                    )
+                else:
+                    ax.plot(
+                        [seg.start.x * PLT_UNITS_TO_INCHES, seg.end.x * PLT_UNITS_TO_INCHES],
+                        [_flip_y(seg.start.y) * PLT_UNITS_TO_INCHES,
+                         _flip_y(seg.end.y) * PLT_UNITS_TO_INCHES],
+                        color=color,
+                        linewidth=0.5,
+                        alpha=0.9,
+                        label="Cutting Path" if i == 2 else "",
+                    )
+
+        # Add colorbar for cutting paths
+        if any(seg.is_cutting for seg in all_segments):
+            # Create a dummy plot to create colorbar
+            cbar = plt.colorbar(plt.cm.ScalarMappable(cmap=plt.cm.plasma), ax=ax, shrink=0.8)
+            cbar.set_label("Cumulative Distance (%)", rotation=270, labelpad=15)
+
+        # Mark start and end points
+        first_seg = all_segments[0]
+        last_seg = all_segments[-1]
+
+        ax.plot(
+            first_seg.start.x * PLT_UNITS_TO_INCHES,
+            _flip_y(first_seg.start.y) * PLT_UNITS_TO_INCHES,
+            marker="o",
+            markersize=6,
+            color="green",
+            zorder=10,
+            label="Start",
+        )
+        ax.plot(
+            last_seg.end.x * PLT_UNITS_TO_INCHES,
+            _flip_y(last_seg.end.y) * PLT_UNITS_TO_INCHES,
+            marker="s",
+            markersize=6,
+            color="red",
+            zorder=10,
+            label="End",
+        )
+
+        # Configure axes
+        ax.set_xlabel("X (inches)")
+        ax.set_ylabel("Y (inches)")
+        ax.set_title(title)
+        ax.xaxis.set_major_locator(MultipleLocator(1))
+        ax.yaxis.set_major_locator(MultipleLocator(1))
+        ax.legend(loc="upper right")
+        ax.grid(True, alpha=0.3)
+
+        # Equal aspect ratio for accurate visualization
+        ax.set_aspect("equal", adjustable="box")
+
+       # Add summary text (distances in PLT units, convert to inches for display)
         cutting_dist = document.cutting_distance() * PLT_UNITS_TO_INCHES
+        # Use provided rapid_travel_inches if available, otherwise calculate from document
         rapid_dist = rapid_travel_inches if rapid_travel_inches is not None else (
             document.rapid_distance() * PLT_UNITS_TO_INCHES
         )
@@ -344,6 +323,7 @@ def plot_plt_document(
 
         plt.tight_layout()
 
+        # Save if output path provided
         if output_path is not None:
             save_figure(fig, output_path)
 
@@ -373,6 +353,7 @@ def plot_stroke_path(
     Returns:
         The matplotlib Figure object.
     """
+    # Create minimal document and delegate
     doc = PLTDocument(stroke_paths=[path])
     return plot_plt_document(
         doc,
@@ -496,22 +477,3 @@ def create_path_diagram(
         save_figure(fig, output_path)
 
     return fig
-
-
-def plot_plt_document_on_ax(
-    document: PLTDocument,
-    ax: plt.Axes,
-    title: str = "PLT Toolpath Visualization",
-) -> None:
-    """Plot a PLT document onto an existing matplotlib axis.
-
-    This function renders the toolpath with colors mapped to cumulative
-    distance traveled, making it easy to identify where cutting starts/ends
-    and rapid air travel moves.
-
-    Args:
-        document: The parsed PLTDocument to visualize.
-        ax: The matplotlib Axes to plot on.
-        title: Title for the axis subplot.
-    """
-    _plot_document_on_axis(document, ax, title=title, show_legend=True)
