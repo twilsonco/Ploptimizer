@@ -12,12 +12,20 @@ Usage:
     # Fast mode (uses NearestNeighbor2OptStrategy exclusively):
     python -m plt_optimizer.cli.watch --watch-dir /path/to/watch \
                                        --fast-mode
+
+    # With processed-dir to archive original files after optimization:
+    python -m plt_optimizer.cli.watch --watch-dir /input \
+                                       --output-dir /output \
+                                       --processed-dir /archive
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+import os
+import pathlib
+import shutil
 import signal
 import sys
 import time
@@ -42,6 +50,7 @@ from plt_optimizer.core.models import PLTDocument
 from plt_optimizer.core.optimizer import (
     NearestNeighbor2OptStrategy,
     OptimizerEngine,
+    ParallelEnsembleOptimizationResult,
     ParallelEnsembleStrategy,
 )
 from plt_optimizer.core.parser import PLTParser
@@ -59,11 +68,13 @@ class PLTFileHandler(FileSystemEventHandler):
     """Handles file system events for PLT files in the watch directory.
 
     This handler processes new and modified PLT files, optimizing them and
-    writing the results to the output directory.
+    writing the results to the output directory. Processed files can optionally
+    be moved to a separate directory.
 
     Attributes:
         watch_dir: Directory being watched for changes.
         output_dir: Directory where optimized files are saved.
+        processed_dir: Directory to move processed files to (or None).
         text_logger: Logger for text messages.
         metrics_logger: Logger for CSV metrics.
         parser: PLT file parser instance.
@@ -79,6 +90,7 @@ class PLTFileHandler(FileSystemEventHandler):
         text_logger: TextLogger,
         metrics_logger: CSVMetricsLogger,
         fast_mode: bool = False,
+        processed_dir: Optional[Path] = None,
     ) -> None:
         """Initialize the PLT file handler.
 
@@ -88,10 +100,12 @@ class PLTFileHandler(FileSystemEventHandler):
             text_logger: Initialized text logger instance.
             metrics_logger: Initialized CSV metrics logger instance.
             fast_mode: If True, use NearestNeighbor2OptStrategy exclusively.
+            processed_dir: Directory to move processed files to after optimization.
         """
         super().__init__()
         self._watch_dir = watch_dir
         self._output_dir = output_dir
+        self._processed_dir = processed_dir
         self._text_logger = text_logger
         self._metrics_logger = metrics_logger
         self._fast_mode = fast_mode
@@ -193,23 +207,59 @@ class PLTFileHandler(FileSystemEventHandler):
             # Select strategy based on fast_mode
             if self._fast_mode:
                 strategy = NearestNeighbor2OptStrategy()
-                strategy_name = "NearestNeighbor + 2-Opt (Fast Mode)"
             else:
                 strategy = ParallelEnsembleStrategy(baseline_distance=original_distance)
-                strategy_name = "Parallel Ensemble"
 
             # Optimize
             optimizer = OptimizerEngine(strategy=strategy)
             optimization_result = optimizer.optimize(blocks)
 
-            # Reassemble
-            reassembler = Reassembler()
-            optimized_doc = reassembler.reassemble(doc, blocks, optimization_result)
+            # Handle Parallel Ensemble results (contains winner info + all benchmarks)
+            is_ensemble = isinstance(optimization_result, ParallelEnsembleOptimizationResult)
+            if is_ensemble:
+                ensemble_result = optimization_result
+                method_name = ensemble_result.winner_name
+                optimized_distance = ensemble_result.result.total_travel_distance
 
-            # Calculate after distance
-            optimized_distance = metrics_calc.calculate_optimized_travel_distance(
-                optimization_result
-            )
+                # Log all strategy results at INFO level
+                self._text_logger.info(f"[{job_id}] Strategy benchmark results:")
+                for bench in ensemble_result.all_benchmarks:
+                    imp_str = (
+                        f"{bench.improvement_percent:.2f}% improvement"
+                        if bench.improvement_percent is not None
+                        else "no baseline comparison"
+                    )
+                    self._text_logger.info(
+                        f"  {bench.strategy_name}: "
+                        f"distance={bench.result.total_travel_distance:.3f}, "
+                        f"{imp_str} ({bench.execution_time_seconds:.3f}s)"
+                    )
+
+                # Build notes from all benchmarks
+                notes_parts = []
+                for bench in ensemble_result.all_benchmarks:
+                    imp_str = (
+                        f"{bench.improvement_percent:.2f}%"
+                        if bench.improvement_percent is not None
+                        else "N/A"
+                    )
+                    notes_parts.append(
+                        f"{bench.strategy_name}: {bench.result.total_travel_distance:.3f} "
+                        f"(improvement={imp_str})"
+                    )
+                method_notes = "; ".join(notes_parts)
+            else:
+                method_name = "NearestNeighbor + 2-Opt (Fast Mode)"
+                optimized_distance = optimization_result.total_travel_distance
+                method_notes = f"optimized_distance={optimized_distance:.3f}"
+
+            # Reassemble using the actual result (unwrapped if ensemble)
+            reassembler = Reassembler()
+            if is_ensemble:
+                result_for_reassembly = ensemble_result.result
+            else:
+                result_for_reassembly = optimization_result
+            optimized_doc = reassembler.reassemble(doc, blocks, result_for_reassembly)
 
             # Generate output path
             output_path = self._output_dir / f"{input_path.stem}_optimized.plt"
@@ -235,12 +285,28 @@ class PLTFileHandler(FileSystemEventHandler):
                 original_distance=original_distance,
                 optimized_distance=optimized_distance,
                 status="success",
+                method=method_name,
+                notes=method_notes,
             )
+
+            # Move processed file to processed directory if configured
+            if self._processed_dir is not None:
+                try:
+                    dest_path = self._processed_dir / input_path.name
+                    shutil.move(str(input_path), str(dest_path))
+                    self._text_logger.debug(
+                        f"[{job_id}] Moved {input_path.name} to {self._processed_dir}"
+                    )
+                except OSError as e:
+                    self._text_logger.warning(
+                        f"[{job_id}] Failed to move processed file: {e}"
+                    )
 
             return True
 
         except Exception as e:
             self._text_logger.error(f"[{job_id}] Failed: {e}")
+            failed_method = method_name if 'method_name' in dir() else ""
             self._metrics_logger.log_job(
                 job_id=job_id,
                 original_file=input_path,
@@ -248,6 +314,8 @@ class PLTFileHandler(FileSystemEventHandler):
                 original_distance=0.0,
                 optimized_distance=0.0,
                 status="failed",
+                method=failed_method,
+                notes="",
             )
             return False
 
@@ -320,6 +388,10 @@ class WatchCommand:
         Returns:
             Parsed argument namespace.
         """
+        if args is None:
+            args = sys.argv[1:]
+        if args and args[0] == "watch":
+            args = args[1:]
         parser = argparse.ArgumentParser(
             prog="plt-optimizer watch",
             description="Watch a directory for PLT files and optimize them automatically.",
@@ -334,6 +406,11 @@ Examples:
                                     --output-dir /output/plt \\
                                     --log-dir /var/log/plt-optimizer \\
                                     --fast-mode
+
+  # With processed-dir to archive original files after optimization
+  python -m plt_optimizer.cli.watch --watch-dir /input/plt \\
+                                    --output-dir /output/plt \\
+                                    --processed-dir /archive/plt
 
   # Run as module
   uv run plt-optimizer watch --watch-dir /input
@@ -359,6 +436,15 @@ Examples:
             help="Directory for log files (default: ./logs).",
         )
         parser.add_argument(
+            "--processed-dir",
+            type=Path,
+            default=None,
+            help=(
+                "Directory to move processed PLT files to after optimization. "
+                "If not specified, original files remain in the watch directory."
+            ),
+        )
+        parser.add_argument(
             "--fast-mode",
             action="store_true",
             help=(
@@ -370,14 +456,73 @@ Examples:
 
         return parser.parse_args(args)
 
+    def _validate_path_can_be_created(self, path: pathlib.Path) -> None:
+        """Validate that a path's parent directories exist and are writable.
+
+        Args:
+            path: The path to validate.
+
+        Raises:
+            ValueError: If the path cannot be created due to missing or unwritable
+                        parent directories.
+        """
+        import platform
+
+        if path.exists():
+            return
+
+        # Check each parent directory
+        for parent in path.parents:
+            if parent == pathlib.Path("/"):
+                raise ValueError(
+                    f"Cannot create path '{path}': root directory '/' is not writable"
+                )
+            if parent.exists():
+                # Parent exists, check if we can write to it
+                try:
+                    test_file = parent / f".plt_opt_write_test_{os.getpid()}"
+                    test_file.touch()
+                    test_file.unlink()
+                except PermissionError as e:
+                    raise ValueError(
+                        f"Cannot create path '{path}': "
+                        f"parent directory '{parent}' is not writable: {e}"
+                    )
+                # Parent is writable, so we can create children
+                return
+            # Parent doesn't exist, continue checking grandparents
+
+        # If we get here, no parents exist up to root - check if root itself exists
+        root = path.anchor
+        if root and not pathlib.Path(root).exists():
+            raise ValueError(
+                f"Cannot create path '{path}': "
+                f"root directory '{root}' does not exist on this system "
+                f"({platform.system()})"
+            )
+
     def _setup_logging(self) -> None:
         """Initialize logging system with configured log directory."""
         text_log_file = self._args.log_dir / "optimizer.log"
         csv_metrics_file = self._args.log_dir / "job_metrics.csv"
 
+        # Validate paths before attempting creation
+        try:
+            self._validate_path_can_be_created(self._args.output_dir)
+            self._validate_path_can_be_created(self._args.log_dir)
+        except ValueError as e:
+            raise OSError(str(e)) from e
+
         # Ensure directories exist
-        self._args.output_dir.mkdir(parents=True, exist_ok=True)
-        self._args.log_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self._args.output_dir.mkdir(parents=True, exist_ok=True)
+            self._args.log_dir.mkdir(parents=True, exist_ok=True)
+        except PermissionError as e:
+            raise OSError(
+                f"Permission denied creating directory '{self._args.output_dir}' or "
+                f"'{self._args.log_dir}': {e}. This may indicate a path issue - "
+                f"ensure the parent directories exist and are writable."
+            ) from e
 
         from plt_optimizer.utils.logging import setup_logging
 
@@ -434,6 +579,16 @@ Examples:
                 )
                 return False
 
+        # Check/create processed directory if specified
+        if self._args.processed_dir is not None and not self._args.processed_dir.exists():
+            try:
+                self._args.processed_dir.mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                self._text_logger.error(
+                    f"Cannot create processed directory {self._args.processed_dir}: {e}"
+                )
+                return False
+
         return True
 
     def _process_existing_files(self) -> int:
@@ -457,6 +612,7 @@ Examples:
             text_logger=self._text_logger,
             metrics_logger=self._metrics_logger,
             fast_mode=self._args.fast_mode,
+            processed_dir=self._args.processed_dir,
         )
 
         for path in self._args.watch_dir.iterdir():
@@ -499,6 +655,8 @@ Examples:
         self._text_logger.info(f"Watch directory: {self._args.watch_dir}")
         self._text_logger.info(f"Output directory: {self._args.output_dir}")
         self._text_logger.info(f"Log directory: {self._args.log_dir}")
+        if self._args.processed_dir is not None:
+            self._text_logger.info(f"Processed directory: {self._args.processed_dir}")
         self._text_logger.info(
             f"Strategy: {'NearestNeighbor2Opt (Fast Mode)' if self._args.fast_mode else 'ParallelEnsemble'}"
         )
@@ -517,13 +675,14 @@ Examples:
         if processed_count > 0:
             self._text_logger.info(f"Processed {processed_count} existing file(s)")
 
-        # Start watching for new files
+       # Start watching for new files
         event_handler = PLTFileHandler(
             watch_dir=self._args.watch_dir,
             output_dir=self._args.output_dir,
             text_logger=self._text_logger,
             metrics_logger=self._metrics_logger,
             fast_mode=self._args.fast_mode,
+            processed_dir=self._args.processed_dir,
         )
 
         self._observer = Observer()

@@ -83,6 +83,8 @@ class TestCSVMetricsLoggerEnsureHeader:
             "optimized_total_distance",
             "percent_improvement",
             "status",
+            "method",
+            "notes",
         ]
         assert first_line == ",".join(expected_columns)
 

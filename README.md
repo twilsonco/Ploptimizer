@@ -9,7 +9,7 @@ Designed for Vision 1624 engraving tables driven by S3 Controllers, PLT-Optimize
 - **HPGL/PLT Parser**: Robust tokenization of EngraveLab-generated plotter files
 - **Identity Validation**: Rigorous round-trip testing ensuring semantic equivalence
 - **Diagnostic Visualization**: Color-coded path visualization showing cumulative distance traveled
-- **Dual Logging Topology**:
+- **Dual Logging**:
   - Text logging (`logs/optimizer.log`) with DEBUG/INFO/WARNING/ERROR/CRITICAL levels
   - CSV metrics tracking (`logs/job_metrics.csv`) for optimization analysis
 - **Cross-Platform**: Uses `pathlib.Path` throughout; Windows-compatible output
