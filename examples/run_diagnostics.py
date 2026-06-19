@@ -680,13 +680,14 @@ def demonstrate_optimization_pipeline(
     text_logger = get_text_logger()
     metrics_calc = MetricsCalculator()
 
-    # Calculate before statistics
-    original_distance = metrics_calc.calculate_original_travel_distance(doc)
-    stroke_count = doc.total_segments
+    # Calculate before statistics (preserve original_doc for before plot)
+    original_doc = doc
+    original_distance = metrics_calc.calculate_original_travel_distance(original_doc)
+    stroke_count = original_doc.total_segments
 
     print(f"\n[BEFORE OPTIMIZATION]")
     print(f"  Total strokes: {stroke_count}")
-    print(f"  Stroke paths: {len(doc.stroke_paths)}")
+    print(f"  Stroke paths: {len(original_doc.stroke_paths)}")
     print(f"  Rapid travel distance: {original_distance:,.2f}")
 
     # Step 1.5: Simplify - Remove redundant overlapping strokes
@@ -749,7 +750,7 @@ def demonstrate_optimization_pipeline(
     text_logger.info("Generating before-optimization plot")
     before_plot_path = Path(f"examples/{output_prefix}_before.png")
     fig_before = plot_plt_document(
-        doc,
+        original_doc,
         output_path=before_plot_path,
         title=f"Rapid Travel (before): {original_distance / 1000:,.2f} in",
         rapid_travel_inches=original_distance / 1000,
@@ -770,7 +771,7 @@ def demonstrate_optimization_pipeline(
 
     stats = {
         "before_strokes": stroke_count,
-        "before_paths": len(doc.stroke_paths),
+        "before_paths": len(original_doc.stroke_paths),
         "before_rapid_distance": original_distance,
         "after_rapid_distance": optimized_distance,
         "blocks_created": len(blocks),
