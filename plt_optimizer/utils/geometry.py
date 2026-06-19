@@ -7,9 +7,9 @@ including Euclidean distance computations with proper floating-point handling.
 from __future__ import annotations
 
 import math
-from typing import Sequence, Tuple
+from typing import List, Sequence, Tuple
 
-from plt_optimizer.core.models import Coordinate, StrokePath
+from plt_optimizer.core.models import Coordinate, Segment, StrokePath
 
 
 # Tolerance for floating-point comparisons (3 decimal places = 0.001)
@@ -187,3 +187,175 @@ def interpolate_point(
     y = point1.y + (point2.y - point1.y) * t
 
     return Coordinate(x=x, y=y)
+
+
+def is_point_on_segment(
+    p: Coordinate,
+    a: Coordinate,
+    b: Coordinate,
+    tol: float = 1e-5,
+) -> bool:
+    """Check if point P lies on line segment AB.
+
+    Uses cross product for collinearity check and dot product for bounds check.
+    The tolerance here is stricter than COORD_TOLERANCE since we're comparing
+    computed values rather than read coordinates.
+
+    Args:
+        p: Point to test.
+        a: First endpoint of segment.
+        b: Second endpoint of segment.
+        tol: Tolerance for floating-point comparisons (default 1e-5).
+
+    Returns:
+        True if P lies on segment AB, False otherwise.
+    """
+    ab_x = b.x - a.x
+    ab_y = b.y - a.y
+    ap_x = p.x - a.x
+    ap_y = p.y - a.y
+
+    cross_product = ab_x * ap_y - ab_y * ap_x
+    if not math.isclose(cross_product, 0.0, abs_tol=tol):
+        return False
+
+    dot_product = ab_x * ap_x + ab_y * ap_y
+    ab_squared = ab_x * ab_x + ab_y * ab_y
+    
+    if math.isclose(ab_squared, 0.0, abs_tol=tol):
+        return calculate_coordinate_distance(p, a) <= tol
+    
+    if dot_product < -tol or dot_product > ab_squared + tol:
+        return False
+
+    return True
+
+
+def _segment_to_coords(
+    seg: Segment,
+) -> Tuple[Coordinate, Coordinate]:
+    """Extract start and end coordinates from a segment.
+
+    Args:
+        seg: A StrokeSegment or ArcSegment.
+
+    Returns:
+        Tuple of (start, end) coordinates.
+    """
+    return (seg.start, seg.end)
+
+
+def remove_redundant_strokes(
+    doc: PLTDocument,
+    tol: float = 1e-5,
+) -> PLTDocument:
+    """Remove redundant strokes whose endpoints lie on other strokes.
+
+    This function identifies cutting segments where both endpoints lie on
+    another longer stroke and removes them as redundant. This prevents
+    duplicate cuts along the same path.
+
+    O(N²) algorithm where N = number of cutting segments in document.
+    For documents with thousands of strokes, spatial indexing may be needed.
+
+    Args:
+        doc: The input PLTDocument.
+        tol: Tolerance for floating-point comparisons (default 1e-5).
+
+    Returns:
+        New PLTDocument with redundant segments removed. Empty paths are filtered out.
+    """
+    from plt_optimizer.core.models import (
+        ArcSegment,
+        FooterCommand,
+        HeaderCommand,
+        PLTDocument,
+        StrokePath,
+        StrokeSegment,
+    )
+
+    all_cutting_segments: List[Tuple[int, int, Segment]] = []
+    for path_idx, path in enumerate(doc.stroke_paths):
+        for seg_idx, seg in enumerate(path.segments):
+            if isinstance(seg, ArcSegment) or not seg.is_cutting:
+                continue
+            all_cutting_segments.append((path_idx, seg_idx, seg))
+
+    n = len(all_cutting_segments)
+    indices_to_remove: set[Tuple[int, int]] = set()
+
+    for i in range(n):
+        path_idx_i, seg_idx_i, seg_i = all_cutting_segments[i]
+        start_i, end_i = seg_i.start, seg_i.end
+
+        for j in range(i + 1, n):
+            path_idx_j, seg_idx_j, seg_j = all_cutting_segments[j]
+            start_j, end_j = seg_j.start, seg_j.end
+
+            on_i_on_j = (
+                is_point_on_segment(start_i, start_j, end_j, tol)
+                and is_point_on_segment(end_i, start_j, end_j, tol)
+            )
+            on_j_on_i = (
+                is_point_on_segment(start_j, start_i, end_i, tol)
+                and is_point_on_segment(end_j, start_i, end_i, tol)
+            )
+
+            both_on_each_other = on_i_on_j and on_j_on_i
+            
+            if both_on_each_other:
+                seg_i_len = calculate_coordinate_distance(start_i, end_i)
+                seg_j_len = calculate_coordinate_distance(start_j, end_j)
+                same_length = math.isclose(seg_i_len, seg_j_len, abs_tol=tol)
+                
+                if same_length:
+                    start_match = calculate_coordinate_distance(start_i, start_j) <= tol
+                    end_match = calculate_coordinate_distance(end_i, end_j) <= tol
+                    
+                    if start_match and end_match:
+                        indices_to_remove.add((path_idx_j, seg_idx_j))
+                    else:
+                        reversed_start = calculate_coordinate_distance(start_i, end_j) <= tol
+                        reversed_end = calculate_coordinate_distance(end_i, start_j) <= tol
+                        
+                        if reversed_start and reversed_end:
+                            indices_to_remove.add((path_idx_j, seg_idx_j))
+                else:
+                    shorter_len = min(seg_i_len, seg_j_len)
+                    longer_len = max(seg_i_len, seg_j_len)
+                    
+                    len_diff = longer_len - shorter_len
+                    
+                    if math.isclose(len_diff, 0.0, abs_tol=tol) or len_diff > tol:
+                        pass
+                    
+                    if seg_i_len <= seg_j_len:
+                        indices_to_remove.add((path_idx_j, seg_idx_j))
+                    else:
+                        indices_to_remove.add((path_idx_i, seg_idx_i))
+            else:
+                if on_i_on_j:
+                    indices_to_remove.add((path_idx_i, seg_idx_i))
+                if on_j_on_i:
+                    indices_to_remove.add((path_idx_j, seg_idx_j))
+
+    new_stroke_paths: List[StrokePath] = []
+    for path_idx, path in enumerate(doc.stroke_paths):
+        new_segments = tuple(
+            seg
+            for seg_idx, seg in enumerate(path.segments)
+            if (path_idx, seg_idx) not in indices_to_remove
+        )
+        if new_segments:
+            new_stroke_paths.append(
+                StrokePath(
+                    pen_up_position=path.pen_up_position,
+                    segments=new_segments,
+                )
+            )
+
+    return PLTDocument(
+        header_commands=list(doc.header_commands),
+        stroke_paths=new_stroke_paths,
+        footer_commands=list(doc.footer_commands),
+    )

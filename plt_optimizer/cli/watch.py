@@ -59,6 +59,7 @@ from plt_optimizer.core.reassembler import MetricsCalculator, Reassembler
 from plt_optimizer.core.writer import PLTWriter
 from plt_optimizer.diagnostics.plotter import plot_plt_document, save_figure
 from plt_optimizer.utils.logging import CSVMetricsLogger, TextLogger
+from plt_optimizer.utils.geometry import remove_redundant_strokes
 
 
 # File extensions to watch for
@@ -258,6 +259,11 @@ class PLTFileHandler(FileSystemEventHandler):
         try:
             # Parse the file
             doc = self._parser.parse_file(input_path)
+
+            # Simplify - Remove redundant overlapping strokes
+            doc = remove_redundant_strokes(doc)
+            self._text_logger.debug(f"[{job_id}] Simplified document by removing redundant strokes")
+
             metrics_calc = MetricsCalculator()
 
             # Calculate original distance
