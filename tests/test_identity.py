@@ -259,3 +259,62 @@ class TestEdgeCases:
 
         assert len(doc.header_commands) >= 2
         assert len(doc.footer_commands) == 1
+
+
+class TestMetadataPreservation:
+    """Tests for metadata preservation through parse-write cycles."""
+
+    def test_example_file_roundtrip_identity(self) -> None:
+        """Test that parsing and writing an example file preserves all metadata."""
+        parser = PLTParser()
+        writer = PLTWriter()
+
+        example_path = Path(__file__).parent.parent / "examples" / "test_rect_grid13sheet0.plt"
+
+        doc1 = parser.parse_file(example_path)
+        output = writer.write_string(doc1)
+
+        doc2 = parser.parse_string(output)
+
+        assert len(doc1.header_commands) == len(doc2.header_commands), (
+            f"Header command count mismatch: {len(doc1.header_commands)} vs "
+            f"{len(doc2.header_commands)}"
+        )
+
+        assert doc1.header_commands == doc2.header_commands, (
+            "Header commands do not match exactly (instruction + parameters)"
+        )
+
+        assert len(doc1.footer_commands) == len(doc2.footer_commands), (
+            f"Footer command count mismatch: {len(doc1.footer_commands)} vs "
+            f"{len(doc2.footer_commands)}"
+        )
+
+        assert doc1.footer_commands == doc2.footer_commands, (
+            "Footer commands do not match exactly (instruction + parameters)"
+        )
+
+        assert len(doc1.stroke_paths) == len(doc2.stroke_paths), (
+            f"Stroke path count mismatch: {len(doc1.stroke_paths)} vs "
+            f"{len(doc2.stroke_paths)}"
+        )
+
+    def test_original_optimized_files_have_identical_metadata(self) -> None:
+        """Test that original and optimized files have identical header metadata."""
+        parser = PLTParser()
+
+        examples_dir = Path(__file__).parent.parent / "examples"
+        original_path = examples_dir / "test_rect_grid13sheet0.plt"
+        optimized_path = examples_dir / "test_rect_grid13sheet0_optimized.plt"
+
+        doc_original = parser.parse_file(original_path)
+        doc_optimized = parser.parse_file(optimized_path)
+
+        assert len(doc_original.header_commands) == len(doc_optimized.header_commands), (
+            f"Header command count mismatch: {len(doc_original.header_commands)} vs "
+            f"{len(doc_optimized.header_commands)}"
+        )
+
+        assert doc_original.header_commands == doc_optimized.header_commands, (
+            "Header commands do not match exactly between original and optimized files"
+        )
