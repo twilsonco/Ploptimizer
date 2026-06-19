@@ -50,6 +50,7 @@ from plt_optimizer.utils.logging import (
     get_metrics_logger,
     get_text_logger,
 )
+from plt_optimizer.utils.geometry import remove_redundant_strokes
 
 
 STRATEGY_REGISTRY = {
@@ -233,9 +234,12 @@ def run_single_strategy_on_file(
         text_logger.info(f"Parsing user file: {input_path}")
         doc = parser.parse_file(input_path)
 
-        print(f"\nDocument statistics:")
+        print(f"\nDocument statistics (before simplification):")
         print(f"  Stroke paths: {len(doc.stroke_paths)}")
         print(f"  Total segments: {doc.total_segments}")
+
+        doc = remove_redundant_strokes(doc)
+        text_logger.info("Simplified document by removing redundant strokes")
 
         metrics_calc = MetricsCalculator()
         original_rapid = metrics_calc.calculate_original_travel_distance(doc)
@@ -378,9 +382,12 @@ def run_all_strategies_on_file(
         text_logger.info(f"Parsing user file: {input_path}")
         doc = parser.parse_file(input_path)
 
-        print(f"\nDocument statistics:")
+        print(f"\nDocument statistics (before simplification):")
         print(f"  Stroke paths: {len(doc.stroke_paths)}")
         print(f"  Total segments: {doc.total_segments}")
+
+        doc = remove_redundant_strokes(doc)
+        text_logger.info("Simplified document by removing redundant strokes")
 
         metrics_calc = MetricsCalculator()
         original_rapid = metrics_calc.calculate_original_travel_distance(doc)
@@ -682,8 +689,16 @@ def demonstrate_optimization_pipeline(
     print(f"  Stroke paths: {len(doc.stroke_paths)}")
     print(f"  Rapid travel distance: {original_distance:,.2f}")
 
-    # Step 1: Profile - Calculate baseline extent
-    text_logger.info("Step 1/4: Profiling document for baseline extent")
+    # Step 1.5: Simplify - Remove redundant overlapping strokes
+    doc = remove_redundant_strokes(doc)
+    text_logger.info("Step 1.5/4: Simplified document by removing redundant strokes")
+    stroke_count = doc.total_segments
+    print(f"\n[AFTER SIMPLIFICATION]")
+    print(f"  Total strokes: {stroke_count}")
+    print(f"  Stroke paths: {len(doc.stroke_paths)}")
+
+    # Step 2: Profile - Calculate baseline extent
+    text_logger.info("Step 2/4: Profiling document for baseline extent")
     profiler = Profiler()
     profile_result = profiler.profile(doc)
 
@@ -692,16 +707,16 @@ def demonstrate_optimization_pipeline(
     print(f"    Median DX: {profile_result.median_dx:.2f}")
     print(f"    Median DY: {profile_result.median_dy:.2f}")
 
-    # Step 2: Chunk - Group strokes into MacroBlocks
-    text_logger.info("Step 2/4: Chunking stroke paths into MacroBlocks")
+    # Step 3: Chunk - Group strokes into MacroBlocks
+    text_logger.info("Step 3/5: Chunking stroke paths into MacroBlocks")
     chunker = Chunker(config=ChunkerConfig(threshold_multiplier=2.0))
     blocks = chunker.chunk(doc.stroke_paths, profile_result.baseline_extent)
 
     print(f"\n  Chunker results:")
     print(f"    MacroBlocks created: {len(blocks)}")
 
-    # Step 3: Optimize - Find optimal traversal order
-    text_logger.info("Step 3/4: Optimizing block traversal order")
+    # Step 4: Optimize - Find optimal traversal order
+    text_logger.info("Step 4/5: Optimizing block traversal order")
     optimizer = OptimizerEngine(
         strategy=NearestNeighbor2OptStrategy(same_row_preference=same_row_preference)
     )
@@ -714,8 +729,8 @@ def demonstrate_optimization_pipeline(
     print(f"    Blocks in optimized sequence: {optimization_result.block_count}")
     print(f"    Optimization time: {opt_elapsed_ms:.2f} ms")
 
-    # Step 4: Reassemble - Rebuild PLTDocument with optimized order
-    text_logger.info("Step 4/4: Reassembling document with optimized block order")
+    # Step 5: Reassemble - Rebuild PLTDocument with optimized order
+    text_logger.info("Step 5/5: Reassembling document with optimized block order")
     reassembler = Reassembler()
     optimized_doc = reassembler.reassemble(doc, blocks, optimization_result)
 
