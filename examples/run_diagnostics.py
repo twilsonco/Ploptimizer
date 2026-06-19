@@ -238,12 +238,15 @@ def run_single_strategy_on_file(
         print(f"  Stroke paths: {len(doc.stroke_paths)}")
         print(f"  Total segments: {doc.total_segments}")
 
+        # Preserve original document before simplification for baseline calculations
+        original_doc = doc
+        original_cutting = original_doc.cutting_distance()
+        original_rapid = original_doc.rapid_distance()
+
         doc = remove_redundant_strokes(doc)
         text_logger.info("Simplified document by removing redundant strokes")
 
         metrics_calc = MetricsCalculator()
-        original_rapid = metrics_calc.calculate_original_travel_distance(doc)
-        print(f"  Rapid travel (before): {original_rapid:,.2f}")
 
         profiler = Profiler()
         profile_result = profiler.profile(doc)
@@ -263,16 +266,24 @@ def run_single_strategy_on_file(
         reassembler = Reassembler()
         optimized_doc = reassembler.reassemble(doc, blocks, optimization_result)
 
-        optimized_distance = metrics_calc.calculate_optimized_travel_distance(optimization_result)
-        savings, pct_improvement = metrics_calc.calculate_improvement(original_rapid, optimized_distance)
+        # Calculate percent changes from original to optimized
+        optimized_rapid = optimized_doc.rapid_distance()
+        optimized_cutting = optimized_doc.cutting_distance()
+
+        rapid_change_pct = ((optimized_rapid - original_rapid) / original_rapid * 100) if original_rapid > 0 else 0.0
+        cutting_change_pct = ((optimized_cutting - original_cutting) / original_cutting * 100) if original_cutting > 0 else 0.0
+
+        total_original = original_rapid + original_cutting
+        total_optimized = optimized_rapid + optimized_cutting
+        total_change_pct = ((total_optimized - total_original) / total_original * 100) if total_original > 0 else 0.0
 
         before_plot_path = input_path.parent / f"{input_path.stem}_before.png"
         after_plot_path = input_path.parent / f"{input_path.stem}_after_{strategy_name}.png"
 
         fig_before = plot_plt_document(
-            doc,
+            original_doc,
             output_path=before_plot_path,
-            title=f"Rapid Travel (before): {original_rapid / 1000:,.2f} in",
+            title=f"Original: Rapid={original_rapid / 1000:.2f} in, Cutting={original_cutting / 1000:.2f} in",
             rapid_travel_inches=original_rapid / 1000,
         )
         import matplotlib.pyplot as plt
@@ -281,8 +292,8 @@ def run_single_strategy_on_file(
         fig_after = plot_plt_document(
             optimized_doc,
             output_path=after_plot_path,
-                title=f"{optimizer.strategy.name}: Rapid Travel (after): {optimized_distance / 1000:,.2f} in ({pct_improvement:.1f}% improvement, {opt_elapsed_ms:.1f} ms)",
-                rapid_travel_inches=optimized_distance / 1000,
+            title=f"{optimizer.strategy.name}: Rapid {rapid_change_pct:+.1f}%, Cutting {cutting_change_pct:+.1f}%, Total {total_change_pct:+.1f}% ({opt_elapsed_ms:.0f} ms)",
+            rapid_travel_inches=optimized_rapid / 1000,
         )
         plt.close(fig_after)
 
@@ -300,7 +311,7 @@ def run_single_strategy_on_file(
             original_file=input_path,
             optimized_file=input_path.parent / f"{input_path.stem}_optimized.plt",
             original_distance=original_rapid,
-            optimized_distance=optimized_distance,
+            optimized_distance=optimized_rapid,
             status="success",
         )
 
@@ -386,11 +397,15 @@ def run_all_strategies_on_file(
         print(f"  Stroke paths: {len(doc.stroke_paths)}")
         print(f"  Total segments: {doc.total_segments}")
 
+        # Preserve original document before simplification for baseline calculations
+        original_doc = doc
+        original_cutting = original_doc.cutting_distance()
+        original_rapid = original_doc.rapid_distance()
+
         doc = remove_redundant_strokes(doc)
         text_logger.info("Simplified document by removing redundant strokes")
 
         metrics_calc = MetricsCalculator()
-        original_rapid = metrics_calc.calculate_original_travel_distance(doc)
         print(f"  Rapid travel (before): {original_rapid:,.2f}")
 
         profiler = Profiler()
@@ -402,9 +417,9 @@ def run_all_strategies_on_file(
 
         before_plot_path = input_path.parent / f"{input_path.stem}_before.png"
         fig_before = plot_plt_document(
-            doc,
+            original_doc,
             output_path=before_plot_path,
-            title=f"Rapid Travel (before): {original_rapid / 1000:,.2f} in",
+            title=f"Original: Rapid={original_rapid / 1000:.2f} in, Cutting={original_cutting / 1000:.2f} in",
             rapid_travel_inches=original_rapid / 1000,
         )
         import matplotlib.pyplot as plt
@@ -426,29 +441,37 @@ def run_all_strategies_on_file(
             reassembler = Reassembler()
             optimized_doc = reassembler.reassemble(doc, blocks, optimization_result)
 
-            optimized_distance = metrics_calc.calculate_optimized_travel_distance(optimization_result)
-            savings, pct_improvement = metrics_calc.calculate_improvement(original_rapid, optimized_distance)
+            # Calculate percent changes from original to optimized
+            optimized_rapid = optimized_doc.rapid_distance()
+            optimized_cutting = optimized_doc.cutting_distance()
+
+            rapid_change_pct = ((optimized_rapid - original_rapid) / original_rapid * 100) if original_rapid > 0 else 0.0
+            cutting_change_pct = ((optimized_cutting - original_cutting) / original_cutting * 100) if original_cutting > 0 else 0.0
+
+            total_original = original_rapid + original_cutting
+            total_optimized = optimized_rapid + optimized_cutting
+            total_change_pct = ((total_optimized - total_original) / total_original * 100) if total_original > 0 else 0.0
 
             after_plot_path = input_path.parent / f"{input_path.stem}_after_{strategy_name}.png"
             fig_after = plot_plt_document(
                 optimized_doc,
                 output_path=after_plot_path,
-           title=f"{optimizer.strategy.name}: Rapid Travel (after): {optimized_distance / 1000:,.2f} in ({pct_improvement:.1f}% improvement, {opt_elapsed_ms:.1f} ms)",
-                rapid_travel_inches=optimized_distance / 1000,
+                title=f"{optimizer.strategy.name}: Rapid {rapid_change_pct:+.1f}%, Cutting {cutting_change_pct:+.1f}%, Total {total_change_pct:+.1f}% ({opt_elapsed_ms:.0f} ms)",
+                rapid_travel_inches=optimized_rapid / 1000,
             )
             plt.close(fig_after)
 
             # Store results for CSV
             strategy_results[strategy_name] = {
                 "before_rapid_distance": original_rapid,
-                "after_rapid_distance": optimized_distance,
-                "distance_saved": savings,
-                "percent_improvement": pct_improvement,
+                "after_rapid_distance": optimized_rapid,
+                "distance_saved": original_rapid - optimized_rapid,
+                "percent_improvement": rapid_change_pct,
                 "optimization_time_ms": opt_elapsed_ms,
                 "blocks_created": block_count,
             }
 
-            print(f"  {strategy_name}: {original_rapid:,.2f} -> {optimized_distance:,.2f} ({pct_improvement:.1f}% improvement) in {opt_elapsed_ms:.1f} ms")
+            print(f"  {strategy_name}: Rapid {rapid_change_pct:+.1f}%, Cutting {cutting_change_pct:+.1f}%, Total {total_change_pct:+.1f}% ({opt_elapsed_ms:.0f} ms)")
 
         # Write CSV comparison file
         csv_path = input_path.parent / f"{input_path.stem}_strategy_comparison.csv"
@@ -682,13 +705,14 @@ def demonstrate_optimization_pipeline(
 
     # Calculate before statistics (preserve original_doc for before plot)
     original_doc = doc
-    original_distance = metrics_calc.calculate_original_travel_distance(original_doc)
+    original_cutting = original_doc.cutting_distance()
+    original_rapid = metrics_calc.calculate_original_travel_distance(original_doc)
     stroke_count = original_doc.total_segments
 
     print(f"\n[BEFORE OPTIMIZATION]")
     print(f"  Total strokes: {stroke_count}")
     print(f"  Stroke paths: {len(original_doc.stroke_paths)}")
-    print(f"  Rapid travel distance: {original_distance:,.2f}")
+    print(f"  Rapid travel distance: {original_rapid:,.2f}")
 
     # Step 1.5: Simplify - Remove redundant overlapping strokes
     doc = remove_redundant_strokes(doc)
@@ -735,16 +759,23 @@ def demonstrate_optimization_pipeline(
     reassembler = Reassembler()
     optimized_doc = reassembler.reassemble(doc, blocks, optimization_result)
 
-    # Calculate after statistics
-    optimized_distance = metrics_calc.calculate_optimized_travel_distance(optimization_result)
-    savings, pct_improvement = metrics_calc.calculate_improvement(original_distance, optimized_distance)
+    # Calculate percent changes from original to optimized
+    optimized_rapid = metrics_calc.calculate_optimized_travel_distance(optimization_result)
+    optimized_cutting = optimized_doc.cutting_distance()
+
+    rapid_change_pct = ((optimized_rapid - original_rapid) / original_rapid * 100) if original_rapid > 0 else 0.0
+    cutting_change_pct = ((optimized_cutting - original_cutting) / original_cutting * 100) if original_cutting > 0 else 0.0
+
+    total_original = original_rapid + original_cutting
+    total_optimized = optimized_rapid + optimized_cutting
+    total_change_pct = ((total_optimized - total_original) / total_original * 100) if total_original > 0 else 0.0
 
     print(f"\n[AFTER OPTIMIZATION]")
-    print(f"  Rapid travel distance: {optimized_distance:,.2f}")
+    print(f"  Rapid travel distance: {optimized_rapid:,.2f}")
 
     print(f"\n[OPTIMIZATION SUMMARY]")
-    print(f"  Distance saved: {savings:,.2f}")
-    print(f"  Percent improvement: {pct_improvement:.1f}%")
+    print(f"  Distance saved (rapid): {original_rapid - optimized_rapid:,.2f}")
+    print(f"  Percent improvement (total): {total_change_pct:.1f}%")
 
     # Generate before plot
     text_logger.info("Generating before-optimization plot")
@@ -752,8 +783,8 @@ def demonstrate_optimization_pipeline(
     fig_before = plot_plt_document(
         original_doc,
         output_path=before_plot_path,
-        title=f"Rapid Travel (before): {original_distance / 1000:,.2f} in",
-        rapid_travel_inches=original_distance / 1000,
+        title=f"Original: Rapid={original_rapid / 1000:.2f} in, Cutting={original_cutting / 1000:.2f} in",
+        rapid_travel_inches=original_rapid / 1000,
     )
     import matplotlib.pyplot as plt
     plt.close(fig_before)
@@ -764,19 +795,19 @@ def demonstrate_optimization_pipeline(
     fig_after = plot_plt_document(
         optimized_doc,
         output_path=after_plot_path,
-        title=f"{optimizer.strategy.name}: Rapid Travel (after): {optimized_distance / 1000:,.2f} in ({pct_improvement:.1f}% improvement, {opt_elapsed_ms:.1f} ms)",
-        rapid_travel_inches=optimized_distance / 1000,
+        title=f"{optimizer.strategy.name}: Rapid {rapid_change_pct:+.1f}%, Cutting {cutting_change_pct:+.1f}%, Total {total_change_pct:+.1f}% ({opt_elapsed_ms:.0f} ms)",
+        rapid_travel_inches=optimized_rapid / 1000,
     )
     plt.close(fig_after)
 
     stats = {
         "before_strokes": stroke_count,
         "before_paths": len(original_doc.stroke_paths),
-        "before_rapid_distance": original_distance,
-        "after_rapid_distance": optimized_distance,
+        "before_rapid_distance": original_rapid,
+        "after_rapid_distance": optimized_rapid,
         "blocks_created": len(blocks),
-        "distance_saved": savings,
-        "percent_improvement": pct_improvement,
+        "distance_saved": total_original - total_optimized,
+        "percent_improvement": total_change_pct,
         "optimization_time_ms": opt_elapsed_ms,
     }
 
