@@ -78,11 +78,11 @@ PLT-Optimizer/
 - Python 3.11 or higher
 - [uv](https://github.com/astral-sh/uv) package manager
 
-### Setup
+### Setup (All Platforms)
 
 1. Clone the repository:
    ```bash
-   cd /home/haiiro/dev/PLT-Optimizer
+   cd /path/to/PLT-Optimizer
    ```
 
 2. Install dependencies with uv:
@@ -94,6 +94,48 @@ PLT-Optimizer/
    ```bash
    uv sync --extra dev
    ```
+
+### Windows-Specific Setup
+
+#### Option 1: Standalone Installation
+
+If you want to run `plt-optimizer` from any directory without using `uv run`:
+
+```powershell
+# Add the uv-managed Python scripts directory to your PATH
+# The default user-level install path is:
+$env:PATH += ";$env:APPDATA\Python\Scripts"
+
+# Or for system-wide installation:
+# Run PowerShell as Administrator
+uv sync --system
+```
+
+After this, you can run `plt-optimizer` directly from any command prompt or PowerShell window.
+
+#### Option 2: Portable Installation (USB/Network Drive)
+
+For portable deployments on Windows (e.g., running from a USB drive or network share):
+
+```powershell
+# Install to a specific directory
+uv sync --python C:\Python311 --path ./plt-optimizer-portable
+
+# Run the watch daemon
+.\plt-optimizer-portable\Scripts\plt-optimizer.exe watch --watch-dir D:\PlotterFiles\Input --output-dir D:\PlotterFiles\Output
+```
+
+#### Verifying Installation
+
+```powershell
+# Check that plt-optimizer is accessible
+uv run plt-optimizer --help
+
+# Expected output:
+# usage: plt-optimizer [-h] [--watch-dir WATCH_DIR] [--output-dir OUTPUT_DIR]
+#                    [--log-dir LOG_DIR] [--processed-dir PROCESSED_DIR]
+#                    [--fast-mode] [--debug-save-files]
+```
 
 ## Usage
 
@@ -144,9 +186,115 @@ uv run plt-optimizer watch --watch-dir /input/plt \
 - `--watch-dir` (required): Directory to monitor for PLT files
 - `--output-dir` (default: `./optimized`): Where optimized files are saved
 - `--log-dir` (default: `./logs`): Log file directory
+- `--processed-dir` (optional): Move processed files here after optimization
 - `--fast-mode`: Use only `NearestNeighbor2OptStrategy` for faster processing
+- `--debug-save-files`: Save intermediate optimization data for diagnostics
 
 The daemon processes existing files on startup, then continues watching for new changes. Press Ctrl+C for graceful shutdown.
+
+#### Windows-Specific Usage
+
+**Using PowerShell:**
+```powershell
+# Navigate to project directory
+cd C:\PLT-Optimizer
+
+# Run the watch daemon
+uv run plt-optimizer watch --watch-dir D:\PlotterFiles\Watch --output-dir D:\PlotterFiles\Optimized --log-dir D:\Logs
+```
+
+**Using Command Prompt:**
+```cmd
+cd /d C:\PLT-Optimizer
+uv run plt-optimizer watch --watch-dir D:\PlotterFiles\Watch --output-dir D:\PlotterFiles\Optimized --log-dir D:\Logs
+```
+
+**UNC Network Paths:**
+The daemon supports UNC paths for network drives:
+```powershell
+uv run plt-optimizer watch --watch-dir \\Server\Plotter\Input --output-dir \\Server\Plotter\Output --log-dir C:\Logs
+```
+
+#### Starting the Watch Daemon at Boot (Windows)
+
+##### Method 1: Task Scheduler (Recommended)
+
+1. Open **Task Scheduler** (`taskschd.msc`)
+
+2. Click **Create Basic Task** → Name it "PLT-Optimizer Watch"
+
+3. Set Trigger: **When the computer starts**
+
+4. Set Action: **Start a program**
+   - Program: `cmd.exe`
+   - Arguments: `/c cd /d C:\PLT-Optimizer && uv run plt-optimizer watch --watch-dir D:\PlotterFiles\Watch --output-dir D:\PlotterFiles\Optimized --log-dir D:\Logs`
+
+5. Configure:
+   - Check **Run whether user is logged on or not** (requires password)
+   - Check **Run with highest privileges** if writing to protected directories
+   - Set **Stop task if it runs longer than:** 1 day (optional)
+
+6. Click **OK** and enter your Windows password when prompted.
+
+##### Method 2: Windows Service (Advanced)
+
+For a persistent background service that survives user logoff, use NSSM (Non-Sucking Service Manager):
+
+```powershell
+# Install NSSM via Chocolatey
+choco install nssm -y
+
+# Or download from https://nssm.cc/download
+
+# Create the service (run PowerShell as Administrator)
+$nssm = "C:\Program Files\nssm\win64\nssm.exe"
+
+& $nssm install PLT-Optimizer "C:\Users\<YourUser>\.local\bin\uv.exe" "run plt-optimizer watch --watch-dir D:\PlotterFiles\Watch --output-dir D:\PlotterFiles\Optimized --log-dir D:\Logs"
+# Note: Use full path to uv.exe from your user directory
+
+# Configure startup type
+& $nssm set PLT-Optimizer Start SERVICE_AUTO_START
+
+# Start the service
+& $nssm start PLT-Optimizer
+
+# Check status
+& $nssm status PLT-Optimizer
+```
+
+##### Method 3: Startup Folder Shortcut
+
+For a simple user-level auto-start:
+
+1. Press `Win + R`, type `shell:startup`, press Enter
+
+2. Create a shortcut:
+   - Right-click → New → Shortcut
+   - Location: `cmd.exe /k cd /d C:\PLT-Optimizer && uv run plt-optimizer watch --watch-dir D:\PlotterFiles\Watch --output-dir D:\PlotterFiles\Optimized --log-dir D:\Logs`
+   - Name: "PLT-Optimizer Watch"
+
+3. The daemon will start when you log in, running in a visible console window.
+
+##### Verifying the Service
+
+```powershell
+# Check logs
+Get-Content D:\Logs\optimizer.log -Tail 20 -Wait
+
+# Or for Task Scheduler tasks:
+Get-ScheduledTask | Where-Object {$_.TaskName -like "*PLT*"}
+Get-ScheduledTaskInfo -TaskName "PLT-Optimizer Watch"
+```
+
+##### Stopping the Service
+
+```powershell
+# For Task Scheduler (if running)
+Stop-ScheduledTask -TaskName "PLT-Optimizer Watch"
+
+# For NSSM service
+& $nssm stop PLT-Optimizer
+```
 
 ### Running the Example Script
 
@@ -156,11 +304,19 @@ The example script demonstrates the complete workflow:
 uv run python examples/run_diagnostics.py
 ```
 
+On Windows:
+```powershell
+cd C:\PLT-Optimizer
+uv run python examples/run_diagnostics.py
+```
+
 This will:
-1. Create sample PLT files
+1. Create sample PLT files in `examples/`
 2. Parse and validate them
-3. Generate diagnostic plots
+3. Generate diagnostic plots (saved to `examples/output/`)
 4. Write logs to `logs/optimizer.log` and `logs/job_metrics.csv`
+
+**Note:** The `logs/` directory is created automatically relative to the working directory where you run the command.
 
 ## Testing
 
@@ -170,11 +326,22 @@ Run the test suite with pytest:
 uv run pytest tests/ -v
 ```
 
+On Windows:
+```powershell
+cd C:\PLT-Optimizer
+uv run pytest tests/ -v
+```
+
 Run with coverage reporting:
 
 ```bash
 uv run pytest --cov=plt_optimizer --cov-report=term-missing tests/
 ```
+
+**Windows-specific test notes:**
+- The parser includes automatic handling of Windows (`\r\n`) and Unix (`\n`) line endings
+- Tests verify CRLF compatibility in `test_parser.py::test_parse_windows_line_endings`
+- All file paths use `pathlib.Path` for cross-platform compatibility
 
 ### Test Categories
 
@@ -254,6 +421,44 @@ To add support for additional HPGL commands:
 1. Add the command mnemonic to `PLTParser._is_header_command()`
 2. Update `HeaderCommand.from_token()` if special parsing is needed
 3. Add corresponding test cases in `tests/`
+
+## Troubleshooting (Windows)
+
+### Common Issues
+
+| Issue | Solution |
+|-------|----------|
+| `uv: command not found` | Restart your terminal or run `&$env:LOCALAPPDATA\Programs\Python\Python311\python.exe -m uv` |
+| Service won't start | Verify paths use backslashes properly, or use forward slashes with `pathlib.Path` |
+| Files not being processed | Check that the watch directory path exists and has appropriate permissions |
+| High CPU usage | Use `--fast-mode` for simpler optimization; reduce polling by running as a scheduled task |
+
+### Viewing Logs
+
+```powershell
+# Real-time log monitoring
+Get-Content D:\Logs\optimizer.log -Tail 20 -Wait
+
+# Search for errors
+Select-String -Path "D:\Logs\optimizer.log" -Pattern "ERROR|CRITICAL"
+
+# Check metrics CSV
+Import-Csv D:\Logs\job_metrics.csv | Sort-Object timestamp -Descending | Select-Object -First 10
+```
+
+### Firewall Considerations
+
+If running the watch daemon on a network path, ensure Windows Defender or your firewall allows Python/uv through:
+```powershell
+# Allow Python through firewall (if needed for network access)
+New-NetFirewallRule -DisplayName "PLT-Optimizer Python" -Direction Inbound -Program "C:\Users\<User>\.local\Programs\Python\Python311\python.exe" -Action Allow
+```
+
+### Performance Tips
+
+1. **Fast Mode**: Use `--fast-mode` flag when processing speed is more important than optimal routing
+2. **Local Storage**: Place watch directories on local drives rather than network shares when possible
+3. **Processed Directory**: Use `--processed-dir` to move completed files out of the watch directory, reducing scan time
 
 ## License
 
