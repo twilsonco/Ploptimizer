@@ -368,6 +368,7 @@ class PLTParser:
             "XT",  # X Tick
             "YT",  # Y Tick
             "ZA",  # Z Axis
+            "ZW",  # Zoom Scale
         }
 
         # Extract just the instruction mnemonic (letters only at start)
