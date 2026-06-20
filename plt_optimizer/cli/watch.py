@@ -374,7 +374,7 @@ class PLTFileHandler(FileSystemEventHandler):
                 notes=method_notes,
             )
 
-            # Move processed file to processed directory if configured
+            # Archive or delete original file after successful optimization
             if self._processed_dir is not None:
                 try:
                     dest_path = self._processed_dir / input_path.name
@@ -384,6 +384,15 @@ class PLTFileHandler(FileSystemEventHandler):
                     )
                 except OSError as e:
                     self._text_logger.warning(f"[{job_id}] Failed to move processed file: {e}")
+            else:
+                # Delete original file from watch directory by default
+                try:
+                    input_path.unlink()
+                    self._text_logger.debug(
+                        f"[{job_id}] Deleted original file {input_path.name}"
+                    )
+                except OSError as e:
+                    self._text_logger.warning(f"[{job_id}] Failed to delete processed file: {e}")
 
             return True
 
