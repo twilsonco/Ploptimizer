@@ -184,6 +184,21 @@ Download and install Python 3.8.x from python.org:
 - Ensure "Add Python to PATH" is checked
 - Windows 7 SP1 must have [KB2533623 update](https://support.microsoft.com/en-us/topic/update-to-the-api-ms-win-core-path-helpers Tlpb) installed
 
+### Step 2b: Install Visual C++ Redistributable
+
+Many Python packages (including watchdog) require the Visual C++ Redistributable.
+If you see errors like "the program can't start because VCRUNTIME140.dll is missing":
+
+Download and install from:
+- https://microsoft.com/en-us/download/details.aspx?id=48145
+
+Or from Command Prompt (run as Administrator):
+```batch
+:: For 64-bit Windows 7
+powershell -Command "Invoke-WebRequest -Uri 'https://download.microsoft.com/download/9/3/F/93FBF6C0-B1B2-4EBA-A501-48D11A246762/vc_redist.x64.exe' -OutFile '%TEMP%\vc_redist.x64.exe'"
+%TEMP%\vc_redist.x64.exe /quiet /norestart
+```
+
 ### Step 3: Install PLT-Optimizer
 
 ```batch
