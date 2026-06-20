@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from plt_optimizer.core.models import (
     ArcSegment,
@@ -297,3 +297,115 @@ class PLTWriter:
             errors.append(f"Re-parsing failed: {e}")
 
         return (len(errors) == 0, errors)
+
+    def validate_against_original(
+        self,
+        original_file_path: Path,
+        output_content: str,
+    ) -> Tuple[bool, List[str]]:
+        """Validate generated HPGL content against the original file.
+
+        This performs detailed comparison of HPGL command counts and sequences
+        to detect issues like lost PU commands during consecutive rapid moves.
+
+        Args:
+            original_file_path: Path to the original PLT file.
+            output_content: The generated HPGL string.
+
+        Returns:
+            Tuple of (is_valid, list_of_error_messages).
+        """
+        import re
+
+        errors: List[str] = []
+        warnings: List[str] = []
+
+        # Command pattern for tokenization
+        COMMAND_PATTERN = re.compile(r'([A-Z][A-Z0-9,.\-:]*?;)')
+
+        try:
+            original_content = original_file_path.read_text(encoding="utf-8")
+        except OSError as e:
+            return False, [f"Failed to read original file: {e}"]
+
+        # Tokenize both
+        orig_tokens = COMMAND_PATTERN.findall(original_content)
+        opt_tokens = COMMAND_PATTERN.findall(output_content)
+
+        # Count PU and PD commands
+        orig_pu_count = sum(1 for t in orig_tokens if t.startswith("PU"))
+        opt_pu_count = sum(1 for t in opt_tokens if t.startswith("PU"))
+        orig_pd_count = sum(1 for t in orig_tokens if t.startswith("PD"))
+        opt_pd_count = sum(1 for t in opt_tokens if t.startswith("PD"))
+
+        # Check PU count discrepancy
+        pu_diff = orig_pu_count - opt_pu_count
+        if pu_diff > 0:
+            warnings.append(
+                f"PU command count reduced: {orig_pu_count} in original, "
+                f"{opt_pu_count} in output (lost {pu_diff} PUs). This indicates "
+                f"consecutive PU commands may have been collapsed."
+            )
+        elif pu_diff < 0:
+            warnings.append(
+                f"PU command count increased: {orig_pu_count} in original, "
+                f"{opt_pu_count} in output (gained {-pu_diff} PUs)."
+            )
+
+        # Check PD count discrepancy
+        pd_diff = orig_pd_count - opt_pd_count
+        if abs(pd_diff) > 2:
+            warnings.append(
+                f"PD command count changed: {orig_pd_count} in original, "
+                f"{opt_pd_count} in output (diff {pd_diff})."
+            )
+
+        # Find specific missing PU commands
+        orig_pu_set = set(t for t in orig_tokens if t.startswith("PU"))
+        opt_pu_set = set(t for t in opt_tokens if t.startswith("PU"))
+
+        missing_pus = orig_pu_set - opt_pu_set
+        if missing_pus:
+            # Group by coordinate pattern to summarize
+            coord_issues: Dict[str, int] = {}
+            for pu in missing_pus:
+                # Extract coordinates
+                match = re.match(r'PU(-?\d+\.\d+),(-?\d+\.\d+);', pu)
+                if match:
+                    x, y = float(match.group(1)), float(match.group(2))
+                    key = f"({x:.0f},{y:.0f})"
+                    coord_issues[key] = coord_issues.get(key, 0) + 1
+
+            error_msg = (
+                f"Lost {len(missing_pus)} specific PU command(s). "
+                f"This indicates the parser is not preserving consecutive "
+                f"PU sequences. Affected coordinate regions: {coord_issues}"
+            )
+            errors.append(error_msg)
+
+        # Detect consecutive PU sequences in original that might be problematic
+        consecutive_pu_count = 0
+        in_consecutive_pu = False
+        for i, token in enumerate(orig_tokens):
+            if token.startswith("PU"):
+                if not in_consecutive_pu:
+                    in_consecutive_pu = True
+            else:
+                if in_consecutive_pu:
+                    # We just ended a sequence of PUs followed by non-PU
+                    pass  # Already tracked via PU count diff
+                in_consecutive_pu = False
+
+        # Final verdict
+        is_valid = len(errors) == 0
+
+        all_messages = []
+        if warnings and not errors:
+            all_messages.extend(warnings)
+            all_messages.append(
+                "WARNING: Output may have issues. Consider reviewing plots "
+                "carefully before using with engraver."
+            )
+        all_messages.extend(errors)
+
+        return is_valid, all_messages
