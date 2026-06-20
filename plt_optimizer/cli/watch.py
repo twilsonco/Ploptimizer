@@ -40,8 +40,7 @@ try:
     from watchdog.observers import Observer
 except ImportError as e:
     raise ImportError(
-        "watchdog library is required for watch functionality. "
-        "Install it with: uv add watchdog"
+        "watchdog library is required for watch functionality. Install it with: uv add watchdog"
     ) from e
 
 # Local imports
@@ -57,7 +56,6 @@ from plt_optimizer.core.parser import PLTParser
 from plt_optimizer.core.profiler import Profiler
 from plt_optimizer.core.reassembler import MetricsCalculator, Reassembler
 from plt_optimizer.core.writer import PLTWriter
-from plt_optimizer.diagnostics.plotter import plot_plt_document, save_figure
 from plt_optimizer.utils.logging import CSVMetricsLogger, TextLogger
 from plt_optimizer.utils.geometry import remove_redundant_strokes
 
@@ -202,6 +200,8 @@ class PLTFileHandler(FileSystemEventHandler):
             return
 
         try:
+            from plt_optimizer.diagnostics.plotter import plot_plt_document, save_figure
+
             debug_dir = self._log_dir / "debug"
             debug_dir.mkdir(parents=True, exist_ok=True)
 
@@ -383,15 +383,13 @@ class PLTFileHandler(FileSystemEventHandler):
                         f"[{job_id}] Moved {input_path.name} to {self._processed_dir}"
                     )
                 except OSError as e:
-                    self._text_logger.warning(
-                        f"[{job_id}] Failed to move processed file: {e}"
-                    )
+                    self._text_logger.warning(f"[{job_id}] Failed to move processed file: {e}")
 
             return True
 
         except Exception as e:
             self._text_logger.error(f"[{job_id}] Failed: {e}")
-            failed_method = method_name if 'method_name' in dir() else ""
+            failed_method = method_name if "method_name" in dir() else ""
             self._metrics_logger.log_job(
                 job_id=job_id,
                 original_file=input_path,
@@ -459,9 +457,7 @@ class WatchCommand:
             args: Command-line arguments (defaults to sys.argv).
         """
         # Check if --log-dir was explicitly provided before parsing
-        self._log_dir_explicitly_set = (
-            args is not None and "--log-dir" in args
-        ) or (
+        self._log_dir_explicitly_set = (args is not None and "--log-dir" in args) or (
             args is None and "--log-dir" in sys.argv[1:]
         )
         self._args = self._parse_args(args)
@@ -574,9 +570,7 @@ Examples:
         # Check each parent directory
         for parent in path.parents:
             if parent == pathlib.Path("/"):
-                raise ValueError(
-                    f"Cannot create path '{path}': root directory '/' is not writable"
-                )
+                raise ValueError(f"Cannot create path '{path}': root directory '/' is not writable")
             if parent.exists():
                 # Parent exists, check if we can write to it
                 try:
@@ -674,9 +668,7 @@ Examples:
             try:
                 self._args.log_dir.mkdir(parents=True, exist_ok=True)
             except OSError as e:
-                self._text_logger.error(
-                    f"Cannot create log directory {self._args.log_dir}: {e}"
-                )
+                self._text_logger.error(f"Cannot create log directory {self._args.log_dir}: {e}")
                 return False
 
         # Check/create processed directory if specified
@@ -701,9 +693,7 @@ Examples:
         assert self._text_logger is not None, "Text logger should be initialized"
         assert self._metrics_logger is not None, "Metrics logger should be initialized"
 
-        self._text_logger.info(
-            f"Scanning for existing PLT files in {self._args.watch_dir}"
-        )
+        self._text_logger.info(f"Scanning for existing PLT files in {self._args.watch_dir}")
 
         count = 0
         handler = PLTFileHandler(
@@ -713,9 +703,7 @@ Examples:
             metrics_logger=self._metrics_logger,
             fast_mode=self._args.fast_mode,
             processed_dir=self._args.processed_dir,
-            debug_save_files=(
-                self._args.debug_save_files and self._log_dir_explicitly_set
-            ),
+            debug_save_files=(self._args.debug_save_files and self._log_dir_explicitly_set),
             log_dir=self._args.log_dir if self._args.debug_save_files else None,
         )
 
@@ -779,7 +767,7 @@ Examples:
         if processed_count > 0:
             self._text_logger.info(f"Processed {processed_count} existing file(s)")
 
-       # Start watching for new files
+        # Start watching for new files
         event_handler = PLTFileHandler(
             watch_dir=self._args.watch_dir,
             output_dir=self._args.output_dir,
@@ -787,9 +775,7 @@ Examples:
             metrics_logger=self._metrics_logger,
             fast_mode=self._args.fast_mode,
             processed_dir=self._args.processed_dir,
-            debug_save_files=(
-                self._args.debug_save_files and self._log_dir_explicitly_set
-            ),
+            debug_save_files=(self._args.debug_save_files and self._log_dir_explicitly_set),
             log_dir=self._args.log_dir if self._args.debug_save_files else None,
         )
 

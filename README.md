@@ -75,8 +75,27 @@ PLT-Optimizer/
 
 ### Prerequisites
 
-- Python 3.11 or higher
+- Python 3.8 through 3.13 (see [Windows 7 Notes](#windows-7-notes) if using Win7)
 - [uv](https://github.com/astral-sh/uv) package manager
+
+### Installing uv
+
+**macOS/Linux:**
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Or via pip:
+```bash
+pip install uv
+```
+
+**Windows 10+/11:**
+```powershell
+powershell -Command "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+**Windows 7:** See [Windows 7 Notes](#windows-7-notes) below — requires manual installation of uv < 0.1.40.
 
 ### Setup (All Platforms)
 
@@ -85,19 +104,24 @@ PLT-Optimizer/
    cd /path/to/PLT-Optimizer
    ```
 
-2. Install dependencies with uv:
+2. Create a virtual environment and install dependencies:
    ```bash
    uv sync
    ```
 
-3. (Optional) Install development dependencies for testing:
+3. (Optional) Enable plotting/diagnostics (requires Python 3.9+):
+   ```bash
+   uv sync --extra plotting
+   ```
+
+4. (Optional) Install development dependencies for testing:
    ```bash
    uv sync --extra dev
    ```
 
 ### Windows-Specific Setup
 
-#### Option 1: Standalone Installation
+#### Standalone Installation (Windows 10+/11)
 
 If you want to run `plt-optimizer` from any directory without using `uv run`:
 
@@ -113,7 +137,7 @@ uv sync --system
 
 After this, you can run `plt-optimizer` directly from any command prompt or PowerShell window.
 
-#### Option 2: Portable Installation (USB/Network Drive)
+#### Portable Installation (Windows 10+/11)
 
 For portable deployments on Windows (e.g., running from a USB drive or network share):
 
@@ -125,7 +149,54 @@ uv sync --python C:\Python311 --path ./plt-optimizer-portable
 .\plt-optimizer-portable\Scripts\plt-optimizer.exe watch --watch-dir D:\PlotterFiles\Input --output-dir D:\PlotterFiles\Output
 ```
 
-#### Verifying Installation
+---
+
+## Windows 7 Notes
+
+**Important:** Python 3.8 and uv < 0.1.40 are required for Windows 7 compatibility.
+
+Windows 7 cannot use:
+- Python 3.9+ (unsupported by Microsoft)
+- uv >= 0.1.40 (requires `bcryptprimitives.dll` from Windows 10+)
+- matplotlib plotting (requires Python 3.9+)
+
+### Step 1: Install uv 0.1.39 manually
+
+Download uv 0.1.39 from GitHub releases:
+
+1. Go to https://github.com/astral-sh/uv/releases/tag/0.1.39
+2. Download `uv-x86_64-pc-windows-msvc.zip` (64-bit) or `uv-i686-pc-windows-msvc.zip` (32-bit)
+3. Extract the zip file
+4. Move `uv.exe` to a directory in your PATH (e.g., `C:\Windows\System32\`)
+
+Or from Command Prompt:
+```batch
+:: For 64-bit Windows 7
+powershell -Command "Invoke-WebRequest -Uri 'https://github.com/astral-sh/uv/releases/download/0.1.39/uv-x86_64-pc-windows-msvc.zip' -OutFile '%USERPROFILE%\Downloads\uv.zip'"
+powershell -Command "Expand-Archive -Path '%USERPROFILE%\Downloads\uv.zip' -DestinationPath '%USERPROFILE%\Downloads\uv'"
+copy %USERPROFILE%\Downloads\uv\uv-x86_64-pc-windows-msvc\uv.exe C:\Windows\System32\
+```
+
+### Step 2: Install Python 3.8
+
+Download and install Python 3.8.x from python.org:
+- https://www.python.org/downloads/release/python-3816/
+- Ensure "Add Python to PATH" is checked
+- Windows 7 SP1 must have [KB2533623 update](https://support.microsoft.com/en-us/topic/update-to-the-api-ms-win-core-path-helpers Tlpb) installed
+
+### Step 3: Install PLT-Optimizer
+
+```batch
+cd C:\path\to\plt-optimizer
+uv venv --python 3.8
+uv pip install -e .
+```
+
+Note: Plotting/diagnostic features (matplotlib) are not available on Windows 7.
+
+---
+
+### Verifying Installation
 
 ```powershell
 # Check that plt-optimizer is accessible

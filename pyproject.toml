@@ -3,7 +3,7 @@ name = "plt-optimizer"
 version = "0.1.0"
 description = "Deterministic cross-platform Python tool for optimizing geometric toolpaths from HPGL/PLT plotter files."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.8,<3.14"
 license = { text = "MIT" }
 authors = [
     { name = "PLT-Optimizer Team", email = "team@pltoptimizer.dev" }
@@ -13,20 +13,24 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows :: Windows 7",
+    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
 
 dependencies = [
-    "matplotlib>=3.8.0",
-    "numpy>=1.26.0",
-    "watchdog>=4.0.0",
+    "watchdog>=2.6,<5.0",
 ]
 
 [project.scripts]
 plt-optimizer = "plt_optimizer.cli.watch:main"
 
 [project.optional-dependencies]
+plotting = [
+    'matplotlib>=3.9.0; python_version >= "3.9"',
+    'numpy>=1.24.0; python_version >= "3.9"',
+]
 dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
