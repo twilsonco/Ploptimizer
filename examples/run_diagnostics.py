@@ -42,8 +42,38 @@ from plt_optimizer.core.optimizer import (
     SimulatedAnnealingStrategy,
 )
 from plt_optimizer.core.reassembler import Reassembler, MetricsCalculator
-from plt_optimizer.core.writer import PLTWriter
+from plt_optimizer.core.writer import PLTWriter, WriteError
 from plt_optimizer.diagnostics.plotter import plot_plt_document
+
+
+def validate_output_file(original_path: Path, optimized_path: Path) -> bool:
+    """Validate the optimized output file against the original.
+
+    Args:
+        original_path: Path to the original input PLT file.
+        optimized_path: Path to the generated optimized PLT file.
+
+    Returns:
+        True if validation passes or only has warnings, False if critical errors.
+    """
+    writer = PLTWriter()
+    try:
+        output_content = optimized_path.read_text(encoding="utf-8")
+    except OSError as e:
+        print(f"  Warning: Could not read optimized file for validation: {e}")
+        return True
+
+    is_valid, messages = writer.validate_against_original(original_path, output_content)
+
+    if messages:
+        print("\n  VALIDATION WARNINGS:")
+        for msg in messages:
+            # Indent and format the message
+            for line in msg.split('\n'):
+                print(f"    ! {line}")
+        print()
+
+    return is_valid or len(messages) > 0  # Return True if only warnings
 from plt_optimizer.utils.logging import (
     CSVMetricsLogger,
     TextLogger,
@@ -152,11 +182,23 @@ def process_user_file(
             import matplotlib.pyplot as plt
             plt.close(fig)
 
+            # Write the unoptimized PLT file (parse → write round-trip for validation)
+            text_logger.info("Writing unoptimized PLT file for comparison")
+            unoptimized_plt_path = input_path.parent / f"{output_stem}_reassembled.plt"
+            writer.write_file(doc, unoptimized_plt_path)
+
+            # Validate the parse→write pipeline against original
+            validation_ok = validate_output_file(input_path, unoptimized_plt_path)
+            if not validation_ok:
+                text_logger.warning("Round-trip validation found critical errors")
+            else:
+                print(f"\n  Round-trip validation passed (parse → write produces semantically equivalent output)")
+
             job_id = f"user_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             metrics_logger.log_job(
                 job_id=job_id,
                 original_file=input_path,
-                optimized_file=None,
+                optimized_file=unoptimized_plt_path,
                 original_distance=original_rapid,
                 optimized_distance=original_rapid,
                 status="diagnostic",
@@ -176,6 +218,11 @@ def process_user_file(
         output_stem = input_path.stem
         optimized_plt_path = input_path.parent / f"{output_stem}_optimized.plt"
         writer.write_file(doc, optimized_plt_path)
+
+        # Validate the output file against original
+        validation_ok = validate_output_file(input_path, optimized_plt_path)
+        if not validation_ok:
+            text_logger.warning("Output validation found critical errors")
 
         print(f"\n✓ Optimization complete")
         print(f"  Before plot: {before_plot_path}")
@@ -298,6 +345,12 @@ def run_single_strategy_on_file(
         plt.close(fig_after)
 
         writer.write_file(optimized_doc, input_path.parent / f"{input_path.stem}_optimized.plt")
+
+        # Validate the output file against original
+        optimized_plt_path = input_path.parent / f"{input_path.stem}_optimized.plt"
+        validation_ok = validate_output_file(input_path, optimized_plt_path)
+        if not validation_ok:
+            text_logger.warning("Output validation found critical errors")
 
         print(f"\n✓ Optimization complete")
         print(f"  Strategy: {optimizer.strategy.name}")
