@@ -340,17 +340,32 @@ def remove_redundant_strokes(
                     indices_to_remove.add((path_idx_j, seg_idx_j))
 
     new_stroke_paths: List[StrokePath] = []
+
     for path_idx, path in enumerate(doc.stroke_paths):
-        new_segments = tuple(
-            seg
-            for seg_idx, seg in enumerate(path.segments)
-            if (path_idx, seg_idx) not in indices_to_remove
-        )
-        if new_segments:
+        current_segments: List[Segment] = []
+        current_pen_up = path.pen_up_position
+
+        for seg_idx, seg in enumerate(path.segments):
+            if (path_idx, seg_idx) in indices_to_remove:
+                if current_segments:
+                    new_stroke_paths.append(
+                        StrokePath(
+                            pen_up_position=current_pen_up,
+                            segments=tuple(current_segments),
+                        )
+                    )
+                    current_segments = []
+                current_pen_up = None
+            else:
+                if not current_segments and current_pen_up is None:
+                    current_pen_up = seg.start
+                current_segments.append(seg)
+
+        if current_segments:
             new_stroke_paths.append(
                 StrokePath(
-                    pen_up_position=path.pen_up_position,
-                    segments=new_segments,
+                    pen_up_position=current_pen_up,
+                    segments=tuple(current_segments),
                 )
             )
 

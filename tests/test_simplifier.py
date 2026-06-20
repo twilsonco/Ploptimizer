@@ -388,3 +388,107 @@ class TestRemoveRedundantStrokes:
         assert result.header_commands[0].instruction == "IN"
         assert len(result.footer_commands) == 1
         assert result.footer_commands[0].instruction == "SP"
+
+    def test_middle_segment_removal_creates_fracture(self) -> None:
+        """Test removing middle backtrack creates separate paths."""
+        from plt_optimizer.utils.geometry import remove_redundant_strokes
+
+        seg1 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=10.0, y=0.0),
+            is_cutting=True,
+        )
+        seg2 = StrokeSegment(
+            start=Coordinate(x=10.0, y=0.0),
+            end=Coordinate(x=0.0, y=0.0),
+            is_cutting=True,
+        )
+        seg3 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=0.0, y=5.0),
+            is_cutting=True,
+        )
+
+        doc = PLTDocument(
+            header_commands=[HeaderCommand(instruction="IN")],
+            stroke_paths=[
+                StrokePath(pen_up_position=Coordinate(x=0.0, y=0.0), segments=(seg1, seg2, seg3)),
+            ],
+            footer_commands=[FooterCommand(instruction="SP")],
+        )
+
+        result = remove_redundant_strokes(doc)
+
+        assert len(result.stroke_paths) == 2
+        assert len(result.stroke_paths[0].segments) == 1
+        assert result.stroke_paths[1].pen_up_position == Coordinate(x=0.0, y=0.0)
+        assert len(result.stroke_paths[1].segments) == 1
+
+    def test_pen_up_position_propagation_after_fracture(self) -> None:
+        """Test pen-up position equals first segment start after fracture."""
+        from plt_optimizer.utils.geometry import remove_redundant_strokes
+
+        seg1 = StrokeSegment(
+            start=Coordinate(x=100.0, y=200.0),
+            end=Coordinate(x=300.0, y=200.0),
+            is_cutting=True,
+        )
+        seg2 = StrokeSegment(
+            start=Coordinate(x=300.0, y=200.0),
+            end=Coordinate(x=100.0, y=200.0),
+            is_cutting=True,
+        )
+        seg3 = StrokeSegment(
+            start=Coordinate(x=100.0, y=200.0),
+            end=Coordinate(x=100.0, y=400.0),
+            is_cutting=True,
+        )
+
+        doc = PLTDocument(
+            header_commands=[HeaderCommand(instruction="IN")],
+            stroke_paths=[
+                StrokePath(pen_up_position=Coordinate(x=50.0, y=100.0), segments=(seg1, seg2, seg3)),
+            ],
+            footer_commands=[FooterCommand(instruction="SP")],
+        )
+
+        result = remove_redundant_strokes(doc)
+
+        assert len(result.stroke_paths) == 2
+        assert result.stroke_paths[0].pen_up_position == Coordinate(x=50.0, y=100.0)
+        assert result.stroke_paths[1].pen_up_position == Coordinate(x=100.0, y=200.0)
+
+    def test_multiple_removals_in_one_path(self) -> None:
+        """Test removing multiple interior segments creates corresponding fractures."""
+        from plt_optimizer.utils.geometry import remove_redundant_strokes
+
+        seg1 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=10.0, y=0.0),
+            is_cutting=True,
+        )
+        seg2 = StrokeSegment(
+            start=Coordinate(x=10.0, y=0.0),
+            end=Coordinate(x=5.0, y=0.0),
+            is_cutting=True,
+        )
+        seg3 = StrokeSegment(
+            start=Coordinate(x=5.0, y=0.0),
+            end=Coordinate(x=20.0, y=0.0),
+            is_cutting=True,
+        )
+
+        doc = PLTDocument(
+            header_commands=[HeaderCommand(instruction="IN")],
+            stroke_paths=[
+                StrokePath(pen_up_position=Coordinate(x=0.0, y=0.0), segments=(seg1, seg2, seg3)),
+            ],
+            footer_commands=[FooterCommand(instruction="SP")],
+        )
+
+        result = remove_redundant_strokes(doc)
+
+        assert len(result.stroke_paths) == 2
+        assert all(len(p.segments) == 1 for p in result.stroke_paths)
+        assert result.stroke_paths[0].pen_up_position == Coordinate(x=0.0, y=0.0)
+        assert result.stroke_paths[1].pen_up_position == Coordinate(x=5.0, y=0.0)
