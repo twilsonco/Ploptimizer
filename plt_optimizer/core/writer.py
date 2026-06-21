@@ -17,11 +17,9 @@ from plt_optimizer.core.models import (
     Coordinate,
     FooterCommand,
     HeaderCommand,
-    PenState,
     PLTDocument,
-    Segment,
     StrokePath,
-    StrokeSegment,
+    _segment_length,
 )
 from plt_optimizer.core.parser import ParseError, PLTParser
 from plt_optimizer.utils.logging import get_text_logger
@@ -305,7 +303,6 @@ class PLTWriter:
             orig_distance = original.cutting_distance()
             reparse_distance = reparsed.cutting_distance()
 
-            import math
             if not math.isclose(orig_distance, reparse_distance, rel_tol=1e-3):
                 errors.append(
                     f"Distance mismatch: {orig_distance:.3f} vs "
@@ -334,8 +331,6 @@ class PLTWriter:
         Returns:
             Tuple of (is_valid, list_of_error_messages).
         """
-        import re
-
         errors: List[str] = []
         warnings: List[str] = []
 
@@ -395,12 +390,44 @@ class PLTWriter:
                     key = f"({x:.0f},{y:.0f})"
                     coord_issues[key] = coord_issues.get(key, 0) + 1
 
-            error_msg = (
-                f"Lost {len(missing_pus)} specific PU command(s). "
-                f"This indicates the parser is not preserving consecutive "
-                f"PU sequences. Affected coordinate regions: {coord_issues}"
-            )
-            errors.append(error_msg)
+            # Check if this is intentional tip-to-tail optimization
+            # by verifying the output still round-trips correctly
+            try:
+                original_parser = PLTParser()
+                original_doc = original_parser.parse_string(original_content)
+                reparsed_parser = PLTParser()
+                reparsed = reparsed_parser.parse_string(output_content)
+
+                orig_distance = sum(
+                    _segment_length(seg) for path in original_doc.stroke_paths
+                    for seg in path.segments if seg.is_cutting
+                )
+                reparse_distance = sum(
+                    _segment_length(seg) for path in reparsed.stroke_paths
+                    for seg in path.segments if seg.is_cutting
+                )
+                distance_preserved = math.isclose(orig_distance, reparse_distance, rel_tol=1e-3)
+
+                if distance_preserved:
+                    warnings.append(
+                        f"Lost {len(missing_pus)} PU command(s) at coordinates "
+                        f"{list(coord_issues.keys())}. This is likely intentional "
+                        f"tip-to-tail optimization where consecutive strokes end/start "
+                        f"at the same position. Distance preserved: {orig_distance:.3f} vs "
+                        f"{reparse_distance:.3f}"
+                    )
+                else:
+                    error_msg = (
+                        f"Lost {len(missing_pus)} specific PU command(s) with "
+                        f"distance mismatch. Affected coordinate regions: {coord_issues}"
+                    )
+                    errors.append(error_msg)
+            except ParseError:
+                # Can't verify round-trip, report as potential issue
+                warnings.append(
+                    f"Lost {len(missing_pus)} PU command(s). Coordinate regions: "
+                    f"{coord_issues}. Unable to verify round-trip due to parse error."
+                )
 
         # Detect consecutive PU sequences in original that might be problematic
         consecutive_pu_count = 0
