@@ -7,6 +7,7 @@ mathematical precision (up to 3 decimal places) is preserved.
 
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -131,9 +132,11 @@ class PLTWriter:
             if formatted:
                 parts.append(formatted)
 
+        current_pos: Optional[Coordinate] = None  # Track spindle position across paths
+
         # Write stroke paths (PU/PD sequences)
         for path in document.stroke_paths:
-            path_str = self._format_stroke_path(path)
+            path_str, current_pos = self._format_stroke_path(path, current_pos)
             if path_str:
                 parts.append(path_str)
 
@@ -176,36 +179,52 @@ class PLTWriter:
         """
         return f"{footer.instruction};"
 
-    def _format_stroke_path(self, path: StrokePath) -> str:
-        """Format a stroke path as PU/PD commands.
+    def _format_stroke_path(
+        self,
+        path: StrokePath,
+        current_pos: Optional[Coordinate] = None,
+    ) -> Tuple[str, Optional[Coordinate]]:
+        """Format a stroke path as PU/PD commands with state tracking.
 
         Args:
             path: The stroke path to format.
+            current_pos: Current spindle position from previous paths.
 
         Returns:
-            Formatted command string with coordinates.
+            Tuple of (formatted command string, updated spindle position).
         """
         if path.is_empty:
-            return ""
+            return "", current_pos
 
         parts: List[str] = []
 
-        if path.pen_up_position is not None:
-            pos = path.pen_up_position
-            parts.append(f"PU{self._format_coord(pos)};")
-        elif path.segments and path.segments[0].is_cutting:
-            first_seg = path.segments[0]
-            parts.append(f"PU{self._format_coord(first_seg.start)};")
+        # Determine the target starting position for this path
+        start_pos = (
+            path.pen_up_position
+            if path.pen_up_position is not None
+            else path.segments[0].start
+        )
 
+        # Only issue a PU if we are NOT already at the exact start coordinate
+        if current_pos is None or not (
+            math.isclose(current_pos.x, start_pos.x, abs_tol=1e-3)
+            and math.isclose(current_pos.y, start_pos.y, abs_tol=1e-3)
+        ):
+            parts.append(f"PU{self._format_coord(start_pos)};")
+            current_pos = start_pos
+
+        # Write the segments
         for segment in path.segments:
             if isinstance(segment, ArcSegment):
                 arc_str = self._format_arc_segment(segment)
                 parts.append(arc_str)
+                current_pos = segment.end
             else:
                 cmd = "PD" if segment.is_cutting else "PU"
                 parts.append(f"{cmd}{self._format_coord(segment.end)};")
+                current_pos = segment.end
 
-        return "".join(parts)
+        return "".join(parts), current_pos
 
     def _format_arc_segment(self, arc: ArcSegment) -> str:
         """Format an arc segment as PD;AA or PU;AA command.
