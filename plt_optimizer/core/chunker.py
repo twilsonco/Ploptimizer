@@ -126,12 +126,17 @@ class Chunker:
         self,
         stroke_paths: Sequence[StrokePath],
         baseline_extent: float,
+        is_structural: bool = False,
     ) -> list[MacroBlock]:
         """Group stroke paths into MacroBlocks based on jump distances.
 
         Args:
             stroke_paths: Chronologically ordered sequence of stroke paths.
             baseline_extent: The baseline extent from Profiler (95th percentile).
+            is_structural: If True, bypass chronological chunking and create a 1:1
+                mapping where every path becomes its own MacroBlock. This is used
+                for structural files (drill holes, score lines) where each feature
+                should be treated as an independent TSP node.
 
         Returns:
             List of MacroBlock objects in chronological order.
@@ -141,6 +146,27 @@ class Chunker:
         """
         if not stroke_paths:
             raise ChunkerError("Cannot chunk empty sequence of stroke paths")
+
+        # BYPASS: If structural, every path is its own independent block
+        if is_structural:
+            self._logger.info(
+                f"Structural file detected: Bypassing chunker for 1:1 routing "
+                f"({len([p for p in stroke_paths if p.segments])} paths)"
+            )
+            blocks: list[MacroBlock] = []
+
+            valid_paths = [p for p in stroke_paths if p.segments]
+            for i, path in enumerate(valid_paths):
+                first_seg = path.segments[0]
+                last_seg = path.segments[-1]
+
+                blocks.append(MacroBlock(
+                    block_id=i,
+                    paths=(path,),
+                    entrance=self._get_segment_start(first_seg),
+                    exit=self._get_segment_end(last_seg),
+                ))
+            return blocks
 
         jump_threshold = self._config.threshold_multiplier * baseline_extent
 

@@ -299,7 +299,11 @@ def run_single_strategy_on_file(
         profile_result = profiler.profile(doc)
 
         chunker = Chunker(config=ChunkerConfig(threshold_multiplier=2.0))
-        blocks = chunker.chunk(doc.stroke_paths, profile_result.baseline_extent)
+        blocks = chunker.chunk(
+            doc.stroke_paths,
+            profile_result.baseline_extent,
+            is_structural=profile_result.is_structural,
+        )
 
         strategy_class = STRATEGY_REGISTRY[strategy_name]
         if strategy_name in _STRATEGIES_WITH_SAME_ROW_PREFERENCE:
@@ -465,7 +469,11 @@ def run_all_strategies_on_file(
         profile_result = profiler.profile(doc)
 
         chunker = Chunker(config=ChunkerConfig(threshold_multiplier=2.0))
-        blocks = chunker.chunk(doc.stroke_paths, profile_result.baseline_extent)
+        blocks = chunker.chunk(
+            doc.stroke_paths,
+            profile_result.baseline_extent,
+            is_structural=profile_result.is_structural,
+        )
         block_count = len(blocks)
 
         before_plot_path = input_path.parent / f"{input_path.stem}_before.png"
@@ -784,11 +792,17 @@ def demonstrate_optimization_pipeline(
     print(f"    Baseline extent (95th percentile): {profile_result.baseline_extent:.2f}")
     print(f"    Median DX: {profile_result.median_dx:.2f}")
     print(f"    Median DY: {profile_result.median_dy:.2f}")
+    if profile_result.is_structural:
+        print(f"    Structural file detected - using 1:1 block routing")
 
     # Step 3: Chunk - Group strokes into MacroBlocks
     text_logger.info("Step 3/5: Chunking stroke paths into MacroBlocks")
     chunker = Chunker(config=ChunkerConfig(threshold_multiplier=2.0))
-    blocks = chunker.chunk(doc.stroke_paths, profile_result.baseline_extent)
+    blocks = chunker.chunk(
+        doc.stroke_paths,
+        profile_result.baseline_extent,
+        is_structural=profile_result.is_structural,
+    )
 
     print(f"\n  Chunker results:")
     print(f"    MacroBlocks created: {len(blocks)}")
@@ -900,7 +914,11 @@ def demonstrate_all_strategies(
     profile_result = profiler.profile(doc)
 
     chunker = Chunker(config=ChunkerConfig(threshold_multiplier=2.0))
-    blocks = chunker.chunk(doc.stroke_paths, profile_result.baseline_extent)
+    blocks = chunker.chunk(
+        doc.stroke_paths,
+        profile_result.baseline_extent,
+        is_structural=profile_result.is_structural,
+    )
     block_count = len(blocks)
 
     before_plot_path = Path(f"examples/{output_prefix}_before.png")
