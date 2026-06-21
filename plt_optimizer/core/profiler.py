@@ -7,11 +7,17 @@ The 95th percentile is used instead of maximum to avoid outlier sensitivity.
 
 from __future__ import annotations
 
+import math
 import statistics
 from dataclasses import dataclass
 from typing import List, Sequence
 
-from plt_optimizer.core.models import Coordinate, StrokePath, StrokeSegment
+from plt_optimizer.core.models import (
+    ArcSegment,
+    Coordinate,
+    StrokePath,
+    StrokeSegment,
+)
 from plt_optimizer.utils.logging import get_text_logger
 
 
@@ -101,6 +107,34 @@ class Profiler:
                 "No cutting strokes found in document. Cannot calculate baseline extent."
             )
 
+        # Calculate polyline density & structural composition
+        valid_paths = [p for p in document.stroke_paths if p.segments]
+        total_paths = len(valid_paths)
+        total_segments = sum(len(p.segments) for p in valid_paths)
+
+        avg_segments_per_path = total_segments / total_paths if total_paths > 0 else 0
+
+        # Structural composition: Check if paths match structural fingerprints
+        if total_paths > 0:
+            structural_path_count = sum(
+                1 for p in valid_paths if self._is_structural_path(p)
+            )
+            structural_ratio = structural_path_count / total_paths
+
+            # If more than 90% of paths are purely structural features, flag as structural.
+            # This handles files with drill holes (4x arcs + plunge) that have >3 segs/path.
+            is_structural = structural_ratio > 0.9
+        else:
+            structural_path_count = 0
+            structural_ratio = 0.0
+
+        self._logger.debug(
+            f"Polyline density analysis: {total_paths} paths, "
+            f"{total_segments} total segments, "
+            f"avg {avg_segments_per_path:.1f} segments/path, "
+            f"structural={structural_path_count}/{total_paths} ({structural_ratio:.1%})"
+        )
+
         # Calculate statistics
         dx_values = [e.dx for e in extents]
         dy_values = [e.dy for e in extents]
@@ -122,10 +156,14 @@ class Profiler:
             median_dy=median_dy,
             total_strokes=len(extents),
             p95_index=p95_index,
+            is_structural=is_structural,
         )
 
         self._logger.info(
-            f"Profiling complete: baseline_extent={baseline_extent:.3f}, "
+            f"Profiling complete: is_structural={is_structural} "
+            f"(avg {avg_segments_per_path:.1f} segments/path, "
+            f"{structural_ratio:.1%} structural), "
+            f"baseline_extent={baseline_extent:.3f}, "
             f"total_cutting_strokes={result.total_strokes}"
         )
 
@@ -164,6 +202,37 @@ class Profiler:
 
         return extents
 
+    def _is_structural_path(self, path: StrokePath) -> bool:
+        """Determine if a single path is a structural feature (score line or drill hole).
+
+        A structural path matches one of these patterns:
+        1. Single straight StrokeSegment (simple score/cut line)
+        2. EngraveLab drill hole: exactly 4x 90-degree arcs + optional zero-length plunge
+
+        Args:
+            path: The stroke path to classify.
+
+        Returns:
+            True if the path is a structural feature, False otherwise.
+        """
+        if not path.segments:
+            return False
+
+        # Check 1: Is it a single straight score line?
+        if len(path.segments) == 1 and isinstance(path.segments[0], StrokeSegment):
+            return True
+
+        # Check 2: Is it an EngraveLab drill hole (4x 90-deg arcs + optional plunge)?
+        arcs = [s for s in path.segments if isinstance(s, ArcSegment)]
+        lines = [s for s in path.segments if isinstance(s, StrokeSegment)]
+
+        if len(arcs) == 4 and all(abs(a.sweep_angle) == 90.0 for a in arcs):
+            # Verify any straight lines are just zero-length plunge points
+            if all(math.isclose(l.length, 0.0, abs_tol=1e-3) for l in lines):
+                return True
+
+        return False
+
 
 @dataclass(frozen=True)
 class ProfileResult:
@@ -176,12 +245,18 @@ class ProfileResult:
         median_dy: Median height across all strokes.
         total_strokes: Number of cutting stroke segments analyzed.
         p95_index: Index into sorted dimensions that corresponds to 95th percentile.
+        is_structural: True if the file contains structural features (drill holes,
+            score lines, cutouts) instead of text. A file is classified as structural
+            when more than 90%% of its paths match structural fingerprints:
+            - Single straight StrokeSegment (score/cut line)
+            - EngraveLab drill hole: exactly 4x 90-degree arcs + optional plunge
     """
     baseline_extent: float
     median_dx: float
     median_dy: float
     total_strokes: int
     p95_index: int
+    is_structural: bool
 
 
 # Protocol for type-safe access to stroke_paths without importing concrete types
