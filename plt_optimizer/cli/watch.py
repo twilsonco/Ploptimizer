@@ -274,7 +274,11 @@ class PLTFileHandler(FileSystemEventHandler):
             profile_result = profiler.profile(doc)
 
             chunker = Chunker(config=ChunkerConfig(threshold_multiplier=2.0))
-            blocks = chunker.chunk(doc.stroke_paths, profile_result.baseline_extent)
+            blocks = chunker.chunk(
+                doc.stroke_paths,
+                profile_result.baseline_extent,
+                is_structural=profile_result.is_structural,
+            )
 
             if not blocks:
                 self._text_logger.warning(f"[{job_id}] No blocks generated from file")
