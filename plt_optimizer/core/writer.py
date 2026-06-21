@@ -182,7 +182,7 @@ class PLTWriter:
         path: StrokePath,
         current_pos: Optional[Coordinate] = None,
     ) -> Tuple[str, Optional[Coordinate]]:
-        """Format a stroke path as PU/PD commands with state tracking.
+        """Format a stroke path as PU/PD commands with segment-level state tracking.
 
         Args:
             path: The stroke path to format.
@@ -196,23 +196,34 @@ class PLTWriter:
 
         parts: List[str] = []
 
-        # Determine the target starting position for this path
-        start_pos = (
+        # Handle explicit pen_up_position for the initial move into this path
+        first_segment_start = path.segments[0].start
+        pen_up_target = (
             path.pen_up_position
             if path.pen_up_position is not None
-            else path.segments[0].start
+            else first_segment_start
         )
 
-        # Only issue a PU if we are NOT already at the exact start coordinate
+        # Only issue initial PU if we are NOT already at the target coordinate
         if current_pos is None or not (
-            math.isclose(current_pos.x, start_pos.x, abs_tol=1e-3)
-            and math.isclose(current_pos.y, start_pos.y, abs_tol=1e-3)
+            math.isclose(current_pos.x, pen_up_target.x, abs_tol=1e-3) and
+            math.isclose(current_pos.y, pen_up_target.y, abs_tol=1e-3)
         ):
-            parts.append(f"PU{self._format_coord(start_pos)};")
-            current_pos = start_pos
+            parts.append(f"PU{self._format_coord(pen_up_target)};")
+            current_pos = pen_up_target
 
-        # Write the segments
+        # Now process each segment with segment-level state tracking
         for segment in path.segments:
+            # Robust state tracking: If we are not physically at the start of this
+            # specific segment, we MUST lift the tool and move to its start.
+            if not (
+                math.isclose(current_pos.x, segment.start.x, abs_tol=1e-3) and
+                math.isclose(current_pos.y, segment.start.y, abs_tol=1e-3)
+            ):
+                parts.append(f"PU{self._format_coord(segment.start)};")
+                current_pos = segment.start
+
+            # Execute the cut
             if isinstance(segment, ArcSegment):
                 arc_str = self._format_arc_segment(segment)
                 parts.append(arc_str)

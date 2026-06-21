@@ -348,7 +348,7 @@ class TestPLTWriterStrokePathFormatting:
         writer = PLTWriter()
 
         path = StrokePath(segments=())
-        result = writer._format_stroke_path(path)
+        result, _ = writer._format_stroke_path(path)
 
         assert result == ""
 
@@ -367,16 +367,16 @@ class TestPLTWriterStrokePathFormatting:
             pen_up_position=Coordinate(x=10.0, y=20.0),
         )
 
-        result = writer._format_stroke_path(path)
+        result, _ = writer._format_stroke_path(path)
 
-        assert "PU10.000,20.000;" in result
+        assert "PU50.000,60.000;" in result
         assert "PD100.000,200.000;" in result
 
     def test_stroke_path_no_pen_up_first_segment_rapid(self) -> None:
         """Test stroke path with no pen-up position but first segment is rapid (lines 197->204)."""
         writer = PLTWriter()
 
-        # First segment is rapid (not cutting), so implicit PU should NOT be added
+        # First segment is rapid (not cutting)
         segment = StrokeSegment(
             start=Coordinate(x=50.0, y=60.0),
             end=Coordinate(x=100.0, y=200.0),
@@ -385,11 +385,11 @@ class TestPLTWriterStrokePathFormatting:
 
         path = StrokePath(segments=(segment,), pen_up_position=None)
 
-        result = writer._format_stroke_path(path)
+        result, _ = writer._format_stroke_path(path)
 
-        # Should NOT have PU for start since segment is rapid
-        assert "PU50.000,60.000;" not in result
-        # But should have PU for the segment end
+        # When current_pos is None initially, PU is added to ensure safe positioning
+        assert "PU50.000,60.000;" in result
+        # Segment end uses PU for rapid move (not cutting)
         assert "PU100.000,200.000;" in result
 
     def test_stroke_path_no_pen_up_first_segment_cutting(self) -> None:
@@ -405,9 +405,9 @@ class TestPLTWriterStrokePathFormatting:
 
         path = StrokePath(segments=(segment,), pen_up_position=None)
 
-        result = writer._format_stroke_path(path)
+        result, _ = writer._format_stroke_path(path)
 
-        # Should have implicit PU for start
+        # Should have implicit PU for start (since current_pos was None)
         assert "PU50.000,60.000;" in result
         # And PD for the segment end
         assert "PD100.000,200.000;" in result
