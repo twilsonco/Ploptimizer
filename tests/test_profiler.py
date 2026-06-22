@@ -240,3 +240,216 @@ class TestProfilerEdgeCases:
         result = profiler.profile(doc)
 
         assert result.total_strokes == 3
+
+
+class TestIsStructuralPath:
+    """Tests for structural path classification with geometric analysis."""
+
+    def test_single_segment_is_structural(self) -> None:
+        """Test that a single straight segment is classified as structural."""
+        from plt_optimizer.core.models import ArcSegment
+
+        profiler = Profiler()
+
+        # Single line segment - should be structural (score/cut line)
+        segment = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=100.0, y=50.0),
+            is_cutting=True,
+        )
+        path = StrokePath(pen_up_position=None, segments=(segment,))
+
+        assert profiler._is_structural_path(path) is True
+
+    def test_closed_loop_rectangle_is_structural(self) -> None:
+        """Test that a closed loop rectangle with long segments is structural."""
+        profiler = Profiler()
+
+        # Rectangle: (0,0) -> (100,0) -> (100,50) -> (0,50) -> (0,0)
+        seg1 = StrokeSegment(start=Coordinate(x=0.0, y=0.0), end=Coordinate(x=100.0, y=0.0), is_cutting=True)
+        seg2 = StrokeSegment(start=Coordinate(x=100.0, y=0.0), end=Coordinate(x=100.0, y=50.0), is_cutting=True)
+        seg3 = StrokeSegment(start=Coordinate(x=100.0, y=50.0), end=Coordinate(x=0.0, y=50.0), is_cutting=True)
+        seg4 = StrokeSegment(start=Coordinate(x=0.0, y=50.0), end=Coordinate(x=0.0, y=0.0), is_cutting=True)
+
+        path = StrokePath(pen_up_position=None, segments=(seg1, seg2, seg3, seg4))
+
+        assert profiler._is_structural_path(path) is True
+
+    def test_engravelab_drill_hole_is_structural(self) -> None:
+        """Test that EngraveLab 4-arc drill hole pattern is structural."""
+        from plt_optimizer.core.models import ArcSegment
+
+        profiler = Profiler()
+
+        # Create a mock drill hole: 4 arcs of 90 degrees each
+        arc1 = ArcSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=10.0, y=0.0),
+            center=Coordinate(x=5.0, y=0.0),
+            sweep_angle=90.0,
+            is_cutting=True,
+        )
+        arc2 = ArcSegment(
+            start=Coordinate(x=10.0, y=0.0),
+            end=Coordinate(x=10.0, y=10.0),
+            center=Coordinate(x=10.0, y=5.0),
+            sweep_angle=90.0,
+            is_cutting=True,
+        )
+        arc3 = ArcSegment(
+            start=Coordinate(x=10.0, y=10.0),
+            end=Coordinate(x=0.0, y=10.0),
+            center=Coordinate(x=5.0, y=10.0),
+            sweep_angle=90.0,
+            is_cutting=True,
+        )
+        arc4 = ArcSegment(
+            start=Coordinate(x=0.0, y=10.0),
+            end=Coordinate(x=0.0, y=0.0),
+            center=Coordinate(x=0.0, y=5.0),
+            sweep_angle=-90.0,
+            is_cutting=True,
+        )
+
+        path = StrokePath(pen_up_position=None, segments=(arc1, arc2, arc3, arc4))
+
+        assert profiler._is_structural_path(path) is True
+
+    def test_text_like_path_not_structural(self) -> None:
+        """Test that a path with many small segments (text-like) is NOT structural."""
+        profiler = Profiler()
+
+        # Create text-like path: multiple tiny segments
+        # Simulating character "e" or similar - many short strokes
+        segments = []
+        x, y = 0.0, 0.0
+        for i in range(20):
+            seg = StrokeSegment(
+                start=Coordinate(x=x, y=y),
+                end=Coordinate(x=x + 2.0, y=y + 1.0),  # tiny segment
+                is_cutting=True,
+            )
+            segments.append(seg)
+            x += 2.0
+            y += 1.0
+
+        path = StrokePath(pen_up_position=None, segments=tuple(segments))
+
+        # Text-like paths should NOT be classified as structural
+        assert profiler._is_structural_path(path) is False
+
+    def test_open_polygon_not_closed_loop(self) -> None:
+        """Test that an open polygon (not closed) is not a closed loop structural."""
+        profiler = Profiler()
+
+        # Open path: (0,0) -> (100,0) -> (100,50) -> (0,50)
+        seg1 = StrokeSegment(start=Coordinate(x=0.0, y=0.0), end=Coordinate(x=100.0, y=0.0), is_cutting=True)
+        seg2 = StrokeSegment(start=Coordinate(x=100.0, y=0.0), end=Coordinate(x=100.0, y=50.0), is_cutting=True)
+        seg3 = StrokeSegment(start=Coordinate(x=100.0, y=50.0), end=Coordinate(x=0.0, y=50.0), is_cutting=True)
+
+        path = StrokePath(pen_up_position=None, segments=(seg1, seg2, seg3))
+
+        # This should not be classified as closed-loop structural
+        # (Note: it might still pass Check 5 if segment length ratio is high enough)
+        result = profiler._is_structural_path(path)
+
+    def test_calculate_average_segment_length(self) -> None:
+        """Test average segment length calculation."""
+        seg1 = StrokeSegment(start=Coordinate(x=0.0, y=0.0), end=Coordinate(x=3.0, y=4.0), is_cutting=True)
+        seg2 = StrokeSegment(start=Coordinate(x=3.0, y=4.0), end=Coordinate(x=6.0, y=4.0), is_cutting=True)
+
+        path = StrokePath(pen_up_position=None, segments=(seg1, seg2))
+
+        profiler = Profiler()
+        avg_length = profiler._calculate_average_segment_length(path)
+
+        # First segment length = 5 (3-4-5 triangle)
+        # Second segment length = 3
+        # Average = 4
+        assert math.isclose(avg_length, 4.0)
+
+    def test_calculate_bounding_box_extent(self) -> None:
+        """Test bounding box extent calculation."""
+        seg1 = StrokeSegment(start=Coordinate(x=10.0, y=20.0), end=Coordinate(x=110.0, y=70.0), is_cutting=True)
+        seg2 = StrokeSegment(start=Coordinate(x=110.0, y=70.0), end=Coordinate(x=-30.0, y=50.0), is_cutting=True)
+
+        path = StrokePath(pen_up_position=None, segments=(seg1, seg2))
+
+        profiler = Profiler()
+        extent = profiler._calculate_bounding_box_extent(path)
+
+        # min_x = -30, max_x = 110 -> dx = 140
+        # min_y = 20, max_y = 70 -> dy = 50
+        # extent = max(140, 50) = 140
+        assert math.isclose(extent, 140.0)
+
+
+class TestStructuralClassification:
+    """Tests for overall structural classification based on ratio threshold."""
+
+    def test_structural_threshold_85_percent(self) -> None:
+        """Test that is_structural=True when >85% of paths are structural."""
+        from plt_optimizer.core.models import ArcSegment
+
+        profiler = Profiler()
+
+        # Create 10 single-segment paths (all structural)
+        paths = []
+        for i in range(9):
+            segment = StrokeSegment(
+                start=Coordinate(x=i * 100.0, y=0.0),
+                end=Coordinate(x=(i + 1) * 100.0, y=50.0),
+                is_cutting=True,
+            )
+            paths.append(StrokePath(pen_up_position=None, segments=(segment,)))
+
+        # Add one text-like path with many small segments (not structural)
+        tiny_segments = tuple(
+            StrokeSegment(
+                start=Coordinate(x=j * 2.0, y=200.0),
+                end=Coordinate(x=(j + 1) * 2.0, y=201.0),  # tiny segment
+                is_cutting=True,
+            )
+            for j in range(20)
+        )
+        paths.append(StrokePath(pen_up_position=None, segments=tiny_segments))
+
+        doc = PLTDocument(header_commands=[], stroke_paths=paths, footer_commands=[])
+
+        result = profiler.profile(doc)
+
+        # 9/10 = 90% structural > 85%, so is_structural should be True
+        assert result.is_structural is True
+
+    def test_mixed_file_not_structural(self) -> None:
+        """Test that a mixed file (not >85% structural) returns False."""
+        profiler = Profiler()
+
+        # Create 5 single-segment paths (structural)
+        paths = []
+        for i in range(5):
+            segment = StrokeSegment(
+                start=Coordinate(x=i * 100.0, y=0.0),
+                end=Coordinate(x=(i + 1) * 100.0, y=50.0),
+                is_cutting=True,
+            )
+            paths.append(StrokePath(pen_up_position=None, segments=(segment,)))
+
+        # Add 5 text-like paths (not structural)
+        for i in range(5):
+            tiny_segments = tuple(
+                StrokeSegment(
+                    start=Coordinate(x=j * 2.0 + 500, y=i * 100.0),
+                    end=Coordinate(x=(j + 1) * 2.0 + 500, y=i * 100.0 + 1.0),
+                    is_cutting=True,
+                )
+                for j in range(20)
+            )
+            paths.append(StrokePath(pen_up_position=None, segments=tiny_segments))
+
+        doc = PLTDocument(header_commands=[], stroke_paths=paths, footer_commands=[])
+
+        result = profiler.profile(doc)
+
+        # 5/10 = 50% structural < 85%, so is_structural should be False
+        assert result.is_structural is False

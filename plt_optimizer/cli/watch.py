@@ -57,7 +57,7 @@ from plt_optimizer.core.profiler import Profiler
 from plt_optimizer.core.reassembler import MetricsCalculator, Reassembler
 from plt_optimizer.core.writer import PLTWriter
 from plt_optimizer.utils.logging import CSVMetricsLogger, TextLogger
-from plt_optimizer.utils.geometry import remove_redundant_strokes
+from plt_optimizer.utils.geometry import fracture_linear_paths, remove_redundant_strokes
 
 
 # File extensions to watch for
@@ -260,18 +260,36 @@ class PLTFileHandler(FileSystemEventHandler):
             # Parse the file
             doc = self._parser.parse_file(input_path)
 
-            # Simplify - Remove redundant overlapping strokes
-            doc = remove_redundant_strokes(doc)
-            self._text_logger.debug(f"[{job_id}] Simplified document by removing redundant strokes")
+            # Profile to determine document type BEFORE any preprocessing
+            profiler = Profiler()
+            profile_result = profiler.profile(doc)
+            self._text_logger.debug(
+                f"[{job_id}] Document classified as {'structural' if profile_result.is_structural else 'text'}"
+            )
 
             metrics_calc = MetricsCalculator()
 
-            # Calculate original distance
+            # Calculate original distance (before any simplification)
             original_distance = metrics_calc.calculate_original_travel_distance(doc)
 
-            # Profile and chunk
-            profiler = Profiler()
-            profile_result = profiler.profile(doc)
+            # Bifurcate preprocessing pipeline based on document type
+            if profile_result.is_structural:
+                # STRUCTURAL PIPELINE: Fracture linear paths then remove redundancies
+                # 1. fracture_linear_paths breaks rectangles/grids into individual segments
+                doc = fracture_linear_paths(doc)
+                self._text_logger.debug(
+                    f"[{job_id}] Fractured structural document (linear paths -> independent segments)"
+                )
+                # 2. remove_redundant_strokes culls overlapping coincident lines
+                doc = remove_redundant_strokes(doc, tol=1e-3)
+                self._text_logger.debug(
+                    f"[{job_id}] Removed redundant strokes from fractured document"
+                )
+            else:
+                # TEXT PIPELINE: Skip stroke simplification to preserve contiguous paths
+                self._text_logger.debug(
+                    f"[{job_id}] Skipped stroke simplification for text document"
+                )
 
             chunker = Chunker(config=ChunkerConfig(threshold_multiplier=2.0))
             blocks = chunker.chunk(
