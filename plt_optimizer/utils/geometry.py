@@ -374,3 +374,59 @@ def remove_redundant_strokes(
         stroke_paths=new_stroke_paths,
         footer_commands=list(doc.footer_commands),
     )
+
+
+def fracture_linear_paths(
+    doc: PLTDocument,
+) -> PLTDocument:
+    """Break purely linear paths into individual segments for independent routing.
+
+    This function decomposes continuous linear paths (rectangles, polygons, grids)
+    into separate StrokePath objects so the optimizer can route between each
+    segment independently. Arc-containing paths (EngraveLab 4-arc drill holes)
+    are preserved intact to maintain their macro structure.
+
+    Args:
+        doc: The input PLTDocument containing stroke paths to fracture.
+
+    Returns:
+        A new PLTDocument with purely linear multi-segment paths broken apart.
+        Paths containing arcs (e.g., drill holes) are passed through unchanged.
+
+    Example:
+        >>> from plt_optimizer.core.parser import PLTParser
+        >>> parser = PLTParser()
+        >>> doc = parser.parse_string("IN;PU0,0;PD100,0;PD100,50;PD0,50;PD0,0;SP;")
+        >>> fractured = fracture_linear_paths(doc)
+        >>> # Result: 4 separate single-segment paths instead of one 4-segment path
+    """
+    from plt_optimizer.core.models import ArcSegment, PLTDocument, StrokePath
+
+    fractured_paths: List[StrokePath] = []
+
+    for path in doc.stroke_paths:
+        if not path.segments:
+            continue
+
+        # Check if this path contains any arcs (drill holes)
+        has_arcs = any(isinstance(seg, ArcSegment) for seg in path.segments)
+
+        if has_arcs:
+            # Preserve arc-containing paths intact (EngraveLab 4-arc macro)
+            fractured_paths.append(path)
+        else:
+            # Fracture purely linear paths into individual segments
+            for segment in path.segments:
+                # Each segment becomes its own independent StrokePath
+                # pen_up_position is set to segment.start to allow the optimizer
+                # to route directly to the start of each individual cut
+                fractured_paths.append(StrokePath(
+                    pen_up_position=segment.start,
+                    segments=(segment,),
+                ))
+
+    return PLTDocument(
+        header_commands=list(doc.header_commands),
+        stroke_paths=fractured_paths,
+        footer_commands=list(doc.footer_commands),
+    )
