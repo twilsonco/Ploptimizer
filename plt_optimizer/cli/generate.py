@@ -13,6 +13,8 @@ import argparse
 import sys
 from pathlib import Path
 
+from plt_optimizer.generate.schema import parse_yaml
+
 
 def setup_parser(parser: argparse.ArgumentParser) -> None:
     """Configure argument parser for the generate subcommand.
@@ -71,8 +73,19 @@ def run(args: argparse.Namespace) -> int:
     else:
         output_path = spec_path.parent / f"{spec_path.stem}.plt"
 
-    print(f"Generation pipeline stubbed for {spec_path}")
-    print(f"Would generate PLT file to: {output_path}")
+    try:
+        job = parse_yaml(spec_path)
+        unique_labels = len(job.labels)
+        print(
+            f"Loaded {job.job_name}: "
+            f"{len(job.plates)} plates, "
+            f"{unique_labels} unique labels. "
+            f"Output will be written to: {output_path}"
+        )
+        # TODO: Implement actual PLT generation in Phase 3
+    except Exception as e:
+        print(f"Error parsing specification: {e}", file=sys.stderr)
+        return 1
 
     # TODO: Implement actual generation logic in Phase 2+
     return 0
