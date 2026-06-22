@@ -460,3 +460,155 @@ class TestInterpolatePoint:
         result = interpolate_point(p1, p2, 0.6)
         assert math.isclose(result.x, 5.0)
         assert math.isclose(result.y, 60.0)
+
+
+class TestFractureLinearPaths:
+    """Tests for fracture_linear_paths function."""
+
+    def test_fracture_single_segment_path(self) -> None:
+        """Test that single-segment paths remain unchanged."""
+        from plt_optimizer.utils.geometry import fracture_linear_paths
+        from plt_optimizer.core.models import PLTDocument, StrokePath
+
+        seg = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=100.0, y=50.0),
+            is_cutting=True,
+        )
+        path = StrokePath(pen_up_position=None, segments=(seg,))
+        doc = PLTDocument(header_commands=[], stroke_paths=[path], footer_commands=[])
+
+        result = fracture_linear_paths(doc)
+
+        assert len(result.stroke_paths) == 1
+        assert result.stroke_paths[0].segments == (seg,)
+
+    def test_fracture_multi_segment_rectangle(self) -> None:
+        """Test that a rectangle is fractured into 4 separate paths."""
+        from plt_optimizer.utils.geometry import fracture_linear_paths
+        from plt_optimizer.core.models import PLTDocument, StrokePath
+
+        # Rectangle: (0,0) -> (100,0) -> (100,50) -> (0,50) -> (0,0)
+        seg1 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=100.0, y=0.0),
+            is_cutting=True,
+        )
+        seg2 = StrokeSegment(
+            start=Coordinate(x=100.0, y=0.0),
+            end=Coordinate(x=100.0, y=50.0),
+            is_cutting=True,
+        )
+        seg3 = StrokeSegment(
+            start=Coordinate(x=100.0, y=50.0),
+            end=Coordinate(x=0.0, y=50.0),
+            is_cutting=True,
+        )
+        seg4 = StrokeSegment(
+            start=Coordinate(x=0.0, y=50.0),
+            end=Coordinate(x=0.0, y=0.0),
+            is_cutting=True,
+        )
+        path = StrokePath(pen_up_position=None, segments=(seg1, seg2, seg3, seg4))
+        doc = PLTDocument(header_commands=[], stroke_paths=[path], footer_commands=[])
+
+        result = fracture_linear_paths(doc)
+
+        assert len(result.stroke_paths) == 4
+        # Each fractured path should have pen_up_position at its segment's start
+        for fractured_path in result.stroke_paths:
+            assert len(fractured_path.segments) == 1
+
+    def test_fracture_preserves_arc_paths(self) -> None:
+        """Test that paths containing arcs are preserved intact."""
+        from plt_optimizer.utils.geometry import fracture_linear_paths
+        from plt_optimizer.core.models import ArcSegment, PLTDocument, StrokePath
+
+        # Create a path with an arc (simulating drill hole)
+        arc = ArcSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=10.0, y=10.0),
+            center=Coordinate(x=5.0, y=0.0),
+            sweep_angle=90.0,
+            is_cutting=True,
+        )
+        path = StrokePath(pen_up_position=None, segments=(arc,))
+        doc = PLTDocument(header_commands=[], stroke_paths=[path], footer_commands=[])
+
+        result = fracture_linear_paths(doc)
+
+        # Arc path should be preserved intact
+        assert len(result.stroke_paths) == 1
+        assert result.stroke_paths[0].segments == (arc,)
+
+    def test_fracture_empty_document(self) -> None:
+        """Test fracturing an empty document."""
+        from plt_optimizer.utils.geometry import fracture_linear_paths
+        from plt_optimizer.core.models import PLTDocument
+
+        doc = PLTDocument(header_commands=[], stroke_paths=[], footer_commands=[])
+        result = fracture_linear_paths(doc)
+
+        assert len(result.stroke_paths) == 0
+
+    def test_fracture_mixed_paths(self) -> None:
+        """Test fracturing a document with both linear and arc paths."""
+        from plt_optimizer.utils.geometry import fracture_linear_paths
+        from plt_optimizer.core.models import ArcSegment, PLTDocument, StrokePath
+
+        # Linear path (should be fractured)
+        line_seg = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=100.0, y=0.0),
+            is_cutting=True,
+        )
+        linear_path = StrokePath(pen_up_position=None, segments=(line_seg,))
+
+        # Arc path (should be preserved)
+        arc = ArcSegment(
+            start=Coordinate(x=50.0, y=50.0),
+            end=Coordinate(x=60.0, y=60.0),
+            center=Coordinate(x=55.0, y=50.0),
+            sweep_angle=90.0,
+            is_cutting=True,
+        )
+        arc_path = StrokePath(pen_up_position=None, segments=(arc,))
+
+        doc = PLTDocument(
+            header_commands=[],
+            stroke_paths=[linear_path, arc_path],
+            footer_commands=[]
+        )
+
+        result = fracture_linear_paths(doc)
+
+        # 1 fractured linear path + 1 preserved arc path
+        assert len(result.stroke_paths) == 2
+
+    def test_fracture_polygon(self) -> None:
+        """Test that a polygon is fractured into individual segment paths."""
+        from plt_optimizer.utils.geometry import fracture_linear_paths
+        from plt_optimizer.core.models import PLTDocument, StrokePath
+
+        # Triangle: (0,0) -> (50,100) -> (100,0)
+        seg1 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=50.0, y=100.0),
+            is_cutting=True,
+        )
+        seg2 = StrokeSegment(
+            start=Coordinate(x=50.0, y=100.0),
+            end=Coordinate(x=100.0, y=0.0),
+            is_cutting=True,
+        )
+        seg3 = StrokeSegment(
+            start=Coordinate(x=100.0, y=0.0),
+            end=Coordinate(x=0.0, y=0.0),  # closing the triangle
+            is_cutting=True,
+        )
+        path = StrokePath(pen_up_position=None, segments=(seg1, seg2, seg3))
+        doc = PLTDocument(header_commands=[], stroke_paths=[path], footer_commands=[])
+
+        result = fracture_linear_paths(doc)
+
+        assert len(result.stroke_paths) == 3
