@@ -31,10 +31,12 @@ class TestMainEntryPoint:
         # Should exit with error code (argparse returns 2 for usage errors)
         assert exc_info.value.code == 2
         captured = capsys.readouterr()
+        # argparse writes usage errors to stderr; subcommands appear in the usage line
+        combined = captured.out + captured.err
         # Help should contain the subcommands
-        assert "optimize" in captured.out
-        assert "generate" in captured.out
-        assert "watch" in captured.out
+        assert "optimize" in combined
+        assert "generate" in combined
+        assert "watch" in combined
 
     def test_optimize_subcommand_routes_correctly(self) -> None:
         """Test that 'optimize' command routes to optimize.run()."""
@@ -83,8 +85,10 @@ class TestOptimizeSubcommand:
 
         assert exc_info.value.code != 0
         captured = capsys.readouterr()
+        # argparse writes usage errors to stderr
+        combined = (captured.out + captured.err).lower()
         # Should mention missing argument or show usage
-        assert "error" in captured.out.lower() or "argument" in captured.out.lower()
+        assert "error" in combined or "argument" in combined
 
     def test_optimize_accepts_input_file(self) -> None:
         """Test that optimize accepts a valid input file path."""
@@ -155,8 +159,10 @@ class TestWatchSubcommand:
 
         assert exc_info.value.code != 0
         captured = capsys.readouterr()
+        # argparse writes usage errors to stderr
+        combined = (captured.out + captured.err).lower()
         # Should mention missing required argument
-        assert "error" in captured.out.lower() or "--watch-dir" in captured.out
+        assert "error" in combined or "--watch-dir" in combined
 
     def test_watch_accepts_watch_dir(self) -> None:
         """Test that watch accepts --watch-dir argument."""
@@ -206,7 +212,24 @@ class TestCLIIntegration:
         from plt_optimizer.cli.generate import run
 
         spec_file = tmp_path / "test_spec.yaml"
-        spec_file.write_text("key: value\n")
+        spec_file.write_text(
+            "job:\n"
+            "  job_name: Stub Test\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 12.0\n"
+            "      margin: 0.25\n"
+            "      clearance_padding: 0.125\n"
+            "  labels:\n"
+            "    - id: l1\n"
+            "      count: 1\n"
+            "      width: 2.0\n"
+            "      height: 1.0\n"
+            "      content:\n"
+            "        - text: Hello\n"
+            "          height: 0.5\n"
+        )
 
         class MockArgs:
             spec = spec_file

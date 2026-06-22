@@ -1,0 +1,24 @@
+# Sample YAML job specification for PLT-Optimizer generate pipeline.
+# Demonstrates a single plate with one label definition that includes holes.
+job:
+  job_name: Control Panel Tags - Batch 01
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 12.0
+      margin: 0.25
+      clearance_padding: 0.125
+  labels:
+    - id: pump_warn_01
+      count: 5
+      width: 3.0
+      height: 1.0
+      content:
+        - text: PUMP WARNING
+          height: 0.5
+        - text: DO NOT OPERATE
+      holes:
+        - diameter: 0.125
+          location: left
+        - diameter: 0.125
+          location: right
