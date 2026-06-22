@@ -22,13 +22,17 @@ classifiers = [
 ]
 
 dependencies = [
-    "watchdog>=2.6,<4.0",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "rectpack>=0.2.0",
+    "vpype>=1.0",
+    "watchdog>=2.6,<5.0",
     "pystray>=0.19.5",
     "pillow>=10.0.0,<11.0",
 ]
 
 [project.scripts]
-plt-optimizer = "plt_optimizer.cli.watch:main"
+plt-optimizer = "main:main"
 
 [project.optional-dependencies]
 tray = [
