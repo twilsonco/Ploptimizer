@@ -126,8 +126,9 @@ powershell -Command "irm https://astral.sh/uv/install.ps1 | iex"
    uv sync --extra dev
    ```
 
-5. (Optional) For system tray GUI mode on Windows:
-   ```bash
+5. (Optional) For system tray GUI mode on **Windows only**:
+   ```powershell
+   # On Windows only - this installs winshell and pywin32
    uv sync --extra tray
    ```
 
@@ -292,9 +293,12 @@ The daemon processes existing files on startup, then continues watching for new 
 
 ### System Tray Application (GUI)
 
+**Note:** The system tray application is **Windows-only**. It requires `winshell` and `pywin32` which are Windows-specific packages.
+
 For a graphical interface with system tray icon and notifications:
 
-```bash
+```powershell
+# On Windows only:
 python run_tray.py
 ```
 
@@ -344,32 +348,42 @@ The simplest method is to use the **system tray application** which provides a "
 
 The application will now start automatically when you log in to Windows, with no console window visible.
 
-**Requirements for tray mode:**
-```bash
-uv add pystray pillow winshell pywin32
+**Requirements (Windows only):**
+The system tray application requires Windows. On Windows, install:
+```powershell
+uv sync --extra tray
 ```
+
+This installs: `pystray`, `pillow`, `winshell`, and `pywin32`.
 
 ##### Method 2: Standalone Executable (PyInstaller)
 
+**Note:** This build step must be run on **Windows**. The system tray functionality requires Windows APIs.
+
 For deployments without Python installed:
 
-1. Install PyInstaller:
-   ```bash
-   uv add --dev pyinstaller
+1. On **Windows**, install PyInstaller:
+   ```powershell
+   uv sync --extra dev
    ```
 
 2. Create an icon file at `assets/icon.ico` (64x64 or 128x128)
 
-3. Build the executable:
-   ```bash
-   uv run pyinstaller --noconsole --windowed --name PLT-Optimizer \
-       --icon=assets/icon.ico --add-data "assets/icon.ico;assets" \
+3. On **Windows**, build the executable:
+   ```powershell
+   uv run pyinstaller --noconsole --windowed --name PLT-Optimizer `
+       --icon=assets/icon.ico --add-data "assets/icon.ico;assets" `
        run_tray.py
+   ```
+
+   Or as a single line:
+   ```powershell
+   uv run pyinstaller --noconsole --windowed --name PLT-Optimizer --icon=assets/icon.ico --add-data "assets/icon.ico;assets" run_tray.py
    ```
 
 4. The compiled executable will be in `dist/PLT-Optimizer.exe`
 
-5. Run once, configure settings with "Run at Windows Startup" checked
+5. Run once on Windows, configure settings with "Run at Windows Startup" checked
 
 ##### Verifying the Service
 
