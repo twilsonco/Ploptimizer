@@ -2319,9 +2319,9 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
         - With 30% probability: swap two random blocks in tour
     """
 
-    DEFAULT_INITIAL_TEMPERATURE: float = 5000.0
+    DEFAULT_INITIAL_TEMPERATURE: float = 8000.0
     DEFAULT_COOLING_RATE: float = 0.6
-    DEFAULT_ITERATIONS_PER_TEMP: int = 25
+    DEFAULT_ITERATIONS_PER_TEMP: int = 50
     DEFAULT_MIN_TEMPERATURE: float = 1e-4
 
     def __init__(
@@ -2804,18 +2804,18 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
     - Elitism: preserve top 2 solutions unchanged to next generation
 
     Default parameters:
-        Population size: 10
-        Generations: 20
-        Mutation rate: 0.3
-        Tournament size: 3
-        Elitism count: 2
+        Population size: 20
+        Generations: 30
+        Mutation rate: 0.25
+        Tournament size: 4
+        Elitism count: 3
     """
 
-    DEFAULT_POPULATION_SIZE: int = 10
-    DEFAULT_GENERATIONS: int = 20
-    DEFAULT_MUTATION_RATE: float = 0.3
-    DEFAULT_TOURNAMENT_SIZE: int = 3
-    DEFAULT_ELITISM_COUNT: int = 2
+    DEFAULT_POPULATION_SIZE: int = 20
+    DEFAULT_GENERATIONS: int = 30
+    DEFAULT_MUTATION_RATE: float = 0.25
+    DEFAULT_TOURNAMENT_SIZE: int = 4
+    DEFAULT_ELITISM_COUNT: int = 3
 
     def __init__(
         self,
@@ -3998,6 +3998,7 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
             }
 
             # Collect results dynamically as they complete (fast strategies first)
+            failed_strategies: List[Tuple[str, str]] = []  # Track (name, error_msg) for logging
             for future in as_completed(futures):
                 strategy_name = futures[future]
                 try:
@@ -4040,6 +4041,7 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
                             best_result = benchmark_result
 
                 except Exception as e:
+                    failed_strategies.append((strategy_name, str(e)))
                     self._logger.warning(
                         f"Strategy {strategy_name} failed: {e}"
                     )
@@ -4064,13 +4066,23 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
             ),
         )
 
+        failed_count = len(failed_strategies)
+        if failed_count > 0:
+            failed_names = ", ".join(name for name, _ in failed_strategies)
+            self._logger.warning(
+                f"Parallel ensemble: {failed_count}/{len(strategy_names)} strategies "
+                f"failed: {failed_names}"
+            )
+
+        imp_str = (
+            f", improvement={best_result.improvement_percent:.2f}%"
+            if best_result.improvement_percent is not None
+            else ""
+        )
         self._logger.info(
             f"Parallel ensemble complete: {completed_count}/{len(strategy_names)} "
-            f"strategies completed. Best: {best_result.strategy_name} "
-            f"(distance={best_result.result.total_travel_distance:.3f}, "
-            f"improvement={best_result.improvement_percent:.2f}% if available)"
-            if best_result.improvement_percent is not None else
-            f"(distance={best_result.result.total_travel_distance:.3f})"
+            f"strategies succeeded. Best: {best_result.strategy_name} "
+            f"(distance={best_result.result.total_travel_distance:.3f}{imp_str})"
         )
 
         return ParallelEnsembleOptimizationResult(
