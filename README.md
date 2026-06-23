@@ -47,13 +47,20 @@ PLT-Optimizer/
 │   │   ├── optimizer.py    # Block traversal optimization strategies
 │   │   ├── intra_chunk_optimizer.py  # Within-block path optimization
 │   │   └── reassembler.py  # Document reconstruction from optimized blocks
+│   ├── ui/                 # GUI components (system tray)
+│   │   ├── __init__.py
+│   │   ├── tray.py         # System tray icon and notification handling
+│   │   └── settings.py     # Tkinter-based configuration window
 │   ├── utils/              # Utility modules
 │   │   ├── __init__.py
+│   │   ├── config.py       # JSON configuration file management
 │   │   ├── geometry.py     # Distance calculations and geometry utilities
-│   │   └── logging.py      # Dual logging system (text + CSV metrics)
+│   │   ├── logging.py      # Dual logging system (text + CSV metrics)
+│   │   └── startup.py      # Windows Startup folder shortcut management
 │   └── diagnostics/        # Visualization tools
 │       ├── __init__.py
 │       └── plotter.py      # Matplotlib-based path visualization
+├── run_tray.py             # GUI entry point (system tray application)
 ├── tests/                  # Test suite (pytest)
 │   ├── __init__.py
 │   ├── test_identity.py    # Identity validation tests
@@ -117,6 +124,11 @@ powershell -Command "irm https://astral.sh/uv/install.ps1 | iex"
 4. (Optional) Install development dependencies for testing:
    ```bash
    uv sync --extra dev
+   ```
+
+5. (Optional) For system tray GUI mode on Windows:
+   ```bash
+   uv sync --extra tray
    ```
 
 ### Windows-Specific Setup
@@ -278,6 +290,23 @@ uv run plt-optimizer watch --watch-dir /input/plt \
 
 The daemon processes existing files on startup, then continues watching for new changes. Press Ctrl+C for graceful shutdown.
 
+### System Tray Application (GUI)
+
+For a graphical interface with system tray icon and notifications:
+
+```bash
+python run_tray.py
+```
+
+**Features:**
+- System tray icon with context menu (Open Settings, Exit)
+- Background file watcher running in a separate thread
+- Native Windows notifications on file processing completion
+- Settings window for configuring directories and options
+- "Run at Windows Startup" checkbox for auto-start
+
+The tray application stores configuration in `%LOCALAPPDATA%\PLT-Optimizer\config.json`.
+
 #### Windows-Specific Usage
 
 **Using PowerShell:**
@@ -303,84 +332,55 @@ uv run plt-optimizer watch --watch-dir \\Server\Plotter\Input --output-dir \\Ser
 
 #### Starting the Watch Daemon at Boot (Windows)
 
-##### Method 1: Task Scheduler (Recommended)
+##### Method 1: System Tray Application (Recommended)
 
-1. Open **Task Scheduler** (`taskschd.msc`)
+The simplest method is to use the **system tray application** which provides a "Run at Startup" checkbox in its settings:
 
-2. Click **Create Basic Task** → Name it "PLT-Optimizer Watch"
+1. Run `run_tray.py` or launch the compiled executable (`PLT-Optimizer.exe`)
+2. Right-click the system tray icon → **Open Settings**
+3. Configure your watch directory, output directory, and other options
+4. Check **Run at Windows Startup**
+5. Click Save
 
-3. Set Trigger: **When the computer starts**
+The application will now start automatically when you log in to Windows, with no console window visible.
 
-4. Set Action: **Start a program**
-   - Program: `cmd.exe`
-   - Arguments: `/c cd /d C:\PLT-Optimizer && uv run plt-optimizer watch --watch-dir D:\PlotterFiles\Watch --output-dir D:\PlotterFiles\Optimized --log-dir D:\Logs`
-
-5. Configure:
-   - Check **Run whether user is logged on or not** (requires password)
-   - Check **Run with highest privileges** if writing to protected directories
-   - Set **Stop task if it runs longer than:** 1 day (optional)
-
-6. Click **OK** and enter your Windows password when prompted.
-
-##### Method 2: Windows Service (Advanced)
-
-For a persistent background service that survives user logoff, use NSSM (Non-Sucking Service Manager):
-
-```powershell
-# Install NSSM via Chocolatey
-choco install nssm -y
-
-# Or download from https://nssm.cc/download
-
-# Create the service (run PowerShell as Administrator)
-$nssm = "C:\Program Files\nssm\win64\nssm.exe"
-
-& $nssm install PLT-Optimizer "C:\Users\<YourUser>\.local\bin\uv.exe" "run plt-optimizer watch --watch-dir D:\PlotterFiles\Watch --output-dir D:\PlotterFiles\Optimized --log-dir D:\Logs"
-# Note: Use full path to uv.exe from your user directory
-
-# Configure startup type
-& $nssm set PLT-Optimizer Start SERVICE_AUTO_START
-
-# Start the service
-& $nssm start PLT-Optimizer
-
-# Check status
-& $nssm status PLT-Optimizer
+**Requirements for tray mode:**
+```bash
+uv add pystray pillow winshell pywin32
 ```
 
-##### Method 3: Startup Folder Shortcut
+##### Method 2: Standalone Executable (PyInstaller)
 
-For a simple user-level auto-start:
+For deployments without Python installed:
 
-1. Press `Win + R`, type `shell:startup`, press Enter
+1. Install PyInstaller:
+   ```bash
+   uv add --dev pyinstaller
+   ```
 
-2. Create a shortcut:
-   - Right-click → New → Shortcut
-   - Location: `cmd.exe /k cd /d C:\PLT-Optimizer && uv run plt-optimizer watch --watch-dir D:\PlotterFiles\Watch --output-dir D:\PlotterFiles\Optimized --log-dir D:\Logs`
-   - Name: "PLT-Optimizer Watch"
+2. Create an icon file at `assets/icon.ico` (64x64 or 128x128)
 
-3. The daemon will start when you log in, running in a visible console window.
+3. Build the executable:
+   ```bash
+   uv run pyinstaller --noconsole --windowed --name PLT-Optimizer \
+       --icon=assets/icon.ico --add-data "assets/icon.ico;assets" \
+       run_tray.py
+   ```
+
+4. The compiled executable will be in `dist/PLT-Optimizer.exe`
+
+5. Run once, configure settings with "Run at Windows Startup" checked
 
 ##### Verifying the Service
 
 ```powershell
-# Check logs
-Get-Content D:\Logs\optimizer.log -Tail 20 -Wait
-
-# Or for Task Scheduler tasks:
-Get-ScheduledTask | Where-Object {$_.TaskName -like "*PLT*"}
-Get-ScheduledTaskInfo -TaskName "PLT-Optimizer Watch"
+# Check logs (in user's AppData\Local\PLT-Optimizer\logs\)
+Get-Content "$env:LOCALAPPDATA\PLT-Optimizer\logs\optimizer.log" -Tail 20 -Wait
 ```
 
-##### Stopping the Service
+##### Stopping the Application
 
-```powershell
-# For Task Scheduler (if running)
-Stop-ScheduledTask -TaskName "PLT-Optimizer Watch"
-
-# For NSSM service
-& $nssm stop PLT-Optimizer
-```
+Right-click the system tray icon → **Exit**, or find "PLT-Optimizer" in Task Manager and end the task.
 
 ### Running the Example Script
 
