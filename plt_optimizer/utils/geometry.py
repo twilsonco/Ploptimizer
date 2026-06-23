@@ -9,7 +9,12 @@ from __future__ import annotations
 import math
 from typing import List, Sequence, Tuple
 
-from plt_optimizer.core.models import Coordinate, Segment, StrokePath
+from plt_optimizer.core.models import (
+    ArcSegment,
+    Coordinate,
+    Segment,
+    StrokePath,
+)
 
 
 # Tolerance for floating-point comparisons (3 decimal places = 0.001)
@@ -109,7 +114,8 @@ def calculate_stroke_path_length(stroke: StrokePath) -> float:
     Returns:
         Sum of all segment lengths in the stroke.
     """
-    return sum(seg.length for seg in stroke.segments)
+    from plt_optimizer.core.models import _segment_length
+    return sum(_segment_length(seg) for seg in stroke.segments)
 
 
 def bounding_box(

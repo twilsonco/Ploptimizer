@@ -18,8 +18,10 @@ COORD_TOLERANCE = 1e-3
 from plt_optimizer.core.models import (
     ArcSegment,
     Coordinate,
+    Segment,
     StrokePath,
     StrokeSegment,
+    _segment_length,
 )
 from plt_optimizer.utils.logging import get_text_logger
 
@@ -292,7 +294,7 @@ class Profiler:
         if not path.segments:
             return 0.0
 
-        total_length = sum(seg.length for seg in path.segments)
+        total_length = sum(_segment_length(seg) for seg in path.segments)
         return total_length / len(path.segments)
 
     def _calculate_bounding_box_extent(self, path: StrokePath) -> float:

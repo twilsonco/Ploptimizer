@@ -419,8 +419,19 @@ class PLTFileHandler(FileSystemEventHandler):
             return True
 
         except Exception as e:
+            import traceback
+            tb_str = "".join(traceback.format_exception(type(e), e, e.__traceback__))
             self._text_logger.error(f"[{job_id}] Failed: {e}")
-            failed_method = method_name if "method_name" in dir() else ""
+            self._text_logger.debug(f"[{job_id}] Traceback:\n{tb_str}")
+
+            # Log detailed error info for troubleshooting
+            failed_method = "unknown"
+            if "method_name" in dir():
+                try:
+                    failed_method = method_name
+                except NameError:
+                    pass
+
             self._metrics_logger.log_job(
                 job_id=job_id,
                 original_file=input_path,
@@ -429,8 +440,22 @@ class PLTFileHandler(FileSystemEventHandler):
                 optimized_distance=0.0,
                 status="failed",
                 method=failed_method,
-                notes="",
+                notes=str(e)[:200],  # Truncate long error messages
             )
+
+            # Fallback: copy unprocessed file to output directory when optimization fails
+            try:
+                fallback_output_path = self._output_dir / f"{input_path.stem}_unprocessed.plt"
+                shutil.copy2(str(input_path), str(fallback_output_path))
+                self._text_logger.warning(
+                    f"[{job_id}] Optimization failed - copied unprocessed file to "
+                    f"{fallback_output_path} for manual review"
+                )
+            except OSError as copy_error:
+                self._text_logger.error(
+                    f"[{job_id}] Failed to copy unprocessed file to output directory: {copy_error}"
+                )
+
             return False
 
     def on_created(self, event: FileSystemEvent) -> None:
