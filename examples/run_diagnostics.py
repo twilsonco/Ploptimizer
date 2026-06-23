@@ -827,7 +827,8 @@ def demonstrate_optimization_pipeline(
     optimized_doc = reassembler.reassemble(doc, blocks, optimization_result)
 
     # Calculate percent changes from original to optimized
-    optimized_rapid = metrics_calc.calculate_optimized_travel_distance(optimization_result)
+    # Use optimized_doc.rapid_distance() for accurate total rapid travel including intra-block moves
+    optimized_rapid = optimized_doc.rapid_distance()
     optimized_cutting = optimized_doc.cutting_distance()
 
     rapid_change_pct = ((optimized_rapid - original_rapid) / original_rapid * 100) if original_rapid > 0 else 0.0
@@ -949,7 +950,8 @@ def demonstrate_all_strategies(
         reassembler = Reassembler()
         optimized_doc = reassembler.reassemble(doc, blocks, optimization_result)
 
-        optimized_distance = metrics_calc.calculate_optimized_travel_distance(optimization_result)
+        # Use optimized_doc.rapid_distance() for accurate total rapid travel including intra-block moves
+        optimized_distance = optimized_doc.rapid_distance()
         savings, pct_improvement = metrics_calc.calculate_improvement(original_distance, optimized_distance)
 
         after_plot_path = Path(f"examples/{output_prefix}_after_{strategy_name}.png")
