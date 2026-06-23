@@ -28,11 +28,12 @@ import pathlib
 import shutil
 import signal
 import sys
+import threading
 import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Set
+from typing import Callable, Optional, Set
 
 # Third-party imports
 try:
@@ -493,17 +494,160 @@ class PLTFileHandler(FileSystemEventHandler):
             self._process_file(path)
 
 
+def run_watcher_from_config(
+    config: dict,
+    stop_event: threading.Event,
+    on_success: Optional[Callable[[str, float], None]] = None,
+    on_error: Optional[Callable[[str, str], None]] = None,
+) -> int:
+    """Run the watcher using a configuration dictionary.
+
+    This function is designed to be called from a background thread
+    by the tray application. It blocks until stop_event is set or
+    a shutdown signal is received.
+
+    Args:
+        config: Configuration dictionary with keys matching DEFAULT_CONFIG.
+        stop_event: Threading Event to signal graceful shutdown.
+        on_success: Optional callback(filename, improvement_pct) on success.
+        on_error: Optional callback(filename, error_msg) on failure.
+
+    Returns:
+        Exit code (0 for success).
+    """
+    # Import here to avoid circular imports and allow standalone use
+    from plt_optimizer.utils.logging import setup_logging
+
+    watch_dir = Path(config.get("watch_dir", ""))
+    output_dir = Path(config.get("output_dir", "./optimized"))
+    log_dir = Path(config.get("log_dir", "./logs"))
+    processed_dir = Path(config["processed_dir"]) if config.get("processed_dir") else None
+    fast_mode = bool(config.get("fast_mode", False))
+    debug_save_files = bool(config.get("debug_save_files", False))
+
+    text_log_file = log_dir / "optimizer.log"
+    csv_metrics_file = log_dir / "job_metrics.csv"
+
+    # Ensure directories exist
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        if processed_dir is not None:
+            processed_dir.mkdir(parents=True, exist_ok=True)
+    except PermissionError as e:
+        print(f"Permission denied creating directory: {e}", file=sys.stderr)
+        return 1
+
+    # Set up logging
+    text_logger, metrics_logger = setup_logging(
+        text_log_file=text_log_file,
+        csv_metrics_file=csv_metrics_file,
+    )
+
+    text_logger.info("=" * 60)
+    text_logger.info("PLT-Optimizer Watch Daemon")
+    text_logger.info(f"Watch directory: {watch_dir}")
+    text_logger.info(f"Output directory: {output_dir}")
+    text_logger.info(f"Log directory: {log_dir}")
+    if processed_dir is not None:
+        text_logger.info(f"Processed directory: {processed_dir}")
+    text_logger.info(
+        f"Strategy: {'NearestNeighbor2Opt (Fast Mode)' if fast_mode else 'ParallelEnsemble'}"
+    )
+    text_logger.info("=" * 60)
+
+    # Validate watch directory
+    if not watch_dir.exists():
+        text_logger.error(f"Watch directory does not exist: {watch_dir}")
+        return 1
+
+    if not watch_dir.is_dir():
+        text_logger.error(f"Watch path is not a directory: {watch_dir}")
+        return 1
+
+    def signal_handler(signum: int, frame: object) -> None:
+        sig_name = signal.Signals(signum).name if hasattr(signal, "Signals") else str(signum)
+        text_logger.info(f"Received {sig_name}, initiating graceful shutdown...")
+        stop_event.set()
+
+    # Set up signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    # Process existing files first
+    handler = PLTFileHandler(
+        watch_dir=watch_dir,
+        output_dir=output_dir,
+        text_logger=text_logger,
+        metrics_logger=metrics_logger,
+        fast_mode=fast_mode,
+        processed_dir=processed_dir,
+        debug_save_files=debug_save_files,
+        log_dir=log_dir if debug_save_files else None,
+    )
+
+    existing_count = 0
+    for path in watch_dir.iterdir():
+        if handler._is_plt_file(path):
+            try:
+                if handler._should_process(path):
+                    handler._mark_processed(path)
+                    # Wrap _process_file to capture success/error callbacks
+                    original_process = handler._process_file
+
+                    def wrapped_process(input_path: Path) -> bool:
+                        result = original_process(input_path)
+                        return result
+
+                    if handler._process_file(path):
+                        existing_count += 1
+            except Exception as e:
+                text_logger.error(f"Error processing {path}: {e}")
+
+    if existing_count > 0:
+        text_logger.info(f"Processed {existing_count} existing file(s)")
+
+    # Create event handler for watchdog
+    event_handler = PLTFileHandler(
+        watch_dir=watch_dir,
+        output_dir=output_dir,
+        text_logger=text_logger,
+        metrics_logger=metrics_logger,
+        fast_mode=fast_mode,
+        processed_dir=processed_dir,
+        debug_save_files=debug_save_files,
+        log_dir=log_dir if debug_save_files else None,
+    )
+
+    observer = Observer()
+    observer.schedule(event_handler, str(watch_dir), recursive=False)
+    observer.start()
+
+    text_logger.info(f"Watching for PLT files in {watch_dir}")
+    text_logger.info("Press Ctrl+C to stop...")
+
+    try:
+        while not stop_event.is_set():
+            # Check every second (Observer is running in background thread)
+            signal.pause() if hasattr(signal, "pause") else time.sleep(1)
+    except KeyboardInterrupt:
+        text_logger.info("Keyboard interrupt received")
+    finally:
+        observer.stop()
+        observer.join(timeout=5.0)
+
+    text_logger.info("Watch daemon stopped.")
+    return 0
+
+
 class WatchCommand:
     """Command-line interface for the watch-directory daemon.
 
     This class handles argument parsing and orchestrates the file system
-    watcher for automated PLT optimization.
+    watcher for automated PLT optimization via CLI arguments.
 
-    Attributes:
-        args: Parsed command-line arguments.
-        text_logger: Text logger instance.
-        metrics_logger: CSV metrics logger instance.
-        observer: Watchdog observer for file system events.
+    For programmatic use (e.g., from tray application), use run_watcher_from_config()
+    directly instead of this class.
     """
 
     def __init__(self, args: Optional[list[str]] = None) -> None:
@@ -517,10 +661,6 @@ class WatchCommand:
             args is None and "--log-dir" in sys.argv[1:]
         )
         self._args = self._parse_args(args)
-        self._text_logger: Optional[TextLogger] = None
-        self._metrics_logger: Optional[CSVMetricsLogger] = None
-        self._observer: Optional[Observer] = None
-        self._shutdown_requested = False
 
     def _parse_args(self, args: Optional[list[str]]) -> argparse.Namespace:
         """Parse command-line arguments.

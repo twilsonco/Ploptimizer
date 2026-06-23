@@ -10,6 +10,6 @@ Functions:
     None - import submodules to access functionality.
 """
 
-from plt_optimizer.cli.watch import WatchCommand, main
+from plt_optimizer.cli.watch import WatchCommand, main, run_watcher_from_config
 
-__all__ = ["WatchCommand", "main"]
+__all__ = ["WatchCommand", "main", "run_watcher_from_config"]
