@@ -441,7 +441,6 @@ class PLTWriter:
                 )
 
         # Detect consecutive PU sequences in original that might be problematic
-        consecutive_pu_count = 0
         in_consecutive_pu = False
         for i, token in enumerate(orig_tokens):
             if token.startswith("PU"):
