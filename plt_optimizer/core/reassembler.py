@@ -7,7 +7,6 @@ in reverse order. It produces a new PLTDocument suitable for writing.
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
 
 from plt_optimizer.core.chunker import MacroBlock
 from plt_optimizer.core.intra_chunk_optimizer import IntraChunkResult
