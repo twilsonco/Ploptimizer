@@ -11,7 +11,6 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Optional
 
 from plt_optimizer.core.models import Coordinate, Segment, StrokePath
 from plt_optimizer.utils.logging import get_text_logger

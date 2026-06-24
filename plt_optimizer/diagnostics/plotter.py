@@ -9,7 +9,6 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Optional
 
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator

@@ -13,7 +13,6 @@ import sys
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, ttk
-from typing import Optional
 
 # Module-level logger
 _logger = logging.getLogger(__name__)

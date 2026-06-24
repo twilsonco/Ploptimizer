@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import List, Optional, Tuple, Union
+from typing import List, Tuple, Union
 
 
 class PenState(Enum):
