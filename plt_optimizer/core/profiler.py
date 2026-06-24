@@ -20,7 +20,6 @@ from plt_optimizer.core.models import (
 )
 from plt_optimizer.utils.logging import get_text_logger
 
-
 # Tolerance for floating-point coordinate comparisons (3 decimal places = 0.001)
 COORD_TOLERANCE = 1e-3
 
