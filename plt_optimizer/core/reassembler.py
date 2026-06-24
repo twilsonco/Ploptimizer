@@ -74,7 +74,7 @@ class Reassembler:
         original_document: PLTDocument,
         blocks: List[MacroBlock],
         optimization_result: OptimizationResult,
-        intra_chunk_results: Optional[List[IntraChunkResult]] = None,
+        intra_chunk_results: List[IntraChunkResult] | None = None,
     ) -> PLTDocument:
         """Reconstruct an optimized PLTDocument from MacroBlocks.
 
@@ -146,7 +146,7 @@ class Reassembler:
     def _apply_intra_chunk_order(
         self,
         paths: Tuple[StrokePath, ...],
-        intra_result: Optional[IntraChunkResult],
+        intra_result: IntraChunkResult | None,
     ) -> List[StrokePath]:
         """Apply intra-chunk optimized order without reversing entire block.
 
@@ -169,7 +169,7 @@ class Reassembler:
 
             if path_state.reversed:
                 reversed_segments = self._reverse_segment_order(original_path)
-                new_pen_up: Optional[Coordinate] = (
+                new_pen_up: Coordinate | None = (
                     reversed_segments[0].start if reversed_segments
                     else original_path.pen_up_position
                 )
@@ -185,7 +185,7 @@ class Reassembler:
     def _reverse_block_paths(
         self,
         paths: Tuple[StrokePath, ...],
-        intra_result: Optional[IntraChunkResult] = None,
+        intra_result: IntraChunkResult | None = None,
     ) -> List[StrokePath]:
         """Reverse the order of paths and all segments within each path.
 
@@ -253,7 +253,7 @@ class Reassembler:
 
             new_segments = self._reverse_segment_order(path)
 
-            new_pen_up: Optional[Coordinate] = (
+            new_pen_up: Coordinate | None = (
                 new_segments[0].start if new_segments else path.pen_up_position
             )
 
@@ -369,8 +369,8 @@ class MetricsCalculator:
     def log_metrics(
         self,
         job_id: str,
-        original_file: Optional[str],
-        optimized_doc: Optional[PLTDocument],
+        original_file: str | None,
+        optimized_doc: PLTDocument | None,
         optimization_result: OptimizationResult,
         status: str,
     ) -> None:
@@ -396,7 +396,7 @@ class MetricsCalculator:
         # Calculate file paths (if available)
         from pathlib import Path
         orig_path = Path(original_file) if original_file else None
-        opt_path: Optional[Path] = None
+        opt_path: Path | None = None
 
         metrics_logger.log_job(
             job_id=job_id,

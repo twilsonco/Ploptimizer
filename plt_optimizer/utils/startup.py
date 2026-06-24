@@ -24,7 +24,7 @@ except ImportError:
 APP_NAME = "PLT-Optimizer"
 
 
-def get_startup_folder() -> Optional[Path]:
+def get_startup_folder() -> Path | None:
     """Get the Windows Startup folder path.
 
     Returns:
@@ -44,7 +44,7 @@ def get_startup_folder() -> Optional[Path]:
         return fallback
 
 
-def get_executable_path() -> Optional[Path]:
+def get_executable_path() -> Path | None:
     """Get the path to the current executable.
 
     Returns:
@@ -72,9 +72,9 @@ def get_executable_path() -> Optional[Path]:
 
 
 def create_shortcut(
-    target_path: Optional[Path] = None,
+    target_path: Path | None = None,
     shortcut_name: str = APP_NAME,
-) -> Optional[Path]:
+) -> Path | None:
     """Create a Windows shortcut in the Startup folder.
 
     Args:

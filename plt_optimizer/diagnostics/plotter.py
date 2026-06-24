@@ -75,11 +75,11 @@ class PlotterError(Exception):
 
 def plot_plt_document(
     document: PLTDocument,
-    output_path: Optional[Path] = None,
+    output_path: Path | None = None,
     title: str = "PLT Toolpath Visualization",
     show_plot: bool = False,
     figure_size: tuple[float, float] = DEFAULT_FIGURE_SIZE,
-    rapid_travel_inches: Optional[float] = None,
+    rapid_travel_inches: float | None = None,
 ) -> plt.Figure:
     """Plot a complete PLT document with color-coded path segments.
 
@@ -337,7 +337,7 @@ def plot_plt_document(
 
 def plot_stroke_path(
     path: StrokePath,
-    output_path: Optional[Path] = None,
+    output_path: Path | None = None,
     title: str = "Stroke Path",
     show_plot: bool = False,
 ) -> plt.Figure:
@@ -393,7 +393,7 @@ def save_figure(fig: plt.Figure, path: Path) -> None:
 def create_path_diagram(
     coordinates: Sequence[Coordinate],
     cutting_mask: Sequence[bool],
-    output_path: Optional[Path] = None,
+    output_path: Path | None = None,
     title: str = "Toolpath Diagram",
 ) -> plt.Figure:
     """Create a simple path diagram without full document parsing.
