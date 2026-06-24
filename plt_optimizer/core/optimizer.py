@@ -194,7 +194,6 @@ class OptimizationStrategy(ABC):
         # Build a lookup map from block_id to MacroBlock for correct indexing
         block_by_id: Dict[int, MacroBlock] = {b.block_id: b for b in blocks}
 
-        current_pos = initial_pos
 
         for i, state in enumerate(traverse_order):
             target_block = block_by_id[state.block_id]
@@ -202,10 +201,8 @@ class OptimizationStrategy(ABC):
             # Determine entry and exit coordinates based on reversal
             if state.reversed:
                 actual_entrance = (target_block.exit.x, target_block.exit.y)
-                actual_exit = (target_block.entrance.x, target_block.entrance.y)
             else:
                 actual_entrance = (target_block.entrance.x, target_block.entrance.y)
-                actual_exit = (target_block.exit.x, target_block.exit.y)
 
             if i > 0 and traverse_order[i - 1].block_id != state.block_id:
                 # Connect from previous block's exit to current block's entrance
@@ -840,7 +837,6 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
 
             if cost_to_entrance <= cost_to_exit:
                 start_pos = initial_position or (0.0, 0.0)
-                reversed_flag = False
                 tour_state = BlockTraverseState(
                     block_id=block.block_id,
                     reversed=False,
@@ -849,7 +845,6 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
                 )
             else:
                 start_pos = initial_position or (0.0, 0.0)
-                reversed_flag = True
                 tour_state = BlockTraverseState(
                     block_id=block.block_id,
                     reversed=True,
@@ -970,7 +965,7 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
         Returns:
             Initial tour with two BlockTraverseStates.
         """
-        (pos1, block1_idx, is1_exit), (pos2, block2_idx, is2_exit) = (
+        (_pos1, block1_idx, is1_exit), (_pos2, block2_idx, is2_exit) = (
             (seed_pair[0], seed_pair[1], seed_pair[2]),
             (seed_pair[3], seed_pair[4], seed_pair[5]),
         )
@@ -1192,13 +1187,11 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
         if insert_position < len(tour):
             next_state = tour[insert_position]
             b_entrance = next_state.entrance
-            b_exit = next_state.exit
         else:
             prev_state = tour[-1]
             b_entrance = prev_state.exit
-            b_exit = prev_state.exit
 
-        current_dist = math.sqrt(
+        math.sqrt(
             (b_entrance[0] - a_exit[0]) ** 2 + (b_entrance[1] - a_exit[1]) ** 2
         )
 
@@ -2227,12 +2220,8 @@ class ChristofidesStrategy(OptimizationStrategy):
         # Choose the entry point that is closer to start_point
         if dist_to_entrance_first <= dist_to_exit_first:
             actual_first_reversed = False
-            first_entry = (first_block.entrance.x, first_block.entrance.y)
-            first_exit = (first_block.exit.x, first_block.exit.y)
         else:
             actual_first_reversed = True
-            first_entry = (first_block.exit.x, first_block.exit.y)
-            first_exit = (first_block.entrance.x, first_block.entrance.y)
 
         tour: List[BlockTraverseState] = []
 
@@ -2269,7 +2258,6 @@ class ChristofidesStrategy(OptimizationStrategy):
                 )
 
                 if dist_to_entrance <= dist_to_exit:
-                    actual_reversed = False
                     state = BlockTraverseState(
                         block_id=block.block_id,
                         reversed=False,
@@ -2277,7 +2265,6 @@ class ChristofidesStrategy(OptimizationStrategy):
                         exit=(block.exit.x, block.exit.y),
                     )
                 else:
-                    actual_reversed = True
                     state = BlockTraverseState(
                         block_id=block.block_id,
                         reversed=True,
@@ -2634,7 +2621,6 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
         )
 
         if cost_to_entrance <= cost_to_exit:
-            reversed_flag = False
             tour_state = BlockTraverseState(
                 block_id=block.block_id,
                 reversed=False,
@@ -2642,7 +2628,6 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
                 exit=(block.exit.x, block.exit.y),
             )
         else:
-            reversed_flag = True
             tour_state = BlockTraverseState(
                 block_id=block.block_id,
                 reversed=True,

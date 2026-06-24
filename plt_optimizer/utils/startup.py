@@ -39,7 +39,7 @@ def get_startup_folder() -> Optional[Path]:
         return Path(startup)
     except Exception:
         # Fallback for environments where winshell isn't available
-        username = Path.home().name
+        Path.home().name
         fallback = Path.home() / "AppData" / "Roaming" / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
         return fallback
 
