@@ -17,8 +17,12 @@ from pathlib import Path
 
 import pytest
 
+from plt_optimizer.core.chunker import Chunker, ChunkerConfig
 from plt_optimizer.core.models import Coordinate, PLTDocument
+from plt_optimizer.core.optimizer import NearestNeighbor2OptStrategy, OptimizerEngine
 from plt_optimizer.core.parser import PLTParser, ParseError
+from plt_optimizer.core.profiler import Profiler
+from plt_optimizer.core.reassembler import Reassembler
 from plt_optimizer.core.writer import PLTWriter, WriteError
 
 
@@ -302,19 +306,56 @@ class TestMetadataPreservation:
     def test_original_optimized_files_have_identical_metadata(self) -> None:
         """Test that original and optimized files have identical header metadata."""
         parser = PLTParser()
+        writer = PLTWriter()
 
         examples_dir = Path(__file__).parent.parent / "examples"
         original_path = examples_dir / "test_rect_grid13sheet0.plt"
-        optimized_path = examples_dir / "test_rect_grid13sheet0_optimized.plt"
 
         doc_original = parser.parse_file(original_path)
-        doc_optimized = parser.parse_file(optimized_path)
 
-        assert len(doc_original.header_commands) == len(doc_optimized.header_commands), (
-            f"Header command count mismatch: {len(doc_original.header_commands)} vs "
-            f"{len(doc_optimized.header_commands)}"
+        # Profile to determine if structural (pass document, not stroke_paths list)
+        profiler = Profiler()
+        profile_result = profiler.profile(doc_original)
+
+        # Chunk the document
+        chunker = Chunker(config=ChunkerConfig(threshold_multiplier=2.0))
+        blocks = chunker.chunk(
+            doc_original.stroke_paths,
+            profile_result.baseline_extent,
+            is_structural=profile_result.is_structural,
         )
 
-        assert doc_original.header_commands == doc_optimized.header_commands, (
-            "Header commands do not match exactly between original and optimized files"
+        if not blocks:
+            pytest.skip("No blocks generated from file")
+
+        # Optimize using fast mode (NearestNeighbor + 2-Opt)
+        strategy = NearestNeighbor2OptStrategy()
+        engine = OptimizerEngine(strategy=strategy)
+        optimization_result = engine.optimize(blocks)
+
+        # Reassemble into optimized document
+        reassembler = Reassembler()
+        doc_optimized = reassembler.reassemble(
+            original_document=doc_original,
+            blocks=blocks,
+            optimization_result=optimization_result,
         )
+
+        # Write optimized to temp file for comparison
+        with tempfile.TemporaryDirectory() as tmpdir:
+            optimized_path = Path(tmpdir) / "test_rect_grid13sheet0_optimized.plt"
+            writer.write_file(doc_optimized, optimized_path)
+
+            # Re-parse the optimized file
+            doc_optimized_parsed = parser.parse_file(optimized_path)
+
+            assert len(doc_original.header_commands) == len(
+                doc_optimized_parsed.header_commands
+            ), (
+                f"Header command count mismatch: {len(doc_original.header_commands)} vs "
+                f"{len(doc_optimized_parsed.header_commands)}"
+            )
+
+            assert doc_original.header_commands == doc_optimized_parsed.header_commands, (
+                "Header commands do not match exactly between original and optimized files"
+            )
