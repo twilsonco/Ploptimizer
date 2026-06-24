@@ -14,7 +14,7 @@ from pathlib import Path
 _WINSHELL_AVAILABLE: bool = (
     sys.platform == "win32" and importlib.util.find_spec("winshell") is not None
 )
-_PYWIN32_AVAILABLE: bool = importlib.util.find_spec("win32com.client") is not None
+_PYWIN32_AVAILABLE: bool = sys.platform == "win32" and importlib.util.find_spec("win32com.client") is not None
 
 # Shortcut filename without extension
 APP_NAME = "PLT-Optimizer"
