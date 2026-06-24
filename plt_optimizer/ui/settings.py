@@ -38,7 +38,7 @@ class SettingsWindow:
         self,
         current_config: dict,
         save_callback: callable,
-        parent: Optional[tk.Tk] = None,
+        parent: tk.Tk | None = None,
     ) -> None:
         """Initialize the settings window.
 

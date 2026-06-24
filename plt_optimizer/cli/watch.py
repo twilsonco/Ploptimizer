@@ -89,9 +89,9 @@ class PLTFileHandler(FileSystemEventHandler):
         text_logger: TextLogger,
         metrics_logger: CSVMetricsLogger,
         fast_mode: bool = False,
-        processed_dir: Optional[Path] = None,
+        processed_dir: Path | None = None,
         debug_save_files: bool = False,
-        log_dir: Optional[Path] = None,
+        log_dir: Path | None = None,
     ) -> None:
         """Initialize the PLT file handler.
 
@@ -495,8 +495,8 @@ class PLTFileHandler(FileSystemEventHandler):
 def run_watcher_from_config(
     config: dict,
     stop_event: threading.Event,
-    on_success: Optional[Callable[[str, float], None]] = None,
-    on_error: Optional[Callable[[str, str], None]] = None,
+    on_success: Callable[[str, float], None] | None = None,
+    on_error: Callable[[str, str], None] | None = None,
 ) -> int:
     """Run the watcher using a configuration dictionary.
 
@@ -648,7 +648,7 @@ class WatchCommand:
     directly instead of this class.
     """
 
-    def __init__(self, args: Optional[list[str]] = None) -> None:
+    def __init__(self, args: list[str] | None = None) -> None:
         """Initialize the watch command.
 
         Args:
@@ -660,7 +660,7 @@ class WatchCommand:
         )
         self._args = self._parse_args(args)
 
-    def _parse_args(self, args: Optional[list[str]]) -> argparse.Namespace:
+    def _parse_args(self, args: list[str] | None) -> argparse.Namespace:
         """Parse command-line arguments.
 
         Args:
@@ -995,7 +995,7 @@ Examples:
         return 0
 
 
-def main(args: Optional[list[str]] = None) -> int:
+def main(args: list[str] | None = None) -> int:
     """Entry point for the watch command.
 
     Args:

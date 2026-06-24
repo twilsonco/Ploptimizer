@@ -114,7 +114,7 @@ class Chunker:
         >>> blocks = chunker.chunk(doc.stroke_paths, profile.baseline_extent)
     """
 
-    def __init__(self, config: Optional[ChunkerConfig] = None) -> None:
+    def __init__(self, config: ChunkerConfig | None = None) -> None:
         """Initialize the Chunker.
 
         Args:
@@ -300,7 +300,7 @@ class LinearChunker(Chunker):
     horizontal nature of text entry.
     """
 
-    def __init__(self, config: Optional[ChunkerConfig] = None) -> None:
+    def __init__(self, config: ChunkerConfig | None = None) -> None:
         """Initialize the LinearChunker.
 
         Args:

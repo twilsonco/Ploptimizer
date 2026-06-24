@@ -76,7 +76,7 @@ class HeaderCommand:
         parameters: Optional tuple of numeric parameters for the command.
     """
     instruction: str
-    parameters: Optional[Tuple[float, ...]] = None
+    parameters: Tuple[float, ...] | None = None
 
     def __post_init__(self) -> None:
         """Round any floating point parameters to 3 decimal places."""
@@ -121,7 +121,7 @@ class HeaderCommand:
             if match:
                 instr = match.group(1)
                 param_str = match.group(2)
-                params: Optional[Tuple[float, ...]] = None
+                params: Tuple[float, ...] | None = None
                 if param_str:
                     params = tuple(float(p) for p in param_str.split(","))
             else:
@@ -198,7 +198,7 @@ class StrokePath:
         pen_up_position: Position after the initial pen-up move (or None if starts with PD).
         segments: Ordered tuple of stroke segments (line and/or arc).
     """
-    pen_up_position: Optional[Coordinate] = None
+    pen_up_position: Coordinate | None = None
     segments: Tuple[Segment, ...] = field(default_factory=tuple)
 
     @property

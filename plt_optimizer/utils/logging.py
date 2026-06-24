@@ -36,7 +36,7 @@ class TextLogger:
         self,
         name: str = "plt_optimizer",
         level: int = logging.INFO,
-        log_file: Optional[Path] = None,
+        log_file: Path | None = None,
     ) -> None:
         """Initialize the text logger.
 
@@ -124,7 +124,7 @@ class CSVMetricsLogger:
 
     def __init__(
         self,
-        log_file: Optional[Path] = None,
+        log_file: Path | None = None,
     ) -> None:
         """Initialize the CSV metrics logger.
 
@@ -146,7 +146,7 @@ class CSVMetricsLogger:
         self,
         job_id: str,
         original_file: Path,
-        optimized_file: Optional[Path],
+        optimized_file: Path | None,
         original_distance: float,
         optimized_distance: float,
         status: str,
@@ -194,14 +194,14 @@ class CSVMetricsLogger:
 
 
 # Module-level convenience functions using default loggers
-_text_logger: Optional[TextLogger] = None
-_csv_logger: Optional[CSVMetricsLogger] = None
+_text_logger: TextLogger | None = None
+_csv_logger: CSVMetricsLogger | None = None
 
 
 def setup_logging(
     level: int = logging.INFO,
-    text_log_file: Optional[Path] = None,
-    csv_metrics_file: Optional[Path] = None,
+    text_log_file: Path | None = None,
+    csv_metrics_file: Path | None = None,
 ) -> tuple[TextLogger, CSVMetricsLogger]:
     """Set up the dual logging system.
 
