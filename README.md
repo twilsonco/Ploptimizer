@@ -567,6 +567,39 @@ New-NetFirewallRule -DisplayName "PLT-Optimizer Python" -Direction Inbound -Prog
 2. **Local Storage**: Place watch directories on local drives rather than network shares when possible
 3. **Processed Directory**: Use `--processed-dir` to move completed files out of the watch directory, reducing scan time
 
+## CI/CD
+
+This project uses GitHub Actions for continuous integration and automated builds:
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| **CI** | Push to main / PRs | Lint, type check, run tests |
+| **Build** | Push to main / Tags | Build Windows executable |
+
+### Automated Build Process
+
+1. On every push to `main`, the build workflow:
+   - Creates a Windows executable via PyInstaller
+   - Uploads it as an artifact (downloadable from Actions tab)
+
+2. On every git tag, the build workflow:
+   - Creates a proper release with the `.exe` attached
+   - Users can download `PLT-Optimizer.exe` from GitHub Releases
+
+### Manual Builds
+
+For local builds on Windows:
+
+```powershell
+# Install all dependencies
+uv sync --extra dev --extra tray --extra build
+
+# Build
+uv run pyinstaller --noconsole --windowed --name PLT-Optimizer `
+    --icon=assets/icon.ico --add-data "assets/icon.ico;assets" `
+    run_tray.py
+```
+
 ## License
 
 MIT License - See LICENSE file for details.
