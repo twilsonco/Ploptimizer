@@ -12,6 +12,7 @@ from typing import Sequence
 from plt_optimizer.core.models import (
     ArcSegment,
     Coordinate,
+    PLTDocument,
     Segment,
     StrokePath,
 )
