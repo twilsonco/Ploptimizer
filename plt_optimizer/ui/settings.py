@@ -11,9 +11,10 @@ from __future__ import annotations
 import logging
 import sys
 import tkinter as tk
+from collections.abc import Callable
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from typing import Any, Callable
+from typing import Any
 
 # Module-level logger
 _logger = logging.getLogger(__name__)
