@@ -14,20 +14,16 @@ from pathlib import Path
 from typing import Callable
 
 # Third-party imports
-try:
-    from PIL import Image
-except ImportError as e:
-    raise ImportError(
-        "pillow library is required for tray functionality. Install it with: uv add pillow"
-    ) from e
+import importlib.util
 
-try:
-    import pystray
-    from pystray import Icon, Menu, MenuItem
-except ImportError as e:
+# Check availability of required libraries without importing them at module level
+if importlib.util.find_spec("PIL") is None or importlib.util.find_spec("pystray") is None:
     raise ImportError(
-        "pystray library is required for tray functionality. Install it with: uv add pystray"
-    ) from e
+        "Required libraries missing. Install with: uv add pillow pystray"
+    )
+
+from PIL import Image  # type: ignore[import]
+from pystray import Icon, Menu, MenuItem
 
 
 # Module-level logger
