@@ -32,7 +32,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Optional, Set
+from typing import Callable, Set
 
 # Third-party imports
 try:
