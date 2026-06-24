@@ -115,6 +115,7 @@ def calculate_stroke_path_length(stroke: StrokePath) -> float:
         Sum of all segment lengths in the stroke.
     """
     from plt_optimizer.core.models import _segment_length
+
     return sum(_segment_length(seg) for seg in stroke.segments)
 
 
@@ -294,13 +295,11 @@ def remove_redundant_strokes(
             path_idx_j, seg_idx_j, seg_j = all_cutting_segments[j]
             start_j, end_j = seg_j.start, seg_j.end
 
-            on_i_on_j = (
-                is_point_on_segment(start_i, start_j, end_j, tol)
-                and is_point_on_segment(end_i, start_j, end_j, tol)
+            on_i_on_j = is_point_on_segment(start_i, start_j, end_j, tol) and is_point_on_segment(
+                end_i, start_j, end_j, tol
             )
-            on_j_on_i = (
-                is_point_on_segment(start_j, start_i, end_i, tol)
-                and is_point_on_segment(end_j, start_i, end_i, tol)
+            on_j_on_i = is_point_on_segment(start_j, start_i, end_i, tol) and is_point_on_segment(
+                end_j, start_i, end_i, tol
             )
 
             both_on_each_other = on_i_on_j and on_j_on_i
@@ -422,10 +421,12 @@ def fracture_linear_paths(
                 # Each segment becomes its own independent StrokePath
                 # pen_up_position is set to segment.start to allow the optimizer
                 # to route directly to the start of each individual cut
-                fractured_paths.append(StrokePath(
-                    pen_up_position=segment.start,
-                    segments=(segment,),
-                ))
+                fractured_paths.append(
+                    StrokePath(
+                        pen_up_position=segment.start,
+                        segments=(segment,),
+                    )
+                )
 
     return PLTDocument(
         header_commands=list(doc.header_commands),

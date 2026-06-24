@@ -46,6 +46,7 @@ class BlockConnection:
         entry_at_source: Coordinate at source where we arrive (entrance or exit).
         entry_at_target: Coordinate at target where we enter (entrance or exit).
     """
+
     source_block_id: int
     target_block_id: int
     travel_distance: float
@@ -63,6 +64,7 @@ class BlockTraverseState:
         entrance: The coordinate to use as entry point (may differ from original).
         exit: The coordinate to use as exit point (may differ from original).
     """
+
     block_id: int
     reversed: bool
     entrance: tuple[float, float]
@@ -80,6 +82,7 @@ class OptimizationResult:
         total_travel_distance: Sum of all travel distances.
         initial_position: Starting position for the optimization run.
     """
+
     traverse_order: tuple[BlockTraverseState, ...]
     connections: tuple[BlockConnection, ...]
     total_travel_distance: float
@@ -159,13 +162,9 @@ class OptimizationStrategy(ABC):
             the block should be entered at its exit (and traversed backward).
         """
         cost_to_entrance = math.sqrt(
-            (to_entrance[0] - from_pos[0]) ** 2
-            + (to_entrance[1] - from_pos[1]) ** 2
+            (to_entrance[0] - from_pos[0]) ** 2 + (to_entrance[1] - from_pos[1]) ** 2
         )
-        cost_to_exit = math.sqrt(
-            (to_exit[0] - from_pos[0]) ** 2
-            + (to_exit[1] - from_pos[1]) ** 2
-        )
+        cost_to_exit = math.sqrt((to_exit[0] - from_pos[0]) ** 2 + (to_exit[1] - from_pos[1]) ** 2)
 
         if cost_to_entrance <= cost_to_exit:
             return (cost_to_entrance, False)
@@ -193,7 +192,6 @@ class OptimizationStrategy(ABC):
         # Build a lookup map from block_id to MacroBlock for correct indexing
         block_by_id: dict[int, MacroBlock] = {b.block_id: b for b in blocks}
 
-
         for i, state in enumerate(traverse_order):
             target_block = block_by_id[state.block_id]
 
@@ -211,13 +209,15 @@ class OptimizationStrategy(ABC):
                     + (actual_entrance[1] - prev_state.exit[1]) ** 2
                 )
 
-                connections.append(BlockConnection(
-                    source_block_id=prev_state.block_id,
-                    target_block_id=state.block_id,
-                    travel_distance=travel_dist,
-                    entry_at_source=prev_state.exit,
-                    entry_at_target=actual_entrance,
-                ))
+                connections.append(
+                    BlockConnection(
+                        source_block_id=prev_state.block_id,
+                        target_block_id=state.block_id,
+                        travel_distance=travel_dist,
+                        entry_at_source=prev_state.exit,
+                        entry_at_target=actual_entrance,
+                    )
+                )
             # Note: connections from initial_pos to first block are not included here;
             # they are tracked separately via total_travel_distance calculation.
 
@@ -264,12 +264,14 @@ class NoOpStrategy(OptimizationStrategy):
             start_pos = None
 
         for block in blocks:
-            traverse_order.append(BlockTraverseState(
-                block_id=block.block_id,
-                reversed=False,
-                entrance=(block.entrance.x, block.entrance.y),
-                exit=(block.exit.x, block.exit.y),
-            ))
+            traverse_order.append(
+                BlockTraverseState(
+                    block_id=block.block_id,
+                    reversed=False,
+                    entrance=(block.entrance.x, block.entrance.y),
+                    exit=(block.exit.x, block.exit.y),
+                )
+            )
 
         connections = self._build_connections(blocks, traverse_order, start_pos)
         total_distance = sum(c.travel_distance for c in connections if c.source_block_id >= 0)
@@ -356,15 +358,19 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
 
             for start_pos, first_block_idx, start_at_exit, _dist in candidates:
                 tour = self._greedy_nearest_neighbor_from_start(
-                    blocks, start_pos, forced_first_block=first_block_idx,
-                    forced_first_reversed=start_at_exit
+                    blocks,
+                    start_pos,
+                    forced_first_block=first_block_idx,
+                    forced_first_reversed=start_at_exit,
                 )
 
                 if len(tour) > 3:
                     tour = self._two_opt_refinement(tour, blocks)
 
                 connections = self._build_connections(blocks, tour, start_pos)
-                total_distance = sum(c.travel_distance for c in connections if c.source_block_id >= 0)
+                total_distance = sum(
+                    c.travel_distance for c in connections if c.source_block_id >= 0
+                )
 
                 candidate_result = OptimizationResult(
                     traverse_order=tuple(tour),
@@ -373,9 +379,14 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
                     initial_position=start_pos,
                 )
 
-                if best_result is None or candidate_result.total_travel_distance < best_result.total_travel_distance:
+                if (
+                    best_result is None
+                    or candidate_result.total_travel_distance < best_result.total_travel_distance
+                ):
                     best_result = candidate_result
-                    self._logger.debug(f"New best: distance={candidate_result.total_travel_distance:.3f} from candidate at {start_pos}")
+                    self._logger.debug(
+                        f"New best: distance={candidate_result.total_travel_distance:.3f} from candidate at {start_pos}"
+                    )
 
             return best_result  # type: ignore[return-value]
         else:
@@ -415,7 +426,7 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
 
         while unvisited:
             best_block_idx = -1
-            best_cost = float('inf')
+            best_cost = float("inf")
             best_reversed = False
 
             for block_idx in unvisited:
@@ -482,19 +493,17 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
 
         for i, block in enumerate(blocks):
             dist_entrance = math.sqrt(
-                (block.entrance.x - origin[0]) ** 2
-                + (block.entrance.y - origin[1]) ** 2
+                (block.entrance.x - origin[0]) ** 2 + (block.entrance.y - origin[1]) ** 2
             )
             candidates.append((dist_entrance, ((block.entrance.x, block.entrance.y), i, False)))
 
-            dist_exit = math.sqrt(
-                (block.exit.x - origin[0]) ** 2
-                + (block.exit.y - origin[1]) ** 2
-            )
+            dist_exit = math.sqrt((block.exit.x - origin[0]) ** 2 + (block.exit.y - origin[1]) ** 2)
             candidates.append((dist_exit, ((block.exit.x, block.exit.y), i, True)))
 
         candidates.sort(key=lambda x: x[0])
-        return [(pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]]
+        return [
+            (pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]
+        ]
 
     def _find_farthest_origin_endpoints(
         self,
@@ -523,20 +532,18 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
 
         for i, block in enumerate(blocks):
             dist_entrance = math.sqrt(
-                (block.entrance.x - origin[0]) ** 2
-                + (block.entrance.y - origin[1]) ** 2
+                (block.entrance.x - origin[0]) ** 2 + (block.entrance.y - origin[1]) ** 2
             )
             candidates.append((dist_entrance, ((block.entrance.x, block.entrance.y), i, False)))
 
-            dist_exit = math.sqrt(
-                (block.exit.x - origin[0]) ** 2
-                + (block.exit.y - origin[1]) ** 2
-            )
+            dist_exit = math.sqrt((block.exit.x - origin[0]) ** 2 + (block.exit.y - origin[1]) ** 2)
             candidates.append((dist_exit, ((block.exit.x, block.exit.y), i, True)))
 
         # Sort by distance descending to get farthest first
         candidates.sort(key=lambda x: x[0], reverse=True)
-        return [(pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]]
+        return [
+            (pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]
+        ]
 
     def _find_nearest_origin_endpoint(
         self,
@@ -612,7 +619,7 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
         # Continue with standard greedy for remaining blocks
         while unvisited:
             best_block_idx = -1
-            best_cost = float('inf')
+            best_cost = float("inf")
             best_reversed = False
 
             for block_idx in unvisited:
@@ -671,13 +678,13 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
         """
         dx = to_entrance[0] - from_pos[0]
         dy = to_entrance[1] - from_pos[1]
-        base_distance_to_entrance = math.sqrt(dx ** 2 + dy ** 2)
+        base_distance_to_entrance = math.sqrt(dx**2 + dy**2)
         y_penalty = (self._same_row_preference - 1.0) * abs(dy)
         cost_to_entrance = base_distance_to_entrance + y_penalty
 
         dx = to_exit[0] - from_pos[0]
         dy = to_exit[1] - from_pos[1]
-        base_distance_to_exit = math.sqrt(dx ** 2 + dy ** 2)
+        base_distance_to_exit = math.sqrt(dx**2 + dy**2)
         y_penalty = (self._same_row_preference - 1.0) * abs(dy)
         cost_to_exit = base_distance_to_exit + y_penalty
 
@@ -716,7 +723,7 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
                 for j in range(i + 2, len(tour)):
                     if self._two_opt_swap_improves(tour, blocks, i, j):
                         # Perform the swap by reversing segment [i+1, j]
-                        tour[i + 1:j + 1] = reversed(tour[i + 1:j + 1])
+                        tour[i + 1 : j + 1] = reversed(tour[i + 1 : j + 1])
                         improved = True
 
         self._logger.debug(f"2-opt completed in {iterations} iterations")
@@ -820,8 +827,8 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
         if len(blocks) == 1:
             block = blocks[0]
             start_pos: tuple[float, float]
-            cost_to_entrance = math.sqrt(block.entrance.x ** 2 + block.entrance.y ** 2)
-            cost_to_exit = math.sqrt(block.exit.x ** 2 + block.exit.y ** 2)
+            cost_to_entrance = math.sqrt(block.entrance.x**2 + block.entrance.y**2)
+            cost_to_exit = math.sqrt(block.exit.x**2 + block.exit.y**2)
 
             if initial_position is not None:
                 cost_to_entrance = math.sqrt(
@@ -876,9 +883,7 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
 
             for block_idx in unvisited:
                 block = blocks[block_idx]
-                insertion_result = self._find_best_insertion_position(
-                    block, tour, blocks
-                )
+                insertion_result = self._find_best_insertion_position(block, tour, blocks)
 
                 if best_insertion is None or insertion_result[2] < best_insertion[2]:
                     best_insertion = (
@@ -914,7 +919,7 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
         Returns:
             Tuple of (endpoint1, block1_idx, is1_exit, endpoint2, block2_idx, is2_exit).
         """
-        min_dist = float('inf')
+        min_dist = float("inf")
         result: tuple[tuple[float, float], int, bool, tuple[float, float], int, bool] | None = None
 
         for i, block in enumerate(blocks):
@@ -937,8 +942,12 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
                         if dist < min_dist:
                             min_dist = dist
                             result = (
-                                (x1, y1), i, is1_exit,
-                                (x2, y2), j, is2_exit,
+                                (x1, y1),
+                                i,
+                                is1_exit,
+                                (x2, y2),
+                                j,
+                                is2_exit,
                             )
 
         if result is None:
@@ -1021,18 +1030,16 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
         Returns:
             Initial tour with two BlockTraverseStates.
         """
-        min_first_dist = float('inf')
+        min_first_dist = float("inf")
         first_block_idx = -1
         first_is_exit = False
 
         for i, block in enumerate(blocks):
             dist_entrance = math.sqrt(
-                (block.entrance.x - start_pos[0]) ** 2
-                + (block.entrance.y - start_pos[1]) ** 2
+                (block.entrance.x - start_pos[0]) ** 2 + (block.entrance.y - start_pos[1]) ** 2
             )
             dist_exit = math.sqrt(
-                (block.exit.x - start_pos[0]) ** 2
-                + (block.exit.y - start_pos[1]) ** 2
+                (block.exit.x - start_pos[0]) ** 2 + (block.exit.y - start_pos[1]) ** 2
             )
 
             if dist_entrance < min_first_dist:
@@ -1062,7 +1069,7 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
                 exit=(first_block.exit.x, first_block.exit.y),
             )
 
-        min_second_dist = float('inf')
+        min_second_dist = float("inf")
         second_block_idx = -1
         second_is_exit = False
 
@@ -1071,12 +1078,10 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
                 continue
 
             dist_entrance = math.sqrt(
-                (block.entrance.x - state1.exit[0]) ** 2
-                + (block.entrance.y - state1.exit[1]) ** 2
+                (block.entrance.x - state1.exit[0]) ** 2 + (block.entrance.y - state1.exit[1]) ** 2
             )
             dist_exit = math.sqrt(
-                (block.exit.x - state1.exit[0]) ** 2
-                + (block.exit.y - state1.exit[1]) ** 2
+                (block.exit.x - state1.exit[0]) ** 2 + (block.exit.y - state1.exit[1]) ** 2
             )
 
             if dist_entrance < min_second_dist:
@@ -1186,11 +1191,9 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
             prev_state = tour[-1]
             b_entrance = prev_state.exit
 
-        math.sqrt(
-            (b_entrance[0] - a_exit[0]) ** 2 + (b_entrance[1] - a_exit[1]) ** 2
-        )
+        math.sqrt((b_entrance[0] - a_exit[0]) ** 2 + (b_entrance[1] - a_exit[1]) ** 2)
 
-        best_cost = float('inf')
+        best_cost = float("inf")
         best_reversed = False
 
         for reversed_flag in [False, True]:
@@ -1241,14 +1244,12 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
         """
         best_pos = -1
         best_state: BlockTraverseState | None = None
-        best_cost = float('inf')
+        best_cost = float("inf")
 
         num_positions = len(tour) + 1
 
         for pos in range(num_positions):
-            cost, should_reverse = self._calculate_insertion_cost(
-                block, tour, pos, blocks
-            )
+            cost, should_reverse = self._calculate_insertion_cost(block, tour, pos, blocks)
 
             if cost < best_cost:
                 best_cost = cost
@@ -1303,7 +1304,7 @@ class ChristofidesStrategy(OptimizationStrategy):
 
     # Special vertex IDs for start and end terminals
     START_VERTEX_ID: int = -1  # Reserved ID for S terminal
-    END_VERTEX_ID: int = -2   # Reserved ID for T terminal
+    END_VERTEX_ID: int = -2  # Reserved ID for T terminal
 
     DEFAULT_N_CANDIDATES: int = 2  # For finding closest to origin (start)
     DEFAULT_M_CANDIDATES: int = 2  # For finding farthest from origin (end)
@@ -1381,7 +1382,10 @@ class ChristofidesStrategy(OptimizationStrategy):
                     actual_end_point=end_entry,
                 )
 
-                if best_result is None or result.total_travel_distance < best_result.total_travel_distance:
+                if (
+                    best_result is None
+                    or result.total_travel_distance < best_result.total_travel_distance
+                ):
                     best_result = result
                     self._logger.debug(
                         f"New best Christofides path: {result.total_travel_distance:.3f} "
@@ -1430,9 +1434,7 @@ class ChristofidesStrategy(OptimizationStrategy):
 
         eulerian_edges = list(mst_edges) + matching_edges
 
-        eulerian_path = self._build_eulerian_path(
-            eulerian_edges, start_vertex, vertices
-        )
+        eulerian_path = self._build_eulerian_path(eulerian_edges, start_vertex, vertices)
 
         hamiltonian_sequence = self._euler_to_hamiltonian_shortcut_st_path(
             eulerian_path, blocks, actual_end_point
@@ -1485,12 +1487,10 @@ class ChristofidesStrategy(OptimizationStrategy):
                 exit_coord = (block.exit.x, block.exit.y)
 
             cost_to_entry = math.sqrt(
-                (entry_coord[0] - start_point[0]) ** 2
-                + (entry_coord[1] - start_point[1]) ** 2
+                (entry_coord[0] - start_point[0]) ** 2 + (entry_coord[1] - start_point[1]) ** 2
             )
             cost_from_exit = math.sqrt(
-                (end_point[0] - exit_coord[0]) ** 2
-                + (end_point[1] - exit_coord[1]) ** 2
+                (end_point[0] - exit_coord[0]) ** 2 + (end_point[1] - exit_coord[1]) ** 2
             )
             total_cost = cost_to_entry + cost_from_exit
             candidates.append((total_cost, entrance_is_exit))
@@ -1540,7 +1540,7 @@ class ChristofidesStrategy(OptimizationStrategy):
             OptimizationResult for two blocks from start_point to end_point.
         """
         best_tour: list[BlockTraverseState] | None = None
-        best_distance = float('inf')
+        best_distance = float("inf")
 
         # Try all orderings and orientations of the two blocks
         for first_idx, second_idx in [(0, 1), (1, 0)]:
@@ -1593,35 +1593,43 @@ class ChristofidesStrategy(OptimizationStrategy):
 
         first_block = blocks[first_idx]
         if first_rev:
-            tour.append(BlockTraverseState(
-                block_id=first_block.block_id,
-                reversed=True,
-                entrance=(first_block.exit.x, first_block.exit.y),
-                exit=(first_block.entrance.x, first_block.entrance.y),
-            ))
+            tour.append(
+                BlockTraverseState(
+                    block_id=first_block.block_id,
+                    reversed=True,
+                    entrance=(first_block.exit.x, first_block.exit.y),
+                    exit=(first_block.entrance.x, first_block.entrance.y),
+                )
+            )
         else:
-            tour.append(BlockTraverseState(
-                block_id=first_block.block_id,
-                reversed=False,
-                entrance=(first_block.entrance.x, first_block.entrance.y),
-                exit=(first_block.exit.x, first_block.exit.y),
-            ))
+            tour.append(
+                BlockTraverseState(
+                    block_id=first_block.block_id,
+                    reversed=False,
+                    entrance=(first_block.entrance.x, first_block.entrance.y),
+                    exit=(first_block.exit.x, first_block.exit.y),
+                )
+            )
 
         second_block = blocks[second_idx]
         if second_rev:
-            tour.append(BlockTraverseState(
-                block_id=second_block.block_id,
-                reversed=True,
-                entrance=(second_block.exit.x, second_block.exit.y),
-                exit=(second_block.entrance.x, second_block.entrance.y),
-            ))
+            tour.append(
+                BlockTraverseState(
+                    block_id=second_block.block_id,
+                    reversed=True,
+                    entrance=(second_block.exit.x, second_block.exit.y),
+                    exit=(second_block.entrance.x, second_block.entrance.y),
+                )
+            )
         else:
-            tour.append(BlockTraverseState(
-                block_id=second_block.block_id,
-                reversed=False,
-                entrance=(second_block.entrance.x, second_block.entrance.y),
-                exit=(second_block.exit.x, second_block.exit.y),
-            ))
+            tour.append(
+                BlockTraverseState(
+                    block_id=second_block.block_id,
+                    reversed=False,
+                    entrance=(second_block.entrance.x, second_block.entrance.y),
+                    exit=(second_block.exit.x, second_block.exit.y),
+                )
+            )
 
         return tour
 
@@ -1645,8 +1653,7 @@ class ChristofidesStrategy(OptimizationStrategy):
         """
         if not tour:
             return math.sqrt(
-                (end_point[0] - start_point[0]) ** 2
-                + (end_point[1] - start_point[1]) ** 2
+                (end_point[0] - start_point[0]) ** 2 + (end_point[1] - start_point[1]) ** 2
             )
 
         # Distance from start to first block entrance
@@ -1661,15 +1668,13 @@ class ChristofidesStrategy(OptimizationStrategy):
             curr_exit = tour[i].exit
             next_entrance = tour[i + 1].entrance
             distance += math.sqrt(
-                (next_entrance[0] - curr_exit[0]) ** 2
-                + (next_entrance[1] - curr_exit[1]) ** 2
+                (next_entrance[0] - curr_exit[0]) ** 2 + (next_entrance[1] - curr_exit[1]) ** 2
             )
 
         # Distance from last block exit to end_point
         last_state = tour[-1]
         distance += math.sqrt(
-            (end_point[0] - last_state.exit[0]) ** 2
-            + (end_point[1] - last_state.exit[1]) ** 2
+            (end_point[0] - last_state.exit[0]) ** 2 + (end_point[1] - last_state.exit[1]) ** 2
         )
 
         return distance
@@ -1734,19 +1739,17 @@ class ChristofidesStrategy(OptimizationStrategy):
 
         for i, block in enumerate(blocks):
             dist_entrance = math.sqrt(
-                (block.entrance.x - origin[0]) ** 2
-                + (block.entrance.y - origin[1]) ** 2
+                (block.entrance.x - origin[0]) ** 2 + (block.entrance.y - origin[1]) ** 2
             )
             candidates.append((dist_entrance, ((block.entrance.x, block.entrance.y), i, False)))
 
-            dist_exit = math.sqrt(
-                (block.exit.x - origin[0]) ** 2
-                + (block.exit.y - origin[1]) ** 2
-            )
+            dist_exit = math.sqrt((block.exit.x - origin[0]) ** 2 + (block.exit.y - origin[1]) ** 2)
             candidates.append((dist_exit, ((block.exit.x, block.exit.y), i, True)))
 
         candidates.sort(key=lambda x: x[0])
-        return [(pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]]
+        return [
+            (pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]
+        ]
 
     def _find_farthest_origin_endpoints(
         self,
@@ -1775,20 +1778,18 @@ class ChristofidesStrategy(OptimizationStrategy):
 
         for i, block in enumerate(blocks):
             dist_entrance = math.sqrt(
-                (block.entrance.x - origin[0]) ** 2
-                + (block.entrance.y - origin[1]) ** 2
+                (block.entrance.x - origin[0]) ** 2 + (block.entrance.y - origin[1]) ** 2
             )
             candidates.append((dist_entrance, ((block.entrance.x, block.entrance.y), i, False)))
 
-            dist_exit = math.sqrt(
-                (block.exit.x - origin[0]) ** 2
-                + (block.exit.y - origin[1]) ** 2
-            )
+            dist_exit = math.sqrt((block.exit.x - origin[0]) ** 2 + (block.exit.y - origin[1]) ** 2)
             candidates.append((dist_exit, ((block.exit.x, block.exit.y), i, True)))
 
         # Sort by distance descending to get farthest first
         candidates.sort(key=lambda x: x[0], reverse=True)
-        return [(pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]]
+        return [
+            (pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]
+        ]
 
     def _build_mst_prim(
         self,
@@ -1817,6 +1818,7 @@ class ChristofidesStrategy(OptimizationStrategy):
                 heap.append((dist, start_vertex, vid))
 
         import heapq
+
         heapq.heapify(heap)
 
         while heap and len(in_mst) < len(vertices):
@@ -1926,7 +1928,7 @@ class ChristofidesStrategy(OptimizationStrategy):
             remaining.remove(u)
 
             best_v = -1
-            best_dist = float('inf')
+            best_dist = float("inf")
 
             for v in remaining:
                 dist = self._vertex_distance(vertices[u], vertices[v])
@@ -2039,9 +2041,7 @@ class ChristofidesStrategy(OptimizationStrategy):
             if prev_vertex is None:
                 # First real block after S: determine direction based on entry from S
                 # If we enter at an exit point (is_exit=True), reverse the traversal
-                should_reverse = self._determine_reversal_for_first_block(
-                    vid, blocks
-                )
+                should_reverse = self._determine_reversal_for_first_block(vid, blocks)
             else:
                 _, _, prev_block_idx, _ = self._get_vertex_info_st(prev_vertex, blocks)
 
@@ -2208,8 +2208,7 @@ class ChristofidesStrategy(OptimizationStrategy):
             + (first_block.entrance.y - start_point[1]) ** 2
         )
         dist_to_exit_first = math.sqrt(
-            (first_block.exit.x - start_point[0]) ** 2
-            + (first_block.exit.y - start_point[1]) ** 2
+            (first_block.exit.x - start_point[0]) ** 2 + (first_block.exit.y - start_point[1]) ** 2
         )
 
         # Choose the entry point that is closer to start_point
@@ -2248,8 +2247,7 @@ class ChristofidesStrategy(OptimizationStrategy):
                     + (block.entrance.y - entry_point[1]) ** 2
                 )
                 dist_to_exit = math.sqrt(
-                    (block.exit.x - entry_point[0]) ** 2
-                    + (block.exit.y - entry_point[1]) ** 2
+                    (block.exit.x - entry_point[0]) ** 2 + (block.exit.y - entry_point[1]) ** 2
                 )
 
                 if dist_to_entrance <= dist_to_exit:
@@ -2380,9 +2378,14 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
         for start_pos, _first_block_idx, _start_at_exit, _dist in candidates:
             candidate_result = self._optimize_from_start(blocks, start_pos)
 
-            if best_result is None or candidate_result.total_travel_distance < best_result.total_travel_distance:
+            if (
+                best_result is None
+                or candidate_result.total_travel_distance < best_result.total_travel_distance
+            ):
                 best_result = candidate_result
-                self._logger.debug(f"New best: distance={candidate_result.total_travel_distance:.3f} from start at {start_pos}")
+                self._logger.debug(
+                    f"New best: distance={candidate_result.total_travel_distance:.3f} from start at {start_pos}"
+                )
 
         return best_result  # type: ignore[return-value]
 
@@ -2472,7 +2475,7 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
 
         while unvisited:
             best_block_idx = -1
-            best_cost = float('inf')
+            best_cost = float("inf")
             best_reversed = False
 
             for block_idx in unvisited:
@@ -2554,6 +2557,7 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
             New traverse order as a neighbor of the input.
         """
         import random
+
         new_tour = list(tour)
 
         if len(new_tour) < 2:
@@ -2585,6 +2589,7 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
             True if the worse solution should be accepted, False otherwise.
         """
         import random
+
         if temperature <= 0:
             return False
         probability = math.exp(-delta / temperature)
@@ -2607,12 +2612,10 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
         block = blocks[0]
 
         cost_to_entrance = math.sqrt(
-            (block.entrance.x - start_pos[0]) ** 2
-            + (block.entrance.y - start_pos[1]) ** 2
+            (block.entrance.x - start_pos[0]) ** 2 + (block.entrance.y - start_pos[1]) ** 2
         )
         cost_to_exit = math.sqrt(
-            (block.exit.x - start_pos[0]) ** 2
-            + (block.exit.y - start_pos[1]) ** 2
+            (block.exit.x - start_pos[0]) ** 2 + (block.exit.y - start_pos[1]) ** 2
         )
 
         if cost_to_entrance <= cost_to_exit:
@@ -2657,15 +2660,14 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
             - block_index: index of the block containing this endpoint
             - is_exit: True if nearest position is block's exit (needs reversal)
         """
-        min_dist = float('inf')
+        min_dist = float("inf")
         best_pos: tuple[float, float] = (0.0, 0.0)
         best_idx = 0
         best_is_exit = False
 
         for i, block in enumerate(blocks):
             dist_entrance = math.sqrt(
-                (block.entrance.x - origin[0]) ** 2
-                + (block.entrance.y - origin[1]) ** 2
+                (block.entrance.x - origin[0]) ** 2 + (block.entrance.y - origin[1]) ** 2
             )
             if dist_entrance < min_dist:
                 min_dist = dist_entrance
@@ -2673,10 +2675,7 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
                 best_idx = i
                 best_is_exit = False
 
-            dist_exit = math.sqrt(
-                (block.exit.x - origin[0]) ** 2
-                + (block.exit.y - origin[1]) ** 2
-            )
+            dist_exit = math.sqrt((block.exit.x - origin[0]) ** 2 + (block.exit.y - origin[1]) ** 2)
             if dist_exit < min_dist:
                 min_dist = dist_exit
                 best_pos = (block.exit.x, block.exit.y)
@@ -2712,19 +2711,17 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
 
         for i, block in enumerate(blocks):
             dist_entrance = math.sqrt(
-                (block.entrance.x - origin[0]) ** 2
-                + (block.entrance.y - origin[1]) ** 2
+                (block.entrance.x - origin[0]) ** 2 + (block.entrance.y - origin[1]) ** 2
             )
             candidates.append((dist_entrance, ((block.entrance.x, block.entrance.y), i, False)))
 
-            dist_exit = math.sqrt(
-                (block.exit.x - origin[0]) ** 2
-                + (block.exit.y - origin[1]) ** 2
-            )
+            dist_exit = math.sqrt((block.exit.x - origin[0]) ** 2 + (block.exit.y - origin[1]) ** 2)
             candidates.append((dist_exit, ((block.exit.x, block.exit.y), i, True)))
 
         candidates.sort(key=lambda x: x[0])
-        return [(pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]]
+        return [
+            (pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]
+        ]
 
     def _find_farthest_origin_endpoints(
         self,
@@ -2753,20 +2750,18 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
 
         for i, block in enumerate(blocks):
             dist_entrance = math.sqrt(
-                (block.entrance.x - origin[0]) ** 2
-                + (block.entrance.y - origin[1]) ** 2
+                (block.entrance.x - origin[0]) ** 2 + (block.entrance.y - origin[1]) ** 2
             )
             candidates.append((dist_entrance, ((block.entrance.x, block.entrance.y), i, False)))
 
-            dist_exit = math.sqrt(
-                (block.exit.x - origin[0]) ** 2
-                + (block.exit.y - origin[1]) ** 2
-            )
+            dist_exit = math.sqrt((block.exit.x - origin[0]) ** 2 + (block.exit.y - origin[1]) ** 2)
             candidates.append((dist_exit, ((block.exit.x, block.exit.y), i, True)))
 
         # Sort by distance descending to get farthest first
         candidates.sort(key=lambda x: x[0], reverse=True)
-        return [(pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]]
+        return [
+            (pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]
+        ]
 
 
 class GeneticAlgorithmStrategy(OptimizationStrategy):
@@ -2874,9 +2869,14 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         for start_pos, _first_block_idx, _start_at_exit, _dist in candidates:
             candidate_result = self._optimize_from_start(blocks, start_pos)
 
-            if best_result is None or candidate_result.total_travel_distance < best_result.total_travel_distance:
+            if (
+                best_result is None
+                or candidate_result.total_travel_distance < best_result.total_travel_distance
+            ):
                 best_result = candidate_result
-                self._logger.debug(f"New best: distance={candidate_result.total_travel_distance:.3f} from start at {start_pos}")
+                self._logger.debug(
+                    f"New best: distance={candidate_result.total_travel_distance:.3f} from start at {start_pos}"
+                )
 
         return best_result  # type: ignore[return-value]
 
@@ -2911,10 +2911,12 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         population = self._initialize_population(blocks, start_pos)
 
         best_chromosome: list[int] | None = None
-        best_fitness = float('inf')
+        best_fitness = float("inf")
 
         for generation in range(self._generations):
-            fitness_scores = [(chrom, self._calculate_fitness(chrom, blocks, start_pos)) for chrom in population]
+            fitness_scores = [
+                (chrom, self._calculate_fitness(chrom, blocks, start_pos)) for chrom in population
+            ]
 
             fitness_scores.sort(key=lambda x: x[1])
 
@@ -2942,10 +2944,12 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
                 idx = generation % len(population)
                 new_population.append(list(population[idx]))
 
-            population = new_population[:self._population_size]
+            population = new_population[: self._population_size]
 
         if best_chromosome is None and population:
-            best_chromosome = min(population, key=lambda c: self._calculate_fitness(c, blocks, start_pos))
+            best_chromosome = min(
+                population, key=lambda c: self._calculate_fitness(c, blocks, start_pos)
+            )
 
         # At this point best_chromosome should be valid since we have blocks to optimize
         assert best_chromosome is not None, "Genetic algorithm failed to produce a valid chromosome"
@@ -3006,8 +3010,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
                     + (block.entrance.y - current_pos[1]) ** 2
                 )
                 dist_to_exit = math.sqrt(
-                    (block.exit.x - current_pos[0]) ** 2
-                    + (block.exit.y - current_pos[1]) ** 2
+                    (block.exit.x - current_pos[0]) ** 2 + (block.exit.y - current_pos[1]) ** 2
                 )
 
                 if dist_to_entrance <= dist_to_exit:
@@ -3019,7 +3022,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
             population.append(chromosome)
 
-        return population[:self._population_size]
+        return population[: self._population_size]
 
     def _find_nearest_origin_endpoints(
         self,
@@ -3048,19 +3051,17 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
         for i, block in enumerate(blocks):
             dist_entrance = math.sqrt(
-                (block.entrance.x - origin[0]) ** 2
-                + (block.entrance.y - origin[1]) ** 2
+                (block.entrance.x - origin[0]) ** 2 + (block.entrance.y - origin[1]) ** 2
             )
             candidates.append((dist_entrance, ((block.entrance.x, block.entrance.y), i, False)))
 
-            dist_exit = math.sqrt(
-                (block.exit.x - origin[0]) ** 2
-                + (block.exit.y - origin[1]) ** 2
-            )
+            dist_exit = math.sqrt((block.exit.x - origin[0]) ** 2 + (block.exit.y - origin[1]) ** 2)
             candidates.append((dist_exit, ((block.exit.x, block.exit.y), i, True)))
 
         candidates.sort(key=lambda x: x[0])
-        return [(pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]]
+        return [
+            (pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]
+        ]
 
     def _find_farthest_origin_endpoints(
         self,
@@ -3089,20 +3090,18 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
         for i, block in enumerate(blocks):
             dist_entrance = math.sqrt(
-                (block.entrance.x - origin[0]) ** 2
-                + (block.entrance.y - origin[1]) ** 2
+                (block.entrance.x - origin[0]) ** 2 + (block.entrance.y - origin[1]) ** 2
             )
             candidates.append((dist_entrance, ((block.entrance.x, block.entrance.y), i, False)))
 
-            dist_exit = math.sqrt(
-                (block.exit.x - origin[0]) ** 2
-                + (block.exit.y - origin[1]) ** 2
-            )
+            dist_exit = math.sqrt((block.exit.x - origin[0]) ** 2 + (block.exit.y - origin[1]) ** 2)
             candidates.append((dist_exit, ((block.exit.x, block.exit.y), i, True)))
 
         # Sort by distance descending to get farthest first
         candidates.sort(key=lambda x: x[0], reverse=True)
-        return [(pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]]
+        return [
+            (pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]
+        ]
 
     def _calculate_fitness(
         self,
@@ -3138,8 +3137,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
             entry_point = exit_coord if reversed_flag else entrance
 
             dist = math.sqrt(
-                (entry_point[0] - current_pos[0]) ** 2
-                + (entry_point[1] - current_pos[1]) ** 2
+                (entry_point[0] - current_pos[0]) ** 2 + (entry_point[1] - current_pos[1]) ** 2
             )
             total_distance += dist
 
@@ -3170,7 +3168,9 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         if not population:
             return []
 
-        tournament_indices = random.sample(range(len(population)), min(self._tournament_size, len(population)))
+        tournament_indices = random.sample(
+            range(len(population)), min(self._tournament_size, len(population))
+        )
 
         best_idx = tournament_indices[0]
         best_fitness = self._calculate_fitness(population[best_idx], blocks, start_pos)
@@ -3265,9 +3265,9 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         mutated = list(chromosome)
 
         if random.random() < self._mutation_rate:
-            mutation_type = random.choice(['swap', 'inversion'])
+            mutation_type = random.choice(["swap", "inversion"])
 
-            if mutation_type == 'swap':
+            if mutation_type == "swap":
                 idx1 = random.randint(0, len(mutated) - 1)
                 idx2 = random.randint(0, len(mutated) - 1)
                 mutated[idx1], mutated[idx2] = mutated[idx2], mutated[idx1]
@@ -3348,7 +3348,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
         while unvisited:
             best_block_idx = -1
-            best_cost = float('inf')
+            best_cost = float("inf")
             best_reversed = False
 
             for block_idx in unvisited:
@@ -3432,28 +3432,30 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
                 prev_exit = optimized[-1].exit
 
             dist_to_entrance = math.sqrt(
-                (block.entrance.x - prev_exit[0]) ** 2
-                + (block.entrance.y - prev_exit[1]) ** 2
+                (block.entrance.x - prev_exit[0]) ** 2 + (block.entrance.y - prev_exit[1]) ** 2
             )
             dist_to_exit = math.sqrt(
-                (block.exit.x - prev_exit[0]) ** 2
-                + (block.exit.y - prev_exit[1]) ** 2
+                (block.exit.x - prev_exit[0]) ** 2 + (block.exit.y - prev_exit[1]) ** 2
             )
 
             if dist_to_entrance <= dist_to_exit:
-                optimized.append(BlockTraverseState(
-                    block_id=block.block_id,
-                    reversed=False,
-                    entrance=(block.entrance.x, block.entrance.y),
-                    exit=(block.exit.x, block.exit.y),
-                ))
+                optimized.append(
+                    BlockTraverseState(
+                        block_id=block.block_id,
+                        reversed=False,
+                        entrance=(block.entrance.x, block.entrance.y),
+                        exit=(block.exit.x, block.exit.y),
+                    )
+                )
             else:
-                optimized.append(BlockTraverseState(
-                    block_id=block.block_id,
-                    reversed=True,
-                    entrance=(block.exit.x, block.exit.y),
-                    exit=(block.entrance.x, block.entrance.y),
-                ))
+                optimized.append(
+                    BlockTraverseState(
+                        block_id=block.block_id,
+                        reversed=True,
+                        entrance=(block.exit.x, block.exit.y),
+                        exit=(block.entrance.x, block.entrance.y),
+                    )
+                )
 
         return optimized
 
@@ -3487,7 +3489,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
                 for j in range(i + 2, len(tour)):
                     if self._two_opt_swap_improves(tour, blocks, i, j):
                         # Perform the swap by reversing segment [i+1, j]
-                        tour[i + 1:j + 1] = list(reversed(tour[i + 1:j + 1]))
+                        tour[i + 1 : j + 1] = list(reversed(tour[i + 1 : j + 1]))
                         improved = True
 
         self._logger.debug(f"2-opt completed in {iterations} iterations")
@@ -3598,12 +3600,10 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         block = blocks[0]
 
         cost_to_entrance = math.sqrt(
-            (block.entrance.x - start_pos[0]) ** 2
-            + (block.entrance.y - start_pos[1]) ** 2
+            (block.entrance.x - start_pos[0]) ** 2 + (block.entrance.y - start_pos[1]) ** 2
         )
         cost_to_exit = math.sqrt(
-            (block.exit.x - start_pos[0]) ** 2
-            + (block.exit.y - start_pos[1]) ** 2
+            (block.exit.x - start_pos[0]) ** 2 + (block.exit.y - start_pos[1]) ** 2
         )
 
         if cost_to_entrance <= cost_to_exit:
@@ -3648,15 +3648,14 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
             - block_index: index of the block containing this endpoint
             - is_exit: True if nearest position is block's exit (needs reversal)
         """
-        min_dist = float('inf')
+        min_dist = float("inf")
         best_pos: tuple[float, float] = (0.0, 0.0)
         best_idx = 0
         best_is_exit = False
 
         for i, block in enumerate(blocks):
             dist_entrance = math.sqrt(
-                (block.entrance.x - origin[0]) ** 2
-                + (block.entrance.y - origin[1]) ** 2
+                (block.entrance.x - origin[0]) ** 2 + (block.entrance.y - origin[1]) ** 2
             )
             if dist_entrance < min_dist:
                 min_dist = dist_entrance
@@ -3664,10 +3663,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
                 best_idx = i
                 best_is_exit = False
 
-            dist_exit = math.sqrt(
-                (block.exit.x - origin[0]) ** 2
-                + (block.exit.y - origin[1]) ** 2
-            )
+            dist_exit = math.sqrt((block.exit.x - origin[0]) ** 2 + (block.exit.y - origin[1]) ** 2)
             if dist_exit < min_dist:
                 min_dist = dist_exit
                 best_pos = (block.exit.x, block.exit.y)
@@ -3678,7 +3674,6 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
 
 class OptimizerEngine:
-
     def __init__(
         self,
         strategy: OptimizationStrategy | None = None,
@@ -3770,6 +3765,7 @@ class StrategyBenchmarkResult:
         execution_time_seconds: Time taken to execute this strategy.
         improvement_percent: Percent improvement over baseline (if baseline provided).
     """
+
     strategy_name: str
     result: OptimizationResult
     execution_time_seconds: float
@@ -3789,6 +3785,7 @@ class ParallelEnsembleOptimizationResult:
         all_benchmarks: Tuple of StrategyBenchmarkResult for all strategies run,
             sorted by improvement percent (best first).
     """
+
     result: OptimizationResult
     winner_name: str
     all_benchmarks: tuple[StrategyBenchmarkResult, ...]
@@ -4004,7 +4001,10 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
                     # Calculate improvement percent if baseline provided
                     if self._baseline_distance is not None and self._baseline_distance > 0:
                         pct_improvement = (
-                            (self._baseline_distance - benchmark_result.result.total_travel_distance)
+                            (
+                                self._baseline_distance
+                                - benchmark_result.result.total_travel_distance
+                            )
                             / self._baseline_distance
                             * 100
                         )
@@ -4021,20 +4021,26 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
                     # Select best result based on metric
                     if best_result is None:
                         best_result = benchmark_result
-                    elif self._baseline_distance is not None and best_result.improvement_percent is not None:
+                    elif (
+                        self._baseline_distance is not None
+                        and best_result.improvement_percent is not None
+                    ):
                         # Prefer higher improvement percent
-                        if (benchmark_result.improvement_percent or 0) > best_result.improvement_percent:
+                        if (
+                            benchmark_result.improvement_percent or 0
+                        ) > best_result.improvement_percent:
                             best_result = benchmark_result
                     else:
                         # Fall back to absolute distance minimization
-                        if benchmark_result.result.total_travel_distance < best_result.result.total_travel_distance:
+                        if (
+                            benchmark_result.result.total_travel_distance
+                            < best_result.result.total_travel_distance
+                        ):
                             best_result = benchmark_result
 
                 except Exception as e:
                     failed_strategies.append((strategy_name, str(e)))
-                    self._logger.warning(
-                        f"Strategy {strategy_name} failed: {e}"
-                    )
+                    self._logger.warning(f"Strategy {strategy_name} failed: {e}")
 
         if best_result is None:
             # All strategies failed - fall back to NoOp

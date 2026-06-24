@@ -76,10 +76,10 @@ class PLTParser:
     """
 
     # Pattern to split on semicolons (but keep the delimiter)
-    COMMAND_PATTERN = re.compile(r'([A-Z][A-Z0-9,.\-:]*?;)')
+    COMMAND_PATTERN = re.compile(r"([A-Z][A-Z0-9,.\-:]*?;)")
 
     # Pattern to match coordinate pairs
-    COORD_PATTERN = re.compile(r'^(-?\d+\.?\d*),(-?\d+\.?\d*)$')
+    COORD_PATTERN = re.compile(r"^(-?\d+\.?\d*),(-?\d+\.?\d*)$")
 
     def __init__(self) -> None:
         """Initialize the PLT parser."""
@@ -165,17 +165,19 @@ class PLTParser:
             cmd = token.rstrip(";")
             self._logger.debug(f"Processing command: {cmd}")
 
-            arc_cmd_match = re.match(r'^(AA|AR|CI)(.*)$', cmd)
+            arc_cmd_match = re.match(r"^(AA|AR|CI)(.*)$", cmd)
             if arc_cmd_match and last_position is not None:
                 arc_type = arc_cmd_match.group(1)
                 params_str = arc_cmd_match.group(2)
 
-                arc_segment, end_pos = self._parse_arc_command(
-                    arc_type, params_str, last_position
-                )
-                if arc_segment is not None and current_path is not None and pen_state == PenState.DOWN:
+                arc_segment, end_pos = self._parse_arc_command(arc_type, params_str, last_position)
+                if (
+                    arc_segment is not None
+                    and current_path is not None
+                    and pen_state == PenState.DOWN
+                ):
                     new_segments = current_path.segments + (arc_segment,)
-                    object.__setattr__(current_path, 'segments', new_segments)
+                    object.__setattr__(current_path, "segments", new_segments)
                     last_position = end_pos
 
                 i += 1
@@ -193,7 +195,7 @@ class PLTParser:
                 coords, next_i = self._extract_coordinates(cmd, i, tokens)
 
                 rest_after_pupd = cmd[2:] if len(cmd) > 2 else ""
-                arc_in_same_token = re.match(r'^(AA|AR|CI)(.*)$', rest_after_pupd)
+                arc_in_same_token = re.match(r"^(AA|AR|CI)(.*)$", rest_after_pupd)
 
                 for coord in coords:
                     if new_pen_state == PenState.DOWN and last_position is not None:
@@ -211,7 +213,7 @@ class PLTParser:
                             doc.stroke_paths.append(current_path)
                         else:
                             new_segments = current_path.segments + (segment,)
-                            object.__setattr__(current_path, 'segments', new_segments)
+                            object.__setattr__(current_path, "segments", new_segments)
 
                     last_position = coord
 
@@ -234,12 +236,17 @@ class PLTParser:
                             doc.stroke_paths.append(current_path)
                         elif pen_state == PenState.DOWN:
                             new_segments = current_path.segments + (arc_segment,)
-                            object.__setattr__(current_path, 'segments', new_segments)
+                            object.__setattr__(current_path, "segments", new_segments)
                         last_position = end_pos
 
-                elif not coords and not arc_in_same_token and last_position is not None and i < len(tokens):
+                elif (
+                    not coords
+                    and not arc_in_same_token
+                    and last_position is not None
+                    and i < len(tokens)
+                ):
                     next_token = tokens[i].rstrip(";")
-                    arc_match = re.match(r'^(AA|AR|CI)(.*)$', next_token)
+                    arc_match = re.match(r"^(AA|AR|CI)(.*)$", next_token)
                     if arc_match:
                         arc_type = arc_match.group(1)
                         params_str = arc_match.group(2)
@@ -256,7 +263,7 @@ class PLTParser:
                                 doc.stroke_paths.append(current_path)
                             elif pen_state == PenState.DOWN:
                                 new_segments = current_path.segments + (arc_segment,)
-                                object.__setattr__(current_path, 'segments', new_segments)
+                                object.__setattr__(current_path, "segments", new_segments)
                             last_position = end_pos
 
                         i += 1
@@ -372,7 +379,8 @@ class PLTParser:
 
         # Extract just the instruction mnemonic (letters only at start)
         import re
-        match = re.match(r'^([A-Z]+)', cmd)
+
+        match = re.match(r"^([A-Z]+)", cmd)
         if not match:
             return False
         base_cmd = match.group(1)
@@ -485,7 +493,7 @@ class PLTParser:
                             "Invalid coordinate format",
                             token=rest,
                         ) from e
-                    rest = rest[coord_match.end():]
+                    rest = rest[coord_match.end() :]
                     if rest.startswith(","):
                         rest = rest[1:]
                     continue

@@ -86,35 +86,33 @@ class SettingsWindow:
         row = 2
 
         # Watch Directory
-        ttk.Label(dir_section, text="Watch Directory:").grid(
-            row=row, column=0, sticky="w", pady=5
-        )
+        ttk.Label(dir_section, text="Watch Directory:").grid(row=row, column=0, sticky="w", pady=5)
         self._watch_dir_var = tk.StringVar()
         watch_entry = ttk.Entry(dir_section, textvariable=self._watch_dir_var, width=40)
         watch_entry.grid(row=row, column=1, sticky="ew", padx=(5, 0), pady=5)
         ttk.Button(
-            dir_section, text="Browse...", command=lambda: self._browse_directory(self._watch_dir_var)
+            dir_section,
+            text="Browse...",
+            command=lambda: self._browse_directory(self._watch_dir_var),
         ).grid(row=row, column=2, pady=5)
 
         row += 1
 
         # Output Directory
-        ttk.Label(dir_section, text="Output Directory:").grid(
-            row=row, column=0, sticky="w", pady=5
-        )
+        ttk.Label(dir_section, text="Output Directory:").grid(row=row, column=0, sticky="w", pady=5)
         self._output_dir_var = tk.StringVar()
         output_entry = ttk.Entry(dir_section, textvariable=self._output_dir_var, width=40)
         output_entry.grid(row=row, column=1, sticky="ew", padx=(5, 0), pady=5)
         ttk.Button(
-            dir_section, text="Browse...", command=lambda: self._browse_directory(self._output_dir_var)
+            dir_section,
+            text="Browse...",
+            command=lambda: self._browse_directory(self._output_dir_var),
         ).grid(row=row, column=2, pady=5)
 
         row += 1
 
         # Log Directory
-        ttk.Label(dir_section, text="Log Directory:").grid(
-            row=row, column=0, sticky="w", pady=5
-        )
+        ttk.Label(dir_section, text="Log Directory:").grid(row=row, column=0, sticky="w", pady=5)
         self._log_dir_var = tk.StringVar()
         log_entry = ttk.Entry(dir_section, textvariable=self._log_dir_var, width=40)
         log_entry.grid(row=row, column=1, sticky="ew", padx=(5, 0), pady=5)
@@ -135,9 +133,9 @@ class SettingsWindow:
         def clear_processed() -> None:
             self._processed_dir_var.set("")
 
-        ttk.Button(
-            dir_section, text="Clear", command=clear_processed
-        ).grid(row=row, column=2, pady=5)
+        ttk.Button(dir_section, text="Clear", command=clear_processed).grid(
+            row=row, column=2, pady=5
+        )
 
         # Optimization settings section
         opt_section = ttk.LabelFrame(main_frame, text="Optimization Options", padding="10")
@@ -176,12 +174,8 @@ class SettingsWindow:
         button_frame = ttk.Frame(main_frame)
         button_frame.grid(row=5, column=0, columnspan=3, pady=(20, 0))
 
-        ttk.Button(button_frame, text="Save", command=self._on_save).pack(
-            side=tk.LEFT, padx=5
-        )
-        ttk.Button(button_frame, text="Cancel", command=self._on_cancel).pack(
-            side=tk.LEFT, padx=5
-        )
+        ttk.Button(button_frame, text="Save", command=self._on_save).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Cancel", command=self._on_cancel).pack(side=tk.LEFT, padx=5)
 
     def _browse_directory(self, var: tk.StringVar) -> None:
         """Open a directory browser dialog and update the given variable.
@@ -204,9 +198,7 @@ class SettingsWindow:
     def _load_current_values(self) -> None:
         """Load current configuration values into UI fields."""
         self._watch_dir_var.set(self._config.get("watch_dir", ""))
-        self._output_dir_var.set(
-            self._config.get("output_dir", "./optimized")
-        )
+        self._output_dir_var.set(self._config.get("output_dir", "./optimized"))
         self._log_dir_var.set(self._config.get("log_dir", "./logs"))
 
         processed = self._config.get("processed_dir")
@@ -214,9 +206,7 @@ class SettingsWindow:
             self._processed_dir_var.set(str(processed))
 
         self._fast_mode_var.set(bool(self._config.get("fast_mode", False)))
-        self._debug_save_files_var.set(
-            bool(self._config.get("debug_save_files", False))
-        )
+        self._debug_save_files_var.set(bool(self._config.get("debug_save_files", False)))
 
     def _validate_inputs(self) -> bool:
         """Validate user inputs before saving.
@@ -255,8 +245,7 @@ class SettingsWindow:
         if not Path(watch_dir).exists():
             result = messagebox.askyesno(
                 "Directory Not Found",
-                f"Watch directory '{watch_dir}' does not exist.\n\n"
-                "Create it now?",
+                f"Watch directory '{watch_dir}' does not exist.\n\nCreate it now?",
                 parent=self._root,
             )
             if result:

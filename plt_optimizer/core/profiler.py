@@ -33,6 +33,7 @@ class Extent:
         dx: Width (absolute difference in X coordinates).
         dy: Height (absolute difference in Y coordinates).
     """
+
     dx: float
     dy: float
 
@@ -120,9 +121,7 @@ class Profiler:
 
         # Structural composition: Check if paths match structural fingerprints
         if total_paths > 0:
-            structural_path_count = sum(
-                1 for p in valid_paths if self._is_structural_path(p)
-            )
+            structural_path_count = sum(1 for p in valid_paths if self._is_structural_path(p))
             structural_ratio = structural_path_count / total_paths
 
             # If more than 85% of paths are purely structural features, flag as structural.
@@ -248,9 +247,7 @@ class Profiler:
         if isinstance(first_seg, StrokeSegment) and isinstance(last_seg, StrokeSegment):
             loop_closed = math.isclose(
                 first_seg.start.x, last_seg.end.x, abs_tol=COORD_TOLERANCE
-            ) and math.isclose(
-                first_seg.start.y, last_seg.end.y, abs_tol=COORD_TOLERANCE
-            )
+            ) and math.isclose(first_seg.start.y, last_seg.end.y, abs_tol=COORD_TOLERANCE)
 
             if loop_closed:
                 # Check 4: Segment length analysis - structural paths have long segments
@@ -342,6 +339,7 @@ class ProfileResult:
             - Closed loop detection (rectangles, boundaries) with segment length ratio
             - Pure linear paths with high average segment to bounding box ratio
     """
+
     baseline_extent: float
     median_dx: float
     median_dy: float

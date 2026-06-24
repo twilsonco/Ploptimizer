@@ -14,7 +14,9 @@ from pathlib import Path
 _WINSHELL_AVAILABLE: bool = (
     sys.platform == "win32" and importlib.util.find_spec("winshell") is not None
 )
-_PYWIN32_AVAILABLE: bool = sys.platform == "win32" and importlib.util.find_spec("win32com.client") is not None
+_PYWIN32_AVAILABLE: bool = (
+    sys.platform == "win32" and importlib.util.find_spec("win32com.client") is not None
+)
 
 # Shortcut filename without extension
 APP_NAME = "PLT-Optimizer"
@@ -36,7 +38,16 @@ def get_startup_folder() -> Path | None:
         return Path(startup)
     except Exception:
         # Fallback for environments where winshell isn't available
-        fallback = Path.home() / "AppData" / "Roaming" / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+        fallback = (
+            Path.home()
+            / "AppData"
+            / "Roaming"
+            / "Microsoft"
+            / "Windows"
+            / "Start Menu"
+            / "Programs"
+            / "Startup"
+        )
         return fallback
 
 
@@ -59,6 +70,7 @@ def get_executable_path() -> Path | None:
 
             # Fallback to any pythonw in PATH
             import shutil
+
             pythonw = shutil.which("pythonw.exe")
             if pythonw:
                 return Path(pythonw)
@@ -100,7 +112,9 @@ def create_shortcut(
         shell = Dispatch("WScript.Shell")
         shortcut = shell.CreateShortcut(str(shortcut_path))
         shortcut.TargetPath = str(target_path)
-        shortcut.WorkingDirectory = str(target_path.parent if target_path.parent.exists() else Path.cwd())
+        shortcut.WorkingDirectory = str(
+            target_path.parent if target_path.parent.exists() else Path.cwd()
+        )
         shortcut.WindowStyle = 7  # Minimized (start in background)
         shortcut.Description = "PLT-Optimizer - HPGL/PLT File Optimization"
         shortcut.Save()
@@ -109,10 +123,12 @@ def create_shortcut(
     except ImportError:
         # winshell or pywin32 not available
         import logging
+
         logging.warning("winshell or pywin32 not available for shortcut creation")
         return None
     except Exception as e:
         import logging
+
         logging.error(f"Failed to create startup shortcut: {e}")
         return None
 
@@ -141,6 +157,7 @@ def remove_shortcut(shortcut_name: str = APP_NAME) -> bool:
         return True
     except OSError as e:
         import logging
+
         logging.error(f"Failed to remove startup shortcut: {e}")
         return False
 
