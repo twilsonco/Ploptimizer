@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Optional
 
 from plt_optimizer.core.models import Coordinate, Segment, StrokePath
 from plt_optimizer.utils.logging import get_text_logger
@@ -113,7 +114,7 @@ class Chunker:
         >>> blocks = chunker.chunk(doc.stroke_paths, profile.baseline_extent)
     """
 
-    def __init__(self, config: ChunkerConfig | None = None) -> None:
+    def __init__(self, config: Optional[ChunkerConfig] = None) -> None:
         """Initialize the Chunker.
 
         Args:
@@ -299,7 +300,7 @@ class LinearChunker(Chunker):
     horizontal nature of text entry.
     """
 
-    def __init__(self, config: ChunkerConfig | None = None) -> None:
+    def __init__(self, config: Optional[ChunkerConfig] = None) -> None:
         """Initialize the LinearChunker.
 
         Args:

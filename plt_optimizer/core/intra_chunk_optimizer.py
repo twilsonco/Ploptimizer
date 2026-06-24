@@ -13,6 +13,7 @@ from __future__ import annotations
 import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Optional
 
 from plt_optimizer.core.chunker import MacroBlock
 from plt_optimizer.core.models import Coordinate, StrokePath
@@ -271,9 +272,6 @@ class NearestNeighborIntraStrategy(IntraChunkStrategy):
 
         entrance = first_seg.start
         exit_coord = last_seg.end
-
-        if isinstance(path.segments[0], type(first_seg)):
-            pass
 
         return (entrance, exit_coord)
 
@@ -581,7 +579,7 @@ class IntraChunkOptimizer:
 
     def __init__(
         self,
-        strategy: IntraChunkStrategy | None = None,
+        strategy: Optional[IntraChunkStrategy] = None,
     ) -> None:
         """Initialize the intra-chunk optimizer.
 
