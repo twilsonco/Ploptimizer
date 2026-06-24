@@ -10,10 +10,7 @@ from __future__ import annotations
 import math
 import statistics
 from dataclasses import dataclass
-from typing import Sequence
-
-# Tolerance for floating-point coordinate comparisons (3 decimal places = 0.001)
-COORD_TOLERANCE = 1e-3
+from typing import Protocol, Sequence
 
 from plt_optimizer.core.models import (
     ArcSegment,
@@ -22,6 +19,10 @@ from plt_optimizer.core.models import (
     _segment_length,
 )
 from plt_optimizer.utils.logging import get_text_logger
+
+
+# Tolerance for floating-point coordinate comparisons (3 decimal places = 0.001)
+COORD_TOLERANCE = 1e-3
 
 
 @dataclass(frozen=True)
@@ -237,7 +238,7 @@ class Profiler:
 
         if len(arcs) == 4 and all(abs(a.sweep_angle) == 90.0 for a in arcs):
             # Verify any straight lines are just zero-length plunge points
-            if all(math.isclose(l.length, 0.0, abs_tol=1e-3) for l in lines):
+            if all(math.isclose(line.length, 0.0, abs_tol=1e-3) for line in lines):
                 return True
 
         # Check 3: Closed loop detection - first segment start matches last segment end
@@ -347,10 +348,6 @@ class ProfileResult:
     total_strokes: int
     p95_index: int
     is_structural: bool
-
-
-# Protocol for type-safe access to stroke_paths without importing concrete types
-from typing import Protocol
 
 
 class StrokePathsProtocol(Protocol):
