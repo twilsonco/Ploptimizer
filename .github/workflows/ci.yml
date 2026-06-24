@@ -22,6 +22,9 @@ jobs:
       - name: Install uv
         run: pip install uv
 
+      - name: Install dependencies
+        run: uv sync --extra dev
+
       - name: Lint with ruff
         run: uv run ruff check plt_optimizer/
 
@@ -38,6 +41,9 @@ jobs:
 
       - name: Install uv
         run: pip install uv
+
+      - name: Install dependencies
+        run: uv sync --extra dev
 
       - name: Type check with mypy
         run: uv run mypy plt_optimizer/
@@ -57,7 +63,7 @@ jobs:
         run: pip install uv
 
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra plotting
 
       - name: Run tests
         run: uv run pytest tests/ -v --cov=plt_optimizer --cov-report=xml
