@@ -1807,7 +1807,7 @@ class ChristofidesStrategy(OptimizationStrategy):
         if not vertices:
             return []
 
-        in_mst = set([start_vertex])
+        in_mst = {start_vertex}
         mst_edges: list[tuple[int, int]] = []
         heap: list[tuple[float, int, int]] = []
 

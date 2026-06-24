@@ -773,7 +773,7 @@ Examples:
                     raise ValueError(
                         f"Cannot create path '{path}': "
                         f"parent directory '{parent}' is not writable: {e}"
-                    )
+                    ) from e
                 # Parent is writable, so we can create children
                 return
             # Parent doesn't exist, continue checking grandparents
