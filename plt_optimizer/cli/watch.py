@@ -591,10 +591,8 @@ def run_watcher_from_config(
                 if handler._should_process(path):
                     handler._mark_processed(path)
                     # Wrap _process_file to capture success/error callbacks
-                    original_process = handler._process_file
-
                     def wrapped_process(input_path: Path) -> bool:
-                        result = original_process(input_path)
+                        result = handler._process_file(input_path)
                         return result
 
                     if handler._process_file(path):
