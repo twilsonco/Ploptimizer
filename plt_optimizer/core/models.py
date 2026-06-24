@@ -59,7 +59,7 @@ class Coordinate:
         dy = self.y - other.y
         return (dx * dx + dy * dy) ** 0.5
 
-    def as_tuple(self) -> Tuple[float, float]:
+    def as_tuple(self) -> tuple[float, float]:
         """Return coordinate as a tuple of (x, y)."""
         return (self.x, self.y)
 
@@ -76,7 +76,7 @@ class HeaderCommand:
         parameters: Optional tuple of numeric parameters for the command.
     """
     instruction: str
-    parameters: Tuple[float, ...] | None = None
+    parameters: tuple[float, ...] | None = None
 
     def __post_init__(self) -> None:
         """Round any floating point parameters to 3 decimal places."""
@@ -121,7 +121,7 @@ class HeaderCommand:
             if match:
                 instr = match.group(1)
                 param_str = match.group(2)
-                params: Tuple[float, ...] | None = None
+                params: tuple[float, ...] | None = None
                 if param_str:
                     params = tuple(float(p) for p in param_str.split(","))
             else:
@@ -199,7 +199,7 @@ class StrokePath:
         segments: Ordered tuple of stroke segments (line and/or arc).
     """
     pen_up_position: Coordinate | None = None
-    segments: Tuple[Segment, ...] = field(default_factory=tuple)
+    segments: tuple[Segment, ...] = field(default_factory=tuple)
 
     @property
     def is_empty(self) -> bool:
@@ -273,9 +273,9 @@ class PLTDocument:
         stroke_paths: Ordered list of stroke paths.
         footer_commands: Ordered list of footer/finalization commands.
     """
-    header_commands: List[HeaderCommand] = field(default_factory=list)
-    stroke_paths: List[StrokePath] = field(default_factory=list)
-    footer_commands: List[FooterCommand] = field(default_factory=list)
+    header_commands: list[HeaderCommand] = field(default_factory=list)
+    stroke_paths: list[StrokePath] = field(default_factory=list)
+    footer_commands: list[FooterCommand] = field(default_factory=list)
 
     def total_distance(self) -> float:
         """Calculate the sum of all cutting distances across all paths."""

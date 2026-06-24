@@ -176,7 +176,7 @@ class Profiler:
 
         return result
 
-    def _calculate_all_extents(self, document: StrokePathsProtocol) -> List[Extent]:
+    def _calculate_all_extents(self, document: StrokePathsProtocol) -> list[Extent]:
         """Calculate bounding box extents for all cutting strokes.
 
         Args:
@@ -185,7 +185,7 @@ class Profiler:
         Returns:
             List of Extent objects for each cutting segment.
         """
-        extents: List[Extent] = []
+        extents: list[Extent] = []
 
         for path in document.stroke_paths:
             for segment in path.segments:

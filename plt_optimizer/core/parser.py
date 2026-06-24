@@ -141,7 +141,7 @@ class PLTParser:
             token = match.group(1)
             yield token
 
-    def _build_document(self, tokens: List[str]) -> PLTDocument:
+    def _build_document(self, tokens: list[str]) -> PLTDocument:
         """Build a PLTDocument from parsed tokens.
 
         Args:
@@ -388,7 +388,7 @@ class PLTParser:
         arc_type: str,
         params_str: str,
         start_pos: Coordinate,
-    ) -> Tuple[ArcSegment | None, Coordinate | None]:
+    ) -> tuple[ArcSegment | None, Coordinate | None]:
         """Parse an AA/AR/CI arc command and compute the end position.
 
         Args:
@@ -449,8 +449,8 @@ class PLTParser:
         self,
         cmd: str,
         token_index: int,
-        tokens: List[str],
-    ) -> Tuple[List[Coordinate], int]:
+        tokens: list[str],
+    ) -> tuple[list[Coordinate], int]:
         """Extract coordinate pairs from a command and subsequent tokens.
 
         Args:
@@ -461,7 +461,7 @@ class PLTParser:
         Returns:
             Tuple of (list of Coordinates, index of next unprocessed token).
         """
-        coords: List[Coordinate] = []
+        coords: list[Coordinate] = []
         i = token_index
         current_token = cmd
 
