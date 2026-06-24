@@ -122,7 +122,7 @@ class PLTWriter:
         Returns:
             Formatted HPGL/PLT command string.
         """
-        parts: List[str] = []
+        parts: list[str] = []
 
         # Write header commands in sequence
         for header in document.header_commands:
@@ -181,7 +181,7 @@ class PLTWriter:
         self,
         path: StrokePath,
         current_pos: Coordinate | None = None,
-    ) -> Tuple[str, Coordinate | None]:
+    ) -> tuple[str, Coordinate | None]:
         """Format a stroke path as PU/PD commands with segment-level state tracking.
 
         Args:
@@ -194,7 +194,7 @@ class PLTWriter:
         if path.is_empty:
             return "", current_pos
 
-        parts: List[str] = []
+        parts: list[str] = []
 
         # Handle explicit pen_up_position for the initial move into this path
         first_segment_start = path.segments[0].start
@@ -279,7 +279,7 @@ class PLTWriter:
         self,
         original: PLTDocument,
         output: str,
-    ) -> Tuple[bool, List[str]]:
+    ) -> tuple[bool, list[str]]:
         """Validate that generated output matches the original document.
 
         This method performs a round-trip validation by:
@@ -293,7 +293,7 @@ class PLTWriter:
         Returns:
             Tuple of (is_valid, list_of_error_messages).
         """
-        errors: List[str] = []
+        errors: list[str] = []
 
         try:
             # Re-parse the output
@@ -329,7 +329,7 @@ class PLTWriter:
         self,
         original_file_path: Path,
         output_content: str,
-    ) -> Tuple[bool, List[str]]:
+    ) -> tuple[bool, list[str]]:
         """Validate generated HPGL content against the original file.
 
         This performs detailed comparison of HPGL command counts and sequences
@@ -342,8 +342,8 @@ class PLTWriter:
         Returns:
             Tuple of (is_valid, list_of_error_messages).
         """
-        errors: List[str] = []
-        warnings: List[str] = []
+        errors: list[str] = []
+        warnings: list[str] = []
 
         # Command pattern for tokenization
         COMMAND_PATTERN = re.compile(r'([A-Z][A-Z0-9,.\-:]*?;)')
@@ -392,7 +392,7 @@ class PLTWriter:
         missing_pus = orig_pu_set - opt_pu_set
         if missing_pus:
             # Group by coordinate pattern to summarize
-            coord_issues: Dict[str, int] = {}
+            coord_issues: dict[str, int] = {}
             for pu in missing_pus:
                 # Extract coordinates
                 match = re.match(r'PU(-?\d+\.\d+),(-?\d+\.\d+);', pu)

@@ -116,7 +116,7 @@ class PLTFileHandler(FileSystemEventHandler):
         self._log_dir = log_dir if debug_save_files else None
         self._parser = PLTParser()
         self._writer = PLTWriter()
-        self._processed_files: Set[Path] = set()
+        self._processed_files: set[Path] = set()
 
     def _is_supported_file(self, path: Path) -> bool:
         """Check if a file has a supported PLT/HPGL extension.
