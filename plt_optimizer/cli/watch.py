@@ -32,7 +32,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 # Third-party imports
 try:
@@ -48,6 +48,7 @@ from plt_optimizer.core.chunker import Chunker, ChunkerConfig
 from plt_optimizer.core.models import PLTDocument
 from plt_optimizer.core.optimizer import (
     NearestNeighbor2OptStrategy,
+    OptimizationStrategy,
     OptimizerEngine,
     ParallelEnsembleOptimizationResult,
     ParallelEnsembleStrategy,
@@ -302,6 +303,7 @@ class PLTFileHandler(FileSystemEventHandler):
                 return False
 
             # Select strategy based on fast_mode
+            strategy: OptimizationStrategy
             if self._fast_mode:
                 strategy = NearestNeighbor2OptStrategy()
             else:
@@ -312,8 +314,7 @@ class PLTFileHandler(FileSystemEventHandler):
             optimization_result = optimizer.optimize(blocks)
 
             # Handle Parallel Ensemble results (contains winner info + all benchmarks)
-            is_ensemble = isinstance(optimization_result, ParallelEnsembleOptimizationResult)
-            if is_ensemble:
+            if isinstance(optimization_result, ParallelEnsembleOptimizationResult):
                 ensemble_result = optimization_result
                 method_name = ensemble_result.winner_name
                 optimized_distance = ensemble_result.result.total_travel_distance
@@ -352,8 +353,8 @@ class PLTFileHandler(FileSystemEventHandler):
 
             # Reassemble using the actual result (unwrapped if ensemble)
             reassembler = Reassembler()
-            if is_ensemble:
-                result_for_reassembly = ensemble_result.result
+            if isinstance(optimization_result, ParallelEnsembleOptimizationResult):
+                result_for_reassembly = optimization_result.result
             else:
                 result_for_reassembly = optimization_result
             optimized_doc = reassembler.reassemble(doc, blocks, result_for_reassembly)
@@ -493,7 +494,7 @@ class PLTFileHandler(FileSystemEventHandler):
 
 
 def run_watcher_from_config(
-    config: dict,
+    config: dict[str, Any],
     stop_event: threading.Event,
     on_success: Callable[[str, float], None] | None = None,
     on_error: Callable[[str, str], None] | None = None,
@@ -616,8 +617,8 @@ def run_watcher_from_config(
     )
 
     observer = Observer()
-    observer.schedule(event_handler, str(watch_dir), recursive=False)
-    observer.start()
+    observer.schedule(event_handler, str(watch_dir), recursive=False)  # type: ignore[no-untyped-call]
+    observer.start()  # type: ignore[no-untyped-call]
 
     text_logger.info(f"Watching for PLT files in {watch_dir}")
     text_logger.info("Press Ctrl+C to stop...")
@@ -629,7 +630,7 @@ def run_watcher_from_config(
     except KeyboardInterrupt:
         text_logger.info("Keyboard interrupt received")
     finally:
-        observer.stop()
+        observer.stop()  # type: ignore[no-untyped-call]
         observer.join(timeout=5.0)
 
     text_logger.info("Watch daemon stopped.")
@@ -972,8 +973,8 @@ Examples:
         )
 
         self._observer = Observer()
-        self._observer.schedule(event_handler, str(self._args.watch_dir), recursive=False)
-        self._observer.start()
+        self._observer.schedule(event_handler, str(self._args.watch_dir), recursive=False)  # type: ignore[no-untyped-call]
+        self._observer.start()  # type: ignore[no-untyped-call]
 
         self._text_logger.info(f"Watching for PLT files in {self._args.watch_dir}")
         self._text_logger.info("Press Ctrl+C to stop...")
@@ -986,7 +987,7 @@ Examples:
             self._text_logger.info("Keyboard interrupt received")
         finally:
             if self._observer is not None:
-                self._observer.stop()
+                self._observer.stop()  # type: ignore[no-untyped-call]
                 self._observer.join(timeout=5.0)
 
         self._text_logger.info("Watch daemon stopped.")

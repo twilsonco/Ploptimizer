@@ -13,7 +13,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 # Check availability of required libraries without importing them at module level
 if importlib.util.find_spec("PIL") is None or importlib.util.find_spec("pystray") is None:
@@ -21,8 +21,8 @@ if importlib.util.find_spec("PIL") is None or importlib.util.find_spec("pystray"
         "Required libraries missing. Install with: uv add pillow pystray"
     )
 
-from PIL import Image  # type: ignore[import]
-from pystray import Icon, Menu, MenuItem
+from PIL import Image
+from pystray import Icon, Menu, MenuItem  # type: ignore[import-untyped]
 
 # Module-level logger
 _logger = logging.getLogger(__name__)
@@ -44,8 +44,8 @@ class TrayIconManager:
 
     def __init__(
         self,
-        watcher_fn: Callable[[dict], None],
-        config_loader: Callable[[], dict],
+        watcher_fn: Callable[[dict[str, Any]], None],
+        config_loader: Callable[[], dict[str, Any]],
         get_icon_path: Callable[[], Path],
     ) -> None:
         """Initialize the tray icon manager.
@@ -127,7 +127,7 @@ class TrayIconManager:
     def _watcher_loop(
         self,
         stop_event: threading.Event,
-        config: dict,
+        config: dict[str, Any],
         on_success: Callable[[str, float], None] | None = None,
         on_error: Callable[[str, str], None] | None = None,
     ) -> None:

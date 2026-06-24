@@ -147,13 +147,15 @@ class Chunker:
         if not stroke_paths:
             raise ChunkerError("Cannot chunk empty sequence of stroke paths")
 
+        # Initialize blocks list
+        blocks: list[MacroBlock] = []
+
         # BYPASS: If structural, every path is its own independent block
         if is_structural:
             self._logger.info(
                 f"Structural file detected: Bypassing chunker for 1:1 routing "
                 f"({len([p for p in stroke_paths if p.segments])} paths)"
             )
-            blocks: list[MacroBlock] = []
 
             valid_paths = [p for p in stroke_paths if p.segments]
             for i, path in enumerate(valid_paths):
@@ -176,7 +178,6 @@ class Chunker:
             f"multiplier={self._config.threshold_multiplier})"
         )
 
-        blocks: list[MacroBlock] = []
         current_block_paths: list[StrokePath] = []
 
         for i, path in enumerate(stroke_paths):

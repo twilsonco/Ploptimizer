@@ -12,7 +12,8 @@ import logging
 import sys
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, ttk
+from tkinter import filedialog, messagebox, ttk
+from typing import Any, Callable
 
 # Module-level logger
 _logger = logging.getLogger(__name__)
@@ -35,8 +36,8 @@ class SettingsWindow:
 
     def __init__(
         self,
-        current_config: dict,
-        save_callback: callable,
+        current_config: dict[str, Any],
+        save_callback: Callable[[dict[str, Any]], None],
         parent: tk.Tk | None = None,
     ) -> None:
         """Initialize the settings window.
@@ -130,7 +131,7 @@ class SettingsWindow:
         processed_entry = ttk.Entry(dir_section, textvariable=self._processed_dir_var, width=40)
         processed_entry.grid(row=row, column=1, sticky="ew", padx=(5, 0), pady=5)
 
-        def clear_processed():
+        def clear_processed() -> None:
             self._processed_dir_var.set("")
 
         ttk.Button(
@@ -224,7 +225,7 @@ class SettingsWindow:
         """
         watch_dir = self._watch_dir_var.get().strip()
         if not watch_dir:
-            tk.messagebox.showerror(
+            messagebox.showerror(
                 "Validation Error",
                 "Watch Directory is required.",
                 parent=self._root,
@@ -233,7 +234,7 @@ class SettingsWindow:
 
         output_dir = self._output_dir_var.get().strip()
         if not output_dir:
-            tk.messagebox.showerror(
+            messagebox.showerror(
                 "Validation Error",
                 "Output Directory is required.",
                 parent=self._root,
@@ -242,7 +243,7 @@ class SettingsWindow:
 
         log_dir = self._log_dir_var.get().strip()
         if not log_dir:
-            tk.messagebox.showerror(
+            messagebox.showerror(
                 "Validation Error",
                 "Log Directory is required.",
                 parent=self._root,
@@ -251,7 +252,7 @@ class SettingsWindow:
 
         # Check watch directory exists
         if not Path(watch_dir).exists():
-            result = tk.messagebox.askyesno(
+            result = messagebox.askyesno(
                 "Directory Not Found",
                 f"Watch directory '{watch_dir}' does not exist.\n\n"
                 "Create it now?",
@@ -261,7 +262,7 @@ class SettingsWindow:
                 try:
                     Path(watch_dir).mkdir(parents=True, exist_ok=True)
                 except OSError as e:
-                    tk.messagebox.showerror(
+                    messagebox.showerror(
                         "Error",
                         f"Could not create directory: {e}",
                         parent=self._root,
@@ -294,7 +295,7 @@ class SettingsWindow:
             _logger.info("Settings saved successfully")
             self._root.destroy()
         except Exception as e:
-            tk.messagebox.showerror(
+            messagebox.showerror(
                 "Error",
                 f"Failed to save settings: {e}",
                 parent=self._root,
