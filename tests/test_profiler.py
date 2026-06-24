@@ -6,6 +6,7 @@ of max bounding box dimension across cutting strokes.
 
 from __future__ import annotations
 
+import math
 import pytest
 
 from plt_optimizer.core.models import Coordinate, PLTDocument, StrokePath, StrokeSegment
@@ -178,6 +179,7 @@ class TestProfileResult:
             median_dy=40.0,
             total_strokes=10,
             p95_index=9,
+            is_structural=False,
         )
 
         assert result.baseline_extent == 100.0
@@ -196,6 +198,7 @@ class TestProfileResult:
             median_dy=40.0,
             total_strokes=10,
             p95_index=9,
+            is_structural=False,
         )
 
         with pytest.raises(FrozenInstanceError):
