@@ -81,3 +81,4 @@ timestamp,job_id,original_file,optimized_file,original_total_distance,optimized_
 2026-06-14T17:45:57.415765,user_20260614_174557,examples/test_complex_badges11sheet1.plt,examples/test_complex_badges11sheet1_optimized.plt,768780.898,129926.758,83.10%,success
 2026-06-15T00:01:36.806560,user_20260615_000136,examples/test_complex_badges11sheet1.plt,examples/test_complex_badges11sheet1_optimized.plt,768780.898,134747.795,82.47%,success
 2026-06-15T02:01:57.418900,user_20260615_020157,examples/test_complex_badges11sheet1.plt,,768780.898,768780.898,0.00%,all_strategies
+2026-06-23T19:18:31.532441,test_job,input,,0.0,0.1,0.00%,success,,

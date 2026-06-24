@@ -1845,11 +1845,13 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+build = [
+    { name = "pyinstaller" },
+]
 dev = [
     { name = "mypy", version = "1.14.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
     { name = "mypy", version = "1.19.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.9.*'" },
     { name = "mypy", version = "2.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
-    { name = "pyinstaller" },
     { name = "pytest", version = "8.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
     { name = "pytest", version = "8.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.9.*'" },
     { name = "pytest", version = "9.1.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
@@ -1877,7 +1879,7 @@ requires-dist = [
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8.0" },
     { name = "numpy", marker = "python_full_version >= '3.9' and extra == 'plotting'", specifier = ">=1.24.0" },
     { name = "pillow", specifier = ">=10.0.0" },
-    { name = "pyinstaller", marker = "extra == 'dev'", specifier = ">=6.0.0" },
+    { name = "pyinstaller", marker = "extra == 'build'", specifier = ">=6.0.0" },
     { name = "pystray", specifier = ">=0.19.5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
@@ -1886,7 +1888,7 @@ requires-dist = [
     { name = "watchdog", specifier = ">=2.6,<5.0" },
     { name = "winshell", marker = "sys_platform == 'win32' and extra == 'tray'", specifier = ">=0.6" },
 ]
-provides-extras = ["tray", "plotting", "dev"]
+provides-extras = ["tray", "plotting", "dev", "build"]
 
 [[package]]
 name = "pluggy"

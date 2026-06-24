@@ -30,7 +30,7 @@ jobs:
 
       - name: Create icon if not exists
         run: |
-          python -c "
+          uv run python -c "
           from PIL import Image, ImageDraw
           img = Image.new('RGB', (64, 64), color=(0, 120, 200))
           draw = ImageDraw.Draw(img)

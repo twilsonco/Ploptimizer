@@ -7411,3 +7411,149 @@
 2026-06-15 02:01:57 | INFO     | plt_optimizer | Reassembling document with 5 blocks
 2026-06-15 02:01:57 | INFO     | plt_optimizer | Reassembly complete: 57 paths
 2026-06-15 02:01:57 | INFO     | plt_optimizer | Writing PLT file: examples/test_complex_badges11sheet1_optimized.plt
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Chunking 1 stroke paths with threshold=150.000 (baseline_extent=100.000, multiplier=1.5)
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Chunking 3 stroke paths with threshold=15.000 (baseline_extent=10.000, multiplier=1.5)
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=15.000 (baseline_extent=10.000, multiplier=1.5)
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Created 2 MacroBlocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Chunking 3 stroke paths with threshold=15.000 (baseline_extent=10.000, multiplier=1.5)
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Chunking 3 stroke paths with threshold=15.000 (baseline_extent=10.000, multiplier=1.5)
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=150.000 (baseline_extent=100.000, multiplier=1.5)
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=15.000 (baseline_extent=10.000, multiplier=1.5)
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=100.000 (baseline_extent=10.000, multiplier=10.0)
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=225.000 (baseline_extent=50.000, multiplier=4.5)
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=225.000 (baseline_extent=50.000, multiplier=4.5)
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=300.000 (baseline_extent=50.000, multiplier=6.0)
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=300.000 (baseline_extent=50.000, multiplier=6.0)
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Created 2 MacroBlocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=250.000 (baseline_extent=50.000, multiplier=5.0)
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Parsing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpwuvs0eop/input.plt
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpwuvs0eop/output.plt
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Parsing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpwuvs0eop/output.plt
+2026-06-23 19:18:06 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-23 19:18:06 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Writing PLT file: /nonexistent/path/that/does/not/exist/file.plt
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Parsing PLT file: /Users/haiiro/NoSync/PLT-Optimizer/examples/test_rect_grid13sheet0.plt
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Parsing PLT file: /Users/haiiro/NoSync/PLT-Optimizer/examples/test_rect_grid13sheet0.plt
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Parsing PLT file: /Users/haiiro/NoSync/PLT-Optimizer/examples/test_rect_grid13sheet0_optimized.plt
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Switching intra-chunk strategy: NoOp-Intra (Baseline) -> NearestNeighbor-Intra + 2-Opt
+2026-06-23 19:18:06 | INFO     | plt_optimizer | info message
+2026-06-23 19:18:06 | WARNING  | plt_optimizer | warning message
+2026-06-23 19:18:06 | ERROR    | plt_optimizer | error message
+2026-06-23 19:18:06 | CRITICAL | plt_optimizer | critical message
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running NoOp (Baseline) on 2 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running NoOp (Baseline) on 0 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Switching optimization strategy: NoOp (Baseline) -> NearestNeighbor + 2-Opt
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Starting optimization with NoOp (Baseline) on 1 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running NoOp (Baseline) on 1 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 2 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=90.000
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 0 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 3 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 0 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 2 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 3 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running Simulated Annealing on 0 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running Simulated Annealing on 1 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running Simulated Annealing on 2 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running Simulated Annealing on 3 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running Genetic Algorithm on 0 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running Genetic Algorithm on 1 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running Genetic Algorithm on 2 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running Genetic Algorithm on 3 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running Parallel Ensemble on 1 blocks with auto workers
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running NoOp (Baseline) on 1 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running Simulated Annealing on 1 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running Genetic Algorithm on 1 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Parallel ensemble complete: 5/5 strategies succeeded. Best: NoOp (Baseline) (distance=0.000)
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running Parallel Ensemble on 3 blocks with auto workers
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running NoOp (Baseline) on 3 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 3 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 3 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running Simulated Annealing on 3 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running Genetic Algorithm on 3 blocks
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Parallel ensemble complete: 5/5 strategies succeeded. Best: NearestNeighbor + 2-Opt (distance=80.000, improvement=60.00%)
+2026-06-23 19:18:06 | INFO     | plt_optimizer | Running Parallel Ensemble on 3 blocks with auto workers
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Running NoOp (Baseline) on 3 blocks
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 3 blocks
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 3 blocks
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Running Simulated Annealing on 3 blocks
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Running Genetic Algorithm on 3 blocks
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Parallel ensemble complete: 5/5 strategies succeeded. Best: NoOp (Baseline) (distance=80.000)
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Running Parallel Ensemble on 2 blocks with auto workers
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Running NoOp (Baseline) on 2 blocks
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Running Simulated Annealing on 2 blocks
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Running Genetic Algorithm on 2 blocks
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Parallel ensemble complete: 5/5 strategies succeeded. Best: NoOp (Baseline) (distance=134.536)
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Running Parallel Ensemble on 2 blocks with 2 workers
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Running NoOp (Baseline) on 2 blocks
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Running Simulated Annealing on 2 blocks
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Running Genetic Algorithm on 2 blocks
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Parallel ensemble complete: 5/5 strategies succeeded. Best: NoOp (Baseline) (distance=40.000)
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Running Parallel Ensemble on 3 blocks with auto workers
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Running NoOp (Baseline) on 3 blocks
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 3 blocks
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Running Simulated Annealing on 3 blocks
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 3 blocks
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Running Genetic Algorithm on 3 blocks
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Parallel ensemble complete: 5/5 strategies succeeded. Best: NoOp (Baseline) (distance=80.000)
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Parsing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp8y5z7_3v/test.plt
+2026-06-23 19:18:07 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-23 19:18:07 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-23 19:18:07 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-23 19:18:07 | WARNING  | plt_optimizer | Unknown command 'UNKNOWN123', treating as header
+2026-06-23 19:18:07 | WARNING  | plt_optimizer | Unknown command 'FOO:1,2', treating as header
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=20
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=42.000, total_cutting_strokes=1
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=3
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.9 segments/path, 90.0% structural), baseline_extent=100.000, total_cutting_strokes=29
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 10.5 segments/path, 50.0% structural), baseline_extent=2.000, total_cutting_strokes=105
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Reassembling document with 2 blocks
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Reassembly complete: 2 paths
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Reassembling document with 2 blocks
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Reassembly complete: 2 paths
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpyxyl05s_/nested/path/output.plt
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp2ofcswqu/output.plt
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp3ta4lvn2/output.plt
+2026-06-23 19:18:31 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpt4trhqg6/subdir/nested/output.plt
