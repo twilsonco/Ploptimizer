@@ -385,8 +385,8 @@ class PLTWriter:
             )
 
         # Find specific missing PU commands
-        orig_pu_set = set(t for t in orig_tokens if t.startswith("PU"))
-        opt_pu_set = set(t for t in opt_tokens if t.startswith("PU"))
+        orig_pu_set = {t for t in orig_tokens if t.startswith("PU")}
+        opt_pu_set = {t for t in opt_tokens if t.startswith("PU")}
 
         missing_pus = orig_pu_set - opt_pu_set
         if missing_pus:
