@@ -1,0 +1,70 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  push_tags:
+    tags:
+      - '**'
+
+jobs:
+  build:
+    name: Build Windows Executable
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies
+        run: uv sync --extra dev --extra tray --extra build
+
+      - name: Create assets directory
+        run: mkdir -p assets
+
+      - name: Create icon if not exists
+        run: |
+          python -c "
+          from PIL import Image
+          img = Image.new('RGB', (64, 64), color=(0, 120, 200))
+          img.save('assets/icon.ico')
+          print('Created icon.ico')
+
+      - name: Build executable
+        shell: bash
+        run: |
+          uv run pyinstaller --noconsole --windowed --name PLT-Optimizer \
+            --icon=assets/icon.ico --add-data "assets/icon.ico;assets" \
+            run_tray.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PLT-Optimizer-Windows
+          path: dist/PLT-Optimizer.exe
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: PLT-Optimizer-Windows
+          path: ./dist
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/PLT-Optimizer.exe
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
