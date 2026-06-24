@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
 
 from plt_optimizer.core.models import (
     ArcSegment,
