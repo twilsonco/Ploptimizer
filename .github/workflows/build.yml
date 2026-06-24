@@ -26,15 +26,18 @@ jobs:
         run: uv sync --extra dev --extra tray --extra build
 
       - name: Create assets directory
-        run: mkdir -p assets
+        run: New-Item -ItemType Directory -Force -Path assets
 
       - name: Create icon if not exists
         run: |
           python -c "
-          from PIL import Image
+          from PIL import Image, ImageDraw
           img = Image.new('RGB', (64, 64), color=(0, 120, 200))
+          draw = ImageDraw.Draw(img)
+          draw.rectangle([8, 8, 56, 56], fill=(255, 255, 255))
+          draw.text((16, 22), 'PLT', fill=(0, 120, 200))
           img.save('assets/icon.ico')
-          print('Created icon.ico')
+          print('Created icon.ico')"
 
       - name: Build executable
         shell: bash
