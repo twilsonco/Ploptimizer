@@ -820,7 +820,6 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
         if len(blocks) == 1:
             block = blocks[0]
             start_pos: tuple[float, float]
-            reversed_flag: bool
             cost_to_entrance = math.sqrt(block.entrance.x ** 2 + block.entrance.y ** 2)
             cost_to_exit = math.sqrt(block.exit.x ** 2 + block.exit.y ** 2)
 
@@ -1179,7 +1178,6 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
             a_exit = tour[insert_position - 1].exit
 
         b_entrance: tuple[float, float]
-        b_exit: tuple[float, float]
 
         if insert_position < len(tour):
             next_state = tour[insert_position]
