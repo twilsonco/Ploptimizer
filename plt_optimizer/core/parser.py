@@ -19,7 +19,6 @@ from plt_optimizer.core.models import (
     HeaderCommand,
     PenState,
     PLTDocument,
-    Segment,
     StrokePath,
     StrokeSegment,
 )
@@ -276,7 +275,7 @@ class PLTParser:
                     doc.header_commands.append(header)
                 except (ValueError, AttributeError) as e:
                     raise ParseError(
-                        f"Failed to parse command",
+                        "Failed to parse command",
                         token=token,
                     ) from e
                 i += 1
@@ -483,7 +482,7 @@ class PLTParser:
                         coords.append(coord)
                     except ValueError as e:
                         raise ParseError(
-                            f"Invalid coordinate format",
+                            "Invalid coordinate format",
                             token=rest,
                         ) from e
                     rest = rest[coord_match.end():]
@@ -516,7 +515,7 @@ class PLTParser:
                 coords.append(coord)
             except ValueError as e:
                 raise ParseError(
-                    f"Invalid coordinate format",
+                    "Invalid coordinate format",
                     token=next_token,
                 ) from e
 

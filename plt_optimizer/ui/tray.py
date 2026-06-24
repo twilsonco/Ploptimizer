@@ -23,7 +23,7 @@ except ImportError as e:
 
 try:
     import pystray
-    from pystray import Icon, MenuItem, Menu
+    from pystray import Icon, Menu, MenuItem
 except ImportError as e:
     raise ImportError(
         "pystray library is required for tray functionality. Install it with: uv add pystray"

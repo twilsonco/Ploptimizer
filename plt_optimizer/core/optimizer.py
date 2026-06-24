@@ -16,7 +16,6 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from plt_optimizer.core.chunker import MacroBlock
-from plt_optimizer.utils.geometry import calculate_coordinate_distance
 from plt_optimizer.utils.logging import get_text_logger
 
 
@@ -1890,7 +1889,7 @@ class ChristofidesStrategy(OptimizationStrategy):
         Returns:
             List of vertex IDs that need to be matched ("wrong parity" set O).
         """
-        degree: Dict[int, int] = {vid: 0 for vid in vertices}
+        degree: Dict[int, int] = dict.fromkeys(vertices, 0)
 
         for u, v in mst_edges:
             degree[u] += 1
@@ -3866,7 +3865,6 @@ def _run_strategy_worker(
         NearestNeighbor2OptStrategy,
         NoOpStrategy,
         SimulatedAnnealingStrategy,
-        ChristofidesStrategy,
     )
 
     strategy_map: Dict[str, OptimizationStrategy] = {

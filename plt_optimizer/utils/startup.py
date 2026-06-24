@@ -55,7 +55,6 @@ def get_executable_path() -> Optional[Path]:
         return Path(sys.executable)
     else:
         # Running as Python script - use pythonw.exe for background execution
-        import os
         if sys.platform == "win32":
             # Find pythonw in the same virtual environment
             venv_python = Path(sys.executable).parent / "pythonw.exe"
