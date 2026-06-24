@@ -51,6 +51,7 @@ class MacroBlock:
         entrance: Coordinate where traversal of this block should begin.
         exit: Coordinate where traversal of this block ends.
     """
+
     block_id: int
     paths: tuple[StrokePath, ...]
     entrance: Coordinate
@@ -84,6 +85,7 @@ class ChunkerConfig:
             of vertical jumps, biasing grouping toward strokes on the same horizontal
             line. Default is 1.0 (no penalty, backward compatible).
     """
+
     threshold_multiplier: float = 1.5
     min_block_size: int = 1
     enable_intra_chunk_optimization: bool = True
@@ -162,12 +164,14 @@ class Chunker:
                 first_seg = path.segments[0]
                 last_seg = path.segments[-1]
 
-                blocks.append(MacroBlock(
-                    block_id=i,
-                    paths=(path,),
-                    entrance=self._get_segment_start(first_seg),
-                    exit=self._get_segment_end(last_seg),
-                ))
+                blocks.append(
+                    MacroBlock(
+                        block_id=i,
+                        paths=(path,),
+                        entrance=self._get_segment_start(first_seg),
+                        exit=self._get_segment_end(last_seg),
+                    )
+                )
             return blocks
 
         jump_threshold = self._config.threshold_multiplier * baseline_extent
@@ -201,7 +205,7 @@ class Chunker:
 
             dx = path_entrance.x - prev_exit.x
             dy = path_entrance.y - prev_exit.y
-            base_jump_distance = math.sqrt(dx ** 2 + dy ** 2)
+            base_jump_distance = math.sqrt(dx**2 + dy**2)
             y_penalty = (self._config.same_row_preference - 1.0) * abs(dy)
             jump_distance = base_jump_distance + y_penalty
 

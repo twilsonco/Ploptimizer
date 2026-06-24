@@ -103,9 +103,7 @@ class PLTWriter:
 
             if add_bom:
                 # Add UTF-8 BOM for Windows compatibility with some applications
-                file_path.write_bytes(
-                    "\ufeff".encode("utf-8") + content.encode("utf-8")
-                )
+                file_path.write_bytes("\ufeff".encode("utf-8") + content.encode("utf-8"))
             else:
                 file_path.write_text(content, encoding="utf-8")
 
@@ -160,9 +158,7 @@ class PLTWriter:
         if header.parameters is None:
             return f"{header.instruction};"
 
-        param_str = ",".join(
-            self._format_number(p) for p in header.parameters
-        )
+        param_str = ",".join(self._format_number(p) for p in header.parameters)
         return f"{header.instruction}{param_str};"
 
     def _format_footer(self, footer: FooterCommand) -> str:
@@ -198,15 +194,13 @@ class PLTWriter:
         # Handle explicit pen_up_position for the initial move into this path
         first_segment_start = path.segments[0].start
         pen_up_target = (
-            path.pen_up_position
-            if path.pen_up_position is not None
-            else first_segment_start
+            path.pen_up_position if path.pen_up_position is not None else first_segment_start
         )
 
         # Only issue initial PU if we are NOT already at the target coordinate
         if current_pos is None or not (
-            math.isclose(current_pos.x, pen_up_target.x, abs_tol=1e-3) and
-            math.isclose(current_pos.y, pen_up_target.y, abs_tol=1e-3)
+            math.isclose(current_pos.x, pen_up_target.x, abs_tol=1e-3)
+            and math.isclose(current_pos.y, pen_up_target.y, abs_tol=1e-3)
         ):
             parts.append(f"PU{self._format_coord(pen_up_target)};")
             current_pos = pen_up_target
@@ -216,8 +210,8 @@ class PLTWriter:
             # Robust state tracking: If we are not physically at the start of this
             # specific segment, we MUST lift the tool and move to its start.
             if not (
-                math.isclose(current_pos.x, segment.start.x, abs_tol=1e-3) and
-                math.isclose(current_pos.y, segment.start.y, abs_tol=1e-3)
+                math.isclose(current_pos.x, segment.start.x, abs_tol=1e-3)
+                and math.isclose(current_pos.y, segment.start.y, abs_tol=1e-3)
             ):
                 parts.append(f"PU{self._format_coord(segment.start)};")
                 current_pos = segment.start
@@ -305,8 +299,7 @@ class PLTWriter:
 
             if orig_segment_count != reparse_segment_count:
                 errors.append(
-                    f"Segment count mismatch: {orig_segment_count} vs "
-                    f"{reparse_segment_count}"
+                    f"Segment count mismatch: {orig_segment_count} vs {reparse_segment_count}"
                 )
 
             # Compare distances (should be mathematically equivalent)
@@ -314,10 +307,7 @@ class PLTWriter:
             reparse_distance = reparsed.cutting_distance()
 
             if not math.isclose(orig_distance, reparse_distance, rel_tol=1e-3):
-                errors.append(
-                    f"Distance mismatch: {orig_distance:.3f} vs "
-                    f"{reparse_distance:.3f}"
-                )
+                errors.append(f"Distance mismatch: {orig_distance:.3f} vs {reparse_distance:.3f}")
 
         except ParseError as e:
             errors.append(f"Re-parsing failed: {e}")
@@ -345,7 +335,7 @@ class PLTWriter:
         warnings: list[str] = []
 
         # Command pattern for tokenization
-        COMMAND_PATTERN = re.compile(r'([A-Z][A-Z0-9,.\-:]*?;)')
+        COMMAND_PATTERN = re.compile(r"([A-Z][A-Z0-9,.\-:]*?;)")
 
         try:
             original_content = original_file_path.read_text(encoding="utf-8")
@@ -394,7 +384,7 @@ class PLTWriter:
             coord_issues: dict[str, int] = {}
             for pu in missing_pus:
                 # Extract coordinates
-                match = re.match(r'PU(-?\d+\.\d+),(-?\d+\.\d+);', pu)
+                match = re.match(r"PU(-?\d+\.\d+),(-?\d+\.\d+);", pu)
                 if match:
                     x, y = float(match.group(1)), float(match.group(2))
                     key = f"({x:.0f},{y:.0f})"
@@ -409,12 +399,16 @@ class PLTWriter:
                 reparsed = reparsed_parser.parse_string(output_content)
 
                 orig_distance = sum(
-                    _segment_length(seg) for path in original_doc.stroke_paths
-                    for seg in path.segments if seg.is_cutting
+                    _segment_length(seg)
+                    for path in original_doc.stroke_paths
+                    for seg in path.segments
+                    if seg.is_cutting
                 )
                 reparse_distance = sum(
-                    _segment_length(seg) for path in reparsed.stroke_paths
-                    for seg in path.segments if seg.is_cutting
+                    _segment_length(seg)
+                    for path in reparsed.stroke_paths
+                    for seg in path.segments
+                    if seg.is_cutting
                 )
                 distance_preserved = math.isclose(orig_distance, reparse_distance, rel_tol=1e-3)
 

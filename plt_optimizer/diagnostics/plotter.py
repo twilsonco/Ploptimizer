@@ -171,7 +171,8 @@ def plot_plt_document(
                     xs = [p.x * PLT_UNITS_TO_INCHES for p in arc_points]
                     ys = [_flip_y(p.y) * PLT_UNITS_TO_INCHES for p in arc_points]
                     ax.plot(
-                        xs, ys,
+                        xs,
+                        ys,
                         color="gray",
                         linewidth=0.5,
                         linestyle="dotted",
@@ -181,8 +182,10 @@ def plot_plt_document(
                 else:
                     ax.plot(
                         [seg.start.x * PLT_UNITS_TO_INCHES, seg.end.x * PLT_UNITS_TO_INCHES],
-                        [_flip_y(seg.start.y) * PLT_UNITS_TO_INCHES,
-                         _flip_y(seg.end.y) * PLT_UNITS_TO_INCHES],
+                        [
+                            _flip_y(seg.start.y) * PLT_UNITS_TO_INCHES,
+                            _flip_y(seg.end.y) * PLT_UNITS_TO_INCHES,
+                        ],
                         color="gray",
                         linewidth=0.4,
                         linestyle="dotted",
@@ -227,7 +230,8 @@ def plot_plt_document(
                     xs = [p.x * PLT_UNITS_TO_INCHES for p in arc_points]
                     ys = [_flip_y(p.y) * PLT_UNITS_TO_INCHES for p in arc_points]
                     ax.plot(
-                        xs, ys,
+                        xs,
+                        ys,
                         color=color,
                         linewidth=0.5,
                         alpha=0.9,
@@ -236,8 +240,10 @@ def plot_plt_document(
                 else:
                     ax.plot(
                         [seg.start.x * PLT_UNITS_TO_INCHES, seg.end.x * PLT_UNITS_TO_INCHES],
-                        [_flip_y(seg.start.y) * PLT_UNITS_TO_INCHES,
-                         _flip_y(seg.end.y) * PLT_UNITS_TO_INCHES],
+                        [
+                            _flip_y(seg.start.y) * PLT_UNITS_TO_INCHES,
+                            _flip_y(seg.end.y) * PLT_UNITS_TO_INCHES,
+                        ],
                         color=color,
                         linewidth=0.5,
                         alpha=0.9,
@@ -285,11 +291,13 @@ def plot_plt_document(
         # Equal aspect ratio for accurate visualization
         ax.set_aspect("equal", adjustable="box")
 
-       # Add summary text (distances in PLT units, convert to inches for display)
+        # Add summary text (distances in PLT units, convert to inches for display)
         cutting_dist = document.cutting_distance() * PLT_UNITS_TO_INCHES
         # Use provided rapid_travel_inches if available, otherwise calculate from document
-        rapid_dist = rapid_travel_inches if rapid_travel_inches is not None else (
-            document.rapid_distance() * PLT_UNITS_TO_INCHES
+        rapid_dist = (
+            rapid_travel_inches
+            if rapid_travel_inches is not None
+            else (document.rapid_distance() * PLT_UNITS_TO_INCHES)
         )
 
         summary_text = (

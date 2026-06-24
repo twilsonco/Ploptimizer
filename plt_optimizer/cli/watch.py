@@ -411,9 +411,7 @@ class PLTFileHandler(FileSystemEventHandler):
                 # Delete original file from watch directory by default
                 try:
                     input_path.unlink()
-                    self._text_logger.debug(
-                        f"[{job_id}] Deleted original file {input_path.name}"
-                    )
+                    self._text_logger.debug(f"[{job_id}] Deleted original file {input_path.name}")
                 except OSError as e:
                     self._text_logger.warning(f"[{job_id}] Failed to delete processed file: {e}")
 
@@ -421,6 +419,7 @@ class PLTFileHandler(FileSystemEventHandler):
 
         except Exception as e:
             import traceback
+
             tb_str = "".join(traceback.format_exception(type(e), e, e.__traceback__))
             self._text_logger.error(f"[{job_id}] Failed: {e}")
             self._text_logger.debug(f"[{job_id}] Traceback:\n{tb_str}")
@@ -592,6 +591,7 @@ def run_watcher_from_config(
             try:
                 if handler._should_process(path):
                     handler._mark_processed(path)
+
                     # Wrap _process_file to capture success/error callbacks
                     def wrapped_process(input_path: Path) -> bool:
                         result = handler._process_file(input_path)

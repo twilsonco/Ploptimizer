@@ -18,9 +18,7 @@ from typing import Any
 
 # Check availability of required libraries without importing them at module level
 if importlib.util.find_spec("PIL") is None or importlib.util.find_spec("pystray") is None:
-    raise ImportError(
-        "Required libraries missing. Install with: uv add pillow pystray"
-    )
+    raise ImportError("Required libraries missing. Install with: uv add pillow pystray")
 
 from PIL import Image
 from pystray import Icon, Menu, MenuItem  # type: ignore[import-untyped]

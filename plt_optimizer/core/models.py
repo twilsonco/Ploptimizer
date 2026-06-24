@@ -13,6 +13,7 @@ from math import sqrt
 
 class PenState(Enum):
     """Represents whether the pen is currently down (cutting) or up (moving)."""
+
     UP = auto()
     DOWN = auto()
 
@@ -25,13 +26,14 @@ class Coordinate:
         x: X coordinate value.
         y: Y coordinate value.
     """
+
     x: float
     y: float
 
     def __post_init__(self) -> None:
         """Validate and round coordinates to 3 decimal places."""
-        object.__setattr__(self, 'x', round(self.x, 3))
-        object.__setattr__(self, 'y', round(self.y, 3))
+        object.__setattr__(self, "x", round(self.x, 3))
+        object.__setattr__(self, "y", round(self.y, 3))
 
     @classmethod
     def from_string(cls, x_str: str, y_str: str) -> Coordinate:
@@ -75,6 +77,7 @@ class HeaderCommand:
         instruction: The HPGL instruction mnemonic (e.g., 'IN', 'VS', 'ZO').
         parameters: Optional tuple of numeric parameters for the command.
     """
+
     instruction: str
     parameters: tuple[float, ...] | None = None
 
@@ -82,7 +85,7 @@ class HeaderCommand:
         """Round any floating point parameters to 3 decimal places."""
         if self.parameters is not None:
             rounded = tuple(round(p, 3) for p in self.parameters)
-            object.__setattr__(self, 'parameters', rounded)
+            object.__setattr__(self, "parameters", rounded)
 
     def format(self) -> str:
         """Format the command as a PLT string.
@@ -118,7 +121,8 @@ class HeaderCommand:
         else:
             # Try to split on letters followed by numbers
             import re
-            match = re.match(r'^([A-Z]+)(.*)$', token)
+
+            match = re.match(r"^([A-Z]+)(.*)$", token)
             if match:
                 instr = match.group(1)
                 param_str = match.group(2)
@@ -139,6 +143,7 @@ class StrokeSegment:
         end: Ending coordinate of the segment.
         is_cutting: True if pen was down during this segment (cutting).
     """
+
     start: Coordinate
     end: Coordinate
     is_cutting: bool
@@ -160,6 +165,7 @@ class ArcSegment:
         sweep_angle: Sweep angle in degrees (+ = clockwise, - = counter-clockwise).
         is_cutting: True if pen was down during this segment.
     """
+
     start: Coordinate
     end: Coordinate
     center: Coordinate
@@ -197,6 +203,7 @@ class StrokePath:
         pen_up_position: Position after the initial pen-up move (or None if starts with PD).
         segments: Ordered tuple of stroke segments (line and/or arc).
     """
+
     pen_up_position: Coordinate | None = None
     segments: tuple[Segment, ...] = field(default_factory=tuple)
 
@@ -217,16 +224,12 @@ class StrokePath:
     @property
     def cutting_distance(self) -> float:
         """Calculate the total distance of cutting (pen down) segments only."""
-        return sum(
-            _segment_length(seg) for seg in self.segments if seg.is_cutting
-        )
+        return sum(_segment_length(seg) for seg in self.segments if seg.is_cutting)
 
     @property
     def rapid_distance(self) -> float:
         """Calculate the total distance of rapid (pen up) moves only."""
-        return sum(
-            _segment_length(seg) for seg in self.segments if not seg.is_cutting
-        )
+        return sum(_segment_length(seg) for seg in self.segments if not seg.is_cutting)
 
 
 @dataclass(frozen=True)
@@ -236,6 +239,7 @@ class FooterCommand:
     Attributes:
         instruction: The HPGL instruction mnemonic (e.g., 'SP', 'PG').
     """
+
     instruction: str
 
     def format(self) -> str:
@@ -272,6 +276,7 @@ class PLTDocument:
         stroke_paths: Ordered list of stroke paths.
         footer_commands: Ordered list of footer/finalization commands.
     """
+
     header_commands: list[HeaderCommand] = field(default_factory=list)
     stroke_paths: list[StrokePath] = field(default_factory=list)
     footer_commands: list[FooterCommand] = field(default_factory=list)
