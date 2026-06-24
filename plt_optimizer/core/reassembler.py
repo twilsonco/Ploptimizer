@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import replace
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from plt_optimizer.core.chunker import MacroBlock
 from plt_optimizer.core.intra_chunk_optimizer import IntraChunkResult, PathTraverseState
@@ -103,7 +103,7 @@ class Reassembler:
         block_map = {block.block_id: block for block in blocks}
 
         # Build intra-chunk result map if provided
-        intra_map: dict[int, IntraChunkResult] = {}
+        intra_map: Dict[int, IntraChunkResult] = {}
         if intra_chunk_results is not None:
             for i, b in enumerate(blocks):
                 if i < len(intra_chunk_results):

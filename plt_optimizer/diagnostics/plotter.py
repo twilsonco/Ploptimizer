@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Optional
 
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
@@ -76,11 +77,11 @@ class PlotterError(Exception):
 
 def plot_plt_document(
     document: PLTDocument,
-    output_path: Path | None = None,
+    output_path: Optional[Path] = None,
     title: str = "PLT Toolpath Visualization",
     show_plot: bool = False,
     figure_size: tuple[float, float] = DEFAULT_FIGURE_SIZE,
-    rapid_travel_inches: float | None = None,
+    rapid_travel_inches: Optional[float] = None,
 ) -> plt.Figure:
     """Plot a complete PLT document with color-coded path segments.
 
@@ -338,7 +339,7 @@ def plot_plt_document(
 
 def plot_stroke_path(
     path: StrokePath,
-    output_path: Path | None = None,
+    output_path: Optional[Path] = None,
     title: str = "Stroke Path",
     show_plot: bool = False,
 ) -> plt.Figure:
@@ -394,7 +395,7 @@ def save_figure(fig: plt.Figure, path: Path) -> None:
 def create_path_diagram(
     coordinates: Sequence[Coordinate],
     cutting_mask: Sequence[bool],
-    output_path: Path | None = None,
+    output_path: Optional[Path] = None,
     title: str = "Toolpath Diagram",
 ) -> plt.Figure:
     """Create a simple path diagram without full document parsing.

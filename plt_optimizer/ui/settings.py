@@ -14,6 +14,7 @@ import sys
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, ttk
+from typing import Optional
 
 # Module-level logger
 _logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ class SettingsWindow:
         self,
         current_config: dict,
         save_callback: callable,
-        parent: tk.Tk | None = None,
+        parent: Optional[tk.Tk] = None,
     ) -> None:
         """Initialize the settings window.
 
