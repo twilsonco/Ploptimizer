@@ -316,7 +316,7 @@ def plot_plt_document(
             transform=ax.transAxes,
             verticalalignment="top",
             fontsize=9,
-            bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
+            bbox={"boxstyle": "round", "facecolor": "wheat", "alpha": 0.5},
         )
 
         plt.tight_layout()
