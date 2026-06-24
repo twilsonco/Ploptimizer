@@ -579,7 +579,7 @@ class IntraChunkOptimizer:
 
     def __init__(
         self,
-        strategy: Optional[IntraChunkStrategy] = None,
+        strategy: IntraChunkStrategy | None = None,
     ) -> None:
         """Initialize the intra-chunk optimizer.
 

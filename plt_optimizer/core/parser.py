@@ -37,8 +37,8 @@ class ParseError(Exception):
     def __init__(
         self,
         message: str,
-        line_number: Optional[int] = None,
-        token: Optional[str] = None,
+        line_number: int | None = None,
+        token: str | None = None,
     ) -> None:
         """Initialize a ParseError.
 
@@ -151,9 +151,9 @@ class PLTParser:
             Structured PLTDocument.
         """
         doc = PLTDocument()
-        current_path: Optional[StrokePath] = None
+        current_path: StrokePath | None = None
         pen_state = PenState.UP
-        last_position: Optional[Coordinate] = None
+        last_position: Coordinate | None = None
 
         i = 0
         while i < len(tokens):
@@ -388,7 +388,7 @@ class PLTParser:
         arc_type: str,
         params_str: str,
         start_pos: Coordinate,
-    ) -> Tuple[Optional[ArcSegment], Optional[Coordinate]]:
+    ) -> Tuple[ArcSegment | None, Coordinate | None]:
         """Parse an AA/AR/CI arc command and compute the end position.
 
         Args:

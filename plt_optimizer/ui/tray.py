@@ -67,13 +67,13 @@ class TrayIconManager:
         self._config_loader = config_loader
         self._get_icon_path = get_icon_path
 
-        self._icon: Optional[Icon] = None
-        self._watcher_thread: Optional[threading.Thread] = None
+        self._icon: Icon | None = None
+        self._watcher_thread: threading.Thread | None = None
         self._stop_event: threading.Event = threading.Event()
 
         # Callbacks for UI events
-        self.on_settings_requested: Optional[Callable[[], None]] = None
-        self.on_exit_requested: Optional[Callable[[], None]] = None
+        self.on_settings_requested: Callable[[], None] | None = None
+        self.on_exit_requested: Callable[[], None] | None = None
 
     def _create_menu(self) -> Menu:
         """Create the tray icon context menu.
@@ -134,8 +134,8 @@ class TrayIconManager:
         self,
         stop_event: threading.Event,
         config: dict,
-        on_success: Optional[Callable[[str, float], None]] = None,
-        on_error: Optional[Callable[[str, str], None]] = None,
+        on_success: Callable[[str, float], None] | None = None,
+        on_error: Callable[[str, str], None] | None = None,
     ) -> None:
         """Background thread loop for the file watcher.
 

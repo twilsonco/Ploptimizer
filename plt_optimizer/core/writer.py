@@ -36,7 +36,7 @@ class WriteError(Exception):
     def __init__(
         self,
         message: str,
-        document_part: Optional[str] = None,
+        document_part: str | None = None,
     ) -> None:
         """Initialize a WriteError.
 
@@ -130,7 +130,7 @@ class PLTWriter:
             if formatted:
                 parts.append(formatted)
 
-        current_pos: Optional[Coordinate] = None  # Track spindle position across paths
+        current_pos: Coordinate | None = None  # Track spindle position across paths
 
         # Write stroke paths (PU/PD sequences)
         for path in document.stroke_paths:
@@ -180,8 +180,8 @@ class PLTWriter:
     def _format_stroke_path(
         self,
         path: StrokePath,
-        current_pos: Optional[Coordinate] = None,
-    ) -> Tuple[str, Optional[Coordinate]]:
+        current_pos: Coordinate | None = None,
+    ) -> Tuple[str, Coordinate | None]:
         """Format a stroke path as PU/PD commands with segment-level state tracking.
 
         Args:
