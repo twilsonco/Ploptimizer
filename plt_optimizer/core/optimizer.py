@@ -2222,7 +2222,7 @@ class ChristofidesStrategy(OptimizationStrategy):
 
         tour: list[BlockTraverseState] = []
 
-        for block_idx, sequence_reversed in hamiltonian_sequence:
+        for block_idx, _sequence_reversed in hamiltonian_sequence:
             block = blocks[block_idx]
 
             if block_idx == first_block_idx:
@@ -2379,7 +2379,7 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
 
         best_result: OptimizationResult | None = None
 
-        for start_pos, first_block_idx, start_at_exit, _dist in candidates:
+        for start_pos, _first_block_idx, _start_at_exit, _dist in candidates:
             candidate_result = self._optimize_from_start(blocks, start_pos)
 
             if best_result is None or candidate_result.total_travel_distance < best_result.total_travel_distance:
@@ -2873,7 +2873,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
         best_result: OptimizationResult | None = None
 
-        for start_pos, first_block_idx, start_at_exit, _dist in candidates:
+        for start_pos, _first_block_idx, _start_at_exit, _dist in candidates:
             candidate_result = self._optimize_from_start(blocks, start_pos)
 
             if best_result is None or candidate_result.total_travel_distance < best_result.total_travel_distance:
@@ -3128,7 +3128,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         total_distance = 0.0
         current_pos: tuple[float, float] = start_pos
 
-        for i, gene in enumerate(chromosome):
+        for _i, gene in enumerate(chromosome):
             block_idx, reversed_flag = self._decode_gene(gene)
             block = blocks[block_idx]
 
