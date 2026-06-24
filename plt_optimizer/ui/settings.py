@@ -9,7 +9,6 @@ This module provides a tkinter-based configuration dialog that allows users to:
 from __future__ import annotations
 
 import logging
-import os
 import sys
 import tkinter as tk
 from pathlib import Path

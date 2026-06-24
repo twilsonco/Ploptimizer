@@ -7,23 +7,20 @@ in reverse order. It produces a new PLTDocument suitable for writing.
 
 from __future__ import annotations
 
-import math
-from dataclasses import replace
 from typing import Dict, List, Optional, Tuple
 
 from plt_optimizer.core.chunker import MacroBlock
-from plt_optimizer.core.intra_chunk_optimizer import IntraChunkResult, PathTraverseState
+from plt_optimizer.core.intra_chunk_optimizer import IntraChunkResult
 from plt_optimizer.core.models import (
-    _segment_length,
     ArcSegment,
     Coordinate,
-    PenState,
     PLTDocument,
     Segment,
     StrokePath,
     StrokeSegment,
+    _segment_length,
 )
-from plt_optimizer.core.optimizer import BlockTraverseState, OptimizationResult
+from plt_optimizer.core.optimizer import OptimizationResult
 from plt_optimizer.utils.logging import get_text_logger
 
 

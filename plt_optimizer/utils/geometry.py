@@ -16,7 +16,6 @@ from plt_optimizer.core.models import (
     StrokePath,
 )
 
-
 # Tolerance for floating-point comparisons (3 decimal places = 0.001)
 COORD_TOLERANCE = 1e-3
 
@@ -227,10 +226,10 @@ def is_point_on_segment(
 
     dot_product = ab_x * ap_x + ab_y * ap_y
     ab_squared = ab_x * ab_x + ab_y * ab_y
-    
+
     if math.isclose(ab_squared, 0.0, abs_tol=tol):
         return calculate_coordinate_distance(p, a) <= tol
-    
+
     if dot_product < -tol or dot_product > ab_squared + tol:
         return False
 
@@ -272,12 +271,8 @@ def remove_redundant_strokes(
         New PLTDocument with redundant segments removed. Empty paths are filtered out.
     """
     from plt_optimizer.core.models import (
-        ArcSegment,
-        FooterCommand,
-        HeaderCommand,
         PLTDocument,
         StrokePath,
-        StrokeSegment,
     )
 
     all_cutting_segments: List[Tuple[int, int, Segment]] = []
@@ -308,33 +303,33 @@ def remove_redundant_strokes(
             )
 
             both_on_each_other = on_i_on_j and on_j_on_i
-            
+
             if both_on_each_other:
                 seg_i_len = calculate_coordinate_distance(start_i, end_i)
                 seg_j_len = calculate_coordinate_distance(start_j, end_j)
                 same_length = math.isclose(seg_i_len, seg_j_len, abs_tol=tol)
-                
+
                 if same_length:
                     start_match = calculate_coordinate_distance(start_i, start_j) <= tol
                     end_match = calculate_coordinate_distance(end_i, end_j) <= tol
-                    
+
                     if start_match and end_match:
                         indices_to_remove.add((path_idx_j, seg_idx_j))
                     else:
                         reversed_start = calculate_coordinate_distance(start_i, end_j) <= tol
                         reversed_end = calculate_coordinate_distance(end_i, start_j) <= tol
-                        
+
                         if reversed_start and reversed_end:
                             indices_to_remove.add((path_idx_j, seg_idx_j))
                 else:
                     shorter_len = min(seg_i_len, seg_j_len)
                     longer_len = max(seg_i_len, seg_j_len)
-                    
+
                     len_diff = longer_len - shorter_len
-                    
+
                     if math.isclose(len_diff, 0.0, abs_tol=tol) or len_diff > tol:
                         pass
-                    
+
                     if seg_i_len <= seg_j_len:
                         indices_to_remove.add((path_idx_j, seg_idx_j))
                     else:
@@ -406,7 +401,7 @@ def fracture_linear_paths(
         >>> fractured = fracture_linear_paths(doc)
         >>> # Result: 4 separate single-segment paths instead of one 4-segment path
     """
-    from plt_optimizer.core.models import ArcSegment, PLTDocument, StrokePath
+    from plt_optimizer.core.models import PLTDocument, StrokePath
 
     fractured_paths: List[StrokePath] = []
 
