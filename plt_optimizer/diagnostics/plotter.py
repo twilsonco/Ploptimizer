@@ -20,10 +20,8 @@ from plt_optimizer.core.models import (
     PLTDocument,
     Segment,
     StrokePath,
-    StrokeSegment,
 )
 from plt_optimizer.utils.geometry import calculate_cumulative_distances
-
 
 # Plotter units are 1/1000ths of an inch; divide by 1000 for inches
 PLT_UNITS_TO_INCHES = 1 / 1000

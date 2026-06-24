@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 # Default configuration values
 DEFAULT_CONFIG: dict[str, Any] = {
@@ -52,9 +52,9 @@ def load_config() -> dict[str, Any]:
         return DEFAULT_CONFIG.copy()
 
     try:
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             loaded = json.load(f)
-    except (json.JSONDecodeError, IOError):
+    except (OSError, json.JSONDecodeError):
         # If file is corrupted or unreadable, return defaults
         return DEFAULT_CONFIG.copy()
 
@@ -79,7 +79,7 @@ def save_config(config: dict[str, Any]) -> None:
     try:
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=4)
-    except IOError as e:
+    except OSError as e:
         raise OSError(f"Failed to save configuration: {e}") from e
 
 

@@ -22,7 +22,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import logging
 import os
 import pathlib
 import shutil
@@ -37,7 +36,7 @@ from typing import Callable, Optional, Set
 
 # Third-party imports
 try:
-    from watchdog.events import FileSystemEventHandler, FileSystemEvent
+    from watchdog.events import FileSystemEvent, FileSystemEventHandler
     from watchdog.observers import Observer
 except ImportError as e:
     raise ImportError(
@@ -57,9 +56,8 @@ from plt_optimizer.core.parser import PLTParser
 from plt_optimizer.core.profiler import Profiler
 from plt_optimizer.core.reassembler import MetricsCalculator, Reassembler
 from plt_optimizer.core.writer import PLTWriter
-from plt_optimizer.utils.logging import CSVMetricsLogger, TextLogger
 from plt_optimizer.utils.geometry import fracture_linear_paths, remove_redundant_strokes
-
+from plt_optimizer.utils.logging import CSVMetricsLogger, TextLogger
 
 # File extensions to watch for
 SUPPORTED_EXTENSIONS = {".plt", ".hpgl", ".PLT", ".HPGL"}
@@ -165,7 +163,7 @@ class PLTFileHandler(FileSystemEventHandler):
             with open(path, "rb") as f:
                 f.read(1)
             return True
-        except (IOError, OSError):
+        except OSError:
             return False
 
     def _mark_processed(self, path: Path) -> None:
@@ -201,7 +199,7 @@ class PLTFileHandler(FileSystemEventHandler):
             return
 
         try:
-            from plt_optimizer.diagnostics.plotter import plot_plt_document, save_figure
+            from plt_optimizer.diagnostics.plotter import plot_plt_document
 
             debug_dir = self._log_dir / "debug"
             debug_dir.mkdir(parents=True, exist_ok=True)

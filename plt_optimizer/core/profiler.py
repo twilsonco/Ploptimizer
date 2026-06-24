@@ -17,8 +17,6 @@ COORD_TOLERANCE = 1e-3
 
 from plt_optimizer.core.models import (
     ArcSegment,
-    Coordinate,
-    Segment,
     StrokePath,
     StrokeSegment,
     _segment_length,
@@ -353,6 +351,7 @@ class ProfileResult:
 
 # Protocol for type-safe access to stroke_paths without importing concrete types
 from typing import Protocol
+
 
 class StrokePathsProtocol(Protocol):
     """Protocol for objects that contain stroke path data.

@@ -1,7 +1,12 @@
 """Core parsing and writing functionality for PLT files."""
 
-from plt_optimizer.core.parser import PLTParser, ParseError
-from plt_optimizer.core.writer import PLTWriter, WriteError
+from plt_optimizer.core.chunker import (
+    Chunker,
+    ChunkerConfig,
+    ChunkerError,
+    LinearChunker,
+    MacroBlock,
+)
 from plt_optimizer.core.models import (
     ArcSegment,
     Coordinate,
@@ -13,32 +18,27 @@ from plt_optimizer.core.models import (
     StrokePath,
     StrokeSegment,
 )
-from plt_optimizer.core.profiler import Extent, ProfileResult, Profiler, ProfilerError
-from plt_optimizer.core.chunker import (
-    Chunker,
-    ChunkerConfig,
-    ChunkerError,
-    LinearChunker,
-    MacroBlock,
-)
 from plt_optimizer.core.optimizer import (
     BlockConnection,
     BlockTraverseState,
+    NearestNeighbor2OptStrategy,
     NoOpStrategy,
     OptimizationError,
     OptimizationResult,
     OptimizationStrategy,
     OptimizerEngine,
-    NearestNeighbor2OptStrategy,
     ParallelEnsembleOptimizationResult,
     ParallelEnsembleStrategy,
     StrategyBenchmarkResult,
 )
+from plt_optimizer.core.parser import ParseError, PLTParser
+from plt_optimizer.core.profiler import Extent, Profiler, ProfilerError, ProfileResult
 from plt_optimizer.core.reassembler import (
     MetricsCalculator,
     Reassembler,
     ReassemblerError,
 )
+from plt_optimizer.core.writer import PLTWriter, WriteError
 
 __all__ = [
     # Parser/Writer
