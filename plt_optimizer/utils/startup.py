@@ -6,18 +6,15 @@ Windows Startup folder to enable "Run at Startup" functionality.
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 from pathlib import Path
 
-# Type alias for the COM object used in Windows shortcut creation
-try:
-    if sys.platform == "win32":
-        import winshell
-        _WINSHEEL_AVAILABLE = True
-    else:
-        _WINSHEET_AVAILABLE = False  # noqa: F841 (assigned for type checking)
-except ImportError:
-    _WINSHEELL_AVAILABLE = False
+# Check availability of Windows-specific modules without importing at module level
+_WINSHELL_AVAILABLE: bool = (
+    sys.platform == "win32" and importlib.util.find_spec("winshell") is not None
+)
+_PYWIN32_AVAILABLE: bool = importlib.util.find_spec("win32com.client") is not None
 
 # Shortcut filename without extension
 APP_NAME = "PLT-Optimizer"
@@ -33,7 +30,8 @@ def get_startup_folder() -> Path | None:
         return None
 
     try:
-        import winshell
+        import winshell  # noqa: F401 (imported but used via winshell.startup)
+
         startup = winshell.startup()
         return Path(startup)
     except Exception:
@@ -97,7 +95,6 @@ def create_shortcut(
     shortcut_path = startup_folder / f"{shortcut_name}.lnk"
 
     try:
-        import winshell
         from win32com.client import Dispatch  # type: ignore[import]
 
         shell = Dispatch("WScript.Shell")
