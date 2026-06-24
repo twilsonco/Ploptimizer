@@ -82,7 +82,7 @@ warn_unused_configs = true
 [tool.ruff]
 target-version = "py38"
 line-length = 100
-select = [
+lint.select = [
     "E",   # pycodestyle errors
     "W",   # pycodestyle warnings
     "F",   # Pyflakes
@@ -91,7 +91,7 @@ select = [
     "C4",  # flake8-comprehensions
     "UP",  # pyupgrade
 ]
-ignore = ["E501"]  # line too long handled by formatter
+lint.ignore = ["E501"]  # line too long handled by formatter
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
