@@ -48,6 +48,7 @@ class PathTraverseState:
         exit: The actual coordinate where we exit this path (may differ from
             original last segment end when reversed).
     """
+
     path_index: int
     reversed: bool
     entrance: Coordinate
@@ -64,6 +65,7 @@ class IntraChunkResult:
         total_internal_distance: Sum of rapid travel distances between paths
             in the optimized internal order.
     """
+
     traverse_order: tuple[PathTraverseState, ...]
     total_internal_distance: float
 
@@ -215,9 +217,7 @@ class NearestNeighborIntraStrategy(IntraChunkStrategy):
         if path_count < 2:
             return self._handle_single_path(paths, fixed_entrance, fixed_exit)
 
-        tour = self._greedy_nearest_neighbor_constrained(
-            paths, fixed_entrance, fixed_exit
-        )
+        tour = self._greedy_nearest_neighbor_constrained(paths, fixed_entrance, fixed_exit)
 
         if len(tour) > 3:
             tour = self._two_opt_refinement(tour, paths, fixed_entrance, fixed_exit)
@@ -252,9 +252,7 @@ class NearestNeighborIntraStrategy(IntraChunkStrategy):
             )
         return IntraChunkResult(traverse_order=(), total_internal_distance=0.0)
 
-    def _get_path_endpoints(
-        self, path: StrokePath
-    ) -> tuple[Coordinate, Coordinate]:
+    def _get_path_endpoints(self, path: StrokePath) -> tuple[Coordinate, Coordinate]:
         """Get the entrance and exit coordinates for a path.
 
         Args:
@@ -292,13 +290,9 @@ class NearestNeighborIntraStrategy(IntraChunkStrategy):
             the path should be entered at its exit (and traversed backward).
         """
         cost_to_entrance = math.sqrt(
-            (to_entrance.x - from_pos.x) ** 2
-            + (to_entrance.y - from_pos.y) ** 2
+            (to_entrance.x - from_pos.x) ** 2 + (to_entrance.y - from_pos.y) ** 2
         )
-        cost_to_exit = math.sqrt(
-            (to_exit.x - from_pos.x) ** 2
-            + (to_exit.y - from_pos.y) ** 2
-        )
+        cost_to_exit = math.sqrt((to_exit.x - from_pos.x) ** 2 + (to_exit.y - from_pos.y) ** 2)
 
         if cost_to_entrance <= cost_to_exit:
             return (cost_to_entrance, False)
@@ -321,9 +315,7 @@ class NearestNeighborIntraStrategy(IntraChunkStrategy):
         Returns:
             Initial traverse order from greedy construction.
         """
-        valid_paths_with_idx = [
-            (i, p) for i, p in enumerate(paths) if p.segments
-        ]
+        valid_paths_with_idx = [(i, p) for i, p in enumerate(paths) if p.segments]
 
         unvisited = {i for i, _ in valid_paths_with_idx}
         tour: list[PathTraverseState] = []
@@ -332,16 +324,14 @@ class NearestNeighborIntraStrategy(IntraChunkStrategy):
 
         while unvisited:
             best_path_idx = -1
-            best_cost = float('inf')
+            best_cost = float("inf")
             best_reversed = False
 
             for path_idx in unvisited:
                 path = paths[path_idx]
                 entrance, exit_coord = self._get_path_endpoints(path)
 
-                cost, reversed_flag = self._calculate_path_cost(
-                    current_pos, entrance, exit_coord
-                )
+                cost, reversed_flag = self._calculate_path_cost(current_pos, entrance, exit_coord)
 
                 if cost < best_cost:
                     best_cost = cost
@@ -370,9 +360,7 @@ class NearestNeighborIntraStrategy(IntraChunkStrategy):
             unvisited.remove(best_path_idx)
 
         if not self._is_valid_tour(tour, paths, fixed_entrance, fixed_exit):
-            self._logger.warning(
-                "Greedy construction violated constraints, using original order"
-            )
+            self._logger.warning("Greedy construction violated constraints, using original order")
             return self._create_original_order_tour(paths, fixed_entrance, fixed_exit)
 
         return tour
@@ -426,9 +414,7 @@ class NearestNeighborIntraStrategy(IntraChunkStrategy):
 
             entrance, exit_coord = self._get_path_endpoints(path)
 
-            reversed_flag = (
-                exit_coord.x == fixed_entrance.x and exit_coord.y == fixed_entrance.y
-            )
+            reversed_flag = exit_coord.x == fixed_entrance.x and exit_coord.y == fixed_entrance.y
 
             if reversed_flag:
                 actual_entrance = exit_coord
@@ -437,20 +423,20 @@ class NearestNeighborIntraStrategy(IntraChunkStrategy):
                 actual_entrance = entrance
                 actual_exit = exit_coord
 
-            tour.append(PathTraverseState(
-                path_index=i,
-                reversed=reversed_flag,
-                entrance=actual_entrance,
-                exit=actual_exit,
-            ))
+            tour.append(
+                PathTraverseState(
+                    path_index=i,
+                    reversed=reversed_flag,
+                    entrance=actual_entrance,
+                    exit=actual_exit,
+                )
+            )
 
         return tour
 
     def _coordinates_match(self, c1: Coordinate, c2: Coordinate) -> bool:
         """Check if two coordinates match within floating-point tolerance."""
-        return math.isclose(c1.x, c2.x, abs_tol=0.001) and math.isclose(
-            c1.y, c2.y, abs_tol=0.001
-        )
+        return math.isclose(c1.x, c2.x, abs_tol=0.001) and math.isclose(c1.y, c2.y, abs_tol=0.001)
 
     def _two_opt_refinement(
         self,
@@ -481,7 +467,7 @@ class NearestNeighborIntraStrategy(IntraChunkStrategy):
             for i in range(len(tour) - 2):
                 for j in range(i + 2, len(tour)):
                     if self._two_opt_swap_improves(tour, paths, fixed_entrance, fixed_exit, i, j):
-                        tour[i + 1:j + 1] = list(reversed(tour[i + 1:j + 1]))
+                        tour[i + 1 : j + 1] = list(reversed(tour[i + 1 : j + 1]))
                         improved = True
 
         self._logger.debug(f"2-opt completed in {iterations} iterations")
@@ -551,8 +537,7 @@ class NearestNeighborIntraStrategy(IntraChunkStrategy):
             curr_exit = tour[i].exit
             next_entrance = tour[i + 1].entrance
             dist = math.sqrt(
-                (next_entrance.x - curr_exit.x) ** 2
-                + (next_entrance.y - curr_exit.y) ** 2
+                (next_entrance.x - curr_exit.x) ** 2 + (next_entrance.y - curr_exit.y) ** 2
             )
             total += dist
 
@@ -617,8 +602,7 @@ class IntraChunkOptimizer:
             IntraChunkError: If optimization fails.
         """
         self._logger.debug(
-            f"Running {self._strategy.name} on block {block.block_id} "
-            f"with {len(block.paths)} paths"
+            f"Running {self._strategy.name} on block {block.block_id} with {len(block.paths)} paths"
         )
 
         try:

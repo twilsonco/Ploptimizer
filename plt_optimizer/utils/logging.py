@@ -168,9 +168,7 @@ class CSVMetricsLogger:
         """
         # Calculate percent improvement
         if original_distance > 0:
-            pct_improvement = (
-                (original_distance - optimized_distance) / original_distance * 100
-            )
+            pct_improvement = (original_distance - optimized_distance) / original_distance * 100
         else:
             pct_improvement = 0.0
 
@@ -179,8 +177,8 @@ class CSVMetricsLogger:
             job_id,
             str(original_file.stem),
             str(optimized_file.stem) if optimized_file else "",
-            f"{original_distance/1000:.1f}",
-            f"{optimized_distance/1000:.1f}",
+            f"{original_distance / 1000:.1f}",
+            f"{optimized_distance / 1000:.1f}",
             f"{pct_improvement:.2f}%",
             status,
             method,

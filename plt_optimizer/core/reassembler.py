@@ -90,9 +90,7 @@ class Reassembler:
         Raises:
             ReassemblerError: If reassembly cannot be completed.
         """
-        self._logger.info(
-            f"Reassembling document with {optimization_result.block_count} blocks"
-        )
+        self._logger.info(f"Reassembling document with {optimization_result.block_count} blocks")
 
         # Build map of block_id to MacroBlock for quick lookup
         block_map = {block.block_id: block for block in blocks}
@@ -120,13 +118,9 @@ class Reassembler:
 
             # Process paths based on whether this block should be reversed
             if traverse_state.reversed:
-                processed_paths = self._reverse_block_paths(
-                    current_block.paths, intra_result
-                )
+                processed_paths = self._reverse_block_paths(current_block.paths, intra_result)
             else:
-                processed_paths = self._apply_intra_chunk_order(
-                    current_block.paths, intra_result
-                )
+                processed_paths = self._apply_intra_chunk_order(current_block.paths, intra_result)
 
             optimized_paths.extend(processed_paths)
 
@@ -168,13 +162,16 @@ class Reassembler:
             if path_state.reversed:
                 reversed_segments = self._reverse_segment_order(original_path)
                 new_pen_up: Coordinate | None = (
-                    reversed_segments[0].start if reversed_segments
+                    reversed_segments[0].start
+                    if reversed_segments
                     else original_path.pen_up_position
                 )
-                reordered_paths.append(StrokePath(
-                    pen_up_position=new_pen_up,
-                    segments=tuple(reversed_segments),
-                ))
+                reordered_paths.append(
+                    StrokePath(
+                        pen_up_position=new_pen_up,
+                        segments=tuple(reversed_segments),
+                    )
+                )
             else:
                 reordered_paths.append(original_path)
 
@@ -255,10 +252,12 @@ class Reassembler:
                 new_segments[0].start if new_segments else path.pen_up_position
             )
 
-            reversed_paths.append(StrokePath(
-                pen_up_position=new_pen_up,
-                segments=tuple(new_segments),
-            ))
+            reversed_paths.append(
+                StrokePath(
+                    pen_up_position=new_pen_up,
+                    segments=tuple(new_segments),
+                )
+            )
 
         return reversed_paths
 
@@ -393,6 +392,7 @@ class MetricsCalculator:
 
         # Calculate file paths (if available)
         from pathlib import Path
+
         orig_path = Path(original_file) if original_file else None
         opt_path: Path | None = None
 
