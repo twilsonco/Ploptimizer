@@ -9,7 +9,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from math import sqrt
-from typing import Union
 
 
 class PenState(Enum):
@@ -173,7 +172,7 @@ class ArcSegment:
         return self.start.distance_to(self.center)
 
 
-Segment = Union[StrokeSegment, ArcSegment]
+Segment = StrokeSegment | ArcSegment
 
 
 def _segment_length(seg: Segment) -> float:

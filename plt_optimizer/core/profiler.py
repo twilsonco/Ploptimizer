@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import math
 import statistics
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol, Sequence
+from typing import Protocol
 
 from plt_optimizer.core.models import (
     ArcSegment,

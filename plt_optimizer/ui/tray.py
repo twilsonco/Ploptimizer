@@ -12,8 +12,9 @@ import logging
 import sys
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 # Check availability of required libraries without importing them at module level
 if importlib.util.find_spec("PIL") is None or importlib.util.find_spec("pystray") is None:
