@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum, auto
+from math import sqrt
 from typing import Union
 
 
@@ -57,7 +58,7 @@ class Coordinate:
         """
         dx = self.x - other.x
         dy = self.y - other.y
-        return (dx * dx + dy * dy) ** 0.5
+        return sqrt(dx * dx + dy * dy)
 
     def as_tuple(self) -> tuple[float, float]:
         """Return coordinate as a tuple of (x, y)."""
@@ -111,6 +112,7 @@ class HeaderCommand:
 
         # Split instruction from parameters
         parts = token.split(":", 1)  # Some commands use : as separator
+        params: tuple[float, ...] | None = None
         if len(parts) == 2:
             instr, param_str = parts
             params = tuple(float(p) for p in param_str.split(","))
@@ -121,12 +123,10 @@ class HeaderCommand:
             if match:
                 instr = match.group(1)
                 param_str = match.group(2)
-                params: tuple[float, ...] | None = None
                 if param_str:
                     params = tuple(float(p) for p in param_str.split(","))
             else:
                 instr = token
-                params = None
 
         return cls(instruction=instr, parameters=params)
 

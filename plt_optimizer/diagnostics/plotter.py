@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 from matplotlib.ticker import MultipleLocator
 
 from plt_optimizer.core.models import (
@@ -79,7 +80,7 @@ def plot_plt_document(
     show_plot: bool = False,
     figure_size: tuple[float, float] = DEFAULT_FIGURE_SIZE,
     rapid_travel_inches: float | None = None,
-) -> plt.Figure:
+) -> Figure:
     """Plot a complete PLT document with color-coded path segments.
 
     This function renders the toolpath with colors mapped to cumulative
@@ -140,19 +141,6 @@ def plot_plt_document(
 
         # Normalize distances to [0, 1] for colormap
         norm_distances = [d / max_distance if max_distance > 0 else 0.0 for d in cum_distances]
-
-        # Separate cutting and rapid segments
-        cutting_lines: list[tuple[float, float]] = []
-        cutting_colors: list[float] = []
-        rapid_lines: list[tuple[float, float]] = []
-
-        for i, (seg, is_cutting) in enumerate(zip(all_segments, segment_is_cutting)):
-            line_coords = [(seg.start.x, _flip_y(seg.start.y)), (seg.end.x, _flip_y(seg.end.y))]
-            if is_cutting:
-                cutting_lines.append(line_coords)
-                cutting_colors.append(norm_distances[i])
-            else:
-                rapid_lines.append(line_coords)
 
         # Calculate axis limits from all segments with 10% padding (in inches)
         if all_segments:
@@ -339,7 +327,7 @@ def plot_stroke_path(
     output_path: Path | None = None,
     title: str = "Stroke Path",
     show_plot: bool = False,
-) -> plt.Figure:
+) -> Figure:
     """Plot a single stroke path.
 
     Args:
@@ -361,7 +349,7 @@ def plot_stroke_path(
     )
 
 
-def save_figure(fig: plt.Figure, path: Path) -> None:
+def save_figure(fig: Figure, path: Path) -> None:
     """Save a matplotlib figure to file.
 
     Args:
@@ -394,7 +382,7 @@ def create_path_diagram(
     cutting_mask: Sequence[bool],
     output_path: Path | None = None,
     title: str = "Toolpath Diagram",
-) -> plt.Figure:
+) -> Figure:
     """Create a simple path diagram without full document parsing.
 
     This is a convenience function for quickly visualizing coordinate sequences
