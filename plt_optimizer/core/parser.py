@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 import re
 from pathlib import Path
-from typing import Iterator, List, Tuple
+from typing import Iterator
 
 from plt_optimizer.core.models import (
     ArcSegment,

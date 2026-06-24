@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 import statistics
 from dataclasses import dataclass
-from typing import List, Sequence
+from typing import Sequence
 
 # Tolerance for floating-point coordinate comparisons (3 decimal places = 0.001)
 COORD_TOLERANCE = 1e-3

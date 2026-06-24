@@ -13,7 +13,6 @@ import time
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
 
 from plt_optimizer.core.chunker import MacroBlock
 from plt_optimizer.utils.logging import get_text_logger
