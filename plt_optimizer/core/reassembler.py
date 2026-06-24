@@ -72,9 +72,9 @@ class Reassembler:
     def reassemble(
         self,
         original_document: PLTDocument,
-        blocks: List[MacroBlock],
+        blocks: list[MacroBlock],
         optimization_result: OptimizationResult,
-        intra_chunk_results: List[IntraChunkResult] | None = None,
+        intra_chunk_results: list[IntraChunkResult] | None = None,
     ) -> PLTDocument:
         """Reconstruct an optimized PLTDocument from MacroBlocks.
 
@@ -100,14 +100,14 @@ class Reassembler:
         block_map = {block.block_id: block for block in blocks}
 
         # Build intra-chunk result map if provided
-        intra_map: Dict[int, IntraChunkResult] = {}
+        intra_map: dict[int, IntraChunkResult] = {}
         if intra_chunk_results is not None:
             for i, b in enumerate(blocks):
                 if i < len(intra_chunk_results):
                     intra_map[b.block_id] = intra_chunk_results[i]
 
         # Reconstruct optimized stroke paths
-        optimized_paths: List[StrokePath] = []
+        optimized_paths: list[StrokePath] = []
 
         for traverse_state in optimization_result.traverse_order:
             maybe_block = block_map.get(traverse_state.block_id)
@@ -145,9 +145,9 @@ class Reassembler:
 
     def _apply_intra_chunk_order(
         self,
-        paths: Tuple[StrokePath, ...],
+        paths: tuple[StrokePath, ...],
         intra_result: IntraChunkResult | None,
-    ) -> List[StrokePath]:
+    ) -> list[StrokePath]:
         """Apply intra-chunk optimized order without reversing entire block.
 
         Args:
@@ -160,7 +160,7 @@ class Reassembler:
         if intra_result is None:
             return list(paths)
 
-        reordered_paths: List[StrokePath] = []
+        reordered_paths: list[StrokePath] = []
 
         for path_state in intra_result.traverse_order:
             original_path = paths[path_state.path_index]
@@ -184,9 +184,9 @@ class Reassembler:
 
     def _reverse_block_paths(
         self,
-        paths: Tuple[StrokePath, ...],
+        paths: tuple[StrokePath, ...],
         intra_result: IntraChunkResult | None = None,
-    ) -> List[StrokePath]:
+    ) -> list[StrokePath]:
         """Reverse the order of paths and all segments within each path.
 
         When a block must be traversed in reverse (right-to-left), we need to:
@@ -206,7 +206,7 @@ class Reassembler:
         reordered = self._apply_intra_chunk_order(paths, intra_result)
         return list(reversed(reordered))
 
-    def _reverse_segment_order(self, path: StrokePath) -> List[Segment]:
+    def _reverse_segment_order(self, path: StrokePath) -> list[Segment]:
         """Reverse the order of segments within a path and swap coordinates.
 
         Args:
@@ -215,7 +215,7 @@ class Reassembler:
         Returns:
             List of segments in reverse order with swapped start/end.
         """
-        new_segments: List[Segment] = []
+        new_segments: list[Segment] = []
 
         for segment in reversed(path.segments):
             if isinstance(segment, ArcSegment):
@@ -236,7 +236,7 @@ class Reassembler:
 
         return new_segments
 
-    def _reverse_paths_simple(self, paths: Tuple[StrokePath, ...]) -> List[StrokePath]:
+    def _reverse_paths_simple(self, paths: tuple[StrokePath, ...]) -> list[StrokePath]:
         """Simple path reversal without intra-chunk optimization.
 
         Args:
@@ -245,7 +245,7 @@ class Reassembler:
         Returns:
             List of reversed and transformed stroke paths.
         """
-        reversed_paths: List[StrokePath] = []
+        reversed_paths: list[StrokePath] = []
 
         for path in reversed(paths):
             if not path.segments:
@@ -347,7 +347,7 @@ class MetricsCalculator:
         self,
         original_distance: float,
         optimized_distance: float,
-    ) -> Tuple[float, float]:
+    ) -> tuple[float, float]:
         """Calculate improvement metrics between original and optimized.
 
         Args:

@@ -21,8 +21,8 @@ COORD_TOLERANCE = 1e-3
 
 
 def calculate_distance(
-    point1: Tuple[float, float],
-    point2: Tuple[float, float],
+    point1: tuple[float, float],
+    point2: tuple[float, float],
 ) -> float:
     """Calculate the Euclidean distance between two points.
 
@@ -58,7 +58,7 @@ def calculate_coordinate_distance(
 
 
 def calculate_path_length(
-    path_points: Sequence[Tuple[float, float]],
+    path_points: Sequence[tuple[float, float]],
 ) -> float:
     """Calculate the total length of a polyline path.
 
@@ -119,7 +119,7 @@ def calculate_stroke_path_length(stroke: StrokePath) -> float:
 
 def bounding_box(
     coordinates: Sequence[Coordinate],
-) -> Tuple[float, float, float, float]:
+) -> tuple[float, float, float, float]:
     """Calculate the bounding box for a set of coordinates.
 
     Args:
@@ -143,8 +143,8 @@ def bounding_box(
 
 
 def calculate_cumulative_distances(
-    segments: Sequence[Tuple[Coordinate, Coordinate]],
-) -> Tuple[float, ...]:
+    segments: Sequence[tuple[Coordinate, Coordinate]],
+) -> tuple[float, ...]:
     """Calculate cumulative distance traveled at each segment.
 
     Given a sequence of line segments (as coordinate pairs), returns
@@ -238,7 +238,7 @@ def is_point_on_segment(
 
 def _segment_to_coords(
     seg: Segment,
-) -> Tuple[Coordinate, Coordinate]:
+) -> tuple[Coordinate, Coordinate]:
     """Extract start and end coordinates from a segment.
 
     Args:
@@ -275,7 +275,7 @@ def remove_redundant_strokes(
         StrokePath,
     )
 
-    all_cutting_segments: List[Tuple[int, int, Segment]] = []
+    all_cutting_segments: list[tuple[int, int, Segment]] = []
     for path_idx, path in enumerate(doc.stroke_paths):
         for seg_idx, seg in enumerate(path.segments):
             if isinstance(seg, ArcSegment) or not seg.is_cutting:
@@ -283,7 +283,7 @@ def remove_redundant_strokes(
             all_cutting_segments.append((path_idx, seg_idx, seg))
 
     n = len(all_cutting_segments)
-    indices_to_remove: set[Tuple[int, int]] = set()
+    indices_to_remove: set[tuple[int, int]] = set()
 
     for i in range(n):
         path_idx_i, seg_idx_i, seg_i = all_cutting_segments[i]
@@ -340,10 +340,10 @@ def remove_redundant_strokes(
                 if on_j_on_i:
                     indices_to_remove.add((path_idx_j, seg_idx_j))
 
-    new_stroke_paths: List[StrokePath] = []
+    new_stroke_paths: list[StrokePath] = []
 
     for path_idx, path in enumerate(doc.stroke_paths):
-        current_segments: List[Segment] = []
+        current_segments: list[Segment] = []
         current_pen_up = path.pen_up_position
 
         for seg_idx, seg in enumerate(path.segments):
@@ -403,7 +403,7 @@ def fracture_linear_paths(
     """
     from plt_optimizer.core.models import PLTDocument, StrokePath
 
-    fractured_paths: List[StrokePath] = []
+    fractured_paths: list[StrokePath] = []
 
     for path in doc.stroke_paths:
         if not path.segments:
