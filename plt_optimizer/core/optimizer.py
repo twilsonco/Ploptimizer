@@ -1319,7 +1319,7 @@ class ChristofidesStrategy(OptimizationStrategy):
         """Return the strategy name."""
         return "Christofides-Serdyukov S-T Path (5/3 approx)"
 
-    def optimize(
+    def optimize(  # type: ignore[override]
         self,
         blocks: list[MacroBlock],
         start_point: tuple[float, float],
@@ -2947,6 +2947,8 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         if best_chromosome is None and population:
             best_chromosome = min(population, key=lambda c: self._calculate_fitness(c, blocks, start_pos))
 
+        # At this point best_chromosome should be valid since we have blocks to optimize
+        assert best_chromosome is not None, "Genetic algorithm failed to produce a valid chromosome"
         final_tour = self._create_tour_from_chromosome(best_chromosome, blocks, start_pos)
 
         # Apply 2-opt refinement to improve block ordering
@@ -3919,7 +3921,7 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
         """Return the strategy name."""
         return "Parallel Ensemble"
 
-    def optimize(
+    def optimize(  # type: ignore[override]
         self,
         blocks: list[MacroBlock],
         initial_position: tuple[float, float] | None = None,

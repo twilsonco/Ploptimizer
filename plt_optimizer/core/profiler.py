@@ -46,7 +46,7 @@ class Extent:
         """Return the Euclidean norm (diagonal) of the extent."""
         dx = float(self.dx)
         dy = float(self.dy)
-        return (dx * dx + dy * dy) ** 0.5
+        return math.sqrt(dx * dx + dy * dy)
 
 
 class ProfilerError(Exception):

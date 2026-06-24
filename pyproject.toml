@@ -3,7 +3,7 @@ name = "plt-optimizer"
 version = "0.1.0"
 description = "Deterministic cross-platform Python tool for optimizing geometric toolpaths from HPGL/PLT plotter files."
 readme = "README.md"
-requires-python = ">=3.8,<3.14"
+requires-python = ">=3.10,<3.14"
 license = { text = "MIT" }
 authors = [
     { name = "PLT-Optimizer Team", email = "team@pltoptimizer.dev" }
@@ -14,7 +14,7 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Operating System :: Microsoft :: Windows :: Windows 7",
-    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
@@ -74,13 +74,13 @@ exclude_lines = [
 ]
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.10"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
 
 [tool.ruff]
-target-version = "py38"
+target-version = "py310"
 line-length = 100
 lint.select = [
     "E",   # pycodestyle errors

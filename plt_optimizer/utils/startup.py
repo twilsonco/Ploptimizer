@@ -30,7 +30,7 @@ def get_startup_folder() -> Path | None:
         return None
 
     try:
-        import winshell  # noqa: F401 (imported but used via winshell.startup)
+        import winshell  # type: ignore[import-not-found]  # noqa: F401
 
         startup = winshell.startup()
         return Path(startup)
@@ -95,7 +95,7 @@ def create_shortcut(
     shortcut_path = startup_folder / f"{shortcut_name}.lnk"
 
     try:
-        from win32com.client import Dispatch  # type: ignore[import]
+        from win32com.client import Dispatch  # type: ignore[import-untyped]
 
         shell = Dispatch("WScript.Shell")
         shortcut = shell.CreateShortcut(str(shortcut_path))
