@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Optional
 
 # Type alias for the COM object used in Windows shortcut creation
 try:
@@ -39,7 +38,6 @@ def get_startup_folder() -> Path | None:
         return Path(startup)
     except Exception:
         # Fallback for environments where winshell isn't available
-        Path.home().name
         fallback = Path.home() / "AppData" / "Roaming" / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
         return fallback
 

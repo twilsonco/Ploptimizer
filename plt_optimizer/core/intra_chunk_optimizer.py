@@ -13,7 +13,6 @@ from __future__ import annotations
 import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional
 
 from plt_optimizer.core.chunker import MacroBlock
 from plt_optimizer.core.models import Coordinate, StrokePath
