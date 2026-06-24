@@ -3816,6 +3816,16 @@ class ParallelEnsembleOptimizationResult:
         """Return number of blocks in the winning route."""
         return self.result.block_count
 
+    @property
+    def traverse_order(self) -> Tuple[BlockTraverseState, ...]:
+        """Return the traversal order from the winning result."""
+        return self.result.traverse_order
+
+    @property
+    def total_travel_distance(self) -> float:
+        """Return the total travel distance of the winning result."""
+        return self.result.total_travel_distance
+
 
 def _run_strategy_worker(
     strategy_name: str,
