@@ -7,7 +7,7 @@ including Euclidean distance computations with proper floating-point handling.
 from __future__ import annotations
 
 import math
-from typing import List, Sequence, Tuple
+from typing import Sequence
 
 from plt_optimizer.core.models import (
     ArcSegment,
