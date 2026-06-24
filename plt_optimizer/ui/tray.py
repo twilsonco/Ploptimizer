@@ -6,15 +6,14 @@ It runs the file watcher in a background thread while maintaining the GUI event 
 
 from __future__ import annotations
 
+# Third-party imports
+import importlib.util
 import logging
 import sys
 import threading
 import time
 from pathlib import Path
 from typing import Callable
-
-# Third-party imports
-import importlib.util
 
 # Check availability of required libraries without importing them at module level
 if importlib.util.find_spec("PIL") is None or importlib.util.find_spec("pystray") is None:
@@ -24,7 +23,6 @@ if importlib.util.find_spec("PIL") is None or importlib.util.find_spec("pystray"
 
 from PIL import Image  # type: ignore[import]
 from pystray import Icon, Menu, MenuItem
-
 
 # Module-level logger
 _logger = logging.getLogger(__name__)
