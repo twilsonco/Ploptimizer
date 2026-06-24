@@ -1,0 +1,24 @@
+# See https://pre-commit.com for more information
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check plt_optimizer/
+        language: system
+        pass_filenames: false
+        types_or: [python]
+
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format plt_optimizer/
+        language: system
+        pass_filenames: false
+        types_or: [python]
+
+      - id: mypy
+        name: mypy type check
+        entry: uv run mypy plt_optimizer/
+        language: system
+        pass_filenames: false
+        types_or: [python]

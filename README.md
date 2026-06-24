@@ -506,6 +506,19 @@ The project follows:
 - Strict PEP 484 type hints
 - Google-style docstrings
 
+#### Pre-commit Hooks (Recommended)
+
+Install pre-commit to run linting and type checks before every commit:
+
+```bash
+uv pip install pre-commit
+pre-commit install
+```
+
+Now `ruff check`, `ruff format`, and `mypy` will run automatically on each `git commit`.
+
+#### Manual Checks
+
 Run the linter:
 ```bash
 uv run ruff check plt_optimizer/
