@@ -98,32 +98,12 @@ def main() -> int:
 
     # Check if watch_dir is configured (if not, show settings first)
     if not config.get("watch_dir"):
-        logger.info("No watch directory configured, showing settings dialog")
-        from plt_optimizer.ui.settings import SettingsWindow
+        logger.info("No watch directory configured, skipping initial settings dialog")
+        logger.info("Using default config - watch directory must be set via future settings")
 
-        def initial_save_callback(new_config: dict) -> None:
-            save_config(new_config)
-
-        # Create a minimal Tk root for the settings dialog
-        try:
-            logger.info("About to import tkinter")
-            import tkinter as tk
-            logger.info("tkinter imported successfully")
-
-            logger.info("Creating SettingsWindow with parent=None (avoids nested mainloop)")
-            sw = SettingsWindow(
-                current_config=config,
-                save_callback=initial_save_callback,
-                parent=None,  # Don't nest mainloops - let show() handle its own
-            )
-            sw.show()
-            logger.info("Settings dialog closed, continuing")
-        except Exception as e:
-            logger.error(f"Failed to show initial settings: {e}", exc_info=True)
-            return 1
-
-        # Reload config after settings saved
-        config = load_config()
+        # Set a reasonable default so we can start the tray
+        if "watch_dir" not in config:
+            config["watch_dir"] = str(Path.home() / "Desktop")
 
     # Global state for the application
     app_state = {"running": True}
