@@ -569,9 +569,11 @@ def run_watcher_from_config(
         text_logger.info(f"Received {sig_name}, initiating graceful shutdown...")
         stop_event.set()
 
-    # Set up signal handlers
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
+    # Set up signal handlers only in main thread (check with threading.current_thread)
+    is_main_thread = threading.current_thread() == threading.main_thread()
+    if is_main_thread:
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
 
     # Process existing files first
     handler = PLTFileHandler(
