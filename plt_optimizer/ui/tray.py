@@ -87,13 +87,19 @@ class TrayIconManager:
             PIL Image object for the tray icon.
         """
         icon_path = self._get_icon_path()
+        _logger.info(f"Attempting to load icon from: {icon_path}")
         try:
-            return Image.open(icon_path)
-        except FileNotFoundError:
-            _logger.warning(f"Icon not found at {icon_path}, creating default")
-            # Create a simple 64x64 blue square as fallback
-            img = Image.new("RGB", (64, 64), color=(0, 120, 200))
+            img = Image.open(icon_path)
+            _logger.debug(f"Icon loaded successfully: {img.size}, mode={img.mode}")
             return img
+        except FileNotFoundError:
+            _logger.warning(f"Icon not found at {icon_path}, creating default fallback")
+            # Create a simple 64x64 blue square as fallback
+            return Image.new("RGB", (64, 64), color=(0, 120, 200))
+        except Exception as e:
+            _logger.error(f"Failed to load icon from {icon_path}: {e}", exc_info=True)
+            # Fall back to default
+            return Image.new("RGB", (64, 64), color=(0, 120, 200))
 
     def _on_settings_click(self, icon: Icon, item: MenuItem) -> None:
         """Handle 'Open Settings' menu click.
@@ -212,20 +218,29 @@ class TrayIconManager:
 
     def run(self) -> None:
         """Run the system tray icon (blocking call)."""
+        _logger.info("Loading tray icon image")
         icon_image = self._load_icon_image()
+        _logger.debug(f"Icon image loaded: {icon_image}, size={icon_image.size}")
 
-        self._icon = Icon(
-            name="PLT-Optimizer",
-            icon=icon_image,
-            title="PLT-Optimizer",
-            menu=self._create_menu(),
-        )
+        try:
+            self._icon = Icon(
+                name="PLT-Optimizer",
+                icon=icon_image,
+                title="PLT-Optimizer",
+                menu=self._create_menu(),
+            )
+            _logger.info("Tray icon object created successfully")
+        except Exception as e:
+            _logger.error(f"Failed to create tray icon: {e}", exc_info=True)
+            raise
 
-        _logger.info("Starting system tray icon")
+        _logger.info("Starting system tray icon - calling run()")
         try:
             self._icon.run()
         except Exception as e:
-            _logger.error(f"Tray icon error: {e}")
+            _logger.error(f"Tray icon error during run(): {e}", exc_info=True)
+            # Re-raise so caller knows something failed
+            raise
         finally:
             self.stop_watcher()
 

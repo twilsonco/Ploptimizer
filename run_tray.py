@@ -39,10 +39,13 @@ def get_icon_path() -> Path:
     """
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
         # Running as compiled executable - look in temp extraction folder
-        return Path(sys._MEIPASS) / "assets" / "icon.ico"
+        icon_path = Path(sys._MEIPASS) / "assets" / "icon.ico"
     else:
         # Running as Python script or in dev environment
-        return Path(__file__).parent / "assets" / "icon.ico"
+        icon_path = Path(__file__).parent / "assets" / "icon.ico"
+
+    logger.info(f"Icon path resolved to: {icon_path} (exists={icon_path.exists()})")
+    return icon_path
 
 
 def create_icon_fallback() -> "Image.Image":
@@ -103,22 +106,20 @@ def main() -> int:
 
         # Create a minimal Tk root for the settings dialog
         try:
+            logger.info("About to import tkinter")
             import tkinter as tk
-            root = tk.Tk()
-            root.withdraw()  # Hide the main window, we only want settings
+            logger.info("tkinter imported successfully")
 
-            def show_settings():
-                SettingsWindow(
-                    current_config=config,
-                    save_callback=initial_save_callback,
-                    parent=root,
-                ).show()
-
-            # Schedule settings to show after event loop starts
-            root.after(100, show_settings)
-            root.mainloop()
+            logger.info("Creating SettingsWindow with parent=None (avoids nested mainloop)")
+            sw = SettingsWindow(
+                current_config=config,
+                save_callback=initial_save_callback,
+                parent=None,  # Don't nest mainloops - let show() handle its own
+            )
+            sw.show()
+            logger.info("Settings dialog closed, continuing")
         except Exception as e:
-            logger.error(f"Failed to show initial settings: {e}")
+            logger.error(f"Failed to show initial settings: {e}", exc_info=True)
             return 1
 
         # Reload config after settings saved
@@ -250,12 +251,14 @@ def main() -> int:
     watcher_thread.start()
 
     # Run the tray icon (blocking)
+    logger.info("About to start tray manager")
     try:
         tray_manager.run()
+        logger.info("Tray manager returned normally")
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received")
     except Exception as e:
-        logger.error(f"Tray error: {e}")
+        logger.error(f"Tray error: {e}", exc_info=True)
     finally:
         stop_event.set()
         logger.info("PLT-Optimizer Tray Application stopped")
