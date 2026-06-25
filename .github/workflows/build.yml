@@ -42,7 +42,7 @@ jobs:
       - name: Build executable
         shell: bash
         run: |
-          uv run pyinstaller --noconsole --windowed --name PLT-Optimizer \
+          uv run pyinstaller --noconsole --windowed --onedir --name PLT-Optimizer \
             --icon=assets/icon.ico --add-data "assets/icon.ico;assets" \
             run_tray.py
 
@@ -50,7 +50,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: PLT-Optimizer-Windows
-          path: dist/PLT-Optimizer/PLT-Optimizer.exe
+          path: dist/PLT-Optimizer/
 
   release:
     name: Create Release
@@ -67,7 +67,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: dist/PLT-Optimizer/PLT-Optimizer.exe
+          files: dist/PLT-Optimizer/**
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
