@@ -163,7 +163,7 @@ def main() -> int:
             )
 
             logger.info("Showing settings dialog")
-            settings_window.show(root)
+            settings_window.show()
 
             # Process results after mainloop exits
 
