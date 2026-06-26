@@ -122,9 +122,14 @@ def main() -> int:
         """Handle request to open settings window."""
         from plt_optimizer.ui.settings import SettingsWindow
 
-        logger.info("Settings requested, pausing tray icon")
+        logger.info("Settings requested")
 
-        # Mark that we're showing settings
+        # Skip if already showing settings
+        if app_state.get("_showing_settings"):
+            logger.info("Settings dialog already open")
+            return
+
+        # Mark that we're showing settings immediately
         app_state["_showing_settings"] = True
 
         # Stop systray temporarily (works for both pystray and infi.systray)
@@ -144,57 +149,54 @@ def main() -> int:
 
             def save_callback(new_cfg: dict[str, object]) -> None:
                 updated_config[0] = new_cfg
+                settings_closed.set()
 
-            # Use tkinter's single Tk instance approach (works with infi.systray now)
+            # Create a hidden root for event loop context (but don't show it)
             import tkinter as tk
+            hidden_root = app_state.get("_tk_hidden_root") or tk.Tk()
+            if not app_state.get("_tk_hidden_root"):
+                hidden_root.withdraw()  # Keep hidden - just provides event loop context
+                app_state["_tk_hidden_root"] = hidden_root
+
             settings_closed: threading.Event = threading.Event()
             settings_closed.clear()
 
-            def on_close() -> None:
-                """Called when settings window is closed."""
-                logger.info("Settings dialog closing")
-                settings_closed.set()
-
-            # Create or get the hidden root - use this as parent for settings
-            hidden_root = app_state.get("_tk_hidden_root") or tk.Tk()
-            if not app_state.get("_tk_hidden_root"):
-                hidden_root.withdraw()
-                app_state["_tk_hidden_root"] = hidden_root
-
-            settings_window = SettingsWindow(
-                current_config=load_config(),
-                save_callback=save_callback,
-                parent=hidden_root,  # Use single Tk instance as parent
-            )
+            logger.info("Showing settings dialog")
 
             def run_settings() -> None:
                 try:
-                    logger.info("Showing settings dialog")
+                    settings_window = SettingsWindow(
+                        current_config=load_config(),
+                        save_callback=save_callback,
+                        parent=None,  # Creates its own Tk, no nested loops
+                    )
+                    app_state["_settings_window"] = settings_window
+                    logger.info("Settings window created")
                     settings_window.show()
                 except Exception as e:
                     logger.error(f"Error showing settings: {e}", exc_info=True)
-                finally:
-                    on_close()
+                    settings_closed.set()  # Ensure we don't hang
 
-            # Run settings in a nested loop (blocking call to allow UI interaction)
             hidden_root.after(100, run_settings)
 
-            # Check if closed every 100ms
+            # Check if closed every 200ms
             def poll_closed() -> None:
-                # Check if app is trying to exit
                 if not app_state.get("running", True):
                     logger.info("Exit requested during settings")
-                    try:
-                        settings_window.destroy()
-                    except Exception:
-                        pass
+                    sw = app_state.get("_settings_window")
+                    if sw:
+                        try:
+                            sw.destroy()
+                        except Exception:
+                            pass
                     hidden_root.quit()
                     return
 
                 if settings_closed.is_set():
-                    hidden_root.quit()
+                    # Give a moment for cleanup
+                    hidden_root.after(100, hidden_root.quit)
                 else:
-                    hidden_root.after(100, poll_closed)
+                    hidden_root.after(200, poll_closed)
 
             logger.info("Starting settings event loop")
             hidden_root.after(200, poll_closed)
