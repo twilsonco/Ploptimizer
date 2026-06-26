@@ -194,19 +194,18 @@ class TrayIconManager:
         icon_path = str(self._get_icon_path())
 
         # Create menu as tuple of (label, icon_file_or_None, callback) tuples
-        menu_options = (
-            ("Open Settings", None, self._on_infi_settings_click),
-            ("Exit", None, self._on_infi_exit_click),
-        )
+        # Note: infi.systray automatically adds a Quit option when on_quit is provided
+        # so we don't need to include Exit in the menu ourselves
+        menu_options = (("Open Settings", None, self._on_infi_settings_click),)
 
         def on_quit_callback(systray: Any) -> None:
-            """Called when user clicks Exit in infi.systray."""
+            """Called when user clicks Quit (auto-added by infi.systray)."""
             _logger.debug("infi.systray quit callback")
             if self.on_exit_requested is not None:
                 try:
                     self.on_exit_requested()
                 except Exception as e:
-                    _logger.error(f"Error during exit: {e}")
+                    _logger.error(f"Error during exit: {e}", exc_info=True)
 
         self._systray = SysTrayIcon(
             icon_path,
