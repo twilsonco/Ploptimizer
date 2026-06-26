@@ -124,15 +124,15 @@ def main() -> int:
 
         logger.info("Settings requested, pausing tray icon")
 
-        # Stop pystray temporarily
+        # Mark that we're showing settings
+        app_state["_showing_settings"] = True
+
+        # Stop systray temporarily (works for both pystray and infi.systray)
         if tray_manager is not None:
-            tray_icon = getattr(tray_manager, '_icon', None)
-            if tray_icon is not None and tray_icon._running:
-                app_state["_showing_settings"] = True
-                try:
-                    tray_icon.stop()
-                except Exception as e:
-                    logger.warning(f"Could not stop tray icon: {e}")
+            try:
+                tray_manager.stop()
+            except Exception as e:
+                logger.warning(f"Could not stop tray icon: {e}")
 
         # Stop watcher before showing settings
         if "stop_event" in app_state and app_state["running"]:
@@ -145,7 +145,7 @@ def main() -> int:
             def save_callback(new_cfg: dict[str, object]) -> None:
                 updated_config[0] = new_cfg
 
-            # Use tkinter's single Tk instance approach
+            # Use tkinter's single Tk instance approach (works with infi.systray now)
             import tkinter as tk
             settings_closed: threading.Event = threading.Event()
             settings_closed.clear()
@@ -155,7 +155,7 @@ def main() -> int:
                 logger.info("Settings dialog closing")
                 settings_closed.set()
 
-            # Create settings with our hidden root as parent
+            # Create or get the hidden root - use this as parent for settings
             hidden_root = app_state.get("_tk_hidden_root") or tk.Tk()
             if not app_state.get("_tk_hidden_root"):
                 hidden_root.withdraw()
@@ -164,7 +164,7 @@ def main() -> int:
             settings_window = SettingsWindow(
                 current_config=load_config(),
                 save_callback=save_callback,
-                parent=None,  # Creates its own Tk on Windows to avoid grab conflicts
+                parent=hidden_root,  # Use single Tk instance as parent
             )
 
             def run_settings() -> None:
