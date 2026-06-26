@@ -121,20 +121,18 @@ class SettingsWindow:
 
         row += 1
 
-        # Processed Directory (optional)
+        # Processed Directory (optional) - now with Browse button like others
         ttk.Label(dir_section, text="Processed Directory:").grid(
             row=row, column=0, sticky="w", pady=5
         )
         self._processed_dir_var = tk.StringVar()
         processed_entry = ttk.Entry(dir_section, textvariable=self._processed_dir_var, width=40)
         processed_entry.grid(row=row, column=1, sticky="ew", padx=(5, 0), pady=5)
-
-        def clear_processed() -> None:
-            self._processed_dir_var.set("")
-
-        ttk.Button(dir_section, text="Clear", command=clear_processed).grid(
-            row=row, column=2, pady=5
-        )
+        ttk.Button(
+            dir_section,
+            text="Browse...",
+            command=lambda: self._browse_directory(self._processed_dir_var),
+        ).grid(row=row, column=2, pady=5)
 
         # Optimization settings section
         opt_section = ttk.LabelFrame(main_frame, text="Optimization Options", padding="10")
@@ -169,6 +167,51 @@ class SettingsWindow:
             )
             startup_check.grid(row=0, column=0, sticky="w", pady=5)
 
+        # Cleanup section - separate from directory selection
+        cleanup_section = ttk.LabelFrame(main_frame, text="Maintenance", padding="10")
+        cleanup_section.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(10, 0))
+
+        def on_cleanup() -> None:
+            """Handle cleanup button click."""
+            result = messagebox.askyesno(
+                "Cleanup Files",
+                "This will delete all files in the logs and processed directories.\n\nContinue?",
+                parent=self._root,
+            )
+            if not result:
+                return
+
+            # Clean logs directory
+            log_dir = self._log_dir_var.get().strip()
+            cleaned_count = 0
+            if log_dir and Path(log_dir).exists():
+                try:
+                    for f in Path(log_dir).iterdir():
+                        if f.is_file():
+                            f.unlink()
+                            cleaned_count += 1
+                except Exception as e:
+                    _logger.error(f"Error cleaning log directory: {e}")
+
+            # Clean processed directory if set
+            processed_dir = self._processed_dir_var.get().strip()
+            if processed_dir and Path(processed_dir).exists():
+                try:
+                    for f in Path(processed_dir).iterdir():
+                        if f.is_file():
+                            f.unlink()
+                            cleaned_count += 1
+                except Exception as e:
+                    _logger.error(f"Error cleaning processed directory: {e}")
+
+            messagebox.showinfo(
+                "Cleanup Complete", f"Deleted {cleaned_count} files.", parent=self._root
+            )
+
+        ttk.Button(cleanup_section, text="Clean Logs & Processed Files", command=on_cleanup).grid(
+            row=0, column=0, sticky="w", pady=5
+        )
+
         # Buttons
         button_frame = ttk.Frame(main_frame)
         button_frame.grid(row=5, column=0, columnspan=3, pady=(20, 0))
@@ -186,18 +229,36 @@ class SettingsWindow:
         if not initial or not Path(initial).exists():
             initial = str(Path.home())
 
-        # Don't specify parent - filedialog will bind correctly without it
-        # This avoids issues where invisible/withdrawn windows cause filedialog problems
-        self._root.withdraw()  # Hide settings while dialog is open
-        selected = filedialog.askdirectory(
-            title="Select Directory",
-            initialdir=initial,
-        )
-        self._root.deiconify()
-        self._root.focus_force()
+        _logger.debug(f"Opening directory dialog, current value: {initial}")
+
+        try:
+            # Hide settings while dialog is open
+            self._root.withdraw()
+            selected = filedialog.askdirectory(
+                title="Select Directory",
+                initialdir=initial,
+            )
+        except Exception as e:
+            _logger.error(f"Filedialog error: {e}")
+            # Ensure window is restored
+            try:
+                self._root.deiconify()
+            except Exception:
+                pass
+            return
+
+        # Restore window
+        try:
+            self._root.deiconify()
+            self._root.focus_force()
+        except Exception as e:
+            _logger.error(f"Error restoring window: {e}")
 
         if selected:
+            _logger.debug(f"Selected directory: {selected}")
             var.set(selected)
+            # Force UI update to show the new value
+            self._root.update_idletasks()
 
     def _load_current_values(self) -> None:
         """Load current configuration values into UI fields."""
