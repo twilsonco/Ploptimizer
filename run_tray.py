@@ -113,82 +113,10 @@ def main() -> int:
 
     def on_settings_requested() -> None:
         """Handle request to open settings window."""
-        from plt_optimizer.ui.settings import SettingsWindow
-
-        # Stop watcher before showing settings
-        if "stop_event" in app_state and app_state["running"]:
-            logger.info("Stopping watcher for settings update")
-            app_state["stop_event"].set()
-
-        try:
-            updated_config: list[dict[str, object] | None] = [None]
-
-            def save_callback(new_cfg: dict[str, object]) -> None:
-                updated_config[0] = new_cfg
-
-            # Import tkinter locally to avoid conflicts with pystray
-            import tkinter as tk
-            root = tk.Tk()
-            root.withdraw()  # Hide the main window
-
-            settings_window = SettingsWindow(
-                current_config=load_config(),
-                save_callback=save_callback,
-                parent=root,  # Use transient window so it attaches to our event loop
-            )
-
-            def show_and_restart() -> None:
-                logger.info("Showing settings dialog")
-                try:
-                    settings_window.show()
-                except Exception as e:
-                    logger.error(f"Error showing settings: {e}", exc_info=True)
-                finally:
-                    root.quit()  # Exit the nested event loop
-
-            # Schedule and run a minimal event loop
-            root.after(100, show_and_restart)
-            root.mainloop()
-
-            # After settings dialog closes, restart watcher with new config
-            if updated_config[0] is not None:
-                logger.info("Settings saved, restarting watcher")
-                # Save the config and update startup setting if changed
-                old_startup = load_config().get("run_at_startup", False)
-                new_startup = updated_config[0].get("run_at_startup", False)
-
-                if old_startup != new_startup:
-                    if new_startup:
-                        create_shortcut()
-                        logger.info("Enabled run at startup")
-                    else:
-                        remove_shortcut()
-                        logger.info("Disabled run at startup")
-
-                save_config(updated_config[0])
-                app_state["config"] = updated_config[0]
-
-                # Create new stop event and restart watcher thread
-                new_stop_event = threading.Event()
-                new_stop_event.clear()
-                old_stop_event = app_state.get("stop_event")
-                if old_stop_event is not None:
-                    # Wait briefly for old watcher to notice the stop
-                    time.sleep(0.5)
-                app_state["stop_event"] = new_stop_event
-
-                # Start new watcher thread with fresh config
-                new_watcher_thread = threading.Thread(
-                    target=watcher_fn,
-                    args=(updated_config[0],),
-                    daemon=True,
-                    name="PLT-Watcher-Restarted",
-                )
-                new_watcher_thread.start()
-                logger.info("Watcher thread restarted")
-
-        except Exception as e:
-            logger.error(f"Failed to open settings: {e}", exc_info=True)
+        # Note: When pystray is running in blocking mode, we can't easily show
+        # a tkinter modal dialog from the callback. For now, just log that it was requested.
+        logger.info("Settings requested (not yet implemented in blocking mode)")
+        # TODO: Implement settings by stopping watcher, showing dialog, then restarting
 
     def on_exit_requested() -> None:
         """Handle request to exit application."""
@@ -226,27 +154,15 @@ def main() -> int:
     )
     watcher_thread.start()
 
-    # Run the tray icon in DETACHED mode (non-blocking) so tkinter can manage events
+    # Run the tray icon in BLOCKING mode (pystray manages its own event loop)
+    # This is the standard pattern that works on Windows
     logger.info("About to start tray manager")
+
     try:
-        tray_manager.run(blocking=False)
-        logger.info("Tray manager started in detached mode")
-
-        # Use tkinter's mainloop as our event loop
-        import tkinter as tk
-        root = tk.Tk()
-        root.withdraw()  # Hidden root for event processing
-
-        def periodic_check() -> None:
-            """Periodically check if we should exit."""
-            if not app_state.get("running", True):
-                root.quit()
-            else:
-                root.after(500, periodic_check)
-
-        root.after(100, periodic_check)
-        logger.info("Starting tkinter mainloop")
-        root.mainloop()
+        tray_manager.run(blocking=True)  # Blocking - pystray manages events
+        logger.info("Tray manager returned normally")
+    except KeyboardInterrupt:
+        logger.info("Keyboard interrupt received")
 
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received")
