@@ -182,20 +182,17 @@ class SettingsWindow:
         Args:
             var: StringVar to update with selected path.
         """
-        # Hide window during dialog to avoid focus issues
-        self._root.withdraw()
-
         initial = var.get()
         if not initial or not Path(initial).exists():
             initial = str(Path.home())
 
+        # Don't specify parent - filedialog will bind correctly without it
+        # This avoids issues where invisible/withdrawn windows cause filedialog problems
+        self._root.withdraw()  # Hide settings while dialog is open
         selected = filedialog.askdirectory(
             title="Select Directory",
             initialdir=initial,
-            parent=self._root,  # Explicitly set parent for proper binding
         )
-
-        # Restore window after dialog closes
         self._root.deiconify()
         self._root.focus_force()
 
