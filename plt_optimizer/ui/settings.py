@@ -58,16 +58,12 @@ class SettingsWindow:
         self._root.geometry("600x550")  # Increased height to fit all content
         self._root.resizable(False, False)
 
-        # Make window modal and centered on screen
+        # Make window modal (but don't grab_set here - do it in show() when deiconified)
         if parent is not None:
             self._root.transient(parent)
-            self._root.grab_set()  # infi.systray doesn't conflict with this anymore
 
         self._setup_ui()
         self._load_current_values()
-
-        # Center the window after UI is set up
-        self._center_window()
 
     def _setup_ui(self) -> None:
         """Set up the user interface components."""
@@ -309,16 +305,22 @@ class SettingsWindow:
 
     def show(self) -> None:
         """Show the settings window (blocking)."""
-        if sys.platform == "win32":
-            # On Windows, ensure we have an active event loop
-            self._root.protocol("WM_DELETE_WINDOW", self._on_cancel)
-            try:
-                self._root.mainloop()
-            except KeyboardInterrupt:
-                self._on_cancel()
-        else:
-            # Non-blocking for non-Windows (not fully supported)
+        # Center and display the window
+        self._center_window()
+
+        if not sys.platform == "win32":
             self._root.deiconify()
+            return
+
+        # On Windows: deiconify, set focus, use transient for modal behavior
+        # Note: grab_set() on a child of a hidden/withdrawn root causes issues
+        self._root.protocol("WM_DELETE_WINDOW", self._on_cancel)
+        try:
+            self._root.deiconify()
+            self._root.focus_force()
+            self._root.mainloop()
+        except KeyboardInterrupt:
+            self._on_cancel()
 
     def destroy(self) -> None:
         """Destroy the settings window."""
