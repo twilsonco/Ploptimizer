@@ -55,18 +55,19 @@ class SettingsWindow:
         # Create the main window
         self._root = tk.Toplevel(parent) if parent else tk.Tk()
         self._root.title("PLT-Optimizer Settings")
-        self._root.geometry("600x500")
+        self._root.geometry("600x550")  # Increased height to fit all content
         self._root.resizable(False, False)
 
-        # Make window modal if parent provided
-        # Skip grab_set to avoid conflicts with pystray on Windows
+        # Make window modal and centered on screen
         if parent is not None:
             self._root.transient(parent)
-            # Note: grab_set() removed because it conflicts with pystray's
-            # internal message loop on Windows, causing "grab failed" errors
+            self._root.grab_set()  # infi.systray doesn't conflict with this anymore
 
         self._setup_ui()
         self._load_current_values()
+
+        # Center the window after UI is set up
+        self._center_window()
 
     def _setup_ui(self) -> None:
         """Set up the user interface components."""
@@ -185,6 +186,9 @@ class SettingsWindow:
         Args:
             var: StringVar to update with selected path.
         """
+        # Hide window during dialog to avoid focus issues
+        self._root.withdraw()
+
         initial = var.get()
         if not initial or not Path(initial).exists():
             initial = str(Path.home())
@@ -192,7 +196,12 @@ class SettingsWindow:
         selected = filedialog.askdirectory(
             title="Select Directory",
             initialdir=initial,
+            parent=self._root,  # Explicitly set parent for proper binding
         )
+
+        # Restore window after dialog closes
+        self._root.deiconify()
+        self._root.focus_force()
 
         if selected:
             var.set(selected)
@@ -315,6 +324,13 @@ class SettingsWindow:
         """Destroy the settings window."""
         if self._root is not None:
             self._root.destroy()
+
+    def _center_window(self) -> None:
+        """Center the window on the screen."""
+        self._root.update_idletasks()
+        x = (self._root.winfo_screenwidth() // 2) - (self._root.winfo_width() // 2)
+        y = (self._root.winfo_screenheight() // 2) - (self._root.winfo_height() // 2)
+        self._root.geometry(f"+{x}+{y}")
 
 
 __all__ = [
