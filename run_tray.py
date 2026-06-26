@@ -113,23 +113,130 @@ def main() -> int:
 
     def on_settings_requested() -> None:
         """Handle request to open settings window."""
-        # Note: When pystray is running in blocking mode, we can't easily show
-        # a tkinter modal dialog from the callback. For now, just log that it was requested.
-        logger.info("Settings requested (not yet implemented in blocking mode)")
-        # TODO: Implement settings by stopping watcher, showing dialog, then restarting
+        from plt_optimizer.ui.settings import SettingsWindow
+
+        logger.info("Settings requested, pausing tray icon")
+
+        # Stop pystray temporarily
+        if tray_manager is not None:
+            tray_icon = getattr(tray_manager, '_icon', None)
+            if tray_icon is not None and tray_icon._running:
+                # Store that we're showing settings so stop() doesn't quit app
+                app_state["_showing_settings"] = True
+                try:
+                    tray_icon.stop()
+                except Exception as e:
+                    logger.warning(f"Could not stop tray icon: {e}")
+
+        # Stop watcher before showing settings
+        if "stop_event" in app_state and app_state["running"]:
+            logger.info("Stopping watcher for settings update")
+            cast(threading.Event, app_state["stop_event"]).set()
+
+        try:
+            updated_config: list[dict[str, object] | None] = [None]
+
+            def save_callback(new_cfg: dict[str, object]) -> None:
+                updated_config[0] = new_cfg
+
+            # Show settings dialog - blocks until closed
+            import tkinter as tk
+            root = tk.Tk()
+            root.withdraw()
+
+            settings_window = SettingsWindow(
+                current_config=load_config(),
+                save_callback=save_callback,
+                parent=None,  # No parent to avoid grab conflicts
+            )
+
+            def on_settings_close() -> None:
+                """Handle settings dialog close."""
+                logger.info("Settings dialog closed")
+                root.quit()
+
+            # Schedule and run modal dialog
+            def show_dialog() -> None:
+                try:
+                    settings_window.show()
+                except Exception as e:
+                    logger.error(f"Error showing settings: {e}", exc_info=True)
+                finally:
+                    on_settings_close()
+
+            root.after(100, show_dialog)
+            root.mainloop()
+            root.destroy()
+
+            # Process results if config was changed
+            if updated_config[0] is not None:
+                logger.info("Settings saved")
+                old_startup = load_config().get("run_at_startup", False)
+                new_startup = updated_config[0].get("run_at_startup", False)
+
+                if old_startup != new_startup:
+                    if new_startup:
+                        create_shortcut()
+                        logger.info("Enabled run at startup")
+                    else:
+                        remove_shortcut()
+                        logger.info("Disabled run at startup")
+
+                save_config(updated_config[0])
+                app_state["config"] = updated_config[0]
+
+            # Restart watcher with current config
+            new_stop_event = threading.Event()
+            new_stop_event.clear()
+            old_stop_event = app_state.get("stop_event")
+            if old_stop_event is not None:
+                time.sleep(0.3)
+            app_state["stop_event"] = new_stop_event
+
+            watcher_thread = threading.Thread(
+                target=watcher_fn,
+                args=(app_state.get("config", config),),
+                daemon=True,
+                name="PLT-Watcher-Restarted",
+            )
+            watcher_thread.start()
+            logger.info("Watcher restarted")
+
+            # Restart tray icon
+            app_state["_showing_settings"] = False
+            if tray_manager is not None:
+                try:
+                    tray_manager.run(blocking=False)
+                    logger.info("Tray icon restarted")
+                except Exception as e:
+                    logger.error(f"Failed to restart tray: {e}")
+
+        except Exception as e:
+            logger.error(f"Settings error: {e}", exc_info=True)
+            # Try to restore normal operation
+            app_state["_showing_settings"] = False
 
     def on_exit_requested() -> None:
         """Handle request to exit application."""
         logger.info("Exit requested")
+
+        # Don't quit if we're in the middle of showing settings (will quit after)
+        if app_state.get("_showing_settings"):
+            logger.info("Currently showing settings, will exit after")
+            return
+
         app_state["running"] = False
 
         # Stop the watcher
         if "stop_event" in app_state:
-            app_state["stop_event"].set()
+            cast(threading.Event, app_state["stop_event"]).set()
 
         # This will cause tray icon to stop and app to exit
         if tray_manager is not None:
-            tray_manager.stop()
+            try:
+                tray_manager.stop()
+            except Exception as e:
+                logger.warning(f"Error stopping tray: {e}")
 
     # Create tray manager
     tray_manager = TrayIconManager(
@@ -163,15 +270,16 @@ def main() -> int:
         logger.info("Tray manager returned normally")
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received")
-
-    except KeyboardInterrupt:
-        logger.info("Keyboard interrupt received")
     except Exception as e:
         logger.error(f"Tray error: {e}", exc_info=True)
     finally:
         stop_event.set()
         tray_manager.stop_watcher()
-        tray_manager.stop()
+        if not app_state.get("_showing_settings"):
+            try:
+                tray_manager.stop()
+            except Exception:
+                pass
         logger.info("PLT-Optimizer Tray Application stopped")
 
     return 0
