@@ -55,7 +55,7 @@ class SettingsWindow:
         # Create the main window
         self._root = tk.Toplevel(parent) if parent else tk.Tk()
         self._root.title("PLT-Optimizer Settings")
-        self._root.geometry("600x550")  # Increased height to fit all content
+        self._root.geometry("580x480")
         self._root.resizable(False, False)
 
         # Make window modal (but don't grab_set here - do it in show() when deiconified)
@@ -67,84 +67,86 @@ class SettingsWindow:
 
     def _setup_ui(self) -> None:
         """Set up the user interface components."""
-        main_frame = ttk.Frame(self._root, padding="20")
+        main_frame = ttk.Frame(self._root, padding="15")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
         # Title
         title_label = ttk.Label(
             main_frame,
             text="PLT-Optimizer Configuration",
-            font=("Segoe UI", 14, "bold"),
+            font=("Segoe UI", 12, "bold"),
         )
-        title_label.grid(row=0, column=0, columnspan=3, pady=(0, 20))
+        title_label.grid(row=0, column=0, columnspan=4, pady=(0, 15))
 
-        # Directory settings section
-        dir_section = ttk.LabelFrame(main_frame, text="Directories", padding="10")
-        dir_section.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(0, 10))
+        # Directory settings section - TWO COLUMN LAYOUT
+        dir_section = ttk.LabelFrame(main_frame, text="Directories", padding="8")
+        dir_section.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(0, 10))
 
-        row = 2
-
-        # Watch Directory
-        ttk.Label(dir_section, text="Watch Directory:").grid(row=row, column=0, sticky="w", pady=5)
+        # Left column (col 0-1)
+        ttk.Label(dir_section, text="Watch:").grid(row=0, column=0, sticky="w", padx=(0, 5), pady=3)
         self._watch_dir_var = tk.StringVar()
-        watch_entry = ttk.Entry(dir_section, textvariable=self._watch_dir_var, width=40)
-        watch_entry.grid(row=row, column=1, sticky="ew", padx=(5, 0), pady=5)
+        watch_entry = ttk.Entry(dir_section, textvariable=self._watch_dir_var, width=30)
+        watch_entry.grid(row=0, column=1, sticky="ew", padx=(0, 5), pady=3)
+
+        # Right column (col 2-3) - Watch Browse
         ttk.Button(
             dir_section,
-            text="Browse...",
+            text="Browse",
             command=lambda: self._browse_directory(self._watch_dir_var),
-        ).grid(row=row, column=2, pady=5)
+        ).grid(row=0, column=3, pady=3)
 
-        row += 1
-
-        # Output Directory
-        ttk.Label(dir_section, text="Output Directory:").grid(row=row, column=0, sticky="w", pady=5)
+        # Left column
+        ttk.Label(dir_section, text="Output:").grid(
+            row=1, column=0, sticky="w", padx=(0, 5), pady=3
+        )
         self._output_dir_var = tk.StringVar()
-        output_entry = ttk.Entry(dir_section, textvariable=self._output_dir_var, width=40)
-        output_entry.grid(row=row, column=1, sticky="ew", padx=(5, 0), pady=5)
+        output_entry = ttk.Entry(dir_section, textvariable=self._output_dir_var, width=30)
+        output_entry.grid(row=1, column=1, sticky="ew", padx=(0, 5), pady=3)
+
+        # Right column - Output Browse
         ttk.Button(
             dir_section,
-            text="Browse...",
+            text="Browse",
             command=lambda: self._browse_directory(self._output_dir_var),
-        ).grid(row=row, column=2, pady=5)
+        ).grid(row=1, column=3, pady=3)
 
-        row += 1
-
-        # Log Directory
-        ttk.Label(dir_section, text="Log Directory:").grid(row=row, column=0, sticky="w", pady=5)
+        # Left column
+        ttk.Label(dir_section, text="Log:").grid(row=2, column=0, sticky="w", padx=(0, 5), pady=3)
         self._log_dir_var = tk.StringVar()
-        log_entry = ttk.Entry(dir_section, textvariable=self._log_dir_var, width=40)
-        log_entry.grid(row=row, column=1, sticky="ew", padx=(5, 0), pady=5)
+        log_entry = ttk.Entry(dir_section, textvariable=self._log_dir_var, width=30)
+        log_entry.grid(row=2, column=1, sticky="ew", padx=(0, 5), pady=3)
+
+        # Right column - Log Browse
         ttk.Button(
-            dir_section, text="Browse...", command=lambda: self._browse_directory(self._log_dir_var)
-        ).grid(row=row, column=2, pady=5)
+            dir_section, text="Browse", command=lambda: self._browse_directory(self._log_dir_var)
+        ).grid(row=2, column=3, pady=3)
 
-        row += 1
-
-        # Processed Directory (optional) - now with Browse button like others
-        ttk.Label(dir_section, text="Processed Directory:").grid(
-            row=row, column=0, sticky="w", pady=5
+        # Left column
+        ttk.Label(dir_section, text="Processed:").grid(
+            row=3, column=0, sticky="w", padx=(0, 5), pady=3
         )
         self._processed_dir_var = tk.StringVar()
-        processed_entry = ttk.Entry(dir_section, textvariable=self._processed_dir_var, width=40)
-        processed_entry.grid(row=row, column=1, sticky="ew", padx=(5, 0), pady=5)
+        processed_entry = ttk.Entry(dir_section, textvariable=self._processed_dir_var, width=30)
+        processed_entry.grid(row=3, column=1, sticky="ew", padx=(0, 5), pady=3)
+
+        # Right column - Processed Browse
         ttk.Button(
             dir_section,
-            text="Browse...",
+            text="Browse",
             command=lambda: self._browse_directory(self._processed_dir_var),
-        ).grid(row=row, column=2, pady=5)
+        ).grid(row=3, column=3, pady=3)
 
-        # Optimization settings section
-        opt_section = ttk.LabelFrame(main_frame, text="Optimization Options", padding="10")
-        opt_section.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(10, 10))
+        # Optimization settings section - TWO COLUMN LAYOUT
+        opt_section = ttk.LabelFrame(main_frame, text="Optimization Options", padding="8")
+        opt_section.grid(row=2, column=0, columnspan=4, sticky="ew", pady=(10, 10))
 
         self._fast_mode_var = tk.BooleanVar()
         fast_check = ttk.Checkbutton(
             opt_section,
-            text="Fast Mode (uses NearestNeighbor2Opt only)",
+            text="Fast Mode (NearestNeighbor2Opt only)",
             variable=self._fast_mode_var,
         )
-        fast_check.grid(row=0, column=0, sticky="w", pady=5)
+        fast_check.grid(row=0, column=0, sticky="w", pady=3)
 
         self._debug_save_files_var = tk.BooleanVar()
         debug_check = ttk.Checkbutton(
@@ -152,12 +154,12 @@ class SettingsWindow:
             text="Debug Mode (save before/after files)",
             variable=self._debug_save_files_var,
         )
-        debug_check.grid(row=1, column=0, sticky="w", pady=5)
+        debug_check.grid(row=0, column=2, sticky="w", pady=3)
 
-        # Startup settings section
+        # Startup and Maintenance sections - TWO COLUMN LAYOUT
         if _IS_WINDOWS:
-            startup_section = ttk.LabelFrame(main_frame, text="Startup", padding="10")
-            startup_section.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(10, 10))
+            startup_section = ttk.LabelFrame(main_frame, text="Startup", padding="8")
+            startup_section.grid(row=3, column=0, sticky="ew", pady=(10, 10), ipady=5)
 
             self._run_at_startup_var = tk.BooleanVar()
             startup_check = ttk.Checkbutton(
@@ -165,11 +167,18 @@ class SettingsWindow:
                 text="Run at Windows Startup",
                 variable=self._run_at_startup_var,
             )
-            startup_check.grid(row=0, column=0, sticky="w", pady=5)
+            startup_check.grid(row=0, column=0, sticky="w", pady=(5, 0), padx=5)
 
-        # Cleanup section - separate from directory selection
-        cleanup_section = ttk.LabelFrame(main_frame, text="Maintenance", padding="10")
-        cleanup_section.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(10, 0))
+        # Maintenance section (side by side with Startup if Windows, otherwise full width)
+        cleanup_section = ttk.LabelFrame(main_frame, text="Maintenance", padding="8")
+        if _IS_WINDOWS:
+            cleanup_section.grid(row=3, column=1, sticky="ew", pady=(10, 10), ipady=5, padx=(10, 0))
+        else:
+            cleanup_section.grid(row=3, column=0, columnspan=4, sticky="ew", pady=(10, 10))
+
+        # Buttons frame
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=4, column=0, columnspan=4, pady=(15, 0))
 
         def on_cleanup() -> None:
             """Handle cleanup button click."""
@@ -209,12 +218,8 @@ class SettingsWindow:
             )
 
         ttk.Button(cleanup_section, text="Clean Logs & Processed Files", command=on_cleanup).grid(
-            row=0, column=0, sticky="w", pady=5
+            row=0, column=0, sticky="w", pady=(5, 0), padx=5
         )
-
-        # Buttons
-        button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=5, column=0, columnspan=3, pady=(20, 0))
 
         ttk.Button(button_frame, text="Save", command=self._on_save).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Cancel", command=self._on_cancel).pack(side=tk.LEFT, padx=5)
@@ -257,8 +262,8 @@ class SettingsWindow:
         if selected:
             _logger.debug(f"Selected directory: {selected}")
             var.set(selected)
-            # Force UI update to show the new value
-            self._root.update_idletasks()
+            # Force the UI to update immediately so Entry field shows new value
+            self._root.update()
 
     def _load_current_values(self) -> None:
         """Load current configuration values into UI fields."""

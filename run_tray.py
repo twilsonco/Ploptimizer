@@ -145,64 +145,27 @@ def main() -> int:
             cast(threading.Event, app_state["stop_event"]).set()
 
         try:
+            import tkinter as tk
+            from plt_optimizer.ui.settings import SettingsWindow
+
             updated_config: list[dict[str, object] | None] = [None]
 
             def save_callback(new_cfg: dict[str, object]) -> None:
                 updated_config[0] = new_cfg
-                settings_closed.set()
 
-            # Create a hidden root for event loop context (but don't show it)
-            import tkinter as tk
-            hidden_root = app_state.get("_tk_hidden_root") or tk.Tk()
-            if not app_state.get("_tk_hidden_root"):
-                hidden_root.withdraw()  # Keep hidden - just provides event loop context
-                app_state["_tk_hidden_root"] = hidden_root
+            # Create single Tk instance (like working reference)
+            root = tk.Tk()
 
-            settings_closed: threading.Event = threading.Event()
-            settings_closed.clear()
+            settings_window = SettingsWindow(
+                current_config=load_config(),
+                save_callback=save_callback,
+                parent=None,  # Will use root as parent
+            )
 
             logger.info("Showing settings dialog")
+            settings_window.show(root)
 
-            def run_settings() -> None:
-                try:
-                    settings_window = SettingsWindow(
-                        current_config=load_config(),
-                        save_callback=save_callback,
-                        parent=None,  # Creates its own Tk, no nested loops
-                    )
-                    app_state["_settings_window"] = settings_window
-                    logger.info("Settings window created")
-                    settings_window.show()
-                except Exception as e:
-                    logger.error(f"Error showing settings: {e}", exc_info=True)
-                    settings_closed.set()  # Ensure we don't hang
-
-            hidden_root.after(100, run_settings)
-
-            # Check if closed every 200ms
-            def poll_closed() -> None:
-                if not app_state.get("running", True):
-                    logger.info("Exit requested during settings")
-                    sw = app_state.get("_settings_window")
-                    if sw:
-                        try:
-                            sw.destroy()
-                        except Exception:
-                            pass
-                    hidden_root.quit()
-                    return
-
-                if settings_closed.is_set():
-                    # Give a moment for cleanup
-                    hidden_root.after(100, hidden_root.quit)
-                else:
-                    hidden_root.after(200, poll_closed)
-
-            logger.info("Starting settings event loop")
-            hidden_root.after(200, poll_closed)
-            hidden_root.mainloop()
-
-            # Process results
+            # Process results after mainloop exits
 
             # Process results if config was changed
             if updated_config[0] is not None:
@@ -238,18 +201,9 @@ def main() -> int:
             watcher_thread.start()
             logger.info("Watcher restarted")
 
-            # Restart tray icon
-            app_state["_showing_settings"] = False
-            if tray_manager is not None:
-                try:
-                    tray_manager.run(blocking=False)
-                    logger.info("Tray icon restarted")
-                except Exception as e:
-                    logger.error(f"Failed to restart tray: {e}")
-
         except Exception as e:
             logger.error(f"Settings error: {e}", exc_info=True)
-            # Try to restore normal operation
+        finally:
             app_state["_showing_settings"] = False
 
     def on_exit_requested() -> None:
