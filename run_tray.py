@@ -17,7 +17,6 @@ For CLI mode (no GUI), use:
 
 from __future__ import annotations
 
-import functools
 import logging
 import sys
 import threading
@@ -59,17 +58,15 @@ def main() -> int:
     logger.info("Starting PLT-Optimizer Tray Application")
 
     # Import here to allow early logging setup
-    from plt_optimizer.utils.config import load_config, save_config, update_config
+    from plt_optimizer.utils.config import load_config, save_config
     from plt_optimizer.utils.startup import (
         create_shortcut,
-        is_startup_enabled,
         remove_shortcut,
     )
     from plt_optimizer.cli.watch import run_watcher_from_config
 
     try:
         from plt_optimizer.ui.tray import TrayIconManager
-        from PIL import Image
     except ImportError as e:
         logger.error(f"Missing required dependency: {e}")
         print(
@@ -129,7 +126,7 @@ def main() -> int:
             def save_callback(new_cfg: dict[str, object]) -> None:
                 updated_config[0] = new_cfg
 
-            # Create a minimal Tk root just to have an event loop available
+            # Import tkinter locally to avoid conflicts with pystray
             import tkinter as tk
             root = tk.Tk()
             root.withdraw()  # Hide the main window
@@ -229,17 +226,36 @@ def main() -> int:
     )
     watcher_thread.start()
 
-    # Run the tray icon (blocking)
+    # Run the tray icon in DETACHED mode (non-blocking) so tkinter can manage events
     logger.info("About to start tray manager")
     try:
-        tray_manager.run()
-        logger.info("Tray manager returned normally")
+        tray_manager.run(blocking=False)
+        logger.info("Tray manager started in detached mode")
+
+        # Use tkinter's mainloop as our event loop
+        import tkinter as tk
+        root = tk.Tk()
+        root.withdraw()  # Hidden root for event processing
+
+        def periodic_check() -> None:
+            """Periodically check if we should exit."""
+            if not app_state.get("running", True):
+                root.quit()
+            else:
+                root.after(500, periodic_check)
+
+        root.after(100, periodic_check)
+        logger.info("Starting tkinter mainloop")
+        root.mainloop()
+
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received")
     except Exception as e:
         logger.error(f"Tray error: {e}", exc_info=True)
     finally:
         stop_event.set()
+        tray_manager.stop_watcher()
+        tray_manager.stop()
         logger.info("PLT-Optimizer Tray Application stopped")
 
     return 0
