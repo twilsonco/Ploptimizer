@@ -216,8 +216,13 @@ class TrayIconManager:
             except Exception as e:
                 _logger.warning(f"Failed to show notification: {e}")
 
-    def run(self) -> None:
-        """Run the system tray icon (blocking call)."""
+    def run(self, blocking: bool = True) -> None:
+        """Run the system tray icon.
+
+        Args:
+            blocking: If True (default), runs with its own message loop (blocking).
+                     If False, runs detached and caller must manage events.
+        """
         _logger.info("Loading tray icon image")
         icon_image = self._load_icon_image()
         _logger.debug(f"Icon image loaded: {icon_image}, size={icon_image.size}")
@@ -234,15 +239,20 @@ class TrayIconManager:
             _logger.error(f"Failed to create tray icon: {e}", exc_info=True)
             raise
 
-        _logger.info("Starting system tray icon - calling run()")
-        try:
-            self._icon.run()
-        except Exception as e:
-            _logger.error(f"Tray icon error during run(): {e}", exc_info=True)
-            # Re-raise so caller knows something failed
-            raise
-        finally:
-            self.stop_watcher()
+        if blocking:
+            # Traditional blocking mode - pystray manages its own message loop
+            _logger.info("Starting system tray icon (blocking mode)")
+            try:
+                self._icon.run()
+            except Exception as e:
+                _logger.error(f"Tray icon error during run(): {e}", exc_info=True)
+                raise
+            finally:
+                self.stop_watcher()
+        else:
+            # Detached mode - pystray runs in background, caller manages events
+            _logger.info("Starting system tray icon (detached mode)")
+            self._icon.run_detached()
 
     def stop(self) -> None:
         """Stop the system tray icon."""
