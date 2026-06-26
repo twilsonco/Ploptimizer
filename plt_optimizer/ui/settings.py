@@ -59,9 +59,11 @@ class SettingsWindow:
         self._root.resizable(False, False)
 
         # Make window modal if parent provided
+        # Skip grab_set to avoid conflicts with pystray on Windows
         if parent is not None:
             self._root.transient(parent)
-            self._root.grab_set()
+            # Note: grab_set() removed because it conflicts with pystray's
+            # internal message loop on Windows, causing "grab failed" errors
 
         self._setup_ui()
         self._load_current_values()
