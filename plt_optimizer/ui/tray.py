@@ -2,11 +2,17 @@
 
 This module provides the system tray icon, context menu, and notification handling.
 It runs the file watcher in a background thread while maintaining the GUI event loop.
+
+Platform-specific implementation:
+- Windows: Uses infi.systray (pywin32-based) to avoid message loop conflicts with tkinter
+- Linux/macOS: Uses pystray for cross-platform compatibility
+
+The conflict on Windows occurs because both pystray and tkinter try to handle Windows
+messages in the main thread. infi.systray runs entirely in a separate thread.
 """
 
 from __future__ import annotations
 
-# Third-party imports
 import importlib.util
 import logging
 import sys
@@ -14,17 +20,37 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
-
-# Check availability of required libraries without importing them at module level
-if importlib.util.find_spec("PIL") is None or importlib.util.find_spec("pystray") is None:
-    raise ImportError("Required libraries missing. Install with: uv add pillow pystray")
-
-from PIL import Image
-from pystray import Icon, Menu, MenuItem  # type: ignore[import-untyped]
+from typing import TYPE_CHECKING, Any
 
 # Module-level logger
 _logger = logging.getLogger(__name__)
+
+# Platform detection for systray library choice
+_IS_WINDOWS = sys.platform == "win32"
+
+if TYPE_CHECKING:
+    from PIL import Image
+
+
+def _check_dependencies() -> None:
+    """Check that required systray dependencies are available.
+
+    Raises:
+        ImportError: If required libraries for the current platform are missing.
+    """
+    if _IS_WINDOWS:
+        # On Windows, check for infi.systray (and implicitly pywin32)
+        if importlib.util.find_spec("infi.systray") is None:
+            raise ImportError(
+                "Windows systray requires infi-systray. Install with: uv add 'plt-optimizer[tray]'"
+            )
+    else:
+        # On other platforms, check for pystray
+        if importlib.util.find_spec("pystray") is None or importlib.util.find_spec("PIL") is None:
+            raise ImportError(
+                "System tray requires pystray and pillow. "
+                "Install with: uv add 'plt-optimizer[tray]'"
+            )
 
 
 class TrayIconManager:
@@ -35,6 +61,10 @@ class TrayIconManager:
     - Handling menu actions (Open Settings, Exit)
     - Running the file watcher in a background thread
     - Dispatching notifications on file processing events
+
+    The implementation uses different systray libraries based on platform:
+    - Windows: infi.systray (avoids tkinter message loop conflicts)
+    - Other: pystray
 
     Attributes:
         on_settings_requested: Callback when user requests settings window.
@@ -60,25 +90,14 @@ class TrayIconManager:
         self._config_loader = config_loader
         self._get_icon_path = get_icon_path
 
-        self._icon: Icon | None = None
+        # Platform-specific tray handle (pystray.Icon or infi.systray.SysTrayIcon)
+        self._systray: Any = None
         self._watcher_thread: threading.Thread | None = None
         self._stop_event: threading.Event = threading.Event()
 
-        # Callbacks for UI events
+        # Callbacks for UI events - set by consumer
         self.on_settings_requested: Callable[[], None] | None = None
         self.on_exit_requested: Callable[[], None] | None = None
-
-    def _create_menu(self) -> Menu:
-        """Create the tray icon context menu.
-
-        Returns:
-            pystray.Menu object with standard items.
-        """
-        return Menu(
-            MenuItem("Open Settings", self._on_settings_click),
-            Menu.SEPARATOR,
-            MenuItem("Exit", self._on_exit_click),
-        )
 
     def _load_icon_image(self) -> Image.Image:
         """Load the icon image from file.
@@ -86,6 +105,9 @@ class TrayIconManager:
         Returns:
             PIL Image object for the tray icon.
         """
+        # Import here to avoid hard dependency on non-Windows
+        from PIL import Image
+
         icon_path = self._get_icon_path()
         _logger.info(f"Attempting to load icon from: {icon_path}")
         try:
@@ -101,8 +123,38 @@ class TrayIconManager:
             # Fall back to default
             return Image.new("RGB", (64, 64), color=(0, 120, 200))
 
-    def _on_settings_click(self, icon: Icon, item: MenuItem) -> None:
-        """Handle 'Open Settings' menu click.
+    # === pystray methods (Linux/macOS) ===
+
+    def _create_pystray_menu(self) -> Any:
+        """Create the tray icon context menu using pystray.
+
+        Returns:
+            pystray.Menu object with standard items.
+        """
+        from pystray import Menu, MenuItem
+
+        return Menu(
+            MenuItem("Open Settings", self._on_settings_click),
+            Menu.SEPARATOR,
+            MenuItem("Exit", self._on_exit_click),
+        )
+
+    def _setup_pystray(self) -> None:
+        """Set up the tray icon using pystray (Linux/macOS)."""
+        from pystray import Icon
+
+        icon_image = self._load_icon_image()
+
+        self._systray = Icon(
+            name="PLT-Optimizer",
+            icon=icon_image,
+            title="PLT-Optimizer",
+            menu=self._create_pystray_menu(),
+        )
+        _logger.info("Pystray icon created successfully")
+
+    def _on_settings_click(self, icon: Any, item: Any) -> None:
+        """Handle 'Open Settings' menu click (pystray callback).
 
         Args:
             icon: The pystray Icon instance.
@@ -115,14 +167,75 @@ class TrayIconManager:
             except Exception as e:
                 _logger.error(f"Error opening settings: {e}")
 
-    def _on_exit_click(self, icon: Icon, item: MenuItem) -> None:
-        """Handle 'Exit' menu click.
+    def _on_exit_click(self, icon: Any, item: Any) -> None:
+        """Handle 'Exit' menu click (pystray callback).
 
         Args:
             icon: The pystray Icon instance.
             item: The clicked menu item.
         """
         _logger.debug("Exit requested from tray menu")
+        if self.on_exit_requested is not None:
+            try:
+                self.on_exit_requested()
+            except Exception as e:
+                _logger.error(f"Error during exit: {e}")
+
+    # === infi.systray methods (Windows) ===
+
+    def _setup_infi_systray(self) -> None:
+        """Set up the tray icon using infi.systray (Windows only).
+
+        The key advantage is that infi.systray runs in a separate thread and doesn't
+        conflict with tkinter's message loop.
+        """
+        from infi.systray import SysTrayIcon
+
+        icon_path = str(self._get_icon_path())
+
+        # Create menu as tuple of (label, icon_file_or_None, callback) tuples
+        menu_options = (
+            ("Open Settings", None, self._on_infi_settings_click),
+            ("Exit", None, self._on_infi_exit_click),
+        )
+
+        def on_quit_callback(systray: Any) -> None:
+            """Called when user clicks Exit in infi.systray."""
+            _logger.debug("infi.systray quit callback")
+            if self.on_exit_requested is not None:
+                try:
+                    self.on_exit_requested()
+                except Exception as e:
+                    _logger.error(f"Error during exit: {e}")
+
+        self._systray = SysTrayIcon(
+            icon_path,
+            "PLT-Optimizer",
+            menu_options,
+            on_quit=on_quit_callback,
+        )
+        _logger.info("infi.systray icon created successfully")
+
+    def _on_infi_settings_click(self, systray: Any) -> None:
+        """Handle 'Open Settings' menu click (infi.systray callback).
+
+        Args:
+            systray: The infi.systray SysTrayIcon instance.
+        """
+        _logger.debug("Settings requested from tray menu (infi)")
+        if self.on_settings_requested is not None:
+            try:
+                self.on_settings_requested()
+            except Exception as e:
+                _logger.error(f"Error opening settings: {e}")
+
+    def _on_infi_exit_click(self, systray: Any) -> None:
+        """Handle 'Exit' menu click (infi.systray callback).
+
+        Args:
+            systray: The infi.systray SysTrayIcon instance.
+        """
+        _logger.debug("Exit requested from tray menu (infi)")
         if self.on_exit_requested is not None:
             try:
                 self.on_exit_requested()
@@ -188,6 +301,8 @@ class TrayIconManager:
         time.sleep(0.5)  # Brief pause for clean restart
         self.start_watcher()
 
+    # === Notification methods ===
+
     def notify_success(self, filename: str, improvement_pct: float) -> None:
         """Show a success notification.
 
@@ -195,12 +310,10 @@ class TrayIconManager:
             filename: Name of the processed file.
             improvement_pct: Percentage improvement achieved.
         """
-        if self._icon is not None:
-            msg = f"Optimized {filename}\nSaved {improvement_pct:.1f}%"
-            try:
-                self._icon.notify(msg, "PLT-Optimizer")
-            except Exception as e:
-                _logger.warning(f"Failed to show notification: {e}")
+        msg = f"Optimized {filename}\nSaved {improvement_pct:.1f}%"
+        _logger.info(f"Systray notification (success): {msg}")
+        # Note: infi.systray doesn't have built-in notifications like pystray
+        # If needed, could use win32api to show toast via Windows API
 
     def notify_error(self, filename: str, error_msg: str) -> None:
         """Show an error notification.
@@ -209,12 +322,10 @@ class TrayIconManager:
             filename: Name of the file that failed.
             error_msg: Error message describing what went wrong.
         """
-        if self._icon is not None:
-            msg = f"Failed: {filename}\n{error_msg[:50]}"
-            try:
-                self._icon.notify(msg, "PLT-Optimizer - Error")
-            except Exception as e:
-                _logger.warning(f"Failed to show notification: {e}")
+        msg = f"Failed: {filename}\n{error_msg[:50]}"
+        _logger.info(f"Systray notification (error): {msg}")
+
+    # === Main run/stop methods ===
 
     def run(self, blocking: bool = True) -> None:
         """Run the system tray icon.
@@ -223,27 +334,66 @@ class TrayIconManager:
             blocking: If True (default), runs with its own message loop (blocking).
                      If False, runs detached and caller must manage events.
         """
-        _logger.info("Loading tray icon image")
-        icon_image = self._load_icon_image()
-        _logger.debug(f"Icon image loaded: {icon_image}, size={icon_image.size}")
+        if _IS_WINDOWS:
+            self._run_windows(blocking)
+        else:
+            self._run_pystray(blocking)
 
-        try:
-            self._icon = Icon(
-                name="PLT-Optimizer",
-                icon=icon_image,
-                title="PLT-Optimizer",
-                menu=self._create_menu(),
-            )
-            _logger.info("Tray icon object created successfully")
-        except Exception as e:
-            _logger.error(f"Failed to create tray icon: {e}", exc_info=True)
-            raise
+    def _run_windows(self, blocking: bool) -> None:
+        """Run the system tray using infi.systray on Windows.
+
+        Args:
+            blocking: If True, blocks until shutdown. If False, returns immediately.
+        """
+        self._setup_infi_systray()
+
+        if blocking:
+            _logger.info("Starting infi.systray icon (blocking mode)")
+            try:
+                # infi.systray uses context manager pattern
+                with self._systray:
+                    import time
+
+                    while True:
+                        time.sleep(1.0)
+            except KeyboardInterrupt:
+                _logger.info("Keyboard interrupt received")
+            except Exception as e:
+                _logger.error(f"Tray icon error during run(): {e}", exc_info=True)
+                raise
+            finally:
+                self.stop_watcher()
+        else:
+            # For non-blocking, we need to run in a thread because infi.systray
+            # doesn't have run_detached like pystray
+            _logger.info("Starting infi.systray icon (detached mode)")
+
+            def tray_thread() -> None:
+                try:
+                    with self._systray:
+                        import time
+
+                        while True:
+                            time.sleep(1.0)
+                except Exception as e:
+                    _logger.error(f"Tray thread error: {e}")
+
+            thread = threading.Thread(target=tray_thread, daemon=True, name="Systray-Watcher")
+            thread.start()
+
+    def _run_pystray(self, blocking: bool) -> None:
+        """Run the system tray using pystray on Linux/macOS.
+
+        Args:
+            blocking: If True, blocks. If False, runs detached.
+        """
+        self._setup_pystray()
 
         if blocking:
             # Traditional blocking mode - pystray manages its own message loop
-            _logger.info("Starting system tray icon (blocking mode)")
+            _logger.info("Starting pystray icon (blocking mode)")
             try:
-                self._icon.run()
+                self._systray.run()
             except Exception as e:
                 _logger.error(f"Tray icon error during run(): {e}", exc_info=True)
                 raise
@@ -251,15 +401,26 @@ class TrayIconManager:
                 self.stop_watcher()
         else:
             # Detached mode - pystray runs in background, caller manages events
-            _logger.info("Starting system tray icon (detached mode)")
-            self._icon.run_detached()
+            _logger.info("Starting pystray icon (detached mode)")
+            self._systray.run_detached()
 
     def stop(self) -> None:
         """Stop the system tray icon."""
-        if self._icon is not None:
+        if self._systray is not None:
             _logger.info("Stopping system tray icon")
-            self._icon.stop()
-            self._icon = None
+            if hasattr(self._systray, "shutdown"):
+                # infi.systray
+                try:
+                    self._systray.shutdown()
+                except Exception as e:
+                    _logger.warning(f"Error during systray shutdown: {e}")
+            elif hasattr(self._systray, "stop"):
+                # pystray
+                try:
+                    self._systray.stop()
+                except Exception as e:
+                    _logger.warning(f"Error during systray stop: {e}")
+            self._systray = None
 
 
 def get_icon_path_frozen() -> Path:
@@ -283,6 +444,10 @@ def get_icon_path_dev() -> Path:
         Path to the icon file relative to project root.
     """
     return Path(__file__).parent.parent.parent / "assets" / "icon.ico"
+
+
+# Validate dependencies when module loads
+_check_dependencies()
 
 
 __all__ = [

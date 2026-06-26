@@ -73,10 +73,17 @@ def main() -> int:
             "ERROR: Missing required dependencies for tray mode.",
             file=sys.stderr,
         )
-        print(
-            "Install with: uv add pystray pillow",
-            file=sys.stderr,
-        )
+        # Provide platform-specific installation instructions
+        if sys.platform == "win32":
+            print(
+                "Install with: uv add 'plt-optimizer[tray]'",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "Install with: uv add pystray pillow",
+                file=sys.stderr,
+            )
         return 1
 
     # Load configuration
@@ -121,7 +128,6 @@ def main() -> int:
         if tray_manager is not None:
             tray_icon = getattr(tray_manager, '_icon', None)
             if tray_icon is not None and tray_icon._running:
-                # Store that we're showing settings so stop() doesn't quit app
                 app_state["_showing_settings"] = True
                 try:
                     tray_icon.stop()
@@ -139,34 +145,62 @@ def main() -> int:
             def save_callback(new_cfg: dict[str, object]) -> None:
                 updated_config[0] = new_cfg
 
-            # Show settings dialog - blocks until closed
+            # Use tkinter's single Tk instance approach
             import tkinter as tk
-            root = tk.Tk()
-            root.withdraw()
+            settings_closed: threading.Event = threading.Event()
+            settings_closed.clear()
+
+            def on_close() -> None:
+                """Called when settings window is closed."""
+                logger.info("Settings dialog closing")
+                settings_closed.set()
+
+            # Create settings with our hidden root as parent
+            hidden_root = app_state.get("_tk_hidden_root") or tk.Tk()
+            if not app_state.get("_tk_hidden_root"):
+                hidden_root.withdraw()
+                app_state["_tk_hidden_root"] = hidden_root
 
             settings_window = SettingsWindow(
                 current_config=load_config(),
                 save_callback=save_callback,
-                parent=None,  # No parent to avoid grab conflicts
+                parent=None,  # Creates its own Tk on Windows to avoid grab conflicts
             )
 
-            def on_settings_close() -> None:
-                """Handle settings dialog close."""
-                logger.info("Settings dialog closed")
-                root.quit()
-
-            # Schedule and run modal dialog
-            def show_dialog() -> None:
+            def run_settings() -> None:
                 try:
+                    logger.info("Showing settings dialog")
                     settings_window.show()
                 except Exception as e:
                     logger.error(f"Error showing settings: {e}", exc_info=True)
                 finally:
-                    on_settings_close()
+                    on_close()
 
-            root.after(100, show_dialog)
-            root.mainloop()
-            root.destroy()
+            # Run settings in a nested loop (blocking call to allow UI interaction)
+            hidden_root.after(100, run_settings)
+
+            # Check if closed every 100ms
+            def poll_closed() -> None:
+                # Check if app is trying to exit
+                if not app_state.get("running", True):
+                    logger.info("Exit requested during settings")
+                    try:
+                        settings_window.destroy()
+                    except Exception:
+                        pass
+                    hidden_root.quit()
+                    return
+
+                if settings_closed.is_set():
+                    hidden_root.quit()
+                else:
+                    hidden_root.after(100, poll_closed)
+
+            logger.info("Starting settings event loop")
+            hidden_root.after(200, poll_closed)
+            hidden_root.mainloop()
+
+            # Process results
 
             # Process results if config was changed
             if updated_config[0] is not None:

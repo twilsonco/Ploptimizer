@@ -32,6 +32,8 @@ plt-optimizer = "plt_optimizer.cli.watch:main"
 tray = [
     'winshell>=0.6; platform_system == "Windows"',
     'pywin32>=306; platform_system == "Windows"',
+    # infi.systray for Windows - uses pywin32 directly, avoids pystray+tkinter message loop conflicts
+    'infi-systray>=0.1; platform_system == "Windows"',
 ]
 plotting = [
     'matplotlib>=3.9.0; python_version >= "3.9"',
@@ -78,6 +80,11 @@ python_version = "3.10"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
+
+# Ignore missing stubs for optional third-party libraries (they don't ship type stubs)
+[[tool.mypy.overrides]]
+module = ["pystray.*", "infi.systray", "matplotlib.*"]
+ignore_missing_imports = true
 
 [tool.ruff]
 target-version = "py310"
