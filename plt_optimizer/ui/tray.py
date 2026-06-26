@@ -405,21 +405,24 @@ class TrayIconManager:
             self._systray.run_detached()
 
     def stop(self) -> None:
-        """Stop the system tray icon."""
+        """Stop the system tray icon.
+
+        Note: For infi.systray, we do NOT call shutdown() here because it would
+        cause a deadlock - shutdown() tries to join the thread it's called from.
+        Since we're exiting anyway, just clearing the reference is sufficient;
+        the daemon thread will terminate when the process exits.
+        """
         if self._systray is not None:
             _logger.info("Stopping system tray icon")
-            if hasattr(self._systray, "shutdown"):
-                # infi.systray
-                try:
-                    self._systray.shutdown()
-                except Exception as e:
-                    _logger.warning(f"Error during systray shutdown: {e}")
-            elif hasattr(self._systray, "stop"):
-                # pystray
+            if hasattr(self._systray, "stop") and not hasattr(self._systray, "shutdown"):
+                # pystray - safe to call stop()
                 try:
                     self._systray.stop()
                 except Exception as e:
                     _logger.warning(f"Error during systray stop: {e}")
+            elif hasattr(self._systray, "shutdown"):
+                # infi.systray - skip shutdown() to avoid deadlock (see docstring)
+                _logger.debug("Skipping infi.systray.shutdown() to prevent deadlock")
             self._systray = None
 
 
