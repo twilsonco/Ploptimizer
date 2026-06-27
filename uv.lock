@@ -944,6 +944,13 @@ tray = [
     { name = "winshell", marker = "sys_platform == 'win32'" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "matplotlib", version = "3.10.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "matplotlib", version = "3.11.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "pytest-cov" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "infi-systray", marker = "sys_platform == 'win32' and extra == 'tray'", specifier = ">=0.1" },
@@ -961,6 +968,12 @@ requires-dist = [
     { name = "winshell", marker = "sys_platform == 'win32' and extra == 'tray'", specifier = ">=0.6" },
 ]
 provides-extras = ["tray", "plotting", "dev", "build"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "matplotlib", specifier = ">=3.10.9" },
+    { name = "pytest-cov", specifier = ">=7.1.0" },
+]
 
 [[package]]
 name = "pluggy"

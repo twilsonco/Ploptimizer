@@ -102,3 +102,9 @@ lint.ignore = ["E501"]  # line too long handled by formatter
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
+
+[dependency-groups]
+dev = [
+    "matplotlib>=3.10.9",
+    "pytest-cov>=7.1.0",
+]
