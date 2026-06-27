@@ -153,13 +153,11 @@ def main() -> int:
             def save_callback(new_cfg: dict[str, object]) -> None:
                 updated_config[0] = new_cfg
 
-            # Create single Tk instance (like working reference)
-            root = tk.Tk()
-
+            # Create settings window (it will create its own Tk root when parent=None)
             settings_window = SettingsWindow(
                 current_config=load_config(),
                 save_callback=save_callback,
-                parent=None,  # Will use root as parent
+                parent=None,
             )
 
             logger.info("Showing settings dialog")
@@ -227,6 +225,11 @@ def main() -> int:
                 tray_manager.stop()
             except Exception as e:
                 logger.warning(f"Error stopping tray: {e}")
+
+        # Force termination - sys.exit() is needed because pystray's blocking run() loop
+        # won't exit on its own when stop() is called from a callback
+        import os
+        os._exit(0)
 
     # Create tray manager
     tray_manager = TrayIconManager(
