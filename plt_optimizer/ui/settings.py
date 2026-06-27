@@ -231,8 +231,18 @@ class SettingsWindow:
             var: StringVar to update with selected path.
         """
         initial = var.get()
-        if not initial or not Path(initial).exists():
+        if not initial:
             initial = str(Path.home())
+        else:
+            # Check existence safely - network paths may raise OSError on stat()
+            try:
+                if not Path(initial).exists():
+                    initial = str(Path.home())
+            except OSError:
+                # Network paths (e.g., \\server\share) can fail with OSError
+                # when server is unreachable or doesn't support the operation
+                _logger.debug(f"Could not access path, using home: {initial}")
+                initial = str(Path.home())
 
         _logger.debug(f"Opening directory dialog, current value: {initial}")
 
