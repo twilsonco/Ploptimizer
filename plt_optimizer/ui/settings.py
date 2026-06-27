@@ -236,12 +236,14 @@ class SettingsWindow:
 
         _logger.debug(f"Opening directory dialog, current value: {initial}")
 
+        # Hide settings while dialog is open for cleaner UX on all platforms
+        self._root.withdraw()
+
         try:
-            # Hide settings while dialog is open
-            self._root.withdraw()
             selected = filedialog.askdirectory(
                 title="Select Directory",
                 initialdir=initial,
+                parent=self._root,
             )
         except Exception as e:
             _logger.error(f"Filedialog error: {e}")
@@ -262,8 +264,6 @@ class SettingsWindow:
         if selected:
             _logger.debug(f"Selected directory: {selected}")
             var.set(selected)
-            # Force the UI to update immediately so Entry field shows new value
-            self._root.update()
 
     def _load_current_values(self) -> None:
         """Load current configuration values into UI fields."""
