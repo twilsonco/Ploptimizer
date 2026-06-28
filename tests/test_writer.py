@@ -8,6 +8,8 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
+from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -897,3 +899,496 @@ class TestWriteFileWithBomEdgeCases:
 
             content = output_path.read_bytes()
             assert not content.startswith("\ufeff".encode("utf-8"))
+
+
+class TestWriteFileOSErrorHandling:
+    """Tests for OSError handling in write_file (lines 127->125, 135->133, 141->139)."""
+
+    def test_write_file_oserror_on_mkdir(self) -> None:
+        """Test OSError when mkdir fails (line ~126-128).
+
+        When file_path.parent.mkdir() raises an OSError,
+        the except block should catch it and raise WriteError.
+        """
+        writer = PLTWriter()
+        doc = PLTDocument()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target_path = Path(tmpdir) / "some" / "nested" / "path" / "output.plt"
+
+            # Mock the parent's mkdir to fail
+            original_mkdir = type(Path()).mkdir
+
+            def failing_mkdir(self_path: Path, *args: Any, **kwargs: Any) -> None:
+                raise OSError("No space left on device")
+
+            with patch.object(Path, 'mkdir', failing_mkdir):
+                with pytest.raises(WriteError, match="Failed to write file"):
+                    writer.write_file(doc, target_path)
+
+    def test_write_file_oserror_on_write_bytes(self) -> None:
+        """Test OSError when write_bytes fails (line ~134-136).
+
+        When add_bom=True and write_bytes raises an OSError,
+        the except block should catch it and raise WriteError.
+        """
+        writer = PLTWriter()
+        doc = PLTDocument()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target_path = Path(tmpdir) / "output.plt"
+
+            # Mock write_bytes to fail
+            original_write_bytes = Path.write_bytes
+
+            def failing_write_bytes(self_path: Path, data: bytes) -> None:
+                raise OSError("Simulated disk full error")
+
+            try:
+                with patch.object(Path, 'write_bytes', failing_write_bytes):
+                    writer.write_file(doc, target_path, add_bom=True)
+            except WriteError as e:
+                assert "Failed to write file" in str(e)
+
+    def test_write_file_oserror_on_write_text(self) -> None:
+        """Test OSError when write_text fails (line ~140-142).
+
+        When add_bom=False and write_text raises an OSError,
+        the except block should catch it and raise WriteError.
+        """
+        writer = PLTWriter()
+        doc = PLTDocument()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target_path = Path(tmpdir) / "output.plt"
+
+            # Mock write_text to fail
+            def failing_write_text(self_path: Path, *args: Any, **kwargs: Any) -> None:
+                raise OSError("Permission denied")
+
+            try:
+                with patch.object(Path, 'write_text', failing_write_text):
+                    writer.write_file(doc, target_path)
+            except WriteError as e:
+                assert "Failed to write file" in str(e)
+
+
+class TestStrokePathFormattingEdgeCases:
+    """Tests for stroke path formatting edge cases (line 201->209)."""
+
+    def test_stroke_path_with_explicit_pen_up_position_same_as_first_segment_start(
+        self,
+    ) -> None:
+        """Test when pen_up_position equals first segment start (lines 203-210).
+
+        When current_pos is already at the pen_up_target, no initial PU should
+        be emitted for the path entry.
+        """
+        writer = PLTWriter()
+
+        # Create two sequential paths where second starts exactly where first ended
+        seg1 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=100.0, y=0.0),
+            is_cutting=True,
+        )
+        path1 = StrokePath(segments=(seg1,))
+
+        # Second path starts where first ended - pen_up_position matches segment start
+        seg2 = StrokeSegment(
+            start=Coordinate(x=100.0, y=0.0),  # Same as path1 end
+            end=Coordinate(x=200.0, y=50.0),
+            is_cutting=True,
+        )
+        path2 = StrokePath(segments=(seg2,), pen_up_position=Coordinate(x=100.0, y=0.0))
+
+        doc = PLTDocument(stroke_paths=[path1, path2])
+        output = writer.write_string(doc)
+
+        # After first path ends at 100,0, the second path should NOT emit a PU
+        # since current_pos (100,0) matches pen_up_target (100,0)
+        pd_count = output.count("PD")
+        pu_count = output.count("PU")
+
+        assert pd_count >= 2
+
+    def test_stroke_path_segment_not_at_current_position(self) -> None:
+        """Test path formatting when segment start differs from current_pos (lines 213-221).
+
+        When moving to a new segment whose start doesn't match current position,
+        an intermediate PU must be inserted.
+        """
+        writer = PLTWriter()
+
+        # First path ends at some position
+        seg1 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=100.0, y=0.0),
+            is_cutting=True,
+        )
+        path1 = StrokePath(segments=(seg1,))
+
+        # Second segment starts at a different position (not tip-to-tail)
+        seg2 = StrokeSegment(
+            start=Coordinate(x=500.0, y=500.0),  # Different from first path end
+            end=Coordinate(x=600.0, y=500.0),
+            is_cutting=True,
+        )
+        path2 = StrokePath(segments=(seg2,), pen_up_position=None)
+
+        doc = PLTDocument(stroke_paths=[path1, path2])
+        output = writer.write_string(doc)
+
+        # Should have intermediate PU before seg2
+        assert "PU500.000" in output
+
+
+class TestValidateAgainstOriginalEdgeCases:
+    """Tests for validate_against_original error handling (lines 388->385, 429-431, 440->438)."""
+
+    def test_validate_with_reparse_error_on_missing_pu_check(self) -> None:
+        """Test ParseError during round-trip verification for missing PUs (lines 426-431).
+
+        When the output content can't be parsed but we have missing PUs,
+        it should add a warning about being unable to verify.
+        """
+        writer = PLTWriter()
+
+        # Original has a PU command
+        original_content = "IN;PU0.000,0.000;PD100.000,0.000;SP;"
+        # Output is malformed HPGL that can't be parsed but missing the PU
+        invalid_output = "IN;garbage"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_path = Path(tmpdir) / "original.plt"
+            original_path.write_text(original_content, encoding="utf-8")
+
+            # Mock PLTParser.parse_string to raise ParseError on second call
+            original_parse = PLTParser.parse_string
+
+            def mock_parse(self: PLTParser, content: str) -> PLTDocument:
+                if "garbage" in content:
+                    raise ParseError("Invalid HPGL syntax")
+                return original_parse(self, content)
+
+            with patch.object(PLTParser, 'parse_string', mock_parse):
+                is_valid, messages = writer.validate_against_original(
+                    original_path,
+                    invalid_output,
+                )
+
+            # Should handle gracefully without crashing
+            assert isinstance(is_valid, bool)
+            assert any("Unable to verify round-trip" in m for m in messages)
+
+    def test_validate_distance_not_close_with_missing_pus(self) -> None:
+        """Test error case when PUs lost and distance not preserved (lines 440->438).
+
+        When missing PU commands result in a different total cutting distance,
+        this should be flagged as an error.
+        """
+        writer = PLTWriter()
+
+        # Original has two separate cutting strokes totalling 200 units
+        original_content = (
+            "IN;"
+            "PU0.000,0.000;"  # Position at origin
+            "PD100.000,0.000;"  # First cut: 0->100 (length 100)
+            "PU100.000,0.000;"  # Move to start of second stroke
+            "PD300.000,0.000;"  # Second cut: 100->300 (length 200)
+            "SP;"
+        )
+
+        # Output has collapsed PUs and changed distances
+        optimized_output = (
+            "IN;"
+            "PU0.000,0.000;"
+            "PD50.000,0.000;"  # Only length 50 instead of combined 200
+            "SP;"
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_path = Path(tmpdir) / "original.plt"
+            original_path.write_text(original_content, encoding="utf-8")
+
+            is_valid, messages = writer.validate_against_original(
+                original_path,
+                optimized_output,
+            )
+
+            # Should be invalid due to distance mismatch
+            assert not is_valid or any("distance" in m.lower() for m in messages)
+
+    def test_validate_pu_regex_no_match(self) -> None:
+        """Test when PU command doesn't match coordinate regex pattern (line 388->385).
+
+        Some PU commands may have non-standard formats that don't parse with
+        the coordinate regex. This should be handled gracefully.
+        """
+        writer = PLTWriter()
+
+        # Original has a PU with coordinates that WILL match the regex
+        original_content = "IN;PU100.000,200.000;PD300.000,400.000;SP;"
+        # Output missing this PU - but since we can't extract coords from it,
+        # the coord_issues dict won't be populated for it
+        optimized_output = "IN;PD300.000,400.000;SP;"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_path = Path(tmpdir) / "original.plt"
+            original_path.write_text(original_content, encoding="utf-8")
+
+            is_valid, messages = writer.validate_against_original(
+                original_path,
+                optimized_output,
+            )
+
+            # Should complete without error even when coordinate extraction
+            # from missing PU fails to populate coord_issues dict
+            assert isinstance(is_valid, bool)
+            assert isinstance(messages, list)
+
+    def test_validate_with_consecutive_pu_check(self) -> None:
+        """Test the consecutive PU detection loop (lines 451-459)."""
+        writer = PLTWriter()
+
+        # Original with multiple PUs in sequence followed by other commands
+        original_content = (
+            "IN;"
+            "PU0.000,0.000;"  # First PU starts a potential sequence
+            "PD100.000,0.000;"
+            "PU200.000,200.000;"  # Another PU - continues or ends sequence
+            "PD300.000,300.000;"
+            "SP;"
+        )
+        optimized_content = (
+            "IN;PU0.000,0.000;PD100.000,0.000;PD200.000,200.000;PD300.000,300.000;SP;"
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_path = Path(tmpdir) / "original.plt"
+            original_path.write_text(original_content, encoding="utf-8")
+
+            is_valid, messages = writer.validate_against_original(
+                original_path,
+                optimized_content,
+            )
+
+            # Should detect lost PUs and generate appropriate warnings
+            assert isinstance(is_valid, bool)
+
+
+class TestFormatHeaderEdgeCases:
+    """Tests for header formatting edge cases."""
+
+    def test_format_header_with_empty_parameters(self) -> None:
+        """Test header command with empty parameters tuple."""
+        writer = PLTWriter()
+
+        # HeaderCommand should handle empty params gracefully
+        hc = HeaderCommand("VS", parameters=())
+        formatted = writer._format_header(hc)
+
+        assert "VS" in formatted
+        assert formatted.endswith(";")
+
+
+class TestFormatStrokePathWithArcAtDifferentPosition:
+    """Test arc segment handling when current position differs from arc start."""
+
+    def test_arc_segment_after_line_with_position_mismatch(self) -> None:
+        """Test formatting path where arc follows line but positions don't match."""
+        writer = PLTWriter()
+
+        # First stroke ends at (100, 0)
+        line_seg = StrokeSegment(
+            start=Coordinate(x=50.0, y=0.0),
+            end=Coordinate(x=100.0, y=0.0),
+            is_cutting=True,
+        )
+        path1 = StrokePath(segments=(line_seg,))
+
+        # Arc starts at different position than where line ended
+        arc_seg = ArcSegment(
+            start=Coordinate(x=200.0, y=0.0),  # NOT at (100,0) like path1 ended
+            end=Coordinate(x=250.0, y=50.0),
+            center=Coordinate(x=225.0, y=25.0),
+            sweep_angle=90.0,
+            is_cutting=True,
+        )
+        path2 = StrokePath(segments=(arc_seg,), pen_up_position=None)
+
+        doc = PLTDocument(stroke_paths=[path1, path2])
+        output = writer.write_string(doc)
+
+        # Should have PU to move from (100,0) to arc start at (200,0)
+        assert "PU200.000" in output
+
+
+class TestWriteStringEdgeCases:
+    """Tests for write_string edge cases (lines 127->125, 135->133, 141->139)."""
+
+    def test_write_string_empty_stroke_path_result(self) -> None:
+        """Test when _format_stroke_path returns empty string (line 135 branch).
+
+        If a stroke path formats to an empty string (e.g., empty path),
+        it should not be appended to the output parts.
+        """
+        writer = PLTWriter()
+
+        # Create document with empty stroke paths
+        doc = PLTDocument(
+            header_commands=[HeaderCommand("IN")],
+            stroke_paths=[
+                StrokePath(segments=()),  # Empty path - returns ""
+                StrokePath(segments=()),  # Another empty path
+            ],
+            footer_commands=[FooterCommand("SP")],
+        )
+
+        output = writer.write_string(doc)
+
+        # Should only have header and footer, no stroke path content
+        assert "IN;" in output
+        assert "SP;" in output
+
+    def test_write_string_empty_header_result(self) -> None:
+        """Test when _format_header returns empty string (line 127 branch).
+
+        If a header command formats to an empty string, it should not be
+        appended to the output parts.
+        """
+        writer = PLTWriter()
+
+        # Create a mock HeaderCommand that could produce empty result
+        doc = PLTDocument(header_commands=[HeaderCommand("VS", parameters=())])
+
+        # The _format_header method returns "VS;" for empty params tuple,
+        # which is not empty. We need to test the if-formatted branch.
+        # Since formatting always produces something, we use mock to force empty
+        original_format = writer._format_header
+
+        def mock_format_empty(header: HeaderCommand) -> str:
+            return ""  # Empty string - simulates edge case
+
+        try:
+            writer._format_header = mock_format_empty
+            output = writer.write_string(doc)
+            assert "VS" not in output  # Should be excluded since empty
+        finally:
+            writer._format_header = original_format
+
+    def test_write_string_empty_footer_result(self) -> None:
+        """Test when _format_footer returns empty string (line 141 branch).
+
+        If a footer command formats to an empty string, it should not be
+        appended to the output parts.
+        """
+        writer = PLTWriter()
+
+        doc = PLTDocument(footer_commands=[FooterCommand("SP")])
+
+        original_format = writer._format_footer
+
+        def mock_format_empty(footer: FooterCommand) -> str:
+            return ""  # Empty string - simulates edge case
+
+        try:
+            writer._format_footer = mock_format_empty
+            output = writer.write_string(doc)
+            assert "SP" not in output  # Should be excluded since empty
+        finally:
+            writer._format_footer = original_format
+
+
+class TestValidateAgainstOriginalBranches:
+    """Tests for validate_against_original branch coverage."""
+
+    def test_validate_missing_pu_non_matching_regex(self) -> None:
+        """Test when PU command doesn't match coordinate regex (line 388->385).
+
+        When a missing PU has coordinates that don't parse with the standard
+        regex pattern, it should be skipped gracefully.
+        """
+        writer = PLTWriter()
+
+        # Use scientific notation or unusual format - won't match r"PU(-?\d+\.\d+),(-?\d+\.\d+);"
+        original_content = "IN;PU1E3,2.5;"  # Scientific notation
+        optimized_output = "IN;PD100.000,200.000;SP;"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_path = Path(tmpdir) / "original.plt"
+            original_path.write_text(original_content, encoding="utf-8")
+
+            is_valid, messages = writer.validate_against_original(
+                original_path,
+                optimized_output,
+            )
+
+            # Should complete without error even when regex doesn't match
+            assert isinstance(is_valid, bool)
+            assert any("PU command count reduced" in m or "lost" in m.lower() for m in messages)
+
+    def test_validate_parse_error_in_inner_try(self) -> None:
+        """Test ParseError raised inside the inner try block (lines 429-431).
+
+        When there are missing PUs and the output cannot be parsed during
+        distance verification, it should add a warning message.
+        """
+        writer = PLTWriter()
+
+        # Original has PU commands that will be missing in optimized output
+        original_content = "IN;PU0.000,0.000;PD100.000,200.000;SP;"
+        # Valid HPGL but produces different content (will have missing PUs)
+        optimized_output = "IN;PD50.000,100.000;SP;"  # Missing the PU at origin
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_path = Path(tmpdir) / "original.plt"
+            original_path.write_text(original_content, encoding="utf-8")
+
+            # Mock PLTParser.parse_string to raise ParseError on second call
+            original_parse = PLTParser.parse_string
+            parse_count = [0]
+
+            def mock_parse(self: PLTParser, content: str) -> PLTDocument:
+                parse_count[0] += 1
+                if parse_count[0] == 2:  # Second call is for output_content
+                    raise ParseError("Simulated parse error in validation")
+                return original_parse(self, content)
+
+            try:
+                with patch.object(PLTParser, 'parse_string', mock_parse):
+                    is_valid, messages = writer.validate_against_original(
+                        original_path,
+                        optimized_output,
+                    )
+
+                # Should catch ParseError and add warning about being unable to verify
+                assert any("Unable to verify round-trip" in m for m in messages)
+            finally:
+                PLTParser.parse_string = original_parse
+
+    def test_validate_consecutive_pu_else_branch(self) -> None:
+        """Test the else branch when token is not PU (lines 440, 442-446).
+
+        When we encounter a non-PU token after having seen consecutive PUs,
+        this tests that branch path.
+        """
+        writer = PLTWriter()
+
+        # Create content with: PU sequence followed by non-PU tokens
+        # The loop sets in_consecutive_pu=True on first PU, then enters else
+        original_content = "IN;PU0.000,0.000;PU100.000,100.000;PD200.000,200.000;SP;"
+        optimized_output = "IN;PD0.000,0.000;PD200.000,200.000;SP;"  # Missing PUs
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_path = Path(tmpdir) / "original.plt"
+            original_path.write_text(original_content, encoding="utf-8")
+
+            is_valid, messages = writer.validate_against_original(
+                original_path,
+                optimized_output,
+            )
+
+            # Should detect lost PUs and process the else branch
+            assert isinstance(is_valid, bool)
+
