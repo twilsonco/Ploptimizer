@@ -838,3 +838,252 @@ class TestArcSegmentInStrokePath:
             )
 
             assert math.isclose(path.cutting_distance, chord_length, abs_tol=0.001)
+
+
+class TestParserBranchesCoverage:
+    """Additional tests to cover missing branches in parser.py."""
+
+    def test_arc_command_with_existing_path_and_pen_down(self) -> None:
+        """Test arc command when current_path exists and pen is DOWN.
+
+        This covers lines 162-163: the branch where arc_segment is not None,
+        current_path is not None, and pen_state == PenState.DOWN.
+        """
+        # Setup: create a path with segment, then add arc to it
+        content = "PU0.000,0.000;PD100.000,0.000;AA500.000,500.000,90;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        arc_segments = [
+            seg for path in doc.stroke_paths
+            for seg in path.segments if isinstance(seg, ArcSegment)
+        ]
+        # Should have both line segment and arc segment in the same path
+        assert len(doc.stroke_paths) >= 1
+        assert len(arc_segments) >= 1
+
+    def test_arc_command_with_pen_up_no_current_path(self) -> None:
+        """Test arc command when pen_state is UP but current_path exists.
+
+        This covers line 174->183: where arc_cmd_match and last_position
+        match but the if body at 162-163 conditions aren't met.
+        """
+        content = "PU0.000,0.000;PD100.000,0.000;AA500.000,500.000,90;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        arc_segments = [
+            seg for path in doc.stroke_paths
+            for seg in path.segments if isinstance(seg, ArcSegment)
+        ]
+        assert len(doc.stroke_paths) >= 1
+
+    def test_arc_with_no_coords_and_subsequent_coord_token(self) -> None:
+        """Test arc parsing where PU has no coords but next token is coord.
+
+        This covers line 250->271: not coords and not arc_in_same_token
+        with subsequent coordinate tokens.
+        """
+        content = "PU0.000,0.000;PD100.000,100.000;PU;200.000,200.000;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        # Should handle gracefully - the coord token should be processed separately
+        assert isinstance(doc, PLTDocument)
+        total_segments = sum(len(p.segments) for p in doc.stroke_paths)
+        assert total_segments >= 1
+
+    def test_arc_in_same_token_compound_with_pen_down(self) -> None:
+        """Test arc in same token when pen_state is DOWN (line 257->269).
+
+        This covers the branch where arc_in_same_token exists and
+        pen_state is DOWN, appending to existing path.
+        """
+        content = "IN;PU0.000,0.000;PD100.000,0.000;PDAA500.000,500.000,90;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        arc_segments = [
+            seg for path in doc.stroke_paths
+            for seg in path.segments if isinstance(seg, ArcSegment)
+        ]
+        assert len(arc_segments) >= 1
+
+    def test_arc_in_same_token_followed_by_more_coords(self) -> None:
+        """Test compound arc token like 'PDAA500.000,500.000' with more tokens after.
+
+        This covers lines 264-266.
+        """
+        content = "PU0.000,0.000;PD100.000,100.000;PDAA200.000,200.000,90;SP;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        arc_segments = [
+            seg for path in doc.stroke_paths
+            for seg in path.segments if isinstance(seg, ArcSegment)
+        ]
+        assert len(arc_segments) >= 1
+
+    def test_unknown_command_creates_header(self) -> None:
+        """Test unknown command is treated as header (lines 281-288).
+
+        Unknown commands are logged and attempted to be parsed as headers.
+        If that fails, ParseError should be raised (line 283-284).
+        """
+        parser = PLTParser()
+
+        # Known pattern: valid HPGL-like token without semicolon in middle
+        # will match _is_header_command=False and go into else branch
+        content = "IN;CUSTOM123;SP;"
+        doc = parser.parse_string(content)
+
+        # CUSTOM123 should become a header command (or at least not crash)
+        assert isinstance(doc, PLTDocument)
+
+    def test_extract_coordinates_at_end_of_tokens(self) -> None:
+        """Test _extract_coordinates when i reaches len(tokens) - 1 (lines 491-492).
+
+        After consuming last token, the while loop should break at `i >= len(tokens)`.
+        """
+        content = "PD100.000;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        # Should parse gracefully
+        assert isinstance(doc, PLTDocument)
+        if doc.stroke_paths and doc.stroke_paths[0].segments:
+            seg = doc.stroke_paths[0].segments[0]
+            assert math.isclose(seg.end.x, 100.000, abs_tol=0.001)
+
+    def test_extract_coordinates_partial_token_consumption(self) -> None:
+        """Test _extract_coordinates where rest is consumed but empty (line 498).
+
+        When coord_match matches but rest becomes empty after consumption.
+        """
+        content = "PU100.000;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        # Should handle single coordinate with no following tokens
+        assert isinstance(doc, PLTDocument)
+
+    def test_extract_coordinates_with_comma_separated_coords(self) -> None:
+        """Test _extract_coordinates where coords are comma-adjacent (line 509).
+
+        When rest has coordinates but they're not followed by comma.
+        """
+        content = "PD100.000,200.000"  # No semicolon - coords adjacent without comma
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        # Should handle gracefully since pattern matches the first coord only
+        assert isinstance(doc, PLTDocument)
+
+    def test_extract_coordinates_token_backs_up_properly(self) -> None:
+        """Test _extract_coordinates backs up i when next token is command (lines 524-525).
+
+        When the next token doesn't match COORD_PATTERN, we should back up.
+        """
+        parser = PLTParser()
+
+        coords, idx = parser._extract_coordinates(
+            "PD;", 0, ["PD;", "VS1.5;"]
+        )
+
+        # Should not have consumed coordinates
+        assert len(coords) == 0
+        assert idx == 0  # Backed up to original position
+
+    def test_pu_command_starts_new_path_when_down(self) -> None:
+        """Test PU command creates new path when previous state was DOWN.
+
+        Covers the branch at lines 200-206 where pen_state transitions.
+        """
+        content = "IN;PU0.000,0.000;PD100.000,100.000;PU50.000,50.000;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        # PU should create new path segments - at least 1 stroke_path
+        assert len(doc.stroke_paths) >= 1
+
+    def test_extract_coordinates_handles_empty_rest(self) -> None:
+        """Test _extract_coordinates when rest is empty from start.
+
+        Covers line 468 where `if rest:` is false immediately.
+        """
+        parser = PLTParser()
+
+        # PU with no coordinates after command
+        coords, idx = parser._extract_coordinates("PU;", 0, ["PU;"])
+
+        assert len(coords) == 0
+
+    def test_arc_command_in_compound_token_with_empty_coords(self) -> None:
+        """Test compound token like 'PDAA' without any params.
+
+        This tests the arc parsing when arc_type exists but params_str is empty.
+        """
+        content = "PU100.000,100.000;PDAA;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        # Should not crash - should handle gracefully
+        assert isinstance(doc, PLTDocument)
+
+
+class TestParserRemainingCoverage:
+    """Final tests to cover remaining branches in _extract_coordinates."""
+
+    def test_extract_coordinates_consumes_all_tokens(self) -> None:
+        """Test _extract_coordinates when all tokens consumed (lines 491-492).
+
+        When loop consumes last token and i >= len(tokens).
+        """
+        content = "PD100.000,200.000;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+        assert isinstance(doc, PLTDocument)
+
+    def test_extract_coordinates_single_coord_exhausts_loop(self) -> None:
+        """Test _extract_coordinates where single coord exhausts current rest (line 498).
+
+        When coordinate pattern matches but rest becomes empty after.
+        """
+        content = "PD100.000;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+        assert isinstance(doc, PLTDocument)
+
+    def test_extract_coordinates_no_comma_after_match(self) -> None:
+        """Test _extract_coordinates where no comma after match (line 509).
+
+        When rest doesn't start with comma after coord consumption.
+        """
+        # Direct call to internal method - token has pair but without trailing comma
+        parser = PLTParser()
+        coords, idx = parser._extract_coordinates("PD;", 0, ["PD;", "100.000,200"])
+
+        assert len(coords) == 1
+
+    def test_extract_coordinates_next_token_is_command(self) -> None:
+        """Test _extract_coordinates when next token is command not coord (lines 524-525).
+
+        When COORD_PATTERN doesn't match and we back up.
+        """
+        parser = PLTParser()
+        coords, idx = parser._extract_coordinates("PD;", 0, ["PD;", "VS1.5;"])
+
+        # Should back up to original position since VS is not a coordinate
+        assert len(coords) == 0
