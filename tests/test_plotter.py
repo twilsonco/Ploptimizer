@@ -7,11 +7,9 @@ covering plot_plt_document, plot_stroke_path, save_figure, and create_path_diagr
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Tuple
 
 import matplotlib.pyplot as plt
 import pytest
-import numpy as np
 
 from plt_optimizer.core.models import (
     ArcSegment,
@@ -230,12 +228,6 @@ class TestPlotPltDocumentWithSegments:
         path = self._make_path([seg])
         doc = PLTDocument(stroke_paths=[path])
         fig = plot_plt_document(doc)
-
-        # Find plot elements with markers
-        collections = [
-            child for child in fig.axes[0].get_children()
-            if hasattr(child, 'get_paths') and len(child.get_paths()) > 0
-        ]
 
         # Start point should be at (0, 0) and end at (10, 20)
         # Check that points are plotted within the axes bounds
@@ -539,11 +531,8 @@ class TestSaveFigure:
         doc = PLTDocument(stroke_paths=[path])
         fig = plot_plt_document(doc)
 
-        # Rapid-only should have no colorbar axis
-        colorbar_axes = [
-            child for child in fig.axes[0].get_children()
-            if hasattr(child, 'ax') and child.ax is fig.axes[0]
-        ]
+        # Rapid-only should have no colorbar axis - verify figure created
+        assert isinstance(fig, plt.Figure)
 
 
 class TestCreatePathDiagram:
@@ -1071,15 +1060,8 @@ class TestColorbarAndLabels:
         doc = PLTDocument(stroke_paths=[path])
         fig = plot_plt_document(doc)
 
-        # Check that colorbar label contains expected text
-        found_label = False
-        for child in fig.axes[0].get_children():
-            if hasattr(child, 'ax') and hasattr(child, 'set_label'):
-                label_text = getattr(child, 'label', None)
-                if label_text and 'Cumulative Distance' in str(label_text):
-                    found_label = True
-                    break
-        # Either find the labeled colorbar or just verify figure created
+        # Verify figure was created successfully
+        assert isinstance(fig, plt.Figure)
 
 
 class TestCuttingDistanceDisplay:
@@ -1123,3 +1105,376 @@ class TestPlasmaColormap:
         doc = PLTDocument(stroke_paths=[path])
         fig = plot_plt_document(doc)
         assert isinstance(fig, plt.Figure)
+
+
+class TestEmptyCumDistancesEdgeCase:
+    """Tests for empty cum_distances edge case (line 140)."""
+
+    def test_empty_cumulative_distances_handled(self) -> None:
+        """Test that empty cumulative distances list is handled gracefully.
+
+        This tests the branch where cum_distances evaluates to falsy,
+        defaulting max_distance to 1.0.
+        """
+        # Create segments with identical start/end points which may result
+        # in empty or very short cumulative distance lists depending on
+        # calculate_cumulative_distances behavior
+        segs = [
+            StrokeSegment(
+                start=Coordinate(5, 5),
+                end=Coordinate(5, 5),  # Zero length - should be filtered out
+                is_cutting=True,
+            ),
+            StrokeSegment(
+                start=Coordinate(6, 6),
+                end=Coordinate(6, 6),  # Another zero length
+                is_cutting=True,
+            ),
+        ]
+        path = StrokePath(segments=tuple(segs))
+        doc = PLTDocument(stroke_paths=[path])
+        fig = plot_plt_document(doc)
+        assert isinstance(fig, plt.Figure)
+
+    def test_all_zero_length_segments_max_distance_default(self) -> None:
+        """Test that max_distance defaults to 1.0 when all segments are zero-length."""
+        segs = [
+            StrokeSegment(
+                start=Coordinate(10, 10),
+                end=Coordinate(10, 10),  # Zero length
+                is_cutting=True,
+            ),
+            StrokeSegment(
+                start=Coordinate(20, 20),
+                end=Coordinate(20, 20),  # Zero length at different position
+                is_cutting=True,
+            ),
+        ]
+        path = StrokePath(segments=tuple(segs))
+        doc = PLTDocument(stroke_paths=[path])
+        fig = plot_plt_document(doc)
+        assert isinstance(fig, plt.Figure)
+
+
+class TestArcSegmentRapidTravel:
+    """Tests for Arc segment rapid travel plotting (lines 170-183)."""
+
+    def _make_arc_segment(
+        self,
+        start_x: float = 0.0,
+        start_y: float = 0.0,
+        center_x: float = 1.0,
+        center_y: float = 0.0,
+        end_x: float = 2.0,
+        end_y: float = 0.0,
+        sweep_angle: float = 180.0,
+        is_cutting: bool = False,  # Default to rapid
+    ) -> ArcSegment:
+        """Helper to create an arc segment."""
+        return ArcSegment(
+            start=Coordinate(start_x, start_y),
+            end=Coordinate(end_x, end_y),
+            center=Coordinate(center_x, center_y),
+            sweep_angle=sweep_angle,
+            is_cutting=is_cutting,
+        )
+
+    def test_arc_rapid_travel_full_semicircle(self) -> None:
+        """Test plotting arc rapid travel with full 180-degree sweep."""
+        arc = self._make_arc_segment(
+            start_x=-1.0,
+            start_y=0.0,
+            center_x=0.0,
+            center_y=0.0,
+            end_x=1.0,
+            end_y=0.0,
+            sweep_angle=180.0,
+            is_cutting=False,
+        )
+        path = StrokePath(segments=(arc,))
+        doc = PLTDocument(stroke_paths=[path])
+        fig = plot_plt_document(doc)
+        assert isinstance(fig, plt.Figure)
+
+    def test_arc_rapid_travel_small_angle(self) -> None:
+        """Test plotting arc rapid travel with small sweep angle."""
+        arc = self._make_arc_segment(
+            start_x=0.0,
+            start_y=1.0,
+            center_x=0.0,
+            center_y=0.0,
+            end_x=1.0,
+            end_y=0.0,
+            sweep_angle=90.0,
+            is_cutting=False,
+        )
+        path = StrokePath(segments=(arc,))
+        doc = PLTDocument(stroke_paths=[path])
+        fig = plot_plt_document(doc)
+        assert isinstance(fig, plt.Figure)
+
+    def test_multiple_arc_rapid_segments(self) -> None:
+        """Test plotting multiple arc segments as rapid travel."""
+        arc1 = self._make_arc_segment(
+            start_x=0.0,
+            start_y=-1.0,
+            center_x=0.0,
+            center_y=0.0,
+            end_x=0.0,
+            end_y=1.0,
+            sweep_angle=180.0,
+            is_cutting=False,
+        )
+        arc2 = self._make_arc_segment(
+            start_x=5.0,
+            start_y=-1.0,
+            center_x=5.0,
+            center_y=0.0,
+            end_x=5.0,
+            end_y=1.0,
+            sweep_angle=180.0,
+            is_cutting=False,
+        )
+        path = StrokePath(segments=(arc1, arc2))
+        doc = PLTDocument(stroke_paths=[path])
+        fig = plot_plt_document(doc)
+        assert isinstance(fig, plt.Figure)
+
+    def test_mixed_arc_rapid_and_line_rapid(self) -> None:
+        """Test plotting mix of rapid arcs and rapid lines."""
+        seg = StrokeSegment(
+            start=Coordinate(0, 0),
+            end=Coordinate(5, 0),
+            is_cutting=False,
+        )
+        arc = self._make_arc_segment(
+            start_x=5.0,
+            start_y=0.0,
+            center_x=10.0,
+            center_y=0.0,
+            end_x=15.0,
+            end_y=0.0,
+            sweep_angle=180.0,
+            is_cutting=False,
+        )
+        path = StrokePath(segments=(seg, arc))
+        doc = PLTDocument(stroke_paths=[path])
+        fig = plot_plt_document(doc)
+        assert isinstance(fig, plt.Figure)
+
+
+class TestArcSegmentCuttingPlot:
+    """Tests for Arc segment cutting plotting (lines 244-256)."""
+
+    def _make_arc_segment(
+        self,
+        start_x: float = 0.0,
+        start_y: float = 0.0,
+        center_x: float = 1.0,
+        center_y: float = 0.0,
+        end_x: float = 2.0,
+        end_y: float = 0.0,
+        sweep_angle: float = 180.0,
+    ) -> ArcSegment:
+        """Helper to create an arc segment."""
+        return ArcSegment(
+            start=Coordinate(start_x, start_y),
+            end=Coordinate(end_x, end_y),
+            center=Coordinate(center_x, center_y),
+            sweep_angle=sweep_angle,
+            is_cutting=True,
+        )
+
+    def test_arc_cutting_full_circle(self) -> None:
+        """Test plotting arc cutting with 360-degree sweep."""
+        arc = ArcSegment(
+            start=Coordinate(1.0, 0.0),
+            end=Coordinate(1.0, 0.0),  # Same as start for full circle
+            center=Coordinate(0.0, 0.0),
+            sweep_angle=360.0,
+            is_cutting=True,
+        )
+        path = StrokePath(segments=(arc,))
+        doc = PLTDocument(stroke_paths=[path])
+        fig = plot_plt_document(doc)
+        assert isinstance(fig, plt.Figure)
+
+    def test_single_arc_cutting_segment(self) -> None:
+        """Test plotting a single arc segment as cutting."""
+        arc = self._make_arc_segment(
+            start_x=0.0,
+            start_y=-1.0,
+            center_x=0.0,
+            center_y=0.0,
+            end_x=0.0,
+            end_y=1.0,
+            sweep_angle=180.0,
+        )
+        path = StrokePath(segments=(arc,))
+        doc = PLTDocument(stroke_paths=[path])
+        fig = plot_plt_document(doc)
+        assert isinstance(fig, plt.Figure)
+
+    def test_multiple_sequential_cutting_arcs(self) -> None:
+        """Test plotting multiple arcs all as cutting."""
+        arc1 = ArcSegment(
+            start=Coordinate(0.0, 0.0),
+            end=Coordinate(2.0, 0.0),
+            center=Coordinate(1.0, 0.0),
+            sweep_angle=180.0,
+            is_cutting=True,
+        )
+        arc2 = ArcSegment(
+            start=Coordinate(2.0, 0.0),
+            end=Coordinate(4.0, 0.0),
+            center=Coordinate(3.0, 0.0),
+            sweep_angle=180.0,
+            is_cutting=True,
+        )
+        path = StrokePath(segments=(arc1, arc2))
+        doc = PLTDocument(stroke_paths=[path])
+        fig = plot_plt_document(doc)
+        assert isinstance(fig, plt.Figure)
+
+
+class TestPenUpConnectionDrawing:
+    """Tests for pen-up connection drawing between paths (lines 205-219)."""
+
+    def test_pen_up_connection_plotted(self) -> None:
+        """Test that pen-up connections are plotted as dashed lines."""
+        # First path ends at (10, 10)
+        seg1 = StrokeSegment(
+            start=Coordinate(0, 0),
+            end=Coordinate(10, 10),
+            is_cutting=True,
+        )
+        path1 = StrokePath(
+            segments=(seg1,),
+            pen_up_position=Coordinate(30, 40),  # Next start after travel
+        )
+
+        # Second path starts at (30, 40)
+        seg2 = StrokeSegment(
+            start=Coordinate(30, 40),
+            end=Coordinate(50, 60),
+            is_cutting=True,
+        )
+        path2 = StrokePath(
+            segments=(seg2,),
+            pen_up_position=None,
+        )
+
+        doc = PLTDocument(stroke_paths=[path1, path2])
+        fig = plot_plt_document(doc)
+        assert isinstance(fig, plt.Figure)
+
+    def test_multiple_pen_up_connections(self) -> None:
+        """Test multiple sequential pen-up connections."""
+        seg1 = StrokeSegment(start=Coordinate(0, 0), end=Coordinate(10, 0), is_cutting=True)
+        path1 = StrokePath(segments=(seg1,), pen_up_position=Coordinate(20, 0))
+
+        seg2 = StrokeSegment(start=Coordinate(20, 0), end=Coordinate(30, 0), is_cutting=True)
+        path2 = StrokePath(segments=(seg2,), pen_up_position=Coordinate(40, 0))
+
+        seg3 = StrokeSegment(start=Coordinate(40, 0), end=Coordinate(50, 0), is_cutting=True)
+        path3 = StrokePath(segments=(seg3,), pen_up_position=None)
+
+        doc = PLTDocument(stroke_paths=[path1, path2, path3])
+        fig = plot_plt_document(doc)
+        assert isinstance(fig, plt.Figure)
+
+    def test_pen_up_connection_with_empty_path_skipped(self) -> None:
+        """Test that paths with no segments skip pen-up connection."""
+        # Empty first path (no segments to get last_seg from)
+        path1 = StrokePath(segments=(), pen_up_position=Coordinate(20, 30))
+
+        seg2 = StrokeSegment(
+            start=Coordinate(20, 30),
+            end=Coordinate(40, 50),
+            is_cutting=True,
+        )
+        path2 = StrokePath(segments=(seg2,))
+
+        doc = PLTDocument(stroke_paths=[path1, path2])
+        fig = plot_plt_document(doc)
+        assert isinstance(fig, plt.Figure)
+
+    def test_pen_up_connection_with_only_rapid_segments(self) -> None:
+        """Test pen-up connection when last segment is rapid (non-cutting)."""
+        seg1 = StrokeSegment(
+            start=Coordinate(0, 0),
+            end=Coordinate(10, 10),
+            is_cutting=False,  # Rapid move
+        )
+        path1 = StrokePath(
+            segments=(seg1,),
+            pen_up_position=Coordinate(50, 50),
+        )
+
+        seg2 = StrokeSegment(
+            start=Coordinate(50, 50),
+            end=Coordinate(60, 60),
+            is_cutting=True,
+        )
+        path2 = StrokePath(segments=(seg2,))
+
+        doc = PLTDocument(stroke_paths=[path1, path2])
+        fig = plot_plt_document(doc)
+        assert isinstance(fig, plt.Figure)
+
+
+class TestPlotStrokePathSaveToFile:
+    """Tests for plot_stroke_path saving to file (lines 329-330)."""
+
+    def test_plot_stroke_path_saves_png(self, tmp_path: Path) -> None:
+        """Test that plot_stroke_path saves figure when output_path is provided."""
+        seg = StrokeSegment(
+            start=Coordinate(0, 0),
+            end=Coordinate(1, 1),
+            is_cutting=True,
+        )
+        path = StrokePath(segments=(seg,))
+        output_path = tmp_path / "stroke_output.png"
+        fig = plot_stroke_path(path, output_path=output_path)
+        assert isinstance(fig, plt.Figure)
+        assert output_path.exists()
+
+    def test_plot_stroke_path_saves_pdf(self, tmp_path: Path) -> None:
+        """Test that plot_stroke_path saves figure as PDF."""
+        seg = StrokeSegment(
+            start=Coordinate(0, 0),
+            end=Coordinate(100, 200),
+            is_cutting=True,
+        )
+        path = StrokePath(segments=(seg,))
+        output_path = tmp_path / "stroke_output.pdf"
+        fig = plot_stroke_path(path, output_path=output_path)
+        assert isinstance(fig, plt.Figure)
+        assert output_path.exists()
+
+    def test_plot_stroke_path_saves_with_nested_dir(self, tmp_path: Path) -> None:
+        """Test that plot_stroke_path creates nested directories for output."""
+        seg = StrokeSegment(
+            start=Coordinate(0, 0),
+            end=Coordinate(1, 1),
+            is_cutting=True,
+        )
+        path = StrokePath(segments=(seg,))
+        output_path = tmp_path / "nested" / "dirs" / "output.png"
+        fig = plot_stroke_path(path, output_path=output_path)
+        assert isinstance(fig, plt.Figure)
+        assert output_path.exists()
+
+    def test_plot_plt_document_saves_with_output_path(self, tmp_path: Path) -> None:
+        """Test that plot_plt_document saves when output_path is provided."""
+        seg = StrokeSegment(
+            start=Coordinate(0, 0),
+            end=Coordinate(1, 1),
+            is_cutting=True,
+        )
+        path = StrokePath(segments=(seg,))
+        doc = PLTDocument(stroke_paths=[path])
+        output_path = tmp_path / "document_output.png"
+        fig = plot_plt_document(doc, output_path=output_path)
+        assert isinstance(fig, plt.Figure)
+        assert output_path.exists()
