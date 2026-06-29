@@ -1248,3 +1248,137 @@ class TestRemoveRedundantStrokesBranches:
         # After removing seg2 (which is index 1), the path splits into two:
         # one with seg1 and one with seg3
         assert len(result.stroke_paths) == 2
+
+    def test_both_on_each_other_same_length_reversed_orientation(self) -> None:
+        """Test both-on-each-other with SAME length but reversed orientation.
+
+        This exercises lines 319-321 (reversed_start/reversed_end branch).
+        Two segments have same length, start matches end of other and vice versa.
+        """
+        from plt_optimizer.utils.geometry import remove_redundant_strokes
+        from plt_optimizer.core.models import PLTDocument, StrokePath
+
+        # seg1 is (0,0) -> (50,0), length = 50
+        seg1 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=50.0, y=0.0),
+            is_cutting=True,
+        )
+        # seg2 is same segment but reversed: (50,0) -> (0,0), length = 50
+        seg2 = StrokeSegment(
+            start=Coordinate(x=50.0, y=0.0),
+            end=Coordinate(x=0.0, y=0.0),
+            is_cutting=True,
+        )
+        path1 = StrokePath(pen_up_position=None, segments=(seg1,))
+        path2 = StrokePath(
+            pen_up_position=Coordinate(x=50.0, y=0.0),
+            segments=(seg2,),
+        )
+        doc = PLTDocument(header_commands=[], stroke_paths=[path1, path2], footer_commands=[])
+
+        result = remove_redundant_strokes(doc)
+
+        # seg2 (reversed duplicate) should be removed
+        assert len(result.stroke_paths) == 1
+
+    def test_both_on_each_other_different_lengths_exactly_equal(self) -> None:
+        """Test both-on-each-other with different lengths that are nearly equal.
+
+        This exercises lines 325-329: when seg_i_len and seg_j_len differ by
+        a very small amount (within tolerance), the len_diff check triggers.
+        """
+        from plt_optimizer.utils.geometry import remove_redundant_strokes
+        from plt_optimizer.core.models import PLTDocument, StrokePath
+
+        # Both segments lie on same infinite line and overlap fully:
+        # seg1 is (0, 0) -> (100.0005, 0), length ≈ 100.0005
+        # seg2 is (0, 0) -> (100.0004, 0), length ≈ 100.0004 - very close
+        seg1 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=100.0005, y=0.0),
+            is_cutting=True,
+        )
+        seg2 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=100.0004, y=0.0),
+            is_cutting=True,
+        )
+        path1 = StrokePath(pen_up_position=None, segments=(seg1,))
+        path2 = StrokePath(
+            pen_up_position=Coordinate(x=0.0, y=0.0),
+            segments=(seg2,),
+        )
+        doc = PLTDocument(header_commands=[], stroke_paths=[path1, path2], footer_commands=[])
+
+        result = remove_redundant_strokes(doc)
+
+        # The lengths are within tolerance so they should be treated as same
+        # and the shorter (or first encountered) is removed
+        assert len(result.stroke_paths) == 1
+
+    def test_both_on_each_other_different_lengths_clearly_different(self) -> None:
+        """Test both-on-each-other with clearly different lengths.
+
+        This exercises lines 325-336: when seg_i_len and seg_j_len differ
+        by more than tolerance, the len_diff check passes and shorter is removed.
+        """
+        from plt_optimizer.utils.geometry import remove_redundant_strokes
+        from plt_optimizer.core.models import PLTDocument, StrokePath
+
+        # seg1 is (0,0) -> (100.0, 0), length = 100
+        seg1 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=100.0, y=0.0),
+            is_cutting=True,
+        )
+        # seg2 is (25.0, 0) -> (50.0, 0), length = 25 - clearly shorter
+        seg2 = StrokeSegment(
+            start=Coordinate(x=25.0, y=0.0),
+            end=Coordinate(x=50.0, y=0.0),
+            is_cutting=True,
+        )
+        path1 = StrokePath(pen_up_position=None, segments=(seg1,))
+        path2 = StrokePath(
+            pen_up_position=Coordinate(x=25.0, y=0.0),
+            segments=(seg2,),
+        )
+        doc = PLTDocument(header_commands=[], stroke_paths=[path1, path2], footer_commands=[])
+
+        result = remove_redundant_strokes(doc)
+
+        # seg2 (shorter) should be removed
+        assert len(result.stroke_paths) == 1
+
+    def test_both_on_each_other_different_lengths_seg_j_shorter(self) -> None:
+        """Test both-on-each-other where seg_i is shorter.
+
+        This exercises lines 334-336: when seg_j_len < seg_i_len,
+        path_idx_i segment should be removed.
+        """
+        from plt_optimizer.utils.geometry import remove_redundant_strokes
+        from plt_optimizer.core.models import PLTDocument, StrokePath
+
+        # seg1 is (25.0, 0) -> (50.0, 0), length = 25 - shorter
+        seg1 = StrokeSegment(
+            start=Coordinate(x=25.0, y=0.0),
+            end=Coordinate(x=50.0, y=0.0),
+            is_cutting=True,
+        )
+        # seg2 is (0.0, 0) -> (100.0, 0), length = 100 - longer
+        seg2 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=100.0, y=0.0),
+            is_cutting=True,
+        )
+        path1 = StrokePath(pen_up_position=Coordinate(x=25.0, y=0.0), segments=(seg1,))
+        path2 = StrokePath(
+            pen_up_position=None,
+            segments=(seg2,),
+        )
+        doc = PLTDocument(header_commands=[], stroke_paths=[path1, path2], footer_commands=[])
+
+        result = remove_redundant_strokes(doc)
+
+        # seg1 (shorter, which is i in the loop when j > i) should be removed
+        assert len(result.stroke_paths) == 1
