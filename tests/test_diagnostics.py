@@ -89,34 +89,96 @@ class TestReexports:
 class TestMatplotlibFallback:
     """Tests for matplotlib ImportError fallback behavior."""
 
-    def test_all_empty_when_matplotlib_unavailable(self) -> None:
-        """Test that __all__ is empty list when matplotlib cannot be imported.
+    def test_fallback_with_mock_import(self) -> None:
+        """Test that the except block sets __all__ = [] when matplotlib unavailable.
 
-        This tests the fallback path in diagnostics/__init__.py lines 28-30
-        where ImportError is caught and __all__ is set to [].
+        This tests lines 28-30 by blocking matplotlib imports via builtin override,
+        clearing cached diagnostics modules, and re-importing. This executes
+        within the pytest process so coverage measurement includes these lines.
         """
+        import builtins
+        import sys
+
+        # Save original __import__ to restore later
+        _real_import = builtins.__import__
+
+        try:
+            # 1. Block matplotlib imports at the builtin level
+            def _blocked_import(name: str, *args: object, **kwargs: object) -> object:
+                if "matplotlib" in name or name == "matplotlib":
+                    raise ImportError("Simulated matplotlib unavailability")
+                return _real_import(name, *args, **kwargs)
+
+            builtins.__import__ = _blocked_import
+
+            # 2. Clear any cached diagnostics modules so we get fresh import
+            mods_cleared: list[str] = []
+            for key in list(sys.modules.keys()):
+                if key.startswith("plt_optimizer.diagnostics"):
+                    del sys.modules[key]
+                    mods_cleared.append(key)
+
+            try:
+                # 3. Re-import diagnostics - should hit the except block now
+                from plt_optimizer.diagnostics import __all__
+
+                # Verify fallback behavior: __all__ should be empty list
+                assert isinstance(__all__, list)
+                assert len(__all__) == 0, f"Expected [], got {__all__}"
+
+            finally:
+                # Clean up: remove diagnostics modules again so original state is restored
+                for key in mods_cleared:
+                    if key in sys.modules:
+                        del sys.modules[key]
+
+        finally:
+            # Always restore the real __import__
+            builtins.__import__ = _real_import
+
+    def test_fallback_path_coverage_via_subprocess(self) -> None:
+        """Test fallback path coverage via subprocess for line-level tracking.
+
+        This ensures lines 28-30 are executed in a fresh Python process where
+        we can definitively control matplotlib availability. The subprocess runs
+        with coverage enabled to track execution of the except block.
+        """
+        import os
         import subprocess
         import sys
 
-        code = '''
-import sys
-# Remove any cached matplotlib modules first
-for key in list(sys.modules.keys()):
-    if "matplotlib" in key.lower():
-        del sys.modules[key]
+        # Use unique coverage data file and . Coverage database
+        coverage_file = "/tmp/test_diag_fallback.coverage"
+        if os.path.exists(coverage_file):
+            os.remove(coverage_file)
 
-# Block matplotlib imports using meta_path finder that raises ImportError
+        code = f'''
+import coverage
+import sys
+
+# Start coverage collection before anything else
+cov = coverage.Coverage(data_file="{coverage_file}")
+cov.start()
+
+# Block ALL matplotlib imports at the import system level
 class MatplotlibBlocker:
     def find_module(self, fullname, path=None):
-        if fullname == "matplotlib" or fullname.startswith("matplotlib."):
-            raise ImportError("Matplotlib is not available")
+        if "matplotlib" in fullname:
+            raise ImportError("Simulated unavailability")
         return None
 
 sys.meta_path.insert(0, MatplotlibBlocker())
 
-# Now import diagnostics - should hit the except block
+# Force reimport of diagnostics package to hit the fallback
+for key in list(sys.modules.keys()):
+    if key.startswith("plt_optimizer.diagnostics"):
+        del sys.modules[key]
+
 from plt_optimizer.diagnostics import __all__
 print(repr(__all__))
+
+cov.stop()
+cov.save()
 '''
         result = subprocess.run(
             [sys.executable, "-c", code],
@@ -131,3 +193,4 @@ print(repr(__all__))
             f"Expected empty __all__ when matplotlib unavailable, got {output}. "
             f"stderr: {result.stderr}"
         )
+
