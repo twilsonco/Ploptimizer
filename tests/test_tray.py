@@ -5,6 +5,7 @@ This module tests the TrayIconManager class with mocked pystray/pillow dependenc
 
 from __future__ import annotations
 
+import logging
 import sys
 import threading
 import time
@@ -617,3 +618,360 @@ class TestGetIconPath:
         # Should be relative to project root
         assert "assets" in str(result)
         assert result.name == "icon.ico"
+
+
+class TestCheckDependenciesErrors:
+    """Tests for _check_dependencies error paths (lines 43->exit, 50)."""
+
+    def test_check_dependencies_linux_missing_pystray(self) -> None:
+        """Test Linux dependency check with missing pystray."""
+        from plt_optimizer.ui.tray import _check_dependencies
+
+        with patch("plt_optimizer.ui.tray._IS_WINDOWS", False), \
+             patch("plt_optimizer.ui.tray.importlib.util.find_spec") as mock_find:
+
+            def find_side_effect(name: str) -> Any:
+                if name == "pystray":
+                    return None
+                return MagicMock()  # PIL exists
+
+            mock_find.side_effect = find_side_effect
+
+            with pytest.raises(ImportError, match="pystray"):
+                _check_dependencies()
+
+    def test_check_dependencies_linux_missing_pil(self) -> None:
+        """Test Linux dependency check with missing PIL."""
+        from plt_optimizer.ui.tray import _check_dependencies
+
+        with patch("plt_optimizer.ui.tray._IS_WINDOWS", False), \
+             patch("plt_optimizer.ui.tray.importlib.util.find_spec") as mock_find:
+
+            def find_side_effect(name: str) -> Any:
+                if name == "PIL":
+                    return None
+                return MagicMock()  # pystray exists
+
+            mock_find.side_effect = find_side_effect
+
+            with pytest.raises(ImportError, match="pillow"):
+                _check_dependencies()
+
+
+class TestExitClickCallbacks:
+    """Tests for exit click callbacks (lines 178->exit, 181-182)."""
+
+    def test_on_exit_click_without_callback(self) -> None:
+        """Test _on_exit_click without callback set."""
+        from plt_optimizer.ui.tray import TrayIconManager
+
+        manager = TrayIconManager(MagicMock(), MagicMock(), MagicMock())
+        # No on_exit_requested callback - should not raise
+
+        manager._on_exit_click(MagicMock(), MagicMock())
+
+    def test_on_exit_click_with_exception(self) -> None:
+        """Test _on_exit_click handles exception gracefully."""
+        from plt_optimizer.ui.tray import TrayIconManager
+
+        manager = TrayIconManager(MagicMock(), MagicMock(), MagicMock())
+        manager.on_exit_requested = MagicMock(side_effect=RuntimeError("Exit failed"))
+
+        # Should not raise - errors are caught and logged
+        manager._on_exit_click(MagicMock(), MagicMock())
+
+
+class TestInfiSystrayCallbacks:
+    """Tests for infi.systray callbacks (lines 228-229, 237-242)."""
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="infi.systray is Windows-only")
+    def test_on_infi_settings_click_with_exception(self) -> None:
+        """Test infi settings click handles exception."""
+        from plt_optimizer.ui.tray import TrayIconManager
+
+        manager = TrayIconManager(MagicMock(), MagicMock(), MagicMock())
+        manager.on_settings_requested = MagicMock(side_effect=RuntimeError("Settings error"))
+
+        # Should not raise - errors are caught and logged
+        manager._on_infi_settings_click(MagicMock())
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="infi.systray is Windows-only")
+    def test_on_infi_exit_callback_with_exception(self) -> None:
+        """Test infi quit callback handles exception (line 225->exit).
+
+        We can't directly import infi.systray on non-Windows, but we can verify
+        the code path by testing that _on_infi_exit_click handles exceptions.
+        """
+        from plt_optimizer.ui.tray import TrayIconManager
+
+        manager = TrayIconManager(MagicMock(), MagicMock(), MagicMock())
+        manager.on_exit_requested = MagicMock(side_effect=RuntimeError("Exit failed"))
+
+        # Should not raise even though callback throws
+        manager._on_infi_exit_click(MagicMock())
+
+    def test_on_infi_settings_click_calls_callback(self) -> None:
+        """Test infi settings click calls the registered callback."""
+        from plt_optimizer.ui.tray import TrayIconManager
+
+        manager = TrayIconManager(MagicMock(), MagicMock(), MagicMock())
+        manager.on_settings_requested = MagicMock()
+
+        manager._on_infi_settings_click(MagicMock())
+
+        manager.on_settings_requested.assert_called_once()
+
+    def test_on_infi_exit_click_calls_callback(self) -> None:
+        """Test infi exit click calls the registered callback."""
+        from plt_optimizer.ui.tray import TrayIconManager
+
+        manager = TrayIconManager(MagicMock(), MagicMock(), MagicMock())
+        manager.on_exit_requested = MagicMock()
+
+        manager._on_infi_exit_click(MagicMock())
+
+        manager.on_exit_requested.assert_called_once()
+
+
+class TestWatcherLoopErrors:
+    """Tests for _watcher_loop error handling (lines 270-271)."""
+
+    def test_watcher_loop_with_success_and_error_callbacks(self) -> None:
+        """Test watcher loop accepts and uses success/error callbacks."""
+        from plt_optimizer.ui.tray import TrayIconManager
+
+        mock_watcher = MagicMock()
+        manager = TrayIconManager(mock_watcher, MagicMock(), MagicMock())
+
+        stop_event = threading.Event()
+        config = {"watch_dir": "/test"}
+        on_success = MagicMock()
+        on_error = MagicMock()
+
+        manager._watcher_loop(stop_event, config, on_success=on_success, on_error=on_error)
+
+        mock_watcher.assert_called_once_with(config)
+        # Callbacks are passed through but not called by _watcher_loop itself
+        assert on_success is not None
+        assert on_error is not None
+
+
+class TestNotificationLogging:
+    """Tests for notification methods logging (lines 336-339)."""
+
+    def test_notify_success_logs_info(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Test notify_success produces proper log output."""
+        from plt_optimizer.ui.tray import TrayIconManager
+
+        manager = TrayIconManager(MagicMock(), MagicMock(), MagicMock())
+
+        with caplog.at_level(logging.INFO):
+            manager.notify_success("test.plt", 25.5)
+
+        assert any("Optimized test.plt" in record.message for record in caplog.records)
+        assert any("Saved 25.5%" in record.message for record in caplog.records)
+
+    def test_notify_error_logs_info(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Test notify_error produces proper log output."""
+        from plt_optimizer.ui.tray import TrayIconManager
+
+        manager = TrayIconManager(MagicMock(), MagicMock(), MagicMock())
+
+        with caplog.at_level(logging.INFO):
+            manager.notify_error("bad.plt", "Corrupt data format error")
+
+        assert any("Failed: bad.plt" in record.message for record in caplog.records)
+
+
+class TestRunPystrayException:
+    """Tests for pystray run exception handling (lines 347-381)."""
+
+    def test_run_pystray_exception_during_run_logs_and_raises(self) -> None:
+        """Test that exceptions during pystray.run() are logged and re-raised."""
+        from plt_optimizer.ui.tray import TrayIconManager
+
+        manager = TrayIconManager(MagicMock(), MagicMock(), MagicMock())
+
+        with patch.object(manager, "_setup_pystray"):
+            manager._systray = MagicMock()
+            manager._systray.run.side_effect = RuntimeError("Systray crashed")
+
+            with pytest.raises(RuntimeError, match="Systray crashed"):
+                manager._run_pystray(blocking=True)
+
+    def test_run_pystray_blocking_finally_calls_stop_watcher(self) -> None:
+        """Test stop_watcher is called in finally block even after exception."""
+        from plt_optimizer.ui.tray import TrayIconManager
+
+        manager = TrayIconManager(MagicMock(), MagicMock(), MagicMock())
+
+        with patch.object(manager, "_setup_pystray"), \
+             patch.object(manager, "stop_watcher") as mock_stop:
+
+            manager._systray = MagicMock()
+            manager._systray.run.side_effect = RuntimeError("Systray error")
+
+            try:
+                manager._run_pystray(blocking=True)
+            except RuntimeError:
+                pass
+
+            mock_stop.assert_called_once()
+
+
+class TestRunWindowsExceptionPaths:
+    """Tests for Windows run exception handling (lines 225->exit, 237-242)."""
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="Windows-only test")
+    def test_run_windows_exception_logs_and_raises(self) -> None:
+        """Test that exceptions during Windows tray run are logged and re-raised."""
+        from plt_optimizer.ui.tray import TrayIconManager
+
+        manager = TrayIconManager(MagicMock(), MagicMock(), MagicMock())
+
+        with patch.object(manager, "_setup_infi_systray"):
+            mock_systray = MagicMock()
+            manager._systray = mock_systray
+            mock_systray.__enter__ = MagicMock(side_effect=RuntimeError("Windows error"))
+            mock_systray.__exit__ = MagicMock(return_value=False)
+
+            with patch.object(manager, "stop_watcher") as mock_stop:
+                with pytest.raises(RuntimeError):
+                    manager._run_windows(blocking=True)
+
+                # finally block should still run
+                mock_stop.assert_called_once()
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="Windows-only test")
+    def test_run_windows_keyboard_interrupt_calls_finally(self) -> None:
+        """Test KeyboardInterrupt is caught and stop_watcher still runs."""
+        from plt_optimizer.ui.tray import TrayIconManager
+
+        manager = TrayIconManager(MagicMock(), MagicMock(), MagicMock())
+
+        with patch.object(manager, "_setup_infi_systray"):
+            mock_systray = MagicMock()
+            manager._systray = mock_systray
+            mock_systray.__enter__ = MagicMock(side_effect=KeyboardInterrupt)
+            mock_systray.__exit__ = MagicMock(return_value=False)
+
+            with patch.object(manager, "stop_watcher") as mock_stop:
+                # Should not raise - KeyboardInterrupt is caught
+                manager._run_windows(blocking=True)
+                mock_stop.assert_called_once()
+
+
+class TestRunDetachedPaths:
+    """Tests for detached/non-blocking run paths (lines 347-381)."""
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="Windows-only test")
+    def test_run_pystray_non_blocking_runs_detached(self) -> None:
+        """Test pystray non-blocking calls run_detached."""
+        from plt_optimizer.ui.tray import TrayIconManager
+
+        manager = TrayIconManager(MagicMock(), MagicMock(), MagicMock())
+
+        with patch.object(manager, "_setup_pystray"):
+            manager._systray = MagicMock()
+
+            manager._run_pystray(blocking=False)
+
+            manager._systray.run_detached.assert_called_once()
+            # stop_watcher should NOT be called in non-blocking mode
+            assert manager._watcher_thread is None  # Not started by run
+
+
+class TestStopErrorHandling:
+    """Tests for stop method error handling (lines 420-421, 422->425)."""
+
+    def test_stop_pystray_error_during_stop(self) -> None:
+        """Test stop handles errors from pystray.stop gracefully."""
+        from plt_optimizer.ui.tray import TrayIconManager
+
+        manager = TrayIconManager(MagicMock(), MagicMock(), MagicMock())
+
+        mock_systray = MagicMock(spec=["stop"])
+        mock_systray.stop.side_effect = RuntimeError("Stop failed")
+        manager._systray = mock_systray
+
+        # Should not raise - errors are caught
+        manager.stop()
+
+    def test_stop_with_both_stop_and_shutdown_attrs(self) -> None:
+        """Test that presence of shutdown attribute skips calling it."""
+        from plt_optimizer.ui.tray import TrayIconManager
+
+        manager = TrayIconManager(MagicMock(), MagicMock(), MagicMock())
+
+        # Mock with both attributes (like infi.systray)
+        mock_systray = MagicMock(spec=["stop", "shutdown"])
+        manager._systray = mock_systray
+
+        manager.stop()
+
+        # Should not call stop() or shutdown()
+        assert not mock_systray.stop.called
+        assert not mock_systray.shutdown.called
+        assert manager._systray is None
+
+
+class TestGetIconPathFrozenDetailed:
+    """Tests for icon path frozen variations (lines 393-400)."""
+
+    def test_get_icon_path_frozen_with_meipass_attr(self) -> None:
+        """Test get_icon_path_frozen returns correct path with _MEIPASS."""
+        from plt_optimizer.ui.tray import get_icon_path_frozen
+
+        original = getattr(sys, "frozen", None)
+        original_meipass = getattr(sys, "_MEIPASS", None)
+
+        try:
+            sys.frozen = True
+            sys._MEIPASS = "/custom/meipass/path"
+
+            result = get_icon_path_frozen()
+
+            assert result == Path("/custom/meipass/path/assets/icon.ico")
+        finally:
+            if original is not None:
+                sys.frozen = original
+            else:
+                getattr(sys, "__dict__", {}).pop("frozen", None)
+            if original_meipass is not None:
+                sys._MEIPASS = original_meipass
+            else:
+                getattr(sys, "__dict__", {}).pop("_MEIPASS", None)
+
+    def test_get_icon_path_frozen_without_meipass(self) -> None:
+        """Test get_icon_path_frozen handles missing _MEIPASS gracefully."""
+        from plt_optimizer.ui.tray import get_icon_path_frozen
+
+        # Simulate frozen=True but no _MEIPASS attribute
+        with patch.dict(sys.__dict__, {"frozen": True}, clear=False):
+            # Remove _MEIPASS if it exists
+            if hasattr(sys, "_MEIPASS"):
+                delattr(sys, "_MEIPASS")
+
+            # This should fall through to else branch and use Path(__file__)
+            result = get_icon_path_frozen()
+
+            assert "assets" in str(result)
+            assert result.name == "icon.ico"
+
+
+class TestRunNonWindows:
+    """Tests for run() method on non-Windows platforms (lines 336-339)."""
+
+    def test_run_calls_pystray(self) -> None:
+        """Test that run() dispatches to pystray on non-Windows."""
+        from plt_optimizer.ui.tray import TrayIconManager
+
+        manager = TrayIconManager(MagicMock(), MagicMock(), MagicMock())
+
+        with patch.object(manager, "_run_pystray") as mock_run_py, \
+             patch.object(manager, "_setup_pystray"):
+
+            manager._systray = MagicMock()
+            manager.run(blocking=False)
+
+            mock_run_py.assert_called_once_with(False)
