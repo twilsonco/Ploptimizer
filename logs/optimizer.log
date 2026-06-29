@@ -9373,3 +9373,683 @@
 2026-06-27 11:44:55 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpo97p0ao4/readonly/output.plt
 2026-06-27 11:44:55 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmprzekmue3/output.plt
 2026-06-27 11:44:55 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpva8834_r/output.plt
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Chunking 1 stroke paths with threshold=150.000 (baseline_extent=100.000, multiplier=1.5)
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Chunking 3 stroke paths with threshold=15.000 (baseline_extent=10.000, multiplier=1.5)
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=15.000 (baseline_extent=10.000, multiplier=1.5)
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Created 2 MacroBlocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Chunking 3 stroke paths with threshold=15.000 (baseline_extent=10.000, multiplier=1.5)
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Chunking 3 stroke paths with threshold=15.000 (baseline_extent=10.000, multiplier=1.5)
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=150.000 (baseline_extent=100.000, multiplier=1.5)
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=15.000 (baseline_extent=10.000, multiplier=1.5)
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=100.000 (baseline_extent=10.000, multiplier=10.0)
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=225.000 (baseline_extent=50.000, multiplier=4.5)
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=225.000 (baseline_extent=50.000, multiplier=4.5)
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=300.000 (baseline_extent=50.000, multiplier=6.0)
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=300.000 (baseline_extent=50.000, multiplier=6.0)
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Created 2 MacroBlocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=250.000 (baseline_extent=50.000, multiplier=5.0)
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Parsing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpub_4uj4l/input.plt
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpub_4uj4l/output.plt
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Parsing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpub_4uj4l/output.plt
+2026-06-28 15:38:07 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-28 15:38:07 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Writing PLT file: /nonexistent/path/that/does/not/exist/file.plt
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Parsing PLT file: /Users/haiiro/NoSync/PLT-Optimizer/examples/test_rect_grid13sheet0.plt
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Parsing PLT file: /Users/haiiro/NoSync/PLT-Optimizer/examples/test_rect_grid13sheet0.plt
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 4.0 segments/path, 100.0% structural), baseline_extent=3048.000, total_cutting_strokes=80
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Structural file detected: Bypassing chunker for 1:1 routing (20 paths)
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 20 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 20 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=41656.000
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Reassembling document with 20 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Reassembly complete: 20 paths
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpc1861m3x/test_rect_grid13sheet0_optimized.plt
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Parsing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpc1861m3x/test_rect_grid13sheet0_optimized.plt
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Switching intra-chunk strategy: NoOp-Intra (Baseline) -> NearestNeighbor-Intra + 2-Opt
+2026-06-28 15:38:07 | INFO     | plt_optimizer | info message
+2026-06-28 15:38:07 | WARNING  | plt_optimizer | warning message
+2026-06-28 15:38:07 | ERROR    | plt_optimizer | error message
+2026-06-28 15:38:07 | CRITICAL | plt_optimizer | critical message
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running NoOp (Baseline) on 2 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running NoOp (Baseline) on 0 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Switching optimization strategy: NoOp (Baseline) -> NearestNeighbor + 2-Opt
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Starting optimization with NoOp (Baseline) on 1 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running NoOp (Baseline) on 1 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 2 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=90.000
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 0 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 3 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 0 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 2 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 3 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Simulated Annealing on 0 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Simulated Annealing on 1 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Simulated Annealing on 2 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Simulated Annealing on 3 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Genetic Algorithm on 0 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Genetic Algorithm on 1 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Genetic Algorithm on 2 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Genetic Algorithm on 3 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Parallel Ensemble on 1 blocks with auto workers
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running NoOp (Baseline) on 1 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Simulated Annealing on 1 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Genetic Algorithm on 1 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Parallel ensemble complete: 5/5 strategies succeeded. Best: NoOp (Baseline) (distance=0.000)
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Parallel Ensemble on 3 blocks with auto workers
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running NoOp (Baseline) on 3 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 3 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 3 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Simulated Annealing on 3 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Genetic Algorithm on 3 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Parallel ensemble complete: 5/5 strategies succeeded. Best: NearestNeighbor + 2-Opt (distance=80.000, improvement=60.00%)
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Parallel Ensemble on 3 blocks with auto workers
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running NoOp (Baseline) on 3 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 3 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 3 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Simulated Annealing on 3 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Genetic Algorithm on 3 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Parallel ensemble complete: 5/5 strategies succeeded. Best: NoOp (Baseline) (distance=80.000)
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Parallel Ensemble on 2 blocks with auto workers
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running NoOp (Baseline) on 2 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Simulated Annealing on 2 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Genetic Algorithm on 2 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Parallel ensemble complete: 5/5 strategies succeeded. Best: NoOp (Baseline) (distance=134.536)
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Parallel Ensemble on 2 blocks with 2 workers
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running NoOp (Baseline) on 2 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Simulated Annealing on 2 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Genetic Algorithm on 2 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Parallel ensemble complete: 5/5 strategies succeeded. Best: NoOp (Baseline) (distance=40.000)
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Parallel Ensemble on 3 blocks with auto workers
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 3 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running NoOp (Baseline) on 3 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 3 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Simulated Annealing on 3 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Running Genetic Algorithm on 3 blocks
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Parallel ensemble complete: 5/5 strategies succeeded. Best: NearestNeighbor + 2-Opt (distance=80.000)
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Parsing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpzvcjd8a5/test.plt
+2026-06-28 15:38:07 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-28 15:38:07 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-28 15:38:07 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-28 15:38:07 | WARNING  | plt_optimizer | Unknown command 'UNKNOWN123', treating as header
+2026-06-28 15:38:07 | WARNING  | plt_optimizer | Unknown command 'FOO:1,2', treating as header
+2026-06-28 15:38:08 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-06-28 15:38:08 | WARNING  | plt_optimizer | Arc command AR requires 3 parameters
+2026-06-28 15:38:08 | WARNING  | plt_optimizer | Failed to parse arc command CI: could not convert string to float: ''
+2026-06-28 15:38:08 | WARNING  | plt_optimizer | Unknown command 'NOTAREALCMD999,888,777', treating as header
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=20
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=42.000, total_cutting_strokes=1
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=3
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.9 segments/path, 90.0% structural), baseline_extent=100.000, total_cutting_strokes=29
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 10.5 segments/path, 50.0% structural), baseline_extent=2.000, total_cutting_strokes=105
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Reassembling document with 2 blocks
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Reassembly complete: 2 paths
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Reassembling document with 2 blocks
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Reassembly complete: 2 paths
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Reassembly complete: 2 paths
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Reassembly complete: 2 paths
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Reassembling document with 2 blocks
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Reassembly complete: 2 paths
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp5jijn18m/nested/path/output.plt
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpkp8yj7z9/output.plt
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpz208rupa/output.plt
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp74btb3_q/subdir/nested/output.plt
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp6rqk_j6i/nonexistent_readonly/nested/deep/file.plt
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp943reh70/readonly/output.plt
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpq8hscpwq/output.plt
+2026-06-28 15:38:48 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpuevtkqyb/output.plt
+2026-06-28 16:10:58 | INFO     | plt_optimizer | Writing PLT file: /output/test_optimized.plt
+2026-06-28 16:10:58 | INFO     | plt_optimizer | Writing PLT file: /private/var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/pytest-of-haiiro/pytest-60/test_processed_dir_moves_file_0/output/test_optimized.plt
+2026-06-28 16:10:58 | INFO     | plt_optimizer | Writing PLT file: /output/test_optimized.plt
+2026-06-28 16:14:12 | INFO     | plt_optimizer | Writing PLT file: /output/test_optimized.plt
+2026-06-28 16:14:12 | INFO     | plt_optimizer | Writing PLT file: /private/var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/pytest-of-haiiro/pytest-61/test_processed_dir_moves_file_0/output/test_optimized.plt
+2026-06-28 16:14:12 | INFO     | plt_optimizer | Writing PLT file: /output/test_optimized.plt
+2026-06-28 16:16:50 | INFO     | plt_optimizer | Writing PLT file: /output/test_optimized.plt
+2026-06-28 16:16:50 | INFO     | plt_optimizer | Writing PLT file: /private/var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/pytest-of-haiiro/pytest-62/test_processed_dir_moves_file_0/output/test_optimized.plt
+2026-06-28 16:16:50 | INFO     | plt_optimizer | Writing PLT file: /output/test_optimized.plt
+2026-06-28 16:21:57 | INFO     | plt_optimizer | Writing PLT file: /output/test_optimized.plt
+2026-06-28 16:21:57 | INFO     | plt_optimizer | Writing PLT file: /private/var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/pytest-of-haiiro/pytest-63/test_processed_dir_moves_file_0/output/test_optimized.plt
+2026-06-28 16:21:57 | INFO     | plt_optimizer | Writing PLT file: /private/var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/pytest-of-haiiro/pytest-63/test_structural_document_uses_0/output/test_optimized.plt
+2026-06-28 16:21:57 | INFO     | plt_optimizer | Writing PLT file: /output/test_optimized.plt
+2026-06-28 16:23:36 | INFO     | plt_optimizer | Writing PLT file: /output/test_optimized.plt
+2026-06-28 16:23:36 | INFO     | plt_optimizer | Writing PLT file: /private/var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/pytest-of-haiiro/pytest-64/test_processed_dir_moves_file_0/output/test_optimized.plt
+2026-06-28 16:23:36 | INFO     | plt_optimizer | Writing PLT file: /private/var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/pytest-of-haiiro/pytest-64/test_structural_document_uses_0/output/test_optimized.plt
+2026-06-28 16:23:36 | INFO     | plt_optimizer | Writing PLT file: /output/test_optimized.plt
+2026-06-28 16:28:37 | INFO     | plt_optimizer | Parsing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp_f8iqe9z/test.plt
+2026-06-28 16:28:37 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-28 16:28:37 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-28 16:28:37 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-28 16:28:37 | WARNING  | plt_optimizer | Unknown command 'UNKNOWN123', treating as header
+2026-06-28 16:28:37 | WARNING  | plt_optimizer | Unknown command 'FOO:1,2', treating as header
+2026-06-28 16:28:37 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-06-28 16:28:37 | WARNING  | plt_optimizer | Arc command AR requires 3 parameters
+2026-06-28 16:28:37 | WARNING  | plt_optimizer | Failed to parse arc command CI: could not convert string to float: ''
+2026-06-28 16:28:37 | WARNING  | plt_optimizer | Unknown command 'NOTAREALCMD999,888,777', treating as header
+2026-06-28 16:31:39 | INFO     | plt_optimizer | Parsing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpu5pey45h/test.plt
+2026-06-28 16:31:39 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-28 16:31:39 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-28 16:31:39 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-28 16:31:39 | WARNING  | plt_optimizer | Unknown command 'UNKNOWN123', treating as header
+2026-06-28 16:31:39 | WARNING  | plt_optimizer | Unknown command 'FOO:1,2', treating as header
+2026-06-28 16:31:39 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-06-28 16:31:39 | WARNING  | plt_optimizer | Arc command AR requires 3 parameters
+2026-06-28 16:31:39 | WARNING  | plt_optimizer | Failed to parse arc command CI: could not convert string to float: ''
+2026-06-28 16:31:39 | WARNING  | plt_optimizer | Unknown command 'NOTAREALCMD999,888,777', treating as header
+2026-06-28 16:31:39 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-06-28 16:32:00 | INFO     | plt_optimizer | Parsing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpq_zr1ca4/test.plt
+2026-06-28 16:32:00 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-28 16:32:00 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-28 16:32:00 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-28 16:32:00 | WARNING  | plt_optimizer | Unknown command 'UNKNOWN123', treating as header
+2026-06-28 16:32:00 | WARNING  | plt_optimizer | Unknown command 'FOO:1,2', treating as header
+2026-06-28 16:32:00 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-06-28 16:32:00 | WARNING  | plt_optimizer | Arc command AR requires 3 parameters
+2026-06-28 16:32:00 | WARNING  | plt_optimizer | Failed to parse arc command CI: could not convert string to float: ''
+2026-06-28 16:32:00 | WARNING  | plt_optimizer | Unknown command 'NOTAREALCMD999,888,777', treating as header
+2026-06-28 16:32:00 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-06-28 16:37:23 | INFO     | plt_optimizer | Parsing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpp0scp7cy/test.plt
+2026-06-28 16:37:23 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-28 16:37:23 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-28 16:37:23 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-28 16:37:23 | WARNING  | plt_optimizer | Unknown command 'UNKNOWN123', treating as header
+2026-06-28 16:37:23 | WARNING  | plt_optimizer | Unknown command 'FOO:1,2', treating as header
+2026-06-28 16:37:23 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-06-28 16:37:23 | WARNING  | plt_optimizer | Arc command AR requires 3 parameters
+2026-06-28 16:37:23 | WARNING  | plt_optimizer | Failed to parse arc command CI: could not convert string to float: ''
+2026-06-28 16:37:23 | WARNING  | plt_optimizer | Unknown command 'NOTAREALCMD999,888,777', treating as header
+2026-06-28 16:37:23 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-06-28 16:41:24 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-06-28 16:44:24 | INFO     | plt_optimizer | Parsing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpo1tornk6/test.plt
+2026-06-28 16:44:24 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-28 16:44:24 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-28 16:44:24 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-28 16:44:24 | WARNING  | plt_optimizer | Unknown command 'UNKNOWN123', treating as header
+2026-06-28 16:44:24 | WARNING  | plt_optimizer | Unknown command 'FOO:1,2', treating as header
+2026-06-28 16:44:24 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-06-28 16:44:24 | WARNING  | plt_optimizer | Arc command AR requires 3 parameters
+2026-06-28 16:44:24 | WARNING  | plt_optimizer | Failed to parse arc command CI: could not convert string to float: ''
+2026-06-28 16:44:24 | WARNING  | plt_optimizer | Unknown command 'NOTAREALCMD999,888,777', treating as header
+2026-06-28 16:44:24 | WARNING  | plt_optimizer | Unknown command 'CUSTOM123', treating as header
+2026-06-28 16:44:24 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-06-28 16:46:49 | INFO     | plt_optimizer | Parsing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp67o66i77/test.plt
+2026-06-28 16:46:49 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-28 16:46:49 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-28 16:46:49 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-28 16:46:49 | WARNING  | plt_optimizer | Unknown command 'UNKNOWN123', treating as header
+2026-06-28 16:46:49 | WARNING  | plt_optimizer | Unknown command 'FOO:1,2', treating as header
+2026-06-28 16:46:49 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-06-28 16:46:49 | WARNING  | plt_optimizer | Arc command AR requires 3 parameters
+2026-06-28 16:46:49 | WARNING  | plt_optimizer | Failed to parse arc command CI: could not convert string to float: ''
+2026-06-28 16:46:49 | WARNING  | plt_optimizer | Unknown command 'NOTAREALCMD999,888,777', treating as header
+2026-06-28 16:46:49 | WARNING  | plt_optimizer | Unknown command 'CUSTOM123', treating as header
+2026-06-28 16:46:49 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-06-28 16:47:06 | INFO     | plt_optimizer | Parsing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp_3zfzh6x/test.plt
+2026-06-28 16:47:06 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-28 16:47:06 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-28 16:47:06 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-28 16:47:06 | WARNING  | plt_optimizer | Unknown command 'UNKNOWN123', treating as header
+2026-06-28 16:47:06 | WARNING  | plt_optimizer | Unknown command 'FOO:1,2', treating as header
+2026-06-28 16:47:06 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-06-28 16:47:06 | WARNING  | plt_optimizer | Arc command AR requires 3 parameters
+2026-06-28 16:47:06 | WARNING  | plt_optimizer | Failed to parse arc command CI: could not convert string to float: ''
+2026-06-28 16:47:06 | WARNING  | plt_optimizer | Unknown command 'NOTAREALCMD999,888,777', treating as header
+2026-06-28 16:47:06 | WARNING  | plt_optimizer | Unknown command 'CUSTOM123', treating as header
+2026-06-28 16:47:06 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-06-28 16:48:55 | WARNING  | plt_optimizer | Unknown command 'CUSTOM123', treating as header
+2026-06-28 16:48:55 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-06-28 16:49:25 | INFO     | plt_optimizer | Parsing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmptuew45mh/test.plt
+2026-06-28 16:49:25 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-28 16:49:25 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-28 16:49:25 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-28 16:49:25 | WARNING  | plt_optimizer | Unknown command 'UNKNOWN123', treating as header
+2026-06-28 16:49:25 | WARNING  | plt_optimizer | Unknown command 'FOO:1,2', treating as header
+2026-06-28 16:49:25 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-06-28 16:49:25 | WARNING  | plt_optimizer | Arc command AR requires 3 parameters
+2026-06-28 16:49:25 | WARNING  | plt_optimizer | Failed to parse arc command CI: could not convert string to float: ''
+2026-06-28 16:49:25 | WARNING  | plt_optimizer | Unknown command 'NOTAREALCMD999,888,777', treating as header
+2026-06-28 16:49:25 | WARNING  | plt_optimizer | Unknown command 'CUSTOM123', treating as header
+2026-06-28 16:49:25 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-06-28 16:51:34 | INFO     | plt_optimizer | Parsing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp8i9viiky/test.plt
+2026-06-28 16:51:34 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-28 16:51:34 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-28 16:51:34 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-28 16:51:34 | WARNING  | plt_optimizer | Unknown command 'UNKNOWN123', treating as header
+2026-06-28 16:51:34 | WARNING  | plt_optimizer | Unknown command 'FOO:1,2', treating as header
+2026-06-28 16:51:34 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-06-28 16:51:34 | WARNING  | plt_optimizer | Arc command AR requires 3 parameters
+2026-06-28 16:51:34 | WARNING  | plt_optimizer | Failed to parse arc command CI: could not convert string to float: ''
+2026-06-28 16:51:34 | WARNING  | plt_optimizer | Unknown command 'NOTAREALCMD999,888,777', treating as header
+2026-06-28 16:51:34 | WARNING  | plt_optimizer | Unknown command 'CUSTOM123', treating as header
+2026-06-28 16:51:34 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-06-28 16:52:21 | INFO     | plt_optimizer | Parsing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp9k5dirfb/test.plt
+2026-06-28 16:52:21 | INFO     | plt_optimizer | Parsing PLT file: /nonexistent/file.plt
+2026-06-28 16:52:21 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-06-28 16:52:21 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-06-28 16:52:21 | WARNING  | plt_optimizer | Unknown command 'UNKNOWN123', treating as header
+2026-06-28 16:52:21 | WARNING  | plt_optimizer | Unknown command 'FOO:1,2', treating as header
+2026-06-28 16:52:21 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-06-28 16:52:21 | WARNING  | plt_optimizer | Arc command AR requires 3 parameters
+2026-06-28 16:52:21 | WARNING  | plt_optimizer | Failed to parse arc command CI: could not convert string to float: ''
+2026-06-28 16:52:21 | WARNING  | plt_optimizer | Unknown command 'NOTAREALCMD999,888,777', treating as header
+2026-06-28 16:52:21 | WARNING  | plt_optimizer | Unknown command 'CUSTOM123', treating as header
+2026-06-28 16:52:21 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-06-28 16:57:26 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpif3uyw32/nested/path/output.plt
+2026-06-28 16:57:26 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpddozcjyy/output.plt
+2026-06-28 16:57:26 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpmit1tkm9/output.plt
+2026-06-28 16:57:26 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpic5ztrq7/subdir/nested/output.plt
+2026-06-28 16:57:26 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmprspmoowr/nonexistent_readonly/nested/deep/file.plt
+2026-06-28 16:57:26 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpi01i35jj/readonly/output.plt
+2026-06-28 16:57:26 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpk_bpqhxl/output.plt
+2026-06-28 16:57:26 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpxv44ir0d/output.plt
+2026-06-28 17:01:40 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpc0m897xq/nested/path/output.plt
+2026-06-28 17:01:40 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp021spqtn/output.plt
+2026-06-28 17:01:40 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpi94d9k7y/output.plt
+2026-06-28 17:01:40 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmptmd6itmi/subdir/nested/output.plt
+2026-06-28 17:01:40 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpdvovg21d/nonexistent_readonly/nested/deep/file.plt
+2026-06-28 17:01:40 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp4pc7v1p7/readonly/output.plt
+2026-06-28 17:01:40 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpq63_f8sb/output.plt
+2026-06-28 17:01:40 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp3kaqubcv/output.plt
+2026-06-28 17:01:40 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpnwqlef1s/readonly_base/nested/output.plt
+2026-06-28 17:01:40 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpzfqhqbem/subdir/file.plt
+2026-06-28 17:01:40 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpyfo9v39y/subdir/file.plt
+2026-06-28 17:02:54 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp9ns0_0ud/readonly_base/nested/output.plt
+2026-06-28 17:02:54 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp_wfw3o5i/subdir/file.plt
+2026-06-28 17:02:54 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp_ekfumfh/subdir/file.plt
+2026-06-28 17:03:26 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpxjnfyemt/nested/path/output.plt
+2026-06-28 17:03:26 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpol9azv_u/output.plt
+2026-06-28 17:03:26 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp7tkykx60/output.plt
+2026-06-28 17:03:26 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpqgks1j_a/subdir/nested/output.plt
+2026-06-28 17:03:27 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpmskhdukx/nonexistent_readonly/nested/deep/file.plt
+2026-06-28 17:03:27 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp_vuj1ujn/readonly/output.plt
+2026-06-28 17:03:27 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp7x3swtdp/output.plt
+2026-06-28 17:03:27 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpa8o6z9az/output.plt
+2026-06-28 17:03:27 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp2feyudwb/readonly_base/nested/output.plt
+2026-06-28 17:03:27 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpiy0x3g6c/subdir/file.plt
+2026-06-28 17:03:27 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp1zkzd263/subdir/file.plt
+2026-06-28 17:06:18 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp21g3xvci/nested/path/output.plt
+2026-06-28 17:06:18 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpn_9dqbqz/output.plt
+2026-06-28 17:06:18 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpgibnh9vo/output.plt
+2026-06-28 17:06:18 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpj8dujj35/subdir/nested/output.plt
+2026-06-28 17:06:18 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpw376bz8a/nonexistent_readonly/nested/deep/file.plt
+2026-06-28 17:06:18 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmplebifdzn/readonly/output.plt
+2026-06-28 17:06:18 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp0a4hmgjq/output.plt
+2026-06-28 17:06:18 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpu8c217gm/output.plt
+2026-06-28 17:06:18 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp8h0zgx5e/some/nested/path/output.plt
+2026-06-28 17:06:18 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp_h99jlmg/output.plt
+2026-06-28 17:06:18 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpai2lygg7/output.plt
+2026-06-28 17:19:19 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmptyxqosbh/nested/path/output.plt
+2026-06-28 17:19:19 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp8kofl6ki/output.plt
+2026-06-28 17:19:19 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpjp2jrsi2/output.plt
+2026-06-28 17:19:19 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp6nchw5h0/subdir/nested/output.plt
+2026-06-28 17:19:19 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp5ty14elq/nonexistent_readonly/nested/deep/file.plt
+2026-06-28 17:19:19 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmph6m817b7/readonly/output.plt
+2026-06-28 17:19:19 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpzukcgxgf/output.plt
+2026-06-28 17:19:19 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpam123adz/output.plt
+2026-06-28 17:19:19 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpih98ep7c/some/nested/path/output.plt
+2026-06-28 17:19:19 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpyb3mphc_/output.plt
+2026-06-28 17:19:19 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp3_svvg47/output.plt
+2026-06-28 17:21:28 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp8ertmz5a/nested/path/output.plt
+2026-06-28 17:21:28 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp128zrmcp/output.plt
+2026-06-28 17:21:28 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpmuaiydn3/output.plt
+2026-06-28 17:21:28 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpp96k9gi3/subdir/nested/output.plt
+2026-06-28 17:21:28 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpg_jxmu1z/nonexistent_readonly/nested/deep/file.plt
+2026-06-28 17:21:28 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpb6t5lekc/readonly/output.plt
+2026-06-28 17:21:28 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmppfo6j4lw/output.plt
+2026-06-28 17:21:28 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpr__6je04/output.plt
+2026-06-28 17:21:28 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpzk_sf08b/some/nested/path/output.plt
+2026-06-28 17:21:28 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpwbjgqswv/output.plt
+2026-06-28 17:21:28 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpxm90cvtx/output.plt
+2026-06-28 17:21:46 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp9qcjrjsj/nested/path/output.plt
+2026-06-28 17:21:46 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpiolzfvr4/output.plt
+2026-06-28 17:21:46 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpfdi2ylw_/output.plt
+2026-06-28 17:21:47 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpwhg2vsie/subdir/nested/output.plt
+2026-06-28 17:21:47 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpuey1np0h/nonexistent_readonly/nested/deep/file.plt
+2026-06-28 17:21:47 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp60c64ox1/readonly/output.plt
+2026-06-28 17:21:47 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpu1vhat5c/output.plt
+2026-06-28 17:21:47 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmptuy2d1hq/output.plt
+2026-06-28 17:21:47 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpici6my7x/some/nested/path/output.plt
+2026-06-28 17:21:47 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp0cbz4d_0/output.plt
+2026-06-28 17:21:47 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp25_bp2co/output.plt
+2026-06-28 17:38:51 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpbro58cw1/nested/path/output.plt
+2026-06-28 17:38:51 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpemf7u5pn/output.plt
+2026-06-28 17:38:51 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp10ehijg0/output.plt
+2026-06-28 17:38:51 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpdt9vnume/subdir/nested/output.plt
+2026-06-28 17:38:51 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp56q0nvpn/nonexistent_readonly/nested/deep/file.plt
+2026-06-28 17:38:51 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmplgebs9o0/readonly/output.plt
+2026-06-28 17:38:51 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp3q0idpdx/output.plt
+2026-06-28 17:38:51 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp65k1tsel/output.plt
+2026-06-28 17:38:51 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp3o686irs/some/nested/path/output.plt
+2026-06-28 17:38:51 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp2in9gh2d/output.plt
+2026-06-28 17:38:51 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp0pa23js9/output.plt
+2026-06-28 17:41:20 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpqgcqursh/nested/path/output.plt
+2026-06-28 17:41:20 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpsezjl7rw/output.plt
+2026-06-28 17:41:20 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpav106f10/output.plt
+2026-06-28 17:41:20 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp6ebqjrdh/subdir/nested/output.plt
+2026-06-28 17:41:20 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp8yr09poz/nonexistent_readonly/nested/deep/file.plt
+2026-06-28 17:41:20 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmplfk3fjy2/readonly/output.plt
+2026-06-28 17:41:20 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpu0crjsmt/output.plt
+2026-06-28 17:41:20 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpuxk72u3c/output.plt
+2026-06-28 17:41:20 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp0mnfv8j9/some/nested/path/output.plt
+2026-06-28 17:41:20 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpxast279d/output.plt
+2026-06-28 17:41:20 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp47xgz97c/output.plt
+2026-06-28 17:44:10 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp35_ax_nm/nested/path/output.plt
+2026-06-28 17:44:10 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp3cyvt6tp/output.plt
+2026-06-28 17:44:10 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp63pa_qnc/output.plt
+2026-06-28 17:44:10 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpfob25bnk/subdir/nested/output.plt
+2026-06-28 17:44:10 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpo4076hu0/nonexistent_readonly/nested/deep/file.plt
+2026-06-28 17:44:10 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmp_s67uydz/readonly/output.plt
+2026-06-28 17:44:10 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpzs4lc79u/output.plt
+2026-06-28 17:44:10 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpio1iczen/output.plt
+2026-06-28 17:44:10 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpz9950imc/some/nested/path/output.plt
+2026-06-28 17:44:10 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpxv2b3iv2/output.plt
+2026-06-28 17:44:10 | INFO     | plt_optimizer | Writing PLT file: /var/folders/83/bh57t1mn5357yms5361m8rrm0000gn/T/tmpck2sygr4/output.plt
+2026-06-28 22:44:40 | INFO     | plt_optimizer | Switching intra-chunk strategy: NoOp-Intra (Baseline) -> NearestNeighbor-Intra + 2-Opt
+2026-06-28 22:48:09 | INFO     | plt_optimizer | Switching intra-chunk strategy: NoOp-Intra (Baseline) -> NearestNeighbor-Intra + 2-Opt
+2026-06-28 22:55:30 | INFO     | plt_optimizer | Switching intra-chunk strategy: NoOp-Intra (Baseline) -> NearestNeighbor-Intra + 2-Opt
+2026-06-28 22:56:45 | INFO     | plt_optimizer | Switching intra-chunk strategy: NoOp-Intra (Baseline) -> NearestNeighbor-Intra + 2-Opt
+2026-06-28 23:00:12 | INFO     | plt_optimizer | Switching intra-chunk strategy: NoOp-Intra (Baseline) -> NearestNeighbor-Intra + 2-Opt
+2026-06-28 23:02:34 | INFO     | plt_optimizer | Switching intra-chunk strategy: NoOp-Intra (Baseline) -> NearestNeighbor-Intra + 2-Opt
+2026-06-28 23:07:14 | INFO     | plt_optimizer | Switching intra-chunk strategy: NoOp-Intra (Baseline) -> NearestNeighbor-Intra + 2-Opt
+2026-06-28 23:07:33 | INFO     | plt_optimizer | Switching intra-chunk strategy: NoOp-Intra (Baseline) -> NearestNeighbor-Intra + 2-Opt
+2026-06-28 23:09:17 | INFO     | plt_optimizer | Switching intra-chunk strategy: NoOp-Intra (Baseline) -> NearestNeighbor-Intra + 2-Opt
+2026-06-28 23:13:49 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:13:49 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-28 23:13:49 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:13:49 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-06-28 23:13:49 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:13:49 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:13:49 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:13:49 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-28 23:13:49 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:13:49 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=20
+2026-06-28 23:13:49 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:13:49 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:13:49 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=42.000, total_cutting_strokes=1
+2026-06-28 23:13:49 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:13:49 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=3
+2026-06-28 23:13:49 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:13:49 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.9 segments/path, 90.0% structural), baseline_extent=100.000, total_cutting_strokes=29
+2026-06-28 23:13:49 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:13:49 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 10.5 segments/path, 50.0% structural), baseline_extent=2.000, total_cutting_strokes=105
+2026-06-28 23:13:49 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:13:49 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-28 23:13:49 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:13:49 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:13:49 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:13:49 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:00 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:00 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-28 23:29:00 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:00 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-06-28 23:29:00 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:00 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:00 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:00 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-28 23:29:00 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:00 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=20
+2026-06-28 23:29:00 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:00 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:00 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=42.000, total_cutting_strokes=1
+2026-06-28 23:29:00 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:00 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=3
+2026-06-28 23:29:00 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:00 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.9 segments/path, 90.0% structural), baseline_extent=100.000, total_cutting_strokes=29
+2026-06-28 23:29:00 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:00 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 10.5 segments/path, 50.0% structural), baseline_extent=2.000, total_cutting_strokes=105
+2026-06-28 23:29:00 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:00 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-28 23:29:00 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:00 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:00 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:00 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:52 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-28 23:29:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:52 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-06-28 23:29:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:52 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-28 23:29:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:52 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=20
+2026-06-28 23:29:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:52 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=42.000, total_cutting_strokes=1
+2026-06-28 23:29:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:52 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=3
+2026-06-28 23:29:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:52 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.9 segments/path, 90.0% structural), baseline_extent=100.000, total_cutting_strokes=29
+2026-06-28 23:29:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:52 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 10.5 segments/path, 50.0% structural), baseline_extent=2.000, total_cutting_strokes=105
+2026-06-28 23:29:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:52 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-28 23:29:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:29:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:34:16 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:34:16 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-28 23:34:16 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:34:16 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-06-28 23:34:16 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:34:16 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:34:16 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:34:16 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-28 23:34:16 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:34:16 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=20
+2026-06-28 23:34:16 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:34:16 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:34:16 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=42.000, total_cutting_strokes=1
+2026-06-28 23:34:16 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:34:16 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=3
+2026-06-28 23:34:16 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:34:16 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.9 segments/path, 90.0% structural), baseline_extent=100.000, total_cutting_strokes=29
+2026-06-28 23:34:16 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:34:16 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 10.5 segments/path, 50.0% structural), baseline_extent=2.000, total_cutting_strokes=105
+2026-06-28 23:34:16 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:34:16 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-28 23:34:16 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:34:16 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:34:16 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:34:16 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=20
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=42.000, total_cutting_strokes=1
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=3
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.9 segments/path, 90.0% structural), baseline_extent=100.000, total_cutting_strokes=29
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 10.5 segments/path, 50.0% structural), baseline_extent=2.000, total_cutting_strokes=105
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-28 23:57:52 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=20
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=42.000, total_cutting_strokes=1
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=3
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.9 segments/path, 90.0% structural), baseline_extent=100.000, total_cutting_strokes=29
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 10.5 segments/path, 50.0% structural), baseline_extent=2.000, total_cutting_strokes=105
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:03:51 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=20
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=42.000, total_cutting_strokes=1
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=3
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.9 segments/path, 90.0% structural), baseline_extent=100.000, total_cutting_strokes=29
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 10.5 segments/path, 50.0% structural), baseline_extent=2.000, total_cutting_strokes=105
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-06-29 00:07:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:11:06 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=20
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=42.000, total_cutting_strokes=1
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=3
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.9 segments/path, 90.0% structural), baseline_extent=100.000, total_cutting_strokes=29
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 10.5 segments/path, 50.0% structural), baseline_extent=2.000, total_cutting_strokes=105
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-06-29 00:11:34 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=20
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=42.000, total_cutting_strokes=1
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=3
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.9 segments/path, 90.0% structural), baseline_extent=100.000, total_cutting_strokes=29
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 10.5 segments/path, 50.0% structural), baseline_extent=2.000, total_cutting_strokes=105
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-06-29 00:12:05 | INFO     | plt_optimizer | Starting baseline extent profiling
