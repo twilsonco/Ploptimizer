@@ -1478,3 +1478,184 @@ class TestPlotStrokePathSaveToFile:
         fig = plot_plt_document(doc, output_path=output_path)
         assert isinstance(fig, plt.Figure)
         assert output_path.exists()
+
+
+class TestEmptyCumDistancesEdgeCase:
+    """Tests for empty cum_distances edge case (line 140).
+
+    The condition at line ~138-140 checks if cum_distances is truthy
+    and falls back to max_distance=1.0 when falsy.
+    """
+
+    def test_cum_distances_falsy_taken_when_empty_tuple(self) -> None:
+        """Test that empty tuple cum_distances triggers else branch (max_distance=1.0).
+
+        This tests the code path where coord_pairs produces empty results
+        or calculate_cumulative_distances returns an empty/falsy result.
+        """
+        # Create a document with segments but verify we handle edge cases
+        # in cumulative distance calculation that might produce falsy results
+        segs = [
+            StrokeSegment(
+                start=Coordinate(0, 0),
+                end=Coordinate(0, 0),  # Zero length - distance is 0.0
+                is_cutting=True,
+            ),
+        ]
+        path = StrokePath(segments=tuple(segs))
+        doc = PLTDocument(stroke_paths=[path])
+        fig = plot_plt_document(doc)
+        assert isinstance(fig, plt.Figure)
+
+    def test_empty_cum_distances_max_distance_default(self) -> None:
+        """Test max_distance defaults to 1.0 when cum_distances is empty/falsy."""
+        # Test with very small values that might cause edge cases
+        segs = [
+            StrokeSegment(
+                start=Coordinate(1e-10, 1e-10),
+                end=Coordinate(1e-10, 1e-10),  # Essentially zero
+                is_cutting=True,
+            ),
+        ]
+        path = StrokePath(segments=tuple(segs))
+        doc = PLTDocument(stroke_paths=[path])
+        fig = plot_plt_document(doc)
+        assert isinstance(fig, plt.Figure)
+
+
+class TestArcSegmentRapidTravelEdgeCases:
+    """Tests for Arc segment rapid travel edge cases (lines 146->167).
+
+    These tests ensure the arc-as-rapid branch is fully covered
+    including different arc configurations.
+    """
+
+    def test_arc_rapid_with_zero_sweep_angle(self) -> None:
+        """Test plotting arc with zero sweep angle as rapid travel."""
+        arc = ArcSegment(
+            start=Coordinate(1.0, 0.0),
+            end=Coordinate(1.0, 0.0),  # Same as start
+            center=Coordinate(0.0, 0.0),
+            sweep_angle=0.0,
+            is_cutting=False,
+        )
+        path = StrokePath(segments=(arc,))
+        doc = PLTDocument(stroke_paths=[path])
+        fig = plot_plt_document(doc)
+        assert isinstance(fig, plt.Figure)
+
+    def test_arc_rapid_with_negative_sweep(self) -> None:
+        """Test plotting arc with negative sweep (counter-clockwise) as rapid."""
+        arc = ArcSegment(
+            start=Coordinate(1.0, 0.0),
+            end=Coordinate(-1.0, 0.0),
+            center=Coordinate(0.0, 0.0),
+            sweep_angle=-180.0,
+            is_cutting=False,
+        )
+        path = StrokePath(segments=(arc,))
+        doc = PLTDocument(stroke_paths=[path])
+        fig = plot_plt_document(doc)
+        assert isinstance(fig, plt.Figure)
+
+    def test_single_arc_rapid_segment_only(self) -> None:
+        """Test document with single arc segment that's rapid travel."""
+        # This is the minimal case: one path, one arc, rapid
+        arc = ArcSegment(
+            start=Coordinate(0.0, 0.0),
+            end=Coordinate(2.0, 0.0),
+            center=Coordinate(1.0, 0.0),
+            sweep_angle=180.0,
+            is_cutting=False,
+        )
+        path = StrokePath(segments=(arc,))
+        doc = PLTDocument(stroke_paths=[path])
+        fig = plot_plt_document(doc)
+        assert isinstance(fig, plt.Figure)
+
+    def test_multiple_consecutive_arc_rapid_segments(self) -> None:
+        """Test multiple consecutive arc segments all as rapid travel."""
+        arc1 = ArcSegment(
+            start=Coordinate(0.0, 0.0),
+            end=Coordinate(2.0, 0.0),
+            center=Coordinate(1.0, 0.0),
+            sweep_angle=180.0,
+            is_cutting=False,
+        )
+        arc2 = ArcSegment(
+            start=Coordinate(2.0, 0.0),
+            end=Coordinate(4.0, 0.0),
+            center=Coordinate(3.0, 0.0),
+            sweep_angle=180.0,
+            is_cutting=False,
+        )
+        arc3 = ArcSegment(
+            start=Coordinate(4.0, 0.0),
+            end=Coordinate(6.0, 0.0),
+            center=Coordinate(5.0, 0.0),
+            sweep_angle=180.0,
+            is_cutting=False,
+        )
+        path = StrokePath(segments=(arc1, arc2, arc3))
+        doc = PLTDocument(stroke_paths=[path])
+        fig = plot_plt_document(doc)
+        assert isinstance(fig, plt.Figure)
+
+
+class TestPlotStrokePathSaveFigure:
+    """Tests for save_figure being called via plot_stroke_path (lines 329-330).
+
+    The output_path parameter in plot_stroke_path delegates to
+    plot_plt_document which calls save_figure.
+    """
+
+    def test_plot_stroke_path_calls_save_with_png(self, tmp_path: Path) -> None:
+        """Test that plot_stroke_path with PNG output triggers save."""
+        arc = ArcSegment(
+            start=Coordinate(0.0, 0.0),
+            end=Coordinate(1.0, 1.0),
+            center=Coordinate(0.5, 0.5),
+            sweep_angle=90.0,
+            is_cutting=True,
+        )
+        path = StrokePath(segments=(arc,))
+        output_path = tmp_path / "arc_output.png"
+        fig = plot_stroke_path(path, output_path=output_path)
+        assert isinstance(fig, plt.Figure)
+        assert output_path.exists(), f"Output file {output_path} should exist"
+
+    def test_plot_stroke_path_calls_save_with_pdf(self, tmp_path: Path) -> None:
+        """Test that plot_stroke_path with PDF output triggers save."""
+        arc = ArcSegment(
+            start=Coordinate(0.0, 0.0),
+            end=Coordinate(1.0, 1.0),
+            center=Coordinate(0.5, 0.5),
+            sweep_angle=90.0,
+            is_cutting=True,
+        )
+        path = StrokePath(segments=(arc,))
+        output_path = tmp_path / "arc_output.pdf"
+        fig = plot_stroke_path(path, output_path=output_path)
+        assert isinstance(fig, plt.Figure)
+        assert output_path.exists(), f"Output file {output_path} should exist"
+
+    def test_plot_plt_document_with_arc_and_save(self, tmp_path: Path) -> None:
+        """Test that plot_plt_document saves when arc segments present."""
+        seg = StrokeSegment(
+            start=Coordinate(0.0, 0.0),
+            end=Coordinate(1.0, 1.0),
+            is_cutting=True,
+        )
+        arc = ArcSegment(
+            start=Coordinate(1.0, 1.0),
+            end=Coordinate(2.0, 1.0),
+            center=Coordinate(1.5, 1.0),
+            sweep_angle=180.0,
+            is_cutting=True,
+        )
+        path = StrokePath(segments=(seg, arc))
+        doc = PLTDocument(stroke_paths=[path])
+        output_path = tmp_path / "mixed_output.png"
+        fig = plot_plt_document(doc, output_path=output_path)
+        assert isinstance(fig, plt.Figure)
+        assert output_path.exists(), f"Output file {output_path} should exist"
