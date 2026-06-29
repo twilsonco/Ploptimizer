@@ -1,10 +1,14 @@
 """Tests for plt_optimizer.diagnostics.__init__ re-exports.
 
 This module verifies that the public API exposed by diagnostics/__init__.py
-is correctly re-exported from plt_optimizer.diagnostics.plotter.
+is correctly re-exported from plt_optimizer.diagnostics.plotter,
+and that matplotlib ImportError fallback works correctly.
 """
 
 from __future__ import annotations
+
+import sys
+from unittest import mock
 
 import pytest
 
@@ -80,3 +84,50 @@ class TestReexports:
         }
         actual = set(diag.__all__)
         assert actual == expected, f"Expected {expected}, got {actual}"
+
+
+class TestMatplotlibFallback:
+    """Tests for matplotlib ImportError fallback behavior."""
+
+    def test_all_empty_when_matplotlib_unavailable(self) -> None:
+        """Test that __all__ is empty list when matplotlib cannot be imported.
+
+        This tests the fallback path in diagnostics/__init__.py lines 28-30
+        where ImportError is caught and __all__ is set to [].
+        """
+        import subprocess
+        import sys
+
+        code = '''
+import sys
+# Remove any cached matplotlib modules first
+for key in list(sys.modules.keys()):
+    if "matplotlib" in key.lower():
+        del sys.modules[key]
+
+# Block matplotlib imports using meta_path finder that raises ImportError
+class MatplotlibBlocker:
+    def find_module(self, fullname, path=None):
+        if fullname == "matplotlib" or fullname.startswith("matplotlib."):
+            raise ImportError("Matplotlib is not available")
+        return None
+
+sys.meta_path.insert(0, MatplotlibBlocker())
+
+# Now import diagnostics - should hit the except block
+from plt_optimizer.diagnostics import __all__
+print(repr(__all__))
+'''
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd="/Users/haiiro/NoSync/PLT-Optimizer",
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"Subprocess failed: {result.stderr}"
+        output = result.stdout.strip()
+        # When matplotlib is unavailable, __all__ should be empty list
+        assert output == "[]", (
+            f"Expected empty __all__ when matplotlib unavailable, got {output}. "
+            f"stderr: {result.stderr}"
+        )
