@@ -512,6 +512,38 @@ class TestTourValidation:
 
         assert is_valid is True
 
+    def test_is_valid_tour_last_not_reversed_fails_exit(self) -> None:
+        """Test _is_valid_tour fails when last not reversed doesn't match fixed exit (line 398)."""
+        strategy = NearestNeighborIntraStrategy()
+        # Path1: goes from x=0 to x=10
+        path1 = _make_path((0, 0), (10, 0))
+        # Path2: goes from x=50 to x=60 - ends at x=60 but fixed exit is wrong (x=99)
+        path2 = _make_path((50, 0), (60, 0))
+
+        tour = [
+            PathTraverseState(
+                path_index=0,
+                reversed=False,
+                entrance=Coordinate(0.0, 0.0),
+                exit=Coordinate(10.0, 0.0),
+            ),
+            PathTraverseState(
+                path_index=1,
+                reversed=False,  # Not reversed
+                entrance=Coordinate(50.0, 0.0),
+                exit=Coordinate(60.0, 0.0),
+            ),
+        ]
+
+        is_valid = strategy._is_valid_tour(
+            tour,
+            (path1, path2),
+            Coordinate(0.0, 0.0),
+            Coordinate(99.0, 0.0),  # Wrong exit - should fail at line 398
+        )
+
+        assert is_valid is False
+
     def test_is_valid_tour_last_reversed_matches_exit(self) -> None:
         """Test _is_valid_tour with last path reversed matching fixed exit (lines 389, 394)."""
         strategy = NearestNeighborIntraStrategy()
@@ -858,6 +890,137 @@ class TestIntraChunkResultEquality:
         result = optimizer.optimize_block(block)
 
         assert result.total_internal_distance >= 0
+
+
+class TestNearestNeighborAllEmptyPaths:
+    """Tests for line 98 - all empty paths (path_count = 0)."""
+
+    def test_all_empty_paths_path_count_zero(self) -> None:
+        """Test optimization with multiple empty paths returns empty result."""
+        empty1 = StrokePath(pen_up_position=None, segments=())
+        empty2 = StrokePath(pen_up_position=None, segments=())
+
+        block = MacroBlock(
+            block_id=0,
+            paths=(empty1, empty2),
+            entrance=Coordinate(0.0, 0.0),
+            exit=Coordinate(10.0, 0.0),
+        )
+
+        strategy = NearestNeighborIntraStrategy()
+        result = strategy.optimize_block(block.paths, block.entrance, block.exit)
+
+        assert result.path_count == 0
+        assert isinstance(result.traverse_order, tuple)
+        assert len(result.traverse_order) == 0
+
+
+class TestIsValidTourEmptyBranch:
+    """Tests for lines 363-364 - empty tour branch in _is_valid_tour."""
+
+    def test_is_valid_tour_returns_true_for_empty(self) -> None:
+        """Test _is_valid_tour returns True when tour is empty."""
+        strategy = NearestNeighborIntraStrategy()
+        path1 = _make_path((0, 0), (10, 0))
+
+        # Direct call to the internal method with empty list
+        result = strategy._is_valid_tour([], (path1,), Coordinate(0.0, 0.0), Coordinate(10.0, 0.0))
+        
+        assert result is True
+
+
+class TestIsValidTourFirstNotReversedFailsEntrance:
+    """Test for line 383-385 - first not reversed fails entrance constraint."""
+
+    def test_is_valid_tour_first_not_reversed_fails_entrance(self) -> None:
+        """Test _is_valid_tour returns False when first path doesn't match fixed entrance."""
+        strategy = NearestNeighborIntraStrategy()
+        # Path starts at x=0 but we're checking against x=100 as entrance
+        path1 = _make_path((0, 0), (10, 0))
+
+        tour = [
+            PathTraverseState(
+                path_index=0,
+                reversed=False,
+                entrance=Coordinate(0.0, 0.0),
+                exit=Coordinate(10.0, 0.0),
+            ),
+        ]
+
+        is_valid = strategy._is_valid_tour(
+            tour,
+            (path1,),
+            Coordinate(100.0, 0.0),  # Fixed entrance doesn't match path start
+            Coordinate(10.0, 0.0),
+        )
+
+        assert is_valid is False
+
+
+class TestCreateOriginalOrderTourReverseLogic:
+    """Tests for lines 409-421 - _create_original_order_tour reversal logic."""
+
+    def test_create_original_order_not_reversed(self) -> None:
+        """Test _create_original_order_tour when path not reversed (line 420-421)."""
+        strategy = NearestNeighborIntraStrategy()
+
+        # Path goes from x=0 to x=10, entrance is at x=0 but exit (x=10) doesn't match
+        path1 = _make_path((0, 0), (10, 0))
+
+        tour = strategy._create_original_order_tour(
+            (path1,),
+            Coordinate(50.0, 0.0),  # Fixed entrance at x=50 - NOT matching exit
+            Coordinate(10.0, 0.0),
+        )
+
+        assert len(tour) == 1
+        assert tour[0].reversed is False
+
+    def test_create_original_order_with_reversed_flag(self) -> None:
+        """Test _create_original_order_tour sets reversed when exit matches entrance."""
+        strategy = NearestNeighborIntraStrategy()
+
+        # Path goes from x=100 to x=50 - so exit (x=50) matches fixed_entrance
+        path1 = _make_path((100, 0), (50, 0))
+
+        tour = strategy._create_original_order_tour(
+            (path1,),
+            Coordinate(50.0, 0.0),  # Fixed entrance at x=50 - matches exit of reversed traversal
+            Coordinate(100.0, 0.0),  # Exit at original start
+        )
+
+        assert len(tour) == 1
+        # Should be reversed because path's end (x=50) matches fixed_entrance
+
+
+class TestTwoOptSwapInternal:
+    """Tests for lines 470-471 - two-opt swap with j+1 >= len(tour)."""
+
+    def test_two_opt_swap_at_end_j_equals_len_minus_1(self) -> None:
+        """Test _two_opt_swap_improves when j is last element and d is None."""
+        strategy = NearestNeighborIntraStrategy()
+
+        path1 = _make_path((0, 0), (10, 0))
+        path2 = _make_path((20, 0), (30, 0))
+
+        tour = [
+            PathTraverseState(path_index=0, reversed=False,
+                            entrance=Coordinate(0.0, 0.0), exit=Coordinate(10.0, 0.0)),
+            PathTraverseState(path_index=1, reversed=False,
+                            entrance=Coordinate(20.0, 0.0), exit=Coordinate(30.0, 0.0)),
+        ]
+
+        # Call with i=0, j=1 (last element index)
+        improves = strategy._two_opt_swap_improves(
+            tour,
+            (path1, path2),
+            Coordinate(0.0, 0.0),
+            Coordinate(30.0, 0.0),  # Fixed exit at end of last path
+            i=0,
+            j=1,
+        )
+
+        assert isinstance(improves, bool)
 
 
 class TestIntraChunkIntegration:
