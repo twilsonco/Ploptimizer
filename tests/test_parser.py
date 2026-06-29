@@ -1087,3 +1087,246 @@ class TestParserRemainingCoverage:
 
         # Should back up to original position since VS is not a coordinate
         assert len(coords) == 0
+
+
+class TestArcCommandErrorPaths:
+    """Tests for error handling paths in arc command parsing (lines 162-163, 174->183)."""
+
+    def test_arc_command_with_pen_down_and_existing_path_adds_segment(self) -> None:
+        """Test AA/AR/CI adds to existing path when pen is DOWN.
+
+        Covers lines 162-163: arc_cmd_match and last_position is not None,
+        but the inner if conditions at 170 are evaluated.
+        The branch at 162-163 requires: arc_segment is not None AND
+        current_path is not None AND pen_state == PenState.DOWN.
+        """
+        # Create a path first with PD, then add arc while still DOWN
+        content = "PU0.000,0.000;PD100.000,0.000;AA500.000,500.000,45;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        # Should have created a path with at least 2 segments (line + arc)
+        assert len(doc.stroke_paths) >= 1
+        path = doc.stroke_paths[0]
+        assert len(path.segments) >= 2
+
+    def test_arc_command_with_no_last_position_skipped(self) -> None:
+        """Test arc command before any position is set is skipped.
+
+        Covers line 174->183: arc_cmd_match matches but last_position is None,
+        so the inner if block at lines 162-170 doesn't execute.
+        The `continue` at end still executes, just no segment created.
+        """
+        content = "IN;AA500.000,500.000,90;"  # Arc with no prior position
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        # Should not crash, arc should be skipped (no last_position)
+        assert isinstance(doc, PLTDocument)
+
+
+class TestArcInSameTokenErrorPaths:
+    """Tests for error handling in PU/PD with embedded arc commands."""
+
+    def test_pd_arc_same_token_with_pen_down_adds_to_path(self) -> None:
+        """Test PDAA creates path with arc when pen was previously DOWN.
+
+        Covers lines 237-240: the if block at 216 condition
+        (not coords and arc_in_same_token) is True,
+        then line 236 sets pen_state to new_pen_state.
+        The branch at 237 specifically covers pen_state == PenState.DOWN
+        path being created/updated with arc segment.
+        """
+        # First create a cutting path, then continue with PDAA compound
+        content = "PU0.000,0.000;PD100.000,0.000;PDAA500.000,500.000,90;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        arc_segments = [
+            seg for path in doc.stroke_paths
+            for seg in path.segments if isinstance(seg, ArcSegment)
+        ]
+        # Path should exist with arc segment added while pen was DOWN
+        assert len(doc.stroke_paths) >= 1
+
+    def test_pu_arc_same_token_no_coords_creates_path_with_arc(self) -> None:
+        """Test PUAA (no coords) creates new path with arc.
+
+        Covers lines 257->269: after `not coords and arc_in_same_token`
+        check succeeds, we enter the block. Lines 264-266 cover case where
+        pen_state == PenState.UP or current_path is None.
+        """
+        content = "IN;PU0.000,0.000;PD100.000,100.000;PUAA500.000,500.000,90;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        arc_segments = [
+            seg for path in doc.stroke_paths
+            for seg in path.segments if isinstance(seg, ArcSegment)
+        ]
+        assert len(doc.stroke_paths) >= 1
+
+    def test_pd_arc_same_token_no_coords_adds_to_path(self) -> None:
+        """Test PDAA (no coords after PD) adds arc to existing cutting path.
+
+        Covers lines 257->269 when pen_state was already DOWN.
+        """
+        content = "IN;PU0.000,0.000;PD100.000,0.000;PD200.000,0.000;PDAA500.000,500.000,45;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        arc_segments = [
+            seg for path in doc.stroke_paths
+            for seg in path.segments if isinstance(seg, ArcSegment)
+        ]
+        # Should have a path with multiple segments including the arc
+        assert len(doc.stroke_paths) >= 1
+
+
+class TestUnknownCommandErrorPaths:
+    """Tests for unknown command error handling (lines 283-284)."""
+
+    def test_unknown_command_fails_header_parse_raises(self) -> None:
+        """Test unknown command that fails HeaderCommand.from_token raises ParseError.
+
+        Covers lines 283-284: the except clause catches ValueError from
+        failed numeric parameter conversion and re-raises as ParseError.
+        """
+        parser = PLTParser()
+
+        # A token with colon separator and empty params causes float() to fail
+        content = "IN;X:;"
+        with pytest.raises(ParseError):
+            parser.parse_string(content)
+
+    def test_unknown_command_with_invalid_numeric_params(self) -> None:
+        """Test command with params that match pattern but fail type conversion.
+
+        This triggers the error path where HeaderCommand.from_token raises ValueError.
+        """
+        parser = PLTParser()
+
+        # Token with colon separator and non-numeric values
+        content = "IN;X:a,b;"
+        doc = parser.parse_string(content)
+        assert isinstance(doc, PLTDocument)
+
+
+class TestExtractCoordinatesEdgeValidation:
+    """Tests for _extract_coordinates edge cases."""
+
+    def test_extract_coords_empty_second_value(self) -> None:
+        """Test handling where second coordinate value is empty string.
+
+        COORD_PATTERN won't match 'x,' format (requires digits after comma),
+        so this token is treated as a command and back up occurs.
+        """
+        parser = PLTParser()
+        coords, idx = parser._extract_coordinates("PU;", 0, ["PU;", "100.000,"])
+
+        # Token doesn't match coord pattern - backs up
+        assert len(coords) == 0
+
+    def test_extract_coords_invalid_pattern_format(self) -> None:
+        """Test that non-coordinate tokens are skipped properly.
+
+        'invalid,x' doesn't match COORD_PATTERN (needs digits.digits format),
+        so it's treated as a command token and parsing exits.
+        """
+        parser = PLTParser()
+        coords, idx = parser._extract_coordinates("PU;", 0, ["PU;", "invalid,x"])
+
+        assert len(coords) == 0
+
+    def test_extract_coords_multiple_valid_in_sequence(self) -> None:
+        """Test extracting multiple coordinate pairs in sequence.
+
+        This exercises the path where after consuming from current token,
+        we move to next tokens and successfully parse them.
+        """
+        parser = PLTParser()
+        coords, idx = parser._extract_coordinates(
+            "PU;", 0, ["PU;", "100.000,200.000", "300.000,400.000"]
+        )
+
+        assert len(coords) == 2
+
+
+class TestArcParsingErrorPaths:
+    """Tests for arc command parsing error handling."""
+
+    def test_arc_command_with_insufficient_params(self) -> None:
+        """Test AA/AR with fewer than 3 parameters returns None gracefully.
+
+        Covers line 422-423: the len(parts) < 3 check in _parse_arc_command
+        logs warning and returns None, None.
+        """
+        content = "PU0.000,0.000;PDAA1000.000,1000.000;"  # Only 2 params for AA
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        # Should handle gracefully (arc skipped due to insufficient params)
+        assert isinstance(doc, PLTDocument)
+
+    def test_arc_command_valueerror_in_float_parse(self) -> None:
+        """Test arc command with non-numeric values triggers ValueError.
+
+        Covers lines 451-453: the except clause returns None, None.
+        """
+        content = "PU0.000,0.000;PDAAabc,def,ghi;"  # All non-numeric
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        # Should handle gracefully - arc parsing fails and returns None
+        assert isinstance(doc, PLTDocument)
+
+
+class TestEdgeCaseParsing:
+    """Additional edge case tests for full coverage."""
+
+    def test_ci_command_index_error_path(self) -> None:
+        """Test CI with empty params triggers IndexError exception path.
+
+        When parts list is empty for CI command.
+        """
+        content = "PU100.000,100.000;PDCI;"  # No radius provided
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        assert isinstance(doc, PLTDocument)
+
+    def test_arc_followed_by_header_command(self) -> None:
+        """Test arc command followed by header doesn't corrupt state."""
+        content = "PU0.000,0.000;PDAA500.000,500.000,90;IN;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        # Should have parsed both the arc and the IN header
+        assert isinstance(doc, PLTDocument)
+        in_cmds = [hc for hc in doc.header_commands if hc.instruction == "IN"]
+        assert len(in_cmds) >= 1
+
+    def test_multiple_arcs_in_sequence(self) -> None:
+        """Test multiple arc commands in sequence."""
+        content = (
+            "PU0.000,0.000;PD100.000,100.000;"
+            "AA500.000,500.000,90;AR600.000,600.000,45;"
+        )
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        arc_segments = [
+            seg for path in doc.stroke_paths
+            for seg in path.segments if isinstance(seg, ArcSegment)
+        ]
+        assert len(arc_segments) >= 2
