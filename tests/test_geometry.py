@@ -1382,3 +1382,106 @@ class TestRemoveRedundantStrokesBranches:
 
         # seg1 (shorter, which is i in the loop when j > i) should be removed
         assert len(result.stroke_paths) == 1
+
+    def test_near_perpendicular_segments_different_lengths_line_334(self) -> None:
+        """Cover line 334: both_on_each_other=True, same_length=False, seg_i_len <= seg_j_len.
+
+        Mocks is_point_on_segment to always return True so that both_on_each_other
+        is forced True for a pair of segments with clearly different lengths (30 vs
+        80 units). same_length=False because |30-80|=50 >> tol=1e-5, so the else
+        block at line 324 executes. seg_i_len(30) <= seg_j_len(80) → line 334 runs.
+        """
+        from unittest.mock import patch
+        from plt_optimizer.utils.geometry import remove_redundant_strokes
+        from plt_optimizer.core.models import PLTDocument, StrokePath
+
+        # seg_i (i=0): shorter segment, length=30
+        seg1 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=30.0, y=0.0),
+            is_cutting=True,
+        )
+        # seg_j (j=1): longer segment, length=80
+        seg2 = StrokeSegment(
+            start=Coordinate(x=50.0, y=0.0),
+            end=Coordinate(x=130.0, y=0.0),
+            is_cutting=True,
+        )
+        path1 = StrokePath(pen_up_position=None, segments=(seg1,))
+        path2 = StrokePath(pen_up_position=None, segments=(seg2,))
+        doc = PLTDocument(header_commands=[], stroke_paths=[path1, path2], footer_commands=[])
+
+        with patch("plt_optimizer.utils.geometry.is_point_on_segment", return_value=True):
+            result = remove_redundant_strokes(doc)
+
+        # Line 334: seg_i_len(30) <= seg_j_len(80) → seg_j (path2) is removed
+        assert len(result.stroke_paths) == 1
+
+    def test_near_perpendicular_segments_different_lengths_line_336(self) -> None:
+        """Cover line 336: both_on_each_other=True, same_length=False, seg_i_len > seg_j_len.
+
+        Mocks is_point_on_segment to always return True. Segments have lengths 80 (i)
+        and 30 (j). same_length=False since |80-30|=50 >> tol. seg_i_len(80) >
+        seg_j_len(30) → else branch → line 336 executes, removing seg_i (path1).
+        """
+        from unittest.mock import patch
+        from plt_optimizer.utils.geometry import remove_redundant_strokes
+        from plt_optimizer.core.models import PLTDocument, StrokePath
+
+        # seg_i (i=0): longer segment, length=80
+        seg1 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=80.0, y=0.0),
+            is_cutting=True,
+        )
+        # seg_j (j=1): shorter segment, length=30
+        seg2 = StrokeSegment(
+            start=Coordinate(x=50.0, y=0.0),
+            end=Coordinate(x=80.0, y=0.0),
+            is_cutting=True,
+        )
+        path1 = StrokePath(pen_up_position=None, segments=(seg1,))
+        path2 = StrokePath(pen_up_position=None, segments=(seg2,))
+        doc = PLTDocument(header_commands=[], stroke_paths=[path1, path2], footer_commands=[])
+
+        with patch("plt_optimizer.utils.geometry.is_point_on_segment", return_value=True):
+            result = remove_redundant_strokes(doc)
+
+        # Line 336: seg_i_len(80) > seg_j_len(30) → seg_i (path1) is removed
+        assert len(result.stroke_paths) == 1
+
+    def test_same_length_offset_no_endpoint_match_branch_322(self) -> None:
+        """Cover branch 322->294: both_on_each_other=True, same_length=True, no match.
+
+        Mocks is_point_on_segment to always return True so both_on_each_other=True.
+        Both segments have length=50 so same_length=True. Their start/end positions
+        differ by 100 units (>> tol=1e-5), so all four endpoint-distance checks
+        (start_match, end_match, reversed_start, reversed_end) are False.
+        The condition at line 322 evaluates to False → the loop continues to the
+        next j iteration via branch 322->294 without adding any removal.
+        """
+        from unittest.mock import patch
+        from plt_optimizer.utils.geometry import remove_redundant_strokes
+        from plt_optimizer.core.models import PLTDocument, StrokePath
+
+        # seg_i (i=0): length=50 at positions 0-50
+        seg1 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=50.0, y=0.0),
+            is_cutting=True,
+        )
+        # seg_j (j=1): same length=50 but shifted by 100 (far beyond any tol)
+        seg2 = StrokeSegment(
+            start=Coordinate(x=100.0, y=0.0),
+            end=Coordinate(x=150.0, y=0.0),
+            is_cutting=True,
+        )
+        path1 = StrokePath(pen_up_position=None, segments=(seg1,))
+        path2 = StrokePath(pen_up_position=None, segments=(seg2,))
+        doc = PLTDocument(header_commands=[], stroke_paths=[path1, path2], footer_commands=[])
+
+        with patch("plt_optimizer.utils.geometry.is_point_on_segment", return_value=True):
+            result = remove_redundant_strokes(doc)
+
+        # Branch 322->294: line 322 is False → neither segment removed → 2 paths remain
+        assert len(result.stroke_paths) == 2
