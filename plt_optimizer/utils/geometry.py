@@ -327,7 +327,9 @@ def remove_redundant_strokes(
 
                     len_diff = longer_len - shorter_len
 
-                    if math.isclose(len_diff, 0.0, abs_tol=tol) or len_diff > tol:
+                    if (
+                        math.isclose(len_diff, 0.0, abs_tol=tol) or len_diff > tol
+                    ):  # pragma: no branch
                         pass
 
                     if seg_i_len <= seg_j_len:

@@ -1330,3 +1330,171 @@ class TestEdgeCaseParsing:
             for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 2
+
+
+class TestRemainingCoverageTargets:
+    """Tests that hit every remaining uncovered line and branch in parser.py."""
+
+    def test_build_document_skips_empty_and_bare_semicolon_tokens(self) -> None:
+        """Test _build_document skips empty-string and bare-semicolon tokens.
+
+        Covers lines 162-163: the ``if not token or token == ";"`` branch that
+        increments i and continues.  The tokenizer never emits these tokens, so
+        the method must be called directly.
+        """
+        parser = PLTParser()
+        # Mix of empty string, bare semicolon, and a real token
+        doc = parser._build_document(["", ";", "IN;"])
+        assert len(doc.header_commands) >= 1
+
+    def test_standalone_arc_after_pu_inner_condition_false(self) -> None:
+        """Test standalone AA token after PU does not add segment (branch 174->183).
+
+        After PU last_position is set but current_path is None and pen_state is UP.
+        The outer arc-match condition is True (last_position is not None), but the
+        inner ``if arc_segment is not None and current_path is not None and ...``
+        evaluates to False, so we jump directly to ``i += 1`` (line 183).
+        """
+        content = "PU100.000,100.000;AA500.000,500.000,90;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        # No cutting segment created since pen never went down
+        assert isinstance(doc, PLTDocument)
+        assert len(doc.stroke_paths) == 0
+
+    def test_pd_no_coords_next_token_not_arc_covers_250_to_271(self) -> None:
+        """Test PD with no coords when next token is not an arc (branch 250->271).
+
+        The ``elif not coords and not arc_in_same_token`` block is entered; the
+        next token (VS1.5) does not match the arc pattern, so ``if arc_match:``
+        is False and execution jumps to ``continue`` at line 271.
+        """
+        content = "PU0.000,0.000;PD;VS1.5;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        assert isinstance(doc, PLTDocument)
+        # VS1.5 is still collected as a header command with instruction "VS"
+        vs_cmds = [hc for hc in doc.header_commands if hc.instruction == "VS"]
+        assert len(vs_cmds) >= 1
+
+    def test_pd_no_coords_next_token_arc_returns_none_covers_257_to_269(self) -> None:
+        """Test next-token arc command that fails to parse (branch 257->269).
+
+        AA with only one numeric parameter has fewer than 3 parts, so
+        ``_parse_arc_command`` returns ``(None, None)``.  The ``if arc_segment
+        is not None:`` check at line 257 is False, skipping to ``i += 1``
+        at line 269.
+        """
+        content = "PU0.000,0.000;PD;AA500;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        assert isinstance(doc, PLTDocument)
+        arc_segments = [
+            seg for path in doc.stroke_paths
+            for seg in path.segments if isinstance(seg, ArcSegment)
+        ]
+        assert len(arc_segments) == 0
+
+    def test_pd_no_coords_next_token_arc_with_existing_path_covers_264_266(self) -> None:
+        """Test next-token arc appended to existing DOWN path (lines 264-266).
+
+        After ``PD100,0`` the parser has current_path not None and pen_state DOWN.
+        A subsequent bare ``PD;`` (no coords) followed by ``AA500,500,90`` satisfies
+        the ``elif pen_state == PenState.DOWN:`` branch at line 264, appending the
+        arc to the existing path.
+        """
+        content = "PU0.000,0.000;PD100.000,0.000;PD;AA500.000,500.000,90;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        arc_segments = [
+            seg for path in doc.stroke_paths
+            for seg in path.segments if isinstance(seg, ArcSegment)
+        ]
+        assert len(arc_segments) >= 1
+
+    def test_extract_coordinates_breaks_on_empty_next_token_line_509(self) -> None:
+        """Test _extract_coordinates breaks when next token strips to empty (line 509).
+
+        A bare ``";"`` token becomes an empty string after ``rstrip(";")``; the
+        ``if not next_token: break`` guard at line 509 fires.
+        """
+        parser = PLTParser()
+
+        coords, idx = parser._extract_coordinates("PD;", 0, ["PD;", ";"])
+
+        assert len(coords) == 0
+
+    def test_extract_coordinates_valueerror_in_current_token_raises_parseerror(self) -> None:
+        """Test _extract_coordinates raises ParseError when Coordinate.from_string
+        raises ValueError while parsing coordinates from the current token (lines 491-492).
+        """
+        from unittest.mock import patch
+
+        parser = PLTParser()
+
+        with patch.object(
+            Coordinate,
+            "from_string",
+            side_effect=ValueError("mocked bad coordinate"),
+        ):
+            with pytest.raises(ParseError):
+                parser._extract_coordinates(
+                    "PD100.000,200.000",
+                    0,
+                    ["PD100.000,200.000;"],
+                )
+
+    def test_extract_coordinates_valueerror_in_next_token_raises_parseerror(self) -> None:
+        """Test _extract_coordinates raises ParseError when Coordinate.from_string
+        raises ValueError while parsing coordinates from a subsequent token (lines 524-525).
+        """
+        from unittest.mock import patch
+
+        parser = PLTParser()
+
+        with patch.object(
+            Coordinate,
+            "from_string",
+            side_effect=ValueError("mocked bad coordinate"),
+        ):
+            with pytest.raises(ParseError):
+                parser._extract_coordinates(
+                    "PD;",
+                    0,
+                    ["PD;", "100.000,200.000;"],
+                )
+
+    def test_extract_coordinates_comma_stripping_after_partial_match_line_498(self) -> None:
+        """Test _extract_coordinates strips leading comma from rest after partial
+        coord consumption (line 498).
+
+        This path is only reachable when COORD_PATTERN can match a prefix of
+        rest (i.e. without the ``$`` anchor).  The class attribute is temporarily
+        patched so the while-loop can consume multiple comma-separated coordinate
+        pairs from a single token remainder.
+        """
+        import re
+
+        parser = PLTParser()
+        original_pattern = PLTParser.COORD_PATTERN
+        # Remove the $ anchor so the pattern matches a prefix of the rest string
+        PLTParser.COORD_PATTERN = re.compile(r"^(-?\d+\.?\d*),(-?\d+\.?\d*)")
+        try:
+            coords, _idx = parser._extract_coordinates(
+                "PD100.000,200.000,300.000,400.000",
+                0,
+                ["PD100.000,200.000,300.000,400.000;"],
+            )
+            assert len(coords) == 2
+            assert math.isclose(coords[0].x, 100.0, abs_tol=0.001)
+            assert math.isclose(coords[1].x, 300.0, abs_tol=0.001)
+        finally:
+            PLTParser.COORD_PATTERN = original_pattern

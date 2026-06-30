@@ -134,6 +134,7 @@ class Profiler:
         else:
             structural_path_count = 0
             structural_ratio = 0.0
+            is_structural = False
 
         self._logger.debug(
             f"Polyline density analysis: {total_paths} paths, "

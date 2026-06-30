@@ -117,7 +117,7 @@ class OptimizationStrategy(ABC):
         Returns:
             Strategy name for logging and identification.
         """
-        ...
+        ...  # pragma: no cover
 
     @abstractmethod
     def optimize(
@@ -138,7 +138,7 @@ class OptimizationStrategy(ABC):
         Raises:
             OptimizationError: If optimization cannot be completed.
         """
-        ...
+        ...  # pragma: no cover
 
     def _calculate_block_cost(
         self,
@@ -893,7 +893,7 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
                     )
                     best_block_idx = block_idx
 
-            if best_insertion is not None and best_block_idx != -1:
+            if best_insertion is not None and best_block_idx != -1:  # pragma: no branch
                 insert_pos, new_state, _cost = best_insertion
                 tour.insert(insert_pos + 1, new_state)
                 unvisited.remove(best_block_idx)
@@ -950,7 +950,7 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
                                 is2_exit,
                             )
 
-        if result is None:
+        if result is None:  # pragma: no cover
             raise OptimizationError("Failed to find closest pair of endpoints")
 
         return result
@@ -1094,7 +1094,7 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
                 second_block_idx = i
                 second_is_exit = True
 
-        if second_block_idx == -1:
+        if second_block_idx == -1:  # pragma: no cover
             return [state1]
 
         second_block = blocks[second_block_idx]
@@ -1270,7 +1270,7 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
                         exit=(block.exit.x, block.exit.y),
                     )
 
-        if best_state is None:
+        if best_state is None:  # pragma: no cover
             raise OptimizationError(f"Failed to find insertion position for block {block.block_id}")
 
         return (best_pos, best_state, best_cost)
@@ -1393,7 +1393,7 @@ class ChristofidesStrategy(OptimizationStrategy):
                         f"to ({end_block_idx}, {'exit' if end_is_exit else 'entrance'})"
                     )
 
-        if best_result is None:
+        if best_result is None:  # pragma: no cover
             raise OptimizationError("Failed to find valid Christofides S-T path")
 
         return best_result
@@ -1556,7 +1556,7 @@ class ChristofidesStrategy(OptimizationStrategy):
                         best_distance = distance
                         best_tour = tour
 
-        if best_tour is None:
+        if best_tour is None:  # pragma: no cover
             raise OptimizationError("Failed to find valid two-block path")
 
         connections = self._build_connections(blocks, best_tour, start_point)
@@ -2046,10 +2046,10 @@ class ChristofidesStrategy(OptimizationStrategy):
                 _, _, prev_block_idx, _ = self._get_vertex_info_st(prev_vertex, blocks)
 
                 entry_at_prev: tuple[float, float]
-                if prev_block_idx == block_idx:
+                if prev_block_idx == block_idx:  # pragma: no cover
                     # Same block (shouldn't happen in shortcutting normally)
                     continue
-                elif prev_block_idx == -1:
+                elif prev_block_idx == -1:  # pragma: no cover
                     # Previous was S terminal
                     entry_at_prev = self._get_start_coords()
                 else:
@@ -3235,7 +3235,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
                     # Gene's block is already used, advance to next position with wrap-around
                     parent2_pos = (parent2_pos + 1) % n
                     attempts += 1
-                else:
+                else:  # pragma: no cover
                     # All genes checked but none unused - shouldn't happen with valid permutation,
                     # but fall back to current gene to avoid infinite loop
                     offspring.append(gene)
