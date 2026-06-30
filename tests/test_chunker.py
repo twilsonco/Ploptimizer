@@ -357,3 +357,67 @@ class TestChunkerSameRowPreference:
         blocks = chunker.chunk(paths, baseline_extent)
 
         assert len(blocks) == 1
+
+
+class TestChunkerStructuralMode:
+    """Tests for is_structural=True mode in Chunker."""
+
+    def test_chunk_structural_creates_one_block_per_path(self) -> None:
+        """Test that structural mode creates one block per path."""
+        paths = [
+            _make_path((0, 0), (10, 0)),
+            _make_path((100, 0), (110, 0)),  # Far apart
+            _make_path((200, 0), (210, 0)),
+        ]
+        chunker = Chunker()
+        blocks = chunker.chunk(paths, baseline_extent=10.0, is_structural=True)
+
+        assert len(blocks) == 3
+        for i, block in enumerate(blocks):
+            assert block.block_id == i
+            assert block.path_count == 1
+
+    def test_chunk_structural_skips_empty_paths(self) -> None:
+        """Test that structural mode skips paths with no segments."""
+        empty_path = StrokePath(pen_up_position=None, segments=())
+        valid_path = _make_path((100, 0), (110, 0))
+
+        chunker = Chunker()
+        blocks = chunker.chunk([empty_path, valid_path], baseline_extent=10.0, is_structural=True)
+
+        assert len(blocks) == 1
+        assert blocks[0].path_count == 1
+
+    def test_chunk_structural_ignores_threshold(self) -> None:
+        """Test that structural mode ignores threshold and groups nothing."""
+        paths = [
+            _make_path((0, 0), (10, 0)),
+            _make_path((10000, 0), (10010, 0)),  # Massive gap
+        ]
+        chunker = Chunker()
+        blocks = chunker.chunk(paths, baseline_extent=1.0, is_structural=True)
+
+        # Even though paths are very far apart, structural mode puts each in its own block
+        assert len(blocks) == 2
+
+    def test_chunk_structural_single_path(self) -> None:
+        """Test structural mode with a single path."""
+        paths = [_make_path((0, 0), (10, 0))]
+        chunker = Chunker()
+        blocks = chunker.chunk(paths, baseline_extent=100.0, is_structural=True)
+
+        assert len(blocks) == 1
+        assert blocks[0].block_id == 0
+
+    def test_chunk_structural_block_entrance_exit(self) -> None:
+        """Test that structural mode sets correct entrance/exit coordinates."""
+        path = _make_path((5.0, 10.0), (15.0, 20.0))
+        chunker = Chunker()
+        blocks = chunker.chunk([path], baseline_extent=100.0, is_structural=True)
+
+        assert len(blocks) == 1
+        block = blocks[0]
+        assert block.entrance.x == 5.0
+        assert block.entrance.y == 10.0
+        assert block.exit.x == 15.0
+        assert block.exit.y == 20.0
