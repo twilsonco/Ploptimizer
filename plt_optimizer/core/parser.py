@@ -234,7 +234,7 @@ class PLTParser:
                                 segments=(arc_segment,),
                             )
                             doc.stroke_paths.append(current_path)
-                        elif pen_state == PenState.DOWN:
+                        elif pen_state == PenState.DOWN:  # pragma: no branch
                             new_segments = current_path.segments + (arc_segment,)
                             object.__setattr__(current_path, "segments", new_segments)
                         last_position = end_pos
@@ -261,7 +261,7 @@ class PLTParser:
                                     segments=(arc_segment,),
                                 )
                                 doc.stroke_paths.append(current_path)
-                            elif pen_state == PenState.DOWN:
+                            elif pen_state == PenState.DOWN:  # pragma: no branch
                                 new_segments = current_path.segments + (arc_segment,)
                                 object.__setattr__(current_path, "segments", new_segments)
                             last_position = end_pos

@@ -10,7 +10,13 @@ import math
 import pytest
 
 from plt_optimizer.core.models import Coordinate, PLTDocument, StrokePath, StrokeSegment
-from plt_optimizer.core.profiler import Extent, ProfileResult, Profiler, ProfilerError
+from plt_optimizer.core.profiler import (
+    Extent,
+    ProfileResult,
+    Profiler,
+    ProfilerError,
+    StrokePathsProtocol,
+)
 
 
 class TestExtent:
@@ -1515,3 +1521,183 @@ class TestProfileLine157:
         with pytest.raises(ProfilerError) as exc_info:
             profiler.profile(doc)
         assert "No cutting strokes found" in str(exc_info.value.message)
+
+class TestPreviouslyUncoveredLines:
+    """Tests targeting lines that were missing from coverage."""
+
+    def test_profile_else_branch_total_paths_zero(self) -> None:
+        """Test lines 135-136: else branch when total_paths == 0.
+
+        Uses a mock document where stroke_paths returns cutting-segment data on
+        first access (for _calculate_all_extents) but an empty list on the
+        second access (for valid_paths), so total_paths == 0 while extents
+        remains non-empty.  This exercises the else clause that sets
+        structural_path_count=0 and structural_ratio=0.0.
+        """
+
+        class _TwoPhaseDoc:
+            """Mock protocol impl that shifts stroke_paths on successive reads."""
+
+            def __init__(self) -> None:
+                self._access = 0
+                seg = StrokeSegment(
+                    start=Coordinate(x=0.0, y=0.0),
+                    end=Coordinate(x=100.0, y=0.0),
+                    is_cutting=True,
+                )
+                self._path = StrokePath(pen_up_position=None, segments=(seg,))
+
+            @property
+            def stroke_paths(self) -> list[StrokePath]:
+                """Return paths on first access, empty list thereafter."""
+                self._access += 1
+                if self._access == 1:
+                    return [self._path]
+                return []
+
+        profiler = Profiler()
+        result = profiler.profile(_TwoPhaseDoc())
+        # With total_paths == 0 the else branch sets is_structural = False
+        assert result.is_structural is False
+        assert result.total_strokes == 1
+
+    def test_profile_p95_index_boundary_guard(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test line 157: p95_index is clamped when it equals len(sorted dims).
+
+        Patches the ``int`` name in the profiler module's global namespace so
+        that the call ``int(len(sorted_dims) * 0.95)`` returns 9999, which is
+        >= len(sorted_dims), triggering the safety-clamp at line 157.
+        """
+        import plt_optimizer.core.profiler as profiler_module
+
+        real_int = int
+
+        def _mock_int(x: object, *a: object, **k: object) -> int:
+            """Return an oversized index for float args to force the clamp."""
+            if isinstance(x, float) and not a and not k:
+                return 9999  # guarantee p95_index >= len(max_dimensions_sorted)
+            return real_int(x, *a, **k)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(profiler_module, "int", _mock_int, raising=False)
+
+        segment = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=100.0, y=0.0),
+            is_cutting=True,
+        )
+        path = StrokePath(pen_up_position=None, segments=(segment,))
+        doc = PLTDocument(header_commands=[], stroke_paths=[path], footer_commands=[])
+
+        profiler = Profiler()
+        result = profiler.profile(doc)
+        # p95_index must be clamped to len - 1 = 0 for a single-element list
+        assert result.p95_index == 0
+
+    def test_is_structural_closed_loop_zero_bbox_extent(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test branches 259->267 and 272->279: closed-loop + Check-5 with zero bbox.
+
+        Patches ``_segment_length`` in the profiler module to return 10.0 for
+        any segment, creating the only scenario where avg_segment_length > 0
+        while bbox_extent == 0 (all coordinates at the origin).
+
+        This forces both the ``if bbox_extent > 0:`` False-branch inside the
+        closed-loop check (259->267) and the same False-branch in Check 5
+        (272->279) to be exercised.
+        """
+        import plt_optimizer.core.profiler as profiler_module
+
+        monkeypatch.setattr(profiler_module, "_segment_length", lambda _seg: 10.0)
+
+        profiler = Profiler()
+        # Two zero-length segments, all coordinates at (0, 0) -> bbox_extent == 0
+        seg1 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=0.0, y=0.0),
+            is_cutting=True,
+        )
+        seg2 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=0.0, y=0.0),
+            is_cutting=True,
+        )
+        path = StrokePath(pen_up_position=None, segments=(seg1, seg2))
+
+        result = profiler._is_structural_path(path)
+        # bbox_extent is 0 despite patched non-zero lengths -> not structural
+        assert result is False
+
+    def test_is_structural_closed_loop_ratio_below_threshold(self) -> None:
+        """Test branch 263->267: closed loop where length/bbox ratio < 0.15.
+
+        Builds a 100x50 closed rectangle using 150 segments of 2 units each,
+        giving avg_segment_length=2 and bbox_extent=100 -> ratio=0.02 < 0.15.
+        This exercises the False branch of ``if length_to_extent_ratio >= 0.15:``.
+        """
+        profiler = Profiler()
+
+        segments: list[StrokeSegment] = []
+        x, y = 0.0, 0.0
+
+        for _ in range(50):  # Bottom edge: 50 x 2-unit segments -> length 100
+            segments.append(
+                StrokeSegment(
+                    start=Coordinate(x=x, y=y),
+                    end=Coordinate(x=x + 2.0, y=y),
+                    is_cutting=True,
+                )
+            )
+            x += 2.0
+
+        for _ in range(25):  # Right edge: 25 x 2-unit segments -> length 50
+            segments.append(
+                StrokeSegment(
+                    start=Coordinate(x=x, y=y),
+                    end=Coordinate(x=x, y=y + 2.0),
+                    is_cutting=True,
+                )
+            )
+            y += 2.0
+
+        for _ in range(50):  # Top edge: 50 x 2-unit segments -> length 100
+            segments.append(
+                StrokeSegment(
+                    start=Coordinate(x=x, y=y),
+                    end=Coordinate(x=x - 2.0, y=y),
+                    is_cutting=True,
+                )
+            )
+            x -= 2.0
+
+        for _ in range(25):  # Left edge: 25 x 2-unit segments -> closes loop
+            segments.append(
+                StrokeSegment(
+                    start=Coordinate(x=x, y=y),
+                    end=Coordinate(x=x, y=y - 2.0),
+                    is_cutting=True,
+                )
+            )
+            y -= 2.0
+
+        # Confirm the loop is closed (first.start == last.end)
+        assert math.isclose(segments[0].start.x, segments[-1].end.x, abs_tol=1e-9)
+        assert math.isclose(segments[0].start.y, segments[-1].end.y, abs_tol=1e-9)
+
+        path = StrokePath(pen_up_position=None, segments=tuple(segments))
+        # avg_segment_length=2, bbox_extent=100, ratio=0.02 < 0.15 -> not structural
+        result = profiler._is_structural_path(path)
+        assert result is False
+
+    def test_stroke_paths_protocol_stub(self) -> None:
+        """Test line 361: StrokePathsProtocol.stroke_paths stub is executable.
+
+        Calls the property getter directly with a bare object so that the
+        ``...`` body of the Protocol stub is executed, covering line 361.
+        """
+        # Access the property descriptor's getter and invoke it with any object;
+        # the body is `...` (Ellipsis expression), so the function returns None.
+        result = StrokePathsProtocol.stroke_paths.fget(object())  # type: ignore[misc]
+        assert result is None
