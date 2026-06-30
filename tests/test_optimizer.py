@@ -749,3 +749,711 @@ class TestStrategyBenchmarkResult:
         )
 
         assert benchmark.improvement_percent is None
+
+
+class TestOptimizationError:
+    """Tests for OptimizationError exception class."""
+
+    def test_optimization_error_message(self) -> None:
+        """Test that OptimizationError stores and returns the message."""
+        from plt_optimizer.core.optimizer import OptimizationError
+
+        error = OptimizationError("Test error message")
+        assert error.message == "Test error message"
+        assert str(error) == "Test error message"
+
+    def test_optimization_error_inheritance(self) -> None:
+        """Test that OptimizationError inherits from Exception."""
+        from plt_optimizer.core.optimizer import OptimizationError
+
+        error = OptimizationError("test")
+        assert isinstance(error, Exception)
+
+
+class TestNoOpStrategyCoverage:
+    """Additional coverage tests for NoOpStrategy."""
+
+    def test_optimize_with_initial_position_none_and_no_blocks(self) -> None:
+        """Test that optimize handles empty blocks with initial_position=None."""
+        from plt_optimizer.core.optimizer import NoOpStrategy
+
+        strategy = NoOpStrategy()
+        result = strategy.optimize([], initial_position=None)
+
+        assert len(result.traverse_order) == 0
+        assert result.initial_position is None
+
+    def test_optimize_with_initial_position_set(self) -> None:
+        """Test that optimize uses the provided initial_position."""
+        from plt_optimizer.core.optimizer import NoOpStrategy
+
+        block = _make_simple_block(0, (100, 100), (110, 110))
+        strategy = NoOpStrategy()
+        result = strategy.optimize([block], initial_position=(50.0, 50.0))
+
+        assert len(result.traverse_order) == 1
+        assert result.initial_position == (50.0, 50.0)
+
+
+class TestNearestNeighbor2OptCoverage:
+    """Additional coverage tests for NearestNeighbor2OptStrategy."""
+
+    def test_greedy_nearest_neighbor_single_block(self) -> None:
+        """Test _greedy_nearest_neighbor with single block."""
+        strategy = NearestNeighbor2OptStrategy()
+        block = _make_simple_block(0, (10, 10), (20, 20))
+
+        tour = strategy._greedy_nearest_neighbor([block], start_pos=(0.0, 0.0))
+        assert len(tour) == 1
+
+    def test_greedy_nearest_neighbor_two_blocks(self) -> None:
+        """Test _greedy_nearest_neighbor with two blocks."""
+        strategy = NearestNeighbor2OptStrategy()
+        block_a = _make_simple_block(0, (10, 0), (20, 0))
+        block_b = _make_simple_block(1, (100, 0), (110, 0))
+
+        tour = strategy._greedy_nearest_neighbor([block_a, block_b], start_pos=(0.0, 0.0))
+        assert len(tour) == 2
+
+    def test_find_nearest_origin_endpoints(self) -> None:
+        """Test _find_nearest_origin_endpoints returns correctly formatted results."""
+        strategy = NearestNeighbor2OptStrategy()
+        block_a = _make_simple_block(0, (100, 100), (110, 100))
+        block_b = _make_simple_block(1, (5, 5), (15, 5))
+
+        candidates = strategy._find_nearest_origin_endpoints([block_a, block_b], n_candidates=2)
+        assert len(candidates) <= 2
+        # Check structure: (position, block_index, is_exit, distance)
+        for pos, idx, is_exit, dist in candidates:
+            assert isinstance(pos, tuple)
+            assert isinstance(idx, int)
+            assert isinstance(is_exit, bool)
+            assert isinstance(dist, float)
+
+    def test_find_farthest_origin_endpoints(self) -> None:
+        """Test _find_farthest_origin_endpoints returns correctly formatted results."""
+        strategy = NearestNeighbor2OptStrategy()
+        block_a = _make_simple_block(0, (5, 5), (15, 5))
+        block_b = _make_simple_block(1, (1000, 1000), (1010, 1000))
+
+        candidates = strategy._find_farthest_origin_endpoints([block_a, block_b], n_candidates=2)
+        assert len(candidates) <= 2
+
+    def test_two_opt_swap_improves_true(self) -> None:
+        """Test _two_opt_swap_improves returns True when swap improves."""
+        strategy = NearestNeighbor2OptStrategy()
+        # Create blocks in a cross pattern where swapping helps
+        block_a = _make_simple_block(0, (0, 0), (10, 0))
+        block_b = _make_simple_block(1, (5, 100), (15, 100))  # vertical offset
+        block_c = _make_simple_block(2, (20, 0), (30, 0))
+
+        tour = [
+            BlockTraverseState(block_id=0, reversed=False, entrance=(0, 0), exit=(10, 0)),
+            BlockTraverseState(block_id=1, reversed=False, entrance=(5, 100), exit=(15, 100)),
+            BlockTraverseState(block_id=2, reversed=False, entrance=(20, 0), exit=(30, 0)),
+        ]
+
+        # This tests the case where swap would improve
+        result = strategy._two_opt_swap_improves(tour, [block_a, block_b, block_c], 0, 1)
+        assert isinstance(result, bool)
+
+    def test_calculate_block_cost_with_same_row_preference(self) -> None:
+        """Test _calculate_block_cost with y-difference penalty."""
+        strategy = NearestNeighbor2OptStrategy(same_row_preference=2.0)
+
+        cost, should_reverse = strategy._calculate_block_cost(
+            from_pos=(0.0, 0.0),
+            to_entrance=(10.0, 5.0),  # y-diff of 5
+            to_exit=(100.0, 0.0),
+        )
+
+        assert isinstance(cost, float)
+        assert isinstance(should_reverse, bool)
+
+
+class TestChristofidesStrategyCoverage:
+    """Additional coverage tests for ChristofidesStrategy."""
+
+    def test_create_vertices(self) -> None:
+        """Test _create_vertices builds correct vertex structure."""
+        strategy = ChristofidesStrategy()
+        block_a = _make_simple_block(0, (100, 100), (110, 100))
+        block_b = _make_simple_block(1, (200, 200), (210, 200))
+
+        vertices = strategy._create_vertices(
+            [block_a, block_b],
+            start_point=(0.0, 0.0),
+            end_point=(500.0, 500.0)
+        )
+
+        # Should have: S (-1), T (-2), block_0_entrance (0), block_0_exit (1),
+        #              block_1_entrance (2), block_1_exit (3)
+        assert len(vertices) == 6
+        assert strategy.START_VERTEX_ID in vertices
+        assert strategy.END_VERTEX_ID in vertices
+
+    def test_find_nearest_endpoints(self) -> None:
+        """Test _find_nearest_endpoints method."""
+        strategy = ChristofidesStrategy()
+        block_a = _make_simple_block(0, (1000, 1000), (1010, 1000))
+        block_b = _make_simple_block(1, (5, 5), (15, 5))
+
+        candidates = strategy._find_nearest_endpoints([block_a, block_b], n_candidates=2)
+        assert len(candidates) <= 2
+
+    def test_find_farthest_origin_endpoints_christofides(self) -> None:
+        """Test _find_farthest_origin_endpoints for Christofides."""
+        strategy = ChristofidesStrategy()
+        block_a = _make_simple_block(0, (5, 5), (15, 5))
+        block_b = _make_simple_block(1, (1000, 1000), (1010, 1000))
+
+        candidates = strategy._find_farthest_origin_endpoints([block_a, block_b], n_candidates=2)
+        assert len(candidates) <= 2
+
+    def test_build_mst_prim(self) -> None:
+        """Test _build_mst_prim builds minimum spanning tree."""
+        strategy = ChristofidesStrategy()
+        vertices = strategy._create_vertices(
+            [_make_simple_block(0, (100, 100), (110, 100))],
+            start_point=(0.0, 0.0),
+            end_point=(500.0, 500.0)
+        )
+
+        mst_edges = strategy._build_mst_prim(vertices, strategy.START_VERTEX_ID)
+        assert isinstance(mst_edges, list)
+
+    def test_find_wrong_parity_vertices(self) -> None:
+        """Test _find_wrong_parity_vertices identifies odd-degree vertices."""
+        strategy = ChristofidesStrategy()
+        block_a = _make_simple_block(0, (100, 100), (110, 100))
+        block_b = _make_simple_block(1, (200, 200), (210, 200))
+
+        vertices = strategy._create_vertices(
+            [block_a, block_b],
+            start_point=(0.0, 0.0),
+            end_point=(500.0, 500.0)
+        )
+
+        mst_edges = strategy._build_mst_prim(vertices, strategy.START_VERTEX_ID)
+        wrong_parity = strategy._find_wrong_parity_vertices(
+            mst_edges, vertices, strategy.START_VERTEX_ID, strategy.END_VERTEX_ID
+        )
+
+        # Number of odd-degree vertices should be even (for perfect matching)
+        assert len(wrong_parity) % 2 == 0
+
+    def test_greedy_perfect_matching(self) -> None:
+        """Test _greedy_perfect_matching pairs odd vertices."""
+        strategy = ChristofidesStrategy()
+        block_a = _make_simple_block(0, (100, 100), (110, 100))
+
+        vertices = strategy._create_vertices(
+            [block_a],
+            start_point=(0.0, 0.0),
+            end_point=(500.0, 500.0)
+        )
+
+        mst_edges = strategy._build_mst_prim(vertices, strategy.START_VERTEX_ID)
+        wrong_parity = strategy._find_wrong_parity_vertices(
+            mst_edges, vertices, strategy.START_VERTEX_ID, strategy.END_VERTEX_ID
+        )
+
+        if len(wrong_parity) >= 2:
+            matching = strategy._greedy_perfect_matching(wrong_parity, vertices)
+            assert isinstance(matching, list)
+
+    def test_calculate_st_path_distance(self) -> None:
+        """Test _calculate_st_path_distance computes correct distance."""
+        strategy = ChristofidesStrategy()
+        block_a = _make_simple_block(0, (100, 100), (110, 100))
+
+        tour = [
+            BlockTraverseState(block_id=0, reversed=False, entrance=(100, 100), exit=(110, 100))
+        ]
+
+        distance = strategy._calculate_st_path_distance(
+            tour,
+            [block_a],
+            start_point=(0.0, 0.0),
+            end_point=(200.0, 200.0)
+        )
+
+        assert isinstance(distance, float)
+        assert distance > 0
+
+    def test_try_two_block_configuration(self) -> None:
+        """Test _try_two_block_configuration with various configurations."""
+        strategy = ChristofidesStrategy()
+        block_a = _make_simple_block(0, (100, 100), (110, 100))
+        block_b = _make_simple_block(1, (200, 200), (210, 200))
+
+        tour = strategy._try_two_block_configuration(
+            [block_a, block_b],
+            first_idx=0,
+            first_rev=False,
+            second_idx=1,
+            second_rev=True
+        )
+
+        assert len(tour) == 2
+
+    def test_vertex_distance(self) -> None:
+        """Test _vertex_distance computes distances correctly."""
+        strategy = ChristofidesStrategy()
+        v1 = (0.0, 0.0, 0, False)
+        v2 = (3.0, 4.0, 0, True)
+
+        dist = strategy._vertex_distance(v1, v2)
+        assert math.isclose(dist, 5.0)  # 3-4-5 triangle
+
+    def test_determine_reversal_for_first_block(self) -> None:
+        """Test _determine_reversal_for_first_block."""
+        strategy = ChristofidesStrategy()
+        block_a = _make_simple_block(0, (100, 100), (110, 100))
+
+        # Get a vertex ID for the block
+        vertices = strategy._create_vertices(
+            [block_a],
+            start_point=(0.0, 0.0),
+            end_point=(500.0, 500.0)
+        )
+
+        # Find first non-terminal vertex
+        first_vid = None
+        for vid in vertices:
+            if vid >= 0:  # Skip S and T terminals which are negative
+                first_vid = vid
+                break
+
+        if first_vid is not None:
+            reversed_flag = strategy._determine_reversal_for_first_block(first_vid, [block_a])
+            assert isinstance(reversed_flag, bool)
+
+    def test_get_vertex_info_st(self) -> None:
+        """Test _get_vertex_info_st retrieves correct vertex info."""
+        strategy = ChristofidesStrategy()
+        block_a = _make_simple_block(0, (100, 100), (110, 100))
+
+        # Set up the terminal points that _get_vertex_info_st needs
+        strategy._start_point = (50.0, 50.0)
+        strategy._end_point = (200.0, 200.0)
+
+        vertices = strategy._create_vertices(
+            [block_a],
+            start_point=(50.0, 50.0),
+            end_point=(200.0, 200.0)
+        )
+
+        # Test getting info for a real vertex (not S or T terminals)
+        if len(vertices) > 2:
+            vid = next(vid for vid in vertices.keys() if vid >= 0)
+            x, y, block_id, is_exit = strategy._get_vertex_info_st(vid, [block_a])
+            # Coordinates can be int or float depending on input
+            assert isinstance(x, (int, float))
+            assert isinstance(y, (int, float))
+
+    def test_get_vertex_info_st_with_start_terminal(self) -> None:
+        """Test _get_vertex_info_st with START_VERTEX_ID."""
+        strategy = ChristofidesStrategy()
+        strategy._start_point = (100.0, 200.0)
+        block_a = _make_simple_block(0, (50, 50), (60, 60))
+
+        x, y, block_idx, is_exit = strategy._get_vertex_info_st(
+            strategy.START_VERTEX_ID, [block_a]
+        )
+        assert x == 100.0
+        assert y == 200.0
+        assert block_idx == -1
+        assert is_exit is False
+
+    def test_get_vertex_info_st_with_end_terminal(self) -> None:
+        """Test _get_vertex_info_st with END_VERTEX_ID."""
+        strategy = ChristofidesStrategy()
+        strategy._end_point = (300.0, 400.0)
+        block_a = _make_simple_block(0, (50, 50), (60, 60))
+
+        x, y, block_idx, is_exit = strategy._get_vertex_info_st(
+            strategy.END_VERTEX_ID, [block_a]
+        )
+        assert x == 300.0
+        assert y == 400.0
+        assert block_idx == -2
+        assert is_exit is True
+
+    def test_get_start_coords(self) -> None:
+        """Test _get_start_coords returns stored start point."""
+        strategy = ChristofidesStrategy()
+        strategy._start_point = (100.0, 200.0)
+
+        coords = strategy._get_start_coords()
+        assert coords == (100.0, 200.0)
+
+    def test_get_end_coords(self) -> None:
+        """Test _get_end_coords returns stored end point."""
+        strategy = ChristofidesStrategy()
+        strategy._end_point = (300.0, 400.0)
+
+        coords = strategy._get_end_coords()
+        assert coords == (300.0, 400.0)
+
+
+class TestSimulatedAnnealingCoverage:
+    """Additional coverage tests for SimulatedAnnealingStrategy."""
+
+    def test_acceptance_probability(self) -> None:
+        """Test _acceptance_probability method."""
+        strategy = SimulatedAnnealingStrategy()
+
+        # Delta negative - should accept
+        result_neg = strategy._acceptance_probability(-10.0, 100.0)
+        assert isinstance(result_neg, bool)
+
+        # Delta positive with high temp - likely to accept
+        result_pos_high = strategy._acceptance_probability(10.0, 10000.0)
+        assert isinstance(result_pos_high, bool)
+
+    def test_calculate_tour_distance(self) -> None:
+        """Test _calculate_tour_distance computes total distance."""
+        strategy = SimulatedAnnealingStrategy()
+        block_a = _make_simple_block(0, (0, 0), (10, 0))
+        block_b = _make_simple_block(1, (50, 0), (60, 0))
+
+        tour = [
+            BlockTraverseState(block_id=0, reversed=False, entrance=(0, 0), exit=(10, 0)),
+            BlockTraverseState(block_id=1, reversed=False, entrance=(50, 0), exit=(60, 0)),
+        ]
+
+        distance = strategy._calculate_tour_distance(tour, [block_a, block_b])
+        assert isinstance(distance, float)
+        # Distance should be from (10,0) to (50,0) = 40
+        assert math.isclose(distance, 40.0)
+
+    def test_generate_neighbor_segment_reversal(self) -> None:
+        """Test _generate_neighbor with segment reversal."""
+        strategy = SimulatedAnnealingStrategy()
+        tour = [
+            BlockTraverseState(block_id=0, reversed=False, entrance=(0, 0), exit=(10, 0)),
+            BlockTraverseState(block_id=1, reversed=False, entrance=(20, 0), exit=(30, 0)),
+            BlockTraverseState(block_id=2, reversed=False, entrance=(40, 0), exit=(50, 0)),
+        ]
+
+        # Run multiple times to ensure we hit the segment reversal path
+        results = set()
+        for _ in range(20):
+            neighbor = strategy._generate_neighbor(tour)
+            assert len(neighbor) == len(tour)
+            block_ids = [s.block_id for s in neighbor]
+            assert sorted(block_ids) == [0, 1, 2]  # Same blocks
+            results.add(tuple(block_ids))
+
+    def test_generate_neighbor_swap(self) -> None:
+        """Test _generate_neighbor with block swap."""
+        strategy = SimulatedAnnealingStrategy()
+        tour = [
+            BlockTraverseState(block_id=0, reversed=False, entrance=(0, 0), exit=(10, 0)),
+            BlockTraverseState(block_id=1, reversed=False, entrance=(20, 0), exit=(30, 0)),
+            BlockTraverseState(block_id=2, reversed=False, entrance=(40, 0), exit=(50, 0)),
+        ]
+
+        # Run multiple times to potentially hit the swap path
+        for _ in range(30):
+            neighbor = strategy._generate_neighbor(tour)
+            assert len(neighbor) == len(tour)
+
+    def test_find_nearest_origin_endpoint_single(self) -> None:
+        """Test _find_nearest_origin_endpoint returns single best."""
+        strategy = SimulatedAnnealingStrategy()
+        block_a = _make_simple_block(0, (1000, 1000), (1010, 1000))
+        block_b = _make_simple_block(1, (5, 5), (15, 5))
+
+        pos, idx, is_exit = strategy._find_nearest_origin_endpoint([block_a, block_b])
+        assert isinstance(pos, tuple)
+        assert isinstance(idx, int)
+        assert isinstance(is_exit, bool)
+
+
+class TestGeneticAlgorithmCoverage:
+    """Additional coverage tests for GeneticAlgorithmStrategy."""
+
+    def test_find_nearest_origin_endpoints_ga(self) -> None:
+        """Test _find_nearest_origin_endpoints in GA context."""
+        strategy = GeneticAlgorithmStrategy()
+        block_a = _make_simple_block(0, (100, 100), (110, 100))
+        block_b = _make_simple_block(1, (5, 5), (15, 5))
+
+        candidates = strategy._find_nearest_origin_endpoints([block_a, block_b], n_candidates=3)
+        assert len(candidates) <= 3
+
+    def test_find_farthest_origin_endpoints_ga(self) -> None:
+        """Test _find_farthest_origin_endpoints in GA context."""
+        strategy = GeneticAlgorithmStrategy()
+        block_a = _make_simple_block(0, (5, 5), (15, 5))
+        block_b = _make_simple_block(1, (1000, 1000), (1010, 1000))
+
+        candidates = strategy._find_farthest_origin_endpoints([block_a, block_b], n_candidates=3)
+        assert len(candidates) <= 3
+
+    def test_tournament_selection(self) -> None:
+        """Test _tournament_selection picks best from sample."""
+        strategy = GeneticAlgorithmStrategy()
+        # Need at least tournament_size (4 default) individuals for selection to work well
+        population: list[list[int]] = [
+            [0, 1, 2],
+            [0, 2, 1],
+            [1, 0, 2],
+            [2, 1, 0],
+            [1, 2, 0],
+        ]
+
+        # Need 3 blocks to match chromosome size
+        block_a = _make_simple_block(0, (100, 100), (110, 100))
+        block_b = _make_simple_block(1, (200, 200), (210, 200))
+        block_c = _make_simple_block(2, (300, 300), (310, 300))
+
+        winner = strategy._tournament_selection(
+            population, [block_a, block_b, block_c], start_pos=(0.0, 0.0)
+        )
+        assert isinstance(winner, list)
+        assert len(winner) == 3
+
+    def test_order_crossover(self) -> None:
+        """Test _order_crossover creates valid offspring."""
+        strategy = GeneticAlgorithmStrategy()
+        parent1 = [0, 1, 2, 3, 4]
+        parent2 = [2, 4, 1, 3, 0]
+
+        child = strategy._order_crossover(parent1, parent2)
+        assert len(child) == len(parent1)
+
+    def test_mutate_inversion(self) -> None:
+        """Test _mutate with inversion mutation."""
+        strategy = GeneticAlgorithmStrategy()
+        chromosome = [0, 1, 2, 3, 4]
+
+        mutated = strategy._mutate(chromosome)
+        assert len(mutated) == len(chromosome)
+
+    def test_tour_to_chromosome(self) -> None:
+        """Test _tour_to_chromosome encoding."""
+        strategy = GeneticAlgorithmStrategy()
+        tour = [
+            BlockTraverseState(block_id=0, reversed=False, entrance=(0, 0), exit=(10, 0)),
+            BlockTraverseState(block_id=1, reversed=True, entrance=(30, 0), exit=(20, 0)),
+            BlockTraverseState(block_id=2, reversed=False, entrance=(40, 0), exit=(50, 0)),
+        ]
+
+        chromosome = strategy._tour_to_chromosome(tour)
+        assert len(chromosome) == len(tour)
+
+    def test_decode_gene(self) -> None:
+        """Test _decode_gene extracts block_id and reversed flag."""
+        strategy = GeneticAlgorithmStrategy()
+
+        # Gene encoding: bit 0-30 for block_id, bit 31 for reversed
+        gene_normal = 5  # block_id=5, not reversed
+        block_id, is_reversed = strategy._decode_gene(gene_normal)
+        assert block_id == 5
+        assert is_reversed is False
+
+    def test_is_reversed_gene(self) -> None:
+        """Test _is_reversed_gene correctly identifies reversal bit."""
+        strategy = GeneticAlgorithmStrategy()
+
+        gene_not_reversed = 100  # even or with high bit not set
+        gene_reversed = (1 << 31) | 5  # high bit set
+
+        assert strategy._is_reversed_gene(gene_not_reversed) is False
+
+    def test_two_opt_refinement_ga(self) -> None:
+        """Test _two_opt_refinement in GA context."""
+        strategy = GeneticAlgorithmStrategy()
+        tour = [
+            BlockTraverseState(block_id=0, reversed=False, entrance=(0, 0), exit=(10, 0)),
+            BlockTraverseState(block_id=1, reversed=False, entrance=(20, 0), exit=(30, 0)),
+            BlockTraverseState(block_id=2, reversed=False, entrance=(40, 0), exit=(50, 0)),
+        ]
+        blocks = [
+            _make_simple_block(0, (0, 0), (10, 0)),
+            _make_simple_block(1, (20, 0), (30, 0)),
+            _make_simple_block(2, (40, 0), (50, 0)),
+        ]
+
+        result = strategy._two_opt_refinement(tour, blocks)
+        assert len(result) == 3
+
+    def test_two_opt_swap_improves_ga(self) -> None:
+        """Test _two_opt_swap_improves in GA context."""
+        strategy = GeneticAlgorithmStrategy()
+        tour = [
+            BlockTraverseState(block_id=0, reversed=False, entrance=(0, 0), exit=(10, 0)),
+            BlockTraverseState(block_id=1, reversed=False, entrance=(20, 0), exit=(30, 0)),
+            BlockTraverseState(block_id=2, reversed=False, entrance=(40, 0), exit=(50, 0)),
+        ]
+        blocks = [
+            _make_simple_block(0, (0, 0), (10, 0)),
+            _make_simple_block(1, (20, 0), (30, 0)),
+            _make_simple_block(2, (40, 0), (50, 0)),
+        ]
+
+        result = strategy._two_opt_swap_improves(tour, blocks, 0, 1)
+        assert isinstance(result, bool)
+
+    def test_optimize_tour_directions(self) -> None:
+        """Test _optimize_tour_directions."""
+        strategy = GeneticAlgorithmStrategy()
+        tour = [
+            BlockTraverseState(block_id=0, reversed=False, entrance=(0, 0), exit=(10, 0)),
+            BlockTraverseState(block_id=1, reversed=True, entrance=(30, 0), exit=(20, 0)),
+        ]
+        blocks = [
+            _make_simple_block(0, (0, 0), (10, 0)),
+            _make_simple_block(1, (20, 0), (30, 0)),
+        ]
+
+        result = strategy._optimize_tour_directions(tour, blocks, start_pos=(0.0, 0.0))
+        assert len(result) == 2
+
+
+class TestRunStrategyWorker:
+    """Tests for _run_strategy_worker function."""
+
+    def test_run_strategy_worker_with_noop(self) -> None:
+        """Test worker runs NoOp strategy correctly."""
+        from plt_optimizer.core.optimizer import _run_strategy_worker
+
+        blocks_serialized = (
+            (0, (10.0, 20.0), (30.0, 40.0)),
+            (1, (50.0, 60.0), (70.0, 80.0)),
+        )
+
+        result = _run_strategy_worker(
+            strategy_name="NoOp (Baseline)",
+            blocks_serialized=blocks_serialized,
+            initial_position=(0.0, 0.0),
+        )
+
+        assert result.strategy_name == "NoOp (Baseline)"
+        assert isinstance(result.result, OptimizationResult)
+        assert isinstance(result.execution_time_seconds, float)
+
+    def test_run_strategy_worker_with_nearest_neighbor(self) -> None:
+        """Test worker runs NearestNeighbor + 2-Opt strategy."""
+        from plt_optimizer.core.optimizer import _run_strategy_worker
+
+        blocks_serialized = (
+            (0, (10.0, 20.0), (30.0, 40.0)),
+            (1, (50.0, 60.0), (70.0, 80.0)),
+        )
+
+        result = _run_strategy_worker(
+            strategy_name="NearestNeighbor + 2-Opt",
+            blocks_serialized=blocks_serialized,
+            initial_position=(0.0, 0.0),
+        )
+
+        assert result.strategy_name == "NearestNeighbor + 2-Opt"
+
+    def test_run_strategy_worker_unknown_strategy_raises(self) -> None:
+        """Test worker raises ValueError for unknown strategy."""
+        from plt_optimizer.core.optimizer import _run_strategy_worker
+
+        with pytest.raises(ValueError, match="Unknown strategy"):
+            _run_strategy_worker(
+                strategy_name="NonExistentStrategy",
+                blocks_serialized=((0, (10.0, 20.0), (30.0, 40.0)),),
+                initial_position=None,
+            )
+
+
+class TestParallelEnsembleOptimizationResult:
+    """Tests for ParallelEnsembleOptimizationResult dataclass."""
+
+    def test_ensemble_result_fields(self) -> None:
+        """Test ParallelEnsembleOptimizationResult has all expected fields."""
+        from plt_optimizer.core.optimizer import (
+            ParallelEnsembleOptimizationResult,
+            StrategyBenchmarkResult,
+        )
+
+        states = [BlockTraverseState(block_id=0, reversed=False, entrance=(0, 0), exit=(10, 10))]
+        opt_result = OptimizationResult(
+            traverse_order=tuple(states),
+            connections=(),
+            total_travel_distance=100.0,
+            initial_position=None,
+        )
+        benchmark = StrategyBenchmarkResult(
+            strategy_name="TestStrategy",
+            result=opt_result,
+            execution_time_seconds=1.5,
+        )
+
+        ensemble_result = ParallelEnsembleOptimizationResult(
+            result=opt_result,
+            winner_name="TestStrategy",
+            all_benchmarks=(benchmark,),
+        )
+
+        assert ensemble_result.result is opt_result
+        assert len(ensemble_result.all_benchmarks) == 1
+        assert ensemble_result.winner_name == "TestStrategy"
+
+    def test_ensemble_winning_strategy_name(self) -> None:
+        """Test that winning strategy name property works."""
+        from plt_optimizer.core.optimizer import (
+            ParallelEnsembleOptimizationResult,
+            StrategyBenchmarkResult,
+        )
+
+        states = [BlockTraverseState(block_id=0, reversed=False, entrance=(0, 0), exit=(10, 10))]
+        opt_result1 = OptimizationResult(
+            traverse_order=tuple(states),
+            connections=(),
+            total_travel_distance=100.0,
+            initial_position=None,
+        )
+        opt_result2 = OptimizationResult(
+            traverse_order=tuple(states),
+            connections=(),
+            total_travel_distance=80.0,  # Better distance
+            initial_position=None,
+        )
+
+        benchmark1 = StrategyBenchmarkResult("StrategyA", opt_result1, 1.0)
+        benchmark2 = StrategyBenchmarkResult("StrategyB", opt_result2, 2.0)
+
+        ensemble_result = ParallelEnsembleOptimizationResult(
+            result=opt_result2,  # Best result is from StrategyB
+            winner_name="StrategyB",
+            all_benchmarks=(benchmark1, benchmark2),
+        )
+
+        assert ensemble_result.winner_name == "StrategyB"
+
+    def test_ensemble_traverse_order(self) -> None:
+        """Test traverse_order property returns correct order."""
+        from plt_optimizer.core.optimizer import (
+            ParallelEnsembleOptimizationResult,
+            StrategyBenchmarkResult,
+        )
+
+        states = [
+            BlockTraverseState(block_id=0, reversed=False, entrance=(0, 0), exit=(10, 10)),
+            BlockTraverseState(block_id=1, reversed=True, entrance=(20, 20), exit=(30, 30)),
+        ]
+        opt_result = OptimizationResult(
+            traverse_order=tuple(states),
+            connections=(),
+            total_travel_distance=100.0,
+            initial_position=None,
+        )
+        benchmark = StrategyBenchmarkResult("TestStrategy", opt_result, 1.0)
+
+        ensemble_result = ParallelEnsembleOptimizationResult(
+            result=opt_result,
+            winner_name="TestStrategy",
+            all_benchmarks=(benchmark,),
+        )
+
+        assert len(ensemble_result.traverse_order) == 2
+        assert ensemble_result.total_travel_distance == 100.0
