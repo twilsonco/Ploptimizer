@@ -790,15 +790,19 @@ class TestShowWindows:
     def test_show_platform_check_exists(self) -> None:
         """Test that _IS_WINDOWS constant is correctly set based on platform."""
         import sys
+        import importlib
+        from plt_optimizer.ui import settings
+
+        # Reload to ensure _IS_WINDOWS reflects the actual current platform,
+        # since other tests in this module reload the module with patched
+        # sys.platform which leaves _IS_WINDOWS in an inconsistent state.
+        importlib.reload(settings)
 
         # On darwin, _IS_WINDOWS should be False
-        assert sys.platform != "win32"
-        from plt_optimizer.ui.settings import _IS_WINDOWS
-
         if sys.platform == "win32":
-            assert _IS_WINDOWS is True
+            assert settings._IS_WINDOWS is True
         else:
-            assert _IS_WINDOWS is False
+            assert settings._IS_WINDOWS is False
 
 
 class TestShowPlatformBehavior:

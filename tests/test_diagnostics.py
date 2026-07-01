@@ -146,18 +146,30 @@ class TestMatplotlibFallback:
         import os
         import subprocess
         import sys
+        import tempfile
 
         # Use unique coverage data file and . Coverage database
-        coverage_file = "/tmp/test_diag_fallback.coverage"
+        # Use a platform-appropriate temp directory
+        coverage_file = os.path.join(
+            tempfile.gettempdir(), "test_diag_fallback.coverage"
+        )
         if os.path.exists(coverage_file):
             os.remove(coverage_file)
+
+        # Use forward slashes to avoid backslash escaping issues when embedding
+        # the path into the subprocess code string
+        coverage_file_escaped = coverage_file.replace("\\", "/")
+        project_root = os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))
+        )
+        project_root_escaped = project_root.replace("\\", "/")
 
         code = f'''
 import coverage
 import sys
 
 # Start coverage collection before anything else
-cov = coverage.Coverage(data_file="{coverage_file}")
+cov = coverage.Coverage(data_file="{coverage_file_escaped}")
 cov.start()
 
 # Block ALL matplotlib imports at the import system level
@@ -182,7 +194,7 @@ cov.save()
 '''
         result = subprocess.run(
             [sys.executable, "-c", code],
-            cwd="/Users/haiiro/NoSync/PLT-Optimizer",
+            cwd=project_root,
             capture_output=True,
             text=True,
         )

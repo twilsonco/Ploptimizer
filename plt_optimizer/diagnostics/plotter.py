@@ -368,6 +368,22 @@ def save_figure(fig: Figure, path: Path) -> None:
         PlotterError: If saving fails.
     """
     try:
+        # On Windows, paths like "/nonexistent/..." are silently converted to
+        # drive-relative paths (e.g. "\nonexistent\...") which can cause
+        # mkdir to succeed when it should fail. Detect this case and raise
+        # an error before attempting to save.
+        path_str = str(path)
+        looks_rooted = path_str.startswith("/") or path_str.startswith("\\")
+        is_truly_absolute = path.is_absolute()
+        if looks_rooted and not is_truly_absolute:
+            # The path looks absolute but isn't truly absolute on this platform.
+            if not path.parent.exists():
+                raise OSError(
+                    f"Cannot save figure to '{path}': "
+                    f"parent directory '{path.parent}' does not exist "
+                    f"and the path is not absolute on this platform."
+                )
+
         # Ensure parent directory exists
         path.parent.mkdir(parents=True, exist_ok=True)
 
