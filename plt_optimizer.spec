@@ -13,8 +13,12 @@ from pathlib import Path
 
 block_cipher = None
 
-# Determine paths
-ROOT_DIR = Path(__file__).parent
+# Determine paths.
+# NOTE: PyInstaller executes this spec file via ``exec(code, spec_namespace)``
+# and does NOT inject ``__file__`` into the namespace. We must rely on
+# ``SPECPATH`` (the directory containing this spec file), which PyInstaller
+# does inject, instead of ``Path(__file__).parent``.
+ROOT_DIR = Path(SPECPATH)
 ASSETS_DIR = ROOT_DIR / "assets"
 
 # Collect all necessary data files and dependencies
