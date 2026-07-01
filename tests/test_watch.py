@@ -905,17 +905,23 @@ class TestPathValidationErrors:
         with patch.object(WatchCommand, '_setup_logging'):
             cmd = WatchCommand(args=["--watch-dir", str(tmp_path)])
 
+            # Create a path under /usr/share (typically not writable on POSIX)
+            # On Windows, paths starting with "/" are converted to drive-relative
+            # paths which behave differently. Skip on Windows where this test
+            # cannot reliably simulate an unwritable parent.
+            import sys
+            if sys.platform == "win32":
+                pytest.skip(
+                    "POSIX-specific test: /usr/share path semantics differ on Windows"
+                )
+
             # Create a path under /usr/share (typically not writable)
             fake_path = Path("/usr/share/some_app_data/subdir")
 
-            try:
-                with pytest.raises(ValueError) as exc_info:
-                    cmd._validate_path_can_be_created(fake_path)
-                
-                assert "writable" in str(exc_info.value).lower()
-            except AssertionError:
-                # Some systems might allow this, skip if it works
-                pass
+            with pytest.raises(ValueError) as exc_info:
+                cmd._validate_path_can_be_created(fake_path)
+
+            assert "writable" in str(exc_info.value).lower()
 
 
 class TestObserverCleanupPaths:
@@ -1027,15 +1033,20 @@ class TestShouldProcessEdgeCases:
         test_file = tmp_path / "unreadable.plt"
         test_file.touch()
 
-        try:
-            # Make file unreadable by removing permissions
-            os.chmod(test_file, 0o000)
+        # Make file unreadable - use chmod on POSIX, mock open() on Windows
+        # because chmod 0o000 doesn't prevent owner reads on Windows.
+        if os.name == "nt":
+            # On Windows, simulate by patching the built-in open to raise
+            with patch("builtins.open", side_effect=PermissionError("Permission denied")):
+                result = handler._should_process(test_file)
+        else:
+            try:
+                os.chmod(test_file, 0o000)
+                result = handler._should_process(test_file)
+            finally:
+                os.chmod(test_file, 0o644)
 
-            result = handler._should_process(test_file)
-            assert result is False
-        finally:
-            # Restore permissions so cleanup can happen
-            os.chmod(test_file, 0o644)
+        assert result is False
 
 
 class TestIsPltFile:
@@ -2032,7 +2043,7 @@ class TestWatchCommandRunKeyboardInterrupt:
                 if interrupt_count[0] == 1:
                     raise KeyboardInterrupt()
 
-            with patch('signal.pause', side_effect=mock_signal_pause):
+            with patch('signal.pause', side_effect=mock_signal_pause, create=True):
                 result = cmd.run()
 
         # Should complete without error and return 0
@@ -2240,7 +2251,7 @@ class TestRunWatcherFromConfigNonMainThread:
                 def raise_interrupt():
                     raise KeyboardInterrupt()
 
-                with patch('signal.pause', side_effect=raise_interrupt):
+                with patch('signal.pause', side_effect=raise_interrupt, create=True):
                     original_current_thread = threading.current_thread
 
                     def mock_current_thread():
@@ -2291,7 +2302,7 @@ class TestRunWatcherFromConfigSignalHandler:
                 def raise_interrupt():
                     raise KeyboardInterrupt()
 
-                with patch('signal.pause', side_effect=raise_interrupt):
+                with patch('signal.pause', side_effect=raise_interrupt, create=True):
                     result = run_watcher_from_config(config, stop_event)
 
 
@@ -2331,7 +2342,7 @@ class TestRunWatcherFromConfigKeyboardInterruptLoop:
                 if call_count[0] == 1:
                     raise KeyboardInterrupt()
 
-            with patch('signal.pause', side_effect=raise_interrupt):
+            with patch('signal.pause', side_effect=raise_interrupt, create=True):
                 result = run_watcher_from_config(config, stop_event)
 
         # Should return 0 after handling interrupt
@@ -2688,7 +2699,7 @@ class TestRunWatcherNonMainThreadSignal:
                     if call_count[0] == 1:
                         raise KeyboardInterrupt()
 
-                with patch('signal.pause', side_effect=signal_pause_with_exit):
+                with patch('signal.pause', side_effect=signal_pause_with_exit, create=True):
                     # Also set stop_event so loop exits after first iteration
                     stop_event.set()
 
@@ -2961,7 +2972,7 @@ class TestRunWatcherExistingFilesProcessing:
                 def raise_interrupt():
                     raise KeyboardInterrupt()
 
-                with patch('signal.pause', side_effect=raise_interrupt):
+                with patch('signal.pause', side_effect=raise_interrupt, create=True):
                     result = run_watcher_from_config(config, stop_event)
 
         assert result == 0
@@ -3020,7 +3031,7 @@ class TestRunWatcherExistingFilesException:
                 def immediate_exit():
                     stop_event.set()
 
-                with patch('signal.pause', side_effect=immediate_exit):
+                with patch('signal.pause', side_effect=immediate_exit, create=True):
                     result = run_watcher_from_config(config, stop_event)
 
         assert result == 0
@@ -3395,7 +3406,7 @@ class TestRunWatcherSignalHandlerBody:
 
                 with patch("plt_optimizer.cli.watch.signal.signal", side_effect=capturing_signal):
                     # Make the while loop exit by raising KeyboardInterrupt
-                    with patch("signal.pause", side_effect=KeyboardInterrupt()):
+                    with patch("signal.pause", side_effect=KeyboardInterrupt(), create=True):
                         run_watcher_from_config(config, stop_event)
 
         # Invoke the captured SIGINT handler

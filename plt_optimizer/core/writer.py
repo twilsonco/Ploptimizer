@@ -98,6 +98,24 @@ class PLTWriter:
         content = self.write_string(document)
 
         try:
+            # On Windows, paths like "/nonexistent/..." are silently converted to
+            # drive-relative paths (e.g. "\nonexistent\...") which can cause
+            # mkdir to succeed when it should fail. Detect this case and raise
+            # an error before attempting to write.
+            path_str = str(file_path)
+            looks_rooted = path_str.startswith("/") or path_str.startswith("\\")
+            is_truly_absolute = file_path.is_absolute()
+            if looks_rooted and not is_truly_absolute:
+                # The path looks absolute (starts with separator) but isn't truly
+                # absolute on this platform (no drive letter on Windows). The user
+                # likely intended an absolute path that doesn't exist.
+                if not file_path.parent.exists():
+                    raise OSError(
+                        f"Cannot write to '{file_path}': "
+                        f"parent directory '{file_path.parent}' does not exist "
+                        f"and the path is not absolute on this platform."
+                    )
+
             # Ensure parent directory exists
             file_path.parent.mkdir(parents=True, exist_ok=True)
 
