@@ -448,7 +448,7 @@ class TestNotifications:
 class TestRunMethods:
     """Tests for run methods (lines 336-363)."""
 
-    @pytest.mark.skip(reason="Blocking test hangs on macOS - pystray run() blocks without timeout")
+    @pytest.mark.skipif(sys.platform == "darwin", reason="Blocking test hangs on macOS - pystray run() blocks without timeout")
     def test_run_pystray_blocking(self) -> None:
         """Test _run_pystray in blocking mode."""
         from plt_optimizer.ui.tray import TrayIconManager
@@ -459,19 +459,19 @@ class TestRunMethods:
         with patch.object(manager, "_setup_pystray"), \
              patch.object(manager, "stop_watcher") as mock_stop:
 
-            # Setup mock systray
+            # Setup mock systray - simulate KeyboardInterrupt from pystray.run()
             manager._systray = MagicMock()
+            manager._systray.run.side_effect = KeyboardInterrupt
 
-            def raise_interrupt() -> None:
-                raise KeyboardInterrupt
-
-            manager._systray.run.side_effect = raise_interrupt  # Don't call, just assign
-
-            # Should handle KeyboardInterrupt gracefully
+            # KeyboardInterrupt is BaseException (not Exception), so it bypasses
+            # the source's `except Exception` clause and must be caught here.
             try:
                 manager._run_pystray(blocking=True)
             except KeyboardInterrupt:
                 pass
+
+            # finally block must always run
+            mock_stop.assert_called_once()
 
     def test_run_pystray_non_blocking(self) -> None:
         """Test _run_pystray in non-blocking mode."""
@@ -488,7 +488,7 @@ class TestRunMethods:
 
             manager._systray.run_detached.assert_called_once()
 
-    @pytest.mark.skip(reason="Windows-only test - infi.systray not available on macOS/Linux")
+    @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only test - infi.systray not available on macOS/Linux")
     def test_run_windows_blocking(self) -> None:
         """Test _run_windows in blocking mode."""
         from plt_optimizer.ui.tray import TrayIconManager
@@ -499,24 +499,22 @@ class TestRunMethods:
         with patch.object(manager, "_setup_infi_systray"), \
              patch.object(manager, "stop_watcher") as mock_stop:
 
-            # Create a mock systray that raises KeyboardInterrupt
+            # Create a mock systray
             mock_systray = MagicMock()
             manager._systray = mock_systray
+            mock_systray.__enter__ = MagicMock(return_value=mock_systray)
+            mock_systray.__exit__ = MagicMock(return_value=False)
 
-            def run_blocking() -> None:
-                raise KeyboardInterrupt
+            # time.sleep is called inside the while loop - make it raise
+            # KeyboardInterrupt to break out cleanly
+            with patch("time.sleep", side_effect=KeyboardInterrupt):
+                # Should not raise - KeyboardInterrupt is caught
+                manager._run_windows(blocking=True)
 
-            with patch("plt_optimizer.ui.tray.time.sleep"):
-                # Simulate context manager exit from interrupt
-                mock_systray.__enter__ = MagicMock(return_value=mock_systray)
-                mock_systray.__exit__ = MagicMock(return_value=False)
+            # finally block must always run
+            mock_stop.assert_called_once()
 
-                try:
-                    manager._run_windows(blocking=True)
-                except KeyboardInterrupt:
-                    pass
-
-    @pytest.mark.skip(reason="Blocking test hangs on macOS - pystray run() blocks without timeout")
+    @pytest.mark.skipif(sys.platform == "darwin", reason="Blocking test hangs on macOS - pystray run() blocks without timeout")
     def test_run_pystray_exception_during_run(self) -> None:
         """Test pystray run handles exceptions."""
         from plt_optimizer.ui.tray import TrayIconManager
@@ -684,7 +682,7 @@ class TestExitClickCallbacks:
 class TestInfiSystrayCallbacks:
     """Tests for infi.systray callbacks (lines 228-229, 237-242)."""
 
-    @pytest.mark.skipif(sys.platform == "win32", reason="infi.systray is Windows-only")
+    @pytest.mark.skipif(sys.platform != "win32", reason="infi.systray is Windows-only")
     def test_on_infi_settings_click_with_exception(self) -> None:
         """Test infi settings click handles exception."""
         from plt_optimizer.ui.tray import TrayIconManager
@@ -695,7 +693,7 @@ class TestInfiSystrayCallbacks:
         # Should not raise - errors are caught and logged
         manager._on_infi_settings_click(MagicMock())
 
-    @pytest.mark.skipif(sys.platform == "win32", reason="infi.systray is Windows-only")
+    @pytest.mark.skipif(sys.platform != "win32", reason="infi.systray is Windows-only")
     def test_on_infi_exit_callback_with_exception(self) -> None:
         """Test infi quit callback handles exception (line 225->exit).
 
@@ -822,7 +820,7 @@ class TestRunPystrayException:
 class TestRunWindowsExceptionPaths:
     """Tests for Windows run exception handling (lines 225->exit, 237-242)."""
 
-    @pytest.mark.skipif(sys.platform == "win32", reason="Windows-only test")
+    @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only test")
     def test_run_windows_exception_logs_and_raises(self) -> None:
         """Test that exceptions during Windows tray run are logged and re-raised."""
         from plt_optimizer.ui.tray import TrayIconManager
@@ -842,7 +840,7 @@ class TestRunWindowsExceptionPaths:
                 # finally block should still run
                 mock_stop.assert_called_once()
 
-    @pytest.mark.skipif(sys.platform == "win32", reason="Windows-only test")
+    @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only test")
     def test_run_windows_keyboard_interrupt_calls_finally(self) -> None:
         """Test KeyboardInterrupt is caught and stop_watcher still runs."""
         from plt_optimizer.ui.tray import TrayIconManager
@@ -864,7 +862,7 @@ class TestRunWindowsExceptionPaths:
 class TestRunDetachedPaths:
     """Tests for detached/non-blocking run paths (lines 347-381)."""
 
-    @pytest.mark.skipif(sys.platform == "win32", reason="Windows-only test")
+    @pytest.mark.skipif(sys.platform == "win32", reason="_run_pystray is only invoked by run() on non-Windows platforms")
     def test_run_pystray_non_blocking_runs_detached(self) -> None:
         """Test pystray non-blocking calls run_detached."""
         from plt_optimizer.ui.tray import TrayIconManager
@@ -968,7 +966,8 @@ class TestRunNonWindows:
 
         manager = TrayIconManager(MagicMock(), MagicMock(), MagicMock())
 
-        with patch.object(manager, "_run_pystray") as mock_run_py, \
+        with patch("plt_optimizer.ui.tray._IS_WINDOWS", False), \
+             patch.object(manager, "_run_pystray") as mock_run_py, \
              patch.object(manager, "_setup_pystray"):
 
             manager._systray = MagicMock()
