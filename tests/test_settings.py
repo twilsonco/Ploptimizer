@@ -152,11 +152,19 @@ class TestValidateInputs:
         with patch("plt_optimizer.ui.settings.tk.Toplevel"):
             window = SettingsWindow(current_config, MagicMock())
             window._watch_dir_var.set("/watch")
+            window._output_dir_var.set("")  # explicitly clear output_dir
             window._log_dir_var.set("/logs")
 
-            result = window._validate_inputs()
+            with patch(
+                "plt_optimizer.ui.settings.messagebox.showerror"
+            ) as mock_showerror:
+                result = window._validate_inputs()
 
             assert result is False
+            # The empty output_dir validation branch must call showerror
+            assert mock_showerror.called
+            args = mock_showerror.call_args[0]
+            assert "Output Directory" in args[1]
 
     def test_validate_empty_log_dir(self) -> None:
         """Test validation fails when log directory is empty."""
@@ -166,10 +174,47 @@ class TestValidateInputs:
             window = SettingsWindow(current_config, MagicMock())
             window._watch_dir_var.set("/watch")
             window._output_dir_var.set("/out")
+            window._log_dir_var.set("")  # explicitly clear log_dir
 
-            result = window._validate_inputs()
+            with patch(
+                "plt_optimizer.ui.settings.messagebox.showerror"
+            ) as mock_showerror:
+                result = window._validate_inputs()
 
             assert result is False
+            # The empty log_dir validation branch must call showerror
+            assert mock_showerror.called
+            args = mock_showerror.call_args[0]
+            assert "Log Directory" in args[1]
+
+    def test_validate_oserror_shows_error_dialog(self) -> None:
+        """Test that OSError on mkdir shows error messagebox (lines 317-322)."""
+        current_config: dict[str, Any] = {}
+
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            window = SettingsWindow(current_config, MagicMock())
+            window._watch_dir_var.set("/new/dir")
+            window._output_dir_var.set("/out")
+            window._log_dir_var.set("/logs")
+
+            with patch.object(Path, "exists", return_value=False):
+                with patch(
+                    "plt_optimizer.ui.settings.messagebox.askyesno",
+                    return_value=True,
+                ):
+                    with patch.object(
+                        Path, "mkdir", side_effect=OSError("Permission denied")
+                    ):
+                        with patch(
+                            "plt_optimizer.ui.settings.messagebox.showerror"
+                        ) as mock_showerror:
+                            result = window._validate_inputs()
+
+                            assert result is False
+                            # OSError handler must call showerror
+                            assert mock_showerror.called
+                            args = mock_showerror.call_args[0]
+                            assert "Could not create directory" in args[1]
 
     def test_validate_success_with_existing_watch_dir(self) -> None:
         """Test validation succeeds when watch directory exists."""
@@ -450,12 +495,14 @@ class TestDestroy:
     """Tests for destroy method."""
 
     def test_destroy_handles_none_root(self) -> None:
-        """Test that destroy handles None root gracefully."""
+        """Test that destroy handles None root gracefully (line 400->exit)."""
         current_config: dict[str, Any] = {}
 
         with patch("plt_optimizer.ui.settings.tk.Toplevel"):
             window = SettingsWindow(current_config, MagicMock())
-            # Should not raise
+            # Explicitly set _root to None to test the False branch
+            window._root = None
+            # Should not raise - if self._root is not None: ... is False
             window.destroy()
 
     def test_destroy_calls_root_destroy(self) -> None:
@@ -506,12 +553,17 @@ class TestShow:
         mock_tk_instance.winfo_width.return_value = 580
         mock_tk_instance.winfo_height.return_value = 480
 
-        with patch("plt_optimizer.ui.settings.tk.Toplevel", return_value=mock_tk_instance):
-            window = SettingsWindow(current_config, MagicMock())
+        with patch("plt_optimizer.ui.settings.tk.Tk", return_value=mock_tk_instance):
+            window = SettingsWindow(current_config, MagicMock(), parent=None)
+            window._root = mock_tk_instance
 
             with patch.object(Path, "exists", return_value=True):
                 with patch("sys.platform", "darwin"):
                     window.show()
+                    # On non-Windows, mainloop should NOT be called
+                    mock_tk_instance.mainloop.assert_not_called()
+                    # But deiconify SHOULD be called
+                    mock_tk_instance.deiconify.assert_called_once()
 
     def test_show_on_windows_with_keyboard_interrupt(self) -> None:
         """Test that show handles KeyboardInterrupt on Windows."""
@@ -525,11 +577,19 @@ class TestShow:
         # Simulate KeyboardInterrupt during mainloop
         mock_tk_instance.mainloop.side_effect = KeyboardInterrupt()
 
-        with patch("plt_optimizer.ui.settings.tk.Toplevel", return_value=mock_tk_instance):
-            window = SettingsWindow(current_config, MagicMock())
+        with patch("plt_optimizer.ui.settings.tk.Tk", return_value=mock_tk_instance):
+            window = SettingsWindow(current_config, MagicMock(), parent=None)
+            window._root = mock_tk_instance
 
             with patch("sys.platform", "win32"):
-                window.show()
+                with patch.object(window, "_on_cancel") as mock_cancel:
+                    window.show()
+                    # Verify _on_cancel was called due to KeyboardInterrupt
+                    mock_cancel.assert_called_once()
+                    mock_tk_instance.protocol.assert_called_once()
+                    mock_tk_instance.deiconify.assert_called_once()
+                    mock_tk_instance.focus_force.assert_called_once()
+                    mock_tk_instance.mainloop.assert_called_once()
 
 
 class TestModuleLevelConstants:
@@ -573,6 +633,344 @@ class TestOnCleanup:
     are defined inside _setup_ui() and execute within tkinter's event loop context,
     which is difficult to cover with unit tests due to mocking limitations.
     """
+
+    def _find_cleanup_command(self) -> Any:
+        """Extract the on_cleanup closure from ttk.Button mock calls.
+
+        The closure is passed as the ``command=`` kwarg to ``ttk.Button`` during
+        ``_setup_ui()``. We find the most recent button by its text and return
+        the bound callable so tests can invoke it directly.
+
+        Because ``ttk.Button`` is a class-level MagicMock in our test fixtures
+        and accumulates calls across tests, we track the call count before
+        ``_setup_ui`` runs and only consider calls made during this test.
+        """
+        from tkinter import ttk
+
+        cleanup_cmd: Any = None
+        for call in ttk.Button.call_args_list:
+            text = call.kwargs.get("text", "")
+            if "Clean" in text:
+                cleanup_cmd = call.kwargs["command"]
+        return cleanup_cmd
+
+    def test_on_cleanup_closure_user_declines(self) -> None:
+        """Test the actual on_cleanup closure when user declines."""
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            window = SettingsWindow({}, MagicMock())
+            window._log_dir_var.set("/test/logs")
+            window._processed_dir_var.set("/test/processed")
+
+            cleanup_cmd = self._find_cleanup_command()
+            assert cleanup_cmd is not None
+
+            with patch(
+                "plt_optimizer.ui.settings.messagebox.askyesno", return_value=False
+            ) as mock_ask:
+                with patch("plt_optimizer.ui.settings.messagebox.showinfo") as mock_info:
+                    cleanup_cmd()
+                    # When user declines, no further cleanup actions should occur
+                    mock_ask.assert_called_once()
+                    mock_info.assert_not_called()
+
+    def test_on_cleanup_closure_cleans_log_dir(self) -> None:
+        """Test the on_cleanup closure cleans log dir files."""
+        mock_file = MagicMock()
+        mock_file.is_file.return_value = True
+
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            window = SettingsWindow({}, MagicMock())
+            window._log_dir_var.set("/test/logs")
+            window._processed_dir_var.set("")
+
+            cleanup_cmd = self._find_cleanup_command()
+            assert cleanup_cmd is not None
+
+            with patch(
+                "plt_optimizer.ui.settings.messagebox.askyesno", return_value=True
+            ):
+                with patch.object(Path, "exists", return_value=True):
+                    with patch.object(
+                        Path, "iterdir", return_value=[mock_file]
+                    ):
+                        with patch(
+                            "plt_optimizer.ui.settings.messagebox.showinfo"
+                        ) as mock_info:
+                            cleanup_cmd()
+                            mock_file.unlink.assert_called_once()
+                            mock_info.assert_called_once()
+                            # Verify the cleanup message
+                            args = mock_info.call_args[0]
+                            assert "Deleted 1 files" in args[1]
+
+    def test_on_cleanup_closure_skips_log_dir_when_empty(self) -> None:
+        """Test the on_cleanup closure skips log dir when var is empty."""
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            window = SettingsWindow({}, MagicMock())
+            window._log_dir_var.set("")
+            window._processed_dir_var.set("")
+
+            cleanup_cmd = self._find_cleanup_command()
+            assert cleanup_cmd is not None
+
+            with patch(
+                "plt_optimizer.ui.settings.messagebox.askyesno", return_value=True
+            ):
+                with patch.object(Path, "exists") as mock_exists:
+                    with patch(
+                        "plt_optimizer.ui.settings.messagebox.showinfo"
+                    ) as mock_info:
+                        cleanup_cmd()
+                        # Path.exists() should NOT have been called because log_dir is empty
+                        mock_exists.assert_not_called()
+                        mock_info.assert_called_once()
+
+    def test_on_cleanup_closure_handles_iterdir_oserror_on_log(self) -> None:
+        """Test the on_cleanup closure handles OSError on log dir iterdir."""
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            window = SettingsWindow({}, MagicMock())
+            window._log_dir_var.set("/test/logs")
+            window._processed_dir_var.set("")
+
+            cleanup_cmd = self._find_cleanup_command()
+            assert cleanup_cmd is not None
+
+            with patch(
+                "plt_optimizer.ui.settings.messagebox.askyesno", return_value=True
+            ):
+                with patch.object(Path, "exists", return_value=True):
+                    with patch.object(
+                        Path, "iterdir", side_effect=OSError("Permission denied")
+                    ):
+                        with patch(
+                            "plt_optimizer.ui.settings.messagebox.showinfo"
+                        ) as mock_info:
+                            # Should not raise
+                            cleanup_cmd()
+                            mock_info.assert_called_once()
+
+    def test_on_cleanup_closure_handles_unlink_oserror_on_log(self) -> None:
+        """Test the on_cleanup closure handles OSError on file unlink."""
+        mock_file = MagicMock()
+        mock_file.is_file.return_value = True
+        mock_file.unlink.side_effect = OSError("Permission denied")
+
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            window = SettingsWindow({}, MagicMock())
+            window._log_dir_var.set("/test/logs")
+            window._processed_dir_var.set("")
+
+            cleanup_cmd = self._find_cleanup_command()
+            assert cleanup_cmd is not None
+
+            with patch(
+                "plt_optimizer.ui.settings.messagebox.askyesno", return_value=True
+            ):
+                with patch.object(Path, "exists", return_value=True):
+                    with patch.object(
+                        Path, "iterdir", return_value=[mock_file]
+                    ):
+                        with patch(
+                            "plt_optimizer.ui.settings.messagebox.showinfo"
+                        ) as mock_info:
+                            # Should not raise
+                            cleanup_cmd()
+                            mock_info.assert_called_once()
+                            # cleaned_count is 0 because unlink failed
+                            args = mock_info.call_args[0]
+                            assert "Deleted 0 files" in args[1]
+
+    def test_on_cleanup_closure_cleans_processed_dir(self) -> None:
+        """Test the on_cleanup closure cleans processed dir files."""
+        mock_file = MagicMock()
+        mock_file.is_file.return_value = True
+
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            window = SettingsWindow({}, MagicMock())
+            window._log_dir_var.set("")
+            window._processed_dir_var.set("/test/processed")
+
+            cleanup_cmd = self._find_cleanup_command()
+            assert cleanup_cmd is not None
+
+            with patch(
+                "plt_optimizer.ui.settings.messagebox.askyesno", return_value=True
+            ):
+                with patch.object(Path, "exists", return_value=True):
+                    with patch.object(
+                        Path, "iterdir", return_value=[mock_file]
+                    ):
+                        with patch(
+                            "plt_optimizer.ui.settings.messagebox.showinfo"
+                        ) as mock_info:
+                            cleanup_cmd()
+                            mock_file.unlink.assert_called_once()
+                            mock_info.assert_called_once()
+
+    def test_on_cleanup_closure_skips_processed_dir_when_empty(self) -> None:
+        """Test the on_cleanup closure skips processed dir when var is empty."""
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            window = SettingsWindow({}, MagicMock())
+            window._log_dir_var.set("")
+            window._processed_dir_var.set("")
+
+            cleanup_cmd = self._find_cleanup_command()
+            assert cleanup_cmd is not None
+
+            with patch(
+                "plt_optimizer.ui.settings.messagebox.askyesno", return_value=True
+            ):
+                with patch.object(Path, "exists") as mock_exists:
+                    with patch(
+                        "plt_optimizer.ui.settings.messagebox.showinfo"
+                    ) as mock_info:
+                        cleanup_cmd()
+                        # Path.exists() should NOT have been called for processed_dir
+                        mock_exists.assert_not_called()
+                        mock_info.assert_called_once()
+
+    def test_on_cleanup_closure_handles_iterdir_oserror_on_processed(self) -> None:
+        """Test the on_cleanup closure handles OSError on processed iterdir."""
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            window = SettingsWindow({}, MagicMock())
+            window._log_dir_var.set("")
+            window._processed_dir_var.set("/test/processed")
+
+            cleanup_cmd = self._find_cleanup_command()
+            assert cleanup_cmd is not None
+
+            with patch(
+                "plt_optimizer.ui.settings.messagebox.askyesno", return_value=True
+            ):
+                with patch.object(Path, "exists", return_value=True):
+                    with patch.object(
+                        Path, "iterdir", side_effect=OSError("Permission denied")
+                    ):
+                        with patch(
+                            "plt_optimizer.ui.settings.messagebox.showinfo"
+                        ) as mock_info:
+                            # Should not raise
+                            cleanup_cmd()
+                            mock_info.assert_called_once()
+
+    def test_on_cleanup_closure_handles_unlink_oserror_on_processed(self) -> None:
+        """Test the on_cleanup closure handles OSError on processed file unlink."""
+        mock_file = MagicMock()
+        mock_file.is_file.return_value = True
+        mock_file.unlink.side_effect = OSError("Permission denied")
+
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            window = SettingsWindow({}, MagicMock())
+            window._log_dir_var.set("")
+            window._processed_dir_var.set("/test/processed")
+
+            cleanup_cmd = self._find_cleanup_command()
+            assert cleanup_cmd is not None
+
+            with patch(
+                "plt_optimizer.ui.settings.messagebox.askyesno", return_value=True
+            ):
+                with patch.object(Path, "exists", return_value=True):
+                    with patch.object(
+                        Path, "iterdir", return_value=[mock_file]
+                    ):
+                        with patch(
+                            "plt_optimizer.ui.settings.messagebox.showinfo"
+                        ) as mock_info:
+                            # Should not raise
+                            cleanup_cmd()
+                            mock_info.assert_called_once()
+                            # cleaned_count is 0 because unlink failed
+                            args = mock_info.call_args[0]
+                            assert "Deleted 0 files" in args[1]
+
+    def test_on_cleanup_closure_counts_combined_cleanups(self) -> None:
+        """Test the on_cleanup closure reports combined count from both dirs."""
+        mock_log_file = MagicMock()
+        mock_log_file.is_file.return_value = True
+        mock_processed_file = MagicMock()
+        mock_processed_file.is_file.return_value = True
+
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            window = SettingsWindow({}, MagicMock())
+            window._log_dir_var.set("/test/logs")
+            window._processed_dir_var.set("/test/processed")
+
+            cleanup_cmd = self._find_cleanup_command()
+            assert cleanup_cmd is not None
+
+            iterdir_results = [[mock_log_file], [mock_processed_file]]
+            iterdir_iter = iter(iterdir_results)
+
+            with patch(
+                "plt_optimizer.ui.settings.messagebox.askyesno", return_value=True
+            ):
+                with patch.object(Path, "exists", return_value=True):
+                    with patch.object(
+                        Path, "iterdir", side_effect=lambda *_: next(iterdir_iter)
+                    ):
+                        with patch(
+                            "plt_optimizer.ui.settings.messagebox.showinfo"
+                        ) as mock_info:
+                            cleanup_cmd()
+                            mock_log_file.unlink.assert_called_once()
+                            mock_processed_file.unlink.assert_called_once()
+                            mock_info.assert_called_once()
+                            args = mock_info.call_args[0]
+                            assert "Deleted 2 files" in args[1]
+
+    def test_on_cleanup_closure_skips_non_files_in_log_dir(self) -> None:
+        """Test the on_cleanup closure skips entries where is_file() is False."""
+        mock_dir = MagicMock()
+        mock_dir.is_file.return_value = False  # Not a file - should be skipped
+
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            window = SettingsWindow({}, MagicMock())
+            window._log_dir_var.set("/test/logs")
+            window._processed_dir_var.set("")
+
+            cleanup_cmd = self._find_cleanup_command()
+            assert cleanup_cmd is not None
+
+            with patch(
+                "plt_optimizer.ui.settings.messagebox.askyesno", return_value=True
+            ):
+                with patch.object(Path, "exists", return_value=True):
+                    with patch.object(Path, "iterdir", return_value=[mock_dir]):
+                        with patch(
+                            "plt_optimizer.ui.settings.messagebox.showinfo"
+                        ) as mock_info:
+                            cleanup_cmd()
+                            # unlink should NOT be called for a non-file
+                            mock_dir.unlink.assert_not_called()
+                            mock_info.assert_called_once()
+                            args = mock_info.call_args[0]
+                            assert "Deleted 0 files" in args[1]
+
+    def test_on_cleanup_closure_skips_non_files_in_processed_dir(self) -> None:
+        """Test the on_cleanup closure skips non-files in processed dir."""
+        mock_dir = MagicMock()
+        mock_dir.is_file.return_value = False
+
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            window = SettingsWindow({}, MagicMock())
+            window._log_dir_var.set("")
+            window._processed_dir_var.set("/test/processed")
+
+            cleanup_cmd = self._find_cleanup_command()
+            assert cleanup_cmd is not None
+
+            with patch(
+                "plt_optimizer.ui.settings.messagebox.askyesno", return_value=True
+            ):
+                with patch.object(Path, "exists", return_value=True):
+                    with patch.object(Path, "iterdir", return_value=[mock_dir]):
+                        with patch(
+                            "plt_optimizer.ui.settings.messagebox.showinfo"
+                        ) as mock_info:
+                            cleanup_cmd()
+                            mock_dir.unlink.assert_not_called()
+                            mock_info.assert_called_once()
 
     def test_on_cleanup_user_declines(self) -> None:
         """Test cleanup does nothing when user clicks No."""
@@ -710,17 +1108,21 @@ class TestOnCleanup:
 class TestBrowseDirectoryErrorHandling:
     """Tests for _browse_directory error handling (lines 263-264, 271-272)."""
 
-    def test_browse_handles_deiconify_exception(self) -> None:
-        """Test that deiconify exceptions are handled gracefully."""
+    def test_browse_handles_deiconify_exception_after_filedialog_failure(
+        self,
+    ) -> None:
+        """Test deiconify exception after filedialog failure is swallowed (lines 263-264)."""
         current_config: dict[str, Any] = {}
         mock_root = MagicMock()
 
-        with patch("plt_optimizer.ui.settings.tk.Toplevel", return_value=mock_root):
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
             window = SettingsWindow(current_config, MagicMock())
+            window._root = mock_root
             var = MockStringVar("/some/path")
 
             with patch.object(Path, "exists", return_value=True):
-                # Simulate deiconify raising an exception
+                # First withdraw must succeed, then filedialog raises
+                mock_root.withdraw.return_value = None
                 mock_root.deiconify.side_effect = Exception("Display error")
                 with patch(
                     "plt_optimizer.ui.settings.filedialog.askdirectory",
@@ -728,29 +1130,62 @@ class TestBrowseDirectoryErrorHandling:
                 ):
                     # Should not raise - error is caught and logged
                     window._browse_directory(var)
+                    # withdraw should have been called to hide window
+                    mock_root.withdraw.assert_called_once()
+                    # deiconify should have been called once inside the except
+                    # (the silent swallow in the inner try)
+                    assert mock_root.deiconify.called
 
     def test_browse_handles_focus_force_exception(self) -> None:
-        """Test that focus_force exceptions are handled when deiconify succeeds."""
+        """Test focus_force exception during window restore (lines 271-272)."""
         current_config: dict[str, Any] = {}
         mock_root = MagicMock()
 
-        with patch("plt_optimizer.ui.settings.tk.Toplevel", return_value=mock_root):
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
             window = SettingsWindow(current_config, MagicMock())
+            window._root = mock_root
             var = MockStringVar("/some/path")
 
             with patch.object(Path, "exists", return_value=True):
-                # deiconify succeeds but focus_force fails
-                def side_effect_func(*args: Any, **kwargs: Any) -> None:
-                    pass
-
-                mock_root.deiconify.side_effect = None
+                # filedialog succeeds, but focus_force fails during restore
+                mock_root.deiconify.return_value = None
                 mock_root.focus_force.side_effect = Exception("Focus error")
 
                 with patch(
                     "plt_optimizer.ui.settings.filedialog.askdirectory",
-                    return_value="",
+                    return_value="/selected",
                 ):
                     # Should not raise - window restore errors are caught
+                    window._browse_directory(var)
+                    # deiconify should be called to restore window
+                    assert mock_root.deiconify.called
+                    # focus_force should have been called and failed
+                    assert mock_root.focus_force.called
+                    # var should still be set because selected is not empty
+                    assert var.get() == "/selected"
+
+    def test_browse_deiconify_exception_silently_swallowed(self) -> None:
+        """Test that inner deiconify exception is silently swallowed (lines 263-264).
+
+        When filedialog raises and the cleanup deiconify also fails, the
+        exception from deiconify should be silently caught (no re-raise).
+        """
+        current_config: dict[str, Any] = {}
+        mock_root = MagicMock()
+
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            window = SettingsWindow(current_config, MagicMock())
+            window._root = mock_root
+            var = MockStringVar("/some/path")
+
+            with patch.object(Path, "exists", return_value=True):
+                # Both filedialog and deiconify raise
+                mock_root.deiconify.side_effect = Exception("Display error")
+                with patch(
+                    "plt_optimizer.ui.settings.filedialog.askdirectory",
+                    side_effect=Exception("Dialog error"),
+                ):
+                    # Should not raise - both exceptions are handled
                     window._browse_directory(var)
 
 
