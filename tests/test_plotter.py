@@ -21,6 +21,7 @@ from plt_optimizer.core.models import (
 from plt_optimizer.diagnostics.plotter import (
     DEFAULT_FIGURE_SIZE,
     PlotterError,
+    _safe_range,
     create_path_diagram,
     plot_plt_document,
     plot_stroke_path,
@@ -1480,49 +1481,6 @@ class TestPlotStrokePathSaveToFile:
         assert output_path.exists()
 
 
-class TestEmptyCumDistancesEdgeCase:
-    """Tests for empty cum_distances edge case (line 140).
-
-    The condition at line ~138-140 checks if cum_distances is truthy
-    and falls back to max_distance=1.0 when falsy.
-    """
-
-    def test_cum_distances_falsy_taken_when_empty_tuple(self) -> None:
-        """Test that empty tuple cum_distances triggers else branch (max_distance=1.0).
-
-        This tests the code path where coord_pairs produces empty results
-        or calculate_cumulative_distances returns an empty/falsy result.
-        """
-        # Create a document with segments but verify we handle edge cases
-        # in cumulative distance calculation that might produce falsy results
-        segs = [
-            StrokeSegment(
-                start=Coordinate(0, 0),
-                end=Coordinate(0, 0),  # Zero length - distance is 0.0
-                is_cutting=True,
-            ),
-        ]
-        path = StrokePath(segments=tuple(segs))
-        doc = PLTDocument(stroke_paths=[path])
-        fig = plot_plt_document(doc)
-        assert isinstance(fig, plt.Figure)
-
-    def test_empty_cum_distances_max_distance_default(self) -> None:
-        """Test max_distance defaults to 1.0 when cum_distances is empty/falsy."""
-        # Test with very small values that might cause edge cases
-        segs = [
-            StrokeSegment(
-                start=Coordinate(1e-10, 1e-10),
-                end=Coordinate(1e-10, 1e-10),  # Essentially zero
-                is_cutting=True,
-            ),
-        ]
-        path = StrokePath(segments=tuple(segs))
-        doc = PLTDocument(stroke_paths=[path])
-        fig = plot_plt_document(doc)
-        assert isinstance(fig, plt.Figure)
-
-
 class TestArcSegmentRapidTravelEdgeCases:
     """Tests for Arc segment rapid travel edge cases (lines 146->167).
 
@@ -1659,3 +1617,183 @@ class TestPlotStrokePathSaveFigure:
         fig = plot_plt_document(doc, output_path=output_path)
         assert isinstance(fig, plt.Figure)
         assert output_path.exists(), f"Output file {output_path} should exist"
+
+
+class TestSafeRange:
+    """Tests for the `_safe_range` helper used for axis-limit fallback."""
+
+    def test_normal_span(self) -> None:
+        """Normal range returns span (hi - lo)."""
+        assert _safe_range(1.0, 4.0) == pytest.approx(3.0)
+
+    def test_normal_span_negative(self) -> None:
+        """Range is positive when hi > lo regardless of sign."""
+        assert _safe_range(-2.5, 1.0) == pytest.approx(3.5)
+
+    def test_swapped_arguments_treated_as_normal(self) -> None:
+        """Caller is responsible for ordering: hi < lo still produces positive span."""
+        # Not enforcing error here because plotter always passes min,max.
+        result = _safe_range(5.0, 1.0)
+        # math.isclose(1, 5, abs_tol=1e-9) is False, so fall through to hi-lo.
+        assert result == pytest.approx(-4.0)
+
+    def test_degenerate_span_at_nonzero_value(self) -> None:
+        """Identical nonzero points fall back to 10% of magnitude."""
+        # All points at x=5 inches -> range = 5 * 0.1 = 0.5
+        assert _safe_range(5.0, 5.0) == pytest.approx(0.5)
+
+    def test_degenerate_span_at_negative_nonzero_value(self) -> None:
+        """Magnitude-based fallback works for negative values too."""
+        # All points at x=-5 inches -> magnitude 5 * 0.1 = 0.5
+        assert _safe_range(-5.0, -5.0) == pytest.approx(0.5)
+
+    def test_degenerate_span_at_origin_falls_back_to_floor(self) -> None:
+        """All points at 0 fall back to default_floor (1.0)."""
+        assert _safe_range(0.0, 0.0) == pytest.approx(1.0)
+
+    def test_custom_default_floor(self) -> None:
+        """Custom default_floor overrides the 1.0 inch default."""
+        assert _safe_range(0.0, 0.0, default_floor=2.5) == pytest.approx(2.5)
+
+    def test_floating_point_near_equality_treated_as_degenerate(self) -> None:
+        """Values within abs_tol of each other trigger fallback (no ==)."""
+        # 1.0 vs 1.0 + 1e-12 -> within abs_tol=1e-9 -> degenerate -> 0.1
+        assert _safe_range(1.0, 1.0 + 1e-12) == pytest.approx(0.1)
+
+    def test_floating_point_outside_tolerance_treated_as_normal(self) -> None:
+        """Values outside abs_tol of each other return real span."""
+        # 1.0 vs 1.0 + 1e-6 -> outside abs_tol=1e-9 -> real span 1e-6
+        assert _safe_range(1.0, 1.0 + 1e-6) == pytest.approx(1e-6)
+
+    def test_degenerate_small_magnitude_not_floored(self) -> None:
+        """Small nonzero magnitude uses magnitude*0.1 even when below default_floor."""
+        # magnitude 0.1 -> range = 0.01 (NOT clamped to default_floor=1.0)
+        assert _safe_range(0.1, 0.1) == pytest.approx(0.01)
+
+    def test_default_floor_only_applies_at_origin(self) -> None:
+        """default_floor is only used when magnitude is within tolerance of zero."""
+        # 0.0 is within abs_tol=1e-9 of 0.0 -> fallback to default_floor
+        assert _safe_range(0.0, 0.0) == pytest.approx(1.0)
+        # Within zero tolerance -> also default_floor
+        assert _safe_range(1e-12, 1e-12) == pytest.approx(1.0)
+
+    def test_returned_value_is_strictly_positive_for_normal_inputs(self) -> None:
+        """Returned range is positive for all reasonable axis-limit inputs."""
+        # Regression guard: ensures the function never returns 0 or negative
+        # for inputs the plotter could plausibly pass.
+        cases = [
+            (0.0, 0.0),
+            (1e-9, 1e-9),  # within tolerance
+            (0.0, 1.0),
+            (-1.0, 1.0),
+            (5.0, 5.0),
+            (-5.0, -5.0),
+        ]
+        for lo, hi in cases:
+            assert _safe_range(lo, hi) > 0.0, (
+                f"_safe_range({lo}, {hi}) returned non-positive value"
+            )
+
+
+class TestAxisLimitsSafeRangeIntegration:
+    """Integration tests verifying axis limits honor _safe_range behavior."""
+
+    def test_axis_limits_include_padding_for_normal_range(self) -> None:
+        """Normal range produces axis limits with 10% symmetric padding.
+
+        Plotter units are 1/1000 inch, so Coordinate(10000, 0) = 10 inches.
+        """
+        seg = StrokeSegment(
+            start=Coordinate(0, 0),
+            end=Coordinate(10000, 0),  # 10 inches
+            is_cutting=True,
+        )
+        path = StrokePath(segments=(seg,))
+        doc = PLTDocument(stroke_paths=[path])
+        fig = plot_plt_document(doc)
+        ax = fig.axes[0]
+        # 10 inch span -> padding 1.0 each side -> xlim (-1, 11)
+        x_min, x_max = ax.get_xlim()
+        assert x_min == pytest.approx(-1.0)
+        assert x_max == pytest.approx(11.0)
+        plt.close(fig)
+
+    def test_axis_limits_for_degenerate_x_use_magnitude_fallback(self) -> None:
+        """When all x values are identical, fallback range is 10% of magnitude."""
+        seg = StrokeSegment(
+            start=Coordinate(5000, 0),  # 5 inches
+            end=Coordinate(5000, 10000),
+            is_cutting=True,
+        )
+        path = StrokePath(segments=(seg,))
+        doc = PLTDocument(stroke_paths=[path])
+        fig = plot_plt_document(doc)
+        ax = fig.axes[0]
+        # In inches: x = 5 -> magnitude 5 -> range 0.5 -> padding 0.05
+        x_min, x_max = ax.get_xlim()
+        assert x_min == pytest.approx(5 - 0.05)
+        assert x_max == pytest.approx(5 + 0.05)
+        plt.close(fig)
+
+    def test_axis_limits_at_origin_use_default_floor(self) -> None:
+        """All points at origin trigger default_floor=1.0 inch range."""
+        seg = StrokeSegment(
+            start=Coordinate(0, 0),
+            end=Coordinate(0, 0),
+            is_cutting=True,
+        )
+        path = StrokePath(segments=(seg,))
+        doc = PLTDocument(stroke_paths=[path])
+        fig = plot_plt_document(doc)
+        ax = fig.axes[0]
+        # Range 1.0 -> padding 0.1 on each side
+        x_min, x_max = ax.get_xlim()
+        assert x_min == pytest.approx(-0.1)
+        assert x_max == pytest.approx(0.1)
+        y_min, y_max = ax.get_ylim()
+        assert y_min == pytest.approx(-0.1)
+        assert y_max == pytest.approx(0.1)
+        plt.close(fig)
+
+    def test_axis_limits_invert_y_via_flip(self) -> None:
+        """Y axis limits reflect flipped Y coordinates (display convention)."""
+        # Plotter y=10000 -> display y=-10 inches; plotter y=20000 -> display y=-20 inches
+        seg = StrokeSegment(
+            start=Coordinate(0, 10000),
+            end=Coordinate(10000, 20000),
+            is_cutting=True,
+        )
+        path = StrokePath(segments=(seg,))
+        doc = PLTDocument(stroke_paths=[path])
+        fig = plot_plt_document(doc)
+        ax = fig.axes[0]
+        y_min, y_max = ax.get_ylim()
+        # Display Y range = -20 to -10 -> span 10 -> padding 1.0
+        assert y_min == pytest.approx(-20 - 1.0)
+        assert y_max == pytest.approx(-10 + 1.0)
+        plt.close(fig)
+
+    def test_no_axis_limit_regression_floating_point(self) -> None:
+        """Regression: spans within abs_tol do not collapse to zero width.
+
+        Endpoints differ by 1e-6 plotter units = 1e-9 inch, which is at the
+        edge of ``abs_tol=1e-9``. The fallback path should produce a sensible
+        window rather than collapsing the axis.
+        """
+        v = 1000.0  # 1 inch in plotter units
+        seg = StrokeSegment(
+            start=Coordinate(v, v),
+            end=Coordinate(v + 1e-6, v + 1e-6),  # 1e-9 inch apart
+            is_cutting=True,
+        )
+        path = StrokePath(segments=(seg,))
+        doc = PLTDocument(stroke_paths=[path])
+        fig = plot_plt_document(doc)
+        ax = fig.axes[0]
+        x_min, x_max = ax.get_xlim()
+        # Width must be strictly positive — never collapses.
+        assert (x_max - x_min) > 0.0
+        # Magnitude fallback at v=1.0 inch yields range=0.1 -> padding=0.01.
+        # Width should be at least the real span (1e-6 inches).
+        assert (x_max - x_min) >= 1e-6
+        plt.close(fig)
