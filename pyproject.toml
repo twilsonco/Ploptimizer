@@ -1,6 +1,6 @@
 [project]
 name = "plt-optimizer"
-version = "1.1.0"
+version = "1.2.0"
 description = "Deterministic cross-platform Python tool for optimizing geometric toolpaths from HPGL/PLT plotter files."
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
