@@ -988,6 +988,7 @@ Examples:
 
         self._text_logger.info(f"Watching for PLT files in {self._args.watch_dir}")
         self._text_logger.info("Press Ctrl+C to stop...")
+        self._text_logger.info("(Right-click System Tray icon to access settings)")
 
         try:
             while not self._shutdown_requested:
