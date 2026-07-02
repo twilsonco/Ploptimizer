@@ -32,21 +32,53 @@ if TYPE_CHECKING:
     from PIL import Image
 
 
+def _safe_find_spec(name: str) -> bool:
+    """Safely check whether a module spec can be located.
+
+    ``importlib.util.find_spec`` is documented to return ``None`` when a
+    module is unavailable, but in practice it raises ``ModuleNotFoundError``
+    when an intermediate package on a dotted path is missing entirely (for
+    example, ``find_spec("infi.systray")`` raises when the ``infi`` package
+    itself is not installed). This helper swallows those errors so the
+    module-level dependency probe below never crashes the importer, which
+    is critical for headless CI runners that do not install the optional
+    ``tray`` extras.
+
+    Args:
+        name: Fully-qualified module name to look up (may contain dots).
+
+    Returns:
+        True if the module is importable, False otherwise.
+    """
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ModuleNotFoundError, ValueError):
+        # ValueError covers malformed names; ModuleNotFoundError covers the
+        # case where a parent package on a dotted path is missing entirely.
+        return False
+
+
 def _check_dependencies() -> None:
     """Check that required systray dependencies are available.
+
+    This is invoked when a tray is actually about to be created (i.e. from
+    :meth:`TrayIconManager.run`), not at module import time. This lets the
+    module load cleanly on systems where the optional ``tray`` extras are
+    not installed (e.g. headless CI runners on Windows), while still raising
+    a helpful error when the user actually tries to run the system tray.
 
     Raises:
         ImportError: If required libraries for the current platform are missing.
     """
     if _IS_WINDOWS:
         # On Windows, check for infi.systray (and implicitly pywin32)
-        if importlib.util.find_spec("infi.systray") is None:
+        if not _safe_find_spec("infi.systray"):
             raise ImportError(
                 "Windows systray requires infi-systray. Install with: uv add 'plt-optimizer[tray]'"
             )
     else:
         # On other platforms, check for pystray
-        if importlib.util.find_spec("pystray") is None or importlib.util.find_spec("PIL") is None:
+        if not _safe_find_spec("pystray") or not _safe_find_spec("PIL"):
             raise ImportError(
                 "System tray requires pystray and pillow. "
                 "Install with: uv add 'plt-optimizer[tray]'"
@@ -332,7 +364,17 @@ class TrayIconManager:
         Args:
             blocking: If True (default), runs with its own message loop (blocking).
                      If False, runs detached and caller must manage events.
+
+        Raises:
+            ImportError: If the platform-specific systray dependencies are
+                not installed (e.g. ``infi-systray`` on Windows or
+                ``pystray`` + ``pillow`` on Linux/macOS).
         """
+        # Validate dependencies at the public entry point rather than at
+        # module import time so the module can load cleanly on systems that
+        # do not install the optional ``tray`` extras (e.g. CI runners).
+        _check_dependencies()
+
         if _IS_WINDOWS:
             self._run_windows(blocking)
         else:
@@ -446,10 +488,6 @@ def get_icon_path_dev() -> Path:
         Path to the icon file relative to project root.
     """
     return Path(__file__).parent.parent.parent / "assets" / "icon.ico"
-
-
-# Validate dependencies when module loads
-_check_dependencies()
 
 
 __all__ = [

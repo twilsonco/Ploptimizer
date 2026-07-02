@@ -502,6 +502,53 @@ class TestCreateShortcutException:
                         assert result is None
 
 
+class TestSafeFindSpec:
+    """Tests for the _safe_find_spec helper (lines 14-37)."""
+
+    def test_returns_true_for_available_module(self) -> None:
+        """Returns True for a module that exists."""
+        from plt_optimizer.utils.startup import _safe_find_spec
+
+        # 'sys' is always available in any Python environment
+        assert _safe_find_spec("sys") is True
+
+    def test_returns_false_for_missing_module(self) -> None:
+        """Returns False when find_spec returns None."""
+        from plt_optimizer.utils.startup import _safe_find_spec
+
+        # Patch find_spec to return None (module genuinely not found)
+        with patch(
+            "plt_optimizer.utils.startup.importlib.util.find_spec",
+            return_value=None,
+        ):
+            assert _safe_find_spec("nonexistent.module") is False
+
+    def test_returns_false_when_parent_package_missing(self) -> None:
+        """Returns False when find_spec raises ModuleNotFoundError.
+
+        This is the Windows CI scenario: the ``tray`` extras are not installed
+        so ``win32com`` itself is absent, which causes ``find_spec("win32com.client")``
+        to raise ``ModuleNotFoundError`` instead of returning ``None``.
+        """
+        from plt_optimizer.utils.startup import _safe_find_spec
+
+        with patch(
+            "plt_optimizer.utils.startup.importlib.util.find_spec",
+            side_effect=ModuleNotFoundError("No module named 'win32com'"),
+        ):
+            assert _safe_find_spec("win32com.client") is False
+
+    def test_returns_false_for_value_error(self) -> None:
+        """Returns False when find_spec raises ValueError (malformed name)."""
+        from plt_optimizer.utils.startup import _safe_find_spec
+
+        with patch(
+            "plt_optimizer.utils.startup.importlib.util.find_spec",
+            side_effect=ValueError("Malformed module name"),
+        ):
+            assert _safe_find_spec("bad..name") is False
+
+
 class TestCreateShortcutTargetPathNoneExecutable:
     """Tests for create_shortcut() when target_path=None and get_executable returns Path (lines 102-107)."""
 

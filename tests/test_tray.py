@@ -656,6 +656,57 @@ class TestCheckDependenciesErrors:
                 _check_dependencies()
 
 
+class TestSafeFindSpec:
+    """Tests for the _safe_find_spec helper (lines 35-58).
+
+    The Windows CI runner does not install the ``tray`` extras, so
+    ``find_spec("infi.systray")`` raises ``ModuleNotFoundError`` instead of
+    returning ``None`` (because the ``infi`` package itself is missing).
+    The helper must swallow those errors so the tray module can load.
+    """
+
+    def test_returns_true_for_available_module(self) -> None:
+        """Returns True for a module that exists."""
+        from plt_optimizer.ui.tray import _safe_find_spec
+
+        # 'sys' is always available in any Python environment
+        assert _safe_find_spec("sys") is True
+
+    def test_returns_false_for_missing_module(self) -> None:
+        """Returns False when find_spec returns None."""
+        from plt_optimizer.ui.tray import _safe_find_spec
+
+        with patch(
+            "plt_optimizer.ui.tray.importlib.util.find_spec",
+            return_value=None,
+        ):
+            assert _safe_find_spec("nonexistent.module") is False
+
+    def test_returns_false_when_parent_package_missing(self) -> None:
+        """Returns False when find_spec raises ModuleNotFoundError.
+
+        Reproduces the Windows CI failure where ``infi`` is not installed
+        and ``find_spec("infi.systray")`` raises ``ModuleNotFoundError``.
+        """
+        from plt_optimizer.ui.tray import _safe_find_spec
+
+        with patch(
+            "plt_optimizer.ui.tray.importlib.util.find_spec",
+            side_effect=ModuleNotFoundError("No module named 'infi'"),
+        ):
+            assert _safe_find_spec("infi.systray") is False
+
+    def test_returns_false_for_value_error(self) -> None:
+        """Returns False when find_spec raises ValueError (malformed name)."""
+        from plt_optimizer.ui.tray import _safe_find_spec
+
+        with patch(
+            "plt_optimizer.ui.tray.importlib.util.find_spec",
+            side_effect=ValueError("Malformed module name"),
+        ):
+            assert _safe_find_spec("bad..name") is False
+
+
 class TestExitClickCallbacks:
     """Tests for exit click callbacks (lines 178->exit, 181-182)."""
 

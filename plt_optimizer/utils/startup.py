@@ -10,13 +10,40 @@ import importlib.util
 import sys
 from pathlib import Path
 
-# Check availability of Windows-specific modules without importing at module level
-_WINSHELL_AVAILABLE: bool = (
-    sys.platform == "win32" and importlib.util.find_spec("winshell") is not None
-)
-_PYWIN32_AVAILABLE: bool = (
-    sys.platform == "win32" and importlib.util.find_spec("win32com.client") is not None
-)
+
+def _safe_find_spec(name: str) -> bool:
+    """Safely check whether a module spec can be located.
+
+    Wraps :func:`importlib.util.find_spec` so the call never propagates an
+    exception to the importer. ``find_spec`` is documented to return ``None``
+    when a module cannot be found, but in practice it raises
+    ``ModuleNotFoundError`` when an intermediate package on a dotted path is
+    absent (e.g. ``find_spec("win32com.client")`` when ``win32com`` itself is
+    not installed). Treating such errors as "module unavailable" lets the
+    rest of this module load on systems where the optional ``tray`` extras
+    are not installed (e.g. headless CI runners on Windows).
+
+    Args:
+        name: Fully-qualified module name to look up (may contain dots).
+
+    Returns:
+        True if the module is importable, False otherwise.
+    """
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ModuleNotFoundError, ValueError):
+        # ValueError covers malformed names; ModuleNotFoundError covers the
+        # case where a parent package on a dotted path is missing entirely.
+        return False
+
+
+# Check availability of Windows-specific modules without importing at module level.
+# We use the safe helper above because find_spec("win32com.client") raises
+# ModuleNotFoundError (instead of returning None) when the win32com package
+# itself is not installed, which is the case on CI runners that only install
+# the ``dev`` and ``plotting`` extras.
+_WINSHELL_AVAILABLE: bool = sys.platform == "win32" and _safe_find_spec("winshell")
+_PYWIN32_AVAILABLE: bool = sys.platform == "win32" and _safe_find_spec("win32com.client")
 
 # Shortcut filename without extension
 APP_NAME = "PLT-Optimizer"
