@@ -212,8 +212,100 @@ def _install_tkinter_mocks() -> None:
     sys.modules["tkinter"] = TkinterModule()  # type: ignore[assignment]
 
 
+def _install_pystray_mocks() -> None:
+    """Install pystray mocks at the earliest possible moment.
+
+    Pystray's real implementation imports Xlib transitively on Linux/macOS,
+    which fails on headless CI runners where no ``DISPLAY`` environment
+    variable is set::
+
+        Xlib.error.DisplayNameError: Bad display name ""
+
+    ``plt_optimizer/ui/tray.py`` imports pystray lazily inside ``_setup_pystray``
+    and ``_create_pystray_menu``, but the tests use
+    ``with patch("pystray.Menu")`` which forces Python to ``import pystray``
+    before patching can take effect. That import chain is what triggers the
+    Xlib failure on Ubuntu/macOS CI runners.
+
+    Installing a stand-in mock module in ``sys.modules`` prevents the real
+    ``pystray`` package (and its ``Xlib`` dependency) from being loaded
+    during test collection. The mock exposes the same public attributes
+    (``Icon``, ``Menu``, ``MenuItem`` and ``Menu.SEPARATOR``) that the
+    production code references, so existing ``patch("pystray.X")`` calls
+    continue to work without modification. This mirrors the tkinter-mock
+    strategy above and avoids scattering platform-specific guards across
+    individual tests.
+
+    The mock is given a ``__spec__`` (a ``ModuleSpec`` with ``loader=None``)
+    so ``importlib.util.find_spec("pystray")`` still resolves to a non-None
+    spec. Without this, production code paths that probe for pystray via
+    ``_safe_find_spec("pystray")`` (e.g. ``TrayIconManager.run`` -> ``_check_dependencies``)
+    would see the mock as "missing" and raise ``ImportError`` even though
+    ``pystray`` is technically present in ``sys.modules``.
+    """
+
+    import importlib.machinery
+
+    class MockIcon:
+        """Mock pystray.Icon class used by TrayIconManager._setup_pystray."""
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self._init_args = args
+            self._init_kwargs = kwargs
+
+        def run(self) -> None:
+            """Stand-in for pystray.Icon.run (blocking message loop)."""
+
+        def run_detached(self) -> None:
+            """Stand-in for pystray.Icon.run_detached."""
+
+        def stop(self) -> None:
+            """Stand-in for pystray.Icon.stop."""
+
+    class MockMenu:
+        """Mock pystray.Menu class used by TrayIconManager._create_pystray_menu.
+
+        ``Menu.SEPARATOR`` is referenced as a class attribute in production
+        code and must therefore be defined on the class itself rather than on
+        instances.
+        """
+
+        SEPARATOR = "---"
+
+        def __init__(self, *items: Any) -> None:
+            self._items = items
+
+    class MockMenuItem:
+        """Mock pystray.MenuItem class used by TrayIconManager._create_pystray_menu."""
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self._init_args = args
+            self._init_kwargs = kwargs
+
+    class PystrayModule:
+        """Stand-in for the ``pystray`` package module."""
+
+        Icon = MockIcon
+        Menu = MockMenu
+        MenuItem = MockMenuItem
+
+        # Mimic a real package so ``importlib.util.find_spec`` returns a
+        # non-None spec and ``_safe_find_spec`` reports pystray as present.
+        __name__ = "pystray"
+        __package__ = "pystray"
+        __file__ = __file__
+        __spec__ = importlib.machinery.ModuleSpec(name="pystray", loader=None)
+
+    # Only install if pystray isn't already in sys.modules - if a prior test
+    # or import successfully brought in real pystray we leave it alone so
+    # behaviour matches what was loaded at interpreter startup.
+    if "pystray" not in sys.modules:
+        sys.modules["pystray"] = PystrayModule()  # type: ignore[assignment]
+
+
 # Install mocks immediately when this module is imported (before collection)
 _install_tkinter_mocks()
+_install_pystray_mocks()
 
 
 @pytest.fixture(autouse=True)
