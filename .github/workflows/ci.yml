@@ -49,8 +49,12 @@ jobs:
         run: uv run mypy plt_optimizer/
 
   test:
-    name: Test
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -70,7 +74,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
-        if: success()
+        if: success() && matrix.os == 'ubuntu-latest'
         with:
           files: ./coverage.xml
           fail_ci_if_error: false
