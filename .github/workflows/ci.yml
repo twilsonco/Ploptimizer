@@ -74,7 +74,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
-        if: success() && matrix.os == 'ubuntu-latest'
+        if: success() && matrix.os == 'windows-latest'
         with:
           files: ./coverage.xml
           fail_ci_if_error: false
