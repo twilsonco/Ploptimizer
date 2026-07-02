@@ -768,12 +768,19 @@ Examples:
             if parent == pathlib.Path("/"):
                 raise ValueError(f"Cannot create path '{path}': root directory '/' is not writable")
             if parent.exists():
-                # Parent exists, check if we can write to it
+                # Parent exists, check if we can write to it.
+                # Catch OSError (not just PermissionError) to handle:
+                #   - PermissionError (errno 13 EACCES) on Linux when the
+                #     parent is owned by another user/group
+                #   - OSError (errno 30 EROFS, "Read-only file system") on
+                #     macOS when the parent resides on a read-only volume
+                #     (e.g. /usr/share on the sealed system volume)
+                #   - Any other OS-level write failure surfaced by touch()
                 try:
                     test_file = parent / f".plt_opt_write_test_{os.getpid()}"
                     test_file.touch()
                     test_file.unlink()
-                except PermissionError as e:
+                except OSError as e:
                     raise ValueError(
                         f"Cannot create path '{path}': "
                         f"parent directory '{parent}' is not writable: {e}"

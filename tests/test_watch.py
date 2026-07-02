@@ -905,23 +905,27 @@ class TestPathValidationErrors:
         with patch.object(WatchCommand, '_setup_logging'):
             cmd = WatchCommand(args=["--watch-dir", str(tmp_path)])
 
-            # Create a path under /usr/share (typically not writable on POSIX)
-            # On Windows, paths starting with "/" are converted to drive-relative
-            # paths which behave differently. Skip on Windows where this test
-            # cannot reliably simulate an unwritable parent.
-            import sys
-            if sys.platform == "win32":
-                pytest.skip(
-                    "POSIX-specific test: /usr/share path semantics differ on Windows"
-                )
+            # Simulate an unwritable parent by mocking Path.touch to raise
+            # OSError. This avoids relying on /usr/share being unwritable,
+            # which is unreliable across CI environments:
+            #   - On macOS, /usr/share is on the sealed read-only volume
+            #     and touch raises OSError(errno=30, "Read-only file system"),
+            #     not PermissionError.
+            #   - On Linux CI containers, the runner may execute as root or
+            #     have elevated permissions, making /usr/share writable so
+            #     no ValueError would be raised.
+            # Mocking Path.touch is portable across POSIX and Windows and
+            # exercises the same `except OSError` branch in production code.
+            fake_path = tmp_path / "unwritable_subdir" / "file"
+            assert not fake_path.exists()  # Sanity check
 
-            # Create a path under /usr/share (typically not writable)
-            fake_path = Path("/usr/share/some_app_data/subdir")
+            with patch.object(
+                Path, 'touch', side_effect=OSError(30, "Read-only file system")
+            ):
+                with pytest.raises(ValueError) as exc_info:
+                    cmd._validate_path_can_be_created(fake_path)
 
-            with pytest.raises(ValueError) as exc_info:
-                cmd._validate_path_can_be_created(fake_path)
-
-            assert "writable" in str(exc_info.value).lower()
+                assert "writable" in str(exc_info.value).lower()
 
 
 class TestObserverCleanupPaths:
