@@ -67,7 +67,7 @@ jobs:
         run: pip install uv
 
       - name: Install dependencies
-        run: uv sync --extra dev --extra plotting
+        run: uv sync --all-extras
 
       - name: Run tests
         run: uv run pytest tests/ -v --cov=plt_optimizer --cov-report=xml

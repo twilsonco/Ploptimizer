@@ -1363,7 +1363,12 @@ class TestRunDispatchOnWindows:
 
         manager = TrayIconManager(MagicMock(), MagicMock(), MagicMock())
 
+        # Patch _check_dependencies to a no-op so the dispatch test is
+        # independent of whether the optional ``tray`` extras are installed
+        # on the current platform (infi-systray has a Windows-only marker
+        # so it won't be installed on Linux/macOS CI runners).
         with patch("plt_optimizer.ui.tray._IS_WINDOWS", True), \
+             patch("plt_optimizer.ui.tray._check_dependencies"), \
              patch.object(manager, "_run_windows") as mock_run_win, \
              patch.object(manager, "_run_pystray") as mock_run_py:
 
