@@ -32,6 +32,33 @@ def _flip_y(y: float) -> float:
     return -y
 
 
+def _safe_range(lo: float, hi: float, default_floor: float = 1.0) -> float:
+    """Compute axis range with sensible fallback for degenerate spans.
+
+    Uses ``math.isclose`` to avoid direct floating-point equality per project
+    standards (AGENTS.md §1). Falls back to 10% of the larger endpoint
+    magnitude when both endpoints are within tolerance of each other but
+    meaningfully non-zero. When both endpoints are within tolerance of zero,
+    falls back to ``default_floor`` to keep the axis from collapsing.
+
+    Args:
+        lo: Lower bound (in inches).
+        hi: Upper bound (in inches).
+        default_floor: Range to return when both endpoints are within
+            ``ZERO_TOL`` of zero. Defaults to 1.0 inch.
+
+    Returns:
+        A strictly positive range suitable for computing symmetric padding.
+    """
+    zero_tol = 1e-9
+    if not math.isclose(lo, hi, rel_tol=0.0, abs_tol=zero_tol):
+        return hi - lo
+    magnitude = max(abs(lo), abs(hi))
+    if math.isclose(magnitude, 0.0, rel_tol=0.0, abs_tol=zero_tol):
+        return default_floor
+    return magnitude * 0.1
+
+
 def _arc_to_points(arc: ArcSegment, num_segments: int = 32) -> list[Coordinate]:
     """Sample points along an arc for linear approximation.
 
@@ -154,8 +181,8 @@ def plot_plt_document(
             y_min, y_max = min(all_y), max(all_y)
 
             # Add 10% padding (5% on each side)
-            x_range = x_max - x_min if x_max != x_min else abs(x_max) * 0.1 if x_max != 0 else 1.0
-            y_range = y_max - y_min if y_max != y_min else abs(y_max) * 0.1 if y_max != 0 else 1.0
+            x_range = _safe_range(x_min, x_max)
+            y_range = _safe_range(y_min, y_max)
             padding_x = x_range * 0.1
             padding_y = y_range * 0.1
 
