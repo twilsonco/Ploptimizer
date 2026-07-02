@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/twilsonco/Ploptimizer/compare/v1.2.0...v1.2.1) (2026-07-02)
+
+
+### Bug Fixes
+
+* add log statement at startup ([8b916fa](https://github.com/twilsonco/Ploptimizer/commit/8b916faa328be3a0be8ee531a65565ef1c22c96e))
+
 ## [1.2.0](https://github.com/twilsonco/Ploptimizer/compare/v1.1.0...v1.2.0) (2026-07-02)
 
 
