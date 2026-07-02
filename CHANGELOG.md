@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/twilsonco/Ploptimizer/compare/v1.1.0...v1.2.0) (2026-07-02)
+
+
+### Features
+
+* initial release ([b17c3d5](https://github.com/twilsonco/Ploptimizer/commit/b17c3d5ae30fbfb1865ac225a86a1eca9fe368a5))
+
 ## [1.1.0](https://github.com/twilsonco/Ploptimizer/compare/v1.0.0...v1.1.0) (2026-07-02)
 
 
