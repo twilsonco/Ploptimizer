@@ -50,23 +50,3 @@ jobs:
         with:
           name: PLT-Optimizer-Windows
           path: dist/PLT-Optimizer/
-
-  release:
-    name: Create Release
-    needs: build
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
-    steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: PLT-Optimizer-Windows
-          path: ./dist
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: dist/PLT-Optimizer/**
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
