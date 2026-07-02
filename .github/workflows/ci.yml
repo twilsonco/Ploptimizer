@@ -73,11 +73,12 @@ jobs:
         run: uv run pytest tests/ -v --cov=plt_optimizer --cov-report=xml
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         if: success() && matrix.os == 'windows-latest'
         with:
           files: ./coverage.xml
           fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   release-please:
     needs: [lint, type-check, test]
