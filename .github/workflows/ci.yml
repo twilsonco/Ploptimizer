@@ -8,14 +8,57 @@ on:
     branches: [main]
 
 jobs:
+  # Detect which paths changed in this push/PR so downstream jobs can
+  # skip work that isn't relevant to the change set.
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      python: ${{ steps.filter.outputs.python }}
+      release: ${{ steps.filter.outputs.release }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            python:
+              - 'plt_optimizer/**/*.py'
+              - 'tests/**/*.py'
+            release:
+              - 'pyproject.toml'
+              - 'CHANGELOG.md'
+              - '.github/release-please-config.json'
+              - '.github/release-please-manifest.json'
+
+  # Skip lint/type-check/test for release-please PRs and for the push that
+  # merges a release-please PR back into main. release-please creates PRs
+  # from branches prefixed with 'release-please--branches--', and the
+  # resulting merge commit message on the default branch typically contains
+  # 'release-please' (for merge-commit merges) or matches release-please's
+  # default PR title pattern `chore(<branch>): release ...` (for squash
+  # merges). In both cases the upstream lint/type-check/test jobs have
+  # already run successfully, so rerunning them is wasted CI.
   lint:
     name: Lint
+    needs: changes
+    if: |
+      needs.changes.outputs.python == 'true' &&
+      !(
+        (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--branches--')) ||
+        (github.event_name == 'push' && (
+          contains(github.event.head_commit.message, 'release-please') ||
+          (startsWith(github.event.head_commit.message, 'chore') && contains(github.event.head_commit.message, ': release'))
+        ))
+      )
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
@@ -30,12 +73,22 @@ jobs:
 
   type-check:
     name: Type Check
+    needs: changes
+    if: |
+      needs.changes.outputs.python == 'true' &&
+      !(
+        (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--branches--')) ||
+        (github.event_name == 'push' && (
+          contains(github.event.head_commit.message, 'release-please') ||
+          (startsWith(github.event.head_commit.message, 'chore') && contains(github.event.head_commit.message, ': release'))
+        ))
+      )
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
@@ -50,16 +103,26 @@ jobs:
 
   test:
     name: Test (${{ matrix.os }})
+    needs: changes
+    if: |
+      needs.changes.outputs.python == 'true' &&
+      !(
+        (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--branches--')) ||
+        (github.event_name == 'push' && (
+          contains(github.event.head_commit.message, 'release-please') ||
+          (startsWith(github.event.head_commit.message, 'chore') && contains(github.event.head_commit.message, ': release'))
+        ))
+      )
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
@@ -73,7 +136,7 @@ jobs:
         run: uv run pytest tests/ -v --cov=plt_optimizer --cov-report=xml
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         if: success() && matrix.os == 'windows-latest'
         with:
           files: ./coverage.xml
@@ -81,14 +144,30 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
   release-please:
-    needs: [lint, type-check, test]
+    needs: [changes, lint, type-check, test]
+    # Run when Python files or release-related files changed (to detect new
+    # commits or pick up config changes). Skip on the release-please PR
+    # itself (its branch is prefixed with 'release-please--branches--') to
+    # avoid a no-op loop. Still allow it to run when lint/type-check/test
+    # were skipped rather than succeeded (e.g. when the release-please PR
+    # is merged back to main). Never proceed if any dependency failed or
+    # was cancelled.
+    if: |
+      (needs.changes.outputs.python == 'true' || needs.changes.outputs.release == 'true') &&
+      !(
+        github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--branches--')
+      ) && (
+        always() &&
+        !contains(needs.*.result, 'failure') &&
+        !contains(needs.*.result, 'cancelled')
+      )
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: googleapis/release-please-action@v4
+      - uses: actions/checkout@v7
+      - uses: googleapis/release-please-action@v5
         id: release
         with:
           token: ${{ secrets.GH_TOKEN }}
@@ -100,8 +179,8 @@ jobs:
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
       - run: uv sync --extra dev --extra tray --extra build
