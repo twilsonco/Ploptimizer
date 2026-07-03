@@ -106,7 +106,7 @@ jobs:
 
   test:
     name: Test (${{ matrix.os }})
-    needs: changes
+    needs: [changes, type-check, lint]
     if: |
       needs.changes.outputs.should_skip != 'true' &&
       !fromJSON(needs.changes.outputs.paths_result).python.should_skip &&
@@ -150,7 +150,8 @@ jobs:
   release-please:
     # No dependency on test jobs - for normal commits this just creates/updates a PR,
     # and for release commits (when the PR is merged) the tests already passed on the PR.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && (! failure() && ! cancelled() )
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
