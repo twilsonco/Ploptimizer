@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.9](https://github.com/twilsonco/Ploptimizer/compare/v1.2.8...v1.2.9) (2026-07-03)
+
+
+### Documentation
+
+* update readme and make `README_DEV.md` for more details ([1b99581](https://github.com/twilsonco/Ploptimizer/commit/1b99581df5d01758041dd29447b23003b73af81d))
+
 ## [1.2.8](https://github.com/twilsonco/Ploptimizer/compare/v1.2.7...v1.2.8) (2026-07-03)
 
 
