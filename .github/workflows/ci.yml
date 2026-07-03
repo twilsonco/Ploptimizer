@@ -26,8 +26,8 @@ jobs:
           paths_filter: |
             python:
               paths:
-                - 'plt_optimizer/**/*.py'
-                - 'tests/**/*.py'
+                - 'plt_optimizer/**'
+                - 'tests/**'
 
   # Skip lint/type-check/test for release-please PRs and for the push that
   # merges a release-please PR back into main. release-please creates PRs
