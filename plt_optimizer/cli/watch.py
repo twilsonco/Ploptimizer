@@ -1013,8 +1013,6 @@ def main(args: list[str] | None = None) -> int:
     Returns:
         Exit code.
     """
-    a = 1
-    print(a)
     command = WatchCommand(args)
     return command.run()
 
