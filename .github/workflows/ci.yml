@@ -20,6 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       should_skip: ${{ steps.skip_check.outputs.should_skip }}
+      paths_result: ${{ steps.skip_check.outputs.paths_result }}
     steps:
       - id: skip_check
         uses: fkirc/skip-duplicate-actions@v5
@@ -27,6 +28,11 @@ jobs:
           concurrent_skipping: 'never'
           skip_after_successful_duplicate: 'true'
           do_not_skip: '["workflow_dispatch", "schedule"]'
+          paths_filter: |
+            python:
+              paths:
+                - 'plt_optimizer/**'
+                - 'tests/**'
 
   # Skip lint/type-check/test for release-please PRs and for the push that
   # merges a release-please PR back into main. release-please creates PRs
@@ -41,6 +47,7 @@ jobs:
     needs: changes
     if: |
       needs.changes.outputs.should_skip != 'true' &&
+      !fromJSON(needs.changes.outputs.paths_result).python.should_skip &&
       !(
         (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--branches--')) ||
         (github.event_name == 'push' && (
@@ -71,6 +78,7 @@ jobs:
     needs: changes
     if: |
       needs.changes.outputs.should_skip != 'true' &&
+      !fromJSON(needs.changes.outputs.paths_result).python.should_skip &&
       !(
         (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--branches--')) ||
         (github.event_name == 'push' && (
@@ -101,6 +109,7 @@ jobs:
     needs: changes
     if: |
       needs.changes.outputs.should_skip != 'true' &&
+      !fromJSON(needs.changes.outputs.paths_result).python.should_skip &&
       !(
         (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--branches--')) ||
         (github.event_name == 'push' && (
