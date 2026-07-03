@@ -20,6 +20,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "fast_mode": False,
     "debug_save_files": False,
     "run_at_startup": False,
+    "first_run": True,
 }
 
 
@@ -75,6 +76,8 @@ def save_config(config: dict[str, Any]) -> None:
 
     # Ensure parent directory exists
     config_path.parent.mkdir(parents=True, exist_ok=True)
+
+    config["first_run"] = False
 
     try:
         with open(config_path, "w", encoding="utf-8") as f:
