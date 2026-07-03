@@ -85,7 +85,7 @@ class SettingsWindow:
         # Left column (col 0-1)
         ttk.Label(dir_section, text="Watch:").grid(row=0, column=0, sticky="w", padx=(0, 5), pady=3)
         self._watch_dir_var = tk.StringVar()
-        watch_entry = ttk.Entry(dir_section, textvariable=self._watch_dir_var, width=30)
+        watch_entry = ttk.Entry(dir_section, textvariable=self._watch_dir_var, width=50)
         watch_entry.grid(row=0, column=1, sticky="ew", padx=(0, 5), pady=3)
 
         # Right column (col 2-3) - Watch Browse
@@ -100,7 +100,7 @@ class SettingsWindow:
             row=1, column=0, sticky="w", padx=(0, 5), pady=3
         )
         self._output_dir_var = tk.StringVar()
-        output_entry = ttk.Entry(dir_section, textvariable=self._output_dir_var, width=30)
+        output_entry = ttk.Entry(dir_section, textvariable=self._output_dir_var, width=50)
         output_entry.grid(row=1, column=1, sticky="ew", padx=(0, 5), pady=3)
 
         # Right column - Output Browse
@@ -113,7 +113,7 @@ class SettingsWindow:
         # Left column
         ttk.Label(dir_section, text="Log:").grid(row=2, column=0, sticky="w", padx=(0, 5), pady=3)
         self._log_dir_var = tk.StringVar()
-        log_entry = ttk.Entry(dir_section, textvariable=self._log_dir_var, width=30)
+        log_entry = ttk.Entry(dir_section, textvariable=self._log_dir_var, width=50)
         log_entry.grid(row=2, column=1, sticky="ew", padx=(0, 5), pady=3)
 
         # Right column - Log Browse
@@ -126,7 +126,7 @@ class SettingsWindow:
             row=3, column=0, sticky="w", padx=(0, 5), pady=3
         )
         self._processed_dir_var = tk.StringVar()
-        processed_entry = ttk.Entry(dir_section, textvariable=self._processed_dir_var, width=30)
+        processed_entry = ttk.Entry(dir_section, textvariable=self._processed_dir_var, width=50)
         processed_entry.grid(row=3, column=1, sticky="ew", padx=(0, 5), pady=3)
 
         # Right column - Processed Browse
