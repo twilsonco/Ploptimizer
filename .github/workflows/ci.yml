@@ -33,6 +33,7 @@ jobs:
               paths:
                 - 'plt_optimizer/**'
                 - 'tests/**'
+                - '*.py'
 
   # Skip lint/type-check/test for release-please PRs and for the push that
   # merges a release-please PR back into main. release-please creates PRs
