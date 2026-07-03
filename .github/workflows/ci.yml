@@ -28,12 +28,6 @@ jobs:
               paths:
                 - 'plt_optimizer/**/*.py'
                 - 'tests/**/*.py'
-            release:
-              paths:
-                - 'pyproject.toml'
-                - 'CHANGELOG.md'
-                - '.github/release-please-config.json'
-                - '.github/release-please-manifest.json'
 
   # Skip lint/type-check/test for release-please PRs and for the push that
   # merges a release-please PR back into main. release-please creates PRs
@@ -146,16 +140,14 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
   release-please:
-    needs: [changes, lint, type-check, test]
-    # Run when Python files or release-related files changed (to detect new
-    # commits or pick up config changes). Skip on the release-please PR
-    # itself (its branch is prefixed with 'release-please--branches--') to
-    # avoid a no-op loop. Still allow it to run when lint/type-check/test
-    # were skipped rather than succeeded (e.g. when the release-please PR
-    # is merged back to main). Never proceed if any dependency failed or
-    # was cancelled.
+    needs: [lint, type-check, test]
+    # Skip on the release-please PR itself (its branch is prefixed with
+    # 'release-please--branches--') to avoid a no-op loop. Still allow it
+    # to run when lint/type-check/test were skipped rather than succeeded
+    # (e.g. when no Python files changed but a release-worthy conventional
+    # commit was pushed, or when the release-please PR is merged back to
+    # main). Never proceed if any dependency failed or was cancelled.
     if: |
-      (fromJSON(needs.changes.outputs.paths_result).python.should_skip == 'false' || fromJSON(needs.changes.outputs.paths_result).release.should_skip == 'false') &&
       !(
         github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--branches--')
       ) && (
