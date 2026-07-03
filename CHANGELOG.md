@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.13](https://github.com/twilsonco/Ploptimizer/compare/v1.2.12...v1.2.13) (2026-07-03)
+
+
+### Bug Fixes
+
+* tray icon and config directory string field widths ([bdf7d4b](https://github.com/twilsonco/Ploptimizer/commit/bdf7d4b9847135834bb61fb5c5e87aa2e7a5f8c9))
+
 ## [1.2.12](https://github.com/twilsonco/Ploptimizer/compare/v1.2.11...v1.2.12) (2026-07-03)
 
 
