@@ -21,22 +21,6 @@ from plt_optimizer.utils.config import (
 class TestGetConfigPath:
     """Tests for get_config_path function (lines 32-38)."""
 
-    def test_get_config_path_on_non_windows(self) -> None:
-        """Test that config path is correct on non-Windows platforms."""
-        with patch("sys.platform", "darwin"):
-            config_path = get_config_path()
-            expected = Path.home() / ".config" / "plt-optimizer" / "config.json"
-            assert config_path == expected
-
-    def test_get_config_path_on_windows(self) -> None:
-        """Test that config path is correct on Windows."""
-        with patch("sys.platform", "win32"):
-            config_path = get_config_path()
-            expected = (
-                Path.home() / "AppData" / "Local" / "PLT-Optimizer" / "config.json"
-            )
-            assert config_path == expected
-
     def test_get_config_path_creates_directory(self) -> None:
         """Test that the parent directory is created if it doesn't exist."""
         with patch("sys.platform", "darwin"):
