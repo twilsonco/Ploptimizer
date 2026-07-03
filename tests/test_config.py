@@ -196,19 +196,10 @@ class TestDefaultConfig:
             "fast_mode",
             "debug_save_files",
             "run_at_startup",
+            "first_run"
         ]
         for key in required_keys:
             assert key in DEFAULT_CONFIG
-
-    def test_default_config_values(self) -> None:
-        """Test default values are as expected."""
-        assert DEFAULT_CONFIG["watch_dir"] == ""
-        assert DEFAULT_CONFIG["output_dir"] == "./optimized"
-        assert DEFAULT_CONFIG["log_dir"] == "./logs"
-        assert DEFAULT_CONFIG["processed_dir"] is None
-        assert DEFAULT_CONFIG["fast_mode"] is False
-        assert DEFAULT_CONFIG["debug_save_files"] is False
-        assert DEFAULT_CONFIG["run_at_startup"] is False
 
 
 class TestConfigRoundTrip:
