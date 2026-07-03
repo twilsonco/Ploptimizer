@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.11](https://github.com/twilsonco/Ploptimizer/compare/v1.2.10...v1.2.11) (2026-07-03)
+
+
+### Bug Fixes
+
+* build Windows exe on every release ([3ab3e8f](https://github.com/twilsonco/Ploptimizer/commit/3ab3e8fe9523e48c1e68643e598ead1a72659d25))
+
 ## [1.2.10](https://github.com/twilsonco/Ploptimizer/compare/v1.2.9...v1.2.10) (2026-07-03)
 
 
