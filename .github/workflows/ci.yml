@@ -47,7 +47,7 @@ jobs:
     needs: changes
     if: |
       needs.changes.outputs.should_skip != 'true' &&
-      !fromJSON(needs.changes.outputs.paths_result).python.should_skip &&
+      fromJSON(needs.changes.outputs.paths_result).python.should_skip != 'true' &&
       !(
         (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--branches--')) ||
         (github.event_name == 'push' && (
@@ -78,7 +78,7 @@ jobs:
     needs: changes
     if: |
       needs.changes.outputs.should_skip != 'true' &&
-      !fromJSON(needs.changes.outputs.paths_result).python.should_skip &&
+      fromJSON(needs.changes.outputs.paths_result).python.should_skip != 'true' &&
       !(
         (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--branches--')) ||
         (github.event_name == 'push' && (
@@ -109,7 +109,7 @@ jobs:
     needs: [changes, type-check, lint]
     if: |
       needs.changes.outputs.should_skip != 'true' &&
-      !fromJSON(needs.changes.outputs.paths_result).python.should_skip &&
+      fromJSON(needs.changes.outputs.paths_result).python.should_skip != 'true' &&
       !(
         (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--branches--')) ||
         (github.event_name == 'push' && (
