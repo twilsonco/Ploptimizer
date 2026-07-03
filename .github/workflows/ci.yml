@@ -8,26 +8,20 @@ on:
     branches: [main]
 
 jobs:
-  # Detect which paths changed in this push/PR so downstream jobs can
-  # skip work that isn't relevant to the change set.
+  # Detect duplicate workflow runs to skip redundant test execution
+  # (e.g., when the same commit is tested in a PR and then again when merged).
   changes:
     name: Detect changes
     runs-on: ubuntu-latest
     outputs:
       should_skip: ${{ steps.skip_check.outputs.should_skip }}
-      paths_result: ${{ steps.skip_check.outputs.paths_result }}
     steps:
       - id: skip_check
         uses: fkirc/skip-duplicate-actions@v5
         with:
           concurrent_skipping: 'never'
-          skip_after_successful_duplicate: false
-          do_not_skip: '["workflow_dispatch"]'
-          paths_filter: |
-            python:
-              paths:
-                - 'plt_optimizer/**'
-                - 'tests/**'
+          skip_after_successful_duplicate: 'true'
+          do_not_skip: '["workflow_dispatch", "schedule"]'
 
   # Skip lint/type-check/test for release-please PRs and for the push that
   # merges a release-please PR back into main. release-please creates PRs
@@ -41,7 +35,7 @@ jobs:
     name: Lint
     needs: changes
     if: |
-      fromJSON(needs.changes.outputs.paths_result).python.should_skip == 'false' &&
+      needs.changes.outputs.should_skip != 'true' &&
       !(
         (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--branches--')) ||
         (github.event_name == 'push' && (
@@ -71,7 +65,7 @@ jobs:
     name: Type Check
     needs: changes
     if: |
-      fromJSON(needs.changes.outputs.paths_result).python.should_skip == 'false' &&
+      needs.changes.outputs.should_skip != 'true' &&
       !(
         (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--branches--')) ||
         (github.event_name == 'push' && (
@@ -101,7 +95,7 @@ jobs:
     name: Test (${{ matrix.os }})
     needs: changes
     if: |
-      fromJSON(needs.changes.outputs.paths_result).python.should_skip == 'false' &&
+      needs.changes.outputs.should_skip != 'true' &&
       !(
         (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--branches--')) ||
         (github.event_name == 'push' && (
@@ -143,10 +137,8 @@ jobs:
     needs: [lint, type-check, test]
     # Skip on the release-please PR itself (its branch is prefixed with
     # 'release-please--branches--') to avoid a no-op loop. Still allow it
-    # to run when lint/type-check/test were skipped rather than succeeded
-    # (e.g. when no Python files changed but a release-worthy conventional
-    # commit was pushed, or when the release-please PR is merged back to
-    # main). Never proceed if any dependency failed or was cancelled.
+    # to run when lint/type-check/test were skipped (by skip-duplicate-actions)
+    # rather than succeeded. Never proceed if any dependency failed or was cancelled.
     if: |
       !(
         github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--branches--')
