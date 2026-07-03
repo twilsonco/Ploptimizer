@@ -175,7 +175,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - run: uv sync --extra dev --extra tray --extra build
+      - run: uv sync --all-extras
       - name: Create assets directory
         run: New-Item -ItemType Directory -Force -Path assets
       - name: Build executable
