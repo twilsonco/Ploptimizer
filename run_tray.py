@@ -31,6 +31,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+_first_run = True
+
 
 def get_icon_path() -> Path:
     """Get path to icon.ico accounting for PyInstaller frozen builds.
@@ -259,6 +261,8 @@ def main() -> int:
     logger.info("About to start tray manager")
 
     try:
+        if _first_run:
+            on_settings_requested()
         tray_manager.run(blocking=True)  # Blocking - pystray manages events
         logger.info("Tray manager returned normally")
     except KeyboardInterrupt:
