@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.10](https://github.com/twilsonco/Ploptimizer/compare/v1.2.9...v1.2.10) (2026-07-03)
+
+
+### Bug Fixes
+
+* cleanup unused code ([0176655](https://github.com/twilsonco/Ploptimizer/commit/0176655ffa71eb33537c20a3f8d9497c36cc0fce))
+
 ## [1.2.9](https://github.com/twilsonco/Ploptimizer/compare/v1.2.8...v1.2.9) (2026-07-03)
 
 
