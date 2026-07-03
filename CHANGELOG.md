@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.1](https://github.com/twilsonco/Ploptimizer/compare/v1.2.0...v1.2.1) (2026-07-03)
+
+
+### Bug Fixes
+
+* add log statement at startup ([8b916fa](https://github.com/twilsonco/Ploptimizer/commit/8b916faa328be3a0be8ee531a65565ef1c22c96e))
+* ci optimization ([b7a77cf](https://github.com/twilsonco/Ploptimizer/commit/b7a77cfc2a9567c620cc8f04b305354593b0e70c))
+* ci optimization ([92e02dd](https://github.com/twilsonco/Ploptimizer/commit/92e02dd3f8246f769cd2dd850fb8190bbf68175c))
+
 ## [1.2.0](https://github.com/twilsonco/Ploptimizer/compare/v1.1.0...v1.2.0) (2026-07-02)
 
 
