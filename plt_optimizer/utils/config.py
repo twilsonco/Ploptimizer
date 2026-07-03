@@ -11,12 +11,18 @@ import sys
 from pathlib import Path
 from typing import Any
 
+_IS_WINDOWS = sys.platform == "win32"
+
 # Default configuration values
 DEFAULT_CONFIG: dict[str, Any] = {
-    "watch_dir": "",
-    "output_dir": "./optimized",
-    "log_dir": "./logs",
-    "processed_dir": None,
+    "watch_dir": Path("C:/Vision Machine Tools/InboxRaw") if _IS_WINDOWS else Path("./inbox"),
+    "output_dir": Path("C:/Vision Machine Tools/Inbox") if _IS_WINDOWS else Path("./optimized"),
+    "log_dir": Path("C:/Vision Machine Tools/PLT-Optimizer-Logs")
+    if _IS_WINDOWS
+    else Path("./logs"),
+    "processed_dir": Path("C:/Vision Machine Tools/Outbox")
+    if _IS_WINDOWS
+    else Path("./processed-input"),
     "fast_mode": False,
     "debug_save_files": False,
     "run_at_startup": False,
@@ -30,7 +36,7 @@ def get_config_path() -> Path:
     Returns:
         Path to config.json in the user's application data directory.
     """
-    if sys.platform == "win32":
+    if _IS_WINDOWS:
         base_dir = Path.home() / "AppData" / "Local" / "PLT-Optimizer"
     else:
         base_dir = Path.home() / ".config" / "plt-optimizer"
