@@ -134,18 +134,12 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
   release-please:
-    needs: [lint, type-check, test]
-    # Skip on the release-please PR itself (its branch is prefixed with
-    # 'release-please--branches--') to avoid a no-op loop. Still allow it
-    # to run when lint/type-check/test were skipped (by skip-duplicate-actions)
-    # rather than succeeded. Never proceed if any dependency failed or was cancelled.
+    # No dependency on test jobs - for normal commits this just creates/updates a PR,
+    # and for release commits (when the PR is merged) the tests already passed on the PR.
+    # Skip on the release-please PR itself to avoid a no-op loop.
     if: |
       !(
         github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--branches--')
-      ) && (
-        always() &&
-        !contains(needs.*.result, 'failure') &&
-        !contains(needs.*.result, 'cancelled')
       )
     runs-on: ubuntu-latest
     outputs:
