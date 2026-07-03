@@ -7,6 +7,11 @@ on:
   pull_request:
     branches: [main]
 
+# Required for release-please to create releases and for uploading release assets
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   # Detect duplicate workflow runs to skip redundant test execution
   # (e.g., when the same commit is tested in a PR and then again when merged).
@@ -155,8 +160,9 @@ jobs:
           manifest-file: .github/release-please-manifest.json
 
   build-windows-exe:
-    needs: release-please
-    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    # Build and upload Windows executable when a version tag is pushed
+    # (release-please creates tags when releases are created)
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -172,5 +178,5 @@ jobs:
           uv run pyinstaller .github/plt_optimizer.spec
       - name: Upload Release Artifact
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: gh release upload ${{ needs.release-please.outputs.tag_name }} dist/PLT-Optimizer/PLT-Optimizer.exe
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload ${{ github.ref_name }} dist/PLT-Optimizer/PLT-Optimizer.exe
