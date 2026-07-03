@@ -172,5 +172,5 @@ jobs:
           uv run pyinstaller .github/plt_optimizer.spec
       - name: Upload Release Artifact
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         run: gh release upload ${{ needs.release-please.outputs.tag_name }} dist/PLT-Optimizer/PLT-Optimizer.exe
