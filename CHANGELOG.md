@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.2](https://github.com/twilsonco/Ploptimizer/compare/v1.2.1...v1.2.2) (2026-07-03)
+
+
+### Bug Fixes
+
+* add line to trigger tests ([6bae78e](https://github.com/twilsonco/Ploptimizer/commit/6bae78e8c4ac44de118f586ec7336d8e48255b1e))
+* startup logging to trigger test ([f7685ec](https://github.com/twilsonco/Ploptimizer/commit/f7685ec26f29a3740679154bc4a418c2f35ca98c))
+
 ## [1.2.1](https://github.com/twilsonco/Ploptimizer/compare/v1.2.0...v1.2.1) (2026-07-03)
 
 
