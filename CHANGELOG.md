@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.8](https://github.com/twilsonco/Ploptimizer/compare/v1.2.7...v1.2.8) (2026-07-03)
+
+
+### Bug Fixes
+
+* ci path filtering for lint/type-check/test ([b3f0382](https://github.com/twilsonco/Ploptimizer/commit/b3f0382efc0f88ccb6614afb79e6225dd6b9a3d1))
+
 ## [1.2.7](https://github.com/twilsonco/Ploptimizer/compare/v1.2.6...v1.2.7) (2026-07-03)
 
 
