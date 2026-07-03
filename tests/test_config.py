@@ -74,7 +74,7 @@ class TestLoadConfig:
         assert result["watch_dir"] == "/custom/path"
         assert result["fast_mode"] is True
         # Defaults should still be present for missing keys
-        assert result["output_dir"] == "./optimized"
+        assert result["output_dir"] == DEFAULT_CONFIG["output_dir"]
 
     def test_load_config_handles_json_decode_error(self) -> None:
         """Test that JSON decode errors return defaults (line 56-57)."""
