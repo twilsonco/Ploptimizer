@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.4](https://github.com/twilsonco/Ploptimizer/compare/v1.2.3...v1.2.4) (2026-07-03)
+
+
+### Bug Fixes
+
+* ci exe build ([137a602](https://github.com/twilsonco/Ploptimizer/commit/137a602dd798992ca20021ad91eb8126f865e3ba))
+
 ## [1.2.3](https://github.com/twilsonco/Ploptimizer/compare/v1.2.2...v1.2.3) (2026-07-03)
 
 
