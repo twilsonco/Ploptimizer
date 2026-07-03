@@ -18,7 +18,8 @@ block_cipher = None
 # and does NOT inject ``__file__`` into the namespace. We must rely on
 # ``SPECPATH`` (the directory containing this spec file), which PyInstaller
 # does inject, instead of ``Path(__file__).parent``.
-ROOT_DIR = Path(SPECPATH)
+# SPECPATH points to .github/, so we need to go up one level to the root
+ROOT_DIR = Path(SPECPATH).parent
 ASSETS_DIR = ROOT_DIR / "assets"
 
 # Collect all necessary data files and dependencies
@@ -50,7 +51,7 @@ hiddenimports = [
 # exe_options = [('u', None, 'OPTION')] + datas
 
 a = Analysis(
-    ["run_tray.py"],
+    [str(ROOT_DIR / "run_tray.py")],
     pathex=[],
     binaries=[],
     datas=datas,
