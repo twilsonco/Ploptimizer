@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.12](https://github.com/twilsonco/Ploptimizer/compare/v1.2.11...v1.2.12) (2026-07-03)
+
+
+### Bug Fixes
+
+* default paths ([c72f8b0](https://github.com/twilsonco/Ploptimizer/commit/c72f8b08a8c5843f20846188543faa946c999f35))
+* paths as strings ([f5ddf0b](https://github.com/twilsonco/Ploptimizer/commit/f5ddf0b37516bbc0fb9448ea6733ca1c16c4ceb1))
+* use correct default paths for Windows ([86b9c7e](https://github.com/twilsonco/Ploptimizer/commit/86b9c7e049ec3e15f809ba0b856d7963477a681e))
+
 ## [1.2.11](https://github.com/twilsonco/Ploptimizer/compare/v1.2.10...v1.2.11) (2026-07-03)
 
 
