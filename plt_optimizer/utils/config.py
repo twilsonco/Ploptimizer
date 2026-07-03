@@ -15,16 +15,10 @@ _IS_WINDOWS = sys.platform == "win32"
 
 # Default configuration values
 DEFAULT_CONFIG: dict[str, Any] = {
-    "watch_dir": str(Path("C:/Vision Machine Tools/InboxRaw") if _IS_WINDOWS else Path("./inbox")),
-    "output_dir": str(
-        Path("C:/Vision Machine Tools/Inbox") if _IS_WINDOWS else Path("./optimized")
-    ),
-    "log_dir": str(
-        Path("C:/Vision Machine Tools/PLT-Optimizer-Logs") if _IS_WINDOWS else Path("./logs")
-    ),
-    "processed_dir": str(
-        Path("C:/Vision Machine Tools/Outbox") if _IS_WINDOWS else Path("./processed-input")
-    ),
+    "watch_dir": "C:/Vision Machine Tools/InboxRaw" if _IS_WINDOWS else "./inbox",
+    "output_dir": "C:/Vision Machine Tools/Inbox" if _IS_WINDOWS else "./optimized",
+    "log_dir": "C:/Vision Machine Tools/PLT-Optimizer-Logs" if _IS_WINDOWS else "./logs",
+    "processed_dir": "C:/Vision Machine Tools/Outbox" if _IS_WINDOWS else "./processed-input",
     "fast_mode": False,
     "debug_save_files": False,
     "run_at_startup": False,
