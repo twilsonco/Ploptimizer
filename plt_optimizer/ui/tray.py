@@ -144,7 +144,7 @@ class TrayIconManager:
         _logger.info(f"Attempting to load icon from: {icon_path}")
         try:
             img = Image.open(icon_path)
-            _logger.debug(f"Icon loaded successfully: {img.size}, mode={img.mode}")
+            _logger.info(f"Icon loaded successfully: {img.size}, mode={img.mode}")
             return img
         except FileNotFoundError:
             _logger.warning(f"Icon not found at {icon_path}, creating default fallback")
@@ -224,6 +224,8 @@ class TrayIconManager:
         from infi.systray import SysTrayIcon
 
         icon_path = str(self._get_icon_path())
+
+        _logger.info(f"Attempting to load icon from: {icon_path}")
 
         # Create menu as tuple of (label, icon_file_or_None, callback) tuples
         # Note: infi.systray automatically adds a Quit option when on_quit is provided
