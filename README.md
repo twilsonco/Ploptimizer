@@ -30,6 +30,47 @@ PLT-Optimizer provides multiple routing algorithms for MacroBlock traversal:
 
 For **fast mode** (single strategy), use `--fast-mode` flag.
 
+## Batch Benchmark Tool
+
+A standalone utility lives in `examples/benchmark.py` for processing every `*.plt`
+file in a directory and comparing the effectiveness of each strategy across the
+batch. It is intended for diagnosing files that fail in production and for
+benchmarking the optimization strategies on real-world inputs.
+
+### Usage
+
+```bash
+python examples/benchmark.py /path/to/cad_files/
+python examples/benchmark.py /path/to/cad_files/ --same-row-preference 1.5
+```
+
+### Output
+
+A `<input_dir_name>_benchmark/` directory is created adjacent to the input
+directory, containing:
+
+```
+<input_dir_name>_benchmark/
+├── report.csv                   # Per-file + per-strategy summary
+├── optimized/
+│   ├── nn2opt/                  # Optimized PLT files per strategy
+│   ├── insertion/
+│   ├── christofides/
+│   ├── sa/
+│   └── genetic/
+└── plots/                       # Before + after plots per file/strategy
+```
+
+The CSV contains one row per input file with the following columns:
+
+- **Baseline**: `before_rapid_in`, `before_cutting_in`, `before_paths`, `before_segments`, `blocks_created`
+- **Per strategy** (`nn2opt`, `insertion`, `christofides`, `sa`, `genetic`): `<strategy>_rapid_after_in`, `<strategy>_total_after_in`, `<strategy>_improvement_pct`, `<strategy>_time_ms`
+- **`error_message`** (final column) — accumulated errors from parse failures, setup failures, or per-strategy failures, separated by `; `
+
+Per-strategy failures are isolated so one broken strategy on a given file does
+not block the others. The tool hooks into the standard dual logging topology
+(text log + CSV metrics) automatically.
+
 ## Installation
 
 > **Note:** This program is primarily intended for **Windows** users. A pre-built executable is available from the [Releases page](https://github.com/twilsonco/PLT-Optimizer/releases) for the simplest setup.
