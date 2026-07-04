@@ -186,9 +186,13 @@ jobs:
       - name: Create assets directory
         run: New-Item -ItemType Directory -Force -Path assets
       - name: Build executable
-        shell: bash
+        shell: powershell
         run: |
-          uv run pyinstaller .github/plt_optimizer.spec
+          uv run pyinstaller --onefile --noconsole `
+            --name "PLT-Optimizer" `
+            --add-data "assets;assets" `
+            --icon "assets/icon.ico" `
+            run_tray.py
       - name: Upload Release Artifact
         uses: softprops/action-gh-release@v2
         with:
