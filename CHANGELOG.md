@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.15](https://github.com/twilsonco/Ploptimizer/compare/v1.2.14...v1.2.15) (2026-07-04)
+
+
+### Bug Fixes
+
+* ci build directory ([c5d11d7](https://github.com/twilsonco/Ploptimizer/commit/c5d11d73f0cc87ad83e7df19efcb123b6ba42a22))
+
 ## [1.2.14](https://github.com/twilsonco/Ploptimizer/compare/v1.2.13...v1.2.14) (2026-07-04)
 
 
