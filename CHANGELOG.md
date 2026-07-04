@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.14](https://github.com/twilsonco/Ploptimizer/compare/v1.2.13...v1.2.14) (2026-07-04)
+
+
+### Bug Fixes
+
+* ci exe build ([435a531](https://github.com/twilsonco/Ploptimizer/commit/435a53107ba4d9afbeb0f57887f5ecb8de41cc53))
+* only show settings automatically on first run (i.e. no config file exists) ([bb4b7a9](https://github.com/twilsonco/Ploptimizer/commit/bb4b7a9fb24aa21198894187d24bbefbcbc7194f))
+
 ## [1.2.13](https://github.com/twilsonco/Ploptimizer/compare/v1.2.12...v1.2.13) (2026-07-03)
 
 
