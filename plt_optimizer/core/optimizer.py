@@ -3974,6 +3974,7 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
             "Insertion Heuristic",
             "Simulated Annealing",
             "Genetic Algorithm",
+            "Christofides-Serdyukov S-T Path (5/3 approx)"
         ]
 
         all_benchmarks: list[StrategyBenchmarkResult] = []
