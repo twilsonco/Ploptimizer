@@ -977,21 +977,27 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
 
         tour: list[BlockTraverseState] = []
 
+        # state1.exit must equal endpoint1 so that the connection from state1 to
+        # state2 is exactly the closest pair. Therefore state1 is reversed only
+        # when endpoint1 is the block's *entrance* (we need to end at the entrance).
         if is1_exit:
-            state1 = BlockTraverseState(
-                block_id=blocks[block1_idx].block_id,
-                reversed=True,
-                entrance=(blocks[block1_idx].exit.x, blocks[block1_idx].exit.y),
-                exit=(blocks[block1_idx].entrance.x, blocks[block1_idx].entrance.y),
-            )
-        else:
             state1 = BlockTraverseState(
                 block_id=blocks[block1_idx].block_id,
                 reversed=False,
                 entrance=(blocks[block1_idx].entrance.x, blocks[block1_idx].entrance.y),
                 exit=(blocks[block1_idx].exit.x, blocks[block1_idx].exit.y),
             )
+        else:
+            state1 = BlockTraverseState(
+                block_id=blocks[block1_idx].block_id,
+                reversed=True,
+                entrance=(blocks[block1_idx].exit.x, blocks[block1_idx].exit.y),
+                exit=(blocks[block1_idx].entrance.x, blocks[block1_idx].entrance.y),
+            )
 
+        # state2.entrance must equal endpoint2 so that the connection from state1
+        # to state2 is exactly the closest pair. Therefore state2 is reversed
+        # when endpoint2 is the block's *exit* (we need to start at the exit).
         if is2_exit:
             state2 = BlockTraverseState(
                 block_id=blocks[block2_idx].block_id,
@@ -1150,48 +1156,52 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
     ) -> tuple[float, bool]:
         """Calculate cost of inserting a block at a specific position in the tour.
 
-        For insertion between A and B (where B is at insert_position + 1):
-        - Current distance: dist(A.exit, B.entrance)
-        - New distance with X inserted: min over entry options for X
+        Semantics: ``insert_position`` is the index in the tour after which the
+        new block ``X`` is inserted (matches ``tour.insert(insert_pos + 1, X)``
+        in :meth:`optimize`). Concretely:
 
-        When inserting after position i (i.e., before element at i+1 in tour),
-        we consider the cost to connect from A=tour[i] to X and then from X
-        to B=tour[i+1].
+        - ``insert_position == 0``        -> X goes after ``tour[0]``
+        - ``insert_position == k``        -> X goes after ``tour[k]``
+        - ``insert_position == len-1``    -> X goes at the very end of the tour
+
+        For insertion after ``tour[k]`` (with ``k + 1 < len(tour)``), X sits
+        between ``tour[k]`` and ``tour[k + 1]``. The incremental cost is:
+
+        ``dist(tour[k].exit, X.entrance) + dist(X.exit, tour[k+1].entrance)``
+
+        When X is appended at the end (``k == len(tour) - 1``), there is no
+        successor edge, so the cost is just the jump to X's chosen entry.
 
         Args:
             block: Block to insert.
             tour: Current tour state list.
-            insert_position: Position index after which to insert (0 means before first).
+            insert_position: Index in ``tour`` after which to insert. Must be
+                in ``[0, len(tour) - 1]``.
             blocks: All macro blocks for looking up block info.
 
         Returns:
-            Tuple of (minimum_insertion_cost, should_reverse) for inserting at
-            this position with optimal orientation.
+            Tuple of ``(minimum_insertion_cost, should_reverse)`` for inserting
+            at this position with optimal orientation.
         """
         if not tour:
-            _entrance, exit = self._get_block_endpoints(block, False)
-            cost_entrance, rev_entrance = self._calculate_block_cost(
-                (0.0, 0.0),
-                (block.entrance.x, block.entrance.y),
-                (block.exit.x, block.exit.y),
+            # Defensive guard: empty tour. Caller (optimize) ensures this never
+            # happens because an initial tour is built before the main loop.
+            x_entrance, x_exit = self._get_block_endpoints(block, False)
+            cost = math.sqrt(
+                (x_exit[0] - x_entrance[0]) ** 2 + (x_exit[1] - x_entrance[1]) ** 2
             )
-            return (cost_entrance, rev_entrance)
+            return (cost, False)
 
-        if insert_position == 0:
-            a_exit = tour[0].entrance
+        # X is inserted at index insert_position + 1, so it sits between
+        # tour[insert_position] (predecessor) and tour[insert_position + 1]
+        # (successor, if any).
+        prev_exit = tour[insert_position].exit
+
+        next_entrance: tuple[float, float] | None
+        if insert_position + 1 < len(tour):
+            next_entrance = tour[insert_position + 1].entrance
         else:
-            a_exit = tour[insert_position - 1].exit
-
-        b_entrance: tuple[float, float]
-
-        if insert_position < len(tour):
-            next_state = tour[insert_position]
-            b_entrance = next_state.entrance
-        else:
-            prev_state = tour[-1]
-            b_entrance = prev_state.exit
-
-        math.sqrt((b_entrance[0] - a_exit[0]) ** 2 + (b_entrance[1] - a_exit[1]) ** 2)
+            next_entrance = None  # X is appended at the very end
 
         best_cost = float("inf")
         best_reversed = False
@@ -1199,23 +1209,19 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
         for reversed_flag in [False, True]:
             x_entrance, x_exit = self._get_block_endpoints(block, reversed_flag)
 
-            cost_to_x_entrance = math.sqrt(
-                (x_entrance[0] - a_exit[0]) ** 2 + (x_entrance[1] - a_exit[1]) ** 2
-            )
-            cost_from_x_exit = math.sqrt(
-                (b_entrance[0] - x_exit[0]) ** 2 + (b_entrance[1] - x_exit[1]) ** 2
+            cost_to_x = math.sqrt(
+                (x_entrance[0] - prev_exit[0]) ** 2
+                + (x_entrance[1] - prev_exit[1]) ** 2
             )
 
-            total_insertion_cost = cost_to_x_entrance + cost_from_x_exit
+            cost_from_x = 0.0
+            if next_entrance is not None:
+                cost_from_x = math.sqrt(
+                    (next_entrance[0] - x_exit[0]) ** 2
+                    + (next_entrance[1] - x_exit[1]) ** 2
+                )
 
-            if insert_position >= len(tour):
-                cost_from_x_entrance = math.sqrt(
-                    (x_entrance[0] - a_exit[0]) ** 2 + (x_entrance[1] - a_exit[1]) ** 2
-                )
-                cost_to_x_exit = math.sqrt(
-                    (b_entrance[0] - x_exit[0]) ** 2 + (b_entrance[1] - x_exit[1]) ** 2
-                )
-                total_insertion_cost = cost_from_x_entrance + cost_to_x_exit
+            total_insertion_cost = cost_to_x + cost_from_x
 
             if total_insertion_cost < best_cost:
                 best_cost = total_insertion_cost
@@ -1234,6 +1240,9 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
         Evaluates all possible insertion positions and both orientations
         (entrance-first vs exit-first) for each position.
 
+        ``insert_position`` here means "insert after ``tour[insert_position]``":
+        ``0`` = after ``tour[0]``, ..., ``len(tour) - 1`` = appended at the end.
+
         Args:
             block: Block to potentially insert.
             tour: Current tour state list.
@@ -1246,7 +1255,7 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
         best_state: BlockTraverseState | None = None
         best_cost = float("inf")
 
-        num_positions = len(tour) + 1
+        num_positions = len(tour)
 
         for pos in range(num_positions):
             cost, should_reverse = self._calculate_insertion_cost(block, tour, pos, blocks)

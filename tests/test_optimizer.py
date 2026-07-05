@@ -1676,6 +1676,134 @@ class TestInsertionHeuristicCoverage2:
         assert isinstance(pos, int)
         assert isinstance(cost, float)
 
+    def test_build_tour_with_seed_connection_equals_closest_pair(self) -> None:
+        """Regression: the first connection in a seed tour must equal the closest-pair distance.
+
+        Previously _build_tour_with_seed reversed state1 whenever endpoint1 was an
+        exit, which made the first connection's actual distance substantially
+        larger than the closest-pair distance the seed was chosen for.
+        """
+        # Closest pair: block_a.exit=(10,0) -> block_b.entrance=(20,0), dist=10.
+        # is1_exit=True, is2_exit=False.
+        block_a = _make_simple_block(0, (0, 0), (10, 0))
+        block_b = _make_simple_block(1, (20, 0), (30, 0))
+        strategy = InsertionHeuristicStrategy()
+        result = strategy.optimize([block_a, block_b])
+
+        # The first connection (between state1 and state2) must be the closest pair.
+        first_conn = result.connections[0]
+        assert math.isclose(first_conn.travel_distance, 10.0, abs_tol=1e-6), (
+            f"Expected closest-pair distance 10.0, got {first_conn.travel_distance}"
+        )
+        # state1 must end at block_a.exit so the connection is exact.
+        assert result.traverse_order[0].exit == (10.0, 0.0)
+        assert result.traverse_order[0].reversed is False  # not reversed; traversal is forward
+        # state2 must start at block_b.entrance so the connection is exact.
+        assert result.traverse_order[1].entrance == (20.0, 0.0)
+        assert result.traverse_order[1].reversed is False
+
+    def test_build_tour_with_seed_connection_is1_exit_false(self) -> None:
+        """Regression: when both endpoints are entrances, the connection must match.
+
+        Old code would reverse state1 because is1_exit=False -> state1.exit became
+        block_a.exit instead of block_a.entrance.
+        """
+        # Construct so the closest pair is (block_a.entrance=(0,0),
+        # block_b.entrance=(10,0)) with dist=10. is1_exit=False, is2_exit=False.
+        block_a = _make_simple_block(0, (0, 0), (-100, 0))   # entrance at 0, exit far left
+        block_b = _make_simple_block(1, (10, 0), (200, 0))   # entrance at 10, exit far right
+        strategy = InsertionHeuristicStrategy()
+        result = strategy.optimize([block_a, block_b])
+
+        first_conn = result.connections[0]
+        assert math.isclose(first_conn.travel_distance, 10.0, abs_tol=1e-6), (
+            f"Expected closest-pair distance 10.0, got {first_conn.travel_distance}"
+        )
+        # state1 must end at block_a.entrance=(0,0) -> state1.reversed = True
+        assert result.traverse_order[0].reversed is True
+        assert result.traverse_order[0].exit == (0.0, 0.0)
+        # state2 must start at block_b.entrance=(10,0) -> state2.reversed = False
+        assert result.traverse_order[1].reversed is False
+        assert result.traverse_order[1].entrance == (10.0, 0.0)
+
+    def test_build_tour_with_seed_connection_is2_exit_true(self) -> None:
+        """Regression: when endpoint2 is an exit, state2 must start there (reversed)."""
+        # Construct so the closest pair is (block_a.entrance=(0,0),
+        # block_b.exit=(20,0)) with dist=20. is1_exit=False, is2_exit=True.
+        block_a = _make_simple_block(0, (0, 0), (-100, 0))   # entrance at 0, exit far left
+        block_b = _make_simple_block(1, (-200, 0), (20, 0))   # entrance far left, exit at 20
+        strategy = InsertionHeuristicStrategy()
+        result = strategy.optimize([block_a, block_b])
+
+        first_conn = result.connections[0]
+        assert math.isclose(first_conn.travel_distance, 20.0, abs_tol=1e-6), (
+            f"Expected 20.0, got {first_conn.travel_distance}"
+        )
+        assert result.traverse_order[0].reversed is True
+        assert result.traverse_order[0].exit == (0.0, 0.0)
+        assert result.traverse_order[1].reversed is True
+        assert result.traverse_order[1].entrance == (20.0, 0.0)
+
+    def test_calculate_insertion_cost_at_end_matches_actual_edge(self) -> None:
+        """Regression: insertion cost for X at the very end must equal the actual jump.
+
+        Old code returned a cost that included a meaningless dist(b_entrance, X.exit)
+        term because the special-case branch for insert_position >= len(tour)
+        produced nonsensical costs.
+        """
+        tour = [
+            BlockTraverseState(block_id=0, reversed=False, entrance=(0, 0), exit=(10, 0)),
+            BlockTraverseState(block_id=1, reversed=False, entrance=(50, 0), exit=(60, 0)),
+        ]
+        # Block to append at the end: entrance=(100,0), exit=(110,0).
+        # Actual edge when inserted at the end: dist(tour[-1].exit, X.entrance)
+        #   = dist((60,0), (100,0)) = 40.
+        block_x = _make_simple_block(2, (100, 0), (110, 0))
+        strategy = InsertionHeuristicStrategy()
+        # pos = len(tour) - 1 means "insert at the very end" under the fixed semantics.
+        cost, _should_reverse = strategy._calculate_insertion_cost(
+            block_x, tour, insert_position=len(tour) - 1, blocks=[]
+        )
+        assert math.isclose(cost, 40.0, abs_tol=1e-6), (
+            f"Expected 40.0, got {cost}"
+        )
+
+    def test_calculate_insertion_cost_middle_matches_actual_edges(self) -> None:
+        """Regression: insertion cost between two blocks must match both added edges."""
+        tour = [
+            BlockTraverseState(block_id=0, reversed=False, entrance=(0, 0), exit=(10, 0)),
+            BlockTraverseState(block_id=1, reversed=False, entrance=(100, 0), exit=(110, 0)),
+        ]
+        # Insert between tour[0] and tour[1].
+        # Actual added edges: dist(tour[0].exit, X.entrance) + dist(X.exit, tour[1].entrance)
+        block_x = _make_simple_block(2, (50, 0), (60, 0))
+        strategy = InsertionHeuristicStrategy()
+        cost, should_reverse = strategy._calculate_insertion_cost(
+            block_x, tour, insert_position=0, blocks=[]
+        )
+        # dist((10,0), (50,0)) + dist((60,0), (100,0)) = 40 + 40 = 80
+        assert math.isclose(cost, 80.0, abs_tol=1e-6), f"Expected 80.0, got {cost}"
+        assert should_reverse is False
+
+    def test_find_best_insertion_position_picks_cheapest_end(self) -> None:
+        """Regression: when inserting at the end is cheapest, the returned position must
+        let the caller place X at the very end."""
+        tour = [
+            BlockTraverseState(block_id=0, reversed=False, entrance=(0, 0), exit=(10, 0)),
+            BlockTraverseState(block_id=1, reversed=False, entrance=(20, 0), exit=(30, 0)),
+        ]
+        # X is closest to tour[-1].exit=(30,0), so the best insertion is at the end.
+        block_x = _make_simple_block(2, (40, 0), (50, 0))
+        strategy = InsertionHeuristicStrategy()
+        pos, _state, cost = strategy._find_best_insertion_position(
+            block_x, tour, [block_x]
+        )
+        # Insertion at the end corresponds to pos == len(tour) - 1 under the fixed
+        # semantics, which causes optimize() to do tour.insert(pos + 1, X).
+        assert pos == len(tour) - 1
+        # Cost: dist(tour[-1].exit, X.entrance) = dist((30,0), (40,0)) = 10
+        assert math.isclose(cost, 10.0, abs_tol=1e-6), f"Expected 10.0, got {cost}"
+
 
 # ---------------------------------------------------------------------------
 # Additional coverage tests for ChristofidesStrategy
