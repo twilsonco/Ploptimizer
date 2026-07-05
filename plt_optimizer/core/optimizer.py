@@ -2936,13 +2936,11 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
                 offspring = self._order_crossover(parent1, parent2)
 
-                if offspring not in new_population:
-                    mutated_offspring = self._mutate(offspring)
-                    new_population.append(mutated_offspring)
+                mutated_offspring = self._mutate(offspring)
+                new_population.append(mutated_offspring)
 
-            while len(new_population) < self._population_size:
-                idx = generation % len(population)
-                new_population.append(list(population[idx]))
+            # Trim in case elitism + crossover produced more than population_size
+            new_population = new_population[: self._population_size]
 
             population = new_population[: self._population_size]
 
