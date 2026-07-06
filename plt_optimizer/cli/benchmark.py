@@ -831,8 +831,14 @@ def write_report(
             writer.writerow(_strip_private_keys(row))
 
 
-def main() -> int:
+def main(argv: Optional[list[str]] = None) -> int:
     """Entry point for the batch benchmark utility.
+
+    Args:
+        argv: Optional argument list. When ``None`` (the default), arguments
+            are read from :data:`sys.argv`; when supplied, the list is used
+            as-is. This indirection is purely a testability hook — the CLI
+            contract is identical either way.
 
     Returns:
         Exit code (0 for success, 1 for invalid arguments).
@@ -876,7 +882,7 @@ def main() -> int:
         ),
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     input_dir: Path = args.input_dir
     if not input_dir.exists() or not input_dir.is_dir():
@@ -1060,5 +1066,5 @@ def main() -> int:
     return 0
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     sys.exit(main())
