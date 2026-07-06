@@ -59,7 +59,7 @@ def get_startup_folder() -> Path | None:
         return None
 
     try:
-        import winshell  # type: ignore[import-not-found]  # noqa: F401
+        import winshell  # type: ignore[import-untyped]  # noqa: F401
 
         startup = winshell.startup()
         return Path(startup)
