@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.3.0](https://github.com/twilsonco/Ploptimizer/compare/v1.2.15...v1.3.0) (2026-07-06)
+
+
+### Features
+
+* add batch benchmark tool for strategies ([bae59ec](https://github.com/twilsonco/Ploptimizer/commit/bae59ec3523b52439ac9f6d8c80d8d27287b75d5))
+* add Christofides-Serdyukov heuristic ([a66e4c6](https://github.com/twilsonco/Ploptimizer/commit/a66e4c6f209a9d619c33af14e3ee5842833b7adc))
+* add true arc length and chord length properties ([f96ae72](https://github.com/twilsonco/Ploptimizer/commit/f96ae723b43d6571e4a8b4d0dd5f92bfaa412a5b))
+* **benchmark:** add parallel execution with ProcessPoolExecutor ([b1991b9](https://github.com/twilsonco/Ploptimizer/commit/b1991b915b3a529cd6ea40e0cce2f13bd081aa92))
+
+
+### Bug Fixes
+
+* **plt_optimizer:** fix insertion heuristic logic and costs ([1d54c89](https://github.com/twilsonco/Ploptimizer/commit/1d54c89bcfbf1cf7d2f7dfb625a6d91b22988ce7))
+
 ## [1.2.15](https://github.com/twilsonco/Ploptimizer/compare/v1.2.14...v1.2.15) (2026-07-04)
 
 
