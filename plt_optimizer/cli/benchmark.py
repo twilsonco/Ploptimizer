@@ -52,7 +52,7 @@ import traceback
 from concurrent.futures import Future, ProcessPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from typing import Any, NamedTuple, Optional
+from typing import Any, NamedTuple
 
 # Add project root to path for imports when running as script
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -73,7 +73,6 @@ from plt_optimizer.core.writer import PLTWriter
 from plt_optimizer.diagnostics.plotter import plot_plt_document
 from plt_optimizer.utils.geometry import remove_redundant_strokes
 from plt_optimizer.utils.logging import get_metrics_logger, get_text_logger
-
 
 # Registry of strategies to benchmark, in execution order.
 STRATEGY_REGISTRY: dict[str, type] = {
@@ -137,7 +136,7 @@ def _empty_row(file_name: str) -> dict[str, Any]:
     Returns:
         New dict ready to be filled in by a strategy or sentinel handler.
     """
-    row: dict[str, Any] = {col: "" for col in CSV_COLUMNS}
+    row: dict[str, Any] = dict.fromkeys(CSV_COLUMNS, "")
     row["file_name"] = file_name
     return row
 
@@ -192,7 +191,7 @@ def _save_plot(
     plot_path: Path,
     title: str,
     rapid_travel_inches: float,
-    text_logger: Optional[Any],
+    text_logger: Any | None,
 ) -> None:
     """Generate and save a diagnostic plot, swallowing plot failures.
 
@@ -217,9 +216,7 @@ def _save_plot(
         plt.close(fig)
     except Exception as plot_err:  # noqa: BLE001 - plotting must never fail a row
         if text_logger is not None:
-            text_logger.warning(
-                f"Failed to generate plot {plot_path.name}: {plot_err}"
-            )
+            text_logger.warning(f"Failed to generate plot {plot_path.name}: {plot_err}")
 
 
 def _populate_metrics(
@@ -253,9 +250,7 @@ def _populate_metrics(
     total_saved = total_before - total_after
 
     rapid_pct = (rapid_saved / before_rapid * 100) if before_rapid > 0 else 0.0
-    cutting_pct = (
-        (cutting_saved / before_cutting * 100) if before_cutting > 0 else 0.0
-    )
+    cutting_pct = (cutting_saved / before_cutting * 100) if before_cutting > 0 else 0.0
     total_pct = (total_saved / total_before * 100) if total_before > 0 else 0.0
 
     row["rapid_after_in"] = round(optimized_rapid / 1000, 3)
@@ -281,8 +276,8 @@ def _run_strategy(
     input_path: Path,
     output_dir: Path,
     same_row_preference: float,
-    metrics_logger: Optional[Any],
-    text_logger: Optional[Any],
+    metrics_logger: Any | None,
+    text_logger: Any | None,
 ) -> dict[str, Any]:
     """Run a single strategy and return a populated CSV row.
 
@@ -318,15 +313,12 @@ def _run_strategy(
     """
     row = _empty_row(input_path.name)
     row["strategy_name"] = strategy_name
-    optimized_plt_path: Optional[Path] = None
+    optimized_plt_path: Path | None = None
     metrics_event: dict[str, Any] = {
         "kind": "strategy",
         "strategy_name": strategy_name,
         "status": "failed",
-        "job_id": (
-            f"{input_path.stem}_{strategy_name}_"
-            f"{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        ),
+        "job_id": (f"{input_path.stem}_{strategy_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"),
         "original_file": input_path,
         "optimized_file": None,
         "original_distance": before_rapid,
@@ -353,11 +345,7 @@ def _run_strategy(
         optimized_cutting = optimized_doc.cutting_distance()
         total_before = before_rapid + before_cutting
         total_after = optimized_rapid + optimized_cutting
-        total_pct = (
-            ((total_after - total_before) / total_before) * 100
-            if total_before > 0
-            else 0.0
-        )
+        total_pct = ((total_after - total_before) / total_before) * 100 if total_before > 0 else 0.0
 
         strategy_output_dir = output_dir / "optimized" / strategy_name
         strategy_output_dir.mkdir(parents=True, exist_ok=True)
@@ -366,9 +354,7 @@ def _run_strategy(
         writer = PLTWriter()
         writer.write_file(optimized_doc, optimized_plt_path)
 
-        after_plot_path = (
-            output_dir / "plots" / f"{input_path.stem}_after_{strategy_name}.png"
-        )
+        after_plot_path = output_dir / "plots" / f"{input_path.stem}_after_{strategy_name}.png"
         _save_plot(
             optimized_doc,
             after_plot_path,
@@ -399,9 +385,7 @@ def _run_strategy(
         row["error_message"] = f"[{strategy_name}] {err_msg}"
         metrics_event["notes"] = err_msg[:200]
         if text_logger is not None:
-            text_logger.error(
-                f"Strategy {strategy_name} failed on {input_path.name}: {strat_err}"
-            )
+            text_logger.error(f"Strategy {strategy_name} failed on {input_path.name}: {strat_err}")
 
     # Stash event payload + optimized path on the row for the main process.
     row["_metrics_event"] = metrics_event
@@ -413,8 +397,8 @@ def process_file(
     input_path: Path,
     output_dir: Path,
     same_row_preference: float,
-    metrics_logger: Optional[Any] = None,
-    text_logger: Optional[Any] = None,
+    metrics_logger: Any | None = None,
+    text_logger: Any | None = None,
 ) -> list[dict[str, Any]]:
     """Process a single PLT file and return one CSV row per strategy.
 
@@ -595,9 +579,7 @@ def _process_file_worker(
         text_logger=None,
     )
     elapsed_s = time.perf_counter() - start
-    return FileResult(
-        input_path=input_path_str, elapsed_s=elapsed_s, rows=rows
-    )
+    return FileResult(input_path=input_path_str, elapsed_s=elapsed_s, rows=rows)
 
 
 class ReportWriter:
@@ -647,7 +629,7 @@ class ReportWriter:
             self._file.flush()
             self._file.close()
 
-    def __enter__(self) -> "ReportWriter":
+    def __enter__(self) -> ReportWriter:
         return self
 
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
@@ -800,9 +782,7 @@ def build_ensemble_rows(per_strategy_rows: list[dict[str, Any]]) -> list[dict[st
             ensemble_row["status"] = "all_strategies_failed"
             if not ensemble_row["error_message"]:
                 ensemble_row["error_message"] = "; ".join(
-                    r["error_message"]
-                    for r in file_rows
-                    if r["error_message"]
+                    r["error_message"] for r in file_rows if r["error_message"]
                 )
             ensemble_rows.append(ensemble_row)
     return [_strip_private_keys(row) for row in ensemble_rows]
@@ -831,7 +811,7 @@ def write_report(
             writer.writerow(_strip_private_keys(row))
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     """Entry point for the batch benchmark utility.
 
     Args:
@@ -909,9 +889,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         print("No PLT files found in input directory, exiting.")
         return 0
 
-    text_logger.info(
-        f"Benchmark starting: {len(plt_files)} file(s), {worker_count} worker(s)"
-    )
+    text_logger.info(f"Benchmark starting: {len(plt_files)} file(s), {worker_count} worker(s)")
 
     report_path = output_dir / "report.csv"
     ensemble_report_path = output_dir / "ensemble_report.csv"
@@ -927,8 +905,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     def _record_completion(
         index: int,
         plt_file: Path,
-        result: Optional[FileResult],
-        error: Optional[BaseException],
+        result: FileResult | None,
+        error: BaseException | None,
     ) -> None:
         """Handle a single completed future: log, write, update progress.
 
@@ -947,14 +925,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         if error is not None:
             failure_count += 1
             err_msg = f"{type(error).__name__}: {error}"
-            text_logger.error(
-                f"[{index}/{len(plt_files)}] {plt_file.name} crashed: {err_msg}"
-            )
+            text_logger.error(f"[{index}/{len(plt_files)}] {plt_file.name} crashed: {err_msg}")
             text_logger.error(traceback.format_exc())
-            print(
-                f"[{index}/{len(plt_files)}] {plt_file.name} "
-                f"CRASHED: {err_msg} ({elapsed:.2f}s)"
-            )
+            print(f"[{index}/{len(plt_files)}] {plt_file.name} CRASHED: {err_msg} ({elapsed:.2f}s)")
             return
 
         assert result is not None  # for type-checkers
@@ -1020,9 +993,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 )
                 future_to_file[future] = (index, plt_file)
 
-            text_logger.info(
-                f"Submitted {len(plt_files)} file(s) to {worker_count} worker(s)"
-            )
+            text_logger.info(f"Submitted {len(plt_files)} file(s) to {worker_count} worker(s)")
 
             for future in as_completed(future_to_file):
                 index, plt_file = future_to_file[future]
@@ -1042,9 +1013,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     ensemble_rows = build_ensemble_rows(all_rows)
     write_report(ensemble_rows, ensemble_report_path, CSV_COLUMNS)
 
-    avg_per_file = (
-        total_elapsed / len(plt_files) if plt_files else 0.0
-    )
+    avg_per_file = total_elapsed / len(plt_files) if plt_files else 0.0
     text_logger.info(
         f"Wrote {len(all_rows)} per-strategy row(s) and {len(ensemble_rows)} "
         f"ensemble row(s); avg {avg_per_file:.2f}s/file in parallel"
@@ -1057,8 +1026,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(f"  Successful files:   {success_count}")
     print(f"  Failed files:       {failure_count}")
     print(f"  Total CSV rows:     {len(all_rows)}")
-    print(f"  Wall time:          {total_elapsed:.2f}s "
-          f"(avg {avg_per_file:.2f}s/file)")
+    print(f"  Wall time:          {total_elapsed:.2f}s (avg {avg_per_file:.2f}s/file)")
     print(f"  Per-strategy CSV:   {report_path}")
     print(f"  Ensemble CSV:       {ensemble_report_path}")
     print(f"  Optimized:          {output_dir / 'optimized'}")
