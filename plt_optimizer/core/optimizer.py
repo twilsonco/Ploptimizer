@@ -1187,9 +1187,7 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
             # Defensive guard: empty tour. Caller (optimize) ensures this never
             # happens because an initial tour is built before the main loop.
             x_entrance, x_exit = self._get_block_endpoints(block, False)
-            cost = math.sqrt(
-                (x_exit[0] - x_entrance[0]) ** 2 + (x_exit[1] - x_entrance[1]) ** 2
-            )
+            cost = math.sqrt((x_exit[0] - x_entrance[0]) ** 2 + (x_exit[1] - x_entrance[1]) ** 2)
             return (cost, False)
 
         # X is inserted at index insert_position + 1, so it sits between
@@ -1210,15 +1208,13 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
             x_entrance, x_exit = self._get_block_endpoints(block, reversed_flag)
 
             cost_to_x = math.sqrt(
-                (x_entrance[0] - prev_exit[0]) ** 2
-                + (x_entrance[1] - prev_exit[1]) ** 2
+                (x_entrance[0] - prev_exit[0]) ** 2 + (x_entrance[1] - prev_exit[1]) ** 2
             )
 
             cost_from_x = 0.0
             if next_entrance is not None:
                 cost_from_x = math.sqrt(
-                    (next_entrance[0] - x_exit[0]) ** 2
-                    + (next_entrance[1] - x_exit[1]) ** 2
+                    (next_entrance[0] - x_exit[0]) ** 2 + (next_entrance[1] - x_exit[1]) ** 2
                 )
 
             total_insertion_cost = cost_to_x + cost_from_x
@@ -2922,7 +2918,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         best_chromosome: list[int] | None = None
         best_fitness = float("inf")
 
-        for generation in range(self._generations):
+        for _generation in range(self._generations):
             fitness_scores = [
                 (chrom, self._calculate_fitness(chrom, blocks, start_pos)) for chrom in population
             ]
@@ -3974,7 +3970,7 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
             "Insertion Heuristic",
             "Simulated Annealing",
             "Genetic Algorithm",
-            "Christofides-Serdyukov S-T Path (5/3 approx)"
+            "Christofides-Serdyukov S-T Path (5/3 approx)",
         ]
 
         all_benchmarks: list[StrategyBenchmarkResult] = []
