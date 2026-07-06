@@ -288,6 +288,18 @@ class SettingsWindow:
         self._fast_mode_var.set(bool(self._config.get("fast_mode", False)))
         self._debug_save_files_var.set(bool(self._config.get("debug_save_files", False)))
 
+        if _IS_WINDOWS and hasattr(self, "_run_at_startup_var"):
+            # Reflect actual system state as the source of truth, falling back
+            # to the stored config value if the system check fails for any reason.
+            try:
+                from plt_optimizer.utils.startup import is_startup_enabled
+
+                self._run_at_startup_var.set(is_startup_enabled())
+            except Exception:
+                self._run_at_startup_var.set(
+                    bool(self._config.get("run_at_startup", False))
+                )
+
     def _validate_inputs(self) -> bool:
         """Validate user inputs before saving.
 
@@ -358,6 +370,28 @@ class SettingsWindow:
 
         self._config["fast_mode"] = self._fast_mode_var.get()
         self._config["debug_save_files"] = self._debug_save_files_var.get()
+
+        if _IS_WINDOWS and hasattr(self, "_run_at_startup_var"):
+            self._config["run_at_startup"] = self._run_at_startup_var.get()
+            # Apply the change immediately so the user sees the effect right
+            # away, even if the caller doesn't reconcile the new config after
+            # the dialog closes. ``create_shortcut``/``remove_shortcut`` are
+            # idempotent so this is safe even when ``run_tray.py`` also
+            # applies the delta after ``show()`` returns.
+            try:
+                from plt_optimizer.utils.startup import (
+                    create_shortcut,
+                    remove_shortcut,
+                )
+
+                if self._run_at_startup_var.get():
+                    create_shortcut()
+                    _logger.info("Enabled run at startup")
+                else:
+                    remove_shortcut()
+                    _logger.info("Disabled run at startup")
+            except Exception as e:
+                _logger.error(f"Failed to update startup state: {e}")
 
         # Call save callback
         try:
