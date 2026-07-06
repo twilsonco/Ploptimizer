@@ -189,7 +189,7 @@ jobs:
         shell: powershell
         run: |
           uv run pyinstaller --onefile --noconsole `
-            --name "PLT-Optimizer" `
+            --name "Ploptimizer" `
             --add-data "assets;assets" `
             --icon "assets/icon.ico" `
             run_tray.py
@@ -197,6 +197,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.release-please.outputs.tag_name || github.ref_name }}
-          files: dist/PLT-Optimizer.exe
+          files: dist/Ploptimizer.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
