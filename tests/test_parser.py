@@ -817,11 +817,14 @@ class TestArcSegmentInStrokePath:
             cutting_dist = path.cutting_distance
             assert cutting_dist > 0
 
-    def test_arc_chord_length_used_for_distance(self) -> None:
-        """Test that arc chord length (not arc length) is used for distance.
+    def test_arc_true_length_used_for_distance(self) -> None:
+        """Test that the true arc length (radius * |sweep|) is used for distance.
 
-        The distance property should return straight-line distance from start to end,
-        not the actual curved arc length.
+        Historically this code path returned the chord length (straight-line
+        distance from start to end) which is an underestimate. The arc's
+        :attr:`length` property now returns the true arc length while
+        :attr:`chord_length` retains the straight-line approximation for
+        callers that need it.
         """
         content = "PU0.000,0.000;PDAA1016.000,1016.000,90.000;"
         parser = PLTParser()
@@ -832,12 +835,15 @@ class TestArcSegmentInStrokePath:
             path = doc.stroke_paths[0]
             arc_seg = [seg for seg in path.segments if isinstance(seg, ArcSegment)][0]
 
-            chord_length = math.sqrt(
-                (arc_seg.end.x - arc_seg.start.x) ** 2 +
-                (arc_seg.end.y - arc_seg.start.y) ** 2
-            )
+            # The true arc length must be greater than the chord length for any
+            # non-zero sweep angle (the arc bows outward).
+            assert math.isclose(path.cutting_distance, arc_seg.length, abs_tol=0.001)
+            assert path.cutting_distance >= arc_seg.chord_length
 
-            assert math.isclose(path.cutting_distance, chord_length, abs_tol=0.001)
+            # Sanity check: cutting distance should not be the chord length
+            # (unless sweep angle happens to be 0, which is degenerate).
+            if abs(arc_seg.sweep_angle) > 0.001:
+                assert path.cutting_distance > arc_seg.chord_length
 
 
 class TestParserBranchesCoverage:

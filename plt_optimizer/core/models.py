@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from math import sqrt
+from math import fabs, pi, sqrt
 
 
 class PenState(Enum):
@@ -177,17 +177,43 @@ class ArcSegment:
         """Calculate the radius of the arc."""
         return self.start.distance_to(self.center)
 
+    @property
+    def chord_length(self) -> float:
+        """Calculate the chord length (straight-line distance from start to end).
+
+        Returns:
+            Euclidean distance between the arc's start and end coordinates.
+        """
+        return self.start.distance_to(self.end)
+
+    @property
+    def length(self) -> float:
+        """Calculate the true length of the arc along its circular path.
+
+        Computed as ``radius * |sweep_angle|`` with the sweep angle converted
+        from degrees to radians. The sign of ``sweep_angle`` (which encodes
+        direction per the HPGL convention) is intentionally discarded because
+        length is a non-negative scalar.
+
+        Returns:
+            Arc length in the same plotter units as :attr:`radius` (e.g. 0.001 inch).
+        """
+        sweep_radians = fabs(self.sweep_angle) * pi / 180.0
+        return self.radius * sweep_radians
+
 
 Segment = StrokeSegment | ArcSegment
 
 
 def _segment_length(seg: Segment) -> float:
-    """Calculate the length of a segment (line or arc).
+    """Return the length of any segment.
 
-    For arcs, returns chord length (straight-line distance from start to end).
+    Both :class:`StrokeSegment` and :class:`ArcSegment` expose a uniform
+    ``length`` property, so this helper simply dispatches to it. Using a
+    single, type-agnostic entry point eliminates the previous ``AttributeError``
+    that could surface whenever an :class:`ArcSegment` was processed by a code
+    path that only knew about :class:`StrokeSegment`.
     """
-    if isinstance(seg, ArcSegment):
-        return seg.start.distance_to(seg.end)
     return seg.length
 
 
@@ -214,10 +240,10 @@ class StrokePath:
 
     @property
     def total_distance(self) -> float:
-        """Calculate the total Euclidean distance of all segments in this path.
+        """Calculate the total distance of all segments in this path.
 
-        For ArcSegments, uses chord length (straight-line distance from start to end).
-        For StrokeSegments, uses actual segment length.
+        For ArcSegments, uses the true arc length (radius × |sweep angle|).
+        For StrokeSegments, uses the Euclidean segment length.
         """
         return sum(_segment_length(seg) for seg in self.segments)
 
@@ -230,6 +256,20 @@ class StrokePath:
     def rapid_distance(self) -> float:
         """Calculate the total distance of rapid (pen up) moves only."""
         return sum(_segment_length(seg) for seg in self.segments if not seg.is_cutting)
+
+    @property
+    def chord_distance(self) -> float:
+        """Return the sum of chord lengths (start->end straight lines) for all segments.
+
+        Useful as a coarse underestimate of toolpath length that ignores arc curvature.
+        """
+        total = 0.0
+        for seg in self.segments:
+            if isinstance(seg, ArcSegment):
+                total += seg.chord_length
+            else:
+                total += seg.length
+        return total
 
 
 @dataclass(frozen=True)

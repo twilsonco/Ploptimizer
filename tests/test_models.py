@@ -9,9 +9,14 @@ These tests target specific lines not covered by existing identity/parser/writer
 - StrokePath.rapid_distance property line 204
 - FooterCommand.from_token lines 216-219
 - PLTDocument.rapid_distance() line 242
+- ArcSegment.radius / chord_length / length properties
+- StrokePath.chord_distance property
+- _segment_length unified dispatch helper (regression for AttributeError)
 """
 
 from __future__ import annotations
+
+import math
 
 import pytest
 
@@ -113,6 +118,222 @@ class TestHeaderCommandFormat:
         cmd = HeaderCommand(instruction="VS", parameters=(0.5, 1.0))
         result = cmd.format()
         assert "VS" in result
+
+
+class TestArcSegmentProperties:
+    """Tests for ArcSegment length-related properties.
+
+    Verifies the geometry invariants of the new ``length`` (true arc length),
+    ``chord_length`` (straight-line approximation), and ``radius`` properties.
+    These tests guard against the historical ``AttributeError`` that occurred
+    when ``ArcSegment`` lacked a ``.length`` property entirely.
+    """
+
+    def test_radius_equals_distance_from_start_to_center(self) -> None:
+        """ArcSegment.radius equals the Euclidean distance from start to center."""
+        from plt_optimizer.core.models import ArcSegment, Coordinate
+
+        arc = ArcSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=10.0, y=0.0),
+            center=Coordinate(x=5.0, y=0.0),
+            sweep_angle=90.0,
+            is_cutting=True,
+        )
+        assert arc.radius == pytest.approx(5.0)
+
+    def test_chord_length_equals_euclidean_start_to_end(self) -> None:
+        """ArcSegment.chord_length equals the straight-line distance from start to end."""
+        from plt_optimizer.core.models import ArcSegment, Coordinate
+
+        arc = ArcSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=10.0, y=10.0),
+            center=Coordinate(x=5.0, y=0.0),
+            sweep_angle=90.0,
+            is_cutting=True,
+        )
+        expected = math.sqrt(10.0 ** 2 + 10.0 ** 2)
+        assert arc.chord_length == pytest.approx(expected)
+
+    def test_length_is_true_arc_length_quarter_circle(self) -> None:
+        """A 90-degree sweep at radius 5 produces an arc length of 2*pi*r/4.
+
+        This is the canonical case where the true arc length substantially
+        differs from the chord length (radius * sqrt(2) ≈ 7.07 vs 2*pi*5/4 ≈ 7.854).
+        """
+        from plt_optimizer.core.models import ArcSegment, Coordinate
+
+        arc = ArcSegment(
+            start=Coordinate(x=5.0, y=0.0),
+            end=Coordinate(x=0.0, y=5.0),
+            center=Coordinate(x=0.0, y=0.0),
+            sweep_angle=90.0,
+            is_cutting=True,
+        )
+        expected = 2.0 * math.pi * 5.0 / 4.0
+        assert arc.length == pytest.approx(expected)
+        # Sanity check: true length must exceed the chord length for non-trivial sweeps
+        assert arc.length > arc.chord_length
+
+    def test_length_is_true_arc_length_semicircle(self) -> None:
+        """A 180-degree sweep at radius 10 produces pi * 10."""
+        from plt_optimizer.core.models import ArcSegment, Coordinate
+
+        arc = ArcSegment(
+            start=Coordinate(x=10.0, y=0.0),
+            end=Coordinate(x=-10.0, y=0.0),
+            center=Coordinate(x=0.0, y=0.0),
+            sweep_angle=180.0,
+            is_cutting=True,
+        )
+        expected = math.pi * 10.0
+        assert arc.length == pytest.approx(expected)
+
+    def test_length_discards_sign_of_sweep_angle(self) -> None:
+        """Length must be non-negative; the sign encodes direction only.
+
+        A negative sweep of the same magnitude must yield the same length.
+        """
+        from plt_optimizer.core.models import ArcSegment, Coordinate
+
+        arc_cw = ArcSegment(
+            start=Coordinate(x=5.0, y=0.0),
+            end=Coordinate(x=0.0, y=5.0),
+            center=Coordinate(x=0.0, y=0.0),
+            sweep_angle=90.0,
+            is_cutting=True,
+        )
+        arc_ccw = ArcSegment(
+            start=Coordinate(x=5.0, y=0.0),
+            end=Coordinate(x=0.0, y=5.0),
+            center=Coordinate(x=0.0, y=0.0),
+            sweep_angle=-90.0,
+            is_cutting=True,
+        )
+        assert arc_cw.length == pytest.approx(arc_ccw.length)
+        assert arc_cw.length >= 0.0
+        assert arc_ccw.length >= 0.0
+
+    def test_length_zero_when_sweep_zero(self) -> None:
+        """Zero-degree sweep yields zero length regardless of radius."""
+        from plt_optimizer.core.models import ArcSegment, Coordinate
+
+        arc = ArcSegment(
+            start=Coordinate(x=5.0, y=0.0),
+            end=Coordinate(x=5.0, y=0.0),
+            center=Coordinate(x=0.0, y=0.0),
+            sweep_angle=0.0,
+            is_cutting=True,
+        )
+        assert arc.length == pytest.approx(0.0)
+
+
+class TestSegmentLengthUnifiedDispatch:
+    """Regression tests for the unified ``_segment_length`` helper.
+
+    These tests verify that the historical ``AttributeError: 'ArcSegment' object
+    has no attribute 'length'`` cannot resurface: any ``Segment`` instance now
+    exposes a uniform ``.length`` property.
+    """
+
+    def test_arc_segment_has_length_attribute(self) -> None:
+        """ArcSegment must expose a ``length`` property."""
+        from plt_optimizer.core.models import ArcSegment, Coordinate
+
+        arc = ArcSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=10.0, y=10.0),
+            center=Coordinate(x=5.0, y=0.0),
+            sweep_angle=90.0,
+            is_cutting=True,
+        )
+        # Accessing the property must not raise AttributeError
+        assert isinstance(arc.length, float)
+        assert arc.length > 0
+
+    def test_stroke_segment_length_unchanged(self) -> None:
+        """StrokeSegment.length remains the Euclidean length of the segment."""
+        from plt_optimizer.core.models import Coordinate
+
+        seg = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=100.0, y=0.0),
+            is_cutting=True,
+        )
+        assert seg.length == pytest.approx(100.0)
+
+    def test_segment_length_helper_dispatches_for_arc(self) -> None:
+        """The ``_segment_length`` helper must work for ArcSegment."""
+        from plt_optimizer.core.models import ArcSegment, Coordinate, _segment_length
+
+        arc = ArcSegment(
+            start=Coordinate(x=5.0, y=0.0),
+            end=Coordinate(x=0.0, y=5.0),
+            center=Coordinate(x=0.0, y=0.0),
+            sweep_angle=90.0,
+            is_cutting=True,
+        )
+        # Must equal the true arc length, not the chord
+        assert _segment_length(arc) == pytest.approx(arc.length)
+        assert _segment_length(arc) > arc.chord_length
+
+    def test_segment_length_helper_dispatches_for_stroke(self) -> None:
+        """The ``_segment_length`` helper must work for StrokeSegment."""
+        from plt_optimizer.core.models import Coordinate, _segment_length
+
+        seg = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=42.0, y=0.0),
+            is_cutting=True,
+        )
+        assert _segment_length(seg) == pytest.approx(42.0)
+
+
+class TestStrokePathChordDistance:
+    """Tests for the StrokePath.chord_distance property (straight-line approx)."""
+
+    def test_chord_distance_mixed_segments(self) -> None:
+        """chord_distance sums chord lengths for arcs and line lengths for strokes."""
+        from plt_optimizer.core.models import ArcSegment, Coordinate
+
+        line = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=100.0, y=0.0),
+            is_cutting=True,
+        )
+        arc = ArcSegment(
+            start=Coordinate(x=5.0, y=0.0),
+            end=Coordinate(x=0.0, y=5.0),
+            center=Coordinate(x=0.0, y=0.0),
+            sweep_angle=90.0,
+            is_cutting=True,
+        )
+        path = StrokePath(segments=(line, arc))
+
+        expected = line.length + arc.chord_length
+        assert path.chord_distance == pytest.approx(expected)
+
+    def test_chord_distance_does_not_equal_total_distance_for_arcs(self) -> None:
+        """For paths with arcs, total_distance (true length) > chord_distance."""
+        from plt_optimizer.core.models import ArcSegment, Coordinate
+
+        arc = ArcSegment(
+            start=Coordinate(x=5.0, y=0.0),
+            end=Coordinate(x=0.0, y=5.0),
+            center=Coordinate(x=0.0, y=0.0),
+            sweep_angle=90.0,
+            is_cutting=True,
+        )
+        path = StrokePath(segments=(arc,))
+        assert path.total_distance == pytest.approx(arc.length)
+        assert path.chord_distance == pytest.approx(arc.chord_length)
+        assert path.total_distance > path.chord_distance
+
+    def test_chord_distance_empty_path(self) -> None:
+        """Empty path has zero chord distance."""
+        path = StrokePath()
+        assert path.chord_distance == 0.0
 
 
 class TestStrokePathIsEmpty:
