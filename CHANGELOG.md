@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.1](https://github.com/twilsonco/Ploptimizer/compare/v1.3.0...v1.3.1) (2026-07-06)
+
+
+### Bug Fixes
+
+* replace *other* test file ([2c36429](https://github.com/twilsonco/Ploptimizer/commit/2c3642984ae7896ce604d97648a1a1dcd72caf82))
+* replace test plt file ([fb4b87b](https://github.com/twilsonco/Ploptimizer/commit/fb4b87b84f043f0c68990346fbe2d6bd8b5baa09))
+
+
+### Documentation
+
+* update readme with images. ([3433533](https://github.com/twilsonco/Ploptimizer/commit/34335335d03ee85f5c8b4182dd73fceec766b04d))
+
 ## [1.3.0](https://github.com/twilsonco/Ploptimizer/compare/v1.2.15...v1.3.0) (2026-07-06)
 
 
