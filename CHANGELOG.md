@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/twilsonco/Ploptimizer/compare/v1.3.1...v1.4.0) (2026-07-06)
+
+
+### Features
+
+* enable immediate shortcut update on startup toggle ([16131d5](https://github.com/twilsonco/Ploptimizer/commit/16131d5f43b66c3db151a80e52da4b39b5bfda83))
+
 ## [1.3.1](https://github.com/twilsonco/Ploptimizer/compare/v1.3.0...v1.3.1) (2026-07-06)
 
 
