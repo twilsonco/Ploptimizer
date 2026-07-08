@@ -106,7 +106,7 @@ jobs:
         run: uv run mypy plt_optimizer/
 
   test:
-    name: Test (${{ matrix.os }})
+    name: Test (${{ matrix.os }}, py${{ matrix.python-version }})
     needs: [changes, type-check, lint]
     if: |
       needs.changes.outputs.should_skip != 'true' &&
@@ -123,13 +123,16 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        # Per AGENTS.md §5.6: at least one Python 3.8 job must exercise
+        # dependency resolution on the floor version.
+        python-version: ['3.8', '3.11']
     steps:
       - uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python-version }}
 
       - name: Install uv
         run: pip install uv
@@ -142,7 +145,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7
-        if: success() && matrix.os == 'windows-latest'
+        if: success() && matrix.os == 'windows-latest' && matrix.python-version == '3.11'
         with:
           files: ./coverage.xml
           fail_ci_if_error: false
@@ -170,19 +173,24 @@ jobs:
     needs: release-please
     # Run on tag pushes OR when release-please creates a release
     if: |
-      always() && 
-      !failure() && 
-      !cancelled() && 
+      always() &&
+      !failure() &&
+      !cancelled() &&
       (startsWith(github.ref, 'refs/tags/v') || needs.release-please.outputs.release_created == 'true')
     runs-on: windows-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
+      # CRITICAL: Must build with Python 3.8 to produce a Win7-compatible bundle.
+      # Python 3.9+ dropped Windows 7 support and ships python3XX.dll files that
+      # depend on api-ms-win-core-path-l1-1-0.dll and other Universal CRT
+      # components that do not exist on Windows 7. See AGENTS.md §5.
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - run: uv sync --all-extras
+          python-version: '3.8'
+      - run: uv sync --python 3.8 --extra tray --extra build
       - name: Create assets directory
         run: New-Item -ItemType Directory -Force -Path assets
       - name: Build executable

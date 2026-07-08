@@ -94,7 +94,35 @@ The test suite must include (and these tests must pass on every PR):
 * A unit test that asserts `pyproject.toml` reports `requires-python` floor `<=3.8`. (If absent, add it.)
 * CI matrix must include at least one Python 3.8 job so dependency resolution is exercised on the floor version. (Verify `.github/workflows/ci.yml` if it exists; if missing, file an issue.)
 
-### 5.7 What To Do If You Suspect a Regression
+### 5.7 CI Build Job Must Pin Python 3.8 (CRITICAL)
+The `build-windows-exe` job in `.github/workflows/ci.yml` produces the
+PyInstaller bundle that end users download and run on Windows 7. **It MUST
+build with Python 3.8** — building with Python 3.9+ silently produces an
+uninstallable bundle on Win7 because:
+
+* The bundle ships `python3XX.dll` (e.g. `python311.dll`) which depends on
+  Universal C Runtime components such as `api-ms-win-core-path-l1-1-0.dll`
+  that do not exist on Windows 7.
+* The user sees the error:
+  > The program can't start because api-ms-win-core-path-l1-1-0.dll is
+  > missing from your computer.
+* Followed by:
+  > Failed to load Python DLL ...\python311.dll. LoadLibrary: The specified
+  > module could not be found.
+* The program then quits silently.
+
+**Required invariants for the build job:**
+* The `setup-uv` step MUST set `python-version: '3.8'`.
+* The `uv sync` step MUST use `--python 3.8` (not `--all-extras`, which
+  pulls in `plotting` extras gated to `python_version >= '3.9'` and would
+  fail on a 3.8 build). Use `--extra tray --extra build` instead.
+* `tests/test_pyproject.py::TestCIBuildJob` enforces both invariants and
+  will fail the build if they are violated.
+
+This invariant exists because a real regression shipped `python311.dll` to
+Win7 users; the unit tests in `test_pyproject.py` are the regression net.
+
+### 5.8 What To Do If You Suspect a Regression
 1. Re-read this section. The rules above are derived from a real, observed regression.
 2. Run `uv sync --python 3.8` in a clean venv to confirm resolution.
 3. Check `uv.lock` for any newly added packages — verify each on PyPI for Win32 + Python 3.8 wheels.

@@ -296,9 +296,7 @@ class SettingsWindow:
 
                 self._run_at_startup_var.set(is_startup_enabled())
             except Exception:
-                self._run_at_startup_var.set(
-                    bool(self._config.get("run_at_startup", False))
-                )
+                self._run_at_startup_var.set(bool(self._config.get("run_at_startup", False)))
 
     def _validate_inputs(self) -> bool:
         """Validate user inputs before saving.
