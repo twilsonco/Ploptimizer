@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.4.1](https://github.com/twilsonco/Ploptimizer/compare/v1.4.0...v1.4.1) (2026-07-08)
+
+
+### Bug Fixes
+
+* restore Windows 7 support inadvertently lost since 145b9d ([300f58e](https://github.com/twilsonco/Ploptimizer/commit/300f58e190f636faafe66c9bcdd3ecc043e8067a))
+
+
+### Documentation
+
+* add explicit Windows 7 compatibility invariants to AGENTS.md ([552cf96](https://github.com/twilsonco/Ploptimizer/commit/552cf96f9b8c6e5cc62189bc0b2ea91d97464d82))
+
 ## [1.4.0](https://github.com/twilsonco/Ploptimizer/compare/v1.3.1...v1.4.0) (2026-07-06)
 
 
