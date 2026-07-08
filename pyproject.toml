@@ -3,7 +3,7 @@ name = "plt-optimizer"
 version = "1.4.0"
 description = "Deterministic cross-platform Python tool for optimizing geometric toolpaths from HPGL/PLT plotter files."
 readme = "README.md"
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.8,<3.14"
 license = { text = "MIT" }
 authors = [
     { name = "PLT-Optimizer Team", email = "team@pltoptimizer.dev" }
@@ -14,7 +14,7 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Operating System :: Microsoft :: Windows :: Windows 7",
-    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
@@ -32,8 +32,6 @@ plt-optimizer = "plt_optimizer.cli.watch:main"
 tray = [
     'winshell>=0.6; platform_system == "Windows"',
     'pywin32>=306; platform_system == "Windows"',
-    # infi.systray for Windows - uses pywin32 directly, avoids pystray+tkinter message loop conflicts
-    'infi-systray>=0.1; platform_system == "Windows"',
 ]
 plotting = [
     'matplotlib>=3.9.0; python_version >= "3.9"',
@@ -79,18 +77,18 @@ partial_branches = [
 ]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
 
 # Ignore missing stubs for optional third-party libraries (they don't ship type stubs)
 [[tool.mypy.overrides]]
-module = ["pystray.*", "infi.systray", "matplotlib.*", "winshell", "win32com.client"]
+module = ["pystray.*", "matplotlib.*", "winshell", "win32com.client"]
 ignore_missing_imports = true
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py311"
 line-length = 100
 lint.select = [
     "E",   # pycodestyle errors
@@ -108,6 +106,6 @@ lint.ignore = ["E501"]  # line too long handled by formatter
 
 [dependency-groups]
 dev = [
-    "matplotlib>=3.10.9",
-    "pytest-cov>=7.1.0",
+    "matplotlib>=3.10.9; python_version >= '3.10'",
+    "pytest-cov>=7.1.0; python_version >= '3.9'",
 ]
