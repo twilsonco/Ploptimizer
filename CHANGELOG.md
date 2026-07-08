@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.2](https://github.com/twilsonco/Ploptimizer/compare/v1.4.1...v1.4.2) (2026-07-08)
+
+
+### Bug Fixes
+
+* **ci:** pin build-windows-exe to Python 3.8 for Windows 7 compatibility ([a18851f](https://github.com/twilsonco/Ploptimizer/commit/a18851fa7461a7e48cc4644c1cb7d94ef5f0ec42))
+
 ## [1.4.1](https://github.com/twilsonco/Ploptimizer/compare/v1.4.0...v1.4.1) (2026-07-08)
 
 
