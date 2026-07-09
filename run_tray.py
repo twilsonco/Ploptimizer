@@ -17,6 +17,7 @@ For CLI mode (no GUI), use:
 
 from __future__ import annotations
 
+import argparse
 import logging
 import sys
 import threading
@@ -54,15 +55,95 @@ def main() -> int:
     Returns:
         Exit code.
     """
-    logger.info("Starting PLT-Optimizer Tray Application")
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description="PLT-Optimizer Tray Application")
+    parser.add_argument(
+        "--started-from-startup",
+        action="store_true",
+        help="Internal flag indicating launch from Windows Startup folder",
+    )
+    args = parser.parse_args()
+
+    if args.started_from_startup:
+        logger.info("Starting PLT-Optimizer Tray Application (launched from Windows Startup)")
+    else:
+        logger.info("Starting PLT-Optimizer Tray Application (launched manually)")
+
+    # CRITICAL: Implement Windows mutex-based singleton enforcement to prevent
+    # infinite instance spawning. Without this, multiple instances can launch
+    # simultaneously (via startup + manual launch + accidental double-clicks),
+    # each watching the same directory and competing to process the same files,
+    # leading to memory exhaustion and system crash.
+    mutex_handle = None
+    if sys.platform == "win32":
+        try:
+            import win32api
+            import win32event
+            from winerror import ERROR_ALREADY_EXISTS
+
+            # Use Global\ prefix for cross-session protection (handles multiple
+            # users, service accounts, and Terminal Services sessions)
+            mutex_name = "Global\\PLT-Optimizer-SingleInstance-Mutex"
+            mutex_handle = win32event.CreateMutex(None, False, mutex_name)
+            last_error = win32api.GetLastError()
+
+            if last_error == ERROR_ALREADY_EXISTS:
+                logger.warning(
+                    "Another instance of PLT-Optimizer is already running. "
+                    "Only one instance can run at a time to prevent conflicts."
+                )
+
+                # Show user-facing error dialog
+                try:
+                    import tkinter as tk
+                    from tkinter import messagebox
+
+                    # Create hidden root window for messagebox
+                    root = tk.Tk()
+                    root.withdraw()
+
+                    messagebox.showwarning(
+                        "PLT-Optimizer Already Running",
+                        "PLT-Optimizer is already running.\n\n"
+                        "Check your system tray for the PLT-Optimizer icon.\n\n"
+                        "If you don't see the icon, another instance may be "
+                        "running in the background. Close all instances via "
+                        "Task Manager before launching again.",
+                    )
+
+                    root.destroy()
+                except Exception as e:
+                    logger.error(f"Could not show GUI warning: {e}")
+                    # Fallback to console output
+                    print(
+                        "ERROR: PLT-Optimizer is already running.\n"
+                        "Check your system tray or Task Manager.",
+                        file=sys.stderr,
+                    )
+
+                # Clean up and exit
+                if mutex_handle is not None:
+                    win32api.CloseHandle(mutex_handle)
+                return 1
+
+            logger.info(f"Acquired singleton mutex: {mutex_name}")
+
+        except ImportError:
+            logger.warning(
+                "pywin32 not available - cannot enforce single instance on Windows. "
+                "Multiple instances may run simultaneously and cause conflicts."
+            )
+        except Exception as e:
+            logger.error(f"Failed to create singleton mutex: {e}", exc_info=True)
+            # Continue anyway - better to run without mutex than not run at all
 
     # Import here to allow early logging setup
+    from plt_optimizer.cli.watch import run_watcher_from_config
     from plt_optimizer.utils.config import load_config, save_config
     from plt_optimizer.utils.startup import (
         create_shortcut,
         remove_shortcut,
     )
-    from plt_optimizer.cli.watch import run_watcher_from_config
 
     try:
         from plt_optimizer.ui.tray import TrayIconManager
@@ -144,7 +225,6 @@ def main() -> int:
             cast(threading.Event, app_state["stop_event"]).set()
 
         try:
-            import tkinter as tk
             from plt_optimizer.ui.settings import SettingsWindow
 
             updated_config: list[dict[str, object] | None] = [None]
@@ -275,6 +355,16 @@ def main() -> int:
             except Exception:
                 pass
         logger.info("PLT-Optimizer Tray Application stopped")
+
+        # Release mutex on exit (Windows will clean up automatically on process
+        # termination, but explicit cleanup is good practice)
+        if mutex_handle is not None and sys.platform == "win32":
+            try:
+                import win32api
+                win32api.CloseHandle(mutex_handle)
+                logger.info("Released singleton mutex")
+            except Exception as e:
+                logger.warning(f"Failed to release mutex: {e}")
 
     return 0
 

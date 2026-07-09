@@ -144,6 +144,9 @@ def create_shortcut(
         )
         shortcut.WindowStyle = 7  # Minimized (start in background)
         shortcut.Description = "PLT-Optimizer - HPGL/PLT File Optimization"
+        # Add argument to differentiate startup-launched instances from manual launches
+        # (primarily for debugging and logging - the mutex is the actual protection)
+        shortcut.Arguments = "--started-from-startup"
         shortcut.Save()
         return shortcut_path
 
