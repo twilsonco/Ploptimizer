@@ -67,8 +67,23 @@ def _install_tkinter_mocks() -> None:
             pass
 
         @staticmethod
+        def showwarning(title: str, message: str, **kwargs: Any) -> None:
+            pass
+
+        @staticmethod
         def askyesno(title: str, message: str, **kwargs: Any) -> bool:
             return False
+
+    # Instantiate the submodule mocks BEFORE defining TkinterModule so that
+    # the same instances are referenced both as ``sys.modules`` entries and
+    # as attributes on the ``tkinter`` package mock. This ensures that
+    # ``from tkinter import messagebox`` (which reads the attribute) and
+    # ``sys.modules["tkinter.messagebox"]`` (which tests patch) refer to
+    # the same object, so ``patch("tkinter.messagebox.showwarning")`` is
+    # visible to production code that imports ``messagebox`` from
+    # ``tkinter``.
+    filedialog_module = FiledialogModule()
+    messagebox_module = MessageboxModule()
 
     class TtkModule:
         """Mock tkinter.ttk module."""
@@ -186,8 +201,8 @@ def _install_tkinter_mocks() -> None:
     class TkinterModule:
         """Mock tkinter module."""
 
-        filedialog = FiledialogModule()
-        messagebox = MessageboxModule()
+        filedialog = filedialog_module
+        messagebox = messagebox_module
         ttk = TtkModule()
 
         Tk = MockTkRoot
@@ -203,9 +218,12 @@ def _install_tkinter_mocks() -> None:
         EW = "ew"
         W = "w"
 
-    # Install mocks - must set submodules BEFORE the main tkinter module
-    sys.modules["tkinter.filedialog"] = FiledialogModule()
-    sys.modules["tkinter.messagebox"] = MessageboxModule()
+    # Install mocks - must set submodules BEFORE the main tkinter module.
+    # Use the SAME instances that TkinterModule references so that
+    # ``from tkinter import messagebox`` and ``sys.modules["tkinter.messagebox"]``
+    # resolve to the same object (tests patch the latter).
+    sys.modules["tkinter.filedialog"] = filedialog_module
+    sys.modules["tkinter.messagebox"] = messagebox_module
     sys.modules["tkinter.ttk"] = TtkModule()
 
     # Now install the main tkinter mock with submodule references
