@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from math import fabs, pi, sqrt
+from typing import Union
 
 
 class PenState(Enum):
@@ -202,7 +203,7 @@ class ArcSegment:
         return self.radius * sweep_radians
 
 
-Segment = StrokeSegment | ArcSegment
+Segment = Union[StrokeSegment, ArcSegment]
 
 
 def _segment_length(seg: Segment) -> float:

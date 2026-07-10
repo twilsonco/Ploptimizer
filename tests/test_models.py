@@ -17,6 +17,8 @@ These tests target specific lines not covered by existing identity/parser/writer
 from __future__ import annotations
 
 import math
+import types
+import typing
 
 import pytest
 
@@ -289,6 +291,68 @@ class TestSegmentLengthUnifiedDispatch:
         )
         assert _segment_length(seg) == pytest.approx(42.0)
 
+class TestSegmentAliasPython38Compatibility:
+    """Regression tests for the ``Segment`` alias runtime type.
+
+    The ``Segment`` alias in ``plt_optimizer.core.models`` is evaluated at
+    module import time. PEP 604 union syntax (``X | Y``) is only valid at
+    runtime on Python 3.10+; on Python 3.8/3.9 it raises
+    ``TypeError: unsupported operand type(s) for |: 'type' and 'type'``,
+    which crashes the PyInstaller-built Windows EXE on Windows 7.
+
+    These tests pin the alias to ``typing.Union`` so the module imports
+    cleanly on the Python 3.8 floor.
+    """
+
+    def test_segment_alias_is_importable(self) -> None:
+        """``Segment`` must be importable from ``plt_optimizer.core.models``."""
+        from plt_optimizer.core.models import Segment
+
+        assert Segment is not None
+
+    def test_segment_alias_is_not_pep604_runtime_union(self) -> None:
+        """``Segment`` must NOT be a ``types.UnionType`` (PEP 604 runtime union).
+
+        ``types.UnionType`` only exists on Python 3.10+. If ``Segment`` is
+        a ``types.UnionType``, the module fails to import on Python 3.8/3.9
+        and the Windows 7 EXE crashes at startup with
+        ``TypeError: unsupported operand type(s) for |: 'type' and 'type'``.
+        """
+        from plt_optimizer.core.models import Segment
+
+        # types.UnionType is the runtime type of the PEP 604 'X | Y' expression.
+        # It only exists on Python 3.10+. On 3.8/3.9, the attribute itself
+        # is absent, which is itself the regression signal.
+        assert not hasattr(types, "UnionType") or not isinstance(
+            Segment, types.UnionType
+        )
+
+    def test_segment_alias_resolves_to_both_concrete_types(self) -> None:
+        """``typing.get_args(Segment)`` must include both concrete segment types."""
+        from plt_optimizer.core.models import ArcSegment, Segment
+
+        args = typing.get_args(Segment)
+        assert ArcSegment in args
+        assert StrokeSegment in args
+
+    def test_segment_alias_accepts_isinstance_for_both_types(self) -> None:
+        """``isinstance(x, Segment)`` must work for both ``ArcSegment`` and ``StrokeSegment``."""
+        from plt_optimizer.core.models import ArcSegment, Coordinate, Segment
+
+        arc = ArcSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=10.0, y=10.0),
+            center=Coordinate(x=5.0, y=0.0),
+            sweep_angle=90.0,
+            is_cutting=True,
+        )
+        stroke = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=42.0, y=0.0),
+            is_cutting=True,
+        )
+        assert isinstance(arc, Segment)
+        assert isinstance(stroke, Segment)
 
 class TestStrokePathChordDistance:
     """Tests for the StrokePath.chord_distance property (straight-line approx)."""
