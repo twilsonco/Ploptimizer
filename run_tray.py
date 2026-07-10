@@ -23,6 +23,8 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, cast
+from multiprocessing import freeze_support
+freeze_support()
 
 # Configure basic logging for the tray app before other imports
 logging.basicConfig(
