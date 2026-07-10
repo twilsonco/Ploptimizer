@@ -263,9 +263,17 @@ class TestShortcutArgument:
 
         target_path = Path("/tmp/PLT-Optimizer.exe")
 
+        # ``create_shortcut`` falls back to ``Path.cwd()`` when
+        # ``target_path.parent`` does not exist on disk. On Windows CI runners
+        # the synthetic ``/tmp`` path used here does not exist, so the
+        # fallback would kick in and the ``WorkingDirectory`` assertion below
+        # would compare against the runner's CWD instead of ``target_path.parent``.
+        # Patch ``Path.exists`` to return True so the production code uses
+        # ``target_path.parent`` as intended.
         with patch("win32com.client.Dispatch", return_value=mock_shell), \
              patch("plt_optimizer.utils.startup.get_startup_folder", return_value=Path("/tmp")), \
-             patch("plt_optimizer.utils.startup.get_executable_path", return_value=target_path):
+             patch("plt_optimizer.utils.startup.get_executable_path", return_value=target_path), \
+             patch.object(Path, "exists", return_value=True):
 
             create_shortcut()
 
