@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.4](https://github.com/twilsonco/Ploptimizer/compare/v1.4.3...v1.4.4) (2026-07-10)
+
+
+### Bug Fixes
+
+* use typing.Union for Segment alias ([45f7fd3](https://github.com/twilsonco/Ploptimizer/commit/45f7fd36f4db5ec48174a8169b35bc68a707316e))
+
 ## [1.4.3](https://github.com/twilsonco/Ploptimizer/compare/v1.4.2...v1.4.3) (2026-07-10)
 
 
