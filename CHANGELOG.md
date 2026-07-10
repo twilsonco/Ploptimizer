@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.3](https://github.com/twilsonco/Ploptimizer/compare/v1.4.2...v1.4.3) (2026-07-10)
+
+
+### Bug Fixes
+
+* prevent infinite instance spawning via Windows mutex singleton ([19da58e](https://github.com/twilsonco/Ploptimizer/commit/19da58e205ed2dc6c45bc09a96fd20c721a53952))
+
 ## [1.4.2](https://github.com/twilsonco/Ploptimizer/compare/v1.4.1...v1.4.2) (2026-07-08)
 
 
