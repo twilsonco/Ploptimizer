@@ -141,7 +141,7 @@ class PLTWriter:
 
         # Write header commands in sequence
         for header in document.header_commands:
-            formatted = self._format_header(header)
+            formatted = ("" if not parts else "\n") + self._format_header(header)
             if formatted:
                 parts.append(formatted)
 
@@ -220,7 +220,7 @@ class PLTWriter:
             math.isclose(current_pos.x, pen_up_target.x, abs_tol=1e-3)
             and math.isclose(current_pos.y, pen_up_target.y, abs_tol=1e-3)
         ):
-            parts.append(f"PU{self._format_coord(pen_up_target)};")
+            parts.append(f"\nPU{self._format_coord(pen_up_target)};")
             current_pos = pen_up_target
 
         # Now process each segment with segment-level state tracking
@@ -231,17 +231,17 @@ class PLTWriter:
                 math.isclose(current_pos.x, segment.start.x, abs_tol=1e-3)
                 and math.isclose(current_pos.y, segment.start.y, abs_tol=1e-3)
             ):
-                parts.append(f"PU{self._format_coord(segment.start)};")
+                parts.append(f"\nPU{self._format_coord(segment.start)};")
                 current_pos = segment.start
 
             # Execute the cut
             if isinstance(segment, ArcSegment):
                 arc_str = self._format_arc_segment(segment)
-                parts.append(arc_str)
+                parts.append(f"\n{arc_str}")
                 current_pos = segment.end
             else:
                 cmd = "PD" if segment.is_cutting else "PU"
-                parts.append(f"{cmd}{self._format_coord(segment.end)};")
+                parts.append(f"\n{cmd}{self._format_coord(segment.end)};")
                 current_pos = segment.end
 
         return "".join(parts), current_pos
