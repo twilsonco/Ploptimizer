@@ -90,10 +90,15 @@ powershell -Command "irm https://astral.sh/uv/install.ps1 | iex"
    uv sync --extra plotting
    ```
 
-4. (Optional) Install development dependencies for testing:
+4. (Optional) Install development dependencies for testing and code quality:
    ```bash
-   uv sync --extra dev
+   uv sync --all-groups
    ```
+   This includes:
+   - pytest for testing
+   - ruff for linting and formatting
+   - mypy for type checking
+   - pre-commit for automated code quality checks
 
 5. (Optional) For system tray GUI mode on **Windows only**:
    ```powershell
@@ -372,28 +377,6 @@ Get-Content "$env:LOCALAPPDATA\PLT-Optimizer\logs\optimizer.log" -Tail 20 -Wait
 
 Right-click the system tray icon → **Exit**, or find "PLT-Optimizer" in Task Manager and end the task.
 
-### Running the Example Script
-
-The example script demonstrates the complete workflow:
-
-```bash
-uv run python examples/run_diagnostics.py
-```
-
-On Windows:
-```powershell
-cd C:\PLT-Optimizer
-uv run python examples/run_diagnostics.py
-```
-
-This will:
-1. Create sample PLT files in `examples/`
-2. Parse and validate them
-3. Generate diagnostic plots (saved to `examples/output/`)
-4. Write logs to `logs/optimizer.log` and `logs/job_metrics.csv`
-
-**Note:** The `logs/` directory is created automatically relative to the working directory where you run the command.
-
 ## Testing
 
 Run the test suite with pytest:
@@ -424,6 +407,49 @@ uv run pytest --cov=plt_optimizer --cov-report=term-missing tests/
 - **test_identity.py**: Round-trip identity validation ensuring parse→write→parse consistency
 - **test_parser.py**: Parser accuracy and error handling
 - **test_writer.py**: Writer output formatting and file operations
+
+## Pre-commit Hooks
+
+Code quality checks are automated via pre-commit hooks that run before each commit.
+
+### Setup
+
+The hooks are configured and should run automatically on commit:
+
+```bash
+# Install dev dependencies (includes pre-commit)
+uv sync --all-groups
+
+# Hooks are installed automatically by pre-commit, but you can reinstall if needed
+uv tool run pre-commit install
+```
+
+### Manual Hook Execution
+
+To run all hooks on all files:
+
+```bash
+# Check and format all Python files
+uv tool run pre-commit run --all-files
+```
+
+To run specific hooks:
+
+```bash
+# Only run ruff linter
+uv tool run pre-commit run ruff --all-files
+
+# Only run mypy type checker
+uv tool run pre-commit run mypy --all-files
+```
+
+### Hook Configuration
+
+The project uses:
+- **ruff**: Fast Python linter and formatter (v0.15.21)
+- **mypy**: Static type checker (v2.2.0)
+
+See [`.pre-commit-config.yaml`](.pre-commit-config.yaml) for details.
 
 ## HPGL/PLT Format Reference
 
