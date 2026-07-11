@@ -8,7 +8,7 @@
 * prevent infinite spawning of built exe ([722e91c](https://github.com/twilsonco/Ploptimizer/commit/722e91c684e557960ac0224d67ae4e6a02666a9e))
 * typehint errors ([d9686a2](https://github.com/twilsonco/Ploptimizer/commit/d9686a26db70ded1047e2c16a7cb2b0c5dca270f))
 * **watch:** wait for input file to stop being modified, and use atomic writes to place full output file at once ([2ae3a0b](https://github.com/twilsonco/Ploptimizer/commit/2ae3a0b33ac59a609073caf00ac3ce06a8a4b789))
-* windows 7 support and prevent infinite spawn of exe ([e507abd](https://github.com/twilsonco/Ploptimizer/commit/e507abdd14354b9432f44ec8a5490889d1bafaae))
+* Windows 7 support and prevent infinite spawn of exe ([e507abd](https://github.com/twilsonco/Ploptimizer/commit/e507abdd14354b9432f44ec8a5490889d1bafaae))
 
 ## [1.4.0](https://github.com/twilsonco/Ploptimizer/compare/v1.3.1...v1.4.0) (2026-07-06)
 
