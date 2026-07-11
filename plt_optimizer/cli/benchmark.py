@@ -76,6 +76,7 @@ from plt_optimizer.utils.logging import get_metrics_logger, get_text_logger
 
 # Registry of strategies to benchmark, in execution order.
 STRATEGY_REGISTRY: dict[str, type] = {
+    "no-opt": None,  # type: ignore  # Baseline (no optimization)
     "nn2opt": NearestNeighbor2OptStrategy,
     "insertion": InsertionHeuristicStrategy,
     "christofides": ChristofidesStrategy,
@@ -327,22 +328,33 @@ def _run_strategy(
     }
 
     try:
-        if strategy_name in _STRATEGIES_WITH_SAME_ROW_PREFERENCE:
-            optimizer = OptimizerEngine(
-                strategy=strategy_class(same_row_preference=same_row_preference)
-            )
+        # Handle no-opt baseline: skip optimization and use baseline metrics as-is
+        if strategy_name == "no-opt":
+            opt_start = time.perf_counter()
+            # No optimization—use baseline metrics directly
+            optimized_rapid = before_rapid
+            optimized_cutting = before_cutting
+            opt_elapsed_ms = (time.perf_counter() - opt_start) * 1000
+            optimization_result = None
+            optimized_doc = doc
         else:
-            optimizer = OptimizerEngine(strategy=strategy_class())
+            if strategy_name in _STRATEGIES_WITH_SAME_ROW_PREFERENCE:
+                optimizer = OptimizerEngine(
+                    strategy=strategy_class(same_row_preference=same_row_preference)
+                )
+            else:
+                optimizer = OptimizerEngine(strategy=strategy_class())
 
-        opt_start = time.perf_counter()
-        optimization_result = optimizer.optimize(blocks)
-        opt_elapsed_ms = (time.perf_counter() - opt_start) * 1000
+            opt_start = time.perf_counter()
+            optimization_result = optimizer.optimize(blocks)
+            opt_elapsed_ms = (time.perf_counter() - opt_start) * 1000
 
-        reassembler = Reassembler()
-        optimized_doc = reassembler.reassemble(doc, blocks, optimization_result)
+            reassembler = Reassembler()
+            optimized_doc = reassembler.reassemble(doc, blocks, optimization_result)
 
-        optimized_rapid = optimized_doc.rapid_distance()
-        optimized_cutting = optimized_doc.cutting_distance()
+            optimized_rapid = optimized_doc.rapid_distance()
+            optimized_cutting = optimized_doc.cutting_distance()
+
         total_before = before_rapid + before_cutting
         total_after = optimized_rapid + optimized_cutting
         total_pct = ((total_after - total_before) / total_before) * 100 if total_before > 0 else 0.0
