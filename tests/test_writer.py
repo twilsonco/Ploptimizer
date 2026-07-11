@@ -64,13 +64,13 @@ class TestPLTWriter:
         assert "SP;" in output
 
     def test_write_coordinate_formatting(self) -> None:
-        """Test coordinate formatting to 3 decimal places."""
+        """Test coordinate formatting with trailing zeros removed."""
         writer = PLTWriter()
 
         coord = Coordinate(x=18288.5, y=-0.125)
         formatted = writer._format_coord(coord)
 
-        assert "18288.500" in formatted
+        assert "18288.5" in formatted
         assert "-0.125" in formatted
 
     def test_write_stroke_path(self) -> None:
@@ -313,11 +313,11 @@ class TestPLTWriterFormatting:
     """Tests for specific formatting requirements."""
 
     def test_number_format_three_decimals(self) -> None:
-        """Test that numbers are formatted to exactly 3 decimal places."""
+        """Test that numbers are formatted with integers having no decimals and trailing zeros removed."""
         writer = PLTWriter()
 
-        assert writer._format_number(100.0) == "100.000"
-        assert writer._format_number(0.5) == "0.500"
+        assert writer._format_number(100.0) == "100"
+        assert writer._format_number(0.5) == "0.5"
         assert writer._format_number(-18288.123) == "-18288.123"
 
     def test_header_command_format(self) -> None:
@@ -371,8 +371,8 @@ class TestPLTWriterStrokePathFormatting:
 
         result, _ = writer._format_stroke_path(path)
 
-        assert "PU50.000,60.000;" in result
-        assert "PD100.000,200.000;" in result
+        assert "PU50,60;" in result
+        assert "PD100,200;" in result
 
     def test_stroke_path_no_pen_up_first_segment_rapid(self) -> None:
         """Test stroke path with no pen-up position but first segment is rapid (lines 197->204)."""
@@ -390,9 +390,9 @@ class TestPLTWriterStrokePathFormatting:
         result, _ = writer._format_stroke_path(path)
 
         # When current_pos is None initially, PU is added to ensure safe positioning
-        assert "PU50.000,60.000;" in result
+        assert "PU50,60;" in result
         # Segment end uses PU for rapid move (not cutting)
-        assert "PU100.000,200.000;" in result
+        assert "PU100,200;" in result
 
     def test_stroke_path_no_pen_up_first_segment_cutting(self) -> None:
         """Test stroke path with no pen-up position but first segment is cutting."""
@@ -410,9 +410,9 @@ class TestPLTWriterStrokePathFormatting:
         result, _ = writer._format_stroke_path(path)
 
         # Should have implicit PU for start (since current_pos was None)
-        assert "PU50.000,60.000;" in result
+        assert "PU50,60;" in result
         # And PD for the segment end
-        assert "PD100.000,200.000;" in result
+        assert "PD100,200;" in result
 
 
 class TestPLTWriterRoundTrip:
@@ -514,8 +514,8 @@ class TestArcSegmentWriting:
 
         assert "PD;" in result
         assert "AA" in result
-        assert "1016.000,1016.000" in result
-        assert "90.000" in result
+        assert "1016,1016" in result
+        assert "90" in result
 
     def test_format_arc_segment_rapid(self) -> None:
         """Test formatting a rapid (pen-up) arc segment."""
@@ -556,8 +556,8 @@ class TestArcSegmentWriting:
 
         result = writer.write_string(doc)
 
-        assert "PD100.000,0.000;" in result
-        assert "AA150.000,50.000" in result
+        assert "PD100,0;" in result
+        assert "AA150,50" in result
 
     def test_arc_absolute_value_in_output(self) -> None:
         """Test that AA command is used for clockwise arcs (positive angle)."""
@@ -1040,7 +1040,7 @@ class TestStrokePathFormattingEdgeCases:
         output = writer.write_string(doc)
 
         # Should have intermediate PU before seg2
-        assert "PU500.000" in output
+        assert "PU500" in output
 
 
 class TestValidateAgainstOriginalEdgeCases:
@@ -1221,7 +1221,7 @@ class TestFormatStrokePathWithArcAtDifferentPosition:
         output = writer.write_string(doc)
 
         # Should have PU to move from (100,0) to arc start at (200,0)
-        assert "PU200.000" in output
+        assert "PU200" in output
 
 
 class TestWriteStringEdgeCases:

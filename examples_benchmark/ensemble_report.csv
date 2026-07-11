@@ -1,6 +1,6 @@
 file_name,strategy_name,status,before_rapid_in,before_cutting_in,before_paths,before_segments,blocks_created,rapid_after_in,cutting_after_in,total_before_in,total_after_in,rapid_saved_in,cutting_saved_in,total_saved_in,rapid_improvement_pct,cutting_improvement_pct,total_improvement_pct,time_ms,error_message
 1-inch-square.plt,no-opt,success,0.0,4.064,1,4,1,0.0,4.064,4.064,4.064,0.0,0.0,0.0,0.0,0.0,0.0,0.0,
-1x3 half inch letters holes1.plt,nn2opt,success,563.654,434.245,194,874,194,158.982,434.245,997.899,593.227,404.672,-0.0,404.672,71.79,-0.0,40.55,70.19,
+1x3 half inch letters holes1.plt,nn2opt,success,563.654,434.245,194,874,194,158.982,434.245,997.899,593.227,404.672,-0.0,404.672,71.79,-0.0,40.55,69.85,
 2026-07-10 SW0914 1111sheet1.plt,no-opt,success,0.0,76.108,79,676,1,0.0,76.108,76.108,76.108,0.0,0.0,0.0,0.0,0.0,0.0,0.0,
-334X712 RED DANGER conveyers start and stop2.plt,sa,success,346.87,702.692,504,5332,48,240.606,672.556,1049.561,913.163,106.263,30.135,136.399,30.63,4.29,13.0,64.39,
-test_rect_grid13sheet0.plt,nn2opt,success,0.0,203.2,39,99,41,29.063,123.952,203.2,153.015,-29.063,79.248,50.185,0.0,39.0,24.7,3.79,
+334X712 RED DANGER conveyers start and stop2.plt,nn2opt,success,346.87,702.692,504,5332,48,241.825,672.556,1049.561,914.381,105.044,30.135,135.18,30.28,4.29,12.88,5.03,
+test_rect_grid13sheet0.plt,nn2opt,success,0.0,203.2,39,99,41,29.063,123.952,203.2,153.015,-29.063,79.248,50.185,0.0,39.0,24.7,3.8,

@@ -281,16 +281,27 @@ class PLTWriter:
         return f"{x},{y}"
 
     def _format_number(self, value: float) -> str:
-        """Format a numeric value to 3 decimal places.
+        """Format a numeric value with appropriate precision.
+
+        For whole numbers (within tolerance), returns integer format.
+        For non-whole numbers, returns up to 3 decimal places without trailing zeros.
 
         Args:
             value: The numeric value to format.
 
         Returns:
-            String representation with exactly 3 decimal places.
+            String representation of the value.
         """
-        # Use fixed-point formatting to ensure consistent precision
-        return f"{value:.3f}"
+        # Round to precision to avoid floating-point artifacts
+        rounded = round(value, self.COORD_PRECISION)
+        
+        # Check if it's effectively a whole number
+        if rounded == int(rounded):
+            return str(int(rounded))
+        
+        # Format with up to 3 decimal places, removing trailing zeros
+        formatted = f"{rounded:.3f}".rstrip('0').rstrip('.')
+        return formatted
 
     def validate_output(
         self,

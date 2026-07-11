@@ -200,8 +200,8 @@ class TestWriterOutput:
         writer = PLTWriter()
 
         # Test various number formats
-        assert writer._format_number(100.0) == "100.000"
-        assert writer._format_number(0.5) == "0.500"
+        assert writer._format_number(100.0) == "100"
+        assert writer._format_number(0.5) == "0.5"
         assert writer._format_number(-18288.123456) == "-18288.123"
 
     def test_write_coordinate_formatting(self) -> None:
@@ -211,7 +211,7 @@ class TestWriterOutput:
 
         formatted = writer._format_coord(coord)
 
-        assert "18288.500" in formatted
+        assert "18288.5" in formatted
         assert "-0.125" in formatted
 
 
