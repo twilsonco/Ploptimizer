@@ -215,11 +215,17 @@ class PLTWriter:
             path.pen_up_position if path.pen_up_position is not None else first_segment_start
         )
 
-        # Only issue initial PU if we are NOT already at the target coordinate
-        if current_pos is None or not (
+        # Check if first segment is non-cutting (represents a PU move)
+        first_is_non_cutting = not path.segments[0].is_cutting if path.segments else False
+
+        # Always issue initial PU if: position differs, or we're switching pen state (e.g., PD to PU)
+        # We detect pen state change if the first segment is non-cutting (PU move)
+        position_differs = current_pos is None or not (
             math.isclose(current_pos.x, pen_up_target.x, abs_tol=1e-3)
             and math.isclose(current_pos.y, pen_up_target.y, abs_tol=1e-3)
-        ):
+        )
+        
+        if position_differs or first_is_non_cutting:
             parts.append(f"\nPU{self._format_coord(pen_up_target)};")
             current_pos = pen_up_target
 

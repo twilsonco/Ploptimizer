@@ -214,6 +214,20 @@ class PLTParser:
                         else:
                             new_segments = current_path.segments + (segment,)
                             object.__setattr__(current_path, "segments", new_segments)
+                    elif new_pen_state == PenState.UP and pen_state == PenState.UP and last_position is not None:
+                        # Preserve intermediate PU movements when pen was already UP
+                        # Create a non-cutting segment to represent the move
+                        if coord != last_position:
+                            segment = StrokeSegment(
+                                start=last_position,
+                                end=coord,
+                                is_cutting=False,
+                            )
+                            current_path = StrokePath(
+                                pen_up_position=last_position,
+                                segments=(segment,),
+                            )
+                            doc.stroke_paths.append(current_path)
 
                     last_position = coord
 
@@ -480,7 +494,9 @@ class PLTParser:
         while True:
             # Try to match coordinates in current token's remainder
             if rest:
-                coord_match = self.COORD_PATTERN.match(rest)
+                # Strip trailing semicolon from rest if present (tokens include semicolons)
+                rest_to_match = rest.rstrip(";")
+                coord_match = self.COORD_PATTERN.match(rest_to_match) if rest_to_match else None
                 if coord_match:
                     try:
                         coord = Coordinate.from_string(
