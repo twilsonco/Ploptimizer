@@ -21,9 +21,10 @@ import logging
 import sys
 import threading
 import time
+from multiprocessing import freeze_support
 from pathlib import Path
 from typing import Any, cast
-from multiprocessing import freeze_support
+
 freeze_support()
 
 # Configure basic logging for the tray app before other imports
@@ -32,6 +33,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+
 
 def get_icon_path() -> Path:
     """Get path to icon.ico accounting for PyInstaller frozen builds.
@@ -59,12 +61,12 @@ def main() -> int:
     logger.info("Starting PLT-Optimizer Tray Application")
 
     # Import here to allow early logging setup
+    from plt_optimizer.cli.watch import run_watcher_from_config
     from plt_optimizer.utils.config import load_config, save_config
     from plt_optimizer.utils.startup import (
         create_shortcut,
         remove_shortcut,
     )
-    from plt_optimizer.cli.watch import run_watcher_from_config
 
     try:
         from plt_optimizer.ui.tray import TrayIconManager
@@ -146,7 +148,6 @@ def main() -> int:
             cast(threading.Event, app_state["stop_event"]).set()
 
         try:
-            import tkinter as tk
             from plt_optimizer.ui.settings import SettingsWindow
 
             updated_config: list[dict[str, object] | None] = [None]
@@ -230,6 +231,7 @@ def main() -> int:
         # Force termination - sys.exit() is needed because pystray's blocking run() loop
         # won't exit on its own when stop() is called from a callback
         import os
+
         os._exit(0)
 
     # Create tray manager

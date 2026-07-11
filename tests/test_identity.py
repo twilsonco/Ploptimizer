@@ -20,11 +20,10 @@ import pytest
 from plt_optimizer.core.chunker import Chunker, ChunkerConfig
 from plt_optimizer.core.models import Coordinate, PLTDocument
 from plt_optimizer.core.optimizer import NearestNeighbor2OptStrategy, OptimizerEngine
-from plt_optimizer.core.parser import PLTParser, ParseError
+from plt_optimizer.core.parser import PLTParser
 from plt_optimizer.core.profiler import Profiler
 from plt_optimizer.core.reassembler import Reassembler
 from plt_optimizer.core.writer import PLTWriter, WriteError
-
 
 # Sample HPGL content from Cadlink EngraveLab Expert v10
 SAMPLE_HPGL = "IN;VS0.50;ZO123,1;VZ2.00;PA;PU0.000,0.000;PD18288.000,0.000;SP;"
@@ -131,8 +130,7 @@ class TestIdentityValidation:
         doc2 = parser.parse_string(output1)
 
         assert doc1.total_segments == doc2.total_segments, (
-            f"Segment count mismatch: {doc1.total_segments} vs "
-            f"{doc2.total_segments}"
+            f"Segment count mismatch: {doc1.total_segments} vs {doc2.total_segments}"
         )
 
     def test_empty_document_write(self) -> None:
@@ -299,8 +297,7 @@ class TestMetadataPreservation:
         )
 
         assert len(doc1.stroke_paths) == len(doc2.stroke_paths), (
-            f"Stroke path count mismatch: {len(doc1.stroke_paths)} vs "
-            f"{len(doc2.stroke_paths)}"
+            f"Stroke path count mismatch: {len(doc1.stroke_paths)} vs {len(doc2.stroke_paths)}"
         )
 
     def test_original_optimized_files_have_identical_metadata(self) -> None:
@@ -349,9 +346,7 @@ class TestMetadataPreservation:
             # Re-parse the optimized file
             doc_optimized_parsed = parser.parse_file(optimized_path)
 
-            assert len(doc_original.header_commands) == len(
-                doc_optimized_parsed.header_commands
-            ), (
+            assert len(doc_original.header_commands) == len(doc_optimized_parsed.header_commands), (
                 f"Header command count mismatch: {len(doc_original.header_commands)} vs "
                 f"{len(doc_optimized_parsed.header_commands)}"
             )

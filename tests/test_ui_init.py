@@ -57,7 +57,7 @@ class TestUIAllList:
             if "plt_optimizer.ui.tray" in sys.modules:
                 del sys.modules["plt_optimizer.ui.tray"]
 
-            from plt_optimizer.ui import TrayIconManager, SettingsWindow
+            from plt_optimizer.ui import SettingsWindow, TrayIconManager
 
             assert issubclass(TrayIconManager, object)
             assert issubclass(SettingsWindow, object)
@@ -76,4 +76,3 @@ class TestUIAllList:
 
             expected = {"TrayIconManager", "SettingsWindow"}
             assert set(ui_module.__all__) == expected
-

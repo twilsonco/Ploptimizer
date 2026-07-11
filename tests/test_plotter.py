@@ -88,7 +88,7 @@ class TestPlotPltDocumentEmpty:
         """Test empty document plot contains 'No segments' text."""
         doc = PLTDocument(stroke_paths=[])
         fig = plot_plt_document(doc)
-        texts = [child for child in fig.axes[0].get_children() if hasattr(child, 'get_text')]
+        texts = [child for child in fig.axes[0].get_children() if hasattr(child, "get_text")]
         found = any("No segments" in t.get_text() for t in texts)
         assert found
 
@@ -139,7 +139,8 @@ class TestPlotPltDocumentWithSegments:
         )
 
     def _make_path(
-        self, segments: list[StrokeSegment] | None = None,
+        self,
+        segments: list[StrokeSegment] | None = None,
     ) -> StrokePath:
         """Helper to create a stroke path."""
         return StrokePath(segments=tuple(segments) if segments else ())
@@ -246,8 +247,9 @@ class TestPlotPltDocumentWithSegments:
 
         # Find text elements in the figure
         texts = [
-            child for child in fig.axes[0].get_children()
-            if hasattr(child, 'get_text') and child.get_text()
+            child
+            for child in fig.axes[0].get_children()
+            if hasattr(child, "get_text") and child.get_text()
         ]
 
         full_text = " ".join(t.get_text() for t in texts)
@@ -262,7 +264,7 @@ class TestPlotPltDocumentWithSegments:
 
         # Check colorbar label
         for child in fig.axes[0].get_children():
-            if hasattr(child, 'ax') and hasattr(child, 'set_label'):
+            if hasattr(child, "ax") and hasattr(child, "set_label"):
                 # It's a colorbar or similar
                 pass
 
@@ -291,33 +293,39 @@ class TestPlotPltDocumentWithSegments:
 
     def test_plotting_segments_count(self) -> None:
         """Test plot reflects correct segment count in summary."""
-        path = self._make_path([
-            self._make_segment(0, 0, 1, 1),
-            self._make_segment(1, 1, 2, 2),
-            self._make_segment(2, 2, 3, 3),
-        ])
+        path = self._make_path(
+            [
+                self._make_segment(0, 0, 1, 1),
+                self._make_segment(1, 1, 2, 2),
+                self._make_segment(2, 2, 3, 3),
+            ]
+        )
         doc = PLTDocument(stroke_paths=[path])
         fig = plot_plt_document(doc)
 
         texts = [
-            child for child in fig.axes[0].get_children()
-            if hasattr(child, 'get_text') and child.get_text()
+            child
+            for child in fig.axes[0].get_children()
+            if hasattr(child, "get_text") and child.get_text()
         ]
         full_text = " ".join(t.get_text() for t in texts)
         assert "Total Segments: 3" in full_text
 
     def test_plotting_cuts_distance_and_rapid_distance(self) -> None:
         """Test plot calculates cutting and rapid distances separately."""
-        path = self._make_path([
-            self._make_segment(0, 0, 3, 4),    # length=5 (cutting)
-            self._make_segment(3, 4, 6, 8),    # length=5 (rapid)
-        ])
+        path = self._make_path(
+            [
+                self._make_segment(0, 0, 3, 4),  # length=5 (cutting)
+                self._make_segment(3, 4, 6, 8),  # length=5 (rapid)
+            ]
+        )
         doc = PLTDocument(stroke_paths=[path])
         fig = plot_plt_document(doc)
 
         texts = [
-            child for child in fig.axes[0].get_children()
-            if hasattr(child, 'get_text') and child.get_text()
+            child
+            for child in fig.axes[0].get_children()
+            if hasattr(child, "get_text") and child.get_text()
         ]
         full_text = " ".join(t.get_text() for t in texts)
 
@@ -911,8 +919,9 @@ class TestRapidTravelInchesParameter:
 
         # Verify the provided value appears in summary text
         texts = [
-            child for child in fig.axes[0].get_children()
-            if hasattr(child, 'get_text') and child.get_text()
+            child
+            for child in fig.axes[0].get_children()
+            if hasattr(child, "get_text") and child.get_text()
         ]
         full_text = " ".join(t.get_text() for t in texts)
         assert str(custom_rapid) in full_text
@@ -1080,8 +1089,9 @@ class TestCuttingDistanceDisplay:
         fig = plot_plt_document(doc)
 
         texts = [
-            child for child in fig.axes[0].get_children()
-            if hasattr(child, 'get_text') and child.get_text()
+            child
+            for child in fig.axes[0].get_children()
+            if hasattr(child, "get_text") and child.get_text()
         ]
         full_text = " ".join(t.get_text() for t in texts)
         assert "Cutting Distance:" in full_text
@@ -1690,9 +1700,7 @@ class TestSafeRange:
             (-5.0, -5.0),
         ]
         for lo, hi in cases:
-            assert _safe_range(lo, hi) > 0.0, (
-                f"_safe_range({lo}, {hi}) returned non-positive value"
-            )
+            assert _safe_range(lo, hi) > 0.0, f"_safe_range({lo}, {hi}) returned non-positive value"
 
 
 class TestAxisLimitsSafeRangeIntegration:

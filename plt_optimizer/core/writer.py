@@ -224,7 +224,7 @@ class PLTWriter:
             math.isclose(current_pos.x, pen_up_target.x, abs_tol=1e-3)
             and math.isclose(current_pos.y, pen_up_target.y, abs_tol=1e-3)
         )
-        
+
         if position_differs or first_is_non_cutting:
             parts.append(f"\nPU{self._format_coord(pen_up_target)};")
             current_pos = pen_up_target
@@ -233,6 +233,9 @@ class PLTWriter:
         for segment in path.segments:
             # Robust state tracking: If we are not physically at the start of this
             # specific segment, we MUST lift the tool and move to its start.
+            # At this point, current_pos cannot be None because either we set it above,
+            # or position_differs was False which means current_pos is not None
+            assert current_pos is not None, "current_pos must be set before segment processing"
             if not (
                 math.isclose(current_pos.x, segment.start.x, abs_tol=1e-3)
                 and math.isclose(current_pos.y, segment.start.y, abs_tol=1e-3)
@@ -294,13 +297,13 @@ class PLTWriter:
         """
         # Round to precision to avoid floating-point artifacts
         rounded = round(value, self.COORD_PRECISION)
-        
+
         # Check if it's effectively a whole number
         if rounded == int(rounded):
             return str(int(rounded))
-        
+
         # Format with up to 3 decimal places, removing trailing zeros
-        formatted = f"{rounded:.3f}".rstrip('0').rstrip('.')
+        formatted = f"{rounded:.3f}".rstrip("0").rstrip(".")
         return formatted
 
     def validate_output(

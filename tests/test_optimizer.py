@@ -7,12 +7,12 @@ determining both traversal sequence and direction for MacroBlocks.
 from __future__ import annotations
 
 import math
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plt_optimizer.core.chunker import Chunker, ChunkerConfig, MacroBlock
+from plt_optimizer.core.chunker import MacroBlock
 from plt_optimizer.core.models import Coordinate, StrokePath, StrokeSegment
 from plt_optimizer.core.optimizer import (
     BlockConnection,
@@ -22,9 +22,9 @@ from plt_optimizer.core.optimizer import (
     InsertionHeuristicStrategy,
     NearestNeighbor2OptStrategy,
     NoOpStrategy,
+    OptimizationError,
     OptimizationResult,
     OptimizerEngine,
-    OptimizationError,
     ParallelEnsembleOptimizationResult,
     ParallelEnsembleStrategy,
     SimulatedAnnealingStrategy,
@@ -235,7 +235,6 @@ class TestOptimizerEngine:
 
     def test_optimize_empty_raises_error(self) -> None:
         """Test that optimizing empty list raises OptimizationError."""
-        from plt_optimizer.core.optimizer import NearestNeighbor2OptStrategy
         # Actually this doesn't raise for NN - it returns empty result
 
 
@@ -250,7 +249,7 @@ class TestOptimizerCalculateBlockCost:
         cost, should_reverse = strategy._calculate_block_cost(
             from_pos=(0.0, 0.0),
             to_entrance=(10.0, 0.0),  # distance = 10
-            to_exit=(100.0, 0.0),     # distance = 100
+            to_exit=(100.0, 0.0),  # distance = 100
         )
 
         assert cost == 10.0
@@ -264,7 +263,7 @@ class TestOptimizerCalculateBlockCost:
         cost, should_reverse = strategy._calculate_block_cost(
             from_pos=(0.0, 0.0),
             to_entrance=(100.0, 0.0),  # distance = 100
-            to_exit=(10.0, 0.0),       # distance = 10
+            to_exit=(10.0, 0.0),  # distance = 10
         )
 
         assert cost == 10.0
@@ -608,12 +607,14 @@ class TestParallelEnsembleStrategy:
     def test_name(self) -> None:
         """Test strategy name property."""
         from plt_optimizer.core.optimizer import ParallelEnsembleStrategy
+
         strategy = ParallelEnsembleStrategy()
         assert strategy.name == "Parallel Ensemble"
 
     def test_optimize_empty_list(self) -> None:
         """Test optimization of empty block list returns empty result."""
         from plt_optimizer.core.optimizer import ParallelEnsembleStrategy
+
         strategy = ParallelEnsembleStrategy()
         result = strategy.optimize([])
 
@@ -623,6 +624,7 @@ class TestParallelEnsembleStrategy:
     def test_optimize_single_block(self) -> None:
         """Test single block is handled correctly."""
         from plt_optimizer.core.optimizer import ParallelEnsembleStrategy
+
         strategy = ParallelEnsembleStrategy()
         block_a = _make_simple_block(0, (100, 0), (110, 0))
 
@@ -633,6 +635,7 @@ class TestParallelEnsembleStrategy:
     def test_optimize_with_baseline_distance(self) -> None:
         """Test parallel ensemble with baseline distance for improvement calculation."""
         from plt_optimizer.core.optimizer import ParallelEnsembleStrategy
+
         # Create blocks that will benefit from optimization
         block_a = _make_simple_block(0, (0, 0), (10, 0))
         block_b = _make_simple_block(1, (100, 0), (110, 0))
@@ -649,6 +652,7 @@ class TestParallelEnsembleStrategy:
     def test_optimize_multiple_blocks_uses_best_strategy(self) -> None:
         """Test that parallel ensemble returns a valid optimized result."""
         from plt_optimizer.core.optimizer import ParallelEnsembleStrategy
+
         blocks = [
             _make_simple_block(0, (0, 0), (10, 0)),
             _make_simple_block(1, (50, 0), (60, 0)),
@@ -666,6 +670,7 @@ class TestParallelEnsembleStrategy:
     def test_optimize_respects_initial_position(self) -> None:
         """Test that initial_position is passed through to strategies."""
         from plt_optimizer.core.optimizer import ParallelEnsembleStrategy
+
         blocks = [
             _make_simple_block(0, (100, 100), (110, 100)),
             _make_simple_block(1, (200, 200), (210, 200)),
@@ -679,6 +684,7 @@ class TestParallelEnsembleStrategy:
     def test_optimize_with_max_workers(self) -> None:
         """Test parallel ensemble with explicit max_workers limit."""
         from plt_optimizer.core.optimizer import ParallelEnsembleStrategy
+
         blocks = [
             _make_simple_block(0, (0, 0), (10, 0)),
             _make_simple_block(1, (50, 0), (60, 0)),
@@ -692,6 +698,7 @@ class TestParallelEnsembleStrategy:
     def test_produces_valid_tour_ordering(self) -> None:
         """Test all blocks appear exactly once in traverse order."""
         from plt_optimizer.core.optimizer import ParallelEnsembleStrategy
+
         blocks = [
             _make_simple_block(0, (0, 0), (10, 0)),
             _make_simple_block(1, (50, 0), (60, 0)),
@@ -715,6 +722,7 @@ class TestStrategyBenchmarkResult:
     def test_benchmark_result_fields(self) -> None:
         """Test StrategyBenchmarkResult has all expected fields."""
         from plt_optimizer.core.optimizer import StrategyBenchmarkResult
+
         states = [
             BlockTraverseState(block_id=0, reversed=False, entrance=(0, 0), exit=(10, 10)),
         ]
@@ -739,6 +747,7 @@ class TestStrategyBenchmarkResult:
     def test_benchmark_result_improvement_optional(self) -> None:
         """Test that improvement_percent can be None."""
         from plt_optimizer.core.optimizer import StrategyBenchmarkResult
+
         states = [BlockTraverseState(block_id=0, reversed=False, entrance=(0, 0), exit=(10, 10))]
         opt_result = OptimizationResult(
             traverse_order=tuple(states),
@@ -885,9 +894,7 @@ class TestChristofidesStrategyCoverage:
         block_b = _make_simple_block(1, (200, 200), (210, 200))
 
         vertices = strategy._create_vertices(
-            [block_a, block_b],
-            start_point=(0.0, 0.0),
-            end_point=(500.0, 500.0)
+            [block_a, block_b], start_point=(0.0, 0.0), end_point=(500.0, 500.0)
         )
 
         # Should have: S (-1), T (-2), block_0_entrance (0), block_0_exit (1),
@@ -920,7 +927,7 @@ class TestChristofidesStrategyCoverage:
         vertices = strategy._create_vertices(
             [_make_simple_block(0, (100, 100), (110, 100))],
             start_point=(0.0, 0.0),
-            end_point=(500.0, 500.0)
+            end_point=(500.0, 500.0),
         )
 
         mst_edges = strategy._build_mst_prim(vertices, strategy.START_VERTEX_ID)
@@ -933,9 +940,7 @@ class TestChristofidesStrategyCoverage:
         block_b = _make_simple_block(1, (200, 200), (210, 200))
 
         vertices = strategy._create_vertices(
-            [block_a, block_b],
-            start_point=(0.0, 0.0),
-            end_point=(500.0, 500.0)
+            [block_a, block_b], start_point=(0.0, 0.0), end_point=(500.0, 500.0)
         )
 
         mst_edges = strategy._build_mst_prim(vertices, strategy.START_VERTEX_ID)
@@ -952,9 +957,7 @@ class TestChristofidesStrategyCoverage:
         block_a = _make_simple_block(0, (100, 100), (110, 100))
 
         vertices = strategy._create_vertices(
-            [block_a],
-            start_point=(0.0, 0.0),
-            end_point=(500.0, 500.0)
+            [block_a], start_point=(0.0, 0.0), end_point=(500.0, 500.0)
         )
 
         mst_edges = strategy._build_mst_prim(vertices, strategy.START_VERTEX_ID)
@@ -976,10 +979,7 @@ class TestChristofidesStrategyCoverage:
         ]
 
         distance = strategy._calculate_st_path_distance(
-            tour,
-            [block_a],
-            start_point=(0.0, 0.0),
-            end_point=(200.0, 200.0)
+            tour, [block_a], start_point=(0.0, 0.0), end_point=(200.0, 200.0)
         )
 
         assert isinstance(distance, float)
@@ -992,11 +992,7 @@ class TestChristofidesStrategyCoverage:
         block_b = _make_simple_block(1, (200, 200), (210, 200))
 
         tour = strategy._try_two_block_configuration(
-            [block_a, block_b],
-            first_idx=0,
-            first_rev=False,
-            second_idx=1,
-            second_rev=True
+            [block_a, block_b], first_idx=0, first_rev=False, second_idx=1, second_rev=True
         )
 
         assert len(tour) == 2
@@ -1017,9 +1013,7 @@ class TestChristofidesStrategyCoverage:
 
         # Get a vertex ID for the block
         vertices = strategy._create_vertices(
-            [block_a],
-            start_point=(0.0, 0.0),
-            end_point=(500.0, 500.0)
+            [block_a], start_point=(0.0, 0.0), end_point=(500.0, 500.0)
         )
 
         # Find first non-terminal vertex
@@ -1043,9 +1037,7 @@ class TestChristofidesStrategyCoverage:
         strategy._end_point = (200.0, 200.0)
 
         vertices = strategy._create_vertices(
-            [block_a],
-            start_point=(50.0, 50.0),
-            end_point=(200.0, 200.0)
+            [block_a], start_point=(50.0, 50.0), end_point=(200.0, 200.0)
         )
 
         # Test getting info for a real vertex (not S or T terminals)
@@ -1062,9 +1054,7 @@ class TestChristofidesStrategyCoverage:
         strategy._start_point = (100.0, 200.0)
         block_a = _make_simple_block(0, (50, 50), (60, 60))
 
-        x, y, block_idx, is_exit = strategy._get_vertex_info_st(
-            strategy.START_VERTEX_ID, [block_a]
-        )
+        x, y, block_idx, is_exit = strategy._get_vertex_info_st(strategy.START_VERTEX_ID, [block_a])
         assert x == 100.0
         assert y == 200.0
         assert block_idx == -1
@@ -1076,9 +1066,7 @@ class TestChristofidesStrategyCoverage:
         strategy._end_point = (300.0, 400.0)
         block_a = _make_simple_block(0, (50, 50), (60, 60))
 
-        x, y, block_idx, is_exit = strategy._get_vertex_info_st(
-            strategy.END_VERTEX_ID, [block_a]
-        )
+        x, y, block_idx, is_exit = strategy._get_vertex_info_st(strategy.END_VERTEX_ID, [block_a])
         assert x == 300.0
         assert y == 400.0
         assert block_idx == -2
@@ -1467,6 +1455,7 @@ class TestParallelEnsembleOptimizationResult:
 # Additional coverage tests for NearestNeighbor2OptStrategy
 # ---------------------------------------------------------------------------
 
+
 class TestNearestNeighbor2OptCoverage2:
     """Coverage for NearestNeighbor2OptStrategy missing lines."""
 
@@ -1546,7 +1535,7 @@ class TestNearestNeighbor2OptCoverage2:
         # 3 blocks: forced first is block 0. Then two remaining blocks where
         # block 1 is cheapest, block 2 is more expensive.
         block_0 = _make_simple_block(0, (0, 0), (10, 0))
-        block_1 = _make_simple_block(1, (11, 0), (20, 0))   # very close
+        block_1 = _make_simple_block(1, (11, 0), (20, 0))  # very close
         block_2 = _make_simple_block(2, (1000, 0), (1010, 0))  # far away
         strategy = NearestNeighbor2OptStrategy()
         tour = strategy._greedy_nearest_neighbor_from_start(
@@ -1596,6 +1585,7 @@ class TestNearestNeighbor2OptCoverage2:
 # Additional coverage tests for InsertionHeuristicStrategy
 # ---------------------------------------------------------------------------
 
+
 class TestInsertionHeuristicCoverage2:
     """Coverage for InsertionHeuristicStrategy missing lines."""
 
@@ -1632,8 +1622,8 @@ class TestInsertionHeuristicCoverage2:
         """Cover lines 988, 996: build_tour_with_seed with is1_exit=False, is2_exit=True."""
         # block_a entrance (1,0) to block_b exit (3,0) is the minimum distance pair
         # is1_exit=False (block_a at entrance), is2_exit=True (block_b at exit)
-        block_a = _make_simple_block(0, (1, 0), (200, 0))   # entrance near block_b exit
-        block_b = _make_simple_block(1, (300, 0), (3, 0))   # exit near block_a entrance
+        block_a = _make_simple_block(0, (1, 0), (200, 0))  # entrance near block_b exit
+        block_b = _make_simple_block(1, (300, 0), (3, 0))  # exit near block_a entrance
         strategy = InsertionHeuristicStrategy()
         result = strategy.optimize([block_a, block_b])
         assert result.block_count == 2
@@ -1644,8 +1634,10 @@ class TestInsertionHeuristicCoverage2:
         # Second block: exit (15,0) closer to first block's exit (2,0)... wait,
         # since first block is reversed, its logical exit = entrance (100,0).
         # Use start_pos where exit is clearly closer.
-        block_a = _make_simple_block(0, (100, 0), (2, 0))   # exit (2,0) closer to (0,0)
-        block_b = _make_simple_block(1, (500, 0), (105, 0))  # exit (105,0) closer to state1.exit (100,0)
+        block_a = _make_simple_block(0, (100, 0), (2, 0))  # exit (2,0) closer to (0,0)
+        block_b = _make_simple_block(
+            1, (500, 0), (105, 0)
+        )  # exit (105,0) closer to state1.exit (100,0)
         strategy = InsertionHeuristicStrategy()
         result = strategy.optimize([block_a, block_b], initial_position=(0.0, 0.0))
         assert result.block_count == 2
@@ -1672,7 +1664,9 @@ class TestInsertionHeuristicCoverage2:
         # Block to insert: exit (55,0) is between (10,0) and (100,0), best reversed
         block_c = _make_simple_block(2, (200, 0), (55, 0))
         strategy = InsertionHeuristicStrategy()
-        pos, state, cost = strategy._find_best_insertion_position(block_c, tour, [block_a, block_b, block_c])
+        pos, state, cost = strategy._find_best_insertion_position(
+            block_c, tour, [block_a, block_b, block_c]
+        )
         assert isinstance(pos, int)
         assert isinstance(cost, float)
 
@@ -1710,8 +1704,8 @@ class TestInsertionHeuristicCoverage2:
         """
         # Construct so the closest pair is (block_a.entrance=(0,0),
         # block_b.entrance=(10,0)) with dist=10. is1_exit=False, is2_exit=False.
-        block_a = _make_simple_block(0, (0, 0), (-100, 0))   # entrance at 0, exit far left
-        block_b = _make_simple_block(1, (10, 0), (200, 0))   # entrance at 10, exit far right
+        block_a = _make_simple_block(0, (0, 0), (-100, 0))  # entrance at 0, exit far left
+        block_b = _make_simple_block(1, (10, 0), (200, 0))  # entrance at 10, exit far right
         strategy = InsertionHeuristicStrategy()
         result = strategy.optimize([block_a, block_b])
 
@@ -1730,8 +1724,8 @@ class TestInsertionHeuristicCoverage2:
         """Regression: when endpoint2 is an exit, state2 must start there (reversed)."""
         # Construct so the closest pair is (block_a.entrance=(0,0),
         # block_b.exit=(20,0)) with dist=20. is1_exit=False, is2_exit=True.
-        block_a = _make_simple_block(0, (0, 0), (-100, 0))   # entrance at 0, exit far left
-        block_b = _make_simple_block(1, (-200, 0), (20, 0))   # entrance far left, exit at 20
+        block_a = _make_simple_block(0, (0, 0), (-100, 0))  # entrance at 0, exit far left
+        block_b = _make_simple_block(1, (-200, 0), (20, 0))  # entrance far left, exit at 20
         strategy = InsertionHeuristicStrategy()
         result = strategy.optimize([block_a, block_b])
 
@@ -1764,9 +1758,7 @@ class TestInsertionHeuristicCoverage2:
         cost, _should_reverse = strategy._calculate_insertion_cost(
             block_x, tour, insert_position=len(tour) - 1, blocks=[]
         )
-        assert math.isclose(cost, 40.0, abs_tol=1e-6), (
-            f"Expected 40.0, got {cost}"
-        )
+        assert math.isclose(cost, 40.0, abs_tol=1e-6), f"Expected 40.0, got {cost}"
 
     def test_calculate_insertion_cost_middle_matches_actual_edges(self) -> None:
         """Regression: insertion cost between two blocks must match both added edges."""
@@ -1795,9 +1787,7 @@ class TestInsertionHeuristicCoverage2:
         # X is closest to tour[-1].exit=(30,0), so the best insertion is at the end.
         block_x = _make_simple_block(2, (40, 0), (50, 0))
         strategy = InsertionHeuristicStrategy()
-        pos, _state, cost = strategy._find_best_insertion_position(
-            block_x, tour, [block_x]
-        )
+        pos, _state, cost = strategy._find_best_insertion_position(block_x, tour, [block_x])
         # Insertion at the end corresponds to pos == len(tour) - 1 under the fixed
         # semantics, which causes optimize() to do tour.insert(pos + 1, X).
         assert pos == len(tour) - 1
@@ -1808,6 +1798,7 @@ class TestInsertionHeuristicCoverage2:
 # ---------------------------------------------------------------------------
 # Additional coverage tests for ChristofidesStrategy
 # ---------------------------------------------------------------------------
+
 
 class TestChristofidesCoverage2:
     """Coverage for ChristofidesStrategy missing lines."""
@@ -1822,7 +1813,9 @@ class TestChristofidesCoverage2:
         block_0 = _make_simple_block(0, (1, 0), (999, 0))
         block_1 = _make_simple_block(1, (2, 0), (3, 0))
         strategy = ChristofidesStrategy()
-        result = strategy.optimize([block_0, block_1], start_point=(0.0, 0.0), end_point=(1000.0, 0.0))
+        result = strategy.optimize(
+            [block_0, block_1], start_point=(0.0, 0.0), end_point=(1000.0, 0.0)
+        )
         assert result.block_count == 2
 
     def test_single_block_exit_closer_to_start(self) -> None:
@@ -1912,8 +1905,7 @@ class TestChristofidesCoverage2:
         block_1 = _make_simple_block(1, (500, 0), (12, 0))  # exit (12,0) near (10,0)
         hamiltonian = [(0, False), (1, False)]
         result = strategy._create_traverse_order_st_path(
-            hamiltonian, [block_0, block_1],
-            start_point=(0.0, 0.0), end_point=(100.0, 0.0)
+            hamiltonian, [block_0, block_1], start_point=(0.0, 0.0), end_point=(100.0, 0.0)
         )
         assert len(result) == 2
         assert result[1].reversed is True
@@ -1922,6 +1914,7 @@ class TestChristofidesCoverage2:
 # ---------------------------------------------------------------------------
 # Additional coverage tests for SimulatedAnnealingStrategy
 # ---------------------------------------------------------------------------
+
 
 class TestSACoverage2:
     """Coverage for SimulatedAnnealingStrategy missing lines."""
@@ -1997,6 +1990,7 @@ class TestSACoverage2:
 # ---------------------------------------------------------------------------
 # Additional coverage tests for GeneticAlgorithmStrategy
 # ---------------------------------------------------------------------------
+
 
 class TestGACoverage2:
     """Coverage for GeneticAlgorithmStrategy missing lines."""
@@ -2166,6 +2160,7 @@ class TestGACoverage2:
 # Additional coverage tests for OptimizerEngine
 # ---------------------------------------------------------------------------
 
+
 class TestOptimizerEngineCoverage2:
     """Coverage for OptimizerEngine missing lines."""
 
@@ -2193,6 +2188,7 @@ class TestOptimizerEngineCoverage2:
 
     def test_optimize_exception_raises_optimization_error(self) -> None:
         """Cover lines 3754-3755: OptimizerEngine wraps exceptions as OptimizationError."""
+
         class BrokenStrategy(NoOpStrategy):
             """Strategy that always raises."""
 
@@ -2207,6 +2203,7 @@ class TestOptimizerEngineCoverage2:
 # ---------------------------------------------------------------------------
 # Additional coverage tests for ParallelEnsembleOptimizationResult
 # ---------------------------------------------------------------------------
+
 
 class TestParallelEnsembleCoverage2:
     """Coverage for ParallelEnsemble missing lines."""
@@ -2245,7 +2242,8 @@ class TestParallelEnsembleCoverage2:
 
     def test_parallel_ensemble_all_strategies_fail_fallback(self) -> None:
         """Cover lines 4047-4050: fallback to NoOp when all strategies fail."""
-        from concurrent.futures import ProcessPoolExecutor, Future
+        from concurrent.futures import Future
+
         blocks = [_make_simple_block(0, (0, 0), (10, 0))]
 
         failing_future: Future = Future()
@@ -2267,6 +2265,7 @@ class TestParallelEnsembleCoverage2:
     def test_parallel_ensemble_failed_strategies_warning(self) -> None:
         """Cover lines 4067-4068: warning when some strategies fail."""
         from concurrent.futures import Future
+
         blocks = [
             _make_simple_block(0, (0, 0), (10, 0)),
             _make_simple_block(1, (50, 0), (60, 0)),
@@ -2298,9 +2297,11 @@ class TestParallelEnsembleCoverage2:
             mock_exec.return_value.__exit__ = MagicMock(return_value=False)
 
             call_count = [0]
+
             def submit_side(*args, **kwargs):
                 call_count[0] += 1
                 return good_future if call_count[0] == 1 else bad_future
+
             mock_ctx.submit = MagicMock(side_effect=submit_side)
 
             with patch(

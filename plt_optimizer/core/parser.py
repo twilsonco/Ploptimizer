@@ -214,7 +214,11 @@ class PLTParser:
                         else:
                             new_segments = current_path.segments + (segment,)
                             object.__setattr__(current_path, "segments", new_segments)
-                    elif new_pen_state == PenState.UP and pen_state == PenState.UP and last_position is not None:
+                    elif (
+                        new_pen_state == PenState.UP
+                        and pen_state == PenState.UP
+                        and last_position is not None
+                    ):
                         # Preserve intermediate PU movements when pen was already UP
                         # Create a non-cutting segment to represent the move
                         if coord != last_position:

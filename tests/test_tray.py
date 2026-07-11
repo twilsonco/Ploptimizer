@@ -8,14 +8,11 @@ from __future__ import annotations
 import logging
 import sys
 import threading
-import time
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ============================================================================
 # Test fixtures and helpers
@@ -50,7 +47,7 @@ class TestCheckDependencies:
 
     def test_check_dependencies_windows_with_infi_systray(self) -> None:
         """Test Windows dependency check with infi.systray available."""
-        from plt_optimizer.ui.tray import TrayIconManager, _check_dependencies
+        from plt_optimizer.ui.tray import _check_dependencies
 
         # Create fresh instance to avoid cached state issues
         with patch("plt_optimizer.ui.tray.importlib.util.find_spec") as mock_find:
@@ -61,17 +58,17 @@ class TestCheckDependencies:
 
     def test_check_dependencies_windows_missing_infi_systray(self) -> None:
         """Test Windows dependency check with missing infi.systray."""
-        from plt_optimizer.ui.tray import TrayIconManager, _check_dependencies
+        from plt_optimizer.ui.tray import _check_dependencies
 
-        with patch("plt_optimizer.ui.tray._IS_WINDOWS", True), \
-             patch("plt_optimizer.ui.tray.importlib.util.find_spec") as mock_find:
+        with patch("plt_optimizer.ui.tray._IS_WINDOWS", True), patch(
+            "plt_optimizer.ui.tray.importlib.util.find_spec"
+        ) as mock_find:
             mock_find.return_value = None  # infi.systray NOT found
             with pytest.raises(ImportError, match="infi-systray"):
                 _check_dependencies()
 
     def test_check_dependencies_linux_with_pystray(self) -> None:
         """Test Linux dependency check with pystray and PIL available."""
-        from plt_optimizer.ui.tray import TrayIconManager, _check_dependencies
 
         with patch("plt_optimizer.ui.tray.importlib.util.find_spec") as mock_find:
             # Both pystray and PIL are found
@@ -158,7 +155,7 @@ class TestLoadIconImage:
         with patch("PIL.Image") as MockImage:
             mock_fallback = MagicMock()
             MockImage.new.return_value = mock_fallback
-            MockImage.open.side_effect = IOError("Corrupt image")
+            MockImage.open.side_effect = OSError("Corrupt image")
 
             result = manager._load_icon_image()
 
@@ -174,9 +171,7 @@ class TestPystrayMenuAndSetup:
 
         manager = TrayIconManager(MagicMock(), MagicMock(), MagicMock())
 
-        with patch("pystray.Menu") as MockMenu, \
-             patch("pystray.MenuItem") as MockMenuItem:
-
+        with patch("pystray.Menu") as MockMenu, patch("pystray.MenuItem") as MockMenuItem:
             mock_menu_instance = MagicMock()
             MockMenu.return_value = mock_menu_instance
             MockMenuItem.side_effect = [MagicMock(), MagicMock()]
@@ -193,10 +188,9 @@ class TestPystrayMenuAndSetup:
 
         manager = TrayIconManager(MagicMock(), MagicMock(), MagicMock())
 
-        with patch("pystray.Icon") as MockIcon, \
-             patch.object(manager, "_load_icon_image") as mock_load_icon, \
-             patch.object(manager, "_create_pystray_menu") as mock_create_menu:
-
+        with patch("pystray.Icon") as MockIcon, patch.object(
+            manager, "_load_icon_image"
+        ) as mock_load_icon, patch.object(manager, "_create_pystray_menu") as mock_create_menu:
             mock_icon_instance = MagicMock()
             MockIcon.return_value = mock_icon_instance
             mock_load_icon.return_value = MagicMock()
@@ -336,6 +330,7 @@ class TestWatcherLoop:
             assert manager._watcher_thread is not None
             # Give thread time to start and complete (since our mock returns immediately)
             import time
+
             time.sleep(0.2)
 
             # Clean up - ensure no hanging threads
@@ -359,6 +354,7 @@ class TestWatcherLoop:
 
             # Loop should only be called once (from first start)
             import time
+
             time.sleep(0.2)
 
             assert manager._watcher_thread is not None
@@ -392,6 +388,7 @@ class TestWatcherLoop:
         with patch.object(manager, "_watcher_loop", side_effect=slow_watcher):
             manager.start_watcher()
             import time
+
             time.sleep(0.2)
 
             assert manager._watcher_thread is not None
@@ -448,7 +445,10 @@ class TestNotifications:
 class TestRunMethods:
     """Tests for run methods (lines 336-363)."""
 
-    @pytest.mark.skipif(sys.platform == "darwin", reason="Blocking test hangs on macOS - pystray run() blocks without timeout")
+    @pytest.mark.skipif(
+        sys.platform == "darwin",
+        reason="Blocking test hangs on macOS - pystray run() blocks without timeout",
+    )
     def test_run_pystray_blocking(self) -> None:
         """Test _run_pystray in blocking mode."""
         from plt_optimizer.ui.tray import TrayIconManager
@@ -456,9 +456,9 @@ class TestRunMethods:
         mock_watcher = MagicMock()
         manager = TrayIconManager(mock_watcher, MagicMock(), MagicMock())
 
-        with patch.object(manager, "_setup_pystray"), \
-             patch.object(manager, "stop_watcher") as mock_stop:
-
+        with patch.object(manager, "_setup_pystray"), patch.object(
+            manager, "stop_watcher"
+        ) as mock_stop:
             # Setup mock systray - simulate KeyboardInterrupt from pystray.run()
             manager._systray = MagicMock()
             manager._systray.run.side_effect = KeyboardInterrupt
@@ -488,7 +488,10 @@ class TestRunMethods:
 
             manager._systray.run_detached.assert_called_once()
 
-    @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only test - infi.systray not available on macOS/Linux")
+    @pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="Windows-only test - infi.systray not available on macOS/Linux",
+    )
     def test_run_windows_blocking(self) -> None:
         """Test _run_windows in blocking mode."""
         from plt_optimizer.ui.tray import TrayIconManager
@@ -496,9 +499,9 @@ class TestRunMethods:
         mock_watcher = MagicMock()
         manager = TrayIconManager(mock_watcher, MagicMock(), MagicMock())
 
-        with patch.object(manager, "_setup_infi_systray"), \
-             patch.object(manager, "stop_watcher") as mock_stop:
-
+        with patch.object(manager, "_setup_infi_systray"), patch.object(
+            manager, "stop_watcher"
+        ) as mock_stop:
             # Create a mock systray
             mock_systray = MagicMock()
             manager._systray = mock_systray
@@ -514,7 +517,10 @@ class TestRunMethods:
             # finally block must always run
             mock_stop.assert_called_once()
 
-    @pytest.mark.skipif(sys.platform == "darwin", reason="Blocking test hangs on macOS - pystray run() blocks without timeout")
+    @pytest.mark.skipif(
+        sys.platform == "darwin",
+        reason="Blocking test hangs on macOS - pystray run() blocks without timeout",
+    )
     def test_run_pystray_exception_during_run(self) -> None:
         """Test pystray run handles exceptions."""
         from plt_optimizer.ui.tray import TrayIconManager
@@ -625,8 +631,9 @@ class TestCheckDependenciesErrors:
         """Test Linux dependency check with missing pystray."""
         from plt_optimizer.ui.tray import _check_dependencies
 
-        with patch("plt_optimizer.ui.tray._IS_WINDOWS", False), \
-             patch("plt_optimizer.ui.tray.importlib.util.find_spec") as mock_find:
+        with patch("plt_optimizer.ui.tray._IS_WINDOWS", False), patch(
+            "plt_optimizer.ui.tray.importlib.util.find_spec"
+        ) as mock_find:
 
             def find_side_effect(name: str) -> Any:
                 if name == "pystray":
@@ -642,8 +649,9 @@ class TestCheckDependenciesErrors:
         """Test Linux dependency check with missing PIL."""
         from plt_optimizer.ui.tray import _check_dependencies
 
-        with patch("plt_optimizer.ui.tray._IS_WINDOWS", False), \
-             patch("plt_optimizer.ui.tray.importlib.util.find_spec") as mock_find:
+        with patch("plt_optimizer.ui.tray._IS_WINDOWS", False), patch(
+            "plt_optimizer.ui.tray.importlib.util.find_spec"
+        ) as mock_find:
 
             def find_side_effect(name: str) -> Any:
                 if name == "PIL":
@@ -854,9 +862,9 @@ class TestRunPystrayException:
 
         manager = TrayIconManager(MagicMock(), MagicMock(), MagicMock())
 
-        with patch.object(manager, "_setup_pystray"), \
-             patch.object(manager, "stop_watcher") as mock_stop:
-
+        with patch.object(manager, "_setup_pystray"), patch.object(
+            manager, "stop_watcher"
+        ) as mock_stop:
             manager._systray = MagicMock()
             manager._systray.run.side_effect = RuntimeError("Systray error")
 
@@ -913,7 +921,10 @@ class TestRunWindowsExceptionPaths:
 class TestRunDetachedPaths:
     """Tests for detached/non-blocking run paths (lines 347-381)."""
 
-    @pytest.mark.skipif(sys.platform == "win32", reason="_run_pystray is only invoked by run() on non-Windows platforms")
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="_run_pystray is only invoked by run() on non-Windows platforms",
+    )
     def test_run_pystray_non_blocking_runs_detached(self) -> None:
         """Test pystray non-blocking calls run_detached."""
         from plt_optimizer.ui.tray import TrayIconManager
@@ -1017,10 +1028,9 @@ class TestRunNonWindows:
 
         manager = TrayIconManager(MagicMock(), MagicMock(), MagicMock())
 
-        with patch("plt_optimizer.ui.tray._IS_WINDOWS", False), \
-             patch.object(manager, "_run_pystray") as mock_run_py, \
-             patch.object(manager, "_setup_pystray"):
-
+        with patch("plt_optimizer.ui.tray._IS_WINDOWS", False), patch.object(
+            manager, "_run_pystray"
+        ) as mock_run_py, patch.object(manager, "_setup_pystray"):
             manager._systray = MagicMock()
             manager.run(blocking=False)
 
@@ -1036,9 +1046,9 @@ class TestRunWindowsNonBlocking:
 
         manager = TrayIconManager(MagicMock(), MagicMock(), MagicMock())
 
-        with patch.object(manager, "_setup_infi_systray"), \
-             patch("plt_optimizer.ui.tray.threading.Thread") as MockThread:
-
+        with patch.object(manager, "_setup_infi_systray"), patch(
+            "plt_optimizer.ui.tray.threading.Thread"
+        ) as MockThread:
             mock_thread_instance = MagicMock()
             MockThread.return_value = mock_thread_instance
 
@@ -1097,6 +1107,7 @@ class TestTrayIconManagerConfigLoader:
 
             # Give a moment for thread to start
             import time
+
             time.sleep(0.01)
 
             if manager._watcher_thread is not None:
@@ -1108,8 +1119,9 @@ class TestWatcherLoopStopEventHandling:
 
     def test_watcher_loop_stops_on_event_set(self) -> None:
         """Test that watcher loop exits when stop event is set."""
-        from plt_optimizer.ui.tray import TrayIconManager
         import threading
+
+        from plt_optimizer.ui.tray import TrayIconManager
 
         mock_watcher = MagicMock()
         manager = TrayIconManager(mock_watcher, MagicMock(), MagicMock())
@@ -1204,9 +1216,9 @@ class TestTrayIconManagerWithRealConfigLoader:
         manager = TrayIconManager(MagicMock(), lambda: default_config, MagicMock())
 
         # Should be able to start without errors
-        with patch("plt_optimizer.ui.tray._logger"), \
-             patch("plt_optimizer.ui.tray.threading.Thread"):
-
+        with patch("plt_optimizer.ui.tray._logger"), patch(
+            "plt_optimizer.ui.tray.threading.Thread"
+        ):
             try:
                 manager.start_watcher()
             except Exception:
@@ -1239,8 +1251,9 @@ class TestCheckDependenciesNonWindowsBothMissing:
         """Test that missing both pystray AND PIL raises ImportError on non-Windows (line 49)."""
         from plt_optimizer.ui.tray import _check_dependencies
 
-        with patch("plt_optimizer.ui.tray._IS_WINDOWS", False), \
-             patch("plt_optimizer.ui.tray.importlib.util.find_spec") as mock_find:
+        with patch("plt_optimizer.ui.tray._IS_WINDOWS", False), patch(
+            "plt_optimizer.ui.tray.importlib.util.find_spec"
+        ) as mock_find:
             # Both pystray and PIL are missing
             mock_find.return_value = None
             with pytest.raises(ImportError, match="pystray and pillow"):
@@ -1250,8 +1263,9 @@ class TestCheckDependenciesNonWindowsBothMissing:
         """Test that non-Windows path with both deps found does NOT raise (49->exit False branch)."""
         from plt_optimizer.ui.tray import _check_dependencies
 
-        with patch("plt_optimizer.ui.tray._IS_WINDOWS", False), \
-             patch("plt_optimizer.ui.tray.importlib.util.find_spec") as mock_find:
+        with patch("plt_optimizer.ui.tray._IS_WINDOWS", False), patch(
+            "plt_optimizer.ui.tray.importlib.util.find_spec"
+        ) as mock_find:
             # Both pystray and PIL are found
             mock_find.return_value = MagicMock()
             # Should not raise - condition is False so function returns
@@ -1367,11 +1381,11 @@ class TestRunDispatchOnWindows:
         # independent of whether the optional ``tray`` extras are installed
         # on the current platform (infi-systray has a Windows-only marker
         # so it won't be installed on Linux/macOS CI runners).
-        with patch("plt_optimizer.ui.tray._IS_WINDOWS", True), \
-             patch("plt_optimizer.ui.tray._check_dependencies"), \
-             patch.object(manager, "_run_windows") as mock_run_win, \
-             patch.object(manager, "_run_pystray") as mock_run_py:
-
+        with patch("plt_optimizer.ui.tray._IS_WINDOWS", True), patch(
+            "plt_optimizer.ui.tray._check_dependencies"
+        ), patch.object(manager, "_run_windows") as mock_run_win, patch.object(
+            manager, "_run_pystray"
+        ) as mock_run_py:
             manager.run(blocking=False)
 
             mock_run_win.assert_called_once_with(False)
@@ -1387,9 +1401,9 @@ class TestRunWindowsNonBlocking:
 
         manager = TrayIconManager(MagicMock(), MagicMock(), MagicMock())
 
-        with patch.object(manager, "_setup_infi_systray"), \
-             patch("plt_optimizer.ui.tray.threading.Thread") as MockThread:
-
+        with patch.object(manager, "_setup_infi_systray"), patch(
+            "plt_optimizer.ui.tray.threading.Thread"
+        ) as MockThread:
             mock_thread_instance = MagicMock()
             MockThread.return_value = mock_thread_instance
 
@@ -1412,10 +1426,9 @@ class TestRunWindowsNonBlocking:
 
         manager = TrayIconManager(MagicMock(), MagicMock(), MagicMock())
 
-        with patch.object(manager, "_setup_infi_systray"), \
-             patch("plt_optimizer.ui.tray.threading.Thread") as MockThread, \
-             patch("plt_optimizer.ui.tray._logger") as mock_logger:
-
+        with patch.object(manager, "_setup_infi_systray"), patch(
+            "plt_optimizer.ui.tray.threading.Thread"
+        ) as MockThread, patch("plt_optimizer.ui.tray._logger") as mock_logger:
             mock_thread_instance = MagicMock()
             MockThread.return_value = mock_thread_instance
 
@@ -1457,10 +1470,9 @@ class TestRunWindowsNonBlocking:
 
         manager = TrayIconManager(MagicMock(), MagicMock(), MagicMock())
 
-        with patch.object(manager, "_setup_infi_systray"), \
-             patch("plt_optimizer.ui.tray.threading.Thread") as MockThread, \
-             patch("plt_optimizer.ui.tray._logger"):
-
+        with patch.object(manager, "_setup_infi_systray"), patch(
+            "plt_optimizer.ui.tray.threading.Thread"
+        ) as MockThread, patch("plt_optimizer.ui.tray._logger"):
             mock_thread_instance = MagicMock()
             MockThread.return_value = mock_thread_instance
 
@@ -1562,4 +1574,3 @@ class TestStopWithShutdownAttribute:
 
             # Both branches are False - falls through to _systray = None
             assert manager._systray is None
-

@@ -153,7 +153,7 @@ class TestArcSegmentProperties:
             sweep_angle=90.0,
             is_cutting=True,
         )
-        expected = math.sqrt(10.0 ** 2 + 10.0 ** 2)
+        expected = math.sqrt(10.0**2 + 10.0**2)
         assert arc.chord_length == pytest.approx(expected)
 
     def test_length_is_true_arc_length_quarter_circle(self) -> None:

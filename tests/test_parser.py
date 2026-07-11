@@ -6,22 +6,18 @@ Tests the parsing accuracy, error handling, and edge cases of the HPGL parser.
 from __future__ import annotations
 
 import math
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 import pytest
 
 from plt_optimizer.core.models import (
     ArcSegment,
     Coordinate,
-    HeaderCommand,
-    PenState,
     PLTDocument,
-    Segment,
-    StrokePath,
     StrokeSegment,
 )
-from plt_optimizer.core.parser import PLTParser, ParseError
+from plt_optimizer.core.parser import ParseError, PLTParser
 
 
 class TestPLTParser:
@@ -209,8 +205,7 @@ class TestStrokePathParsing:
 
         # Find a cutting segment
         cutting_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if seg.is_cutting
+            seg for path in doc.stroke_paths for seg in path.segments if seg.is_cutting
         ]
         assert len(cutting_segments) >= 1
 
@@ -240,6 +235,7 @@ class TestDistanceCalculation:
         if len(doc.stroke_paths) >= 1:
             path_dist = doc.stroke_paths[0].total_distance
             assert math.isclose(path_dist, 200.0, abs_tol=0.001)
+
 
 class TestParseErrorFormatting:
     """Tests for ParseError message formatting with line_number and token."""
@@ -398,9 +394,7 @@ class TestExtractCoordinatesEdgeCases:
         parser = PLTParser()
 
         # Pass tokens where next token contains coordinate pair after semicolon
-        coords, idx = parser._extract_coordinates(
-            "PD;", 0, ["PD;", "10.5,20.3;"]
-        )
+        coords, idx = parser._extract_coordinates("PD;", 0, ["PD;", "10.5,20.3;"])
 
         assert len(coords) == 1
         assert math.isclose(coords[0].x, 10.5, abs_tol=0.001)
@@ -529,8 +523,7 @@ class TestArcParsing:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 1
 
@@ -542,8 +535,7 @@ class TestArcParsing:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 1
 
@@ -555,8 +547,7 @@ class TestArcParsing:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 1
 
@@ -568,8 +559,7 @@ class TestArcParsing:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 1
 
@@ -588,13 +578,12 @@ class TestArcParsing:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 1
 
         arc = arc_segments[0]
-        expected_radius = math.sqrt(2 * (1016.0 ** 2))
+        expected_radius = math.sqrt(2 * (1016.0**2))
         assert math.isclose(arc.radius, expected_radius, abs_tol=0.001)
 
     def test_arc_segment_has_correct_sweep_angle(self) -> None:
@@ -605,8 +594,7 @@ class TestArcParsing:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 1
 
@@ -621,8 +609,7 @@ class TestArcParsing:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 1
 
@@ -632,18 +619,13 @@ class TestArcParsing:
 
     def test_multiple_arcs_in_sequence(self) -> None:
         """Test parsing multiple arc commands in sequence."""
-        content = (
-            "PU0.000,0.000;"
-            "PDAA1016.000,1016.000,90.000;"
-            "PDAA2032.000,0.000,180.000;"
-        )
+        content = "PU0.000,0.000;PDAA1016.000,1016.000,90.000;PDAA2032.000,0.000,180.000;"
         parser = PLTParser()
 
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 2
 
@@ -664,8 +646,7 @@ class TestParserBranchesAndEdgeCases:
 
         # Arc is skipped since no last_position established
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) == 0
 
@@ -739,13 +720,10 @@ class TestParserBranchesAndEdgeCases:
         # treated as header and NOTAREALCMD with numeric params is valid header
 
     def test_extract_coordinates_non_numeric_second_value(self) -> None:
-
         """Test _extract_coordinates handles non-numeric second coord value."""
         parser = PLTParser()
 
-        coords, idx = parser._extract_coordinates(
-            "PU;", 0, ["PU;", "100.000,nan;"]
-        )
+        coords, idx = parser._extract_coordinates("PU;", 0, ["PU;", "100.000,nan;"])
 
         # Should have raised ParseError
         assert len(coords) == 0
@@ -758,8 +736,7 @@ class TestParserBranchesAndEdgeCases:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 1
 
@@ -772,8 +749,7 @@ class TestParserBranchesAndEdgeCases:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 1
 
@@ -862,8 +838,7 @@ class TestParserBranchesCoverage:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         # Should have both line segment and arc segment in the same path
         assert len(doc.stroke_paths) >= 1
@@ -881,8 +856,7 @@ class TestParserBranchesCoverage:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(doc.stroke_paths) >= 1
 
@@ -914,8 +888,7 @@ class TestParserBranchesCoverage:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 1
 
@@ -930,8 +903,7 @@ class TestParserBranchesCoverage:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 1
 
@@ -1000,9 +972,7 @@ class TestParserBranchesCoverage:
         """
         parser = PLTParser()
 
-        coords, idx = parser._extract_coordinates(
-            "PD;", 0, ["PD;", "VS1.5;"]
-        )
+        coords, idx = parser._extract_coordinates("PD;", 0, ["PD;", "VS1.5;"])
 
         # Should not have consumed coordinates
         assert len(coords) == 0
@@ -1152,8 +1122,7 @@ class TestArcInSameTokenErrorPaths:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         # Path should exist with arc segment added while pen was DOWN
         assert len(doc.stroke_paths) >= 1
@@ -1171,8 +1140,7 @@ class TestArcInSameTokenErrorPaths:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(doc.stroke_paths) >= 1
 
@@ -1187,8 +1155,7 @@ class TestArcInSameTokenErrorPaths:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         # Should have a path with multiple segments including the arc
         assert len(doc.stroke_paths) >= 1
@@ -1323,17 +1290,13 @@ class TestEdgeCaseParsing:
 
     def test_multiple_arcs_in_sequence(self) -> None:
         """Test multiple arc commands in sequence."""
-        content = (
-            "PU0.000,0.000;PD100.000,100.000;"
-            "AA500.000,500.000,90;AR600.000,600.000,45;"
-        )
+        content = "PU0.000,0.000;PD100.000,100.000;AA500.000,500.000,90;AR600.000,600.000,45;"
         parser = PLTParser()
 
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 2
 
@@ -1402,8 +1365,7 @@ class TestRemainingCoverageTargets:
 
         assert isinstance(doc, PLTDocument)
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) == 0
 
@@ -1421,8 +1383,7 @@ class TestRemainingCoverageTargets:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 1
 

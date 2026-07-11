@@ -7,14 +7,15 @@ of max bounding box dimension across cutting strokes.
 from __future__ import annotations
 
 import math
+
 import pytest
 
 from plt_optimizer.core.models import Coordinate, PLTDocument, StrokePath, StrokeSegment
 from plt_optimizer.core.profiler import (
     Extent,
-    ProfileResult,
     Profiler,
     ProfilerError,
+    ProfileResult,
     StrokePathsProtocol,
 )
 
@@ -256,7 +257,6 @@ class TestIsStructuralPath:
 
     def test_single_segment_is_structural(self) -> None:
         """Test that a single straight segment is classified as structural."""
-        from plt_optimizer.core.models import ArcSegment
 
         profiler = Profiler()
 
@@ -275,10 +275,18 @@ class TestIsStructuralPath:
         profiler = Profiler()
 
         # Rectangle: (0,0) -> (100,0) -> (100,50) -> (0,50) -> (0,0)
-        seg1 = StrokeSegment(start=Coordinate(x=0.0, y=0.0), end=Coordinate(x=100.0, y=0.0), is_cutting=True)
-        seg2 = StrokeSegment(start=Coordinate(x=100.0, y=0.0), end=Coordinate(x=100.0, y=50.0), is_cutting=True)
-        seg3 = StrokeSegment(start=Coordinate(x=100.0, y=50.0), end=Coordinate(x=0.0, y=50.0), is_cutting=True)
-        seg4 = StrokeSegment(start=Coordinate(x=0.0, y=50.0), end=Coordinate(x=0.0, y=0.0), is_cutting=True)
+        seg1 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0), end=Coordinate(x=100.0, y=0.0), is_cutting=True
+        )
+        seg2 = StrokeSegment(
+            start=Coordinate(x=100.0, y=0.0), end=Coordinate(x=100.0, y=50.0), is_cutting=True
+        )
+        seg3 = StrokeSegment(
+            start=Coordinate(x=100.0, y=50.0), end=Coordinate(x=0.0, y=50.0), is_cutting=True
+        )
+        seg4 = StrokeSegment(
+            start=Coordinate(x=0.0, y=50.0), end=Coordinate(x=0.0, y=0.0), is_cutting=True
+        )
 
         path = StrokePath(pen_up_position=None, segments=(seg1, seg2, seg3, seg4))
 
@@ -352,9 +360,15 @@ class TestIsStructuralPath:
         profiler = Profiler()
 
         # Open path: (0,0) -> (100,0) -> (100,50) -> (0,50)
-        seg1 = StrokeSegment(start=Coordinate(x=0.0, y=0.0), end=Coordinate(x=100.0, y=0.0), is_cutting=True)
-        seg2 = StrokeSegment(start=Coordinate(x=100.0, y=0.0), end=Coordinate(x=100.0, y=50.0), is_cutting=True)
-        seg3 = StrokeSegment(start=Coordinate(x=100.0, y=50.0), end=Coordinate(x=0.0, y=50.0), is_cutting=True)
+        seg1 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0), end=Coordinate(x=100.0, y=0.0), is_cutting=True
+        )
+        seg2 = StrokeSegment(
+            start=Coordinate(x=100.0, y=0.0), end=Coordinate(x=100.0, y=50.0), is_cutting=True
+        )
+        seg3 = StrokeSegment(
+            start=Coordinate(x=100.0, y=50.0), end=Coordinate(x=0.0, y=50.0), is_cutting=True
+        )
 
         path = StrokePath(pen_up_position=None, segments=(seg1, seg2, seg3))
 
@@ -364,8 +378,12 @@ class TestIsStructuralPath:
 
     def test_calculate_average_segment_length(self) -> None:
         """Test average segment length calculation."""
-        seg1 = StrokeSegment(start=Coordinate(x=0.0, y=0.0), end=Coordinate(x=3.0, y=4.0), is_cutting=True)
-        seg2 = StrokeSegment(start=Coordinate(x=3.0, y=4.0), end=Coordinate(x=6.0, y=4.0), is_cutting=True)
+        seg1 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0), end=Coordinate(x=3.0, y=4.0), is_cutting=True
+        )
+        seg2 = StrokeSegment(
+            start=Coordinate(x=3.0, y=4.0), end=Coordinate(x=6.0, y=4.0), is_cutting=True
+        )
 
         path = StrokePath(pen_up_position=None, segments=(seg1, seg2))
 
@@ -379,8 +397,12 @@ class TestIsStructuralPath:
 
     def test_calculate_bounding_box_extent(self) -> None:
         """Test bounding box extent calculation."""
-        seg1 = StrokeSegment(start=Coordinate(x=10.0, y=20.0), end=Coordinate(x=110.0, y=70.0), is_cutting=True)
-        seg2 = StrokeSegment(start=Coordinate(x=110.0, y=70.0), end=Coordinate(x=-30.0, y=50.0), is_cutting=True)
+        seg1 = StrokeSegment(
+            start=Coordinate(x=10.0, y=20.0), end=Coordinate(x=110.0, y=70.0), is_cutting=True
+        )
+        seg2 = StrokeSegment(
+            start=Coordinate(x=110.0, y=70.0), end=Coordinate(x=-30.0, y=50.0), is_cutting=True
+        )
 
         path = StrokePath(pen_up_position=None, segments=(seg1, seg2))
 
@@ -398,7 +420,6 @@ class TestStructuralClassification:
 
     def test_structural_threshold_85_percent(self) -> None:
         """Test that is_structural=True when >85% of paths are structural."""
-        from plt_optimizer.core.models import ArcSegment
 
         profiler = Profiler()
 
@@ -499,9 +520,7 @@ class TestProfilerEdgeCasesCoverage:
 
         # Create a document where all paths have empty segments list
         # This triggers the total_paths=0 branch for structural_ratio calculation
-        doc = PLTDocument(
-            header_commands=[], stroke_paths=[], footer_commands=[]
-        )
+        doc = PLTDocument(header_commands=[], stroke_paths=[], footer_commands=[])
 
         with pytest.raises(ProfilerError):
             profiler.profile(doc)
@@ -883,16 +902,34 @@ class TestPureLinearWithArcs:
 
         # Rectangle with 4 sides, each side split into 2 segments
         # So we have 8 segments total for a 100x50 rectangle
-        seg1 = StrokeSegment(start=Coordinate(x=0.0, y=0.0), end=Coordinate(x=50.0, y=0.0), is_cutting=True)
-        seg2 = StrokeSegment(start=Coordinate(x=50.0, y=0.0), end=Coordinate(x=100.0, y=0.0), is_cutting=True)
-        seg3 = StrokeSegment(start=Coordinate(x=100.0, y=0.0), end=Coordinate(x=100.0, y=25.0), is_cutting=True)
-        seg4 = StrokeSegment(start=Coordinate(x=100.0, y=25.0), end=Coordinate(x=100.0, y=50.0), is_cutting=True)
-        seg5 = StrokeSegment(start=Coordinate(x=100.0, y=50.0), end=Coordinate(x=50.0, y=50.0), is_cutting=True)
-        seg6 = StrokeSegment(start=Coordinate(x=50.0, y=50.0), end=Coordinate(x=0.0, y=50.0), is_cutting=True)
-        seg7 = StrokeSegment(start=Coordinate(x=0.0, y=50.0), end=Coordinate(x=0.0, y=25.0), is_cutting=True)
-        seg8 = StrokeSegment(start=Coordinate(x=0.0, y=25.0), end=Coordinate(x=0.0, y=0.0), is_cutting=True)
+        seg1 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0), end=Coordinate(x=50.0, y=0.0), is_cutting=True
+        )
+        seg2 = StrokeSegment(
+            start=Coordinate(x=50.0, y=0.0), end=Coordinate(x=100.0, y=0.0), is_cutting=True
+        )
+        seg3 = StrokeSegment(
+            start=Coordinate(x=100.0, y=0.0), end=Coordinate(x=100.0, y=25.0), is_cutting=True
+        )
+        seg4 = StrokeSegment(
+            start=Coordinate(x=100.0, y=25.0), end=Coordinate(x=100.0, y=50.0), is_cutting=True
+        )
+        seg5 = StrokeSegment(
+            start=Coordinate(x=100.0, y=50.0), end=Coordinate(x=50.0, y=50.0), is_cutting=True
+        )
+        seg6 = StrokeSegment(
+            start=Coordinate(x=50.0, y=50.0), end=Coordinate(x=0.0, y=50.0), is_cutting=True
+        )
+        seg7 = StrokeSegment(
+            start=Coordinate(x=0.0, y=50.0), end=Coordinate(x=0.0, y=25.0), is_cutting=True
+        )
+        seg8 = StrokeSegment(
+            start=Coordinate(x=0.0, y=25.0), end=Coordinate(x=0.0, y=0.0), is_cutting=True
+        )
 
-        path = StrokePath(pen_up_position=None, segments=(seg1, seg2, seg3, seg4, seg5, seg6, seg7, seg8))
+        path = StrokePath(
+            pen_up_position=None, segments=(seg1, seg2, seg3, seg4, seg5, seg6, seg7, seg8)
+        )
 
         # bbox_extent: max(100, 50) = 100
         # Total length: 8 * 50 = 400
@@ -914,9 +951,7 @@ class TestTotalPathsZero:
         path1 = StrokePath(pen_up_position=None, segments=())
         path2 = StrokePath(pen_up_position=None, segments=())
 
-        doc = PLTDocument(
-            header_commands=[], stroke_paths=[path1, path2], footer_commands=[]
-        )
+        doc = PLTDocument(header_commands=[], stroke_paths=[path1, path2], footer_commands=[])
 
         # This should raise error because no cutting strokes found
         with pytest.raises(ProfilerError):
@@ -1229,9 +1264,7 @@ class TestTotalPathsZeroBranch:
         path1 = StrokePath(pen_up_position=None, segments=())
         path2 = StrokePath(pen_up_position=None, segments=())
 
-        doc = PLTDocument(
-            header_commands=[], stroke_paths=[path1, path2], footer_commands=[]
-        )
+        doc = PLTDocument(header_commands=[], stroke_paths=[path1, path2], footer_commands=[])
 
         with pytest.raises(ProfilerError) as exc_info:
             profiler.profile(doc)
@@ -1280,10 +1313,18 @@ class TestIsStructuralPathFallThrough:
 
         # Closed rectangle but with many tiny segments
         # so avg segment length is small relative to bbox extent
-        seg1 = StrokeSegment(start=Coordinate(x=0.0, y=0.0), end=Coordinate(x=10.0, y=0.0), is_cutting=True)
-        seg2 = StrokeSegment(start=Coordinate(x=10.0, y=0.0), end=Coordinate(x=20.0, y=0.0), is_cutting=True)
-        seg3 = StrokeSegment(start=Coordinate(x=20.0, y=0.0), end=Coordinate(x=30.0, y=0.0), is_cutting=True)
-        seg4 = StrokeSegment(start=Coordinate(x=30.0, y=0.0), end=Coordinate(x=40.0, y=0.0), is_cutting=True)
+        seg1 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0), end=Coordinate(x=10.0, y=0.0), is_cutting=True
+        )
+        seg2 = StrokeSegment(
+            start=Coordinate(x=10.0, y=0.0), end=Coordinate(x=20.0, y=0.0), is_cutting=True
+        )
+        seg3 = StrokeSegment(
+            start=Coordinate(x=20.0, y=0.0), end=Coordinate(x=30.0, y=0.0), is_cutting=True
+        )
+        seg4 = StrokeSegment(
+            start=Coordinate(x=30.0, y=0.0), end=Coordinate(x=40.0, y=0.0), is_cutting=True
+        )
 
         path = StrokePath(
             pen_up_position=None,
@@ -1436,7 +1477,6 @@ class TestStrokePathsProtocolCoverage:
         Line 361 is the `...` stub in the Protocol which can't really be
         'covered' but we exercise the protocol interface here.
         """
-        from plt_optimizer.core.profiler import StrokePathsProtocol
 
         # Create a minimal mock that implements the protocol
         class MockDoc:
@@ -1514,13 +1554,12 @@ class TestProfileLine157:
             ),
         )
 
-        doc = PLTDocument(
-            header_commands=[], stroke_paths=[path1, path2], footer_commands=[]
-        )
+        doc = PLTDocument(header_commands=[], stroke_paths=[path1, path2], footer_commands=[])
 
         with pytest.raises(ProfilerError) as exc_info:
             profiler.profile(doc)
         assert "No cutting strokes found" in str(exc_info.value.message)
+
 
 class TestPreviouslyUncoveredLines:
     """Tests targeting lines that were missing from coverage."""
@@ -1561,9 +1600,7 @@ class TestPreviouslyUncoveredLines:
         assert result.is_structural is False
         assert result.total_strokes == 1
 
-    def test_profile_p95_index_boundary_guard(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_profile_p95_index_boundary_guard(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test line 157: p95_index is clamped when it equals len(sorted dims).
 
         Patches the ``int`` name in the profiler module's global namespace so

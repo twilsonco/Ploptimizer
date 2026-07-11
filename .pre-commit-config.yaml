@@ -1,23 +1,29 @@
 # See https://pre-commit.com for more information
-# Pre-commit hooks configuration for PLT-Optimizer
+# Local hooks configured to use uv for package management
 
 default_stages: [pre-commit]
-default_language_version:
-  python: python3.11
 
 repos:
-  # Ruff linter and formatter
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.21
+  - repo: local
     hooks:
-      - id: ruff
-        args: [check, --fix]
-      - id: ruff-format
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check plt_optimizer/
+        language: system
+        types: [python]
+        pass_filenames: false
 
-  # mypy type checking
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v2.2.0
-    hooks:
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format plt_optimizer/
+        language: system
+        types: [python]
+        pass_filenames: false
+
       - id: mypy
-        args: [plt_optimizer/]
-        additional_dependencies: []
+        name: mypy type check
+        entry: uv run mypy plt_optimizer/
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true

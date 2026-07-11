@@ -5,12 +5,11 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock, patch
 
 # Import messagebox at module level so tests can use it directly
-from tkinter import filedialog, messagebox
-
+from tkinter import messagebox
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 # Module-level logger for test assertions
 _logger = logging.getLogger(__name__)
@@ -155,9 +154,7 @@ class TestValidateInputs:
             window._output_dir_var.set("")  # explicitly clear output_dir
             window._log_dir_var.set("/logs")
 
-            with patch(
-                "plt_optimizer.ui.settings.messagebox.showerror"
-            ) as mock_showerror:
+            with patch("plt_optimizer.ui.settings.messagebox.showerror") as mock_showerror:
                 result = window._validate_inputs()
 
             assert result is False
@@ -176,9 +173,7 @@ class TestValidateInputs:
             window._output_dir_var.set("/out")
             window._log_dir_var.set("")  # explicitly clear log_dir
 
-            with patch(
-                "plt_optimizer.ui.settings.messagebox.showerror"
-            ) as mock_showerror:
+            with patch("plt_optimizer.ui.settings.messagebox.showerror") as mock_showerror:
                 result = window._validate_inputs()
 
             assert result is False
@@ -202,9 +197,7 @@ class TestValidateInputs:
                     "plt_optimizer.ui.settings.messagebox.askyesno",
                     return_value=True,
                 ):
-                    with patch.object(
-                        Path, "mkdir", side_effect=OSError("Permission denied")
-                    ):
+                    with patch.object(Path, "mkdir", side_effect=OSError("Permission denied")):
                         with patch(
                             "plt_optimizer.ui.settings.messagebox.showerror"
                         ) as mock_showerror:
@@ -267,9 +260,7 @@ class TestValidateInputs:
                     "plt_optimizer.ui.settings.messagebox.askyesno",
                     return_value=True,
                 ):
-                    with patch.object(
-                        Path, "mkdir", side_effect=OSError("Permission denied")
-                    ):
+                    with patch.object(Path, "mkdir", side_effect=OSError("Permission denied")):
                         result = window._validate_inputs()
 
             assert result is False
@@ -598,6 +589,7 @@ class TestModuleLevelConstants:
     def test_is_windows_true_on_win32(self) -> None:
         """Test _IS_WINDOWS is True on win32 platform."""
         import importlib
+
         from plt_optimizer.ui import settings
 
         with patch("sys.platform", "win32"):
@@ -607,6 +599,7 @@ class TestModuleLevelConstants:
     def test_is_windows_false_on_darwin(self) -> None:
         """Test _IS_WINDOWS is False on darwin platform."""
         import importlib
+
         from plt_optimizer.ui import settings
 
         with patch("sys.platform", "darwin"):
@@ -686,16 +679,10 @@ class TestOnCleanup:
             cleanup_cmd = self._find_cleanup_command()
             assert cleanup_cmd is not None
 
-            with patch(
-                "plt_optimizer.ui.settings.messagebox.askyesno", return_value=True
-            ):
+            with patch("plt_optimizer.ui.settings.messagebox.askyesno", return_value=True):
                 with patch.object(Path, "exists", return_value=True):
-                    with patch.object(
-                        Path, "iterdir", return_value=[mock_file]
-                    ):
-                        with patch(
-                            "plt_optimizer.ui.settings.messagebox.showinfo"
-                        ) as mock_info:
+                    with patch.object(Path, "iterdir", return_value=[mock_file]):
+                        with patch("plt_optimizer.ui.settings.messagebox.showinfo") as mock_info:
                             cleanup_cmd()
                             mock_file.unlink.assert_called_once()
                             mock_info.assert_called_once()
@@ -713,13 +700,9 @@ class TestOnCleanup:
             cleanup_cmd = self._find_cleanup_command()
             assert cleanup_cmd is not None
 
-            with patch(
-                "plt_optimizer.ui.settings.messagebox.askyesno", return_value=True
-            ):
+            with patch("plt_optimizer.ui.settings.messagebox.askyesno", return_value=True):
                 with patch.object(Path, "exists") as mock_exists:
-                    with patch(
-                        "plt_optimizer.ui.settings.messagebox.showinfo"
-                    ) as mock_info:
+                    with patch("plt_optimizer.ui.settings.messagebox.showinfo") as mock_info:
                         cleanup_cmd()
                         # Path.exists() should NOT have been called because log_dir is empty
                         mock_exists.assert_not_called()
@@ -735,16 +718,10 @@ class TestOnCleanup:
             cleanup_cmd = self._find_cleanup_command()
             assert cleanup_cmd is not None
 
-            with patch(
-                "plt_optimizer.ui.settings.messagebox.askyesno", return_value=True
-            ):
+            with patch("plt_optimizer.ui.settings.messagebox.askyesno", return_value=True):
                 with patch.object(Path, "exists", return_value=True):
-                    with patch.object(
-                        Path, "iterdir", side_effect=OSError("Permission denied")
-                    ):
-                        with patch(
-                            "plt_optimizer.ui.settings.messagebox.showinfo"
-                        ) as mock_info:
+                    with patch.object(Path, "iterdir", side_effect=OSError("Permission denied")):
+                        with patch("plt_optimizer.ui.settings.messagebox.showinfo") as mock_info:
                             # Should not raise
                             cleanup_cmd()
                             mock_info.assert_called_once()
@@ -763,16 +740,10 @@ class TestOnCleanup:
             cleanup_cmd = self._find_cleanup_command()
             assert cleanup_cmd is not None
 
-            with patch(
-                "plt_optimizer.ui.settings.messagebox.askyesno", return_value=True
-            ):
+            with patch("plt_optimizer.ui.settings.messagebox.askyesno", return_value=True):
                 with patch.object(Path, "exists", return_value=True):
-                    with patch.object(
-                        Path, "iterdir", return_value=[mock_file]
-                    ):
-                        with patch(
-                            "plt_optimizer.ui.settings.messagebox.showinfo"
-                        ) as mock_info:
+                    with patch.object(Path, "iterdir", return_value=[mock_file]):
+                        with patch("plt_optimizer.ui.settings.messagebox.showinfo") as mock_info:
                             # Should not raise
                             cleanup_cmd()
                             mock_info.assert_called_once()
@@ -793,16 +764,10 @@ class TestOnCleanup:
             cleanup_cmd = self._find_cleanup_command()
             assert cleanup_cmd is not None
 
-            with patch(
-                "plt_optimizer.ui.settings.messagebox.askyesno", return_value=True
-            ):
+            with patch("plt_optimizer.ui.settings.messagebox.askyesno", return_value=True):
                 with patch.object(Path, "exists", return_value=True):
-                    with patch.object(
-                        Path, "iterdir", return_value=[mock_file]
-                    ):
-                        with patch(
-                            "plt_optimizer.ui.settings.messagebox.showinfo"
-                        ) as mock_info:
+                    with patch.object(Path, "iterdir", return_value=[mock_file]):
+                        with patch("plt_optimizer.ui.settings.messagebox.showinfo") as mock_info:
                             cleanup_cmd()
                             mock_file.unlink.assert_called_once()
                             mock_info.assert_called_once()
@@ -817,13 +782,9 @@ class TestOnCleanup:
             cleanup_cmd = self._find_cleanup_command()
             assert cleanup_cmd is not None
 
-            with patch(
-                "plt_optimizer.ui.settings.messagebox.askyesno", return_value=True
-            ):
+            with patch("plt_optimizer.ui.settings.messagebox.askyesno", return_value=True):
                 with patch.object(Path, "exists") as mock_exists:
-                    with patch(
-                        "plt_optimizer.ui.settings.messagebox.showinfo"
-                    ) as mock_info:
+                    with patch("plt_optimizer.ui.settings.messagebox.showinfo") as mock_info:
                         cleanup_cmd()
                         # Path.exists() should NOT have been called for processed_dir
                         mock_exists.assert_not_called()
@@ -839,16 +800,10 @@ class TestOnCleanup:
             cleanup_cmd = self._find_cleanup_command()
             assert cleanup_cmd is not None
 
-            with patch(
-                "plt_optimizer.ui.settings.messagebox.askyesno", return_value=True
-            ):
+            with patch("plt_optimizer.ui.settings.messagebox.askyesno", return_value=True):
                 with patch.object(Path, "exists", return_value=True):
-                    with patch.object(
-                        Path, "iterdir", side_effect=OSError("Permission denied")
-                    ):
-                        with patch(
-                            "plt_optimizer.ui.settings.messagebox.showinfo"
-                        ) as mock_info:
+                    with patch.object(Path, "iterdir", side_effect=OSError("Permission denied")):
+                        with patch("plt_optimizer.ui.settings.messagebox.showinfo") as mock_info:
                             # Should not raise
                             cleanup_cmd()
                             mock_info.assert_called_once()
@@ -867,16 +822,10 @@ class TestOnCleanup:
             cleanup_cmd = self._find_cleanup_command()
             assert cleanup_cmd is not None
 
-            with patch(
-                "plt_optimizer.ui.settings.messagebox.askyesno", return_value=True
-            ):
+            with patch("plt_optimizer.ui.settings.messagebox.askyesno", return_value=True):
                 with patch.object(Path, "exists", return_value=True):
-                    with patch.object(
-                        Path, "iterdir", return_value=[mock_file]
-                    ):
-                        with patch(
-                            "plt_optimizer.ui.settings.messagebox.showinfo"
-                        ) as mock_info:
+                    with patch.object(Path, "iterdir", return_value=[mock_file]):
+                        with patch("plt_optimizer.ui.settings.messagebox.showinfo") as mock_info:
                             # Should not raise
                             cleanup_cmd()
                             mock_info.assert_called_once()
@@ -902,16 +851,10 @@ class TestOnCleanup:
             iterdir_results = [[mock_log_file], [mock_processed_file]]
             iterdir_iter = iter(iterdir_results)
 
-            with patch(
-                "plt_optimizer.ui.settings.messagebox.askyesno", return_value=True
-            ):
+            with patch("plt_optimizer.ui.settings.messagebox.askyesno", return_value=True):
                 with patch.object(Path, "exists", return_value=True):
-                    with patch.object(
-                        Path, "iterdir", side_effect=lambda *_: next(iterdir_iter)
-                    ):
-                        with patch(
-                            "plt_optimizer.ui.settings.messagebox.showinfo"
-                        ) as mock_info:
+                    with patch.object(Path, "iterdir", side_effect=lambda *_: next(iterdir_iter)):
+                        with patch("plt_optimizer.ui.settings.messagebox.showinfo") as mock_info:
                             cleanup_cmd()
                             mock_log_file.unlink.assert_called_once()
                             mock_processed_file.unlink.assert_called_once()
@@ -932,14 +875,10 @@ class TestOnCleanup:
             cleanup_cmd = self._find_cleanup_command()
             assert cleanup_cmd is not None
 
-            with patch(
-                "plt_optimizer.ui.settings.messagebox.askyesno", return_value=True
-            ):
+            with patch("plt_optimizer.ui.settings.messagebox.askyesno", return_value=True):
                 with patch.object(Path, "exists", return_value=True):
                     with patch.object(Path, "iterdir", return_value=[mock_dir]):
-                        with patch(
-                            "plt_optimizer.ui.settings.messagebox.showinfo"
-                        ) as mock_info:
+                        with patch("plt_optimizer.ui.settings.messagebox.showinfo") as mock_info:
                             cleanup_cmd()
                             # unlink should NOT be called for a non-file
                             mock_dir.unlink.assert_not_called()
@@ -960,14 +899,10 @@ class TestOnCleanup:
             cleanup_cmd = self._find_cleanup_command()
             assert cleanup_cmd is not None
 
-            with patch(
-                "plt_optimizer.ui.settings.messagebox.askyesno", return_value=True
-            ):
+            with patch("plt_optimizer.ui.settings.messagebox.askyesno", return_value=True):
                 with patch.object(Path, "exists", return_value=True):
                     with patch.object(Path, "iterdir", return_value=[mock_dir]):
-                        with patch(
-                            "plt_optimizer.ui.settings.messagebox.showinfo"
-                        ) as mock_info:
+                        with patch("plt_optimizer.ui.settings.messagebox.showinfo") as mock_info:
                             cleanup_cmd()
                             mock_dir.unlink.assert_not_called()
                             mock_info.assert_called_once()
@@ -1224,8 +1159,9 @@ class TestShowWindows:
 
     def test_show_platform_check_exists(self) -> None:
         """Test that _IS_WINDOWS constant is correctly set based on platform."""
-        import sys
         import importlib
+        import sys
+
         from plt_optimizer.ui import settings
 
         # Reload to ensure _IS_WINDOWS reflects the actual current platform,
@@ -1288,9 +1224,7 @@ class TestSaveCallback:
 
             with patch.object(Path, "exists", return_value=True):
                 with patch.object(window, "_validate_inputs", return_value=True):
-                    with patch(
-                        "plt_optimizer.ui.settings.messagebox.showerror"
-                    ) as mock_error:
+                    with patch("plt_optimizer.ui.settings.messagebox.showerror") as mock_error:
                         window._on_save()
                         # Error dialog should have been shown
                         assert mock_error.called

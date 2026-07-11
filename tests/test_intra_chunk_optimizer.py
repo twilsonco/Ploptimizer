@@ -8,14 +8,14 @@ from __future__ import annotations
 
 import pytest
 
-from plt_optimizer.core.chunker import Chunker, ChunkerConfig, MacroBlock
+from plt_optimizer.core.chunker import MacroBlock
 from plt_optimizer.core.intra_chunk_optimizer import (
     IntraChunkError,
     IntraChunkOptimizer,
     IntraChunkResult,
     IntraChunkStrategy,
-    NoOpIntraStrategy,
     NearestNeighborIntraStrategy,
+    NoOpIntraStrategy,
     PathTraverseState,
 )
 from plt_optimizer.core.models import Coordinate, StrokePath, StrokeSegment
@@ -92,10 +92,12 @@ class TestIntraChunkResult:
     def test_path_count_with_paths(self) -> None:
         """Test path_count with multiple paths."""
         states = (
-            PathTraverseState(path_index=0, reversed=False,
-                             entrance=Coordinate(0, 0), exit=Coordinate(10, 0)),
-            PathTraverseState(path_index=1, reversed=True,
-                             entrance=Coordinate(20, 0), exit=Coordinate(15, 0)),
+            PathTraverseState(
+                path_index=0, reversed=False, entrance=Coordinate(0, 0), exit=Coordinate(10, 0)
+            ),
+            PathTraverseState(
+                path_index=1, reversed=True, entrance=Coordinate(20, 0), exit=Coordinate(15, 0)
+            ),
         )
         result = IntraChunkResult(
             traverse_order=states,
@@ -170,7 +172,7 @@ class TestNearestNeighborIntraStrategy:
     def test_optimize_two_paths_reverses_closer(self) -> None:
         """Test that with two paths, the one closer to entrance goes first."""
         path1 = _make_path((100, 0), (90, 0))  # Exit at x=90
-        path2 = _make_path((50, 0), (60, 0))   # Entrance at x=50
+        path2 = _make_path((50, 0), (60, 0))  # Entrance at x=50
 
         block = MacroBlock(
             block_id=0,
@@ -202,11 +204,9 @@ class TestNearestNeighborIntraStrategy:
         first_state = result.traverse_order[0]
         first_path = path1
         if first_state.reversed:
-            assert (first_path.segments[-1].end.x ==
-                    pytest.approx(first_state.entrance.x))
+            assert first_path.segments[-1].end.x == pytest.approx(first_state.entrance.x)
         else:
-            assert (first_path.segments[0].start.x ==
-                    pytest.approx(first_state.entrance.x))
+            assert first_path.segments[0].start.x == pytest.approx(first_state.entrance.x)
 
     def test_optimize_respects_fixed_exit(self) -> None:
         """Test that last path's end must match fixed exit."""
@@ -226,11 +226,9 @@ class TestNearestNeighborIntraStrategy:
         last_state = result.traverse_order[-1]
         last_path = path2
         if last_state.reversed:
-            assert (last_path.segments[0].start.x ==
-                    pytest.approx(last_state.exit.x))
+            assert last_path.segments[0].start.x == pytest.approx(last_state.exit.x)
         else:
-            assert (last_path.segments[-1].end.x ==
-                    pytest.approx(last_state.exit.x))
+            assert last_path.segments[-1].end.x == pytest.approx(last_state.exit.x)
 
 
 class TestIntraChunkOptimizer:
@@ -394,7 +392,7 @@ class TestTwoOptRefinement:
         """Test that 2-opt refinement is applied for tours > 3 paths."""
         # Create a tour where reversing middle segment might help
         path1 = _make_path((0, 0), (10, 0))
-        path2 = _make_path((15, 0), (12, 0))   # Goes backward from 15 to 12
+        path2 = _make_path((15, 0), (12, 0))  # Goes backward from 15 to 12
         path3 = _make_path((20, 0), (30, 0))
         path4 = _make_path((25, 0), (35, 0))
 
@@ -419,7 +417,9 @@ class TestTourValidation:
         strategy = NearestNeighborIntraStrategy()
         path1 = _make_path((0, 0), (10, 0))
 
-        is_valid = strategy._is_valid_tour([], (path1,), Coordinate(0.0, 0.0), Coordinate(10.0, 0.0))
+        is_valid = strategy._is_valid_tour(
+            [], (path1,), Coordinate(0.0, 0.0), Coordinate(10.0, 0.0)
+        )
 
         assert is_valid is True
 
@@ -438,7 +438,9 @@ class TestTourValidation:
             ),
         ]
 
-        is_valid = strategy._is_valid_tour(tour, (path1,), Coordinate(0.0, 0.0), Coordinate(10.0, 0.0))
+        is_valid = strategy._is_valid_tour(
+            tour, (path1,), Coordinate(0.0, 0.0), Coordinate(10.0, 0.0)
+        )
 
         assert is_valid is True
 
@@ -453,12 +455,16 @@ class TestTourValidation:
             PathTraverseState(
                 path_index=0,
                 reversed=True,
-                entrance=Coordinate(10.0, 0.0),  # Enter at original last_seg.start for reverse traversal
+                entrance=Coordinate(
+                    10.0, 0.0
+                ),  # Enter at original last_seg.start for reverse traversal
                 exit=Coordinate(0.0, 0.0),
             ),
         ]
 
-        is_valid = strategy._is_valid_tour(tour, (path1,), Coordinate(10.0, 0.0), Coordinate(0.0, 0.0))
+        is_valid = strategy._is_valid_tour(
+            tour, (path1,), Coordinate(10.0, 0.0), Coordinate(0.0, 0.0)
+        )
 
         assert is_valid is True
 
@@ -477,7 +483,9 @@ class TestTourValidation:
             ),
         ]
 
-        is_valid = strategy._is_valid_tour(tour, (path1,), Coordinate(0.0, 0.0), Coordinate(5.0, 0.0))
+        is_valid = strategy._is_valid_tour(
+            tour, (path1,), Coordinate(0.0, 0.0), Coordinate(5.0, 0.0)
+        )
 
         assert is_valid is False
 
@@ -643,20 +651,26 @@ class TestCoordinatesMatch:
         strategy = NearestNeighborIntraStrategy()
 
         # Within tolerance
-        assert strategy._coordinates_match(
-            Coordinate(0.0, 0.0),
-            Coordinate(0.0001, 0.0001),
-        ) is True
+        assert (
+            strategy._coordinates_match(
+                Coordinate(0.0, 0.0),
+                Coordinate(0.0001, 0.0001),
+            )
+            is True
+        )
 
     def test_coordinates_match_outside_tolerance(self) -> None:
         """Test _coordinates_match with coordinates outside tolerance."""
         strategy = NearestNeighborIntraStrategy()
 
         # Outside tolerance
-        assert strategy._coordinates_match(
-            Coordinate(0.0, 0.0),
-            Coordinate(0.01, 0.01),
-        ) is False
+        assert (
+            strategy._coordinates_match(
+                Coordinate(0.0, 0.0),
+                Coordinate(0.01, 0.01),
+            )
+            is False
+        )
 
 
 class TestTwoOptSwapImproves:
@@ -670,10 +684,18 @@ class TestTwoOptSwapImproves:
         path2 = _make_path((20, 0), (30, 0))
 
         tour = [
-            PathTraverseState(path_index=0, reversed=False,
-                            entrance=Coordinate(0.0, 0.0), exit=Coordinate(10.0, 0.0)),
-            PathTraverseState(path_index=1, reversed=False,
-                            entrance=Coordinate(20.0, 0.0), exit=Coordinate(30.0, 0.0)),
+            PathTraverseState(
+                path_index=0,
+                reversed=False,
+                entrance=Coordinate(0.0, 0.0),
+                exit=Coordinate(10.0, 0.0),
+            ),
+            PathTraverseState(
+                path_index=1,
+                reversed=False,
+                entrance=Coordinate(20.0, 0.0),
+                exit=Coordinate(30.0, 0.0),
+            ),
         ]
 
         fixed_exit = Coordinate(20.0, 0.0)
@@ -698,12 +720,24 @@ class TestTwoOptSwapImproves:
         path3 = _make_path((20, 0), (30, 0))
 
         tour = [
-            PathTraverseState(path_index=0, reversed=False,
-                            entrance=Coordinate(0.0, 0.0), exit=Coordinate(10.0, 0.0)),
-            PathTraverseState(path_index=1, reversed=False,
-                            entrance=Coordinate(15.0, 0.0), exit=Coordinate(12.0, 0.0)),
-            PathTraverseState(path_index=2, reversed=False,
-                            entrance=Coordinate(20.0, 0.0), exit=Coordinate(30.0, 0.0)),
+            PathTraverseState(
+                path_index=0,
+                reversed=False,
+                entrance=Coordinate(0.0, 0.0),
+                exit=Coordinate(10.0, 0.0),
+            ),
+            PathTraverseState(
+                path_index=1,
+                reversed=False,
+                entrance=Coordinate(15.0, 0.0),
+                exit=Coordinate(12.0, 0.0),
+            ),
+            PathTraverseState(
+                path_index=2,
+                reversed=False,
+                entrance=Coordinate(20.0, 0.0),
+                exit=Coordinate(30.0, 0.0),
+            ),
         ]
 
         improves = strategy._two_opt_swap_improves(
@@ -758,10 +792,18 @@ class TestTotalDistanceCalculation:
         path2 = _make_path((15, 0), (25, 0))
 
         tour = [
-            PathTraverseState(path_index=0, reversed=False,
-                            entrance=Coordinate(0.0, 0.0), exit=Coordinate(10.0, 0.0)),
-            PathTraverseState(path_index=1, reversed=False,
-                            entrance=Coordinate(15.0, 0.0), exit=Coordinate(25.0, 0.0)),
+            PathTraverseState(
+                path_index=0,
+                reversed=False,
+                entrance=Coordinate(0.0, 0.0),
+                exit=Coordinate(10.0, 0.0),
+            ),
+            PathTraverseState(
+                path_index=1,
+                reversed=False,
+                entrance=Coordinate(15.0, 0.0),
+                exit=Coordinate(25.0, 0.0),
+            ),
         ]
 
         distance = strategy._calculate_total_internal_distance(tour, (path1, path2))
@@ -775,8 +817,12 @@ class TestTotalDistanceCalculation:
         path1 = _make_path((0, 0), (10, 0))
 
         tour = [
-            PathTraverseState(path_index=0, reversed=False,
-                            entrance=Coordinate(0.0, 0.0), exit=Coordinate(10.0, 0.0)),
+            PathTraverseState(
+                path_index=0,
+                reversed=False,
+                entrance=Coordinate(0.0, 0.0),
+                exit=Coordinate(10.0, 0.0),
+            ),
         ]
 
         distance = strategy._calculate_total_internal_distance(tour, (path1,))
@@ -789,6 +835,7 @@ class TestIntraChunkOptimizerErrorHandling:
 
     def test_intra_chunk_optimizer_exception_handling(self) -> None:
         """Test IntraChunkOptimizer raises IntraChunkError on exception."""
+
         class FailingStrategy(IntraChunkStrategy):
             @property
             def name(self) -> str:
@@ -861,14 +908,16 @@ class TestIntraChunkResultEquality:
     def test_intra_chunk_result_equality(self) -> None:
         """Test IntraChunkResult equality comparison."""
         states1 = (
-            PathTraverseState(path_index=0, reversed=False,
-                            entrance=Coordinate(0, 0), exit=Coordinate(10, 0)),
+            PathTraverseState(
+                path_index=0, reversed=False, entrance=Coordinate(0, 0), exit=Coordinate(10, 0)
+            ),
         )
         result1 = IntraChunkResult(traverse_order=states1, total_internal_distance=5.0)
 
         states2 = (
-            PathTraverseState(path_index=0, reversed=False,
-                            entrance=Coordinate(0, 0), exit=Coordinate(10, 0)),
+            PathTraverseState(
+                path_index=0, reversed=False, entrance=Coordinate(0, 0), exit=Coordinate(10, 0)
+            ),
         )
         result2 = IntraChunkResult(traverse_order=states2, total_internal_distance=5.0)
 
@@ -876,8 +925,8 @@ class TestIntraChunkResultEquality:
 
     def test_distance_calculation(self) -> None:
         """Test that internal distance is calculated correctly."""
-        path1 = _make_path((0, 0), (10, 0))     # Ends at x=10
-        path2 = _make_path((15, 0), (25, 0))    # Starts at x=15
+        path1 = _make_path((0, 0), (10, 0))  # Ends at x=10
+        path2 = _make_path((15, 0), (25, 0))  # Starts at x=15
 
         block = MacroBlock(
             block_id=0,
@@ -925,7 +974,7 @@ class TestIsValidTourEmptyBranch:
 
         # Direct call to the internal method with empty list
         result = strategy._is_valid_tour([], (path1,), Coordinate(0.0, 0.0), Coordinate(10.0, 0.0))
-        
+
         assert result is True
 
 
@@ -1004,10 +1053,18 @@ class TestTwoOptSwapInternal:
         path2 = _make_path((20, 0), (30, 0))
 
         tour = [
-            PathTraverseState(path_index=0, reversed=False,
-                            entrance=Coordinate(0.0, 0.0), exit=Coordinate(10.0, 0.0)),
-            PathTraverseState(path_index=1, reversed=False,
-                            entrance=Coordinate(20.0, 0.0), exit=Coordinate(30.0, 0.0)),
+            PathTraverseState(
+                path_index=0,
+                reversed=False,
+                entrance=Coordinate(0.0, 0.0),
+                exit=Coordinate(10.0, 0.0),
+            ),
+            PathTraverseState(
+                path_index=1,
+                reversed=False,
+                entrance=Coordinate(20.0, 0.0),
+                exit=Coordinate(30.0, 0.0),
+            ),
         ]
 
         # Call with i=0, j=1 (last element index)
@@ -1028,8 +1085,8 @@ class TestIntraChunkIntegration:
 
     def test_intra_chunk_reduces_internal_travel(self) -> None:
         """Test that optimized order reduces internal rapid travel."""
-        path1 = _make_path((0, 0), (10, 0))     # Path A: 0->10
-        path2 = _make_path((30, 0), (20, 0))    # Path B: 30->20
+        path1 = _make_path((0, 0), (10, 0))  # Path A: 0->10
+        path2 = _make_path((30, 0), (20, 0))  # Path B: 30->20
 
         block = MacroBlock(
             block_id=0,
@@ -1061,6 +1118,7 @@ class TestIntraChunkIntegration:
 
         assert result.path_count == 2
 
+
 class TestAbstractBaseClassCoverage:
     """Tests to cover abstract base class method lines (98, 120)."""
 
@@ -1071,7 +1129,6 @@ class TestAbstractBaseClassCoverage:
 
     def test_abstract_optimize_block_signature(self) -> None:
         """Test that concrete subclass's optimize_block overrides abstract method."""
-        from plt_optimizer.core.intra_chunk_optimizer import IntraChunkStrategy
         strategy = NoOpIntraStrategy()
 
         empty_path = StrokePath(pen_up_position=None, segments=())
@@ -1120,7 +1177,7 @@ class TestCreateOriginalOrderNoReverseMatch:
 
         tour = strategy._create_original_order_tour(
             (path1,),
-            Coordinate(25.0, 0.0),   # fixed_entrance - doesn't match exit
+            Coordinate(25.0, 0.0),  # fixed_entrance - doesn't match exit
             Coordinate(100.0, 0.0),  # fixed_exit at original end
         )
 
@@ -1157,7 +1214,7 @@ class TestTwoOptSwapAtLastElementNoMatch:
             tour,
             (path1, path2),
             Coordinate(0.0, 0.0),
-            Coordinate(99.0, 0.0),   # Fixed exit at wrong location
+            Coordinate(99.0, 0.0),  # Fixed exit at wrong location
             i=0,
             j=1,
         )
@@ -1182,20 +1239,20 @@ class TestGreedyInvalidTourFallbackEdgeCase:
     def test_greedy_fallback_triggered_when_tour_invalid(self) -> None:
         """Force _greedy to produce invalid tour and verify fallback is called."""
         strategy = NearestNeighborIntraStrategy()
-        
+
         path1 = _make_path((0.0, 0.0), (100.0, 10.0))
         path2 = _make_path((200.0, 0.0), (210.0, 10.0))
 
         # With these paths and fixed entrance/exit at the extreme ends,
         # greedy should produce a valid tour in normal execution.
         # But we test that if validation were to fail, fallback would work.
-        
+
         result = strategy.optimize_block(
             (path1, path2),
-            Coordinate(0.0, 0.0),   # fixed_entrance
-            Coordinate(210.0, 10.0), # fixed_exit
+            Coordinate(0.0, 0.0),  # fixed_entrance
+            Coordinate(210.0, 10.0),  # fixed_exit
         )
-        
+
         assert result.path_count == 2
 
 
@@ -1205,87 +1262,95 @@ class TestGreedyValidationFailurePaths:
     def test_greedy_fallback_called_when_validation_fails(self) -> None:
         """Use patch to force validation failure and check fallback is called."""
         from unittest.mock import patch
-        
+
         strategy = NearestNeighborIntraStrategy()
-        
+
         path1 = _make_path((0.0, 0.0), (10.0, 5.0))
         path2 = _make_path((50.0, 0.0), (60.0, 5.0))
 
         # Patch _is_valid_tour to always return False
-        with patch.object(strategy, '_is_valid_tour', return_value=False) as mock_validate:
+        with patch.object(strategy, "_is_valid_tour", return_value=False) as mock_validate:
             tour = strategy._greedy_nearest_neighbor_constrained(
                 (path1, path2),
-                Coordinate(0.0, 0.0),   # fixed_entrance at first path start
-                Coordinate(60.0, 5.0),   # fixed_exit at last path end
+                Coordinate(0.0, 0.0),  # fixed_entrance at first path start
+                Coordinate(60.0, 5.0),  # fixed_exit at last path end
             )
-            
+
             # Verify _is_valid_tour was called with our tour and paths
             mock_validate.assert_called_once()
             args = mock_validate.call_args[0]
             assert len(args[0]) == 2  # tour has 2 items
-            
+
         # Tour should be created via fallback (original order)
         assert len(tour) == 2
-        
+
     def test_greedy_creates_valid_tour_when_validation_passes(self) -> None:
         """Verify greedy returns optimized tour when validation succeeds."""
         strategy = NearestNeighborIntraStrategy()
-        
+
         path1 = _make_path((0.0, 5.0), (10.0, 15.0))
         path2 = _make_path((20.0, 3.0), (30.0, 8.0))
 
         tour = strategy._greedy_nearest_neighbor_constrained(
             (path1, path2),
-            Coordinate(0.0, 5.0),   # fixed_entrance
-            Coordinate(30.0, 8.0),   # fixed_exit  
+            Coordinate(0.0, 5.0),  # fixed_entrance
+            Coordinate(30.0, 8.0),  # fixed_exit
         )
-        
+
         assert len(tour) == 2
-        
+
     def test_create_original_order_with_multiple_empty_skips(self) -> None:
         """Test _create_original_order_tour skips empty paths (line 413)."""
         strategy = NearestNeighborIntraStrategy()
-        
+
         empty1 = StrokePath(pen_up_position=None, segments=())
         valid_path = _make_path((50.0, 0.0), (100.0, 0.0))
         empty2 = StrokePath(pen_up_position=None, segments=())
 
         tour = strategy._create_original_order_tour(
             (empty1, valid_path, empty2),
-            Coordinate(25.0, 0.0),   # fixed_entrance
+            Coordinate(25.0, 0.0),  # fixed_entrance
             Coordinate(100.0, 0.0),  # fixed_exit
         )
-        
+
         assert len(tour) == 1
-        
+
     def test_create_original_order_validates_reversed_flag_false(self) -> None:
         """Test _create_original_order_tour reversed=False case (line 423-424)."""
         strategy = NearestNeighborIntraStrategy()
-        
+
         # Path where exit does NOT match fixed_entrance
         path1 = _make_path((50.0, 10.0), (100.0, 20.0))
 
         tour = strategy._create_original_order_tour(
             (path1,),
-            Coordinate(25.0, 5.0),   # fixed_entrance - doesn't match exit
-            Coordinate(100.0, 20.0), # fixed_exit at original end  
+            Coordinate(25.0, 5.0),  # fixed_entrance - doesn't match exit
+            Coordinate(100.0, 20.0),  # fixed_exit at original end
         )
-        
+
         assert len(tour) == 1
         assert tour[0].reversed is False
-        
+
     def test_two_opt_swap_end_element_not_fixed_coords(self) -> None:
         """Test _two_opt_swap_improves when j=last, coords don't match (line 512)."""
         strategy = NearestNeighborIntraStrategy()
-        
+
         path1 = _make_path((0.0, 10.0), (50.0, 20.0))
         path2 = _make_path((100.0, 30.0), (150.0, 40.0))
 
         tour = [
-            PathTraverseState(path_index=0, reversed=False,
-                            entrance=Coordinate(0.0, 10.0), exit=Coordinate(50.0, 20.0)),
-            PathTraverseState(path_index=1, reversed=True,
-                            entrance=Coordinate(150.0, 40.0), exit=Coordinate(100.0, 30.0)),
+            PathTraverseState(
+                path_index=0,
+                reversed=False,
+                entrance=Coordinate(0.0, 10.0),
+                exit=Coordinate(50.0, 20.0),
+            ),
+            PathTraverseState(
+                path_index=1,
+                reversed=True,
+                entrance=Coordinate(150.0, 40.0),
+                exit=Coordinate(100.0, 30.0),
+            ),
         ]
 
         # j=1 (last element), c = tour[1].exit = (100.0, 30)
@@ -1298,7 +1363,7 @@ class TestGreedyValidationFailurePaths:
             i=0,
             j=1,
         )
-        
+
         assert isinstance(result, bool)
 
 
@@ -1308,39 +1373,40 @@ class TestTwoOptRefinementExecution:
     def test_two_opt_swap_executes_when_improvement_found(self) -> None:
         """Test _two_opt_refinement executes the actual swap (lines 470-471)."""
         from unittest.mock import patch
-        
+
         strategy = NearestNeighborIntraStrategy()
-        
+
         # Create 4 paths where swapping could help
         path1 = _make_path((0.0, 0.0), (10.0, 0.0))
-        path2 = _make_path((50.0, 5.0), (60.0, 5.0))   # Somewhat close to path1 exit
-        path3 = _make_path((100.0, 0.0), (110.0, 0.0))  
+        path2 = _make_path((50.0, 5.0), (60.0, 5.0))  # Somewhat close to path1 exit
+        path3 = _make_path((100.0, 0.0), (110.0, 0.0))
         path4 = _make_path((150.0, 5.0), (160.0, 5.0))
-        
+
         # Patch _two_opt_swap_improves to return True
         original_method = strategy._two_opt_swap_improves
-        
+
         call_count = [0]
+
         def mock_swap(*args):
             call_count[0] += 1
             return True  # Always claim improvement
-        
-        with patch.object(strategy, '_two_opt_swap_improves', side_effect=mock_swap):
+
+        with patch.object(strategy, "_two_opt_swap_improves", side_effect=mock_swap):
             result = strategy.optimize_block(
                 (path1, path2, path3, path4),
                 Coordinate(0.0, 0.0),
                 Coordinate(160.0, 5.0),
             )
-        
+
         assert call_count[0] > 0
         assert result.path_count == 4
-        
+
     def test_two_opt_with_4_paths_calls_swap_method(self) -> None:
         """Test that optimize_block with 4+ paths triggers _two_opt_refinement."""
         strategy = NearestNeighborIntraStrategy()
-        
+
         path1 = _make_path((0.0, 0.0), (10.0, 0.0))
-        path2 = _make_path((20.0, 0.0), (30.0, 0.0)) 
+        path2 = _make_path((20.0, 0.0), (30.0, 0.0))
         path3 = _make_path((40.0, 0.0), (50.0, 0.0))
         path4 = _make_path((60.0, 0.0), (70.0, 0.0))
 
@@ -1349,7 +1415,7 @@ class TestTwoOptRefinementExecution:
             Coordinate(0.0, 0.0),
             Coordinate(70.0, 0.0),
         )
-        
+
         assert result.path_count == 4
 
 
@@ -1361,20 +1427,19 @@ class TestAbstractBaseClassStubs:
         # The ABC's @property with @abstractmethod creates a special descriptor
         # Accessing it through the subclass traces back to where it's defined
         from plt_optimizer.core.intra_chunk_optimizer import (
-            IntraChunkStrategy, 
             NoOpIntraStrategy,
         )
-        
+
         concrete = NoOpIntraStrategy()
         name = concrete.name
-        
+
         assert isinstance(name, str)
         assert len(name) > 0
 
     def test_access_strategy_name_on_different_subclass(self) -> None:
         """Access name on different strategy subclass."""
         from plt_optimizer.core.intra_chunk_optimizer import NearestNeighborIntraStrategy
-        
+
         strategy = NearestNeighborIntraStrategy()
         name = strategy.name
         assert "NearestNeighbor" in name
@@ -1383,35 +1448,35 @@ class TestAbstractBaseClassStubs:
         """Use isinstance checks that involve the ABC."""
         from plt_optimizer.core.intra_chunk_optimizer import (
             IntraChunkStrategy,
-            NoOpIntraStrategy,
             NearestNeighborIntraStrategy,
+            NoOpIntraStrategy,
         )
-        
+
         strategies = [NoOpIntraStrategy(), NearestNeighborIntraStrategy()]
         for s in strategies:
             assert isinstance(s, IntraChunkStrategy)
-            
+
     def test_intrachunk_strategy_subclass_inheritance(self) -> None:
         """Verify inheritance hierarchy involves ABC."""
         from plt_optimizer.core.intra_chunk_optimizer import (
             IntraChunkStrategy,
-            NoOpIntraStrategy,
         )
-        
+
         class CustomStrategy(IntraChunkStrategy):
             @property
             def name(self) -> str:
                 return "Custom"
-            
+
             def optimize_block(
-                self, 
+                self,
                 paths: tuple,  # type: ignore[override]
-                fixed_entrance,  
+                fixed_entrance,
                 fixed_exit,
             ):
                 from plt_optimizer.core.intra_chunk_optimizer import IntraChunkResult
+
                 return IntraChunkResult(traverse_order=(), total_internal_distance=0.0)
-        
+
         custom = CustomStrategy()
         assert isinstance(custom, IntraChunkStrategy)
         assert custom.name == "Custom"
@@ -1422,35 +1487,37 @@ class TestAbstractMethodIntrospection:
 
     def test_getattr_on_abstract_property_triggers_descriptor(self) -> None:
         """Use inspect to trigger descriptor protocol on ABC property."""
-        import inspect
         from plt_optimizer.core.intra_chunk_optimizer import (
             IntraChunkStrategy,
             NoOpIntraStrategy,
         )
-        
+
         # Get the raw attribute from the class (not instance)
         strategy_class = IntraChunkStrategy
-        
-        # This triggers various Python internal lookups including ABC machinery  
-        name_prop = getattr(strategy_class, 'name', None)
-        
+
+        # This triggers various Python internal lookups including ABC machinery
+        name_prop = getattr(strategy_class, "name", None)
+
         # Access through concrete subclass to trace back
         concrete = NoOpIntraStrategy()
-        
+
         # Direct access on instance goes through the property descriptor chain
-        concrete_name = type(concrete).name.fget(concrete) if hasattr(type(concrete), 'name') else None
-        
+        concrete_name = (
+            type(concrete).name.fget(concrete) if hasattr(type(concrete), "name") else None
+        )
+
     def test_abstract_methods_inspection(self) -> None:
         """Use inspect to examine abstract method definitions."""
         import inspect
+
         from plt_optimizer.core.intra_chunk_optimizer import IntraChunkStrategy
-        
+
         # Get the source lines for abstract methods (traces back to definition)
         try:
             source_lines = inspect.getsourcelines(IntraChunkStrategy.name.fget)
         except (OSError, TypeError):
             pass
-            
+
         try:
             source_lines2 = inspect.getsourcelines(IntraChunkStrategy.optimize_block)
         except (OSError, TypeError):

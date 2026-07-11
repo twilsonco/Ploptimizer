@@ -7,9 +7,6 @@ These tests cover:
 
 from __future__ import annotations
 
-import math
-import pytest
-
 from plt_optimizer.core.models import (
     Coordinate,
     FooterCommand,
@@ -374,7 +371,10 @@ class TestRemoveRedundantStrokes:
         )
 
         doc = PLTDocument(
-            header_commands=[HeaderCommand(instruction="IN"), HeaderCommand(instruction="VS", parameters=(50.0,))],
+            header_commands=[
+                HeaderCommand(instruction="IN"),
+                HeaderCommand(instruction="VS", parameters=(50.0,)),
+            ],
             stroke_paths=[
                 StrokePath(segments=(seg1,)),
                 StrokePath(segments=(seg2,)),
@@ -447,7 +447,9 @@ class TestRemoveRedundantStrokes:
         doc = PLTDocument(
             header_commands=[HeaderCommand(instruction="IN")],
             stroke_paths=[
-                StrokePath(pen_up_position=Coordinate(x=50.0, y=100.0), segments=(seg1, seg2, seg3)),
+                StrokePath(
+                    pen_up_position=Coordinate(x=50.0, y=100.0), segments=(seg1, seg2, seg3)
+                ),
             ],
             footer_commands=[FooterCommand(instruction="SP")],
         )

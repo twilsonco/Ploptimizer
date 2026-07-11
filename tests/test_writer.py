@@ -5,7 +5,6 @@ Tests the HPGL output generation, formatting accuracy, and file handling.
 
 from __future__ import annotations
 
-import os
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -18,12 +17,11 @@ from plt_optimizer.core.models import (
     Coordinate,
     FooterCommand,
     HeaderCommand,
-    PenState,
     PLTDocument,
     StrokePath,
     StrokeSegment,
 )
-from plt_optimizer.core.parser import PLTParser, ParseError
+from plt_optimizer.core.parser import ParseError, PLTParser
 from plt_optimizer.core.writer import PLTWriter, WriteError
 
 
@@ -44,9 +42,7 @@ class TestPLTWriter:
         writer = PLTWriter()
         doc = PLTDocument()
         doc.header_commands.append(HeaderCommand("IN"))
-        doc.header_commands.append(
-            HeaderCommand("VS", parameters=(0.5,))
-        )
+        doc.header_commands.append(HeaderCommand("VS", parameters=(0.5,)))
 
         output = writer.write_string(doc)
 
@@ -437,13 +433,7 @@ class TestPLTWriterRoundTrip:
         parser = PLTParser()
         writer = PLTWriter()
 
-        original = (
-            "IN;VS0.50;"
-            "PU0.000,0.000;"
-            "PD100.000,0.000;"
-            "PD100.000,100.000;"
-            "SP;"
-        )
+        original = "IN;VS0.50;PU0.000,0.000;PD100.000,0.000;PD100.000,100.000;SP;"
 
         doc1 = parser.parse_string(original)
         output = writer.write_string(doc1)
@@ -587,12 +577,16 @@ class TestArcSegmentWriting:
         doc2 = parser.parse_string(output)
 
         arc_segments_1 = [
-            seg for path in doc1.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg
+            for path in doc1.stroke_paths
+            for seg in path.segments
+            if isinstance(seg, ArcSegment)
         ]
         arc_segments_2 = [
-            seg for path in doc2.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg
+            for path in doc2.stroke_paths
+            for seg in path.segments
+            if isinstance(seg, ArcSegment)
         ]
 
         assert len(arc_segments_1) >= 1
@@ -655,9 +649,13 @@ class TestValidateAgainstOriginal:
         writer = PLTWriter()
 
         # Original has 2 PU commands
-        original_content = "IN;PU0.000,0.000;PD100.000,0.000;PU200.000,200.000;PD300.000,300.000;SP;"
+        original_content = (
+            "IN;PU0.000,0.000;PD100.000,0.000;PU200.000,200.000;PD300.000,300.000;SP;"
+        )
         # Optimized output has only 1 PU (tip-to-tail optimization collapsed consecutive PUs)
-        optimized_content = "IN;PU0.000,0.000;PD100.000,0.000;PD200.000,200.000;PD300.000,300.000;SP;"
+        optimized_content = (
+            "IN;PU0.000,0.000;PD100.000,0.000;PD200.000,200.000;PD300.000,300.000;SP;"
+        )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             original_path = Path(tmpdir) / "original.plt"
@@ -695,7 +693,9 @@ class TestValidateAgainstOriginal:
         writer = PLTWriter()
 
         # Original has 5 PD commands (diff > 2 to trigger warning)
-        original_content = "IN;PD100.000,0.000;PD200.000,0.000;PD300.000,0.000;PD400.000,0.000;PD500.000,0.000;SP;"
+        original_content = (
+            "IN;PD100.000,0.000;PD200.000,0.000;PD300.000,0.000;PD400.000,0.000;PD500.000,0.000;SP;"
+        )
         # Output with only 1 PD command (diff = 4)
         optimized_content = "IN;PD100.000,150.000;SP;"
 
@@ -709,7 +709,9 @@ class TestValidateAgainstOriginal:
             )
 
             # Should flag the PD count change if diff > 2
-            assert any("PD command count changed" in m for m in messages), f"Expected PD warning, got: {messages}"
+            assert any("PD command count changed" in m for m in messages), (
+                f"Expected PD warning, got: {messages}"
+            )
 
     def test_validate_read_file_error(self) -> None:
         """Test validation handles file read error (line ~350)."""
@@ -742,10 +744,9 @@ class TestValidateAgainstOriginal:
             )
 
             # Should recognize this as intentional and not an error
-            assert any(
-                "tip-to-tail" in m.lower() or "lost" in m.lower()
-                for m in messages
-            ), f"Expected tip-to-tail recognition, got: {messages}"
+            assert any("tip-to-tail" in m.lower() or "lost" in m.lower() for m in messages), (
+                f"Expected tip-to-tail recognition, got: {messages}"
+            )
 
     def test_validate_lost_pu_distance_not_preserved(self) -> None:
         """Test validation reports error when PU loss causes distance mismatch."""
@@ -766,9 +767,9 @@ class TestValidateAgainstOriginal:
             )
 
             # Should flag as error due to distance mismatch with lost PUs
-            assert not is_valid or any(
-                "distance" in m.lower() for m in messages
-            ), f"Expected distance issue, got: {messages}"
+            assert not is_valid or any("distance" in m.lower() for m in messages), (
+                f"Expected distance issue, got: {messages}"
+            )
 
     def test_validate_consecutive_pu_sequence(self) -> None:
         """Test validation handles consecutive PU sequences."""
@@ -792,7 +793,7 @@ class TestValidateAgainstOriginal:
     def test_validate_with_parse_error_during_missing_pu_check(self) -> None:
         """Test validation handles ParseError when checking missing PUs (lines 426-431)."""
         writer = PLTWriter()
-        
+
         # Use a content that will generate "missing" PU commands to trigger the check
         original_content = "IN;PU0.000,0.000;"  # Has a PU
         optimized_content = "IN;"  # Missing that PU
@@ -835,7 +836,7 @@ class TestWriteErrorOSError:
         with tempfile.TemporaryDirectory() as tmpdir:
             nested_path = Path(tmpdir) / "nonexistent_readonly" / "nested" / "deep" / "file.plt"
 
-            with mock.patch.object(Path, 'mkdir', failing_mkdir):
+            with mock.patch.object(Path, "mkdir", failing_mkdir):
                 try:
                     writer.write_file(doc, nested_path)
                 except WriteError as e:
@@ -860,7 +861,7 @@ class TestWriteErrorOSError:
                 def failing_write_text(self: Path, *args: Any, **kwargs: Any) -> None:
                     raise OSError("Permission denied")
 
-                with mock.patch.object(Path, 'write_text', failing_write_text):
+                with mock.patch.object(Path, "write_text", failing_write_text):
                     writer.write_file(doc, file_path)
             except WriteError as e:
                 assert "Failed to write file" in str(e)
@@ -922,7 +923,7 @@ class TestWriteFileOSErrorHandling:
             def failing_mkdir(self_path: Path, *args: Any, **kwargs: Any) -> None:
                 raise OSError("No space left on device")
 
-            with patch.object(Path, 'mkdir', failing_mkdir):
+            with patch.object(Path, "mkdir", failing_mkdir):
                 with pytest.raises(WriteError, match="Failed to write file"):
                     writer.write_file(doc, target_path)
 
@@ -945,7 +946,7 @@ class TestWriteFileOSErrorHandling:
                 raise OSError("Simulated disk full error")
 
             try:
-                with patch.object(Path, 'write_bytes', failing_write_bytes):
+                with patch.object(Path, "write_bytes", failing_write_bytes):
                     writer.write_file(doc, target_path, add_bom=True)
             except WriteError as e:
                 assert "Failed to write file" in str(e)
@@ -967,7 +968,7 @@ class TestWriteFileOSErrorHandling:
                 raise OSError("Permission denied")
 
             try:
-                with patch.object(Path, 'write_text', failing_write_text):
+                with patch.object(Path, "write_text", failing_write_text):
                     writer.write_file(doc, target_path)
             except WriteError as e:
                 assert "Failed to write file" in str(e)
@@ -1071,7 +1072,7 @@ class TestValidateAgainstOriginalEdgeCases:
                     raise ParseError("Invalid HPGL syntax")
                 return original_parse(self, content)
 
-            with patch.object(PLTParser, 'parse_string', mock_parse):
+            with patch.object(PLTParser, "parse_string", mock_parse):
                 is_valid, messages = writer.validate_against_original(
                     original_path,
                     invalid_output,
@@ -1356,7 +1357,7 @@ class TestValidateAgainstOriginalBranches:
                 return original_parse(self, content)
 
             try:
-                with patch.object(PLTParser, 'parse_string', mock_parse):
+                with patch.object(PLTParser, "parse_string", mock_parse):
                     is_valid, messages = writer.validate_against_original(
                         original_path,
                         optimized_output,
@@ -1391,4 +1392,3 @@ class TestValidateAgainstOriginalBranches:
 
             # Should detect lost PUs and process the else branch
             assert isinstance(is_valid, bool)
-

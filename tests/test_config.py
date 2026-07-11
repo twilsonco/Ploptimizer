@@ -180,7 +180,7 @@ class TestDefaultConfig:
             "fast_mode",
             "debug_save_files",
             "run_at_startup",
-            "first_run"
+            "first_run",
         ]
         for key in required_keys:
             assert key in DEFAULT_CONFIG
