@@ -94,6 +94,9 @@ class PLTFileHandler(FileSystemEventHandler):
         processed_dir: Path | None = None,
         debug_save_files: bool = False,
         log_dir: Path | None = None,
+        temp_dir: Path | None = None,
+        debounce_seconds: float = 2.0,
+        poll_interval: float = 0.5,
     ) -> None:
         """Initialize the PLT file handler.
 
@@ -106,6 +109,11 @@ class PLTFileHandler(FileSystemEventHandler):
             processed_dir: Directory to move processed files to after optimization.
             debug_save_files: If True, save debug copies of PLT files and plots.
             log_dir: Directory for debug output (required when debug_save_files=True).
+            temp_dir: Directory for in-progress output files. Defaults to
+                ``output_dir / ".incomplete"``.
+            debounce_seconds: Quiet period (seconds) after the last modification
+                before a file is considered stable and processed.
+            poll_interval: How often the debounce thread polls for stable files.
         """
         super().__init__()
         self._watch_dir = watch_dir
@@ -119,6 +127,13 @@ class PLTFileHandler(FileSystemEventHandler):
         self._parser = PLTParser()
         self._writer = PLTWriter()
         self._processed_files: set[Path] = set()
+        self._debounce_seconds = debounce_seconds
+        self._poll_interval = poll_interval
+        self._temp_dir = temp_dir if temp_dir is not None else output_dir / ".incomplete"
+        self._pending_files: dict[Path, float] = {}
+        self._pending_lock = threading.Lock()
+        self._shutdown_event = threading.Event()
+        self._debounce_thread: threading.Thread | None = None
 
     def _is_supported_file(self, path: Path) -> bool:
         """Check if a file has a supported PLT/HPGL extension.
@@ -143,30 +158,129 @@ class PLTFileHandler(FileSystemEventHandler):
         return path.is_file() and self._is_supported_file(path)
 
     def _should_process(self, path: Path) -> bool:
-        """Check if a file should be processed (debounce duplicate events).
+        """Check if a file is eligible for processing (filtered by state).
+
+        This is a lightweight gate that complements the debounce mechanism.
+        Timing-based debouncing (waiting for the file to stop changing) is
+        handled separately by the background ``_debounce_loop`` thread;
+        this method only filters out files we already processed, files that
+        have disappeared, and unsupported files.
 
         Args:
             path: File path to check.
 
         Returns:
-            True if the file should be processed.
+            True if the file exists, is a supported file type, and has not
+            already been processed.
         """
-        # Simple debouncing - track recently processed files
         if path in self._processed_files:
             return False
-
-        # Check if file exists and is readable
         try:
-            if not path.exists():
-                return False
-            # Wait briefly to ensure file is fully written
-            time.sleep(0.1)
-            # Try to open the file to verify it's accessible
-            with open(path, "rb") as f:
-                f.read(1)
-            return True
+            return path.is_file() and self._is_supported_file(path)
         except OSError:
             return False
+
+    def _enqueue_file(self, path: Path) -> None:
+        """Record a file as needing processing.
+
+        The background debounce thread will pick the file up once it has been
+        quiescent for ``debounce_seconds``. Existing files (e.g. files
+        discovered at startup) can also be enqueued; the thread will pick them
+        up on the next poll.
+
+        Args:
+            path: File path that was created or modified.
+        """
+        try:
+            if not path.exists():
+                return
+            mtime = path.stat().st_mtime
+        except OSError:
+            return
+        with self._pending_lock:
+            self._pending_files[path] = mtime
+        self._text_logger.debug(f"File enqueued for processing: {path}")
+
+    def _check_pending_files(self) -> None:
+        """Scan pending files and process any that are stable.
+
+        A file is stable when its current ``mtime`` matches the recorded
+        ``mtime`` (no new writes) and at least ``debounce_seconds`` have
+        elapsed since the last modification. Stable files are processed in
+        the calling thread (the debounce thread); errors are logged but do
+        not stop the loop.
+        """
+        to_process: list[Path] = []
+        with self._pending_lock:
+            for path, recorded_mtime in list(self._pending_files.items()):
+                if not path.exists():
+                    del self._pending_files[path]
+                    continue
+                try:
+                    current_mtime = path.stat().st_mtime
+                except OSError:
+                    del self._pending_files[path]
+                    continue
+                if current_mtime > recorded_mtime:
+                    self._pending_files[path] = current_mtime
+                    continue
+                if time.time() - current_mtime < self._debounce_seconds:
+                    continue
+                if not self._should_process(path):
+                    del self._pending_files[path]
+                    continue
+                to_process.append(path)
+                del self._pending_files[path]
+        for path in to_process:
+            try:
+                self._mark_processed(path)
+                self._process_file(path)
+            except Exception as e:
+                self._text_logger.error(f"Failed to process {path}: {e}")
+
+    def _debounce_loop(self) -> None:
+        """Background loop that polls for stable files.
+
+        Runs until ``_shutdown_event`` is set. ``Event.wait`` is used so the
+        thread can be awoken (or shut down) without sleeping for the full
+        poll interval.
+        """
+        while not self._shutdown_event.is_set():
+            try:
+                self._check_pending_files()
+            except Exception as e:
+                self._text_logger.error(f"Debounce loop error: {e}")
+            self._shutdown_event.wait(timeout=self._poll_interval)
+
+    def start(self) -> None:
+        """Start the background debounce thread.
+
+        Idempotent: calling this method multiple times is safe and only one
+        thread is ever running.
+        """
+        if self._debounce_thread is not None and self._debounce_thread.is_alive():
+            return
+        self._shutdown_event.clear()
+        self._debounce_thread = threading.Thread(
+            target=self._debounce_loop,
+            name="plt-debouncer",
+            daemon=True,
+        )
+        self._debounce_thread.start()
+
+    def stop(self, timeout: float = 5.0) -> None:
+        """Signal the debounce thread to stop and wait for it to join.
+
+        Safe to call even if ``start()`` was never invoked.
+
+        Args:
+            timeout: Maximum seconds to wait for the thread to exit.
+        """
+        self._shutdown_event.set()
+        thread = self._debounce_thread
+        if thread is not None:
+            thread.join(timeout=timeout)
+            self._debounce_thread = None
 
     def _mark_processed(self, path: Path) -> None:
         """Mark a file as processed for debouncing.
@@ -256,6 +370,17 @@ class PLTFileHandler(FileSystemEventHandler):
         """
         job_id = f"watch_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
         self._text_logger.info(f"[{job_id}] Processing: {input_path}")
+
+        # Ensure temp directory exists (lazy; created on first use so that
+        # constructing a handler against a not-yet-existent output dir is OK).
+        # Failure here is non-fatal: the subsequent write will surface the
+        # error in the standard exception handler.
+        try:
+            self._temp_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            self._text_logger.warning(
+                f"[{job_id}] Could not pre-create temp directory {self._temp_dir}: {e}"
+            )
 
         try:
             # Parse the file
@@ -369,11 +494,30 @@ class PLTFileHandler(FileSystemEventHandler):
                 optimized_distance=optimized_distance,
             )
 
-            # Generate output path
+            # Generate output paths. Write to temp first so consumers never
+            # observe a partially-written file; then atomically move to the
+            # final location via os.replace (with shutil.move fallback).
             output_path = self._output_dir / f"{input_path.stem}_optimized.plt"
+            temp_output_path = self._temp_dir / f"{input_path.stem}_optimized.plt"
 
-            # Write optimized file
-            self._writer.write_file(optimized_doc, output_path)
+            try:
+                self._writer.write_file(optimized_doc, temp_output_path)
+            except Exception:
+                if temp_output_path.exists():
+                    try:
+                        temp_output_path.unlink()
+                    except OSError:
+                        pass
+                raise
+
+            try:
+                os.replace(str(temp_output_path), str(output_path))
+            except OSError as replace_error:
+                self._text_logger.warning(
+                    f"[{job_id}] os.replace failed ({replace_error}); "
+                    f"falling back to shutil.move for {output_path.name}"
+                )
+                shutil.move(str(temp_output_path), str(output_path))
 
             # Log success metrics
             improvement_pct = (
@@ -443,10 +587,21 @@ class PLTFileHandler(FileSystemEventHandler):
                 notes=str(e)[:200],  # Truncate long error messages
             )
 
-            # Fallback: copy unprocessed file to output directory when optimization fails
+            # Fallback: copy unprocessed file to output directory when optimization fails.
+            # Use the same atomic-write pattern (temp + os.replace) so consumers
+            # never observe a partially-written file.
             try:
                 fallback_output_path = self._output_dir / f"{input_path.stem}_unprocessed.plt"
-                shutil.copy2(str(input_path), str(fallback_output_path))
+                fallback_temp_path = self._temp_dir / f"{input_path.stem}_unprocessed.plt"
+                shutil.copy2(str(input_path), str(fallback_temp_path))
+                try:
+                    os.replace(str(fallback_temp_path), str(fallback_output_path))
+                except OSError as replace_error:
+                    self._text_logger.warning(
+                        f"[{job_id}] os.replace failed ({replace_error}); "
+                        f"falling back to shutil.move for {fallback_output_path.name}"
+                    )
+                    shutil.move(str(fallback_temp_path), str(fallback_output_path))
                 self._text_logger.warning(
                     f"[{job_id}] Optimization failed - copied unprocessed file to "
                     f"{fallback_output_path} for manual review"
@@ -471,9 +626,7 @@ class PLTFileHandler(FileSystemEventHandler):
         if not self._is_plt_file(path):
             return
 
-        if self._should_process(path):
-            self._mark_processed(path)
-            self._process_file(path)
+        self._enqueue_file(path)
 
     def on_modified(self, event: FileSystemEvent) -> None:
         """Handle file modification events.
@@ -488,9 +641,7 @@ class PLTFileHandler(FileSystemEventHandler):
         if not self._is_plt_file(path):
             return
 
-        if self._should_process(path):
-            self._mark_processed(path)
-            self._process_file(path)
+        self._enqueue_file(path)
 
 
 def run_watcher_from_config(
@@ -523,6 +674,7 @@ def run_watcher_from_config(
     processed_dir = Path(config["processed_dir"]) if config.get("processed_dir") else None
     fast_mode = bool(config.get("fast_mode", False))
     debug_save_files = bool(config.get("debug_save_files", False))
+    debounce_seconds = float(config.get("debounce_seconds", 2.0))
 
     text_log_file = log_dir / "optimizer.log"
     csv_metrics_file = log_dir / "job_metrics.csv"
@@ -553,6 +705,7 @@ def run_watcher_from_config(
     text_logger.info(
         f"Strategy: {'NearestNeighbor2Opt (Fast Mode)' if fast_mode else 'ParallelEnsemble'}"
     )
+    text_logger.info(f"Debounce window: {debounce_seconds}s")
     text_logger.info("=" * 60)
 
     # Validate watch directory
@@ -585,27 +738,26 @@ def run_watcher_from_config(
         processed_dir=processed_dir,
         debug_save_files=debug_save_files,
         log_dir=log_dir if debug_save_files else None,
+        debounce_seconds=debounce_seconds,
     )
+    handler.start()
 
-    existing_count = 0
-    for path in watch_dir.iterdir():
-        if handler._is_plt_file(path):
-            try:
-                if handler._should_process(path):
-                    handler._mark_processed(path)
+    enqueued_count = 0
+    try:
+        for path in watch_dir.iterdir():
+            if handler._is_plt_file(path):
+                try:
+                    if handler._should_process(path):
+                        handler._enqueue_file(path)
+                        enqueued_count += 1
+                except Exception as e:
+                    text_logger.error(f"Error enqueuing {path}: {e}")
+    except Exception:
+        handler.stop()
+        raise
 
-                    # Wrap _process_file to capture success/error callbacks
-                    def wrapped_process(input_path: Path) -> bool:  # pragma: no cover
-                        result = handler._process_file(input_path)  # pragma: no cover
-                        return result  # pragma: no cover
-
-                    if handler._process_file(path):
-                        existing_count += 1
-            except Exception as e:
-                text_logger.error(f"Error processing {path}: {e}")
-
-    if existing_count > 0:
-        text_logger.info(f"Processed {existing_count} existing file(s)")
+    if enqueued_count > 0:
+        text_logger.info(f"Enqueued {enqueued_count} existing file(s) for processing")
 
     # Create event handler for watchdog
     event_handler = PLTFileHandler(
@@ -617,7 +769,9 @@ def run_watcher_from_config(
         processed_dir=processed_dir,
         debug_save_files=debug_save_files,
         log_dir=log_dir if debug_save_files else None,
+        debounce_seconds=debounce_seconds,
     )
+    event_handler.start()
 
     observer = Observer()
     observer.schedule(event_handler, str(watch_dir), recursive=False)  # type: ignore[no-untyped-call]
@@ -635,6 +789,8 @@ def run_watcher_from_config(
     finally:
         observer.stop()  # type: ignore[no-untyped-call]
         observer.join(timeout=5.0)
+        handler.stop()
+        event_handler.stop()
 
     text_logger.info("Watch daemon stopped.")
     return 0
@@ -661,6 +817,7 @@ class WatchCommand:
             args is None and "--log-dir" in sys.argv[1:]
         )
         self._args = self._parse_args(args)
+        self._existing_handler: PLTFileHandler | None = None
 
     def _parse_args(self, args: list[str] | None) -> argparse.Namespace:
         """Parse command-line arguments.
@@ -743,6 +900,16 @@ Examples:
                 "Save before/after PLT files and comparison plots to the log directory. "
                 "Only effective when --log-dir is specified. Creates a 'debug' subdirectory "
                 "containing original.plt, optimized.plt, and comparison.png for each job."
+            ),
+        )
+        parser.add_argument(
+            "--debounce-seconds",
+            type=float,
+            default=2.0,
+            help=(
+                "Quiet period (seconds) the watcher waits after the last "
+                "modification to a file before processing it. Prevents "
+                "reading partially-written files (default: 2.0)."
             ),
         )
 
@@ -887,10 +1054,16 @@ Examples:
         return True
 
     def _process_existing_files(self) -> int:
-        """Process any existing PLT files in the watch directory.
+        """Enqueue any existing PLT files in the watch directory for processing.
+
+        Files are not processed inline; they are handed off to a background
+        debounce thread which waits for them to stabilise. The handler is
+        kept alive after this method returns so the background thread can
+        finish processing the enqueued files. ``run()`` is responsible for
+        stopping it during shutdown.
 
         Returns:
-            Number of files successfully processed.
+            Number of files enqueued for processing.
         """
         # Assert loggers are initialized (called after run() sets up logging)
         assert self._text_logger is not None, "Text logger should be initialized"
@@ -898,8 +1071,7 @@ Examples:
 
         self._text_logger.info(f"Scanning for existing PLT files in {self._args.watch_dir}")
 
-        count = 0
-        handler = PLTFileHandler(
+        self._existing_handler = PLTFileHandler(
             watch_dir=self._args.watch_dir,
             output_dir=self._args.output_dir,
             text_logger=self._text_logger,
@@ -908,18 +1080,26 @@ Examples:
             processed_dir=self._args.processed_dir,
             debug_save_files=(self._args.debug_save_files and self._log_dir_explicitly_set),
             log_dir=self._args.log_dir if self._args.debug_save_files else None,
+            debounce_seconds=self._args.debounce_seconds,
         )
+        self._existing_handler.start()
 
-        for path in self._args.watch_dir.iterdir():
-            if handler._is_plt_file(path):
-                try:
-                    if handler._should_process(path):
-                        handler._mark_processed(path)
-                        if handler._process_file(path):
+        count = 0
+        try:
+            for path in self._args.watch_dir.iterdir():
+                if self._existing_handler._is_plt_file(path):
+                    try:
+                        if self._existing_handler._should_process(path):
+                            self._existing_handler._enqueue_file(path)
                             count += 1
-                except Exception as e:
-                    self._text_logger.error(f"Error processing {path}: {e}")
-
+                    except Exception as e:
+                        self._text_logger.error(f"Error enqueuing {path}: {e}")
+        except Exception:
+            # If iterdir itself fails, stop the handler we just started so
+            # we don't leak a thread; the caller will see the exception.
+            self._existing_handler.stop()
+            self._existing_handler = None
+            raise
         return count
 
     def _signal_handler(self, signum: int, frame: object) -> None:
@@ -966,9 +1146,9 @@ Examples:
         signal.signal(signal.SIGTERM, self._signal_handler)
 
         # Process existing files first
-        processed_count = self._process_existing_files()
-        if processed_count > 0:
-            self._text_logger.info(f"Processed {processed_count} existing file(s)")
+        enqueued_count = self._process_existing_files()
+        if enqueued_count > 0:
+            self._text_logger.info(f"Enqueued {enqueued_count} existing file(s) for processing")
 
         # Start watching for new files
         event_handler = PLTFileHandler(
@@ -980,7 +1160,9 @@ Examples:
             processed_dir=self._args.processed_dir,
             debug_save_files=(self._args.debug_save_files and self._log_dir_explicitly_set),
             log_dir=self._args.log_dir if self._args.debug_save_files else None,
+            debounce_seconds=self._args.debounce_seconds,
         )
+        event_handler.start()
 
         self._observer = Observer()
         self._observer.schedule(event_handler, str(self._args.watch_dir), recursive=False)  # type: ignore[no-untyped-call]
@@ -999,6 +1181,10 @@ Examples:
             if self._observer is not None:  # pragma: no branch
                 self._observer.stop()  # type: ignore[no-untyped-call]
                 self._observer.join(timeout=5.0)
+            event_handler.stop()
+            if self._existing_handler is not None:
+                self._existing_handler.stop()
+                self._existing_handler = None
 
         self._text_logger.info("Watch daemon stopped.")
         return 0
