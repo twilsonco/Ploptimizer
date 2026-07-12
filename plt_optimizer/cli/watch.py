@@ -504,6 +504,9 @@ class PLTFileHandler(FileSystemEventHandler):
             output_path = self._output_dir / f"{input_path.stem}_optimized.plt"
             temp_output_path = self._temp_dir / f"{input_path.stem}_optimized.plt"
 
+            output_path = self._writer._ensure_filename_length(output_path)
+            temp_output_path = self._writer._ensure_filename_length(temp_output_path)
+
             try:
                 self._writer.write_file(optimized_doc, temp_output_path)
             except Exception:
@@ -610,6 +613,13 @@ class PLTFileHandler(FileSystemEventHandler):
                     f"[{job_id}] Optimization failed - copied unprocessed file to "
                     f"{fallback_output_path} for manual review"
                 )
+                # Remove input file to avoid cluttering the watch directory
+                try:
+                    input_path.unlink()
+                except OSError as remove_error:
+                    self._text_logger.warning(
+                        f"[{job_id}] Failed to remove input file {input_path}: {remove_error}"
+                    )
             except OSError as copy_error:
                 self._text_logger.error(
                     f"[{job_id}] Failed to copy unprocessed file to output directory: {copy_error}"
