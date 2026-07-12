@@ -325,10 +325,12 @@ class PLTFileHandler(FileSystemEventHandler):
 
             # Save original PLT file
             orig_plt_path = debug_dir / f"{safe_job_id}_original.plt"
+            orig_plt_path = self._writer._ensure_filename_length(orig_plt_path)
             self._writer.write_file(original_doc, orig_plt_path)
 
             # Save optimized PLT file
             opt_plt_path = debug_dir / f"{safe_job_id}_optimized.plt"
+            opt_plt_path = self._writer._ensure_filename_length(opt_plt_path)
             self._writer.write_file(optimized_doc, opt_plt_path)
 
             # Calculate improvement percentage for titles
@@ -340,6 +342,7 @@ class PLTFileHandler(FileSystemEventHandler):
 
             # Save plot for original document using plotter.py function
             orig_plot_path = debug_dir / f"{safe_job_id}_original.png"
+            orig_plot_path = self._writer._ensure_filename_length(orig_plot_path)
             plot_plt_document(
                 original_doc,
                 output_path=orig_plot_path,
@@ -348,6 +351,7 @@ class PLTFileHandler(FileSystemEventHandler):
 
             # Save plot for optimized document using plotter.py function
             opt_plot_path = debug_dir / f"{safe_job_id}_optimized.png"
+            opt_plot_path = self._writer._ensure_filename_length(opt_plot_path)
             plot_plt_document(
                 optimized_doc,
                 output_path=opt_plot_path,

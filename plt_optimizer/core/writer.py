@@ -77,6 +77,29 @@ class PLTWriter:
         """Initialize the PLT writer."""
         self._logger = get_text_logger()
 
+    # Method to ensure that the output filename (with extension) is <= 39 characters for compatibility with some plotters.
+    def _ensure_filename_length(self, file_path: Path) -> Path:
+        """Ensure the filename (with extension) is <= 39 characters.
+
+        If the filename exceeds 39 characters, it will be shortened while preserving the extension.
+        Logs a warning if the filename is modified.
+
+        Args:
+            file_path: Original file path.
+
+        Returns:
+            Possibly modified file path with filename <= 39 characters.
+        """
+        if len(file_path.name) > 39:
+            stem = file_path.stem[: 39 - len(file_path.suffix)]
+            new_file_path = file_path.with_name(stem + file_path.suffix)
+            self._logger.warning(
+                f"Filename '{file_path.name}' exceeds 39 characters. "
+                f"Shortened to '{new_file_path.name}' for compatibility."
+            )
+            return new_file_path
+        return file_path
+
     def write_file(
         self,
         document: PLTDocument,
