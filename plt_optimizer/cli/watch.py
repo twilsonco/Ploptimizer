@@ -32,7 +32,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 # Third-party imports
 try:
@@ -42,6 +42,9 @@ except ImportError as e:
     raise ImportError(
         "watchdog library is required for watch functionality. Install it with: uv add watchdog"
     ) from e
+
+if TYPE_CHECKING:
+    from plt_optimizer.utils.logging import CSVMetricsLogger, TextLogger
 
 # Local imports
 from plt_optimizer.core.chunker import Chunker, ChunkerConfig
@@ -831,6 +834,10 @@ class WatchCommand:
         )
         self._args = self._parse_args(args)
         self._existing_handler: Optional[PLTFileHandler] = None
+        self._shutdown_requested = False
+        self._observer: Optional[Observer] = None  # type: ignore[valid-type]
+        self._text_logger: Optional[TextLogger] = None
+        self._metrics_logger: Optional[CSVMetricsLogger] = None
 
     def _parse_args(self, args: Optional[List[str]]) -> argparse.Namespace:
         """Parse command-line arguments.
@@ -1123,7 +1130,8 @@ Examples:
             frame: Current stack frame (unused, required by signal handler signature).
         """
         sig_name = signal.Signals(signum).name if hasattr(signal, "Signals") else str(signum)
-        self._text_logger.info(f"Received {sig_name}, initiating graceful shutdown...")
+        if self._text_logger is not None:
+            self._text_logger.info(f"Received {sig_name}, initiating graceful shutdown...")
         self._shutdown_requested = True
 
     def run(self) -> int:
