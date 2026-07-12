@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import List, Tuple
 
 from plt_optimizer.core.models import Coordinate, Segment, StrokePath
 from plt_optimizer.utils.logging import get_text_logger
@@ -53,7 +54,7 @@ class MacroBlock:
     """
 
     block_id: int
-    paths: tuple[StrokePath, ...]
+    paths: Tuple[StrokePath, ...]
     entrance: Coordinate
     exit: Coordinate
 
@@ -129,7 +130,7 @@ class Chunker:
         stroke_paths: Sequence[StrokePath],
         baseline_extent: float,
         is_structural: bool = False,
-    ) -> list[MacroBlock]:
+    ) -> List[MacroBlock]:
         """Group stroke paths into MacroBlocks based on jump distances.
 
         Args:
@@ -150,7 +151,7 @@ class Chunker:
             raise ChunkerError("Cannot chunk empty sequence of stroke paths")
 
         # Initialize blocks list
-        blocks: list[MacroBlock] = []
+        blocks: List[MacroBlock] = []
 
         # BYPASS: If structural, every path is its own independent block
         if is_structural:
@@ -182,7 +183,7 @@ class Chunker:
             f"multiplier={self._config.threshold_multiplier})"
         )
 
-        current_block_paths: list[StrokePath] = []
+        current_block_paths: List[StrokePath] = []
 
         for i, path in enumerate(stroke_paths):
             if not path.segments:
@@ -267,8 +268,8 @@ class Chunker:
 
     def _create_macro_block(
         self,
-        existing_blocks: list[MacroBlock],
-        paths: list[StrokePath],
+        existing_blocks: List[MacroBlock],
+        paths: List[StrokePath],
     ) -> MacroBlock:
         """Create a new MacroBlock from the given paths.
 

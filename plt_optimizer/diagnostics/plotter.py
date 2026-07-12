@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from pathlib import Path
+from typing import List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
@@ -59,7 +60,7 @@ def _safe_range(lo: float, hi: float, default_floor: float = 1.0) -> float:
     return magnitude * 0.1
 
 
-def _arc_to_points(arc: ArcSegment, num_segments: int = 32) -> list[Coordinate]:
+def _arc_to_points(arc: ArcSegment, num_segments: int = 32) -> List[Coordinate]:
     """Sample points along an arc for linear approximation.
 
     Args:
@@ -73,7 +74,7 @@ def _arc_to_points(arc: ArcSegment, num_segments: int = 32) -> list[Coordinate]:
     delta_theta = arc.sweep_angle * math.pi / 180 / num_segments
     radius = arc.radius
 
-    points: list[Coordinate] = []
+    points: List[Coordinate] = []
     for i in range(num_segments + 1):
         theta = theta_start + i * delta_theta
         x = arc.center.x + radius * math.cos(theta)
@@ -102,11 +103,11 @@ class PlotterError(Exception):
 
 def plot_plt_document(
     document: PLTDocument,
-    output_path: Path | None = None,
+    output_path: Optional[Path] = None,
     title: str = "PLT Toolpath Visualization",
     show_plot: bool = False,
-    figure_size: tuple[float, float] = DEFAULT_FIGURE_SIZE,
-    rapid_travel_inches: float | None = None,
+    figure_size: Tuple[float, float] = DEFAULT_FIGURE_SIZE,
+    rapid_travel_inches: Optional[float] = None,
 ) -> Figure:
     """Plot a complete PLT document with color-coded path segments.
 
@@ -137,8 +138,8 @@ def plot_plt_document(
     try:
         fig, ax = plt.subplots(figsize=figure_size)
 
-        all_segments: list[Segment] = []
-        segment_is_cutting: list[bool] = []
+        all_segments: List[Segment] = []
+        segment_is_cutting: List[bool] = []
 
         for path in document.stroke_paths:
             for seg in path.segments:
@@ -359,7 +360,7 @@ def plot_plt_document(
 
 def plot_stroke_path(
     path: StrokePath,
-    output_path: Path | None = None,
+    output_path: Optional[Path] = None,
     title: str = "Stroke Path",
     show_plot: bool = False,
 ) -> Figure:
@@ -431,7 +432,7 @@ def save_figure(fig: Figure, path: Path) -> None:
 def create_path_diagram(
     coordinates: Sequence[Coordinate],
     cutting_mask: Sequence[bool],
-    output_path: Path | None = None,
+    output_path: Optional[Path] = None,
     title: str = "Toolpath Diagram",
 ) -> Figure:
     """Create a simple path diagram without full document parsing.

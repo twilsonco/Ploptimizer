@@ -11,6 +11,7 @@ import math
 import re
 from collections.abc import Iterator
 from pathlib import Path
+from typing import List, Optional, Tuple
 
 from plt_optimizer.core.models import (
     ArcSegment,
@@ -37,8 +38,8 @@ class ParseError(Exception):
     def __init__(
         self,
         message: str,
-        line_number: int | None = None,
-        token: str | None = None,
+        line_number: Optional[int] = None,
+        token: Optional[str] = None,
     ) -> None:
         """Initialize a ParseError.
 
@@ -141,7 +142,7 @@ class PLTParser:
             token = match.group(1)
             yield token
 
-    def _build_document(self, tokens: list[str]) -> PLTDocument:
+    def _build_document(self, tokens: List[str]) -> PLTDocument:
         """Build a PLTDocument from parsed tokens.
 
         Args:
@@ -151,9 +152,9 @@ class PLTParser:
             Structured PLTDocument.
         """
         doc = PLTDocument()
-        current_path: StrokePath | None = None
+        current_path: Optional[StrokePath] = None
         pen_state = PenState.UP
-        last_position: Coordinate | None = None
+        last_position: Optional[Coordinate] = None
 
         i = 0
         while i < len(tokens):
@@ -396,7 +397,7 @@ class PLTParser:
         arc_type: str,
         params_str: str,
         start_pos: Coordinate,
-    ) -> tuple[ArcSegment | None, Coordinate | None]:
+    ) -> Tuple[Optional[ArcSegment], Optional[Coordinate]]:
         """Parse an AA/AR/CI arc command and compute the end position.
 
         Args:
@@ -457,8 +458,8 @@ class PLTParser:
         self,
         cmd: str,
         token_index: int,
-        tokens: list[str],
-    ) -> tuple[list[Coordinate], int]:
+        tokens: List[str],
+    ) -> Tuple[List[Coordinate], int]:
         """Extract coordinate pairs from a command and subsequent tokens.
 
         Args:
@@ -469,7 +470,7 @@ class PLTParser:
         Returns:
             Tuple of (list of Coordinates, index of next unprocessed token).
         """
-        coords: list[Coordinate] = []
+        coords: List[Coordinate] = []
         i = token_index
         current_token = cmd
 

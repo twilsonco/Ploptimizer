@@ -13,6 +13,7 @@ import time
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
+from typing import Dict, List, Optional, Set, Tuple
 
 from plt_optimizer.core.chunker import MacroBlock
 from plt_optimizer.utils.logging import get_text_logger
@@ -50,8 +51,8 @@ class BlockConnection:
     source_block_id: int
     target_block_id: int
     travel_distance: float
-    entry_at_source: tuple[float, float]
-    entry_at_target: tuple[float, float]
+    entry_at_source: Tuple[float, float]
+    entry_at_target: Tuple[float, float]
 
 
 @dataclass(frozen=True)
@@ -67,8 +68,8 @@ class BlockTraverseState:
 
     block_id: int
     reversed: bool
-    entrance: tuple[float, float]
-    exit: tuple[float, float]
+    entrance: Tuple[float, float]
+    exit: Tuple[float, float]
 
 
 @dataclass(frozen=True)
@@ -83,10 +84,10 @@ class OptimizationResult:
         initial_position: Starting position for the optimization run.
     """
 
-    traverse_order: tuple[BlockTraverseState, ...]
-    connections: tuple[BlockConnection, ...]
+    traverse_order: Tuple[BlockTraverseState, ...]
+    connections: Tuple[BlockConnection, ...]
     total_travel_distance: float
-    initial_position: tuple[float, float] | None
+    initial_position: Optional[Tuple[float, float]]
 
     @property
     def block_count(self) -> int:
@@ -122,8 +123,8 @@ class OptimizationStrategy(ABC):
     @abstractmethod
     def optimize(
         self,
-        blocks: list[MacroBlock],
-        initial_position: tuple[float, float] | None = None,
+        blocks: List[MacroBlock],
+        initial_position: Optional[Tuple[float, float]] = None,
     ) -> OptimizationResult:
         """Optimize the traversal order of MacroBlocks.
 
@@ -142,10 +143,10 @@ class OptimizationStrategy(ABC):
 
     def _calculate_block_cost(
         self,
-        from_pos: tuple[float, float],
-        to_entrance: tuple[float, float],
-        to_exit: tuple[float, float],
-    ) -> tuple[float, bool]:
+        from_pos: Tuple[float, float],
+        to_entrance: Tuple[float, float],
+        to_exit: Tuple[float, float],
+    ) -> Tuple[float, bool]:
         """Calculate the cost of traveling to a block considering both entry options.
 
         Determines whether it is cheaper to enter a block at its entrance (traverse
@@ -173,10 +174,10 @@ class OptimizationStrategy(ABC):
 
     def _build_connections(
         self,
-        blocks: list[MacroBlock],
-        traverse_order: list[BlockTraverseState],
-        initial_pos: tuple[float, float] | None,
-    ) -> tuple[BlockConnection, ...]:
+        blocks: List[MacroBlock],
+        traverse_order: List[BlockTraverseState],
+        initial_pos: Optional[Tuple[float, float]],
+    ) -> Tuple[BlockConnection, ...]:
         """Build the connection list from a traverse order.
 
         Args:
@@ -187,10 +188,10 @@ class OptimizationStrategy(ABC):
         Returns:
             Tuple of BlockConnections between consecutive blocks.
         """
-        connections: list[BlockConnection] = []
+        connections: List[BlockConnection] = []
 
         # Build a lookup map from block_id to MacroBlock for correct indexing
-        block_by_id: dict[int, MacroBlock] = {b.block_id: b for b in blocks}
+        block_by_id: Dict[int, MacroBlock] = {b.block_id: b for b in blocks}
 
         for i, state in enumerate(traverse_order):
             target_block = block_by_id[state.block_id]
@@ -238,8 +239,8 @@ class NoOpStrategy(OptimizationStrategy):
 
     def optimize(
         self,
-        blocks: list[MacroBlock],
-        initial_position: tuple[float, float] | None = None,
+        blocks: List[MacroBlock],
+        initial_position: Optional[Tuple[float, float]] = None,
     ) -> OptimizationResult:
         """Return blocks in original order without optimization.
 
@@ -252,7 +253,7 @@ class NoOpStrategy(OptimizationStrategy):
         """
         self._logger.info(f"Running {self.name} on {len(blocks)} blocks")
 
-        traverse_order: list[BlockTraverseState] = []
+        traverse_order: List[BlockTraverseState] = []
 
         # Determine starting position
         if initial_position is not None:
@@ -321,8 +322,8 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
 
     def optimize(
         self,
-        blocks: list[MacroBlock],
-        initial_position: tuple[float, float] | None = None,
+        blocks: List[MacroBlock],
+        initial_position: Optional[tuple[float, float]] = None,
     ) -> OptimizationResult:
         """Optimize using nearest neighbor greedy algorithm with 2-opt refinement.
 
@@ -354,7 +355,7 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
             )
             self._logger.debug(f"Evaluating {len(candidates)} starting candidates")
 
-            best_result: OptimizationResult | None = None
+            best_result: Optional[OptimizationResult] = None
 
             for start_pos, first_block_idx, start_at_exit, _dist in candidates:
                 tour = self._greedy_nearest_neighbor_from_start(
@@ -408,9 +409,9 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
 
     def _greedy_nearest_neighbor(
         self,
-        blocks: list[MacroBlock],
-        start_pos: tuple[float, float],
-    ) -> list[BlockTraverseState]:
+        blocks: List[MacroBlock],
+        start_pos: Tuple[float, float],
+    ) -> List[BlockTraverseState]:
         """Build initial tour using greedy nearest neighbor heuristic.
 
         Args:
@@ -421,7 +422,7 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
             Initial traverse order from greedy construction.
         """
         unvisited = set(range(len(blocks)))
-        tour: list[BlockTraverseState] = []
+        tour: List[BlockTraverseState] = []
         current_pos = start_pos
 
         while unvisited:
@@ -468,10 +469,10 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
 
     def _find_nearest_origin_endpoints(
         self,
-        blocks: list[MacroBlock],
-        origin: tuple[float, float] = (0.0, 0.0),
+        blocks: List[MacroBlock],
+        origin: Tuple[float, float] = (0.0, 0.0),
         n_candidates: int = 5,
-    ) -> list[tuple[tuple[float, float], int, bool, float]]:
+    ) -> List[tuple[tuple[float, float], int, bool, float]]:
         """Find the N block endpoints nearest to the origin.
 
         This ensures the optimization evaluates multiple starting candidates
@@ -489,7 +490,7 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
             - is_exit: True if endpoint is block's exit (needs reversal)
             - distance: Euclidean distance from origin
         """
-        candidates: list[tuple[float, tuple[tuple[float, float], int, bool]]] = []
+        candidates: List[Tuple[float, tuple[tuple[float, float], int, bool]]] = []
 
         for i, block in enumerate(blocks):
             dist_entrance = math.sqrt(
@@ -507,10 +508,10 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
 
     def _find_farthest_origin_endpoints(
         self,
-        blocks: list[MacroBlock],
-        origin: tuple[float, float] = (0.0, 0.0),
+        blocks: List[MacroBlock],
+        origin: Tuple[float, float] = (0.0, 0.0),
         n_candidates: int = 5,
-    ) -> list[tuple[tuple[float, float], int, bool, float]]:
+    ) -> List[tuple[tuple[float, float], int, bool, float]]:
         """Find the N block endpoints farthest from the origin.
 
         This is used to evaluate candidate ending points for optimization,
@@ -528,7 +529,7 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
             - is_exit: True if endpoint is block's exit (needs reversal)
             - distance: Euclidean distance from origin
         """
-        candidates: list[tuple[float, tuple[tuple[float, float], int, bool]]] = []
+        candidates: List[Tuple[float, tuple[tuple[float, float], int, bool]]] = []
 
         for i, block in enumerate(blocks):
             dist_entrance = math.sqrt(
@@ -547,9 +548,9 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
 
     def _find_nearest_origin_endpoint(
         self,
-        blocks: list[MacroBlock],
-        origin: tuple[float, float] = (0.0, 0.0),
-    ) -> tuple[tuple[float, float], int, bool]:
+        blocks: List[MacroBlock],
+        origin: Tuple[float, float] = (0.0, 0.0),
+    ) -> Tuple[tuple[float, float], int, bool]:
         """Find the block endpoint nearest to the origin.
 
         This ensures the optimization always starts from the stroke end closest
@@ -571,11 +572,11 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
 
     def _greedy_nearest_neighbor_from_start(
         self,
-        blocks: list[MacroBlock],
-        start_pos: tuple[float, float],
+        blocks: List[MacroBlock],
+        start_pos: Tuple[float, float],
         forced_first_block: int,
         forced_first_reversed: bool,
-    ) -> list[BlockTraverseState]:
+    ) -> List[BlockTraverseState]:
         """Build tour starting with a specific block in a specific direction.
 
         This variant forces the first block to be visited first (potentially
@@ -592,7 +593,7 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
             Initial traverse order with guaranteed starting point.
         """
         unvisited = set(range(len(blocks)))
-        tour: list[BlockTraverseState] = []
+        tour: List[BlockTraverseState] = []
 
         # Handle the forced first block
         first_block = blocks[forced_first_block]
@@ -661,10 +662,10 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
 
     def _calculate_block_cost(
         self,
-        from_pos: tuple[float, float],
-        to_entrance: tuple[float, float],
-        to_exit: tuple[float, float],
-    ) -> tuple[float, bool]:
+        from_pos: Tuple[float, float],
+        to_entrance: Tuple[float, float],
+        to_exit: Tuple[float, float],
+    ) -> Tuple[float, bool]:
         """Calculate cost with y-difference penalty for same-row preference.
 
         Args:
@@ -695,9 +696,9 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
 
     def _two_opt_refinement(
         self,
-        tour: list[BlockTraverseState],
-        blocks: list[MacroBlock],
-    ) -> list[BlockTraverseState]:
+        tour: List[BlockTraverseState],
+        blocks: List[MacroBlock],
+    ) -> List[BlockTraverseState]:
         """Improve tour using 2-opt local search.
 
         The 2-opt algorithm considers every pair of edges and checks if swapping
@@ -731,8 +732,8 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
 
     def _two_opt_swap_improves(
         self,
-        tour: list[BlockTraverseState],
-        blocks: list[MacroBlock],
+        tour: List[BlockTraverseState],
+        blocks: List[MacroBlock],
         i: int,
         j: int,
     ) -> bool:
@@ -801,8 +802,8 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
 
     def optimize(
         self,
-        blocks: list[MacroBlock],
-        initial_position: tuple[float, float] | None = None,
+        blocks: List[MacroBlock],
+        initial_position: Optional[tuple[float, float]] = None,
     ) -> OptimizationResult:
         """Optimize using cheapest insertion heuristic.
 
@@ -826,7 +827,7 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
 
         if len(blocks) == 1:
             block = blocks[0]
-            start_pos: tuple[float, float]
+            start_pos: Tuple[float, float]
             cost_to_entrance = math.sqrt(block.entrance.x**2 + block.entrance.y**2)
             cost_to_exit = math.sqrt(block.exit.x**2 + block.exit.y**2)
 
@@ -878,7 +879,7 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
         unvisited = set(range(len(blocks))) - {state.block_id for state in tour}
 
         while unvisited:
-            best_insertion: tuple[int, BlockTraverseState, float] | None = None
+            best_insertion: Optional[tuple[int, BlockTraverseState, float]] = None
             best_block_idx = -1
 
             for block_idx in unvisited:
@@ -909,8 +910,8 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
         )
 
     def _find_closest_pair(
-        self, blocks: list[MacroBlock]
-    ) -> tuple[tuple[float, float], int, bool, tuple[float, float], int, bool]:
+        self, blocks: List[MacroBlock]
+    ) -> Tuple[tuple[float, float], int, bool, tuple[float, float], int, bool]:
         """Find the pair of endpoints with minimum distance between them.
 
         Args:
@@ -920,7 +921,9 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
             Tuple of (endpoint1, block1_idx, is1_exit, endpoint2, block2_idx, is2_exit).
         """
         min_dist = float("inf")
-        result: tuple[tuple[float, float], int, bool, tuple[float, float], int, bool] | None = None
+        result: Optional[Tuple[Tuple[float, float], int, bool, tuple[float, float], int, bool]] = (
+            None
+        )
 
         for i, block in enumerate(blocks):
             endpoints = [
@@ -957,9 +960,9 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
 
     def _build_tour_with_seed(
         self,
-        blocks: list[MacroBlock],
-        seed_pair: tuple[tuple[float, float], int, bool, tuple[float, float], int, bool],
-    ) -> list[BlockTraverseState]:
+        blocks: List[MacroBlock],
+        seed_pair: Tuple[Tuple[float, float], int, bool, tuple[float, float], int, bool],
+    ) -> List[BlockTraverseState]:
         """Build initial tour from a seed pair of connected endpoints.
 
         Args:
@@ -975,7 +978,7 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
             (seed_pair[3], seed_pair[4], seed_pair[5]),
         )
 
-        tour: list[BlockTraverseState] = []
+        tour: List[BlockTraverseState] = []
 
         # state1.exit must equal endpoint1 so that the connection from state1 to
         # state2 is exactly the closest pair. Therefore state1 is reversed only
@@ -1020,9 +1023,9 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
 
     def _build_initial_tour_from_start(
         self,
-        blocks: list[MacroBlock],
-        start_pos: tuple[float, float],
-    ) -> list[BlockTraverseState]:
+        blocks: List[MacroBlock],
+        start_pos: Tuple[float, float],
+    ) -> List[BlockTraverseState]:
         """Build initial tour starting from a specific position.
 
         Finds the closest endpoint to start_pos and uses it as first block.
@@ -1126,7 +1129,7 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
         self,
         block: MacroBlock,
         reversed: bool,
-    ) -> tuple[tuple[float, float], tuple[float, float]]:
+    ) -> Tuple[tuple[float, float], tuple[float, float]]:
         """Get entrance and exit coordinates for a block considering reversal.
 
         Args:
@@ -1150,10 +1153,10 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
     def _calculate_insertion_cost(
         self,
         block: MacroBlock,
-        tour: list[BlockTraverseState],
+        tour: List[BlockTraverseState],
         insert_position: int,
-        blocks: list[MacroBlock],
-    ) -> tuple[float, bool]:
+        blocks: List[MacroBlock],
+    ) -> Tuple[float, bool]:
         """Calculate cost of inserting a block at a specific position in the tour.
 
         Semantics: ``insert_position`` is the index in the tour after which the
@@ -1195,7 +1198,7 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
         # (successor, if any).
         prev_exit = tour[insert_position].exit
 
-        next_entrance: tuple[float, float] | None
+        next_entrance: Optional[tuple[float, float]]
         if insert_position + 1 < len(tour):
             next_entrance = tour[insert_position + 1].entrance
         else:
@@ -1228,9 +1231,9 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
     def _find_best_insertion_position(
         self,
         block: MacroBlock,
-        tour: list[BlockTraverseState],
-        blocks: list[MacroBlock],
-    ) -> tuple[int, BlockTraverseState, float]:
+        tour: List[BlockTraverseState],
+        blocks: List[MacroBlock],
+    ) -> Tuple[int, BlockTraverseState, float]:
         """Find the best position to insert a block in the current tour.
 
         Evaluates all possible insertion positions and both orientations
@@ -1248,7 +1251,7 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
             Tuple of (best_position, new_block_state, minimum_cost).
         """
         best_pos = -1
-        best_state: BlockTraverseState | None = None
+        best_state: Optional[BlockTraverseState] = None
         best_cost = float("inf")
 
         num_positions = len(tour)
@@ -1317,8 +1320,8 @@ class ChristofidesStrategy(OptimizationStrategy):
     def __init__(self) -> None:
         """Initialize the Christofides-Serdyukov strategy."""
         super().__init__()
-        self._start_point: tuple[float, float] | None = None
-        self._end_point: tuple[float, float] | None = None
+        self._start_point: Optional[tuple[float, float]] = None
+        self._end_point: Optional[tuple[float, float]] = None
 
     @property
     def name(self) -> str:
@@ -1327,9 +1330,9 @@ class ChristofidesStrategy(OptimizationStrategy):
 
     def optimize(  # type: ignore[override]
         self,
-        blocks: list[MacroBlock],
-        start_point: tuple[float, float],
-        end_point: tuple[float, float],
+        blocks: List[MacroBlock],
+        start_point: Tuple[float, float],
+        end_point: Tuple[float, float],
     ) -> OptimizationResult:
         """Optimize using Christofides-Serdyukov algorithm for S-T Path.
 
@@ -1372,7 +1375,7 @@ class ChristofidesStrategy(OptimizationStrategy):
             blocks, origin=(0.0, 0.0), n_candidates=self.DEFAULT_M_CANDIDATES
         )
 
-        best_result: OptimizationResult | None = None
+        best_result: Optional[OptimizationResult] = None
 
         # Try combinations of start and end endpoint candidates
         for start_entry, start_block_idx, start_is_exit, _ in start_candidates:
@@ -1405,9 +1408,9 @@ class ChristofidesStrategy(OptimizationStrategy):
 
     def _optimize_with_terminals(
         self,
-        blocks: list[MacroBlock],
-        actual_start_point: tuple[float, float],
-        actual_end_point: tuple[float, float],
+        blocks: List[MacroBlock],
+        actual_start_point: Tuple[float, float],
+        actual_end_point: Tuple[float, float],
     ) -> OptimizationResult:
         """Optimize with specific start and end terminal points.
 
@@ -1461,9 +1464,9 @@ class ChristofidesStrategy(OptimizationStrategy):
 
     def _optimize_single_block(
         self,
-        blocks: list[MacroBlock],
-        start_point: tuple[float, float],
-        end_point: tuple[float, float],
+        blocks: List[MacroBlock],
+        start_point: Tuple[float, float],
+        end_point: Tuple[float, float],
     ) -> OptimizationResult:
         """Optimize case with single block for S-T path.
 
@@ -1481,7 +1484,7 @@ class ChristofidesStrategy(OptimizationStrategy):
         # We need to go from start_point to some entry of the block,
         # traverse it, then go to end_point
 
-        candidates: list[tuple[float, bool]] = []  # (cost, reversed)
+        candidates: List[Tuple[float, bool]] = []  # (cost, reversed)
 
         for entrance_is_exit in [False, True]:
             if entrance_is_exit:
@@ -1530,9 +1533,9 @@ class ChristofidesStrategy(OptimizationStrategy):
 
     def _optimize_two_blocks(
         self,
-        blocks: list[MacroBlock],
-        start_point: tuple[float, float],
-        end_point: tuple[float, float],
+        blocks: List[MacroBlock],
+        start_point: Tuple[float, float],
+        end_point: Tuple[float, float],
     ) -> OptimizationResult:
         """Optimize case with two blocks for S-T path.
 
@@ -1544,7 +1547,7 @@ class ChristofidesStrategy(OptimizationStrategy):
         Returns:
             OptimizationResult for two blocks from start_point to end_point.
         """
-        best_tour: list[BlockTraverseState] | None = None
+        best_tour: Optional[list[BlockTraverseState]] = None
         best_distance = float("inf")
 
         # Try all orderings and orientations of the two blocks
@@ -1576,12 +1579,12 @@ class ChristofidesStrategy(OptimizationStrategy):
 
     def _try_two_block_configuration(
         self,
-        blocks: list[MacroBlock],
+        blocks: List[MacroBlock],
         first_idx: int,
         first_rev: bool,
         second_idx: int,
         second_rev: bool,
-    ) -> list[BlockTraverseState]:
+    ) -> List[BlockTraverseState]:
         """Try a specific configuration for two blocks.
 
         Args:
@@ -1594,7 +1597,7 @@ class ChristofidesStrategy(OptimizationStrategy):
         Returns:
             List of BlockTraverseState for this configuration.
         """
-        tour: list[BlockTraverseState] = []
+        tour: List[BlockTraverseState] = []
 
         first_block = blocks[first_idx]
         if first_rev:
@@ -1640,10 +1643,10 @@ class ChristofidesStrategy(OptimizationStrategy):
 
     def _calculate_st_path_distance(
         self,
-        tour: list[BlockTraverseState],
-        blocks: list[MacroBlock],
-        start_point: tuple[float, float],
-        end_point: tuple[float, float],
+        tour: List[BlockTraverseState],
+        blocks: List[MacroBlock],
+        start_point: Tuple[float, float],
+        end_point: Tuple[float, float],
     ) -> float:
         """Calculate total S-T path distance for a tour.
 
@@ -1686,10 +1689,10 @@ class ChristofidesStrategy(OptimizationStrategy):
 
     def _create_vertices(
         self,
-        blocks: list[MacroBlock],
-        start_point: tuple[float, float],
-        end_point: tuple[float, float],
-    ) -> dict[int, tuple[float, float, int, bool]]:
+        blocks: List[MacroBlock],
+        start_point: Tuple[float, float],
+        end_point: Tuple[float, float],
+    ) -> Dict[int, tuple[float, float, int, bool]]:
         """Create vertex mapping from block endpoints plus S and T terminals.
 
         Args:
@@ -1701,7 +1704,7 @@ class ChristofidesStrategy(OptimizationStrategy):
             Dictionary mapping vertex_id to (x, y, block_index, is_exit).
             Special IDs: START_VERTEX_ID (-1) for S, END_VERTEX_ID (-2) for T.
         """
-        vertices: dict[int, tuple[float, float, int, bool]] = {}
+        vertices: Dict[int, tuple[float, float, int, bool]] = {}
 
         # Add start and end terminals with special IDs
         vertices[self.START_VERTEX_ID] = (start_point[0], start_point[1], -1, False)
@@ -1719,10 +1722,10 @@ class ChristofidesStrategy(OptimizationStrategy):
 
     def _find_nearest_endpoints(
         self,
-        blocks: list[MacroBlock],
-        origin: tuple[float, float] = (0.0, 0.0),
+        blocks: List[MacroBlock],
+        origin: Tuple[float, float] = (0.0, 0.0),
         n_candidates: int = 5,
-    ) -> list[tuple[tuple[float, float], int, bool, float]]:
+    ) -> List[tuple[tuple[float, float], int, bool, float]]:
         """Find the N block endpoints nearest to a reference point.
 
         This ensures the optimization evaluates multiple starting/ending candidates
@@ -1740,7 +1743,7 @@ class ChristofidesStrategy(OptimizationStrategy):
             - is_exit: True if endpoint is block's exit (needs reversal)
             - distance: Euclidean distance from origin
         """
-        candidates: list[tuple[float, tuple[tuple[float, float], int, bool]]] = []
+        candidates: List[Tuple[float, tuple[tuple[float, float], int, bool]]] = []
 
         for i, block in enumerate(blocks):
             dist_entrance = math.sqrt(
@@ -1758,10 +1761,10 @@ class ChristofidesStrategy(OptimizationStrategy):
 
     def _find_farthest_origin_endpoints(
         self,
-        blocks: list[MacroBlock],
-        origin: tuple[float, float] = (0.0, 0.0),
+        blocks: List[MacroBlock],
+        origin: Tuple[float, float] = (0.0, 0.0),
         n_candidates: int = 5,
-    ) -> list[tuple[tuple[float, float], int, bool, float]]:
+    ) -> List[tuple[tuple[float, float], int, bool, float]]:
         """Find the N block endpoints farthest from a reference point.
 
         This is used for finding candidate ending points that are far from
@@ -1779,7 +1782,7 @@ class ChristofidesStrategy(OptimizationStrategy):
             - is_exit: True if endpoint is block's exit (needs reversal)
             - distance: Euclidean distance from origin
         """
-        candidates: list[tuple[float, tuple[tuple[float, float], int, bool]]] = []
+        candidates: List[Tuple[float, tuple[tuple[float, float], int, bool]]] = []
 
         for i, block in enumerate(blocks):
             dist_entrance = math.sqrt(
@@ -1798,9 +1801,9 @@ class ChristofidesStrategy(OptimizationStrategy):
 
     def _build_mst_prim(
         self,
-        vertices: dict[int, tuple[float, float, int, bool]],
+        vertices: Dict[int, tuple[float, float, int, bool]],
         start_vertex: int,
-    ) -> list[tuple[int, int]]:
+    ) -> List[tuple[int, int]]:
         """Build Minimum Spanning Tree using Prim's algorithm.
 
         Args:
@@ -1814,8 +1817,8 @@ class ChristofidesStrategy(OptimizationStrategy):
             return []
 
         in_mst = {start_vertex}
-        mst_edges: list[tuple[int, int]] = []
-        heap: list[tuple[float, int, int]] = []
+        mst_edges: List[Tuple[int, int]] = []
+        heap: List[Tuple[float, int, int]] = []
 
         for vid in vertices:
             if vid != start_vertex:
@@ -1844,8 +1847,8 @@ class ChristofidesStrategy(OptimizationStrategy):
 
     def _vertex_distance(
         self,
-        v1: tuple[float, float, int, bool],
-        v2: tuple[float, float, int, bool],
+        v1: Tuple[float, float, int, bool],
+        v2: Tuple[float, float, int, bool],
     ) -> float:
         """Calculate Euclidean distance between two vertices.
 
@@ -1860,11 +1863,11 @@ class ChristofidesStrategy(OptimizationStrategy):
 
     def _find_wrong_parity_vertices(
         self,
-        mst_edges: list[tuple[int, int]],
-        vertices: dict[int, tuple[float, float, int, bool]],
+        mst_edges: List[Tuple[int, int]],
+        vertices: Dict[int, tuple[float, float, int, bool]],
         start_vertex: int,
         end_vertex: int,
-    ) -> list[int]:
+    ) -> List[int]:
         """Find vertices with "wrong" parity for S-T Path TSP.
 
         For standard block endpoints: add to set O if MST degree is odd.
@@ -1884,13 +1887,13 @@ class ChristofidesStrategy(OptimizationStrategy):
         Returns:
             List of vertex IDs that need to be matched ("wrong parity" set O).
         """
-        degree: dict[int, int] = dict.fromkeys(vertices, 0)
+        degree: Dict[int, int] = dict.fromkeys(vertices, 0)
 
         for u, v in mst_edges:
             degree[u] += 1
             degree[v] += 1
 
-        wrong_parity: list[int] = []
+        wrong_parity: List[int] = []
 
         for vid, deg in degree.items():
             if vid == start_vertex or vid == end_vertex:
@@ -1906,9 +1909,9 @@ class ChristofidesStrategy(OptimizationStrategy):
 
     def _greedy_perfect_matching(
         self,
-        odd_vertices: list[int],
-        vertices: dict[int, tuple[float, float, int, bool]],
-    ) -> list[tuple[int, int]]:
+        odd_vertices: List[int],
+        vertices: Dict[int, tuple[float, float, int, bool]],
+    ) -> List[tuple[int, int]]:
         """Compute minimum-weight perfect matching on "wrong parity" vertices.
 
         Uses a simplified greedy approach: iteratively pair the closest
@@ -1926,7 +1929,7 @@ class ChristofidesStrategy(OptimizationStrategy):
             return []
 
         remaining = set(odd_vertices)
-        matching_edges: list[tuple[int, int]] = []
+        matching_edges: List[Tuple[int, int]] = []
 
         while remaining:
             u = next(iter(remaining))
@@ -1949,10 +1952,10 @@ class ChristofidesStrategy(OptimizationStrategy):
 
     def _build_eulerian_path(
         self,
-        edges: list[tuple[int, int]],
+        edges: List[Tuple[int, int]],
         start_vertex: int,
-        vertices: dict[int, tuple[float, float, int, bool]],
-    ) -> list[int]:
+        vertices: Dict[int, tuple[float, float, int, bool]],
+    ) -> List[int]:
         """Build Eulerian path from S to T using Hierholzer's algorithm.
 
         Because of the parity adjustment in Hoogeveen's method, the multigraph
@@ -1970,8 +1973,8 @@ class ChristofidesStrategy(OptimizationStrategy):
         if not edges:
             return [start_vertex]
 
-        adjacency: dict[int, list[int]] = {vid: [] for vid in vertices}
-        edge_count: dict[tuple[int, int], int] = {}
+        adjacency: Dict[int, list[int]] = {vid: [] for vid in vertices}
+        edge_count: Dict[tuple[int, int], int] = {}
 
         for u, v in edges:
             adjacency[u].append(v)
@@ -1979,8 +1982,8 @@ class ChristofidesStrategy(OptimizationStrategy):
             edge_count[(u, v)] = edge_count.get((u, v), 0) + 1
             edge_count[(v, u)] = edge_count.get((v, u), 0) + 1
 
-        stack: list[int] = [start_vertex]
-        path: list[int] = []
+        stack: List[int] = [start_vertex]
+        path: List[int] = []
 
         while stack:
             current = stack[-1]
@@ -2002,10 +2005,10 @@ class ChristofidesStrategy(OptimizationStrategy):
 
     def _euler_to_hamiltonian_shortcut_st_path(
         self,
-        eulerian_path: list[int],
-        blocks: list[MacroBlock],
-        end_point: tuple[float, float],
-    ) -> list[tuple[int, bool]]:
+        eulerian_path: List[int],
+        blocks: List[MacroBlock],
+        end_point: Tuple[float, float],
+    ) -> List[tuple[int, bool]]:
         """Convert Eulerian path to Hamiltonian S-T path by skipping visited nodes.
 
         When traversing the Eulerian path from S to T, we skip vertices that belong
@@ -2022,8 +2025,8 @@ class ChristofidesStrategy(OptimizationStrategy):
             List of (block_idx, reversed) tuples representing the Hamiltonian S-T path.
         """
         visited_blocks = set()
-        hamiltonian: list[tuple[int, bool]] = []
-        prev_vertex: int | None = None
+        hamiltonian: List[Tuple[int, bool]] = []
+        prev_vertex: Optional[int] = None
 
         # The Eulerian path starts with S and ends with T
         num_vertices = len(eulerian_path)
@@ -2050,7 +2053,7 @@ class ChristofidesStrategy(OptimizationStrategy):
             else:
                 _, _, prev_block_idx, _ = self._get_vertex_info_st(prev_vertex, blocks)
 
-                entry_at_prev: tuple[float, float]
+                entry_at_prev: Tuple[float, float]
                 if prev_block_idx == block_idx:  # pragma: no cover
                     # Same block (shouldn't happen in shortcutting normally)
                     continue
@@ -2083,7 +2086,7 @@ class ChristofidesStrategy(OptimizationStrategy):
     def _determine_reversal_for_first_block(
         self,
         first_vid: int,
-        blocks: list[MacroBlock],
+        blocks: List[MacroBlock],
     ) -> bool:
         """Determine whether to reverse the first block based on entry from S.
 
@@ -2110,8 +2113,8 @@ class ChristofidesStrategy(OptimizationStrategy):
     def _get_vertex_info_st(
         self,
         vid: int,
-        blocks: list[MacroBlock],
-    ) -> tuple[float, float, int, bool]:
+        blocks: List[MacroBlock],
+    ) -> Tuple[float, float, int, bool]:
         """Get vertex information from a vertex ID including S and T terminals.
 
         Args:
@@ -2146,7 +2149,7 @@ class ChristofidesStrategy(OptimizationStrategy):
         else:
             return (block.entrance.x, block.entrance.y, block_idx, False)
 
-    def _get_start_coords(self) -> tuple[float, float]:
+    def _get_start_coords(self) -> Tuple[float, float]:
         """Get the coordinates of the start terminal.
 
         Returns:
@@ -2156,7 +2159,7 @@ class ChristofidesStrategy(OptimizationStrategy):
             return self._start_point
         return (0.0, 0.0)
 
-    def _get_end_coords(self) -> tuple[float, float]:
+    def _get_end_coords(self) -> Tuple[float, float]:
         """Get the coordinates of the end terminal.
 
         Returns:
@@ -2169,8 +2172,8 @@ class ChristofidesStrategy(OptimizationStrategy):
     def _get_vertex_coords(
         self,
         vid: int,
-        blocks: list[MacroBlock],
-    ) -> tuple[float, float]:
+        blocks: List[MacroBlock],
+    ) -> Tuple[float, float]:
         """Get coordinates of a vertex.
 
         Args:
@@ -2185,11 +2188,11 @@ class ChristofidesStrategy(OptimizationStrategy):
 
     def _create_traverse_order_st_path(
         self,
-        hamiltonian_sequence: list[tuple[int, bool]],
-        blocks: list[MacroBlock],
-        start_point: tuple[float, float],
-        end_point: tuple[float, float],
-    ) -> list[BlockTraverseState]:
+        hamiltonian_sequence: List[Tuple[int, bool]],
+        blocks: List[MacroBlock],
+        start_point: Tuple[float, float],
+        end_point: Tuple[float, float],
+    ) -> List[BlockTraverseState]:
         """Create BlockTraverseState list from Hamiltonian S-T path sequence.
 
         Args:
@@ -2222,7 +2225,7 @@ class ChristofidesStrategy(OptimizationStrategy):
         else:
             actual_first_reversed = True
 
-        tour: list[BlockTraverseState] = []
+        tour: List[BlockTraverseState] = []
 
         for block_idx, _sequence_reversed in hamiltonian_sequence:
             block = blocks[block_idx]
@@ -2338,8 +2341,8 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
 
     def optimize(
         self,
-        blocks: list[MacroBlock],
-        initial_position: tuple[float, float] | None = None,
+        blocks: List[MacroBlock],
+        initial_position: Optional[tuple[float, float]] = None,
     ) -> OptimizationResult:
         """Optimize using Simulated Annealing algorithm.
 
@@ -2365,8 +2368,8 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
                 initial_position=None,
             )
 
-        start_pos: tuple[float, float]
-        candidates: list[tuple[tuple[float, float], int, bool, float]]
+        start_pos: Tuple[float, float]
+        candidates: List[Tuple[tuple[float, float], int, bool, float]]
 
         if initial_position is not None:
             start_pos = initial_position
@@ -2378,7 +2381,7 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
             )
             self._logger.debug(f"Evaluating {len(candidates)} starting candidates")
 
-        best_result: OptimizationResult | None = None
+        best_result: Optional[OptimizationResult] = None
 
         for start_pos, _first_block_idx, _start_at_exit, _dist in candidates:
             candidate_result = self._optimize_from_start(blocks, start_pos)
@@ -2396,8 +2399,8 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
 
     def _optimize_from_start(
         self,
-        blocks: list[MacroBlock],
-        start_pos: tuple[float, float],
+        blocks: List[MacroBlock],
+        start_pos: Tuple[float, float],
     ) -> OptimizationResult:
         """Optimize starting from a specific position.
 
@@ -2460,9 +2463,9 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
 
     def _generate_initial_tour(
         self,
-        blocks: list[MacroBlock],
-        start_pos: tuple[float, float],
-    ) -> list[BlockTraverseState]:
+        blocks: List[MacroBlock],
+        start_pos: Tuple[float, float],
+    ) -> List[BlockTraverseState]:
         """Build initial tour using nearest neighbor heuristic.
 
         This provides a reasonable starting point for the SA algorithm.
@@ -2475,7 +2478,7 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
             Initial traverse order from greedy construction.
         """
         unvisited = set(range(len(blocks)))
-        tour: list[BlockTraverseState] = []
+        tour: List[BlockTraverseState] = []
         current_pos = start_pos
 
         while unvisited:
@@ -2521,8 +2524,8 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
 
     def _calculate_tour_distance(
         self,
-        tour: list[BlockTraverseState],
-        blocks: list[MacroBlock],
+        tour: List[BlockTraverseState],
+        blocks: List[MacroBlock],
     ) -> float:
         """Calculate total travel distance of a tour.
 
@@ -2549,7 +2552,7 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
 
         return total_distance
 
-    def _generate_neighbor(self, tour: list[BlockTraverseState]) -> list[BlockTraverseState]:
+    def _generate_neighbor(self, tour: List[BlockTraverseState]) -> List[BlockTraverseState]:
         """Generate a neighboring solution via segment reversal or block swap.
 
         With 70% probability: random segment reversal (2-opt style)
@@ -2602,8 +2605,8 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
 
     def _optimize_single_block(
         self,
-        blocks: list[MacroBlock],
-        start_pos: tuple[float, float],
+        blocks: List[MacroBlock],
+        start_pos: Tuple[float, float],
     ) -> OptimizationResult:
         """Optimize case with single block.
 
@@ -2650,9 +2653,9 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
 
     def _find_nearest_origin_endpoint(
         self,
-        blocks: list[MacroBlock],
-        origin: tuple[float, float] = (0.0, 0.0),
-    ) -> tuple[tuple[float, float], int, bool]:
+        blocks: List[MacroBlock],
+        origin: Tuple[float, float] = (0.0, 0.0),
+    ) -> Tuple[tuple[float, float], int, bool]:
         """Find the block endpoint nearest to the origin.
 
         Args:
@@ -2666,7 +2669,7 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
             - is_exit: True if nearest position is block's exit (needs reversal)
         """
         min_dist = float("inf")
-        best_pos: tuple[float, float] = (0.0, 0.0)
+        best_pos: Tuple[float, float] = (0.0, 0.0)
         best_idx = 0
         best_is_exit = False
 
@@ -2691,10 +2694,10 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
 
     def _find_nearest_origin_endpoints(
         self,
-        blocks: list[MacroBlock],
-        origin: tuple[float, float] = (0.0, 0.0),
+        blocks: List[MacroBlock],
+        origin: Tuple[float, float] = (0.0, 0.0),
         n_candidates: int = 5,
-    ) -> list[tuple[tuple[float, float], int, bool, float]]:
+    ) -> List[tuple[tuple[float, float], int, bool, float]]:
         """Find the N block endpoints nearest to the origin.
 
         This ensures the optimization evaluates multiple starting candidates
@@ -2712,7 +2715,7 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
             - is_exit: True if endpoint is block's exit (needs reversal)
             - distance: Euclidean distance from origin
         """
-        candidates: list[tuple[float, tuple[tuple[float, float], int, bool]]] = []
+        candidates: List[Tuple[float, tuple[tuple[float, float], int, bool]]] = []
 
         for i, block in enumerate(blocks):
             dist_entrance = math.sqrt(
@@ -2730,10 +2733,10 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
 
     def _find_farthest_origin_endpoints(
         self,
-        blocks: list[MacroBlock],
-        origin: tuple[float, float] = (0.0, 0.0),
+        blocks: List[MacroBlock],
+        origin: Tuple[float, float] = (0.0, 0.0),
         n_candidates: int = 5,
-    ) -> list[tuple[tuple[float, float], int, bool, float]]:
+    ) -> List[tuple[tuple[float, float], int, bool, float]]:
         """Find the N block endpoints farthest from the origin.
 
         This is used to evaluate candidate ending points for optimization,
@@ -2751,7 +2754,7 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
             - is_exit: True if endpoint is block's exit (needs reversal)
             - distance: Euclidean distance from origin
         """
-        candidates: list[tuple[float, tuple[tuple[float, float], int, bool]]] = []
+        candidates: List[Tuple[float, tuple[tuple[float, float], int, bool]]] = []
 
         for i, block in enumerate(blocks):
             dist_entrance = math.sqrt(
@@ -2829,8 +2832,8 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
     def optimize(
         self,
-        blocks: list[MacroBlock],
-        initial_position: tuple[float, float] | None = None,
+        blocks: List[MacroBlock],
+        initial_position: Optional[tuple[float, float]] = None,
     ) -> OptimizationResult:
         """Optimize using Genetic Algorithm.
 
@@ -2856,8 +2859,8 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
                 initial_position=None,
             )
 
-        start_pos: tuple[float, float]
-        candidates: list[tuple[tuple[float, float], int, bool, float]]
+        start_pos: Tuple[float, float]
+        candidates: List[Tuple[tuple[float, float], int, bool, float]]
 
         if initial_position is not None:
             start_pos = initial_position
@@ -2869,7 +2872,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
             )
             self._logger.debug(f"Evaluating {len(candidates)} starting candidates")
 
-        best_result: OptimizationResult | None = None
+        best_result: Optional[OptimizationResult] = None
 
         for start_pos, _first_block_idx, _start_at_exit, _dist in candidates:
             candidate_result = self._optimize_from_start(blocks, start_pos)
@@ -2887,8 +2890,8 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
     def _optimize_from_start(
         self,
-        blocks: list[MacroBlock],
-        start_pos: tuple[float, float],
+        blocks: List[MacroBlock],
+        start_pos: Tuple[float, float],
     ) -> OptimizationResult:
         """Optimize starting from a specific position.
 
@@ -2915,7 +2918,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
         population = self._initialize_population(blocks, start_pos)
 
-        best_chromosome: list[int] | None = None
+        best_chromosome: Optional[list[int]] = None
         best_fitness = float("inf")
 
         for _generation in range(self._generations):
@@ -2929,7 +2932,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
                 best_fitness = fitness_scores[0][1]
                 best_chromosome = list(fitness_scores[0][0])
 
-            new_population: list[list[int]] = []
+            new_population: List[list[int]] = []
 
             for _ in range(self._elitism_count):
                 if fitness_scores:
@@ -2974,9 +2977,9 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
     def _initialize_population(
         self,
-        blocks: list[MacroBlock],
-        start_pos: tuple[float, float],
-    ) -> list[list[int]]:
+        blocks: List[MacroBlock],
+        start_pos: Tuple[float, float],
+    ) -> List[list[int]]:
         """Create random population of tours with direction assignments.
 
         Each chromosome is a list of integers where:
@@ -2992,7 +2995,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         """
         import random
 
-        population: list[list[int]] = []
+        population: List[list[int]] = []
 
         greedy_tour = self._greedy_initial_tour(blocks, start_pos)
         initial_chromosome = self._tour_to_chromosome(greedy_tour)
@@ -3002,7 +3005,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
             block_indices = list(range(len(blocks)))
             random.shuffle(block_indices)
 
-            chromosome: list[int] = []
+            chromosome: List[int] = []
             current_pos = start_pos
 
             for block_idx in block_indices:
@@ -3029,10 +3032,10 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
     def _find_nearest_origin_endpoints(
         self,
-        blocks: list[MacroBlock],
-        origin: tuple[float, float] = (0.0, 0.0),
+        blocks: List[MacroBlock],
+        origin: Tuple[float, float] = (0.0, 0.0),
         n_candidates: int = 5,
-    ) -> list[tuple[tuple[float, float], int, bool, float]]:
+    ) -> List[tuple[tuple[float, float], int, bool, float]]:
         """Find the N block endpoints nearest to the origin.
 
         This ensures the optimization evaluates multiple starting candidates
@@ -3050,7 +3053,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
             - is_exit: True if endpoint is block's exit (needs reversal)
             - distance: Euclidean distance from origin
         """
-        candidates: list[tuple[float, tuple[tuple[float, float], int, bool]]] = []
+        candidates: List[Tuple[float, tuple[tuple[float, float], int, bool]]] = []
 
         for i, block in enumerate(blocks):
             dist_entrance = math.sqrt(
@@ -3068,10 +3071,10 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
     def _find_farthest_origin_endpoints(
         self,
-        blocks: list[MacroBlock],
-        origin: tuple[float, float] = (0.0, 0.0),
+        blocks: List[MacroBlock],
+        origin: Tuple[float, float] = (0.0, 0.0),
         n_candidates: int = 5,
-    ) -> list[tuple[tuple[float, float], int, bool, float]]:
+    ) -> List[tuple[tuple[float, float], int, bool, float]]:
         """Find the N block endpoints farthest from the origin.
 
         This is used to evaluate candidate ending points for optimization,
@@ -3089,7 +3092,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
             - is_exit: True if endpoint is block's exit (needs reversal)
             - distance: Euclidean distance from origin
         """
-        candidates: list[tuple[float, tuple[tuple[float, float], int, bool]]] = []
+        candidates: List[Tuple[float, tuple[tuple[float, float], int, bool]]] = []
 
         for i, block in enumerate(blocks):
             dist_entrance = math.sqrt(
@@ -3108,9 +3111,9 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
     def _calculate_fitness(
         self,
-        chromosome: list[int],
-        blocks: list[MacroBlock],
-        start_pos: tuple[float, float],
+        chromosome: List[int],
+        blocks: List[MacroBlock],
+        start_pos: Tuple[float, float],
     ) -> float:
         """Calculate total distance for a tour encoded in chromosome.
 
@@ -3128,7 +3131,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
             return 0.0
 
         total_distance = 0.0
-        current_pos: tuple[float, float] = start_pos
+        current_pos: Tuple[float, float] = start_pos
 
         for _i, gene in enumerate(chromosome):
             block_idx, reversed_flag = self._decode_gene(gene)
@@ -3150,10 +3153,10 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
     def _tournament_selection(
         self,
-        population: list[list[int]],
-        blocks: list[MacroBlock],
-        start_pos: tuple[float, float],
-    ) -> list[int]:
+        population: List[list[int]],
+        blocks: List[MacroBlock],
+        start_pos: Tuple[float, float],
+    ) -> List[int]:
         """Select parent using tournament selection.
 
         Randomly selects tournament_size individuals and returns the fittest.
@@ -3186,7 +3189,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
         return list(population[best_idx])
 
-    def _order_crossover(self, parent1: list[int], parent2: list[int]) -> list[int]:
+    def _order_crossover(self, parent1: List[int], parent2: List[int]) -> List[int]:
         """Order crossover (OX) between two parents.
 
         OX preserves relative order of genes from one parent in a segment,
@@ -3209,13 +3212,13 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         end = random.randint(start + 1, n)
 
         # Collect all block indices in the segment from parent1
-        segment_set: set[int] = set()
+        segment_set: Set[int] = set()
         for i in range(start, end):
             gene = parent1[i]
             block_idx, _ = self._decode_gene(gene)
             segment_set.add(block_idx)
 
-        offspring: list[int] = []
+        offspring: List[int] = []
         parent2_pos = 0
 
         for i in range(n):
@@ -3247,7 +3250,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
         return offspring[:n]
 
-    def _mutate(self, chromosome: list[int]) -> list[int]:
+    def _mutate(self, chromosome: List[int]) -> List[int]:
         """Apply mutation operators to offspring.
 
         With probability mutation_rate:
@@ -3283,10 +3286,10 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
     def _create_tour_from_chromosome(
         self,
-        chromosome: list[int],
-        blocks: list[MacroBlock],
-        start_pos: tuple[float, float],
-    ) -> list[BlockTraverseState]:
+        chromosome: List[int],
+        blocks: List[MacroBlock],
+        start_pos: Tuple[float, float],
+    ) -> List[BlockTraverseState]:
         """Convert chromosome (block order + directions) to BlockTraverseState list.
 
         Args:
@@ -3300,7 +3303,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         if not chromosome:
             return []
 
-        tour: list[BlockTraverseState] = []
+        tour: List[BlockTraverseState] = []
         seen_blocks = set()
 
         for gene in chromosome:
@@ -3333,9 +3336,9 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
     def _greedy_initial_tour(
         self,
-        blocks: list[MacroBlock],
-        start_pos: tuple[float, float],
-    ) -> list[BlockTraverseState]:
+        blocks: List[MacroBlock],
+        start_pos: Tuple[float, float],
+    ) -> List[BlockTraverseState]:
         """Build initial tour using nearest neighbor heuristic.
 
         Args:
@@ -3346,7 +3349,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
             Initial traverse order from greedy construction.
         """
         unvisited = set(range(len(blocks)))
-        tour: list[BlockTraverseState] = []
+        tour: List[BlockTraverseState] = []
         current_pos = start_pos
 
         while unvisited:
@@ -3392,10 +3395,10 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
     def _optimize_tour_directions(
         self,
-        tour: list[BlockTraverseState],
-        blocks: list[MacroBlock],
-        start_pos: tuple[float, float],
-    ) -> list[BlockTraverseState]:
+        tour: List[BlockTraverseState],
+        blocks: List[MacroBlock],
+        start_pos: Tuple[float, float],
+    ) -> List[BlockTraverseState]:
         """Optimize entry/exit decisions for each block in the tour.
 
         After determining block order, optimize whether each block should be
@@ -3412,7 +3415,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         if not tour:
             return []
 
-        optimized: list[BlockTraverseState] = []
+        optimized: List[BlockTraverseState] = []
 
         for i, state in enumerate(tour):
             block_idx = state.block_id
@@ -3428,7 +3431,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
             block = blocks[original_block_idx]
 
-            prev_exit: tuple[float, float]
+            prev_exit: Tuple[float, float]
             if i == 0:
                 prev_exit = start_pos
             else:
@@ -3464,9 +3467,9 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
     def _two_opt_refinement(
         self,
-        tour: list[BlockTraverseState],
-        blocks: list[MacroBlock],
-    ) -> list[BlockTraverseState]:
+        tour: List[BlockTraverseState],
+        blocks: List[MacroBlock],
+    ) -> List[BlockTraverseState]:
         """Improve tour using 2-opt local search.
 
         The 2-opt algorithm considers every pair of edges and checks if swapping
@@ -3500,8 +3503,8 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
     def _two_opt_swap_improves(
         self,
-        tour: list[BlockTraverseState],
-        blocks: list[MacroBlock],
+        tour: List[BlockTraverseState],
+        blocks: List[MacroBlock],
         i: int,
         j: int,
     ) -> bool:
@@ -3538,7 +3541,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
         return total_new_dist < current_dist
 
-    def _tour_to_chromosome(self, tour: list[BlockTraverseState]) -> list[int]:
+    def _tour_to_chromosome(self, tour: List[BlockTraverseState]) -> List[int]:
         """Convert BlockTraverseState list to chromosome encoding.
 
         Args:
@@ -3547,7 +3550,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         Returns:
             Chromosome with direction bits encoded.
         """
-        chromosome: list[int] = []
+        chromosome: List[int] = []
 
         for state in tour:
             reversed_flag = state.reversed
@@ -3561,7 +3564,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
         return chromosome
 
-    def _decode_gene(self, gene: int) -> tuple[int, bool]:
+    def _decode_gene(self, gene: int) -> Tuple[int, bool]:
         """Decode a single gene to block index and reversal flag.
 
         Args:
@@ -3588,8 +3591,8 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
     def _optimize_single_block(
         self,
-        blocks: list[MacroBlock],
-        start_pos: tuple[float, float],
+        blocks: List[MacroBlock],
+        start_pos: Tuple[float, float],
     ) -> OptimizationResult:
         """Optimize case with single block.
 
@@ -3636,9 +3639,9 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 
     def _find_nearest_origin_endpoint(
         self,
-        blocks: list[MacroBlock],
-        origin: tuple[float, float] = (0.0, 0.0),
-    ) -> tuple[tuple[float, float], int, bool]:
+        blocks: List[MacroBlock],
+        origin: Tuple[float, float] = (0.0, 0.0),
+    ) -> Tuple[tuple[float, float], int, bool]:
         """Find the block endpoint nearest to the origin.
 
         Args:
@@ -3652,7 +3655,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
             - is_exit: True if nearest position is block's exit (needs reversal)
         """
         min_dist = float("inf")
-        best_pos: tuple[float, float] = (0.0, 0.0)
+        best_pos: Tuple[float, float] = (0.0, 0.0)
         best_idx = 0
         best_is_exit = False
 
@@ -3679,7 +3682,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
 class OptimizerEngine:
     def __init__(
         self,
-        strategy: OptimizationStrategy | None = None,
+        strategy: Optional[OptimizationStrategy] = None,
     ) -> None:
         """Initialize the optimizer engine.
 
@@ -3707,9 +3710,9 @@ class OptimizerEngine:
 
     def optimize(
         self,
-        blocks: list[MacroBlock],
-        initial_position: tuple[float, float] | None = None,
-        end_point: tuple[float, float] | None = None,
+        blocks: List[MacroBlock],
+        initial_position: Optional[tuple[float, float]] = None,
+        end_point: Optional[tuple[float, float]] = None,
     ) -> OptimizationResult:
         """Run the active optimization strategy on a list of MacroBlocks.
 
@@ -3772,7 +3775,7 @@ class StrategyBenchmarkResult:
     strategy_name: str
     result: OptimizationResult
     execution_time_seconds: float
-    improvement_percent: float | None = None
+    improvement_percent: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -3791,7 +3794,7 @@ class ParallelEnsembleOptimizationResult:
 
     result: OptimizationResult
     winner_name: str
-    all_benchmarks: tuple[StrategyBenchmarkResult, ...]
+    all_benchmarks: Tuple[StrategyBenchmarkResult, ...]
 
     @property
     def block_count(self) -> int:
@@ -3799,7 +3802,7 @@ class ParallelEnsembleOptimizationResult:
         return self.result.block_count
 
     @property
-    def traverse_order(self) -> tuple[BlockTraverseState, ...]:
+    def traverse_order(self) -> Tuple[BlockTraverseState, ...]:
         """Return the traversal order from the winning result."""
         return self.result.traverse_order
 
@@ -3811,8 +3814,8 @@ class ParallelEnsembleOptimizationResult:
 
 def _run_strategy_worker(
     strategy_name: str,
-    blocks_serialized: tuple[tuple[int, tuple[float, float], tuple[float, float]], ...],
-    initial_position: tuple[float, float] | None,
+    blocks_serialized: Tuple[Tuple[int, tuple[float, float], tuple[float, float]], ...],
+    initial_position: Optional[tuple[float, float]],
 ) -> StrategyBenchmarkResult:
     """Worker function to run a single strategy in a subprocess.
 
@@ -3831,7 +3834,7 @@ def _run_strategy_worker(
     from plt_optimizer.core.models import Coordinate, StrokePath, StrokeSegment
 
     # Reconstruct blocks from serialized form
-    blocks: list[MacroBlock] = []
+    blocks: List[MacroBlock] = []
     for block_data in blocks_serialized:
         block_id, entrance, exit = block_data
         # We need to reconstruct with actual paths - use a minimal representation
@@ -3860,7 +3863,7 @@ def _run_strategy_worker(
         SimulatedAnnealingStrategy,
     )
 
-    strategy_map: dict[str, OptimizationStrategy] = {
+    strategy_map: Dict[str, OptimizationStrategy] = {
         "NoOp (Baseline)": NoOpStrategy(),
         "NearestNeighbor + 2-Opt": NearestNeighbor2OptStrategy(),
         "Insertion Heuristic": InsertionHeuristicStrategy(),
@@ -3902,8 +3905,8 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
 
     def __init__(
         self,
-        baseline_distance: float | None = None,
-        max_workers: int | None = None,
+        baseline_distance: Optional[float] = None,
+        max_workers: Optional[int] = None,
     ) -> None:
         """Initialize the parallel ensemble strategy.
 
@@ -3924,8 +3927,8 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
 
     def optimize(  # type: ignore[override]
         self,
-        blocks: list[MacroBlock],
-        initial_position: tuple[float, float] | None = None,
+        blocks: List[MacroBlock],
+        initial_position: Optional[tuple[float, float]] = None,
     ) -> ParallelEnsembleOptimizationResult:
         """Run all strategies in parallel and select the best result.
 
@@ -3956,7 +3959,7 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
         )
 
         # Serialize blocks for multiprocessing (MacroBlock isn't directly picklable)
-        blocks_serialized: tuple[tuple[int, tuple[float, float], tuple[float, float]], ...] = tuple(
+        blocks_serialized: Tuple[Tuple[int, tuple[float, float], tuple[float, float]], ...] = tuple(
             (
                 block.block_id,
                 (block.entrance.x, block.entrance.y),
@@ -3974,8 +3977,8 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
             "Christofides-Serdyukov S-T Path (5/3 approx)",
         ]
 
-        all_benchmarks: list[StrategyBenchmarkResult] = []
-        best_result: StrategyBenchmarkResult | None = None
+        all_benchmarks: List[StrategyBenchmarkResult] = []
+        best_result: Optional[StrategyBenchmarkResult] = None
         completed_count = 0
 
         with ProcessPoolExecutor(max_workers=self._max_workers) as executor:
@@ -3990,7 +3993,7 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
             }
 
             # Collect results dynamically as they complete (fast strategies first)
-            failed_strategies: list[tuple[str, str]] = []  # Track (name, error_msg) for logging
+            failed_strategies: List[Tuple[str, str]] = []  # Track (name, error_msg) for logging
             for future in as_completed(futures):
                 strategy_name = futures[future]
                 try:

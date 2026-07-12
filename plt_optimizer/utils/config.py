@@ -9,12 +9,12 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict
 
 _IS_WINDOWS = sys.platform == "win32"
 
 # Default configuration values
-DEFAULT_CONFIG: dict[str, Any] = {
+DEFAULT_CONFIG: Dict[str, Any] = {
     "watch_dir": "C:/Vision Machine Tools/InboxRaw" if _IS_WINDOWS else "./inbox",
     "output_dir": "C:/Vision Machine Tools/Inbox" if _IS_WINDOWS else "./optimized",
     "log_dir": "C:/Vision Machine Tools/PLT-Optimizer-Logs" if _IS_WINDOWS else "./logs",
@@ -41,7 +41,7 @@ def get_config_path() -> Path:
     return base_dir / "config.json"
 
 
-def load_config() -> dict[str, Any]:
+def load_config() -> Dict[str, Any]:
     """Load configuration from the JSON file.
 
     Returns:
@@ -68,7 +68,7 @@ def load_config() -> dict[str, Any]:
     return config
 
 
-def save_config(config: dict[str, Any]) -> None:
+def save_config(config: Dict[str, Any]) -> None:
     """Save configuration to the JSON file.
 
     Args:
@@ -88,7 +88,7 @@ def save_config(config: dict[str, Any]) -> None:
         raise OSError(f"Failed to save configuration: {e}") from e
 
 
-def update_config(updates: dict[str, Any]) -> dict[str, Any]:
+def update_config(updates: Dict[str, Any]) -> Dict[str, Any]:
     """Update specific configuration values.
 
     Args:

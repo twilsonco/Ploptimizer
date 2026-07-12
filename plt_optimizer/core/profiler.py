@@ -11,7 +11,7 @@ import math
 import statistics
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from typing import List, Protocol
 
 from plt_optimizer.core.models import (
     ArcSegment,
@@ -177,7 +177,7 @@ class Profiler:
 
         return result
 
-    def _calculate_all_extents(self, document: StrokePathsProtocol) -> list[Extent]:
+    def _calculate_all_extents(self, document: StrokePathsProtocol) -> List[Extent]:
         """Calculate bounding box extents for all cutting strokes.
 
         Args:
@@ -186,7 +186,7 @@ class Profiler:
         Returns:
             List of Extent objects for each cutting segment.
         """
-        extents: list[Extent] = []
+        extents: List[Extent] = []
 
         for path in document.stroke_paths:
             for segment in path.segments:
