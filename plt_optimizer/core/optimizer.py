@@ -3852,6 +3852,7 @@ def _run_strategy_worker(
 
     # Import strategies
     from plt_optimizer.core.optimizer import (
+        ChristofidesStrategy,
         GeneticAlgorithmStrategy,
         InsertionHeuristicStrategy,
         NearestNeighbor2OptStrategy,
@@ -3865,7 +3866,7 @@ def _run_strategy_worker(
         "Insertion Heuristic": InsertionHeuristicStrategy(),
         "Simulated Annealing": SimulatedAnnealingStrategy(),
         "Genetic Algorithm": GeneticAlgorithmStrategy(),
-        # ChristofidesStrategy requires start/end points and is S-T Path specific
+        "Christofides-Serdyukov S-T Path (5/3 approx)": ChristofidesStrategy(),
     }
 
     if strategy_name not in strategy_map:
