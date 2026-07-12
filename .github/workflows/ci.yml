@@ -202,7 +202,7 @@ jobs:
           Write-Host "Python executable: $python_path"
           python --version
       - name: Install uv (ensuring Windows 7 compatibility)
-        run: pip install "uv<0.1.40"
+        run: pip install uv
       - name: Verify uv version
         shell: powershell
         run: |
