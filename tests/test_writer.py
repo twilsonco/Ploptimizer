@@ -138,6 +138,26 @@ class TestPLTWriterFileHandling:
             content = output_path.read_bytes()
             assert content.startswith("\ufeff".encode("utf-8"))
 
+class TestPLTWriterFilenameLength:
+    """Tests for ensuring filename length constraints."""
+
+    def test_ensure_filename_length_shortens_long_filenames(self) -> None:
+        """Test that filenames longer than 39 characters are shortened."""
+        writer = PLTWriter()
+        long_filename = "a" * 50 + ".plt"
+        path = Path("/tmp") / long_filename
+        new_path = writer._ensure_filename_length(path)
+        assert len(new_path.name) <= 39
+        assert new_path.suffix == ".plt"
+
+    def test_ensure_filename_length_keeps_short_filenames(self) -> None:
+        """Test that filenames shorter than 39 characters are unchanged."""
+        writer = PLTWriter()
+        short_filename = "short.plt"
+        path = Path("/tmp") / short_filename
+        new_path = writer._ensure_filename_length(path)
+        assert new_path == path
+
 
 class TestPLTWriterValidation:
     """Tests for output validation."""
