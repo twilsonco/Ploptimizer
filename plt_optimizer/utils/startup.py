@@ -9,6 +9,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
+from typing import Optional
 
 
 def _safe_find_spec(name: str) -> bool:
@@ -49,7 +50,7 @@ _PYWIN32_AVAILABLE: bool = sys.platform == "win32" and _safe_find_spec("win32com
 APP_NAME = "PLT-Optimizer"
 
 
-def get_startup_folder() -> Path | None:
+def get_startup_folder() -> Optional[Path]:
     """Get the Windows Startup folder path.
 
     Returns:
@@ -78,7 +79,7 @@ def get_startup_folder() -> Path | None:
         return fallback
 
 
-def get_executable_path() -> Path | None:
+def get_executable_path() -> Optional[Path]:
     """Get the path to the current executable.
 
     Returns:
@@ -107,9 +108,9 @@ def get_executable_path() -> Path | None:
 
 
 def create_shortcut(
-    target_path: Path | None = None,
+    target_path: Optional[Path] = None,
     shortcut_name: str = APP_NAME,
-) -> Path | None:
+) -> Optional[Path]:
     """Create a Windows shortcut in the Startup folder.
 
     Args:

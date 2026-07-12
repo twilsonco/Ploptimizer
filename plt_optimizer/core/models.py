@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from math import fabs, pi, sqrt
+from typing import Optional, Tuple, Union
 
 
 class PenState(Enum):
@@ -61,7 +62,7 @@ class Coordinate:
         dy = self.y - other.y
         return sqrt(dx * dx + dy * dy)
 
-    def as_tuple(self) -> tuple[float, float]:
+    def as_tuple(self) -> Tuple[float, float]:
         """Return coordinate as a tuple of (x, y)."""
         return (self.x, self.y)
 
@@ -80,8 +81,8 @@ class HeaderCommand:
     """
 
     instruction: str
-    parameters: tuple[float, ...] | None = None
-    parameters_str: str | None = None
+    parameters: Optional[Tuple[float, ...]] = None
+    parameters_str: Optional[str] = None
 
     def __post_init__(self) -> None:
         """Round any floating point parameters to 3 decimal places."""
@@ -116,8 +117,8 @@ class HeaderCommand:
 
         # Split instruction from parameters
         parts = token.split(":", 1)  # Some commands use : as separator
-        params: tuple[float, ...] | None = None
-        params_str: str | None = None
+        params: Optional[Tuple[float, ...]] = None
+        params_str: Optional[str] = None
         if len(parts) == 2:
             instr, param_str = parts
             params = tuple(float(p) for p in param_str.split(","))
@@ -207,7 +208,7 @@ class ArcSegment:
         return self.radius * sweep_radians
 
 
-Segment = StrokeSegment | ArcSegment
+Segment = Union[StrokeSegment, ArcSegment]
 
 
 def _segment_length(seg: Segment) -> float:
@@ -235,8 +236,8 @@ class StrokePath:
         segments: Ordered tuple of stroke segments (line and/or arc).
     """
 
-    pen_up_position: Coordinate | None = None
-    segments: tuple[Segment, ...] = field(default_factory=tuple)
+    pen_up_position: Optional[Coordinate] = None
+    segments: Tuple[Segment, ...] = field(default_factory=tuple)
 
     @property
     def is_empty(self) -> bool:

@@ -20,7 +20,7 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 # Module-level logger
 _logger = logging.getLogger(__name__)
@@ -105,8 +105,8 @@ class TrayIconManager:
 
     def __init__(
         self,
-        watcher_fn: Callable[[dict[str, Any]], None],
-        config_loader: Callable[[], dict[str, Any]],
+        watcher_fn: Callable[[Dict[str, Any]], None],
+        config_loader: Callable[[], Dict[str, Any]],
         get_icon_path: Callable[[], Path],
     ) -> None:
         """Initialize the tray icon manager.
@@ -124,12 +124,12 @@ class TrayIconManager:
 
         # Platform-specific tray handle (pystray.Icon or infi.systray.SysTrayIcon)
         self._systray: Any = None
-        self._watcher_thread: threading.Thread | None = None
+        self._watcher_thread: Optional[threading.Thread] = None
         self._stop_event: threading.Event = threading.Event()
 
         # Callbacks for UI events - set by consumer
-        self.on_settings_requested: Callable[[], None] | None = None
-        self.on_exit_requested: Callable[[], None] | None = None
+        self.on_settings_requested: Optional[Callable[[], None]] = None
+        self.on_exit_requested: Optional[Callable[[], None]] = None
 
     def _load_icon_image(self) -> Image.Image:
         """Load the icon image from file.
@@ -278,9 +278,9 @@ class TrayIconManager:
     def _watcher_loop(
         self,
         stop_event: threading.Event,
-        config: dict[str, Any],
-        on_success: Callable[[str, float], None] | None = None,
-        on_error: Callable[[str, str], None] | None = None,
+        config: Dict[str, Any],
+        on_success: Optional[Callable[[str, float], None]] = None,
+        on_error: Optional[Callable[[str, str], None]] = None,
     ) -> None:
         """Background thread loop for the file watcher.
 

@@ -30,10 +30,9 @@ import sys
 import threading
 import time
 import uuid
-from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Dict, List, Optional
 
 # Third-party imports
 try:
@@ -91,10 +90,10 @@ class PLTFileHandler(FileSystemEventHandler):
         text_logger: TextLogger,
         metrics_logger: CSVMetricsLogger,
         fast_mode: bool = False,
-        processed_dir: Path | None = None,
+        processed_dir: Optional[Path] = None,
         debug_save_files: bool = False,
-        log_dir: Path | None = None,
-        temp_dir: Path | None = None,
+        log_dir: Optional[Path] = None,
+        temp_dir: Optional[Path] = None,
         debounce_seconds: float = 2.0,
         poll_interval: float = 0.5,
     ) -> None:
@@ -130,10 +129,10 @@ class PLTFileHandler(FileSystemEventHandler):
         self._debounce_seconds = debounce_seconds
         self._poll_interval = poll_interval
         self._temp_dir = temp_dir if temp_dir is not None else output_dir / ".incomplete"
-        self._pending_files: dict[Path, float] = {}
+        self._pending_files: Dict[Path, float] = {}
         self._pending_lock = threading.Lock()
         self._shutdown_event = threading.Event()
-        self._debounce_thread: threading.Thread | None = None
+        self._debounce_thread: Optional[threading.Thread] = None
 
     def _is_supported_file(self, path: Path) -> bool:
         """Check if a file has a supported PLT/HPGL extension.
@@ -210,7 +209,7 @@ class PLTFileHandler(FileSystemEventHandler):
         the calling thread (the debounce thread); errors are logged but do
         not stop the loop.
         """
-        to_process: list[Path] = []
+        to_process: List[Path] = []
         with self._pending_lock:
             for path, recorded_mtime in list(self._pending_files.items()):
                 if not path.exists():
@@ -659,10 +658,10 @@ class PLTFileHandler(FileSystemEventHandler):
 
 
 def run_watcher_from_config(
-    config: dict[str, Any],
+    config: Dict[str, Any],
     stop_event: threading.Event,
-    on_success: Callable[[str, float], None] | None = None,
-    on_error: Callable[[str, str], None] | None = None,
+    on_success: Optional[Callable[[str, float], None]] = None,
+    on_error: Optional[Callable[[str, str], None]] = None,
 ) -> int:
     """Run the watcher using a configuration dictionary.
 
@@ -820,7 +819,7 @@ class WatchCommand:
     directly instead of this class.
     """
 
-    def __init__(self, args: list[str] | None = None) -> None:
+    def __init__(self, args: Optional[List[str]] = None) -> None:
         """Initialize the watch command.
 
         Args:
@@ -831,9 +830,9 @@ class WatchCommand:
             args is None and "--log-dir" in sys.argv[1:]
         )
         self._args = self._parse_args(args)
-        self._existing_handler: PLTFileHandler | None = None
+        self._existing_handler: Optional[PLTFileHandler] = None
 
-    def _parse_args(self, args: list[str] | None) -> argparse.Namespace:
+    def _parse_args(self, args: Optional[List[str]]) -> argparse.Namespace:
         """Parse command-line arguments.
 
         Args:
@@ -1204,7 +1203,7 @@ Examples:
         return 0
 
 
-def main(args: list[str] | None = None) -> int:
+def main(args: Optional[List[str]] = None) -> int:
     """Entry point for the watch command.
 
     Args:
