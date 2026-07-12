@@ -3341,3 +3341,900 @@ RuntimeError: Exit failed
 2026-07-11 18:59:57 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmpbwxsy4w0\some\nested\path\output.plt
 2026-07-11 18:59:57 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmppvijvst4\output.plt
 2026-07-11 18:59:57 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmp00lqpysi\output.plt
+2026-07-12 17:50:44 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:50:44 | INFO     | plt_optimizer | PLT-Optimizer Watch Daemon
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Watch directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_stops_observer_on_shu0\watch
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Output directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_stops_observer_on_shu0\output
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Log directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_stops_observer_on_shu0\logs
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Strategy: ParallelEnsemble
+2026-07-12 17:50:44 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Scanning for existing PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_stops_observer_on_shu0\watch
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Watching for PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_stops_observer_on_shu0\watch
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Press Ctrl+C to stop...
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Watch daemon stopped.
+2026-07-12 17:50:44 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:50:44 | INFO     | plt_optimizer | PLT-Optimizer Watch Daemon
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Watch directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_observer_join_timeout_is_0\watch
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Output directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_observer_join_timeout_is_0\output
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Log directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_observer_join_timeout_is_0\logs
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Strategy: ParallelEnsemble
+2026-07-12 17:50:44 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Scanning for existing PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_observer_join_timeout_is_0\watch
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Watching for PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_observer_join_timeout_is_0\watch
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Press Ctrl+C to stop...
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Watch daemon stopped.
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Writing PLT file: \output\.incomplete\test_optimized.plt
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_move_to_processed_dir_fai0\output\.incomplete\test_optimized.plt
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_processed_dir_moves_file_0\output\.incomplete\test_optimized.plt
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_structural_document_uses_0\output\.incomplete\test_optimized.plt
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Writing PLT file: \output\.incomplete\test_optimized.plt
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_moves_file_to_processed_d0\output\.incomplete\test_optimized.plt
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_deletes_original_when_no_0\output\.incomplete\test_optimized.plt
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_handles_os_error_on_move0\output\.incomplete\test_optimized.plt
+2026-07-12 17:50:44 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:50:44 | INFO     | plt_optimizer | PLT-Optimizer Watch Daemon
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Watch directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_handles_keyboard_inte0\watch
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Output directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_handles_keyboard_inte0\output
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Log directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_handles_keyboard_inte0\logs
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Strategy: ParallelEnsemble
+2026-07-12 17:50:44 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Scanning for existing PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_handles_keyboard_inte0\watch
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Watching for PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_handles_keyboard_inte0\watch
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Press Ctrl+C to stop...
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Keyboard interrupt received
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Watch daemon stopped.
+2026-07-12 17:50:44 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:50:44 | INFO     | plt_optimizer | PLT-Optimizer Watch Daemon
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Watch directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_observer_join_with_timeou0\watch
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Output directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_observer_join_with_timeou0\output
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Log directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_observer_join_with_timeou0\logs
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Strategy: ParallelEnsemble
+2026-07-12 17:50:44 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Scanning for existing PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_observer_join_with_timeou0\watch
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Watching for PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_observer_join_with_timeou0\watch
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Press Ctrl+C to stop...
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Watch daemon stopped.
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Reassembling document with <MagicMock name='OptimizerEngine().optimize().block_count' id='2883658269520'> blocks
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Reassembly complete: 0 paths
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_process_file_handles_move0\output\.incomplete\test_optimized.plt
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Reassembling document with <MagicMock name='OptimizerEngine().optimize().block_count' id='2883657928784'> blocks
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Reassembly complete: 0 paths
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_process_file_handles_dele0\output\.incomplete\test_optimized.plt
+2026-07-12 17:50:44 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:50:44 | INFO     | plt_optimizer | PLT-Optimizer Watch Daemon
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Watch directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_schedules_handler_and0\watch
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Output directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_schedules_handler_and0\output
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Log directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_schedules_handler_and0\logs
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Strategy: ParallelEnsemble
+2026-07-12 17:50:44 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Scanning for existing PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_schedules_handler_and0\watch
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Watching for PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_schedules_handler_and0\watch
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Press Ctrl+C to stop...
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Watch daemon stopped.
+2026-07-12 17:50:44 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:50:44 | INFO     | plt_optimizer | PLT-Optimizer Watch Daemon
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Watch directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_returns_zero_on_clean0\watch
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Output directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_returns_zero_on_clean0\output
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Log directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_returns_zero_on_clean0\logs
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Strategy: ParallelEnsemble
+2026-07-12 17:50:44 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Scanning for existing PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_returns_zero_on_clean0\watch
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Watching for PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_returns_zero_on_clean0\watch
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Press Ctrl+C to stop...
+2026-07-12 17:50:44 | INFO     | plt_optimizer | Watch daemon stopped.
+2026-07-12 17:50:45 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:50:45 | INFO     | plt_optimizer | PLT-Optimizer Watch Daemon
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Watch directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_logs_processed_dir_wh0\watch
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Output directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_logs_processed_dir_wh0\output
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Log directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_logs_processed_dir_wh0\logs
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Processed directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_logs_processed_dir_wh0\processed
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Strategy: ParallelEnsemble
+2026-07-12 17:50:45 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Scanning for existing PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_logs_processed_dir_wh0\watch
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Watching for PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_logs_processed_dir_wh0\watch
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Press Ctrl+C to stop...
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Watch daemon stopped.
+2026-07-12 17:50:45 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:50:45 | INFO     | plt_optimizer | PLT-Optimizer Watch Daemon
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Watch directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_logs_processed_count_0\watch
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Output directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_logs_processed_count_0\output
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Log directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_logs_processed_count_0\logs
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Strategy: ParallelEnsemble
+2026-07-12 17:50:45 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Enqueued 3 existing file(s) for processing
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Watching for PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_run_logs_processed_count_0\watch
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Press Ctrl+C to stop...
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Watch daemon stopped.
+2026-07-12 17:50:45 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:50:45 | INFO     | plt_optimizer | PLT-Optimizer Watch Daemon
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Watch directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_main_module_runs_sys_exit0\nonexistent_watch
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Output directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_main_module_runs_sys_exit0\output
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Log directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_main_module_runs_sys_exit0\logs
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Strategy: ParallelEnsemble
+2026-07-12 17:50:45 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:50:45 | ERROR    | plt_optimizer | Watch directory does not exist: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_main_module_runs_sys_exit0\nonexistent_watch
+2026-07-12 17:50:45 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:50:45 | INFO     | plt_optimizer | PLT-Optimizer Watch Daemon
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Watch directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_debounce_seconds_passed_t0\watch
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Output directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_debounce_seconds_passed_t0\output
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Log directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_debounce_seconds_passed_t0\logs
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Strategy: ParallelEnsemble
+2026-07-12 17:50:45 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Watching for PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-191\test_debounce_seconds_passed_t0\watch
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Press Ctrl+C to stop...
+2026-07-12 17:50:45 | INFO     | plt_optimizer | Watch daemon stopped.
+2026-07-12 17:50:52 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_returns_rows_when_loggers0\cad\square.plt
+2026-07-12 17:50:53 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:50:53 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 4.0 segments/path, 100.0% structural), baseline_extent=1016.000, total_cutting_strokes=4
+2026-07-12 17:50:53 | INFO     | plt_optimizer | Structural file detected: Bypassing chunker for 1:1 routing (1 paths)
+2026-07-12 17:50:53 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_returns_rows_when_loggers0\cad_benchmark\optimized\no-opt\square_optimized.plt
+2026-07-12 17:50:53 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 1 blocks
+2026-07-12 17:50:53 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-07-12 17:50:53 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:50:53 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:50:53 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:50:53 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_returns_rows_when_loggers0\cad_benchmark\optimized\nn2opt\square_optimized.plt
+2026-07-12 17:50:53 | INFO     | plt_optimizer | Starting optimization with Cheapest Insertion Heuristic on 1 blocks
+2026-07-12 17:50:53 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-07-12 17:50:53 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:50:53 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:50:53 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:50:53 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_returns_rows_when_loggers0\cad_benchmark\optimized\insertion\square_optimized.plt
+2026-07-12 17:50:53 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-12 17:50:53 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-12 17:50:53 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:50:53 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:50:53 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:50:53 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_returns_rows_when_loggers0\cad_benchmark\optimized\christofides\square_optimized.plt
+2026-07-12 17:50:54 | INFO     | plt_optimizer | Starting optimization with Simulated Annealing on 1 blocks
+2026-07-12 17:50:54 | INFO     | plt_optimizer | Running Simulated Annealing on 1 blocks
+2026-07-12 17:50:54 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:50:54 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:50:54 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:50:54 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_returns_rows_when_loggers0\cad_benchmark\optimized\sa\square_optimized.plt
+2026-07-12 17:50:54 | INFO     | plt_optimizer | Starting optimization with Genetic Algorithm on 1 blocks
+2026-07-12 17:50:54 | INFO     | plt_optimizer | Running Genetic Algorithm on 1 blocks
+2026-07-12 17:50:54 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:50:54 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:50:54 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:50:54 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_returns_rows_when_loggers0\cad_benchmark\optimized\genetic\square_optimized.plt
+2026-07-12 17:50:54 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_metric_event_has_correct_0\cad\square.plt
+2026-07-12 17:50:55 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:50:55 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 4.0 segments/path, 100.0% structural), baseline_extent=1016.000, total_cutting_strokes=4
+2026-07-12 17:50:55 | INFO     | plt_optimizer | Structural file detected: Bypassing chunker for 1:1 routing (1 paths)
+2026-07-12 17:50:55 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_metric_event_has_correct_0\cad_benchmark\optimized\no-opt\square_optimized.plt
+2026-07-12 17:50:55 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 1 blocks
+2026-07-12 17:50:55 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-07-12 17:50:55 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:50:55 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:50:55 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:50:55 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_metric_event_has_correct_0\cad_benchmark\optimized\nn2opt\square_optimized.plt
+2026-07-12 17:50:55 | INFO     | plt_optimizer | Starting optimization with Cheapest Insertion Heuristic on 1 blocks
+2026-07-12 17:50:55 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-07-12 17:50:55 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:50:55 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:50:55 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:50:55 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_metric_event_has_correct_0\cad_benchmark\optimized\insertion\square_optimized.plt
+2026-07-12 17:50:55 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-12 17:50:55 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-12 17:50:55 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:50:55 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:50:55 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:50:55 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_metric_event_has_correct_0\cad_benchmark\optimized\christofides\square_optimized.plt
+2026-07-12 17:50:56 | INFO     | plt_optimizer | Starting optimization with Simulated Annealing on 1 blocks
+2026-07-12 17:50:56 | INFO     | plt_optimizer | Running Simulated Annealing on 1 blocks
+2026-07-12 17:50:56 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:50:56 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:50:56 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:50:56 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_metric_event_has_correct_0\cad_benchmark\optimized\sa\square_optimized.plt
+2026-07-12 17:50:56 | INFO     | plt_optimizer | Starting optimization with Genetic Algorithm on 1 blocks
+2026-07-12 17:50:56 | INFO     | plt_optimizer | Running Genetic Algorithm on 1 blocks
+2026-07-12 17:50:56 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:50:56 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:50:56 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:50:56 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_metric_event_has_correct_0\cad_benchmark\optimized\genetic\square_optimized.plt
+2026-07-12 17:50:56 | INFO     | plt_optimizer | Parsing PLT file: Z:\does\not\exist.plt
+2026-07-12 17:50:56 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_setup_failure_without_log0\cad\square.plt
+2026-07-12 17:50:57 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_setup_failure_logs_error_0\cad\square.plt
+2026-07-12 17:50:57 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_strategy_failure_logs_err0\cad\square.plt
+2026-07-12 17:50:57 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:50:57 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 4.0 segments/path, 100.0% structural), baseline_extent=1016.000, total_cutting_strokes=4
+2026-07-12 17:50:57 | INFO     | plt_optimizer | Structural file detected: Bypassing chunker for 1:1 routing (1 paths)
+2026-07-12 17:50:57 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_strategy_failure_logs_err0\cad_benchmark\optimized\no-opt\square_optimized.plt
+2026-07-12 17:50:58 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 1 blocks
+2026-07-12 17:50:58 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-07-12 17:50:58 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:50:58 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:50:58 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:50:58 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_strategy_failure_logs_err0\cad_benchmark\optimized\nn2opt\square_optimized.plt
+2026-07-12 17:50:58 | INFO     | plt_optimizer | Starting optimization with Cheapest Insertion Heuristic on 1 blocks
+2026-07-12 17:50:58 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-07-12 17:50:58 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:50:58 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:50:58 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:50:58 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_strategy_failure_logs_err0\cad_benchmark\optimized\insertion\square_optimized.plt
+2026-07-12 17:50:58 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-12 17:50:58 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-12 17:50:58 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:50:58 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:50:58 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:50:58 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_strategy_failure_logs_err0\cad_benchmark\optimized\christofides\square_optimized.plt
+2026-07-12 17:50:58 | INFO     | plt_optimizer | Starting optimization with Simulated Annealing on 1 blocks
+2026-07-12 17:50:58 | INFO     | plt_optimizer | Running Simulated Annealing on 1 blocks
+2026-07-12 17:50:58 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:50:58 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:50:58 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:50:58 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_strategy_failure_logs_err0\cad_benchmark\optimized\sa\square_optimized.plt
+2026-07-12 17:50:59 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_strategy_failure_without_0\cad\square.plt
+2026-07-12 17:50:59 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:50:59 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 4.0 segments/path, 100.0% structural), baseline_extent=1016.000, total_cutting_strokes=4
+2026-07-12 17:50:59 | INFO     | plt_optimizer | Structural file detected: Bypassing chunker for 1:1 routing (1 paths)
+2026-07-12 17:50:59 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_strategy_failure_without_0\cad_benchmark\optimized\no-opt\square_optimized.plt
+2026-07-12 17:50:59 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 1 blocks
+2026-07-12 17:50:59 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-07-12 17:50:59 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:50:59 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:50:59 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:50:59 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_strategy_failure_without_0\cad_benchmark\optimized\nn2opt\square_optimized.plt
+2026-07-12 17:51:00 | INFO     | plt_optimizer | Starting optimization with Cheapest Insertion Heuristic on 1 blocks
+2026-07-12 17:51:00 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-07-12 17:51:00 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:51:00 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:51:00 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:51:00 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_strategy_failure_without_0\cad_benchmark\optimized\insertion\square_optimized.plt
+2026-07-12 17:51:00 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-12 17:51:00 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-12 17:51:00 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:51:00 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:51:00 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:51:00 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_strategy_failure_without_0\cad_benchmark\optimized\christofides\square_optimized.plt
+2026-07-12 17:51:00 | INFO     | plt_optimizer | Starting optimization with Simulated Annealing on 1 blocks
+2026-07-12 17:51:00 | INFO     | plt_optimizer | Running Simulated Annealing on 1 blocks
+2026-07-12 17:51:00 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:51:00 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:51:00 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:51:00 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_strategy_failure_without_0\cad_benchmark\optimized\sa\square_optimized.plt
+2026-07-12 17:51:01 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_worker_returns_fileresult0\cad\square.plt
+2026-07-12 17:51:01 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:51:01 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 4.0 segments/path, 100.0% structural), baseline_extent=1016.000, total_cutting_strokes=4
+2026-07-12 17:51:01 | INFO     | plt_optimizer | Structural file detected: Bypassing chunker for 1:1 routing (1 paths)
+2026-07-12 17:51:01 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_worker_returns_fileresult0\cad_benchmark\optimized\no-opt\square_optimized.plt
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 1 blocks
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_worker_returns_fileresult0\cad_benchmark\optimized\nn2opt\square_optimized.plt
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Starting optimization with Cheapest Insertion Heuristic on 1 blocks
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_worker_returns_fileresult0\cad_benchmark\optimized\insertion\square_optimized.plt
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_worker_returns_fileresult0\cad_benchmark\optimized\christofides\square_optimized.plt
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Starting optimization with Simulated Annealing on 1 blocks
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Running Simulated Annealing on 1 blocks
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_worker_returns_fileresult0\cad_benchmark\optimized\sa\square_optimized.plt
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Starting optimization with Genetic Algorithm on 1 blocks
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Running Genetic Algorithm on 1 blocks
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:51:02 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_worker_returns_fileresult0\cad_benchmark\optimized\genetic\square_optimized.plt
+2026-07-12 17:51:03 | INFO     | plt_optimizer | Parsing PLT file: Z:\does\not\exist.plt
+2026-07-12 17:51:03 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_worker_direct_call0\cad\square.plt
+2026-07-12 17:51:04 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:51:04 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 4.0 segments/path, 100.0% structural), baseline_extent=1016.000, total_cutting_strokes=4
+2026-07-12 17:51:04 | INFO     | plt_optimizer | Structural file detected: Bypassing chunker for 1:1 routing (1 paths)
+2026-07-12 17:51:04 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_worker_direct_call0\cad_benchmark\optimized\no-opt\square_optimized.plt
+2026-07-12 17:51:04 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 1 blocks
+2026-07-12 17:51:04 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-07-12 17:51:04 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:51:04 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:51:04 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:51:04 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_worker_direct_call0\cad_benchmark\optimized\nn2opt\square_optimized.plt
+2026-07-12 17:51:04 | INFO     | plt_optimizer | Starting optimization with Cheapest Insertion Heuristic on 1 blocks
+2026-07-12 17:51:04 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-07-12 17:51:04 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:51:04 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:51:04 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:51:04 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_worker_direct_call0\cad_benchmark\optimized\insertion\square_optimized.plt
+2026-07-12 17:51:05 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-12 17:51:05 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-12 17:51:05 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:51:05 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:51:05 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:51:05 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_worker_direct_call0\cad_benchmark\optimized\christofides\square_optimized.plt
+2026-07-12 17:51:05 | INFO     | plt_optimizer | Starting optimization with Simulated Annealing on 1 blocks
+2026-07-12 17:51:05 | INFO     | plt_optimizer | Running Simulated Annealing on 1 blocks
+2026-07-12 17:51:05 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:51:05 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:51:05 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:51:05 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_worker_direct_call0\cad_benchmark\optimized\sa\square_optimized.plt
+2026-07-12 17:51:05 | INFO     | plt_optimizer | Starting optimization with Genetic Algorithm on 1 blocks
+2026-07-12 17:51:05 | INFO     | plt_optimizer | Running Genetic Algorithm on 1 blocks
+2026-07-12 17:51:05 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:51:05 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:51:05 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:51:05 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_worker_direct_call0\cad_benchmark\optimized\genetic\square_optimized.plt
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Chunking 1 stroke paths with threshold=150.000 (baseline_extent=100.000, multiplier=1.5)
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Chunking 3 stroke paths with threshold=15.000 (baseline_extent=10.000, multiplier=1.5)
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=15.000 (baseline_extent=10.000, multiplier=1.5)
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Created 2 MacroBlocks
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Chunking 3 stroke paths with threshold=15.000 (baseline_extent=10.000, multiplier=1.5)
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Chunking 3 stroke paths with threshold=15.000 (baseline_extent=10.000, multiplier=1.5)
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=150.000 (baseline_extent=100.000, multiplier=1.5)
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=15.000 (baseline_extent=10.000, multiplier=1.5)
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=100.000 (baseline_extent=10.000, multiplier=10.0)
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=225.000 (baseline_extent=50.000, multiplier=4.5)
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=225.000 (baseline_extent=50.000, multiplier=4.5)
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=300.000 (baseline_extent=50.000, multiplier=6.0)
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=300.000 (baseline_extent=50.000, multiplier=6.0)
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Created 2 MacroBlocks
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=250.000 (baseline_extent=50.000, multiplier=5.0)
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Structural file detected: Bypassing chunker for 1:1 routing (3 paths)
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Structural file detected: Bypassing chunker for 1:1 routing (1 paths)
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Structural file detected: Bypassing chunker for 1:1 routing (2 paths)
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Structural file detected: Bypassing chunker for 1:1 routing (1 paths)
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Structural file detected: Bypassing chunker for 1:1 routing (1 paths)
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmp9e26xzfu\input.plt
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmp9e26xzfu\output.plt
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmp9e26xzfu\output.plt
+2026-07-12 17:51:06 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-07-12 17:51:06 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Writing PLT file: \nonexistent\path\that\does\not\exist\file.plt
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\Tools\Ploptimizer\examples\test_rect_grid13sheet0.plt
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\Tools\Ploptimizer\examples\test_rect_grid13sheet0.plt
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 4.0 segments/path, 100.0% structural), baseline_extent=3048.000, total_cutting_strokes=80
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Structural file detected: Bypassing chunker for 1:1 routing (20 paths)
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 20 blocks
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 20 blocks
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=41656.000
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Reassembling document with 20 blocks
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Reassembly complete: 20 paths
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmpu4gcqvmu\test_rect_grid13sheet0_optimized.plt
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmpu4gcqvmu\test_rect_grid13sheet0_optimized.plt
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\Tools\Ploptimizer\examples\1-inch-square.plt
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 4.0 segments/path, 100.0% structural), baseline_extent=1016.000, total_cutting_strokes=4
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Structural file detected: Bypassing chunker for 1:1 routing (1 paths)
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Starting optimization with NoOp (Baseline) on 1 blocks
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Running NoOp (Baseline) on 1 blocks
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmpk3gmnsfy\1-inch-square_noop.plt
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmpk3gmnsfy\1-inch-square_noop.plt
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\Tools\Ploptimizer\examples\1x3 half inch letters holes1.plt
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 4.5 segments/path, 100.0% structural), baseline_extent=18287.963, total_cutting_strokes=24
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Structural file detected: Bypassing chunker for 1:1 routing (194 paths)
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 194 blocks
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 194 blocks
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=158982.057
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Reassembling document with 194 blocks
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Reassembly complete: 194 paths
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmp8alxaw34\1x3_optimized.plt
+2026-07-12 17:51:06 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmp8alxaw34\1x3_optimized.plt
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Switching intra-chunk strategy: NoOp-Intra (Baseline) -> NearestNeighbor-Intra + 2-Opt
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Switching intra-chunk strategy: NoOp-Intra (Baseline) -> NearestNeighbor-Intra + 2-Opt
+2026-07-12 17:51:07 | WARNING  | plt_optimizer | Greedy construction violated constraints, using original order
+2026-07-12 17:51:07 | INFO     | plt_optimizer | info message
+2026-07-12 17:51:07 | WARNING  | plt_optimizer | warning message
+2026-07-12 17:51:07 | ERROR    | plt_optimizer | error message
+2026-07-12 17:51:07 | CRITICAL | plt_optimizer | critical message
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running NoOp (Baseline) on 2 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running NoOp (Baseline) on 0 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Switching optimization strategy: NoOp (Baseline) -> NearestNeighbor + 2-Opt
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Starting optimization with NoOp (Baseline) on 1 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running NoOp (Baseline) on 1 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 2 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=90.000
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 0 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 3 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 0 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 2 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 3 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running Simulated Annealing on 0 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running Simulated Annealing on 1 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running Simulated Annealing on 2 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running Simulated Annealing on 3 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running Genetic Algorithm on 0 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running Genetic Algorithm on 1 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running Genetic Algorithm on 2 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running Genetic Algorithm on 3 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running Parallel Ensemble on 1 blocks with auto workers
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running NoOp (Baseline) on 1 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running Simulated Annealing on 1 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running Genetic Algorithm on 1 blocks
+2026-07-12 17:51:07 | WARNING  | plt_optimizer | Strategy Christofides-Serdyukov S-T Path (5/3 approx) failed: ChristofidesStrategy.optimize() missing 1 required positional argument: 'end_point'
+2026-07-12 17:51:07 | WARNING  | plt_optimizer | Parallel ensemble: 1/6 strategies failed: Christofides-Serdyukov S-T Path (5/3 approx)
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Parallel ensemble complete: 5/6 strategies succeeded. Best: NoOp (Baseline) (distance=0.000)
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running Parallel Ensemble on 3 blocks with auto workers
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running NoOp (Baseline) on 3 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 3 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 3 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running Simulated Annealing on 3 blocks
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running Genetic Algorithm on 3 blocks
+2026-07-12 17:51:07 | WARNING  | plt_optimizer | Strategy Christofides-Serdyukov S-T Path (5/3 approx) failed: ChristofidesStrategy.optimize() missing 1 required positional argument: 'end_point'
+2026-07-12 17:51:07 | WARNING  | plt_optimizer | Parallel ensemble: 1/6 strategies failed: Christofides-Serdyukov S-T Path (5/3 approx)
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Parallel ensemble complete: 5/6 strategies succeeded. Best: NearestNeighbor + 2-Opt (distance=80.000, improvement=60.00%)
+2026-07-12 17:51:07 | INFO     | plt_optimizer | Running Parallel Ensemble on 3 blocks with auto workers
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running NoOp (Baseline) on 3 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 3 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 3 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Simulated Annealing on 3 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Genetic Algorithm on 3 blocks
+2026-07-12 17:51:08 | WARNING  | plt_optimizer | Strategy Christofides-Serdyukov S-T Path (5/3 approx) failed: ChristofidesStrategy.optimize() missing 1 required positional argument: 'end_point'
+2026-07-12 17:51:08 | WARNING  | plt_optimizer | Parallel ensemble: 1/6 strategies failed: Christofides-Serdyukov S-T Path (5/3 approx)
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Parallel ensemble complete: 5/6 strategies succeeded. Best: NoOp (Baseline) (distance=80.000)
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Parallel Ensemble on 2 blocks with auto workers
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running NoOp (Baseline) on 2 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Simulated Annealing on 2 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Genetic Algorithm on 2 blocks
+2026-07-12 17:51:08 | WARNING  | plt_optimizer | Strategy Christofides-Serdyukov S-T Path (5/3 approx) failed: ChristofidesStrategy.optimize() missing 1 required positional argument: 'end_point'
+2026-07-12 17:51:08 | WARNING  | plt_optimizer | Parallel ensemble: 1/6 strategies failed: Christofides-Serdyukov S-T Path (5/3 approx)
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Parallel ensemble complete: 5/6 strategies succeeded. Best: NearestNeighbor + 2-Opt (distance=134.536)
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Parallel Ensemble on 2 blocks with 2 workers
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running NoOp (Baseline) on 2 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Simulated Annealing on 2 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Genetic Algorithm on 2 blocks
+2026-07-12 17:51:08 | WARNING  | plt_optimizer | Strategy Christofides-Serdyukov S-T Path (5/3 approx) failed: ChristofidesStrategy.optimize() missing 1 required positional argument: 'end_point'
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-07-12 17:51:08 | WARNING  | plt_optimizer | Parallel ensemble: 1/6 strategies failed: Christofides-Serdyukov S-T Path (5/3 approx)
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Parallel ensemble complete: 5/6 strategies succeeded. Best: NoOp (Baseline) (distance=40.000)
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Parallel Ensemble on 3 blocks with auto workers
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running NoOp (Baseline) on 3 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 3 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 3 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Simulated Annealing on 3 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Genetic Algorithm on 3 blocks
+2026-07-12 17:51:08 | WARNING  | plt_optimizer | Strategy Christofides-Serdyukov S-T Path (5/3 approx) failed: ChristofidesStrategy.optimize() missing 1 required positional argument: 'end_point'
+2026-07-12 17:51:08 | WARNING  | plt_optimizer | Parallel ensemble: 1/6 strategies failed: Christofides-Serdyukov S-T Path (5/3 approx)
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Parallel ensemble complete: 5/6 strategies succeeded. Best: NoOp (Baseline) (distance=80.000)
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running NoOp (Baseline) on 0 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running NoOp (Baseline) on 1 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running NoOp (Baseline) on 2 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 0 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 4 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 4 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 3 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 2 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Simulated Annealing on 2 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Simulated Annealing on 4 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Genetic Algorithm on 2 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Genetic Algorithm on 4 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov S-T Path (5/3 approx) on 2 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 2 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=30.000
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Starting optimization with Parallel Ensemble on 2 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Parallel Ensemble on 2 blocks with auto workers
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running NoOp (Baseline) on 2 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Genetic Algorithm on 2 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Simulated Annealing on 2 blocks
+2026-07-12 17:51:08 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-07-12 17:51:09 | WARNING  | plt_optimizer | Strategy Christofides-Serdyukov S-T Path (5/3 approx) failed: ChristofidesStrategy.optimize() missing 1 required positional argument: 'end_point'
+2026-07-12 17:51:09 | WARNING  | plt_optimizer | Parallel ensemble: 1/6 strategies failed: Christofides-Serdyukov S-T Path (5/3 approx)
+2026-07-12 17:51:09 | INFO     | plt_optimizer | Parallel ensemble complete: 5/6 strategies succeeded. Best: NoOp (Baseline) (distance=40.000)
+2026-07-12 17:51:09 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=40.000, winner=NoOp (Baseline)
+2026-07-12 17:51:09 | INFO     | plt_optimizer | Starting optimization with NoOp (Baseline) on 1 blocks
+2026-07-12 17:51:09 | INFO     | plt_optimizer | Running Parallel Ensemble on 2 blocks with auto workers
+2026-07-12 17:51:09 | INFO     | plt_optimizer | Running NoOp (Baseline) on 2 blocks
+2026-07-12 17:51:09 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-07-12 17:51:09 | INFO     | plt_optimizer | Running Simulated Annealing on 2 blocks
+2026-07-12 17:51:09 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-07-12 17:51:09 | INFO     | plt_optimizer | Running Genetic Algorithm on 2 blocks
+2026-07-12 17:51:09 | WARNING  | plt_optimizer | Strategy Christofides-Serdyukov S-T Path (5/3 approx) failed: ChristofidesStrategy.optimize() missing 1 required positional argument: 'end_point'
+2026-07-12 17:51:09 | WARNING  | plt_optimizer | Parallel ensemble: 1/6 strategies failed: Christofides-Serdyukov S-T Path (5/3 approx)
+2026-07-12 17:51:09 | INFO     | plt_optimizer | Parallel ensemble complete: 5/6 strategies succeeded. Best: NoOp (Baseline) (distance=40.000)
+2026-07-12 17:51:09 | INFO     | plt_optimizer | Running Parallel Ensemble on 1 blocks with auto workers
+2026-07-12 17:51:09 | WARNING  | plt_optimizer | Strategy Christofides-Serdyukov S-T Path (5/3 approx) failed: All fail
+2026-07-12 17:51:09 | WARNING  | plt_optimizer | All parallel strategies failed, using NoOp fallback
+2026-07-12 17:51:09 | INFO     | plt_optimizer | Running NoOp (Baseline) on 1 blocks
+2026-07-12 17:51:09 | INFO     | plt_optimizer | Running Parallel Ensemble on 2 blocks with auto workers
+2026-07-12 17:51:09 | WARNING  | plt_optimizer | Strategy Christofides-Serdyukov S-T Path (5/3 approx) failed: One fail
+2026-07-12 17:51:09 | WARNING  | plt_optimizer | Parallel ensemble: 1/6 strategies failed: Christofides-Serdyukov S-T Path (5/3 approx)
+2026-07-12 17:51:09 | INFO     | plt_optimizer | Parallel ensemble complete: 1/6 strategies succeeded. Best: NoOp (Baseline) (distance=40.000)
+2026-07-12 17:51:09 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmpa7soxt62\test.plt
+2026-07-12 17:51:09 | INFO     | plt_optimizer | Parsing PLT file: \nonexistent\file.plt
+2026-07-12 17:51:09 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-07-12 17:51:09 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-07-12 17:51:09 | WARNING  | plt_optimizer | Unknown command 'UNKNOWN123', treating as header
+2026-07-12 17:51:09 | WARNING  | plt_optimizer | Unknown command 'FOO:1,2', treating as header
+2026-07-12 17:51:09 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-07-12 17:51:09 | WARNING  | plt_optimizer | Arc command AR requires 3 parameters
+2026-07-12 17:51:09 | WARNING  | plt_optimizer | Failed to parse arc command CI: could not convert string to float: ''
+2026-07-12 17:51:09 | WARNING  | plt_optimizer | Unknown command 'NOTAREALCMD999,888,777', treating as header
+2026-07-12 17:51:09 | WARNING  | plt_optimizer | Unknown command 'CUSTOM123', treating as header
+2026-07-12 17:51:09 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-07-12 17:51:09 | WARNING  | plt_optimizer | Unknown command 'X:', treating as header
+2026-07-12 17:51:09 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-07-12 17:51:09 | WARNING  | plt_optimizer | Failed to parse arc command CI: could not convert string to float: ''
+2026-07-12 17:51:09 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=20
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=42.000, total_cutting_strokes=1
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=3
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.9 segments/path, 90.0% structural), baseline_extent=100.000, total_cutting_strokes=29
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 10.5 segments/path, 50.0% structural), baseline_extent=2.000, total_cutting_strokes=105
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 0.0 segments/path, 0.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Reassembling document with 2 blocks
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Reassembly complete: 2 paths
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Reassembling document with 2 blocks
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Reassembly complete: 2 paths
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Reassembly complete: 2 paths
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Reassembly complete: 2 paths
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-12 17:52:28 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-12 17:52:29 | INFO     | plt_optimizer | Reassembling document with 2 blocks
+2026-07-12 17:52:29 | INFO     | plt_optimizer | Reassembly complete: 2 paths
+2026-07-12 17:52:29 | INFO     | plt_optimizer.ui.settings | Disabled run at startup
+2026-07-12 17:52:29 | INFO     | plt_optimizer.ui.settings | Settings saved successfully
+2026-07-12 17:52:29 | INFO     | plt_optimizer.ui.settings | Disabled run at startup
+2026-07-12 17:52:29 | INFO     | plt_optimizer.ui.settings | Settings saved successfully
+2026-07-12 17:52:29 | INFO     | plt_optimizer.ui.settings | Disabled run at startup
+2026-07-12 17:52:29 | INFO     | plt_optimizer.ui.settings | Settings saved successfully
+2026-07-12 17:52:29 | INFO     | plt_optimizer.ui.settings | Disabled run at startup
+2026-07-12 17:52:29 | ERROR    | plt_optimizer.ui.settings | Failed to save settings: Save failed
+2026-07-12 17:52:29 | ERROR    | plt_optimizer.ui.settings | Filedialog error: Dialog error
+2026-07-12 17:52:29 | ERROR    | plt_optimizer.ui.settings | Error cleaning log directory: Permission denied
+2026-07-12 17:52:29 | ERROR    | plt_optimizer.ui.settings | Error cleaning log directory: Permission denied
+2026-07-12 17:52:29 | ERROR    | plt_optimizer.ui.settings | Error cleaning processed directory: Permission denied
+2026-07-12 17:52:29 | ERROR    | plt_optimizer.ui.settings | Error cleaning processed directory: Permission denied
+2026-07-12 17:52:29 | ERROR    | plt_optimizer.ui.settings | Filedialog error: Dialog error
+2026-07-12 17:52:29 | ERROR    | plt_optimizer.ui.settings | Error restoring window: Focus error
+2026-07-12 17:52:29 | ERROR    | plt_optimizer.ui.settings | Filedialog error: Dialog error
+2026-07-12 17:52:29 | INFO     | plt_optimizer.ui.settings | Disabled run at startup
+2026-07-12 17:52:29 | ERROR    | plt_optimizer.ui.settings | Failed to save settings: Database connection failed
+2026-07-12 17:52:29 | INFO     | plt_optimizer.ui.settings | Disabled run at startup
+2026-07-12 17:52:29 | INFO     | plt_optimizer.ui.settings | Settings saved successfully
+2026-07-12 17:52:29 | INFO     | plt_optimizer.ui.settings | Disabled run at startup
+2026-07-12 17:52:29 | INFO     | plt_optimizer.ui.settings | Settings saved successfully
+2026-07-12 17:52:29 | INFO     | plt_optimizer.ui.tray | Attempting to load icon from: \test\icon.ico
+2026-07-12 17:52:29 | INFO     | plt_optimizer.ui.tray | Icon loaded successfully: (64, 64), mode=RGB
+2026-07-12 17:52:29 | INFO     | plt_optimizer.ui.tray | Attempting to load icon from: \nonexistent\icon.ico
+2026-07-12 17:52:29 | WARNING  | plt_optimizer.ui.tray | Icon not found at \nonexistent\icon.ico, creating default fallback
+2026-07-12 17:52:29 | INFO     | plt_optimizer.ui.tray | Attempting to load icon from: \bad\icon.ico
+2026-07-12 17:52:29 | ERROR    | plt_optimizer.ui.tray | Failed to load icon from \bad\icon.ico: Corrupt image
+Traceback (most recent call last):
+  File "C:\Users\haiiro\Tools\Ploptimizer\plt_optimizer\ui\tray.py", line 146, in _load_icon_image
+    img = Image.open(icon_path)
+          ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\haiiro\actions-runner\_work\_tool\Python\3.11.9\x64\Lib\unittest\mock.py", line 1124, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\haiiro\actions-runner\_work\_tool\Python\3.11.9\x64\Lib\unittest\mock.py", line 1128, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\haiiro\actions-runner\_work\_tool\Python\3.11.9\x64\Lib\unittest\mock.py", line 1183, in _execute_mock_call
+    raise effect
+OSError: Corrupt image
+2026-07-12 17:52:29 | INFO     | plt_optimizer.ui.tray | Pystray icon created successfully
+2026-07-12 17:52:29 | ERROR    | plt_optimizer.ui.tray | Error opening settings: Test error
+2026-07-12 17:52:29 | INFO     | plt_optimizer.ui.tray | Attempting to load icon from: \icon.ico
+2026-07-12 17:52:29 | INFO     | plt_optimizer.ui.tray | infi.systray icon created successfully
+2026-07-12 17:52:29 | INFO     | plt_optimizer.ui.tray | Watcher thread started
+2026-07-12 17:52:29 | INFO     | plt_optimizer.ui.tray | Watcher thread stopped
+2026-07-12 17:52:29 | INFO     | plt_optimizer.ui.tray | Watcher thread started
+2026-07-12 17:52:29 | ERROR    | plt_optimizer.ui.tray | Watcher loop error: Watcher error
+2026-07-12 17:52:29 | INFO     | plt_optimizer.ui.tray | Watcher thread stopped
+2026-07-12 17:52:29 | INFO     | plt_optimizer.ui.tray | Starting watcher with config: watch_dir=/test
+2026-07-12 17:52:29 | INFO     | plt_optimizer.ui.tray | Starting watcher with config: watch_dir=<MagicMock name='mock().get()' id='1672557656848'>
+2026-07-12 17:52:29 | INFO     | plt_optimizer.ui.tray | Starting watcher with config: watch_dir=<MagicMock name='mock().get()' id='1672557656848'>
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Starting watcher with config: watch_dir=/test
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Stopping watcher thread
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Starting watcher with config: watch_dir=/test
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Starting watcher with config: watch_dir=/test
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Systray notification (success): Optimized test.plt
+Saved 15.5%
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Systray notification (error): Failed: test.plt
+File corrupted
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Starting pystray icon (blocking mode)
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Starting pystray icon (detached mode)
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Starting infi.systray icon (blocking mode)
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Keyboard interrupt received
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Starting pystray icon (blocking mode)
+2026-07-12 17:52:30 | ERROR    | plt_optimizer.ui.tray | Tray icon error during run(): Systray error
+Traceback (most recent call last):
+  File "C:\Users\haiiro\Tools\Ploptimizer\plt_optimizer\ui\tray.py", line 439, in _run_pystray
+    self._systray.run()
+  File "C:\Users\haiiro\actions-runner\_work\_tool\Python\3.11.9\x64\Lib\unittest\mock.py", line 1124, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\haiiro\actions-runner\_work\_tool\Python\3.11.9\x64\Lib\unittest\mock.py", line 1128, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\haiiro\actions-runner\_work\_tool\Python\3.11.9\x64\Lib\unittest\mock.py", line 1183, in _execute_mock_call
+    raise effect
+RuntimeError: Systray error
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Stopping system tray icon
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Stopping system tray icon
+2026-07-12 17:52:30 | ERROR    | plt_optimizer.ui.tray | Error during exit: Exit failed
+2026-07-12 17:52:30 | ERROR    | plt_optimizer.ui.tray | Error opening settings: Settings error
+2026-07-12 17:52:30 | ERROR    | plt_optimizer.ui.tray | Error during exit: Exit failed
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Watcher thread started
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Watcher thread stopped
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Systray notification (success): Optimized test.plt
+Saved 25.5%
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Systray notification (error): Failed: bad.plt
+Corrupt data format error
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Starting pystray icon (blocking mode)
+2026-07-12 17:52:30 | ERROR    | plt_optimizer.ui.tray | Tray icon error during run(): Systray crashed
+Traceback (most recent call last):
+  File "C:\Users\haiiro\Tools\Ploptimizer\plt_optimizer\ui\tray.py", line 439, in _run_pystray
+    self._systray.run()
+  File "C:\Users\haiiro\actions-runner\_work\_tool\Python\3.11.9\x64\Lib\unittest\mock.py", line 1124, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\haiiro\actions-runner\_work\_tool\Python\3.11.9\x64\Lib\unittest\mock.py", line 1128, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\haiiro\actions-runner\_work\_tool\Python\3.11.9\x64\Lib\unittest\mock.py", line 1183, in _execute_mock_call
+    raise effect
+RuntimeError: Systray crashed
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Starting pystray icon (blocking mode)
+2026-07-12 17:52:30 | ERROR    | plt_optimizer.ui.tray | Tray icon error during run(): Systray error
+Traceback (most recent call last):
+  File "C:\Users\haiiro\Tools\Ploptimizer\plt_optimizer\ui\tray.py", line 439, in _run_pystray
+    self._systray.run()
+  File "C:\Users\haiiro\actions-runner\_work\_tool\Python\3.11.9\x64\Lib\unittest\mock.py", line 1124, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\haiiro\actions-runner\_work\_tool\Python\3.11.9\x64\Lib\unittest\mock.py", line 1128, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\haiiro\actions-runner\_work\_tool\Python\3.11.9\x64\Lib\unittest\mock.py", line 1183, in _execute_mock_call
+    raise effect
+RuntimeError: Systray error
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Starting infi.systray icon (blocking mode)
+2026-07-12 17:52:30 | ERROR    | plt_optimizer.ui.tray | Tray icon error during run(): Windows error
+Traceback (most recent call last):
+  File "C:\Users\haiiro\Tools\Ploptimizer\plt_optimizer\ui\tray.py", line 397, in _run_windows
+    with self._systray:
+  File "C:\Users\haiiro\actions-runner\_work\_tool\Python\3.11.9\x64\Lib\unittest\mock.py", line 1124, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\haiiro\actions-runner\_work\_tool\Python\3.11.9\x64\Lib\unittest\mock.py", line 1128, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\haiiro\actions-runner\_work\_tool\Python\3.11.9\x64\Lib\unittest\mock.py", line 1183, in _execute_mock_call
+    raise effect
+RuntimeError: Windows error
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Starting infi.systray icon (blocking mode)
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Keyboard interrupt received
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Stopping system tray icon
+2026-07-12 17:52:30 | WARNING  | plt_optimizer.ui.tray | Error during systray stop: Stop failed
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Stopping system tray icon
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Starting infi.systray icon (detached mode)
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Starting watcher with config: watch_dir=/test
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Attempting to load icon from: \icon.ico
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | infi.systray icon created successfully
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Attempting to load icon from: \icon.ico
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | infi.systray icon created successfully
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | Attempting to load icon from: \icon.ico
+2026-07-12 17:52:30 | INFO     | plt_optimizer.ui.tray | infi.systray icon created successfully
+2026-07-12 17:52:30 | ERROR    | plt_optimizer.ui.tray | Error during exit: Exit failed
+Traceback (most recent call last):
+  File "C:\Users\haiiro\Tools\Ploptimizer\plt_optimizer\ui\tray.py", line 240, in on_quit_callback
+    self.on_exit_requested()
+  File "C:\Users\haiiro\actions-runner\_work\_tool\Python\3.11.9\x64\Lib\unittest\mock.py", line 1124, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\haiiro\actions-runner\_work\_tool\Python\3.11.9\x64\Lib\unittest\mock.py", line 1128, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\haiiro\actions-runner\_work\_tool\Python\3.11.9\x64\Lib\unittest\mock.py", line 1183, in _execute_mock_call
+    raise effect
+RuntimeError: Exit failed
+2026-07-12 17:52:31 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:52:31 | INFO     | plt_optimizer | PLT-Optimizer Watch Daemon
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Watch directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_stops_observer_on_shu0\watch
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Output directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_stops_observer_on_shu0\output
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Log directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_stops_observer_on_shu0\logs
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Strategy: ParallelEnsemble
+2026-07-12 17:52:31 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Scanning for existing PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_stops_observer_on_shu0\watch
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Watching for PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_stops_observer_on_shu0\watch
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Press Ctrl+C to stop...
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Watch daemon stopped.
+2026-07-12 17:52:31 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:52:31 | INFO     | plt_optimizer | PLT-Optimizer Watch Daemon
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Watch directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_observer_join_timeout_is_0\watch
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Output directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_observer_join_timeout_is_0\output
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Log directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_observer_join_timeout_is_0\logs
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Strategy: ParallelEnsemble
+2026-07-12 17:52:31 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Scanning for existing PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_observer_join_timeout_is_0\watch
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Watching for PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_observer_join_timeout_is_0\watch
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Press Ctrl+C to stop...
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Watch daemon stopped.
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Writing PLT file: \output\.incomplete\test_optimized.plt
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_move_to_processed_dir_fai0\output\.incomplete\test_optimized.plt
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_processed_dir_moves_file_0\output\.incomplete\test_optimized.plt
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_structural_document_uses_0\output\.incomplete\test_optimized.plt
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Writing PLT file: \output\.incomplete\test_optimized.plt
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_moves_file_to_processed_d0\output\.incomplete\test_optimized.plt
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_deletes_original_when_no_0\output\.incomplete\test_optimized.plt
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_handles_os_error_on_move0\output\.incomplete\test_optimized.plt
+2026-07-12 17:52:31 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:52:31 | INFO     | plt_optimizer | PLT-Optimizer Watch Daemon
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Watch directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_handles_keyboard_inte0\watch
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Output directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_handles_keyboard_inte0\output
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Log directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_handles_keyboard_inte0\logs
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Strategy: ParallelEnsemble
+2026-07-12 17:52:31 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Scanning for existing PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_handles_keyboard_inte0\watch
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Watching for PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_handles_keyboard_inte0\watch
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Press Ctrl+C to stop...
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Keyboard interrupt received
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Watch daemon stopped.
+2026-07-12 17:52:31 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:52:31 | INFO     | plt_optimizer | PLT-Optimizer Watch Daemon
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Watch directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_observer_join_with_timeou0\watch
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Output directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_observer_join_with_timeou0\output
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Log directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_observer_join_with_timeou0\logs
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Strategy: ParallelEnsemble
+2026-07-12 17:52:31 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Scanning for existing PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_observer_join_with_timeou0\watch
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Watching for PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_observer_join_with_timeou0\watch
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Press Ctrl+C to stop...
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Watch daemon stopped.
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Reassembling document with <MagicMock name='OptimizerEngine().optimize().block_count' id='1672562547344'> blocks
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Reassembly complete: 0 paths
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_process_file_handles_move0\output\.incomplete\test_optimized.plt
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Reassembling document with <MagicMock name='OptimizerEngine().optimize().block_count' id='1672561867280'> blocks
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Reassembly complete: 0 paths
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_process_file_handles_dele0\output\.incomplete\test_optimized.plt
+2026-07-12 17:52:31 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:52:31 | INFO     | plt_optimizer | PLT-Optimizer Watch Daemon
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Watch directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_schedules_handler_and0\watch
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Output directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_schedules_handler_and0\output
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Log directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_schedules_handler_and0\logs
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Strategy: ParallelEnsemble
+2026-07-12 17:52:31 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Scanning for existing PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_schedules_handler_and0\watch
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Watching for PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_schedules_handler_and0\watch
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Press Ctrl+C to stop...
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Watch daemon stopped.
+2026-07-12 17:52:31 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:52:31 | INFO     | plt_optimizer | PLT-Optimizer Watch Daemon
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Watch directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_returns_zero_on_clean0\watch
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Output directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_returns_zero_on_clean0\output
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Log directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_returns_zero_on_clean0\logs
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Strategy: ParallelEnsemble
+2026-07-12 17:52:31 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Scanning for existing PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_returns_zero_on_clean0\watch
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Watching for PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_returns_zero_on_clean0\watch
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Press Ctrl+C to stop...
+2026-07-12 17:52:31 | INFO     | plt_optimizer | Watch daemon stopped.
+2026-07-12 17:52:32 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:52:32 | INFO     | plt_optimizer | PLT-Optimizer Watch Daemon
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Watch directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_logs_processed_dir_wh0\watch
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Output directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_logs_processed_dir_wh0\output
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Log directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_logs_processed_dir_wh0\logs
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Processed directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_logs_processed_dir_wh0\processed
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Strategy: ParallelEnsemble
+2026-07-12 17:52:32 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Scanning for existing PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_logs_processed_dir_wh0\watch
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Watching for PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_logs_processed_dir_wh0\watch
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Press Ctrl+C to stop...
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Watch daemon stopped.
+2026-07-12 17:52:32 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:52:32 | INFO     | plt_optimizer | PLT-Optimizer Watch Daemon
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Watch directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_logs_processed_count_0\watch
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Output directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_logs_processed_count_0\output
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Log directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_logs_processed_count_0\logs
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Strategy: ParallelEnsemble
+2026-07-12 17:52:32 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Enqueued 3 existing file(s) for processing
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Watching for PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_run_logs_processed_count_0\watch
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Press Ctrl+C to stop...
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Watch daemon stopped.
+2026-07-12 17:52:32 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:52:32 | INFO     | plt_optimizer | PLT-Optimizer Watch Daemon
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Watch directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_main_module_runs_sys_exit0\nonexistent_watch
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Output directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_main_module_runs_sys_exit0\output
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Log directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_main_module_runs_sys_exit0\logs
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Strategy: ParallelEnsemble
+2026-07-12 17:52:32 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:52:32 | ERROR    | plt_optimizer | Watch directory does not exist: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_main_module_runs_sys_exit0\nonexistent_watch
+2026-07-12 17:52:32 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:52:32 | INFO     | plt_optimizer | PLT-Optimizer Watch Daemon
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Watch directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_debounce_seconds_passed_t0\watch
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Output directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_debounce_seconds_passed_t0\output
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Log directory: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_debounce_seconds_passed_t0\logs
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Strategy: ParallelEnsemble
+2026-07-12 17:52:32 | INFO     | plt_optimizer | ============================================================
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Watching for PLT files in C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-192\test_debounce_seconds_passed_t0\watch
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Press Ctrl+C to stop...
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Watch daemon stopped.
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmpuiwwk1zw\nested\path\output.plt
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmpxvn6izg3\output.plt
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmp3ope42yn\output.plt
+2026-07-12 17:52:32 | WARNING  | plt_optimizer | Filename 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.plt' exceeds 39 characters. Shortened to 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.plt' for compatibility.
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmpkbxn9na4\subdir\nested\output.plt
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmprni7ygwy\nonexistent_readonly\nested\deep\file.plt
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmpmr16mrjf\readonly\output.plt
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmp82t46h2k\output.plt
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmpdufqxj0x\output.plt
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmpn22d18vy\some\nested\path\output.plt
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmpj7nwftak\output.plt
+2026-07-12 17:52:32 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmpjftix6vz\output.plt
