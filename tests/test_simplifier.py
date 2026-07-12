@@ -7,9 +7,6 @@ These tests cover:
 
 from __future__ import annotations
 
-import math
-import pytest
-
 from plt_optimizer.core.models import (
     Coordinate,
     FooterCommand,

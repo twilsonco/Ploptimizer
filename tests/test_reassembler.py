@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import pytest
 
-from plt_optimizer.core.chunker import Chunker, ChunkerConfig, MacroBlock
-from plt_optimizer.core.models import Coordinate, PenState, PLTDocument, StrokePath, StrokeSegment
-from plt_optimizer.core.optimizer import BlockTraverseState, OptimizationResult, OptimizerEngine
+from plt_optimizer.core.chunker import MacroBlock
+from plt_optimizer.core.models import Coordinate, PLTDocument, StrokePath, StrokeSegment
+from plt_optimizer.core.optimizer import BlockTraverseState, OptimizationResult
 from plt_optimizer.core.reassembler import MetricsCalculator, Reassembler, ReassemblerError
 
 

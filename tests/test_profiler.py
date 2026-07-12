@@ -7,14 +7,15 @@ of max bounding box dimension across cutting strokes.
 from __future__ import annotations
 
 import math
+
 import pytest
 
 from plt_optimizer.core.models import Coordinate, PLTDocument, StrokePath, StrokeSegment
 from plt_optimizer.core.profiler import (
     Extent,
-    ProfileResult,
     Profiler,
     ProfilerError,
+    ProfileResult,
     StrokePathsProtocol,
 )
 
@@ -256,7 +257,6 @@ class TestIsStructuralPath:
 
     def test_single_segment_is_structural(self) -> None:
         """Test that a single straight segment is classified as structural."""
-        from plt_optimizer.core.models import ArcSegment
 
         profiler = Profiler()
 
@@ -398,7 +398,6 @@ class TestStructuralClassification:
 
     def test_structural_threshold_85_percent(self) -> None:
         """Test that is_structural=True when >85% of paths are structural."""
-        from plt_optimizer.core.models import ArcSegment
 
         profiler = Profiler()
 
@@ -1436,7 +1435,6 @@ class TestStrokePathsProtocolCoverage:
         Line 361 is the `...` stub in the Protocol which can't really be
         'covered' but we exercise the protocol interface here.
         """
-        from plt_optimizer.core.profiler import StrokePathsProtocol
 
         # Create a minimal mock that implements the protocol
         class MockDoc:

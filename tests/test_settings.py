@@ -5,12 +5,11 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock, patch
 
 # Import messagebox at module level so tests can use it directly
-from tkinter import filedialog, messagebox
-
+from tkinter import messagebox
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 # Module-level logger for test assertions
 _logger = logging.getLogger(__name__)
@@ -598,6 +597,7 @@ class TestModuleLevelConstants:
     def test_is_windows_true_on_win32(self) -> None:
         """Test _IS_WINDOWS is True on win32 platform."""
         import importlib
+
         from plt_optimizer.ui import settings
 
         with patch("sys.platform", "win32"):
@@ -607,6 +607,7 @@ class TestModuleLevelConstants:
     def test_is_windows_false_on_darwin(self) -> None:
         """Test _IS_WINDOWS is False on darwin platform."""
         import importlib
+
         from plt_optimizer.ui import settings
 
         with patch("sys.platform", "darwin"):
@@ -1224,8 +1225,9 @@ class TestShowWindows:
 
     def test_show_platform_check_exists(self) -> None:
         """Test that _IS_WINDOWS constant is correctly set based on platform."""
-        import sys
         import importlib
+        import sys
+
         from plt_optimizer.ui import settings
 
         # Reload to ensure _IS_WINDOWS reflects the actual current platform,

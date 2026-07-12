@@ -7,12 +7,12 @@ determining both traversal sequence and direction for MacroBlocks.
 from __future__ import annotations
 
 import math
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plt_optimizer.core.chunker import Chunker, ChunkerConfig, MacroBlock
+from plt_optimizer.core.chunker import MacroBlock
 from plt_optimizer.core.models import Coordinate, StrokePath, StrokeSegment
 from plt_optimizer.core.optimizer import (
     BlockConnection,
@@ -22,9 +22,9 @@ from plt_optimizer.core.optimizer import (
     InsertionHeuristicStrategy,
     NearestNeighbor2OptStrategy,
     NoOpStrategy,
+    OptimizationError,
     OptimizationResult,
     OptimizerEngine,
-    OptimizationError,
     ParallelEnsembleOptimizationResult,
     ParallelEnsembleStrategy,
     SimulatedAnnealingStrategy,
@@ -235,7 +235,6 @@ class TestOptimizerEngine:
 
     def test_optimize_empty_raises_error(self) -> None:
         """Test that optimizing empty list raises OptimizationError."""
-        from plt_optimizer.core.optimizer import NearestNeighbor2OptStrategy
         # Actually this doesn't raise for NN - it returns empty result
 
 
@@ -2245,7 +2244,7 @@ class TestParallelEnsembleCoverage2:
 
     def test_parallel_ensemble_all_strategies_fail_fallback(self) -> None:
         """Cover lines 4047-4050: fallback to NoOp when all strategies fail."""
-        from concurrent.futures import ProcessPoolExecutor, Future
+        from concurrent.futures import Future
         blocks = [_make_simple_block(0, (0, 0), (10, 0))]
 
         failing_future: Future = Future()

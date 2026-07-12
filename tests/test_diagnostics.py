@@ -8,7 +8,6 @@ and that matplotlib ImportError fallback works correctly.
 from __future__ import annotations
 
 import sys
-from unittest import mock
 
 import pytest
 
@@ -97,7 +96,6 @@ class TestMatplotlibFallback:
         within the pytest process so coverage measurement includes these lines.
         """
         import builtins
-        import sys
 
         # Save original __import__ to restore later
         _real_import = builtins.__import__
@@ -145,7 +143,6 @@ class TestMatplotlibFallback:
         """
         import os
         import subprocess
-        import sys
         import tempfile
 
         # Use unique coverage data file and . Coverage database
