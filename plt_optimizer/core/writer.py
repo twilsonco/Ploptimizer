@@ -153,13 +153,21 @@ class PLTWriter:
             if path_str:
                 parts.append(path_str)
 
-        # Write footer commands
+        # Output final pen-up command at ending position (if there were strokes)
+        if current_pos is not None:
+            parts.append(f"\nPU{self._format_coord(current_pos)};")
+
+        # Write footer commands (each on its own line)
         for footer in document.footer_commands:
-            formatted = self._format_footer(footer)
+            formatted = "\n" + self._format_footer(footer)
             if formatted:
                 parts.append(formatted)
 
         result = "".join(parts)
+
+        # Ensure file ends with a newline (blank line at EOF)
+        if result and not result.endswith("\n"):
+            result += "\n"
 
         self._logger.debug(f"Generated {len(result)} characters of PLT output")
         return result
@@ -175,6 +183,10 @@ class PLTWriter:
         """
         if header.parameters is None:
             return f"{header.instruction};"
+
+        # Use original parameter string if available to preserve exact formatting
+        if header.parameters_str is not None:
+            return f"{header.instruction}{header.parameters_str};"
 
         param_str = ",".join(self._format_number(p) for p in header.parameters)
         return f"{header.instruction}{param_str};"

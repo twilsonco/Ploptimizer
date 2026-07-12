@@ -8,14 +8,11 @@ from __future__ import annotations
 import logging
 import sys
 import threading
-import time
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ============================================================================
 # Test fixtures and helpers
@@ -50,7 +47,7 @@ class TestCheckDependencies:
 
     def test_check_dependencies_windows_with_infi_systray(self) -> None:
         """Test Windows dependency check with infi.systray available."""
-        from plt_optimizer.ui.tray import TrayIconManager, _check_dependencies
+        from plt_optimizer.ui.tray import _check_dependencies
 
         # Create fresh instance to avoid cached state issues
         with patch("plt_optimizer.ui.tray.importlib.util.find_spec") as mock_find:
@@ -61,7 +58,7 @@ class TestCheckDependencies:
 
     def test_check_dependencies_windows_missing_infi_systray(self) -> None:
         """Test Windows dependency check with missing infi.systray."""
-        from plt_optimizer.ui.tray import TrayIconManager, _check_dependencies
+        from plt_optimizer.ui.tray import _check_dependencies
 
         with patch("plt_optimizer.ui.tray._IS_WINDOWS", True), \
              patch("plt_optimizer.ui.tray.importlib.util.find_spec") as mock_find:
@@ -71,7 +68,6 @@ class TestCheckDependencies:
 
     def test_check_dependencies_linux_with_pystray(self) -> None:
         """Test Linux dependency check with pystray and PIL available."""
-        from plt_optimizer.ui.tray import TrayIconManager, _check_dependencies
 
         with patch("plt_optimizer.ui.tray.importlib.util.find_spec") as mock_find:
             # Both pystray and PIL are found
@@ -158,7 +154,7 @@ class TestLoadIconImage:
         with patch("PIL.Image") as MockImage:
             mock_fallback = MagicMock()
             MockImage.new.return_value = mock_fallback
-            MockImage.open.side_effect = IOError("Corrupt image")
+            MockImage.open.side_effect = OSError("Corrupt image")
 
             result = manager._load_icon_image()
 
@@ -1108,8 +1104,9 @@ class TestWatcherLoopStopEventHandling:
 
     def test_watcher_loop_stops_on_event_set(self) -> None:
         """Test that watcher loop exits when stop event is set."""
-        from plt_optimizer.ui.tray import TrayIconManager
         import threading
+
+        from plt_optimizer.ui.tray import TrayIconManager
 
         mock_watcher = MagicMock()
         manager = TrayIconManager(mock_watcher, MagicMock(), MagicMock())

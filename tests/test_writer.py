@@ -5,7 +5,6 @@ Tests the HPGL output generation, formatting accuracy, and file handling.
 
 from __future__ import annotations
 
-import os
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -18,12 +17,11 @@ from plt_optimizer.core.models import (
     Coordinate,
     FooterCommand,
     HeaderCommand,
-    PenState,
     PLTDocument,
     StrokePath,
     StrokeSegment,
 )
-from plt_optimizer.core.parser import PLTParser, ParseError
+from plt_optimizer.core.parser import ParseError, PLTParser
 from plt_optimizer.core.writer import PLTWriter, WriteError
 
 
@@ -792,7 +790,7 @@ class TestValidateAgainstOriginal:
     def test_validate_with_parse_error_during_missing_pu_check(self) -> None:
         """Test validation handles ParseError when checking missing PUs (lines 426-431)."""
         writer = PLTWriter()
-        
+
         # Use a content that will generate "missing" PU commands to trigger the check
         original_content = "IN;PU0.000,0.000;"  # Has a PU
         optimized_content = "IN;"  # Missing that PU

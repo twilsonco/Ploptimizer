@@ -11,12 +11,11 @@ These tests cover:
 
 from __future__ import annotations
 
-import argparse
 import signal
 import threading
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -201,8 +200,9 @@ class TestPLTFileHandlerProcessFile:
 
     def test_process_file_uses_fast_mode_strategy(self, tmp_path: Path) -> None:
         """Test that fast mode uses NearestNeighbor2OptStrategy."""
-        from plt_optimizer.cli.watch import PLTFileHandler
         from unittest.mock import MagicMock, patch
+
+        from plt_optimizer.cli.watch import PLTFileHandler
 
         # Create a real temporary file to process
         test_file = tmp_path / "test.plt"
@@ -253,8 +253,9 @@ class TestPLTFileHandlerProcessFile:
         self, tmp_path: Path
     ) -> None:
         """Test that non-fast mode uses ParallelEnsembleStrategy."""
-        from plt_optimizer.cli.watch import PLTFileHandler
         from unittest.mock import MagicMock, patch
+
+        from plt_optimizer.cli.watch import PLTFileHandler
 
         # Create a real temporary file to process
         test_file = tmp_path / "test.plt"
@@ -733,11 +734,11 @@ class TestWatchCommandValidateDirectoriesPermissions:
             mock_watch_dir.exists.return_value = True
             mock_watch_dir.is_dir.return_value = True
             mock_watch_dir.iterdir.side_effect = PermissionError("Permission denied")
-            
+
             # Replace _args.watch_dir with our mock
             original_watch_dir = cmd._args.watch_dir
             cmd._args.watch_dir = mock_watch_dir
-            
+
             try:
                 result = cmd._validate_directories()
                 assert result is False
@@ -854,9 +855,9 @@ class TestImportErrorHandling:
     def test_watchdog_import_error_raises_helpful_message(self) -> None:
         """Test that missing watchdog raises clear ImportError."""
         import sys
-        
+
         # Remove watchdog from modules if loaded
-        modules_to_remove = [k for k in sys.modules.keys() 
+        modules_to_remove = [k for k in sys.modules.keys()
                            if 'watchdog' in k.lower()]
         for mod in modules_to_remove:
             del sys.modules[mod]
@@ -881,10 +882,10 @@ class TestPathValidationErrors:
             cmd = WatchCommand(args=["--watch-dir", str(tmp_path)])
 
             fake_path = Path("/this/does/not/exist/on/any/system/subdir/file")
-            
+
             with pytest.raises(ValueError) as exc_info:
                 cmd._validate_path_can_be_created(fake_path)
-            
+
             # Should mention root directory or writable issue
             assert "root directory" in str(exc_info.value).lower() or \
                    "writable" in str(exc_info.value).lower()
@@ -1144,8 +1145,8 @@ class TestProcessFileErrorPaths:
 
     def test_process_file_copy_fallback_on_optimization_error(self, tmp_path: Path) -> None:
         """Test that unprocessed file is copied when optimization fails."""
+
         from plt_optimizer.cli.watch import PLTFileHandler
-        import shutil
 
         watch_dir = tmp_path / "watch"
         output_dir = tmp_path / "output"
@@ -1837,8 +1838,9 @@ class TestProcessFileArchivePaths:
 
     def test_handles_os_error_on_move(self, tmp_path: Path) -> None:
         """Test that OSError on file move is caught and logged."""
-        from plt_optimizer.cli.watch import PLTFileHandler
         import shutil
+
+        from plt_optimizer.cli.watch import PLTFileHandler
 
         watch_dir = tmp_path / "watch"
         output_dir = tmp_path / "output"
@@ -2075,8 +2077,9 @@ class TestProcessFileMoveErrorPath:
 
     def test_process_file_handles_move_error(self, tmp_path: Path) -> None:
         """Test that move failure is handled gracefully."""
-        from plt_optimizer.cli.watch import PLTFileHandler
         import shutil
+
+        from plt_optimizer.cli.watch import PLTFileHandler
 
         watch_dir = tmp_path / "watch"
         output_dir = tmp_path / "output"
@@ -2431,7 +2434,6 @@ class TestWatchCommandMainFunction:
 
     def test_main_returns_exit_code(self) -> None:
         """Test that main() returns the exit code from command.run()."""
-        import sys
         from plt_optimizer.cli.watch import WatchCommand, main
 
         # Create temp directories for valid args
@@ -2529,7 +2531,6 @@ class TestImportErrorHandlingWatchdog:
 
     def test_watchdog_import_error_raises_clear_message(self) -> None:
         """Test that missing watchdog library raises clear ImportError."""
-        import sys
 
         # Create a fresh module to test the import error path
         test_module_code = '''
@@ -3029,7 +3030,7 @@ class TestRunWatcherExistingFilesException:
 # ---------------------------------------------------------------------------
 
 
-def _make_ensemble_result() -> "ParallelEnsembleOptimizationResult":
+def _make_ensemble_result() -> ParallelEnsembleOptimizationResult:
     """Create a minimal but real ParallelEnsembleOptimizationResult for testing.
 
     Returns:
@@ -3060,7 +3061,7 @@ def _make_ensemble_result() -> "ParallelEnsembleOptimizationResult":
     )
 
 
-def _make_ensemble_result_no_improvement() -> "ParallelEnsembleOptimizationResult":
+def _make_ensemble_result_no_improvement() -> ParallelEnsembleOptimizationResult:
     """Create a ParallelEnsembleOptimizationResult with improvement_percent=None.
 
     Returns:
@@ -3565,6 +3566,7 @@ class TestValidatePathCanBeCreatedRootCheck:
     def test_raises_for_root_that_does_not_exist(self, tmp_path: Path) -> None:
         """Test that ValueError is raised when the root anchor doesn't exist."""
         import pathlib as _pathlib
+
         from plt_optimizer.cli.watch import WatchCommand
 
         with patch.object(WatchCommand, "_setup_logging"):
@@ -3598,7 +3600,6 @@ class TestValidatePathCanBeCreatedRootCheck:
 
     def test_no_raise_when_root_exists(self, tmp_path: Path) -> None:
         """Test that no error is raised when the loop exhausts and root exists (False branch of 787)."""
-        import pathlib as _pathlib
         from plt_optimizer.cli.watch import WatchCommand
 
         with patch.object(WatchCommand, "_setup_logging"):
@@ -3919,8 +3920,8 @@ class TestMainModuleEntryPoint:
 
     def test_main_module_runs_sys_exit(self, tmp_path: Path) -> None:
         """Test that running as __main__ calls sys.exit(main())."""
-        import sys
         import runpy
+        import sys
 
         # Use a non-existent watch_dir so run() returns 1 fast without blocking
         watch_dir = str(tmp_path / "nonexistent_watch")
@@ -4420,7 +4421,7 @@ class TestHandlerLifecycle:
 class TestAtomicOutputWrites:
     """Tests for atomic output file delivery (write to temp, then move)."""
 
-    def _make_handler(self, tmp_path: Path) -> "PLTFileHandler":
+    def _make_handler(self, tmp_path: Path) -> PLTFileHandler:
         """Build a handler with real output and temp dirs."""
         from plt_optimizer.cli.watch import PLTFileHandler
 
@@ -4436,7 +4437,7 @@ class TestAtomicOutputWrites:
             metrics_logger=MagicMock(),
         )
 
-    def _writer_patch(self, handler: "PLTFileHandler") -> MagicMock:
+    def _writer_patch(self, handler: PLTFileHandler) -> MagicMock:
         """Return a mock for the writer that creates a real file on write."""
         writer = MagicMock()
 

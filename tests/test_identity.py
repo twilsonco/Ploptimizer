@@ -18,13 +18,16 @@ from pathlib import Path
 import pytest
 
 from plt_optimizer.core.chunker import Chunker, ChunkerConfig
-from plt_optimizer.core.models import Coordinate, PLTDocument
-from plt_optimizer.core.optimizer import NearestNeighbor2OptStrategy, OptimizerEngine
-from plt_optimizer.core.parser import PLTParser, ParseError
+from plt_optimizer.core.models import ArcSegment, Coordinate, PLTDocument
+from plt_optimizer.core.optimizer import (
+    NearestNeighbor2OptStrategy,
+    NoOpStrategy,
+    OptimizerEngine,
+)
+from plt_optimizer.core.parser import PLTParser
 from plt_optimizer.core.profiler import Profiler
 from plt_optimizer.core.reassembler import Reassembler
 from plt_optimizer.core.writer import PLTWriter, WriteError
-
 
 # Sample HPGL content from Cadlink EngraveLab Expert v10
 SAMPLE_HPGL = "IN;VS0.50;ZO123,1;VZ2.00;PA;PU0.000,0.000;PD18288.000,0.000;SP;"
@@ -152,7 +155,7 @@ class TestIdentityValidation:
 
         simple_plt = "IN;PU100.000,200.000;PD300.000,400.000;SP;"
         doc1 = parser.parse_string(simple_plt)
-        output1 = writer.write_string(doc1)
+        _ = writer.write_string(doc1)
 
         # Verify structure
         assert len(doc1.stroke_paths) >= 1
@@ -359,3 +362,188 @@ class TestMetadataPreservation:
             assert doc_original.header_commands == doc_optimized_parsed.header_commands, (
                 "Header commands do not match exactly between original and optimized files"
             )
+
+    def test_noop_strategy_identity_with_1inch_square(self) -> None:
+        """Test that NoOp strategy produces identity output with 1-inch square.
+
+        Identity validation criteria:
+        1. Line count in output text is identical to input
+        2. Header and footer commands match exactly (byte-wise in the text output)
+        3. All stroke/arc commands are numerically identical (coordinates must match,
+           but string representations are allowed to differ due to formatting)
+
+        This test uses the 1-inch-square.plt example file as a representative case.
+        Running the no-opt strategy should preserve all formatting and structure of
+        the input file, since no optimization is applied.
+
+        Raises:
+            AssertionError: If any identity criterion is violated.
+        """
+        parser = PLTParser()
+        writer = PLTWriter()
+
+        # Load the 1-inch-square.plt example file
+        examples_dir = Path(__file__).parent.parent / "examples"
+        original_path = examples_dir / "1-inch-square.plt"
+
+        if not original_path.exists():
+            pytest.skip(f"Example file not found: {original_path}")
+
+        # Read original file text for byte-wise comparison
+        original_text = original_path.read_text(encoding="utf-8")
+        original_lines = original_text.splitlines()
+
+        # Parse the original document
+        doc_original = parser.parse_file(original_path)
+
+        # Profile the document
+        profiler = Profiler()
+        profile_result = profiler.profile(doc_original)
+
+        # Chunk the document
+        chunker = Chunker(config=ChunkerConfig(threshold_multiplier=2.0))
+        blocks = chunker.chunk(
+            doc_original.stroke_paths,
+            profile_result.baseline_extent,
+            is_structural=profile_result.is_structural,
+        )
+
+        if not blocks:
+            pytest.skip("No blocks generated from file")
+
+        # Optimize using NoOpStrategy (baseline)
+        strategy = NoOpStrategy()
+        engine = OptimizerEngine(strategy=strategy)
+        optimization_result = engine.optimize(blocks)
+
+        # Reassemble into output document
+        reassembler = Reassembler()
+        doc_output = reassembler.reassemble(
+            original_document=doc_original,
+            blocks=blocks,
+            optimization_result=optimization_result,
+        )
+
+        # Write to temp file for comparison
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "1-inch-square_noop.plt"
+            writer.write_file(doc_output, output_path)
+
+            output_text = output_path.read_text(encoding="utf-8")
+            output_lines = output_text.splitlines()
+
+            # Re-parse the output document for stroke/arc validation
+            doc_reparsed = parser.parse_file(output_path)
+
+            # ===== CRITERION 1: Line count must be identical =====
+            assert len(original_lines) == len(output_lines), (
+                f"Line count mismatch: original has {len(original_lines)} lines, "
+                f"output has {len(output_lines)} lines.\n"
+                f"Original lines:\n{original_lines}\n"
+                f"Output lines:\n{output_lines}"
+            )
+
+            # ===== CRITERION 2: Header and footer commands must match byte-wise =====
+            # Extract header lines (before any PU/PD commands)
+            original_header_lines = []
+            output_header_lines = []
+
+            for line in original_lines:
+                if any(cmd in line for cmd in ["PU", "PD", "PA"]):
+                    break
+                original_header_lines.append(line)
+
+            for line in output_lines:
+                if any(cmd in line for cmd in ["PU", "PD", "PA"]):
+                    break
+                output_header_lines.append(line)
+
+            assert len(original_header_lines) == len(output_header_lines), (
+                f"Header line count mismatch: original has {len(original_header_lines)}, "
+                f"output has {len(output_header_lines)}"
+            )
+
+            for line_idx, (orig_line, out_line) in enumerate(
+                zip(original_header_lines, output_header_lines)
+            ):
+                assert orig_line == out_line, (
+                    f"Header line {line_idx} byte-wise mismatch:\n"
+                    f"  Original: {repr(orig_line)}\n"
+                    f"  Output:   {repr(out_line)}"
+                )
+
+            # Extract footer lines (SP; and anything after)
+            original_footer_idx = None
+            output_footer_idx = None
+
+            for idx in range(len(original_lines) - 1, -1, -1):
+                if "SP" in original_lines[idx]:
+                    original_footer_idx = idx
+                    break
+
+            for idx in range(len(output_lines) - 1, -1, -1):
+                if "SP" in output_lines[idx]:
+                    output_footer_idx = idx
+                    break
+
+            assert original_footer_idx is not None, "Footer (SP;) not found in original"
+            assert output_footer_idx is not None, "Footer (SP;) not found in output"
+
+            # Verify footer line(s) match
+            original_footer_lines = original_lines[original_footer_idx:]
+            output_footer_lines = output_lines[output_footer_idx:]
+
+            assert len(original_footer_lines) == len(output_footer_lines), (
+                f"Footer line count mismatch: original has {len(original_footer_lines)}, "
+                f"output has {len(output_footer_lines)}"
+            )
+
+            for line_idx, (orig_line, out_line) in enumerate(
+                zip(original_footer_lines, output_footer_lines)
+            ):
+                assert orig_line == out_line, (
+                    f"Footer line {line_idx} byte-wise mismatch:\n"
+                    f"  Original: {repr(orig_line)}\n"
+                    f"  Output:   {repr(out_line)}"
+                )
+
+            # ===== CRITERION 3: Stroke/arc commands numerically identical =====
+            assert len(doc_original.stroke_paths) == len(doc_reparsed.stroke_paths), (
+                f"Stroke path count mismatch: original={len(doc_original.stroke_paths)}, "
+                f"output={len(doc_reparsed.stroke_paths)}"
+            )
+
+            for path_idx, (orig_path, reparsed_path) in enumerate(
+                zip(doc_original.stroke_paths, doc_reparsed.stroke_paths)
+            ):
+                assert len(orig_path.segments) == len(reparsed_path.segments), (
+                    f"Segment count mismatch in path {path_idx}: "
+                    f"original={len(orig_path.segments)}, output={len(reparsed_path.segments)}"
+                )
+
+                for seg_idx, (orig_seg, reparsed_seg) in enumerate(
+                    zip(orig_path.segments, reparsed_path.segments)
+                ):
+                    # Verify both segments are the same type (StrokeSegment or ArcSegment)
+                    assert isinstance(orig_seg, ArcSegment) == isinstance(reparsed_seg, ArcSegment), (
+                        f"Segment type mismatch in path {path_idx}, segment {seg_idx}: "
+                        f"original={type(orig_seg).__name__}, output={type(reparsed_seg).__name__}"
+                    )
+
+                    # Compare numeric coordinates (3 decimal place precision)
+                    assert math.isclose(orig_seg.start.x, reparsed_seg.start.x, rel_tol=1e-6), (
+                        f"Start X mismatch in path {path_idx}, segment {seg_idx}: "
+                        f"original={orig_seg.start.x}, output={reparsed_seg.start.x}"
+                    )
+                    assert math.isclose(orig_seg.start.y, reparsed_seg.start.y, rel_tol=1e-6), (
+                        f"Start Y mismatch in path {path_idx}, segment {seg_idx}: "
+                        f"original={orig_seg.start.y}, output={reparsed_seg.start.y}"
+                    )
+                    assert math.isclose(orig_seg.end.x, reparsed_seg.end.x, rel_tol=1e-6), (
+                        f"End X mismatch in path {path_idx}, segment {seg_idx}: "
+                        f"original={orig_seg.end.x}, output={reparsed_seg.end.x}"
+                    )
+                    assert math.isclose(orig_seg.end.y, reparsed_seg.end.y, rel_tol=1e-6), (
+                        f"End Y mismatch in path {path_idx}, segment {seg_idx}: "
+                        f"original={orig_seg.end.y}, output={reparsed_seg.end.y}"
+                    )

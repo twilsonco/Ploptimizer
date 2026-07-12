@@ -18,11 +18,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plt_optimizer.cli.benchmark import (
+    _FILE_LEVEL_SENTINEL,
+    _NO_WINNER_SENTINEL,
     CSV_COLUMNS,
     FileResult,
     ReportWriter,
-    _FILE_LEVEL_SENTINEL,
-    _NO_WINNER_SENTINEL,
     _build_csv_columns,
     _empty_row,
     _log_metrics_from_row,
@@ -39,7 +39,6 @@ from plt_optimizer.cli.benchmark import (
     process_file,
     write_report,
 )
-
 
 # ---------------------------------------------------------------------------
 # Test fixtures
@@ -81,7 +80,7 @@ class TestReportWriter:
         with ReportWriter(target, CSV_COLUMNS):
             pass
 
-        with open(target, "r", newline="", encoding="utf-8") as f:
+        with open(target, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             assert reader.fieldnames == CSV_COLUMNS
 
@@ -92,7 +91,7 @@ class TestReportWriter:
             writer.write_row(_row("a.plt", "nn2opt", "success"))
             writer.write_row(_row("a.plt", "sa", "failed", error="boom"))
 
-        with open(target, "r", newline="", encoding="utf-8") as f:
+        with open(target, newline="", encoding="utf-8") as f:
             rows = list(csv.DictReader(f))
 
         assert [r["strategy_name"] for r in rows] == ["nn2opt", "sa"]
@@ -106,7 +105,7 @@ class TestReportWriter:
             row["_internal"] = "secret"
             writer.write_row(row)
 
-        with open(target, "r", newline="", encoding="utf-8") as f:
+        with open(target, newline="", encoding="utf-8") as f:
             text = f.read()
         assert "_internal" not in text
         assert "secret" not in text
@@ -137,7 +136,7 @@ class TestReportWriter:
             for t in threads:
                 t.join()
 
-        with open(target, "r", newline="", encoding="utf-8") as f:
+        with open(target, newline="", encoding="utf-8") as f:
             rows = list(csv.DictReader(f))
         assert len(rows) == total
 
@@ -696,7 +695,7 @@ class TestWriteReport:
         target = tmp_path / "report.csv"
         rows = [_row("a.plt", "nn2opt", "success")]
         write_report(rows, target, CSV_COLUMNS)
-        with open(target, "r", newline="", encoding="utf-8") as f:
+        with open(target, newline="", encoding="utf-8") as f:
             reader = list(csv.DictReader(f))
         assert len(reader) == 1
         assert reader[0]["strategy_name"] == "nn2opt"
@@ -707,7 +706,7 @@ class TestWriteReport:
         rows = [_row("a.plt", "nn2opt", "success")]
         rows[0]["_metrics_event"] = {"status": "success"}
         write_report(rows, target, CSV_COLUMNS)
-        with open(target, "r", newline="", encoding="utf-8") as f:
+        with open(target, newline="", encoding="utf-8") as f:
             text = f.read()
         assert "_metrics_event" not in text
 
@@ -890,7 +889,7 @@ class TestMain:
         assert report.exists()
         assert ensemble_report.exists()
         # Per-strategy CSV must contain both rows.
-        with open(report, "r", newline="", encoding="utf-8") as f:
+        with open(report, newline="", encoding="utf-8") as f:
             written = list(csv.DictReader(f))
         assert len(written) == 2
         # Metrics re-emitted for both strategies.
@@ -1243,7 +1242,7 @@ def _row(
     error: str = "",
 ) -> dict[str, Any]:
     """Build a minimal CSV row dict with the canonical schema."""
-    row = {col: "" for col in CSV_COLUMNS}
+    row = dict.fromkeys(CSV_COLUMNS, "")
     row["file_name"] = file_name
     row["strategy_name"] = strategy
     row["status"] = status
