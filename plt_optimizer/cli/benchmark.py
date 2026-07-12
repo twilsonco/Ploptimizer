@@ -52,7 +52,7 @@ import traceback
 from concurrent.futures import Future, ProcessPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 # Add project root to path for imports when running as script
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -75,7 +75,7 @@ from plt_optimizer.utils.geometry import remove_redundant_strokes
 from plt_optimizer.utils.logging import get_metrics_logger, get_text_logger
 
 # Registry of strategies to benchmark, in execution order.
-STRATEGY_REGISTRY: dict[str, type] = {
+STRATEGY_REGISTRY: Dict[str, type] = {
     "no-opt": None,  # type: ignore  # Baseline (no optimization)
     "nn2opt": NearestNeighbor2OptStrategy,
     "insertion": InsertionHeuristicStrategy,
@@ -95,7 +95,7 @@ _FILE_LEVEL_SENTINEL: str = "(file)"
 _NO_WINNER_SENTINEL: str = "(none)"
 
 
-def _build_csv_columns() -> list[str]:
+def _build_csv_columns() -> List[str]:
     """Return the canonical CSV column order.
 
     The schema is shared between the per-strategy report and the synthetic
@@ -125,10 +125,10 @@ def _build_csv_columns() -> list[str]:
     ]
 
 
-CSV_COLUMNS: list[str] = _build_csv_columns()
+CSV_COLUMNS: List[str] = _build_csv_columns()
 
 
-def _empty_row(file_name: str) -> dict[str, Any]:
+def _empty_row(file_name: str) -> Dict[str, Any]:
     """Return a fresh dict with every CSV column initialized to ``""``.
 
     Args:
@@ -137,12 +137,12 @@ def _empty_row(file_name: str) -> dict[str, Any]:
     Returns:
         New dict ready to be filled in by a strategy or sentinel handler.
     """
-    row: dict[str, Any] = dict.fromkeys(CSV_COLUMNS, "")
+    row: Dict[str, Any] = dict.fromkeys(CSV_COLUMNS, "")
     row["file_name"] = file_name
     return row
 
 
-def _strip_private_keys(row: dict[str, Any]) -> dict[str, Any]:
+def _strip_private_keys(row: Dict[str, Any]) -> Dict[str, Any]:
     """Return a copy of ``row`` with private (``_``-prefixed) keys removed.
 
     Workers attach bookkeeping fields like ``_metrics_event`` and
@@ -159,7 +159,7 @@ def _strip_private_keys(row: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in row.items() if not k.startswith("_")}
 
 
-def find_plt_files(input_dir: Path) -> list[Path]:
+def find_plt_files(input_dir: Path) -> List[Path]:
     """Discover all ``.plt`` files in a directory (non-recursive).
 
     Args:
@@ -192,7 +192,7 @@ def _save_plot(
     plot_path: Path,
     title: str,
     rapid_travel_inches: float,
-    text_logger: Any | None,
+    text_logger: Optional[Any],
 ) -> None:
     """Generate and save a diagnostic plot, swallowing plot failures.
 
@@ -221,7 +221,7 @@ def _save_plot(
 
 
 def _populate_metrics(
-    row: dict[str, Any],
+    row: Dict[str, Any],
     *,
     before_rapid: float,
     before_cutting: float,
@@ -277,9 +277,9 @@ def _run_strategy(
     input_path: Path,
     output_dir: Path,
     same_row_preference: float,
-    metrics_logger: Any | None,
-    text_logger: Any | None,
-) -> dict[str, Any]:
+    metrics_logger: Optional[Any],
+    text_logger: Optional[Any],
+) -> Dict[str, Any]:
     """Run a single strategy and return a populated CSV row.
 
     On success, the returned dict has ``status == "success"`` and all metric
@@ -314,8 +314,8 @@ def _run_strategy(
     """
     row = _empty_row(input_path.name)
     row["strategy_name"] = strategy_name
-    optimized_plt_path: Path | None = None
-    metrics_event: dict[str, Any] = {
+    optimized_plt_path: Optional[Path] = None
+    metrics_event: Dict[str, Any] = {
         "kind": "strategy",
         "strategy_name": strategy_name,
         "status": "failed",
@@ -409,9 +409,9 @@ def process_file(
     input_path: Path,
     output_dir: Path,
     same_row_preference: float,
-    metrics_logger: Any | None = None,
-    text_logger: Any | None = None,
-) -> list[dict[str, Any]]:
+    metrics_logger: Optional[Any] = None,
+    text_logger: Optional[Any] = None,
+) -> List[Dict[str, Any]]:
     """Process a single PLT file and return one CSV row per strategy.
 
     On file-level parse or setup failure, a single sentinel row is returned
@@ -515,7 +515,7 @@ def process_file(
             text_logger.error(traceback.format_exc())
         return [row]
 
-    rows: list[dict[str, Any]] = []
+    rows: List[Dict[str, Any]] = []
     for strategy_name, strategy_class in STRATEGY_REGISTRY.items():
         row = _run_strategy(
             strategy_name=strategy_name,
@@ -551,7 +551,7 @@ class FileResult(NamedTuple):
 
     input_path: str
     elapsed_s: float
-    rows: list[dict[str, Any]]
+    rows: List[Dict[str, Any]]
 
 
 def _process_file_worker(
@@ -607,7 +607,7 @@ class ReportWriter:
         output_path: Destination CSV path.
     """
 
-    def __init__(self, output_path: Path, fieldnames: list[str]) -> None:
+    def __init__(self, output_path: Path, fieldnames: List[str]) -> None:
         """Open the CSV file with headers ready for streaming writes.
 
         Args:
@@ -623,7 +623,7 @@ class ReportWriter:
         self._writer.writeheader()
         self._file.flush()
 
-    def write_row(self, row: dict[str, Any]) -> None:
+    def write_row(self, row: Dict[str, Any]) -> None:
         """Append a single row to the CSV, flushing immediately.
 
         Args:
@@ -704,7 +704,7 @@ def _summarize_file_result(
     return False, f"FAILED: {err_message}"
 
 
-def _select_ensemble_winner(successful_rows: list[dict[str, Any]]) -> dict[str, Any]:
+def _select_ensemble_winner(successful_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Pick the winning strategy row for the ensemble report.
 
     Selection criteria (mirrors ``ParallelEnsembleStrategy``):
@@ -719,7 +719,7 @@ def _select_ensemble_winner(successful_rows: list[dict[str, Any]]) -> dict[str, 
         The winning row.
     """
 
-    def _sort_key(r: dict[str, Any]) -> tuple[float, float, float]:
+    def _sort_key(r: Dict[str, Any]) -> Tuple[float, float, float]:
         time_value = float(r["time_ms"]) if r["time_ms"] != "" else 0.0
         return (
             -float(r["total_improvement_pct"]),
@@ -730,7 +730,7 @@ def _select_ensemble_winner(successful_rows: list[dict[str, Any]]) -> dict[str, 
     return min(successful_rows, key=_sort_key)
 
 
-def build_ensemble_rows(per_strategy_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def build_ensemble_rows(per_strategy_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Synthesize a ParallelEnsemble CSV from per-strategy rows.
 
     For each file, picks the successful strategy with the greatest total
@@ -753,8 +753,8 @@ def build_ensemble_rows(per_strategy_rows: list[dict[str, Any]]) -> list[dict[st
         name (or ``"(none)"`` when nothing succeeded).
     """
     # Group rows by file while preserving input order.
-    files_in_order: list[str] = []
-    grouped: dict[str, list[dict[str, Any]]] = {}
+    files_in_order: List[str] = []
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
     for row in per_strategy_rows:
         file_name = row["file_name"]
         if file_name not in grouped:
@@ -762,7 +762,7 @@ def build_ensemble_rows(per_strategy_rows: list[dict[str, Any]]) -> list[dict[st
             files_in_order.append(file_name)
         grouped[file_name].append(row)
 
-    ensemble_rows: list[dict[str, Any]] = []
+    ensemble_rows: List[Dict[str, Any]] = []
     for file_name in files_in_order:
         file_rows = grouped[file_name]
         successful = [r for r in file_rows if r["status"] == "success"]
@@ -801,9 +801,9 @@ def build_ensemble_rows(per_strategy_rows: list[dict[str, Any]]) -> list[dict[st
 
 
 def write_report(
-    rows: list[dict[str, Any]],
+    rows: List[Dict[str, Any]],
     output_path: Path,
-    fieldnames: list[str],
+    fieldnames: List[str],
 ) -> None:
     """Write collected rows to a CSV report.
 
@@ -823,7 +823,7 @@ def write_report(
             writer.writerow(_strip_private_keys(row))
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: Optional[List[str]] = None) -> int:
     """Entry point for the batch benchmark utility.
 
     Args:

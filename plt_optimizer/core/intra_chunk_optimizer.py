@@ -13,6 +13,7 @@ from __future__ import annotations
 import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import List, Optional, Tuple
 
 from plt_optimizer.core.chunker import MacroBlock
 from plt_optimizer.core.models import Coordinate, StrokePath
@@ -66,7 +67,7 @@ class IntraChunkResult:
             in the optimized internal order.
     """
 
-    traverse_order: tuple[PathTraverseState, ...]
+    traverse_order: Tuple[PathTraverseState, ...]
     total_internal_distance: float
 
     @property
@@ -100,7 +101,7 @@ class IntraChunkStrategy(ABC):
     @abstractmethod
     def optimize_block(
         self,
-        paths: tuple[StrokePath, ...],
+        paths: Tuple[StrokePath, ...],
         fixed_entrance: Coordinate,
         fixed_exit: Coordinate,
     ) -> IntraChunkResult:
@@ -134,7 +135,7 @@ class NoOpIntraStrategy(IntraChunkStrategy):
 
     def optimize_block(
         self,
-        paths: tuple[StrokePath, ...],
+        paths: Tuple[StrokePath, ...],
         fixed_entrance: Coordinate,
         fixed_exit: Coordinate,
     ) -> IntraChunkResult:
@@ -150,7 +151,7 @@ class NoOpIntraStrategy(IntraChunkStrategy):
         """
         self._logger.debug(f"Running {self.name} on {len(paths)} paths")
 
-        traverse_order: list[PathTraverseState] = []
+        traverse_order: List[PathTraverseState] = []
 
         for i, path in enumerate(paths):
             if not path.segments:
@@ -191,7 +192,7 @@ class NearestNeighborIntraStrategy(IntraChunkStrategy):
 
     def optimize_block(
         self,
-        paths: tuple[StrokePath, ...],
+        paths: Tuple[StrokePath, ...],
         fixed_entrance: Coordinate,
         fixed_exit: Coordinate,
     ) -> IntraChunkResult:
@@ -231,7 +232,7 @@ class NearestNeighborIntraStrategy(IntraChunkStrategy):
 
     def _handle_single_path(
         self,
-        paths: tuple[StrokePath, ...],
+        paths: Tuple[StrokePath, ...],
         fixed_entrance: Coordinate,
         fixed_exit: Coordinate,
     ) -> IntraChunkResult:
@@ -252,7 +253,7 @@ class NearestNeighborIntraStrategy(IntraChunkStrategy):
             )
         return IntraChunkResult(traverse_order=(), total_internal_distance=0.0)
 
-    def _get_path_endpoints(self, path: StrokePath) -> tuple[Coordinate, Coordinate]:
+    def _get_path_endpoints(self, path: StrokePath) -> Tuple[Coordinate, Coordinate]:
         """Get the entrance and exit coordinates for a path.
 
         Args:
@@ -277,7 +278,7 @@ class NearestNeighborIntraStrategy(IntraChunkStrategy):
         from_pos: Coordinate,
         to_entrance: Coordinate,
         to_exit: Coordinate,
-    ) -> tuple[float, bool]:
+    ) -> Tuple[float, bool]:
         """Calculate cost of traveling to a path considering both entry options.
 
         Args:
@@ -301,10 +302,10 @@ class NearestNeighborIntraStrategy(IntraChunkStrategy):
 
     def _greedy_nearest_neighbor_constrained(
         self,
-        paths: tuple[StrokePath, ...],
+        paths: Tuple[StrokePath, ...],
         fixed_entrance: Coordinate,
         fixed_exit: Coordinate,
-    ) -> list[PathTraverseState]:
+    ) -> List[PathTraverseState]:
         """Build initial tour using greedy nearest neighbor with fixed endpoints.
 
         Args:
@@ -318,7 +319,7 @@ class NearestNeighborIntraStrategy(IntraChunkStrategy):
         valid_paths_with_idx = [(i, p) for i, p in enumerate(paths) if p.segments]
 
         unvisited = {i for i, _ in valid_paths_with_idx}
-        tour: list[PathTraverseState] = []
+        tour: List[PathTraverseState] = []
 
         current_pos = fixed_entrance
 
@@ -367,8 +368,8 @@ class NearestNeighborIntraStrategy(IntraChunkStrategy):
 
     def _is_valid_tour(
         self,
-        tour: list[PathTraverseState],
-        paths: tuple[StrokePath, ...],
+        tour: List[PathTraverseState],
+        paths: Tuple[StrokePath, ...],
         fixed_entrance: Coordinate,
         fixed_exit: Coordinate,
     ) -> bool:
@@ -401,12 +402,12 @@ class NearestNeighborIntraStrategy(IntraChunkStrategy):
 
     def _create_original_order_tour(
         self,
-        paths: tuple[StrokePath, ...],
+        paths: Tuple[StrokePath, ...],
         fixed_entrance: Coordinate,
         fixed_exit: Coordinate,
-    ) -> list[PathTraverseState]:
+    ) -> List[PathTraverseState]:
         """Create tour in original order when optimization fails constraints."""
-        tour: list[PathTraverseState] = []
+        tour: List[PathTraverseState] = []
 
         for i, path in enumerate(paths):
             if not path.segments:
@@ -440,11 +441,11 @@ class NearestNeighborIntraStrategy(IntraChunkStrategy):
 
     def _two_opt_refinement(
         self,
-        tour: list[PathTraverseState],
-        paths: tuple[StrokePath, ...],
+        tour: List[PathTraverseState],
+        paths: Tuple[StrokePath, ...],
         fixed_entrance: Coordinate,
         fixed_exit: Coordinate,
-    ) -> list[PathTraverseState]:
+    ) -> List[PathTraverseState]:
         """Improve tour using 2-opt local search with fixed endpoints.
 
         Args:
@@ -475,8 +476,8 @@ class NearestNeighborIntraStrategy(IntraChunkStrategy):
 
     def _two_opt_swap_improves(
         self,
-        tour: list[PathTraverseState],
-        paths: tuple[StrokePath, ...],
+        tour: List[PathTraverseState],
+        paths: Tuple[StrokePath, ...],
         fixed_entrance: Coordinate,
         fixed_exit: Coordinate,
         i: int,
@@ -517,8 +518,8 @@ class NearestNeighborIntraStrategy(IntraChunkStrategy):
 
     def _calculate_total_internal_distance(
         self,
-        tour: list[PathTraverseState],
-        paths: tuple[StrokePath, ...],
+        tour: List[PathTraverseState],
+        paths: Tuple[StrokePath, ...],
     ) -> float:
         """Calculate sum of rapid travel distances between consecutive paths.
 
@@ -563,7 +564,7 @@ class IntraChunkOptimizer:
 
     def __init__(
         self,
-        strategy: IntraChunkStrategy | None = None,
+        strategy: Optional[IntraChunkStrategy] = None,
     ) -> None:
         """Initialize the intra-chunk optimizer.
 
@@ -621,8 +622,8 @@ class IntraChunkOptimizer:
 
     def optimize_blocks(
         self,
-        blocks: list[MacroBlock],
-    ) -> list[IntraChunkResult]:
+        blocks: List[MacroBlock],
+    ) -> List[IntraChunkResult]:
         """Optimize paths within multiple MacroBlocks.
 
         Args:

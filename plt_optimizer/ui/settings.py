@@ -14,7 +14,7 @@ import tkinter as tk
 from collections.abc import Callable
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from typing import Any
+from typing import Any, Dict, Optional, Union
 
 # Module-level logger
 _logger = logging.getLogger(__name__)
@@ -37,9 +37,9 @@ class SettingsWindow:
 
     def __init__(
         self,
-        current_config: dict[str, Any],
-        save_callback: Callable[[dict[str, Any]], None],
-        parent: tk.Tk | None = None,
+        current_config: Dict[str, Any],
+        save_callback: Callable[[Dict[str, Any]], None],
+        parent: Optional[tk.Tk] = None,
     ) -> None:
         """Initialize the settings window.
 
@@ -53,7 +53,7 @@ class SettingsWindow:
         self._parent = parent
 
         # Create the main window
-        self._root: tk.Tk | tk.Toplevel = tk.Toplevel(parent) if parent else tk.Tk()
+        self._root: Union[tk.Tk, tk.Toplevel] = tk.Toplevel(parent) if parent else tk.Tk()
         self._root.title("PLT-Optimizer Settings")
         self._root.geometry("580x480")
         self._root.resizable(False, False)

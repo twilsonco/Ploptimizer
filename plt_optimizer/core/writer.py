@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 import re
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 from plt_optimizer.core.models import (
     ArcSegment,
@@ -35,7 +36,7 @@ class WriteError(Exception):
     def __init__(
         self,
         message: str,
-        document_part: str | None = None,
+        document_part: Optional[str] = None,
     ) -> None:
         """Initialize a WriteError.
 
@@ -160,7 +161,7 @@ class PLTWriter:
         Returns:
             Formatted HPGL/PLT command string.
         """
-        parts: list[str] = []
+        parts: List[str] = []
 
         # Write header commands in sequence
         for header in document.header_commands:
@@ -168,7 +169,7 @@ class PLTWriter:
             if formatted:
                 parts.append(formatted)
 
-        current_pos: Coordinate | None = None  # Track spindle position across paths
+        current_pos: Optional[Coordinate] = None  # Track spindle position across paths
 
         # Write stroke paths (PU/PD sequences)
         for path in document.stroke_paths:
@@ -228,8 +229,8 @@ class PLTWriter:
     def _format_stroke_path(
         self,
         path: StrokePath,
-        current_pos: Coordinate | None = None,
-    ) -> tuple[str, Coordinate | None]:
+        current_pos: Optional[Coordinate] = None,
+    ) -> Tuple[str, Optional[Coordinate]]:
         """Format a stroke path as PU/PD commands with segment-level state tracking.
 
         Args:
@@ -242,7 +243,7 @@ class PLTWriter:
         if path.is_empty:
             return "", current_pos
 
-        parts: list[str] = []
+        parts: List[str] = []
 
         # Handle explicit pen_up_position for the initial move into this path
         first_segment_start = path.segments[0].start
@@ -325,7 +326,7 @@ class PLTWriter:
         self,
         original: PLTDocument,
         output: str,
-    ) -> tuple[bool, list[str]]:
+    ) -> Tuple[bool, List[str]]:
         """Validate that generated output matches the original document.
 
         This method performs a round-trip validation by:
@@ -339,7 +340,7 @@ class PLTWriter:
         Returns:
             Tuple of (is_valid, list_of_error_messages).
         """
-        errors: list[str] = []
+        errors: List[str] = []
 
         try:
             # Re-parse the output
@@ -371,7 +372,7 @@ class PLTWriter:
         self,
         original_file_path: Path,
         output_content: str,
-    ) -> tuple[bool, list[str]]:
+    ) -> Tuple[bool, List[str]]:
         """Validate generated HPGL content against the original file.
 
         This performs detailed comparison of HPGL command counts and sequences
@@ -384,8 +385,8 @@ class PLTWriter:
         Returns:
             Tuple of (is_valid, list_of_error_messages).
         """
-        errors: list[str] = []
-        warnings: list[str] = []
+        errors: List[str] = []
+        warnings: List[str] = []
 
         # Command pattern for tokenization
         COMMAND_PATTERN = re.compile(r"([A-Z][A-Z0-9,.\-:]*?;)")
@@ -434,7 +435,7 @@ class PLTWriter:
         missing_pus = orig_pu_set - opt_pu_set
         if missing_pus:
             # Group by coordinate pattern to summarize
-            coord_issues: dict[str, int] = {}
+            coord_issues: Dict[str, int] = {}
             for pu in missing_pus:
                 # Extract coordinates
                 match = re.match(r"PU(-?\d+\.\d+),(-?\d+\.\d+);", pu)

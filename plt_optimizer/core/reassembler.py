@@ -7,6 +7,8 @@ in reverse order. It produces a new PLTDocument suitable for writing.
 
 from __future__ import annotations
 
+from typing import Dict, List, Optional, Tuple
+
 from plt_optimizer.core.chunker import MacroBlock
 from plt_optimizer.core.intra_chunk_optimizer import IntraChunkResult
 from plt_optimizer.core.models import (
@@ -70,9 +72,9 @@ class Reassembler:
     def reassemble(
         self,
         original_document: PLTDocument,
-        blocks: list[MacroBlock],
+        blocks: List[MacroBlock],
         optimization_result: OptimizationResult,
-        intra_chunk_results: list[IntraChunkResult] | None = None,
+        intra_chunk_results: Optional[List[IntraChunkResult]] = None,
     ) -> PLTDocument:
         """Reconstruct an optimized PLTDocument from MacroBlocks.
 
@@ -96,14 +98,14 @@ class Reassembler:
         block_map = {block.block_id: block for block in blocks}
 
         # Build intra-chunk result map if provided
-        intra_map: dict[int, IntraChunkResult] = {}
+        intra_map: Dict[int, IntraChunkResult] = {}
         if intra_chunk_results is not None:
             for i, b in enumerate(blocks):
                 if i < len(intra_chunk_results):
                     intra_map[b.block_id] = intra_chunk_results[i]
 
         # Reconstruct optimized stroke paths
-        optimized_paths: list[StrokePath] = []
+        optimized_paths: List[StrokePath] = []
 
         for traverse_state in optimization_result.traverse_order:
             maybe_block = block_map.get(traverse_state.block_id)
@@ -137,9 +139,9 @@ class Reassembler:
 
     def _apply_intra_chunk_order(
         self,
-        paths: tuple[StrokePath, ...],
-        intra_result: IntraChunkResult | None,
-    ) -> list[StrokePath]:
+        paths: Tuple[StrokePath, ...],
+        intra_result: Optional[IntraChunkResult],
+    ) -> List[StrokePath]:
         """Apply intra-chunk optimized order without reversing entire block.
 
         Args:
@@ -152,7 +154,7 @@ class Reassembler:
         if intra_result is None:
             return list(paths)
 
-        reordered_paths: list[StrokePath] = []
+        reordered_paths: List[StrokePath] = []
 
         for path_state in intra_result.traverse_order:
             original_path = paths[path_state.path_index]
@@ -161,7 +163,7 @@ class Reassembler:
 
             if path_state.reversed:
                 reversed_segments = self._reverse_segment_order(original_path)
-                new_pen_up: Coordinate | None = (
+                new_pen_up: Optional[Coordinate] = (
                     reversed_segments[0].start
                     if reversed_segments
                     else original_path.pen_up_position
@@ -179,9 +181,9 @@ class Reassembler:
 
     def _reverse_block_paths(
         self,
-        paths: tuple[StrokePath, ...],
-        intra_result: IntraChunkResult | None = None,
-    ) -> list[StrokePath]:
+        paths: Tuple[StrokePath, ...],
+        intra_result: Optional[IntraChunkResult] = None,
+    ) -> List[StrokePath]:
         """Reverse the order of paths and all segments within each path.
 
         When a block must be traversed in reverse (right-to-left), we need to:
@@ -201,7 +203,7 @@ class Reassembler:
         reordered = self._apply_intra_chunk_order(paths, intra_result)
         return list(reversed(reordered))
 
-    def _reverse_segment_order(self, path: StrokePath) -> list[Segment]:
+    def _reverse_segment_order(self, path: StrokePath) -> List[Segment]:
         """Reverse the order of segments within a path and swap coordinates.
 
         Args:
@@ -210,7 +212,7 @@ class Reassembler:
         Returns:
             List of segments in reverse order with swapped start/end.
         """
-        new_segments: list[Segment] = []
+        new_segments: List[Segment] = []
 
         for segment in reversed(path.segments):
             if isinstance(segment, ArcSegment):
@@ -231,7 +233,7 @@ class Reassembler:
 
         return new_segments
 
-    def _reverse_paths_simple(self, paths: tuple[StrokePath, ...]) -> list[StrokePath]:
+    def _reverse_paths_simple(self, paths: Tuple[StrokePath, ...]) -> List[StrokePath]:
         """Simple path reversal without intra-chunk optimization.
 
         Args:
@@ -240,7 +242,7 @@ class Reassembler:
         Returns:
             List of reversed and transformed stroke paths.
         """
-        reversed_paths: list[StrokePath] = []
+        reversed_paths: List[StrokePath] = []
 
         for path in reversed(paths):
             if not path.segments:
@@ -248,7 +250,7 @@ class Reassembler:
 
             new_segments = self._reverse_segment_order(path)
 
-            new_pen_up: Coordinate | None = (
+            new_pen_up: Optional[Coordinate] = (
                 new_segments[0].start if new_segments else path.pen_up_position
             )
 
@@ -344,7 +346,7 @@ class MetricsCalculator:
         self,
         original_distance: float,
         optimized_distance: float,
-    ) -> tuple[float, float]:
+    ) -> Tuple[float, float]:
         """Calculate improvement metrics between original and optimized.
 
         Args:
@@ -366,8 +368,8 @@ class MetricsCalculator:
     def log_metrics(
         self,
         job_id: str,
-        original_file: str | None,
-        optimized_doc: PLTDocument | None,
+        original_file: Optional[str],
+        optimized_doc: Optional[PLTDocument],
         optimization_result: OptimizationResult,
         status: str,
     ) -> None:
@@ -394,7 +396,7 @@ class MetricsCalculator:
         from pathlib import Path
 
         orig_path = Path(original_file) if original_file else None
-        opt_path: Path | None = None
+        opt_path: Optional[Path] = None
 
         metrics_logger.log_job(
             job_id=job_id,

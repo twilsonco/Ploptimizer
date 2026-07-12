@@ -103,7 +103,12 @@ lint.select = [
     "C4",  # flake8-comprehensions
     "UP",  # pyupgrade
 ]
-lint.ignore = ["E501"]  # line too long handled by formatter
+lint.ignore = [
+    "E501",  # line too long handled by formatter
+    "UP006", # Use `dict` instead of `Dict` - conflicts with Python 3.8 type hints
+    "UP007", # Use `X | Y` instead of `Union[X, Y]` - conflicts with Python 3.8 compatibility
+    "UP045", # Use `X | None` instead of `Optional[X]` - conflicts with Python 3.8 compatibility
+]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
