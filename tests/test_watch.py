@@ -3250,6 +3250,10 @@ class TestProcessFileUnlinkErrorPath:
                                         path.write_text("fake plt", encoding="utf-8")
 
                                     mock_writer.write_file.side_effect = fake_write
+                                    # Make _ensure_filename_length return the path unchanged
+                                    mock_writer._ensure_filename_length.side_effect = (
+                                        lambda p: p
+                                    )
 
                                     # Patch Path.unlink to raise OSError on the original test file
                                     original_unlink = Path.unlink
@@ -4439,13 +4443,18 @@ class TestAtomicOutputWrites:
 
     def _writer_patch(self, handler: PLTFileHandler) -> MagicMock:
         """Return a mock for the writer that creates a real file on write."""
-        writer = MagicMock()
+        from plt_optimizer.core.writer import PLTWriter
+
+        real_writer = PLTWriter()
+        writer = MagicMock(spec=PLTWriter)
 
         def fake_write(_doc: object, path: Path) -> None:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("fake plt content", encoding="utf-8")
 
         writer.write_file.side_effect = fake_write
+        # Make _ensure_filename_length return the path unchanged (identity)
+        writer._ensure_filename_length.side_effect = lambda p: p
         handler._writer = writer
         return writer
 
