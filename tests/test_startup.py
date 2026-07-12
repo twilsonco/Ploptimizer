@@ -28,8 +28,6 @@ import types
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 
 class TestGetStartupFolder:
     """Tests for get_startup_folder() function."""
@@ -208,7 +206,7 @@ class TestGetStartupFolderWindowsPaths:
             # Patch to raise exception when importing winshell
             with patch.dict("sys.modules", {"winshell": None}):
                 result = get_startup_folder()
-                
+
                 assert result is not None
                 assert "Roaming" in str(result)
                 assert "Microsoft" in str(result)
@@ -245,7 +243,7 @@ class TestRemoveShortcutPaths:
                 # Create a fake shortcut
                 shortcut = tmp_path / "PLT-Optimizer.lnk"
                 shortcut.touch()
-                
+
                 result = remove_shortcut()
                 assert result is True
                 assert not shortcut.exists()
@@ -253,25 +251,25 @@ class TestRemoveShortcutPaths:
     def test_remove_shortcut_oserror_returns_false(self) -> None:
         """Test OSError during removal returns False."""
         from plt_optimizer.utils import startup
-        
+
         with patch.object(sys, "platform", "win32"):
             with patch("plt_optimizer.utils.startup.get_startup_folder") as mock_get_folder:
                 tmp_shortcut = MagicMock(spec=Path)
                 tmp_shortcut.exists.return_value = True
-                
+
                 # Make unlink raise OSError when called on the shortcut path
                 original_unlink = Path.unlink
                 def raising_unlink(self: object) -> None:
                     raise OSError("Permission denied")
-                
+
                 # Bind to a mock so it becomes a method-like callable
                 bound_unlink = types.MethodType(raising_unlink, tmp_shortcut)
                 tmp_shortcut.unlink = bound_unlink  # type: ignore[method-assign]
                 tmp_shortcut.__str__ = lambda: "/tmp/PLT-Optimizer.lnk"
-                
+
                 mock_get_folder.return_value = MagicMock(spec=Path)
                 mock_get_folder.return_value.__truediv__.return_value = tmp_shortcut
-                
+
                 result = startup.remove_shortcut()
                 assert result is False
 
@@ -303,7 +301,7 @@ class TestIsStartupEnabledPaths:
                 # Create the fake shortcut
                 shortcut = tmp_path / "PLT-Optimizer.lnk"
                 shortcut.touch()
-                
+
                 result = is_startup_enabled()
                 assert result is True
 
@@ -343,12 +341,12 @@ class TestCreateShortcutPaths:
                     # Mock ImportError when importing win32com.client
                     import builtins
                     original_import = builtins.__import__
-                    
+
                     def mock_import(name: str, *args: object, **kwargs: object) -> object:
                         if name == "win32com.client":
                             raise ImportError("No module named 'win32com'")
                         return original_import(name, *args, **kwargs)
-                    
+
                     with patch.object(builtins, "__import__", side_effect=mock_import):
                         result = create_shortcut()
                         assert result is None
@@ -370,16 +368,16 @@ class TestGetStartupFolderWinshellSuccess:
         with patch.object(sys, "platform", "win32"):
             with patch.dict("sys.modules", {"winshell": mock_winshell_module}):
                 # Mock the import to return our mocked winshell
-                original_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else getattr(__builtins__, "__import__")
-                
+                original_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
+
                 def mock_winshell_import(name: str, *args: object, **kwargs: object) -> object:
                     if name == "winshell":
                         return mock_winshell_module
                     return original_import(name, *args, **kwargs)
-                
+
                 with patch("builtins.__import__", side_effect=mock_winshell_import):
                     result = get_startup_folder()
-                    
+
                     assert result is not None
                     # On macOS/linux the function returns early due to platform check
 
@@ -395,13 +393,13 @@ class TestGetExecutablePathPythonw:
         """Verify get_executable_path enters the pythonw.exe check branch on Windows."""
         from plt_optimizer.utils.startup import get_executable_path
 
-        # This is a logic verification - the actual path existence would be 
+        # This is a logic verification - the actual path existence would be
         # tested in an integration test on Windows
         with patch.object(sys, "platform", "win32"):
             with patch.dict(sys.__dict__, {"frozen": False}):
                 mock_python = MagicMock()
                 mock_parent_path = MagicMock(spec=Path)
-                
+
                 def parent_getitem(name: str) -> Path:
                     if name == "pythonw.exe":
                         result = MagicMock(spec=Path)
@@ -409,10 +407,10 @@ class TestGetExecutablePathPythonw:
                         result.exists.return_value = True
                         return result
                     raise IndexError(f"No '{name}' in venv")
-                
+
                 mock_parent_path.__truediv__ = parent_getitem
                 mock_python.parent = mock_parent_path
-                
+
                 with patch.object(sys, "executable", str(mock_python)):
                     # Just verify the function doesn't crash on this path
                     try:
@@ -432,7 +430,7 @@ class TestCreateShortcutSuccess:
         mock_startup_folder = MagicMock(spec=Path)
         mock_shortcut_path = tmp_path / "PLT-Optimizer.lnk"
         mock_startup_folder.__truediv__.return_value = mock_shortcut_path
-        
+
         # Mock the shell and shortcut objects
         mock_shell = MagicMock()
         mock_shortcut = MagicMock()
@@ -444,18 +442,18 @@ class TestCreateShortcutSuccess:
                 return_value=mock_startup_folder,
             ):
                 # Mock the import of win32com.client.Dispatch
-                original_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else getattr(__builtins__, "__import__")
-                
+                original_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
+
                 def mock_win32com_import(name: str, *args: object, **kwargs: object) -> object:
                     if name == "win32com.client":
                         mock_client = MagicMock()
                         mock_client.Dispatch.return_value = mock_shell
                         return mock_client
                     return original_import(name, *args, **kwargs)
-                
+
                 with patch("builtins.__import__", side_effect=mock_win32com_import):
                     result = create_shortcut(target_path=mock_target)
-                    
+
                     assert result == mock_shortcut_path
                     mock_shell.CreateShortcut.assert_called_once()
                     mock_shortcut.Save.assert_called_once()
@@ -469,12 +467,12 @@ class TestCreateShortcutException:
         from plt_optimizer.utils.startup import create_shortcut
 
         mock_target = MagicMock(spec=Path)
-        
+
         # Create proper mocks for the startup folder structure
         mock_startup_folder = MagicMock(spec=Path)
         mock_shortcut_path = MagicMock(spec=Path)
         mock_startup_folder.__truediv__.return_value = mock_shortcut_path
-        
+
         with patch.object(sys, "platform", "win32"):
             with patch(
                 "plt_optimizer.utils.startup.get_startup_folder",
@@ -485,8 +483,8 @@ class TestCreateShortcutException:
                     return_value=mock_target,
                 ):
                     # Mock win32com.client.Dispatch to raise a non-ImportError exception
-                    original_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else getattr(__builtins__, "__import__")
-                    
+                    original_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
+
                     def raise_generic_exception(name: str, *args: object, **kwargs: object) -> object:
                         if name == "win32com.client":
                             mock_client = MagicMock()
@@ -496,7 +494,7 @@ class TestCreateShortcutException:
                             mock_client.Dispatch.side_effect = raising_dispatch
                             return mock_client
                         return original_import(name, *args, **kwargs)
-                    
+
                     with patch("builtins.__import__", side_effect=raise_generic_exception):
                         result = create_shortcut()
                         assert result is None
@@ -554,5 +552,4 @@ class TestCreateShortcutTargetPathNoneExecutable:
 
     def test_create_shortcut_target_none_uses_executable_path(self, tmp_path: Path) -> None:
         """Test that when target_path is None, uses get_executable_path result."""
-        from plt_optimizer.utils.startup import create_shortcut
 

@@ -12,9 +12,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from unittest.mock import patch
-
-import pytest
 
 from plt_optimizer.utils.logging import (
     CSVMetricsLogger,
@@ -71,7 +68,7 @@ class TestCSVMetricsLoggerEnsureHeader:
         log_file = tmp_path / "test_columns.csv"
         logger = CSVMetricsLogger(log_file=log_file)
 
-        with open(log_file, "r", encoding="utf-8") as f:
+        with open(log_file, encoding="utf-8") as f:
             first_line = f.readline().strip()
 
         expected_columns = [
@@ -120,7 +117,7 @@ class TestCSVMetricsLoggerLogJob:
             status="success",
         )
 
-        with open(log_file, "r", encoding="utf-8") as f:
+        with open(log_file, encoding="utf-8") as f:
             lines = f.readlines()
 
         # Should have header + 1 data row
@@ -140,7 +137,7 @@ class TestCSVMetricsLoggerLogJob:
             status="skipped",
         )
 
-        with open(log_file, "r", encoding="utf-8") as f:
+        with open(log_file, encoding="utf-8") as f:
             lines = f.readlines()
 
         assert len(lines) == 2
@@ -159,7 +156,7 @@ class TestCSVMetricsLoggerLogJob:
             status="failed",
         )
 
-        with open(log_file, "r", encoding="utf-8") as f:
+        with open(log_file, encoding="utf-8") as f:
             lines = f.readlines()
 
         # optimized_file field should be empty string when None
@@ -190,7 +187,7 @@ class TestCSVMetricsLoggerLogJob:
             status="success",
         )
 
-        with open(log_file, "r", encoding="utf-8") as f:
+        with open(log_file, encoding="utf-8") as f:
             lines = f.readlines()
 
         # Should have header + 2 data rows

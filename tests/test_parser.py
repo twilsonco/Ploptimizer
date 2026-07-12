@@ -6,22 +6,18 @@ Tests the parsing accuracy, error handling, and edge cases of the HPGL parser.
 from __future__ import annotations
 
 import math
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 import pytest
 
 from plt_optimizer.core.models import (
     ArcSegment,
     Coordinate,
-    HeaderCommand,
-    PenState,
     PLTDocument,
-    Segment,
-    StrokePath,
     StrokeSegment,
 )
-from plt_optimizer.core.parser import PLTParser, ParseError
+from plt_optimizer.core.parser import ParseError, PLTParser
 
 
 class TestPLTParser:

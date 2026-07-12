@@ -76,10 +76,12 @@ class HeaderCommand:
     Attributes:
         instruction: The HPGL instruction mnemonic (e.g., 'IN', 'VS', 'ZO').
         parameters: Optional tuple of numeric parameters for the command.
+        parameters_str: Optional original string representation of parameters for preserving exact formatting.
     """
 
     instruction: str
     parameters: tuple[float, ...] | None = None
+    parameters_str: str | None = None
 
     def __post_init__(self) -> None:
         """Round any floating point parameters to 3 decimal places."""
@@ -115,9 +117,11 @@ class HeaderCommand:
         # Split instruction from parameters
         parts = token.split(":", 1)  # Some commands use : as separator
         params: tuple[float, ...] | None = None
+        params_str: str | None = None
         if len(parts) == 2:
             instr, param_str = parts
             params = tuple(float(p) for p in param_str.split(","))
+            params_str = param_str
         else:
             # Try to split on letters followed by numbers
             import re
@@ -128,10 +132,11 @@ class HeaderCommand:
                 param_str = match.group(2)
                 if param_str:
                     params = tuple(float(p) for p in param_str.split(","))
+                    params_str = param_str
             else:
                 instr = token
 
-        return cls(instruction=instr, parameters=params)
+        return cls(instruction=instr, parameters=params, parameters_str=params_str)
 
 
 @dataclass(frozen=True)
