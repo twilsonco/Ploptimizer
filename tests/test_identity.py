@@ -547,3 +547,85 @@ class TestMetadataPreservation:
                         f"End Y mismatch in path {path_idx}, segment {seg_idx}: "
                         f"original={orig_seg.end.y}, output={reparsed_seg.end.y}"
                     )
+
+    def test_nn2opt_strategy_rapid_travel_improvement_1x3_holes(self) -> None:
+        """Test that nn2opt strategy achieves ~71.79% rapid travel improvement on 1x3 file.
+
+        This test verifies that running the NearestNeighbor2OptStrategy on the
+        "1x3 half inch letters holes1.plt" file produces a rapid travel distance
+        reduction of approximately 71.79%.
+
+        The file has 96 holes arranged in a 4x6 grid (2 columns x 16 rows), which
+        creates significant opportunity for optimization through reordering.
+
+        Expected metrics:
+        - Original rapid travel distance: ~563.7
+        - Optimized rapid travel distance: ~159.0
+        - Improvement: ~71.79%
+        """
+        parser = PLTParser()
+        writer = PLTWriter()
+
+        # Load the 1x3 half inch letters holes1.plt example file
+        examples_dir = Path(__file__).parent.parent / "examples"
+        original_path = examples_dir / "1x3 half inch letters holes1.plt"
+
+        if not original_path.exists():
+            pytest.skip(f"Example file not found: {original_path}")
+
+        # Parse the original document
+        doc_original = parser.parse_file(original_path)
+
+        # Calculate original rapid travel distance
+        original_rapid_distance = doc_original.rapid_distance()
+
+        # Profile the document
+        profiler = Profiler()
+        profile_result = profiler.profile(doc_original)
+
+        # Chunk the document
+        chunker = Chunker(config=ChunkerConfig(threshold_multiplier=2.0))
+        blocks = chunker.chunk(
+            doc_original.stroke_paths,
+            profile_result.baseline_extent,
+            is_structural=profile_result.is_structural,
+        )
+
+        if not blocks:
+            pytest.skip("No blocks generated from file")
+
+        # Optimize using NearestNeighbor2OptStrategy
+        strategy = NearestNeighbor2OptStrategy()
+        engine = OptimizerEngine(strategy=strategy)
+        optimization_result = engine.optimize(blocks)
+
+        # Reassemble into optimized document
+        reassembler = Reassembler()
+        doc_optimized = reassembler.reassemble(
+            original_document=doc_original,
+            blocks=blocks,
+            optimization_result=optimization_result,
+        )
+
+        # Write optimized to temp file
+        with tempfile.TemporaryDirectory() as tmpdir:
+            optimized_path = Path(tmpdir) / "1x3_optimized.plt"
+            writer.write_file(doc_optimized, optimized_path)
+
+            # Re-parse the optimized file to calculate rapid travel distance
+            doc_optimized_parsed = parser.parse_file(optimized_path)
+            optimized_rapid_distance = doc_optimized_parsed.rapid_distance()
+
+            # Calculate improvement percentage
+            improvement_pct = (
+                (original_rapid_distance - optimized_rapid_distance)
+                / original_rapid_distance
+                * 100.0
+            )
+
+            # Assert improvement is approximately 71.79%
+            # Using a tolerance of ±0.5% to account for minor variations
+            assert math.isclose(improvement_pct, 71.79, abs_tol=0.5), (
+                f"Rapid travel improvement {improvement_pct:.2f}% does not match expected 71.79%. "
+                f"Original: {original_rapid_distance:.1f}, Optimized: {optimized_rapid_distance:.1f}"
+            )
