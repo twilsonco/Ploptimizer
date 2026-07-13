@@ -202,6 +202,64 @@ uv pip install -e .
 
 Note: Plotting/diagnostic features (matplotlib) are not available on Windows 7.
 
+### Step 4: Building the Executable for Windows 7
+
+**Important:** The CI-built Windows executables are compiled with newer toolchains and will not run on Windows 7. You must build the executable on your Windows 7 machine or use a compatible build environment.
+
+#### Prerequisites
+
+Ensure you have completed Steps 1-3 above, then install PyInstaller:
+
+```batch
+cd C:\path\to\plt-optimizer
+uv pip install pyinstaller==5.13.2
+```
+
+(PyInstaller 5.13.2 is the last version supporting Python 3.8)
+
+#### Build the Executable
+
+```batch
+cd C:\path\to\plt-optimizer
+
+:: Build the standalone executable
+uv run pyinstaller --onefile --noconsole ^
+    --name "Ploptimizer" ^
+    --add-data "assets;assets" ^
+    --icon "assets\icon.ico" ^
+    run_tray.py
+```
+
+The compiled executable will be created at `dist\Ploptimizer.exe`.
+
+#### Install the Built Executable
+
+To make the executable available system-wide, copy it to a directory in your PATH:
+
+```batch
+copy dist\Ploptimizer.exe C:\Windows\System32\
+```
+
+Or keep it in a custom location and add that location to your PATH:
+
+```batch
+setx PATH "%PATH%;C:\path\to\plt-optimizer\dist"
+```
+
+#### Using the Built Executable
+
+You can now run the application from anywhere:
+
+```batch
+Ploptimizer.exe
+```
+
+Or use it directly with the watch daemon:
+
+```batch
+Ploptimizer.exe watch --watch-dir D:\PlotterFiles\Watch --output-dir D:\PlotterFiles\Optimized --log-dir D:\Logs
+```
+
 ---
 
 ### Verifying Installation
@@ -341,8 +399,6 @@ The application will now start automatically when you log in to Windows, with no
 
 **Note:** This build step must be run on **Windows**. The system tray functionality requires Windows APIs.
 
-For **maintainers releasing pre-built binaries**:
-
 1. On **Windows**, install all dependencies:
    ```powershell
    uv sync --extra dev --extra tray --extra build
@@ -352,25 +408,93 @@ For **maintainers releasing pre-built binaries**:
 
 3. Build the executable:
    ```powershell
-   uv run pyinstaller --noconsole --windowed --name PLT-Optimizer `
-       --icon=assets/icon.ico --add-data "assets/icon.ico;assets" `
-       run_tray.py
+   uv run pyinstaller --onefile --noconsole `
+      --name "Ploptimizer" `
+      --add-data "assets;assets" `
+      --icon "assets/icon.ico" `
+      run_tray.py
    ```
 
 4. The compiled executable will be in `dist/PLT-Optimizer.exe`
 
-5. Upload to GitHub Releases for users to download
+##### Method 2: Task Scheduler (Recommended)
+
+1. Open **Task Scheduler** (`taskschd.msc`)
+
+2. Click **Create Basic Task** → Name it "PLT-Optimizer Watch"
+
+3. Set Trigger: **When the computer starts**
+
+4. Set Action: **Start a program**
+   - Program: `cmd.exe`
+   - Arguments: `/c cd /d C:\PLT-Optimizer && uv run plt-optimizer watch --watch-dir D:\PlotterFiles\Watch --output-dir D:\PlotterFiles\Optimized --log-dir D:\Logs`
+
+5. Configure:
+   - Check **Run whether user is logged on or not** (requires password)
+   - Check **Run with highest privileges** if writing to protected directories
+   - Set **Stop task if it runs longer than:** 1 day (optional)
+
+6. Click **OK** and enter your Windows password when prompted.
+
+##### Method 3: Windows Service (Advanced)
+
+For a persistent background service that survives user logoff, use NSSM (Non-Sucking Service Manager):
+
+```powershell
+# Install NSSM via Chocolatey
+choco install nssm -y
+
+# Or download from https://nssm.cc/download
+
+# Create the service (run PowerShell as Administrator)
+$nssm = "C:\Program Files\nssm\win64\nssm.exe"
+
+& $nssm install PLT-Optimizer "C:\Users\<YourUser>\.local\bin\uv.exe" "run plt-optimizer watch --watch-dir D:\PlotterFiles\Watch --output-dir D:\PlotterFiles\Optimized --log-dir D:\Logs"
+# Note: Use full path to uv.exe from your user directory
+
+# Configure startup type
+& $nssm set PLT-Optimizer Start SERVICE_AUTO_START
+
+# Start the service
+& $nssm start PLT-Optimizer
+
+# Check status
+& $nssm status PLT-Optimizer
+```
+
+##### Method 4: Startup Folder Shortcut
+
+For a simple user-level auto-start:
+
+1. Press `Win + R`, type `shell:startup`, press Enter
+
+2. Create a shortcut:
+   - Right-click → New → Shortcut
+   - Location: `cmd.exe /k cd /d C:\PLT-Optimizer && uv run plt-optimizer watch --watch-dir D:\PlotterFiles\Watch --output-dir D:\PlotterFiles\Optimized --log-dir D:\Logs`
+   - Name: "PLT-Optimizer Watch"
+
+3. The daemon will start when you log in, running in a visible console window.
 
 ##### Verifying the Service
 
 ```powershell
-# Check logs (in user's AppData\Local\PLT-Optimizer\logs\)
-Get-Content "$env:LOCALAPPDATA\PLT-Optimizer\logs\optimizer.log" -Tail 20 -Wait
+# Check logs
+Get-Content D:\Logs\optimizer.log -Tail 20 -Wait
+
+# Or for Task Scheduler tasks:
+Get-ScheduledTask | Where-Object {$_.TaskName -like "*PLT*"}
+Get-ScheduledTaskInfo -TaskName "PLT-Optimizer Watch"
 ```
 
-##### Stopping the Application
+##### Stopping the Service
 
-Right-click the system tray icon → **Exit**, or find "PLT-Optimizer" in Task Manager and end the task.
+```powershell
+# For Task Scheduler (if running)
+Stop-ScheduledTask -TaskName "PLT-Optimizer Watch"
+
+# For NSSM service
+& $nssm stop PLT-Optimizer
+```
 
 ### Running the Example Script
 
