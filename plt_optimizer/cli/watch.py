@@ -32,7 +32,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
 # Third-party imports
 try:
@@ -832,121 +832,57 @@ class WatchCommand:
     This class handles argument parsing and orchestrates the file system
     watcher for automated PLT optimization via CLI arguments.
 
-    For programmatic use (e.g., from tray application), use run_watcher_from_config()
+    The constructor accepts either:
+    * a list of raw CLI argument strings (e.g. ``["--watch-dir", "/input"]``),
+      which is parsed via :func:`setup_parser`; or
+    * a pre-parsed :class:`argparse.Namespace` (e.g. from the main CLI router
+      in ``main.py``).
+
+    For programmatic use (e.g., from tray application), use ``run_watcher_from_config()``
     directly instead of this class.
     """
 
-    def __init__(self, args: Optional[List[str]] = None) -> None:
+    def __init__(self, args: Optional[Union[List[str], argparse.Namespace]] = None) -> None:
         """Initialize the watch command.
 
         Args:
-            args: Command-line arguments (defaults to sys.argv).
+            args: Either a list of raw CLI argument strings (parsed via
+                :func:`setup_parser`) or a pre-parsed ``argparse.Namespace``.
+                If ``None``, ``sys.argv[1:]`` is used.
         """
-        # Check if --log-dir was explicitly provided before parsing
-        self._log_dir_explicitly_set = (args is not None and "--log-dir" in args) or (
-            args is None and "--log-dir" in sys.argv[1:]
-        )
-        self._args = self._parse_args(args)
+        if isinstance(args, argparse.Namespace):
+            # Pre-parsed by the main CLI router; no parsing needed.
+            self._log_dir_explicitly_set = getattr(args, "_log_dir_explicitly_set", True)
+            self._args = args
+        else:
+            # Raw CLI args (or None -> sys.argv[1:]). Detect whether --log-dir
+            # was explicitly provided before parsing so the debug-save-files
+            # default behavior matches the original WatchCommand semantics.
+            raw_args = sys.argv[1:] if args is None else args
+            self._log_dir_explicitly_set = "--log-dir" in raw_args
+            self._args = self._parse_args(raw_args)
         self._existing_handler: Optional[PLTFileHandler] = None
         self._shutdown_requested = False
         self._observer: Optional[Observer] = None  # type: ignore[valid-type]
         self._text_logger: Optional[TextLogger] = None
         self._metrics_logger: Optional[CSVMetricsLogger] = None
 
-    def _parse_args(self, args: Optional[List[str]]) -> argparse.Namespace:
-        """Parse command-line arguments.
+    def _parse_args(self, args: List[str]) -> argparse.Namespace:
+        """Parse command-line arguments via :func:`setup_parser`.
 
         Args:
-            args: Arguments to parse (defaults to sys.argv).
+            args: Arguments to parse (already stripped of any leading
+                ``"watch"`` subcommand token if applicable).
 
         Returns:
             Parsed argument namespace.
         """
-        if args is None:
-            args = sys.argv[1:]
+        # Strip the leading "watch" subcommand token if present so that
+        # `python -m plt_optimizer.cli.watch --watch-dir ...` works whether
+        # invoked directly or routed through the main CLI.
         if args and args[0] == "watch":
             args = args[1:]
-        parser = argparse.ArgumentParser(
-            prog="plt-optimizer watch",
-            description="Watch a directory for PLT files and optimize them automatically.",
-            formatter_class=argparse.RawDescriptionHelpFormatter,
-            epilog="""
-Examples:
-  # Watch current directory, output to ./optimized, logs to ./logs
-  python -m plt_optimizer.cli.watch --watch-dir .
-
-  # With explicit directories and fast mode
-  python -m plt_optimizer.cli.watch --watch-dir /input/plt \\
-                                    --output-dir /output/plt \\
-                                    --log-dir /var/log/plt-optimizer \\
-                                    --fast-mode
-
-  # With processed-dir to archive original files after optimization
-  python -m plt_optimizer.cli.watch --watch-dir /input/plt \\
-                                    --output-dir /output/plt \\
-                                    --processed-dir /archive/plt
-
-  # Run as module
-  uv run plt-optimizer watch --watch-dir /input
-            """,
-        )
-
-        parser.add_argument(
-            "--watch-dir",
-            type=Path,
-            required=True,
-            help="Directory to watch for new/modified PLT files.",
-        )
-        parser.add_argument(
-            "--output-dir",
-            type=Path,
-            default=Path("./optimized"),
-            help="Directory where optimized PLT files are saved (default: ./optimized).",
-        )
-        parser.add_argument(
-            "--log-dir",
-            type=Path,
-            default=Path("./logs"),
-            help="Directory for log files (default: ./logs).",
-        )
-        parser.add_argument(
-            "--processed-dir",
-            type=Path,
-            default=None,
-            help=(
-                "Directory to move processed PLT files to after optimization. "
-                "If not specified, original files remain in the watch directory."
-            ),
-        )
-        parser.add_argument(
-            "--fast-mode",
-            action="store_true",
-            help=(
-                "Use NearestNeighbor2OptStrategy exclusively for faster processing. "
-                "If not specified, uses ParallelEnsembleStrategy which runs multiple "
-                "strategies and selects the best result."
-            ),
-        )
-        parser.add_argument(
-            "--debug-save-files",
-            action="store_true",
-            help=(
-                "Save before/after PLT files and comparison plots to the log directory. "
-                "Only effective when --log-dir is specified. Creates a 'debug' subdirectory "
-                "containing original.plt, optimized.plt, and comparison.png for each job."
-            ),
-        )
-        parser.add_argument(
-            "--debounce-seconds",
-            type=float,
-            default=2.0,
-            help=(
-                "Quiet period (seconds) the watcher waits after the last "
-                "modification to a file before processing it. Prevents "
-                "reading partially-written files (default: 2.0)."
-            ),
-        )
-
+        parser = setup_parser()
         return parser.parse_args(args)
 
     def _validate_path_can_be_created(self, path: pathlib.Path) -> None:
@@ -1225,12 +1161,59 @@ Examples:
         return 0
 
 
-def setup_parser(parser: argparse.ArgumentParser) -> None:
+# Default values for arguments; kept module-level so setup_parser() and the
+# "log-dir explicitly set" detection in WatchCommand stay in sync.
+_DEFAULT_OUTPUT_DIR: Path = Path("./optimized")
+_DEFAULT_LOG_DIR: Path = Path("./logs")
+_DEFAULT_DEBOUNCE_SECONDS: float = 2.0
+
+
+def setup_parser(parser: Optional[argparse.ArgumentParser] = None) -> argparse.ArgumentParser:
     """Configure argument parser for the watch subcommand.
 
+    This is the single source of truth for watch CLI arguments. It supports
+    two modes:
+
+    * If ``parser`` is provided, the watch arguments are added to it (used by
+      the main CLI router in ``main.py``).
+    * If ``parser`` is ``None``, a standalone ``ArgumentParser`` is created
+      with watch-specific prog/description/epilog (used by
+      ``python -m plt_optimizer.cli.watch`` direct invocation).
+
     Args:
-        parser: ArgumentParser or subparser instance to configure.
+        parser: Existing ``ArgumentParser`` to extend, or ``None`` to create
+            a new standalone parser.
+
+    Returns:
+        The ``ArgumentParser`` instance (either the one passed in or the newly
+        created standalone one).
     """
+    if parser is None:
+        parser = argparse.ArgumentParser(
+            prog="plt-optimizer watch",
+            description="Watch a directory for PLT files and optimize them automatically.",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog="""
+Examples:
+  # Watch current directory, output to ./optimized, logs to ./logs
+  python -m plt_optimizer.cli.watch --watch-dir .
+
+  # With explicit directories and fast mode
+  python -m plt_optimizer.cli.watch --watch-dir /input/plt \\
+                                    --output-dir /output/plt \\
+                                    --log-dir /var/log/plt-optimizer \\
+                                    --fast-mode
+
+  # With processed-dir to archive original files after optimization
+  python -m plt_optimizer.cli.watch --watch-dir /input/plt \\
+                                    --output-dir /output/plt \\
+                                    --processed-dir /archive/plt
+
+  # Run as module
+  uv run plt-optimizer watch --watch-dir /input
+            """,
+        )
+
     parser.add_argument(
         "--watch-dir",
         type=Path,
@@ -1240,13 +1223,13 @@ def setup_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("./optimized"),
+        default=_DEFAULT_OUTPUT_DIR,
         help="Directory where optimized PLT files are saved (default: ./optimized).",
     )
     parser.add_argument(
         "--log-dir",
         type=Path,
-        default=Path("./logs"),
+        default=_DEFAULT_LOG_DIR,
         help="Directory for log files (default: ./logs).",
     )
     parser.add_argument(
@@ -1276,13 +1259,25 @@ def setup_parser(parser: argparse.ArgumentParser) -> None:
             "containing original.plt, optimized.plt, and comparison.png for each job."
         ),
     )
+    parser.add_argument(
+        "--debounce-seconds",
+        type=float,
+        default=_DEFAULT_DEBOUNCE_SECONDS,
+        help=(
+            "Quiet period (seconds) the watcher waits after the last "
+            "modification to a file before processing it. Prevents "
+            "reading partially-written files (default: 2.0)."
+        ),
+    )
+
+    return parser
 
 
 def run(args: argparse.Namespace) -> int:
     """Execute the watch command.
 
     This function serves as the entry point when watch is invoked as a subcommand.
-    It wraps WatchCommand but accepts pre-parsed arguments from argparse.
+    It wraps ``WatchCommand`` but accepts pre-parsed arguments from argparse.
 
     Args:
         args: Parsed command-line arguments namespace.
@@ -1290,277 +1285,8 @@ def run(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 for success, non-zero for failure).
     """
-    command = WatchCommandWithArgs(args)
+    command = WatchCommand(args)
     return command.run()
-
-
-class WatchCommandWithArgs:
-    """Extended watch command that accepts pre-parsed arguments.
-
-    This class is used when the watch subcommand is invoked through the main
-    CLI router, which has already parsed the arguments.
-    """
-
-    def __init__(self, args: argparse.Namespace) -> None:
-        """Initialize the watch command with pre-parsed arguments.
-
-        Args:
-            args: Pre-parsed argument namespace from main CLI.
-        """
-        self._args = args
-        self._text_logger: Optional[TextLogger] = None
-        self._metrics_logger: Optional[CSVMetricsLogger] = None
-        self._observer: Optional[Observer] = None  # type: ignore[valid-type]
-        self._shutdown_requested = False
-
-    def _validate_path_can_be_created(self, path: pathlib.Path) -> None:
-        """Validate that a path's parent directories exist and are writable.
-
-        Args:
-            path: The path to validate.
-
-        Raises:
-            ValueError: If the path cannot be created due to missing or unwritable
-                        parent directories.
-        """
-        import platform
-
-        if path.exists():
-            return
-
-        # Check each parent directory
-        for parent in path.parents:
-            if parent == pathlib.Path("/"):
-                raise ValueError(f"Cannot create path '{path}': root directory '/' is not writable")
-            if parent.exists():
-                # Parent exists, check if we can write to it
-                try:
-                    test_file = parent / f".plt_opt_write_test_{os.getpid()}"
-                    test_file.touch()
-                    test_file.unlink()
-                except PermissionError as e:
-                    raise ValueError(
-                        f"Cannot create path '{path}': "
-                        f"parent directory '{parent}' is not writable: {e}"
-                    ) from e
-                # Parent is writable, so we can create children
-                return
-            # Parent doesn't exist, continue checking grandparents
-
-        # If we get here, no parents exist up to root - check if root itself exists
-        root = path.anchor
-        if root and not pathlib.Path(root).exists():
-            raise ValueError(
-                f"Cannot create path '{path}': "
-                f"root directory '{root}' does not exist on this system "
-                f"({platform.system()})"
-            )
-
-    def _setup_logging(self) -> None:
-        """Initialize logging system with configured log directory."""
-        text_log_file = self._args.log_dir / "optimizer.log"
-        csv_metrics_file = self._args.log_dir / "job_metrics.csv"
-
-        # Validate paths before attempting creation
-        try:
-            self._validate_path_can_be_created(self._args.output_dir)
-            self._validate_path_can_be_created(self._args.log_dir)
-        except ValueError as e:
-            raise OSError(str(e)) from e
-
-        # Ensure directories exist
-        try:
-            self._args.output_dir.mkdir(parents=True, exist_ok=True)
-            self._args.log_dir.mkdir(parents=True, exist_ok=True)
-        except PermissionError as e:
-            raise OSError(
-                f"Permission denied creating directory '{self._args.output_dir}' or "
-                f"'{self._args.log_dir}': {e}. This may indicate a path issue - "
-                f"ensure the parent directories exist and are writable."
-            ) from e
-
-        from plt_optimizer.utils.logging import setup_logging
-
-        self._text_logger, self._metrics_logger = setup_logging(
-            text_log_file=text_log_file,
-            csv_metrics_file=csv_metrics_file,
-        )
-
-    def _validate_directories(self) -> bool:
-        """Validate that required directories exist and are accessible.
-
-        Returns:
-            True if all directories are valid.
-        """
-        # Assert loggers are initialized (called after run() sets up logging)
-        assert self._text_logger is not None, "Text logger should be initialized"
-        assert self._metrics_logger is not None, "Metrics logger should be initialized"
-
-        # Check watch directory
-        if not self._args.watch_dir.exists():
-            self._text_logger.error(f"Watch directory does not exist: {self._args.watch_dir}")
-            return False
-
-        if not self._args.watch_dir.is_dir():
-            self._text_logger.error(f"Watch path is not a directory: {self._args.watch_dir}")
-            return False
-
-        # Try to list directory contents (check read permissions)
-        try:
-            list(self._args.watch_dir.iterdir())
-        except PermissionError:
-            self._text_logger.error(
-                f"No permission to read watch directory: {self._args.watch_dir}"
-            )
-            return False
-
-        # Check/create output directory
-        if not self._args.output_dir.exists():
-            try:
-                self._args.output_dir.mkdir(parents=True, exist_ok=True)
-            except OSError as e:
-                self._text_logger.error(
-                    f"Cannot create output directory {self._args.output_dir}: {e}"
-                )
-                return False
-
-        # Check/create log directory
-        if not self._args.log_dir.exists():
-            try:
-                self._args.log_dir.mkdir(parents=True, exist_ok=True)
-            except OSError as e:
-                self._text_logger.error(f"Cannot create log directory {self._args.log_dir}: {e}")
-                return False
-
-        # Check/create processed directory if specified
-        if self._args.processed_dir is not None and not self._args.processed_dir.exists():
-            try:
-                self._args.processed_dir.mkdir(parents=True, exist_ok=True)
-            except OSError as e:
-                self._text_logger.error(
-                    f"Cannot create processed directory {self._args.processed_dir}: {e}"
-                )
-                return False
-
-        return True
-
-    def _process_existing_files(self) -> int:
-        """Process any existing PLT files in the watch directory.
-
-        Returns:
-            Number of files successfully processed.
-        """
-        # Assert loggers are initialized (called after run() sets up logging)
-        assert self._text_logger is not None, "Text logger should be initialized"
-        assert self._metrics_logger is not None, "Metrics logger should be initialized"
-
-        self._text_logger.info(f"Scanning for existing PLT files in {self._args.watch_dir}")
-
-        count = 0
-        handler = PLTFileHandler(
-            watch_dir=self._args.watch_dir,
-            output_dir=self._args.output_dir,
-            text_logger=self._text_logger,
-            metrics_logger=self._metrics_logger,
-            fast_mode=self._args.fast_mode,
-            processed_dir=self._args.processed_dir,
-            debug_save_files=getattr(self._args, "debug_save_files", False),
-            log_dir=self._args.log_dir if getattr(self._args, "debug_save_files", False) else None,
-        )
-
-        for path in self._args.watch_dir.iterdir():
-            if handler._is_plt_file(path):
-                try:
-                    if handler._should_process(path):
-                        handler._mark_processed(path)
-                        if handler._process_file(path):
-                            count += 1
-                except Exception as e:
-                    self._text_logger.error(f"Error processing {path}: {e}")
-
-        return count
-
-    def _signal_handler(self, signum: int, frame: object) -> None:
-        """Handle shutdown signals gracefully.
-
-        Args:
-            signum: Signal number received.
-            frame: Current stack frame (unused, required by signal handler signature).
-        """
-        sig_name = signal.Signals(signum).name if hasattr(signal, "Signals") else str(signum)
-        if self._text_logger is not None:
-            self._text_logger.info(f"Received {sig_name}, initiating graceful shutdown...")
-        self._shutdown_requested = True
-
-    def run(self) -> int:
-        """Run the watch daemon.
-
-        Returns:
-            Exit code (0 for success).
-        """
-        # Set up logging
-        self._setup_logging()
-        # Assert loggers are initialized (mypy type narrowing)
-        assert self._text_logger is not None, "Text logger should be initialized"
-        assert self._metrics_logger is not None, "Metrics logger should be initialized"
-
-        self._text_logger.info("=" * 60)
-        self._text_logger.info("PLT-Optimizer Watch Daemon")
-        self._text_logger.info(f"Watch directory: {self._args.watch_dir}")
-        self._text_logger.info(f"Output directory: {self._args.output_dir}")
-        self._text_logger.info(f"Log directory: {self._args.log_dir}")
-        if self._args.processed_dir is not None:
-            self._text_logger.info(f"Processed directory: {self._args.processed_dir}")
-        self._text_logger.info(
-            f"Strategy: {'NearestNeighbor2Opt (Fast Mode)' if self._args.fast_mode else 'ParallelEnsemble'}"
-        )
-        self._text_logger.info("=" * 60)
-
-        # Validate directories
-        if not self._validate_directories():
-            return 1
-
-        # Set up signal handlers for graceful shutdown
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
-
-        # Process existing files first
-        processed_count = self._process_existing_files()
-        if processed_count > 0:
-            self._text_logger.info(f"Processed {processed_count} existing file(s)")
-
-        # Start watching for new files
-        event_handler = PLTFileHandler(
-            watch_dir=self._args.watch_dir,
-            output_dir=self._args.output_dir,
-            text_logger=self._text_logger,
-            metrics_logger=self._metrics_logger,
-            fast_mode=self._args.fast_mode,
-            processed_dir=self._args.processed_dir,
-            debug_save_files=getattr(self._args, "debug_save_files", False),
-            log_dir=self._args.log_dir if getattr(self._args, "debug_save_files", False) else None,
-        )
-
-        self._observer = Observer()
-        self._observer.schedule(event_handler, str(self._args.watch_dir), recursive=False)  # type: ignore[no-untyped-call]
-        self._observer.start()  # type: ignore[no-untyped-call]
-
-        self._text_logger.info(f"Watching for PLT files in {self._args.watch_dir}")
-        self._text_logger.info("Press Ctrl+C to stop...")
-
-        try:
-            while not self._shutdown_requested:
-                # Check every second (Observer is running in background thread)
-                signal.pause() if hasattr(signal, "pause") else time.sleep(1)
-        except KeyboardInterrupt:
-            self._text_logger.info("Keyboard interrupt received")
-        finally:
-            if self._observer is not None:
-                self._observer.stop()  # type: ignore[no-untyped-call]
-                self._observer.join(timeout=5.0)
-
-        self._text_logger.info("Watch daemon stopped.")
-        return 0
 
 
 def main(args: Optional[List[str]] = None) -> int:
