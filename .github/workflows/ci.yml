@@ -186,47 +186,23 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
-      - name: Set up Python 3.8
-        uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v6
         with:
-          python-version: '3.8.x'
-      - name: Verify Python version (REQUIRED for Windows 7 support)
-        shell: powershell
-        run: |
-          $python_version = python --version
-          Write-Host "Python version: $python_version"
-          if (-not $python_version.Contains("3.8")) {
-            throw "ERROR: Expected Python 3.8 for Windows 7 compatibility, but got: $python_version"
-          }
-          $python_path = python -c "import sys; print(sys.executable)"
-          Write-Host "Python executable: $python_path"
-          python --version
-      - name: Install uv (ensuring Windows 7 compatibility)
+          python-version: '3.11'
+      - name: Install uv
         run: pip install uv
-      - name: Verify uv version
-        shell: powershell
-        run: |
-          $uv_version = uv --version
-          Write-Host "uv version: $uv_version"
-      - name: Sync dependencies
-        run: uv sync --all-extras
+      - run: uv sync --all-extras
       - name: Create assets directory
         run: New-Item -ItemType Directory -Force -Path assets
-      - name: Build executable (for Windows 7 compatibility with Python 3.8)
+      - name: Build executable
         shell: powershell
         run: |
-          $python_path = python -c "import sys; print(sys.executable)"
-          Write-Host "Building with Python from: $python_path"
           uv run pyinstaller --onefile --noconsole `
             --name "Ploptimizer" `
             --add-data "assets;assets" `
             --icon "assets/icon.ico" `
             run_tray.py
-      - name: Verify executable
-        shell: powershell
-        run: |
-          Write-Host "Build complete. Executable size:"
-          Get-Item dist/Ploptimizer.exe | Select-Object Length, LastWriteTime
       - name: Upload Release Artifact
         uses: softprops/action-gh-release@v2
         with:
