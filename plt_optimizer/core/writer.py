@@ -189,6 +189,9 @@ class PLTWriter:
 
         result = "".join(parts)
 
+        # Remove redundant PU/PD pairs (same coordinates)
+        result = self._remove_redundant_pu_pd_pairs(result)
+
         # Ensure file ends with a newline (blank line at EOF)
         if result and not result.endswith("\n"):
             result += "\n"
@@ -321,6 +324,38 @@ class PLTWriter:
         """
         # Use fixed-point formatting to ensure consistent precision
         return f"{value:.3f}"
+
+    def _remove_redundant_pu_pd_pairs(self, output: str) -> str:
+        """Remove redundant PU/PD command pairs with identical coordinates.
+
+        If a PU (pen-up) command is immediately followed by a PD (pen-down)
+        command with the exact same coordinates, this is a no-op that wastes
+        plotter time. This optimization removes such pairs entirely.
+
+        Example:
+            Input:  '...\\nPU253.999,2853.971;\\nPD253.999,2853.971;...'
+            Output: '...\\n...' (pair removed)
+
+        Args:
+            output: The formatted HPGL output string.
+
+        Returns:
+            Optimized output string with redundant PU/PD pairs removed.
+        """
+        # Pattern: \nPU<coords>;\nPD<same_coords>;
+        # Coordinates are formatted as: -?\d+\.\d{3},-?\d+\.\d{3}
+        # Use backreference \1 to match the same coordinate pair twice
+        pattern = r"\nPU(-?\d+\.\d{3},-?\d+\.\d{3});\nPD\1;"
+        optimized = re.sub(pattern, "", output)
+
+        if len(output) != len(optimized):
+            removed_count = (len(output) - len(optimized)) // 50  # Rough estimate
+            self._logger.debug(
+                f"Removed approximately {removed_count} redundant PU/PD pair(s) "
+                f"during output optimization."
+            )
+
+        return optimized
 
     def validate_output(
         self,

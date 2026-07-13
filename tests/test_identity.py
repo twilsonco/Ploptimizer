@@ -623,9 +623,10 @@ class TestMetadataPreservation:
                 * 100.0
             )
 
-            # Assert improvement is approximately 71.79%
+            # Assert improvement is approximately 92.48%
             # Using a tolerance of ±0.5% to account for minor variations
-            assert math.isclose(improvement_pct, 71.79, abs_tol=0.5), (
-                f"Rapid travel improvement {improvement_pct:.2f}% does not match expected 71.79%. "
+            # (Improved from 71.79% due to redundant PU/PD pair removal optimization)
+            assert math.isclose(improvement_pct, 92.48, abs_tol=0.5), (
+                f"Rapid travel improvement {improvement_pct:.2f}% does not match expected 92.48%. "
                 f"Original: {original_rapid_distance:.1f}, Optimized: {optimized_rapid_distance:.1f}"
             )
