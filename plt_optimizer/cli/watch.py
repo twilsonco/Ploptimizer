@@ -552,21 +552,35 @@ class PLTFileHandler(FileSystemEventHandler):
 
             # Archive or delete original file after successful optimization
             if self._processed_dir is not None:
-                try:
-                    dest_path = self._processed_dir / input_path.name
-                    shutil.move(str(input_path), str(dest_path))
+                if input_path.exists():
+                    try:
+                        dest_path = self._processed_dir / input_path.name
+                        shutil.move(str(input_path), str(dest_path))
+                        self._text_logger.debug(
+                            f"[{job_id}] Moved {input_path.name} to {self._processed_dir}"
+                        )
+                    except OSError as e:
+                        self._text_logger.warning(f"[{job_id}] Failed to move processed file: {e}")
+                else:
                     self._text_logger.debug(
-                        f"[{job_id}] Moved {input_path.name} to {self._processed_dir}"
+                        f"[{job_id}] Original file {input_path.name} was already deleted or moved"
                     )
-                except OSError as e:
-                    self._text_logger.warning(f"[{job_id}] Failed to move processed file: {e}")
             else:
                 # Delete original file from watch directory by default
-                try:
-                    input_path.unlink()
-                    self._text_logger.debug(f"[{job_id}] Deleted original file {input_path.name}")
-                except OSError as e:
-                    self._text_logger.warning(f"[{job_id}] Failed to delete processed file: {e}")
+                if input_path.exists():
+                    try:
+                        input_path.unlink()
+                        self._text_logger.debug(
+                            f"[{job_id}] Deleted original file {input_path.name}"
+                        )
+                    except OSError as e:
+                        self._text_logger.warning(
+                            f"[{job_id}] Failed to delete processed file: {e}"
+                        )
+                else:
+                    self._text_logger.debug(
+                        f"[{job_id}] Original file {input_path.name} was already deleted"
+                    )
 
             return True
 
