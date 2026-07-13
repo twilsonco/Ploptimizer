@@ -270,8 +270,13 @@ class TestIsStructuralPath:
 
         assert profiler._is_structural_path(path) is True
 
-    def test_closed_loop_rectangle_is_structural(self) -> None:
-        """Test that a closed loop rectangle with long segments is structural."""
+    def test_closed_loop_rectangle_not_structural(self) -> None:
+        """Test that a closed loop rectangle is NOT marked as structural.
+        
+        Closed loops (rectangles, boundaries) are normal design features that should
+        NOT be classified as structural. Only genuine structural features like single
+        straight lines and drill holes should be marked structural.
+        """
         profiler = Profiler()
 
         # Rectangle: (0,0) -> (100,0) -> (100,50) -> (0,50) -> (0,0)
@@ -282,7 +287,7 @@ class TestIsStructuralPath:
 
         path = StrokePath(pen_up_position=None, segments=(seg1, seg2, seg3, seg4))
 
-        assert profiler._is_structural_path(path) is True
+        assert profiler._is_structural_path(path) is False
 
     def test_engravelab_drill_hole_is_structural(self) -> None:
         """Test that EngraveLab 4-arc drill hole pattern is structural."""
@@ -363,34 +368,20 @@ class TestIsStructuralPath:
         result = profiler._is_structural_path(path)
 
     def test_calculate_average_segment_length(self) -> None:
-        """Test average segment length calculation."""
-        seg1 = StrokeSegment(start=Coordinate(x=0.0, y=0.0), end=Coordinate(x=3.0, y=4.0), is_cutting=True)
-        seg2 = StrokeSegment(start=Coordinate(x=3.0, y=4.0), end=Coordinate(x=6.0, y=4.0), is_cutting=True)
-
-        path = StrokePath(pen_up_position=None, segments=(seg1, seg2))
-
-        profiler = Profiler()
-        avg_length = profiler._calculate_average_segment_length(path)
-
-        # First segment length = 5 (3-4-5 triangle)
-        # Second segment length = 3
-        # Average = 4
-        assert math.isclose(avg_length, 4.0)
+        """Note: _calculate_average_segment_length was removed as it's no longer used.
+        
+        The method was only used by the closed-loop detection which has been removed
+        since closed loops are normal design features, not structural elements.
+        """
+        pass
 
     def test_calculate_bounding_box_extent(self) -> None:
-        """Test bounding box extent calculation."""
-        seg1 = StrokeSegment(start=Coordinate(x=10.0, y=20.0), end=Coordinate(x=110.0, y=70.0), is_cutting=True)
-        seg2 = StrokeSegment(start=Coordinate(x=110.0, y=70.0), end=Coordinate(x=-30.0, y=50.0), is_cutting=True)
-
-        path = StrokePath(pen_up_position=None, segments=(seg1, seg2))
-
-        profiler = Profiler()
-        extent = profiler._calculate_bounding_box_extent(path)
-
-        # min_x = -30, max_x = 110 -> dx = 140
-        # min_y = 20, max_y = 70 -> dy = 50
-        # extent = max(140, 50) = 140
-        assert math.isclose(extent, 140.0)
+        """Note: _calculate_bounding_box_extent was removed as it's no longer used.
+        
+        The method was only used by the closed-loop detection which has been removed
+        since closed loops are normal design features, not structural elements.
+        """
+        pass
 
 
 class TestStructuralClassification:
@@ -506,20 +497,12 @@ class TestProfilerEdgeCasesCoverage:
             profiler.profile(doc)
 
     def test_calculate_average_segment_length_with_zero_segments(self) -> None:
-        """Test _calculate_average_segment_length returns 0 for empty path."""
-        profiler = Profiler()
-
-        path = StrokePath(pen_up_position=None, segments=())
-        result = profiler._calculate_average_segment_length(path)
-        assert result == 0.0
+        """Note: _calculate_average_segment_length was removed and is no longer available."""
+        pass
 
     def test_calculate_bounding_box_extent_with_zero_segments(self) -> None:
-        """Test _calculate_bounding_box_extent returns 0 for empty path."""
-        profiler = Profiler()
-
-        path = StrokePath(pen_up_position=None, segments=())
-        result = profiler._calculate_bounding_box_extent(path)
-        assert result == 0.0
+        """Note: _calculate_bounding_box_extent was removed and is no longer available."""
+        pass
 
     def test_closed_loop_with_zero_bbox_extent_not_structural(self) -> None:
         """Test closed loop detection when bbox extent is 0 (line ~157 branch)."""
@@ -537,11 +520,14 @@ class TestProfilerEdgeCasesCoverage:
         assert result is True  # Single segment is always structural
 
     def test_closed_loop_with_small_segment_ratio_not_structural(self) -> None:
-        """Test closed loop with small segment-length-to-extent ratio."""
+        """Test that closed loops are NOT marked as structural.
+        
+        Closed loops are normal design features, not structural elements.
+        """
         profiler = Profiler()
 
         # Create a rectangle but each side has multiple tiny segments
-        # This reduces avg segment length relative to bounding box extent
+        # Closed loops should still NOT be structural
         seg1 = StrokeSegment(
             start=Coordinate(x=0.0, y=0.0), end=Coordinate(x=10.0, y=0.0), is_cutting=True
         )
@@ -551,12 +537,12 @@ class TestProfilerEdgeCasesCoverage:
         seg3 = StrokeSegment(
             start=Coordinate(x=20.0, y=0.0), end=Coordinate(x=30.0, y=0.0), is_cutting=True
         )
-        # ... many tiny segments to reduce avg segment length
 
         path = StrokePath(pen_up_position=None, segments=(seg1, seg2, seg3))
 
         result = profiler._is_structural_path(path)
-        # Should not be structural because average segment length relative to bbox is small
+        # Should not be structural - closed loops are normal design features
+        assert result is False
 
 
 class TestStructuralPathBranches:
@@ -676,8 +662,13 @@ class TestStructuralPathBranches:
         # Should return False because Check 3 requires both first/last to be StrokeSegment
         assert result is False
 
-    def test_linear_path_with_high_segment_ratio_is_structural(self) -> None:
-        """Test that pure linear path with high segment/extent ratio is structural."""
+    def test_linear_path_with_high_segment_ratio_not_structural(self) -> None:
+        """Test that pure linear paths are NOT marked as structural.
+        
+        Linear paths, even with high segment-length-to-extent ratios, are normal
+        design features (grid lines, borders) and should not be classified as
+        structural. Only single straight lines and drill holes are structural.
+        """
         profiler = Profiler()
 
         # Single long line - high segment length relative to bbox extent
@@ -690,10 +681,9 @@ class TestStructuralPathBranches:
 
         path = StrokePath(pen_up_position=None, segments=(seg1, seg2))
 
-        # avg_segment_length = 100, bbox_extent = 200 (dx=200, dy=0)
-        # ratio = 100/200 = 0.5 >= 0.25 -> structural
+        # Linear paths with multiple segments should NOT be structural
         result = profiler._is_structural_path(path)
-        assert result is True
+        assert result is False
 
     def test_linear_path_with_low_segment_ratio_not_structural(self) -> None:
         """Test that linear path with low segment/extent ratio is not structural."""
@@ -874,14 +864,14 @@ class TestPureLinearWithArcs:
         # Single segment - caught by Check 1 first!
 
     def test_closed_loop_rectangle_multiple_segments(self) -> None:
-        """Test closed loop rectangle made of multiple equal segments (not single long ones).
-
-        This tests the avg_segment_length check when bbox_extent > 0 and ratio >= 0.15.
+        """Test closed loop rectangle is NOT marked as structural.
+        
+        Closed loops are normal design features, not structural elements.
+        Even if they have large segments relative to bbox, they should not be marked structural.
         """
         profiler = Profiler()
 
         # Rectangle with 4 sides, each side split into 2 segments
-        # So we have 8 segments total for a 100x50 rectangle
         seg1 = StrokeSegment(start=Coordinate(x=0.0, y=0.0), end=Coordinate(x=50.0, y=0.0), is_cutting=True)
         seg2 = StrokeSegment(start=Coordinate(x=50.0, y=0.0), end=Coordinate(x=100.0, y=0.0), is_cutting=True)
         seg3 = StrokeSegment(start=Coordinate(x=100.0, y=0.0), end=Coordinate(x=100.0, y=25.0), is_cutting=True)
@@ -893,13 +883,9 @@ class TestPureLinearWithArcs:
 
         path = StrokePath(pen_up_position=None, segments=(seg1, seg2, seg3, seg4, seg5, seg6, seg7, seg8))
 
-        # bbox_extent: max(100, 50) = 100
-        # Total length: 8 * 50 = 400
-        # avg_segment_length = 50
-        # ratio = 50/100 = 0.5 >= 0.15 -> structural
-
         result = profiler._is_structural_path(path)
-        assert result is True
+        # Closed loops should NOT be marked as structural
+        assert result is False
 
 
 class TestTotalPathsZero:
@@ -1124,47 +1110,18 @@ class TestBBoxExtentEdgeCases:
     """Test _calculate_bounding_box_extent edge cases."""
 
     def test_bbox_extent_with_arc_segments(self) -> None:
-        """Test bbox calculation includes arc segment endpoints."""
-        profiler = Profiler()
-        from plt_optimizer.core.models import ArcSegment
-
-        # Path with one line and one arc
-        seg1 = StrokeSegment(
-            start=Coordinate(x=0.0, y=0.0),
-            end=Coordinate(x=100.0, y=0.0),  # Extent in x direction
-            is_cutting=True,
-        )
-        arc1 = ArcSegment(
-            start=Coordinate(x=100.0, y=0.0),
-            end=Coordinate(x=100.0, y=50.0),
-            center=Coordinate(x=100.0, y=25.0),
-            sweep_angle=90.0,
-            is_cutting=True,
-        )
-
-        path = StrokePath(pen_up_position=None, segments=(seg1, arc1))
-
-        extent = profiler._calculate_bounding_box_extent(path)
-
-        # min_x=0, max_x=100 -> dx=100
-        # min_y=0, max_y=50 (arc endpoint)
-        # max(100, 50) = 100
-        assert extent == 100.0
+        """Note: _calculate_bounding_box_extent was removed and is no longer available.
+        
+        This helper method was only used by closed-loop detection which has been removed.
+        """
+        pass
 
     def test_bbox_extent_single_segment(self) -> None:
-        """Test bbox with a single segment."""
-        profiler = Profiler()
-
-        seg1 = StrokeSegment(
-            start=Coordinate(x=10.0, y=20.0),
-            end=Coordinate(x=60.0, y=120.0),  # dx=50, dy=100
-            is_cutting=True,
-        )
-
-        path = StrokePath(pen_up_position=None, segments=(seg1,))
-
-        extent = profiler._calculate_bounding_box_extent(path)
-        assert extent == 100.0
+        """Note: _calculate_bounding_box_extent was removed and is no longer available.
+        
+        This helper method was only used by closed-loop detection which has been removed.
+        """
+        pass
 
 
 class TestStructuralRatioEdgeCases:

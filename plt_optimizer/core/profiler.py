@@ -17,7 +17,6 @@ from plt_optimizer.core.models import (
     ArcSegment,
     StrokePath,
     StrokeSegment,
-    _segment_length,
 )
 from plt_optimizer.utils.logging import get_text_logger
 
@@ -216,8 +215,10 @@ class Profiler:
         A structural path matches one of these patterns:
         1. Single straight StrokeSegment (simple score/cut line)
         2. EngraveLab drill hole: exactly 4x 90-degree arcs + optional zero-length plunge
-        3. Closed loop rectangle/boundary with high segment-length-to-extent ratio
-        4. Linear path where average segment length is large relative to bounding box
+
+        Closed loops (rectangles, boundaries) and other geometric paths are NOT marked
+        as structural because they are normal design elements that should be optimized
+        along with other features.
 
         Args:
             path: The stroke path to classify.
@@ -241,84 +242,7 @@ class Profiler:
             if all(math.isclose(line.length, 0.0, abs_tol=1e-3) for line in lines):
                 return True
 
-        # Check 3: Closed loop detection - first segment start matches last segment end
-        first_seg = path.segments[0]
-        last_seg = path.segments[-1]
-
-        if isinstance(first_seg, StrokeSegment) and isinstance(last_seg, StrokeSegment):
-            loop_closed = math.isclose(
-                first_seg.start.x, last_seg.end.x, abs_tol=COORD_TOLERANCE
-            ) and math.isclose(first_seg.start.y, last_seg.end.y, abs_tol=COORD_TOLERANCE)
-
-            if loop_closed:
-                # Check 4: Segment length analysis - structural paths have long segments
-                # relative to their bounding box extent (text has many tiny strokes)
-                avg_segment_length = self._calculate_average_segment_length(path)
-
-                if avg_segment_length > 0:
-                    bbox_extent = self._calculate_bounding_box_extent(path)
-                    if bbox_extent > 0:
-                        length_to_extent_ratio = avg_segment_length / bbox_extent
-                        # If average segment spans more than 15% of the bounding box,
-                        # it's likely a structural feature (rectangle, grid line)
-                        if length_to_extent_ratio >= 0.15:
-                            return True
-
-        # Check 5: Pure linear path with high segment-length-to-extent ratio
-        if not arcs and lines:
-            avg_segment_length = self._calculate_average_segment_length(path)
-
-            if avg_segment_length > 0:
-                bbox_extent = self._calculate_bounding_box_extent(path)
-                if bbox_extent > 0:
-                    length_to_extent_ratio = avg_segment_length / bbox_extent
-                    # Structural linear paths (grid lines, borders) typically have
-                    # long segments relative to bounding box - threshold of 0.25
-                    if length_to_extent_ratio >= 0.25:
-                        return True
-
         return False
-
-    def _calculate_average_segment_length(self, path: StrokePath) -> float:
-        """Calculate the average segment length for a stroke path.
-
-        Args:
-            path: The stroke path to analyze.
-
-        Returns:
-            Average Euclidean length of all segments.
-        """
-        if not path.segments:
-            return 0.0
-
-        total_length = sum(_segment_length(seg) for seg in path.segments)
-        return total_length / len(path.segments)
-
-    def _calculate_bounding_box_extent(self, path: StrokePath) -> float:
-        """Calculate the maximum dimension of a path's bounding box.
-
-        Args:
-            path: The stroke path to analyze.
-
-        Returns:
-            Maximum of (width, height) of the bounding box.
-        """
-        if not path.segments:
-            return 0.0
-
-        xs = []
-        ys = []
-
-        for seg in path.segments:
-            xs.append(seg.start.x)
-            xs.append(seg.end.x)
-            ys.append(seg.start.y)
-            ys.append(seg.end.y)
-
-        dx = max(xs) - min(xs)
-        dy = max(ys) - min(ys)
-
-        return max(dx, dy)
 
 
 @dataclass(frozen=True)
@@ -333,12 +257,10 @@ class ProfileResult:
         total_strokes: Number of cutting stroke segments analyzed.
         p95_index: Index into sorted dimensions that corresponds to 95th percentile.
         is_structural: True if the file contains structural features (drill holes,
-            score lines, cutouts) instead of text. A file is classified as structural
+            score lines) instead of design geometry. A file is classified as structural
             when more than 85%% of its paths match structural fingerprints based on:
             - Single straight StrokeSegment (score/cut line)
             - EngraveLab drill hole: exactly 4x 90-degree arcs + optional plunge
-            - Closed loop detection (rectangles, boundaries) with segment length ratio
-            - Pure linear paths with high average segment to bounding box ratio
     """
 
     baseline_extent: float
