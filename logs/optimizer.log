@@ -5482,3 +5482,1048 @@ RuntimeError: Exit failed
 2026-07-13 11:55:16 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmpeauscn9u\some\nested\path\output.plt
 2026-07-13 11:55:16 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmp24k6088z\output.plt
 2026-07-13 11:55:16 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmpu39fj788\output.plt
+2026-07-13 12:22:02 | INFO     | plt_optimizer | Benchmark starting: 5 file(s), 5 worker(s)
+2026-07-13 12:22:02 | INFO     | plt_optimizer | Submitted 5 file(s) to 5 worker(s)
+2026-07-13 12:22:02 | INFO     | plt_optimizer | Parsing PLT file: examples\1-inch-square.plt
+2026-07-13 12:22:02 | INFO     | plt_optimizer | Parsing PLT file: examples\1x3 half inch letters holes1.plt
+2026-07-13 12:22:02 | INFO     | plt_optimizer | Parsing PLT file: examples\334X712 RED DANGER conveyers start and stop2.plt
+2026-07-13 12:22:02 | INFO     | plt_optimizer | Parsing PLT file: examples\SFA3X611sheet1.plt
+2026-07-13 12:22:02 | INFO     | plt_optimizer | Parsing PLT file: examples\test_rect_grid13sheet0.plt
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 4.0 segments/path, 0.0% structural), baseline_extent=1016.000, total_cutting_strokes=4
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Chunking 1 stroke paths with threshold=2032.000 (baseline_extent=1016.000, multiplier=2.0)
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\no-opt\1-inch-square_optimized.plt
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 2.2 segments/path, 31.8% structural), baseline_extent=3048.000, total_cutting_strokes=49
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Chunking 22 stroke paths with threshold=6096.000 (baseline_extent=3048.000, multiplier=2.0)
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Created 6 MacroBlocks
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\no-opt\test_rect_grid13sheet0_optimized.plt
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 1 blocks
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\nn2opt\1-inch-square_optimized.plt
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Starting optimization with Cheapest Insertion Heuristic on 1 blocks
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\insertion\1-inch-square_optimized.plt
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 4.7 segments/path, 78.0% structural), baseline_extent=24383.951, total_cutting_strokes=11
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Chunking 91 stroke paths with threshold=48767.902 (baseline_extent=24383.951, multiplier=2.0)
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\no-opt\SFA3X611sheet1_optimized.plt
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 6 blocks
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 6 blocks
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=13422.480
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Reassembling document with 6 blocks
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Reassembly complete: 22 paths
+2026-07-13 12:22:03 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\nn2opt\test_rect_grid13sheet0_optimized.plt
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\christofides\1-inch-square_optimized.plt
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 4.5 segments/path, 100.0% structural), baseline_extent=18287.963, total_cutting_strokes=24
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Structural file detected: Bypassing chunker for 1:1 routing (194 paths)
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\no-opt\1x3 half inch letters holes1_optimized.plt
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Starting optimization with Cheapest Insertion Heuristic on 6 blocks
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 6 blocks
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=13422.480
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Reassembling document with 6 blocks
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Reassembly complete: 22 paths
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\insertion\test_rect_grid13sheet0_optimized.plt
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Starting optimization with Simulated Annealing on 1 blocks
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Running Simulated Annealing on 1 blocks
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\sa\1-inch-square_optimized.plt
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 1 blocks
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Reassembly complete: 91 paths
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\nn2opt\SFA3X611sheet1_optimized.plt
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Starting optimization with Genetic Algorithm on 1 blocks
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Running Genetic Algorithm on 1 blocks
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:22:04 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\genetic\1-inch-square_optimized.plt
+2026-07-13 12:22:05 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov S-T Path (5/3 approx) on 6 blocks
+2026-07-13 12:22:05 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 6 blocks
+2026-07-13 12:22:05 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=13422.480
+2026-07-13 12:22:05 | INFO     | plt_optimizer | Reassembling document with 6 blocks
+2026-07-13 12:22:05 | INFO     | plt_optimizer | Reassembly complete: 22 paths
+2026-07-13 12:22:05 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\christofides\test_rect_grid13sheet0_optimized.plt
+2026-07-13 12:22:05 | INFO     | plt_optimizer | [1/5] 1-inch-square.plt done in 2.29s (avg 2.29s, ETA 9.2s)
+2026-07-13 12:22:05 | INFO     | plt_optimizer |   -> OK
+2026-07-13 12:22:05 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 194 blocks
+2026-07-13 12:22:05 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 194 blocks
+2026-07-13 12:22:05 | INFO     | plt_optimizer | Starting optimization with Simulated Annealing on 6 blocks
+2026-07-13 12:22:05 | INFO     | plt_optimizer | Running Simulated Annealing on 6 blocks
+2026-07-13 12:22:05 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=12192.000
+2026-07-13 12:22:05 | INFO     | plt_optimizer | Reassembling document with 6 blocks
+2026-07-13 12:22:05 | INFO     | plt_optimizer | Reassembly complete: 22 paths
+2026-07-13 12:22:05 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\sa\test_rect_grid13sheet0_optimized.plt
+2026-07-13 12:22:05 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=158982.057
+2026-07-13 12:22:05 | INFO     | plt_optimizer | Reassembling document with 194 blocks
+2026-07-13 12:22:05 | INFO     | plt_optimizer | Reassembly complete: 194 paths
+2026-07-13 12:22:05 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\nn2opt\1x3 half inch letters holes1_optimized.plt
+2026-07-13 12:22:05 | INFO     | plt_optimizer | Starting optimization with Cheapest Insertion Heuristic on 1 blocks
+2026-07-13 12:22:05 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-07-13 12:22:05 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:22:05 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:22:05 | INFO     | plt_optimizer | Reassembly complete: 91 paths
+2026-07-13 12:22:05 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\insertion\SFA3X611sheet1_optimized.plt
+2026-07-13 12:22:06 | INFO     | plt_optimizer | Starting optimization with Genetic Algorithm on 6 blocks
+2026-07-13 12:22:06 | INFO     | plt_optimizer | Running Genetic Algorithm on 6 blocks
+2026-07-13 12:22:06 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=13422.480
+2026-07-13 12:22:06 | INFO     | plt_optimizer | Reassembling document with 6 blocks
+2026-07-13 12:22:06 | INFO     | plt_optimizer | Reassembly complete: 22 paths
+2026-07-13 12:22:06 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\genetic\test_rect_grid13sheet0_optimized.plt
+2026-07-13 12:22:06 | INFO     | plt_optimizer | [5/5] test_rect_grid13sheet0.plt done in 3.64s (avg 2.96s, ETA 8.9s)
+2026-07-13 12:22:06 | INFO     | plt_optimizer |   -> OK
+2026-07-13 12:22:06 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-13 12:22:06 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-13 12:22:06 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:22:06 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:22:06 | INFO     | plt_optimizer | Reassembly complete: 91 paths
+2026-07-13 12:22:06 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\christofides\SFA3X611sheet1_optimized.plt
+2026-07-13 12:22:06 | INFO     | plt_optimizer | Starting optimization with Cheapest Insertion Heuristic on 194 blocks
+2026-07-13 12:22:06 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 194 blocks
+2026-07-13 12:22:07 | INFO     | plt_optimizer | Starting optimization with Simulated Annealing on 1 blocks
+2026-07-13 12:22:07 | INFO     | plt_optimizer | Running Simulated Annealing on 1 blocks
+2026-07-13 12:22:07 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:22:07 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:22:07 | INFO     | plt_optimizer | Reassembly complete: 91 paths
+2026-07-13 12:22:07 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\sa\SFA3X611sheet1_optimized.plt
+2026-07-13 12:22:08 | INFO     | plt_optimizer | Starting optimization with Genetic Algorithm on 1 blocks
+2026-07-13 12:22:08 | INFO     | plt_optimizer | Running Genetic Algorithm on 1 blocks
+2026-07-13 12:22:08 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:22:08 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:22:08 | INFO     | plt_optimizer | Reassembly complete: 91 paths
+2026-07-13 12:22:08 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\genetic\SFA3X611sheet1_optimized.plt
+2026-07-13 12:22:09 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=231209.715
+2026-07-13 12:22:09 | INFO     | plt_optimizer | Reassembling document with 194 blocks
+2026-07-13 12:22:09 | INFO     | plt_optimizer | Reassembly complete: 194 paths
+2026-07-13 12:22:09 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\insertion\1x3 half inch letters holes1_optimized.plt
+2026-07-13 12:22:09 | INFO     | plt_optimizer | [4/5] SFA3X611sheet1.plt done in 6.28s (avg 4.07s, ETA 8.1s)
+2026-07-13 12:22:09 | INFO     | plt_optimizer |   -> OK
+2026-07-13 12:22:10 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:22:10 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 6.1 segments/path, 23.8% structural), baseline_extent=443.408, total_cutting_strokes=2530
+2026-07-13 12:22:10 | INFO     | plt_optimizer | Chunking 814 stroke paths with threshold=886.816 (baseline_extent=443.408, multiplier=2.0)
+2026-07-13 12:22:10 | INFO     | plt_optimizer | Created 48 MacroBlocks
+2026-07-13 12:22:10 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\no-opt\334X712 RED DANGER conveyers start and stop2_optimized.plt
+2026-07-13 12:22:10 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov S-T Path (5/3 approx) on 194 blocks
+2026-07-13 12:22:10 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 194 blocks
+2026-07-13 12:22:10 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=447612.097
+2026-07-13 12:22:10 | INFO     | plt_optimizer | Reassembling document with 194 blocks
+2026-07-13 12:22:10 | INFO     | plt_optimizer | Reassembly complete: 194 paths
+2026-07-13 12:22:10 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\christofides\1x3 half inch letters holes1_optimized.plt
+2026-07-13 12:22:11 | INFO     | plt_optimizer | Starting optimization with Simulated Annealing on 194 blocks
+2026-07-13 12:22:11 | INFO     | plt_optimizer | Running Simulated Annealing on 194 blocks
+2026-07-13 12:22:11 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=169532.972
+2026-07-13 12:22:11 | INFO     | plt_optimizer | Reassembling document with 194 blocks
+2026-07-13 12:22:11 | INFO     | plt_optimizer | Reassembly complete: 194 paths
+2026-07-13 12:22:11 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\sa\1x3 half inch letters holes1_optimized.plt
+2026-07-13 12:22:13 | INFO     | plt_optimizer | Starting optimization with Genetic Algorithm on 194 blocks
+2026-07-13 12:22:13 | INFO     | plt_optimizer | Running Genetic Algorithm on 194 blocks
+2026-07-13 12:22:14 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=171336.023
+2026-07-13 12:22:14 | INFO     | plt_optimizer | Reassembling document with 194 blocks
+2026-07-13 12:22:14 | INFO     | plt_optimizer | Reassembly complete: 194 paths
+2026-07-13 12:22:14 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\genetic\1x3 half inch letters holes1_optimized.plt
+2026-07-13 12:22:14 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 48 blocks
+2026-07-13 12:22:14 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 48 blocks
+2026-07-13 12:22:14 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=64538.072
+2026-07-13 12:22:14 | INFO     | plt_optimizer | Reassembling document with 48 blocks
+2026-07-13 12:22:14 | INFO     | plt_optimizer | Reassembly complete: 814 paths
+2026-07-13 12:22:14 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\nn2opt\334X712 RED DANGER conveyers start and stop2_optimized.plt
+2026-07-13 12:22:15 | INFO     | plt_optimizer | [2/5] 1x3 half inch letters holes1.plt done in 12.40s (avg 6.15s, ETA 6.2s)
+2026-07-13 12:22:15 | INFO     | plt_optimizer |   -> OK
+2026-07-13 12:22:18 | INFO     | plt_optimizer | Starting optimization with Cheapest Insertion Heuristic on 48 blocks
+2026-07-13 12:22:18 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 48 blocks
+2026-07-13 12:22:18 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=72401.294
+2026-07-13 12:22:18 | INFO     | plt_optimizer | Reassembling document with 48 blocks
+2026-07-13 12:22:18 | INFO     | plt_optimizer | Reassembly complete: 814 paths
+2026-07-13 12:22:18 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\insertion\334X712 RED DANGER conveyers start and stop2_optimized.plt
+2026-07-13 12:22:22 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov S-T Path (5/3 approx) on 48 blocks
+2026-07-13 12:22:22 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 48 blocks
+2026-07-13 12:22:22 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=81860.959
+2026-07-13 12:22:22 | INFO     | plt_optimizer | Reassembling document with 48 blocks
+2026-07-13 12:22:22 | INFO     | plt_optimizer | Reassembly complete: 814 paths
+2026-07-13 12:22:22 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\christofides\334X712 RED DANGER conveyers start and stop2_optimized.plt
+2026-07-13 12:22:26 | INFO     | plt_optimizer | Starting optimization with Simulated Annealing on 48 blocks
+2026-07-13 12:22:26 | INFO     | plt_optimizer | Running Simulated Annealing on 48 blocks
+2026-07-13 12:22:26 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=64538.072
+2026-07-13 12:22:26 | INFO     | plt_optimizer | Reassembling document with 48 blocks
+2026-07-13 12:22:26 | INFO     | plt_optimizer | Reassembly complete: 814 paths
+2026-07-13 12:22:26 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\sa\334X712 RED DANGER conveyers start and stop2_optimized.plt
+2026-07-13 12:22:30 | INFO     | plt_optimizer | Starting optimization with Genetic Algorithm on 48 blocks
+2026-07-13 12:22:30 | INFO     | plt_optimizer | Running Genetic Algorithm on 48 blocks
+2026-07-13 12:22:30 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=64753.910
+2026-07-13 12:22:30 | INFO     | plt_optimizer | Reassembling document with 48 blocks
+2026-07-13 12:22:30 | INFO     | plt_optimizer | Reassembly complete: 814 paths
+2026-07-13 12:22:30 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\genetic\334X712 RED DANGER conveyers start and stop2_optimized.plt
+2026-07-13 12:22:35 | INFO     | plt_optimizer | [3/5] 334X712 RED DANGER conveyers start and stop2.plt done in 32.09s (avg 11.34s, ETA 0.0s)
+2026-07-13 12:22:35 | INFO     | plt_optimizer |   -> OK
+2026-07-13 12:22:35 | INFO     | plt_optimizer | Benchmark finished in 33.07s
+2026-07-13 12:22:35 | INFO     | plt_optimizer | Wrote 30 per-strategy row(s) and 5 ensemble row(s); avg 6.61s/file in parallel
+2026-07-13 12:24:03 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:24:03 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 4.7 segments/path, 78.0% structural), baseline_extent=24383.951, total_cutting_strokes=11
+2026-07-13 12:24:03 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:24:03 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 4.5 segments/path, 100.0% structural), baseline_extent=18287.963, total_cutting_strokes=24
+2026-07-13 12:24:31 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:24:31 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 4.7 segments/path, 78.0% structural), baseline_extent=24383.951, total_cutting_strokes=11
+2026-07-13 12:24:31 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:24:31 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 4.5 segments/path, 100.0% structural), baseline_extent=18287.963, total_cutting_strokes=24
+2026-07-13 12:24:35 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:24:35 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 4.7 segments/path, 78.0% structural), baseline_extent=24383.951, total_cutting_strokes=11
+2026-07-13 12:24:35 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:24:35 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 4.5 segments/path, 100.0% structural), baseline_extent=18287.963, total_cutting_strokes=24
+2026-07-13 12:25:00 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:25:00 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 4.7 segments/path, 100.0% structural), baseline_extent=24383.951, total_cutting_strokes=11
+2026-07-13 12:25:00 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:25:00 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 4.5 segments/path, 100.0% structural), baseline_extent=18287.963, total_cutting_strokes=24
+2026-07-13 12:25:16 | INFO     | plt_optimizer | Benchmark starting: 7 file(s), 7 worker(s)
+2026-07-13 12:25:16 | INFO     | plt_optimizer | Submitted 7 file(s) to 7 worker(s)
+2026-07-13 12:25:16 | INFO     | plt_optimizer | Parsing PLT file: examples\1-inch-square.plt
+2026-07-13 12:25:16 | INFO     | plt_optimizer | Parsing PLT file: examples\1x3 half inch letters holes1.plt
+2026-07-13 12:25:16 | INFO     | plt_optimizer | Parsing PLT file: examples\2026-07-10 SW0914 1230sheet0.plt
+2026-07-13 12:25:16 | INFO     | plt_optimizer | Parsing PLT file: examples\2026-07-10 SW0914 1230sheet0_optimi.plt
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Parsing PLT file: examples\334X712 RED DANGER conveyers start and stop2.plt
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Parsing PLT file: examples\SFA3X611sheet1.plt
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Parsing PLT file: examples\test_rect_grid13sheet0.plt
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 4.0 segments/path, 0.0% structural), baseline_extent=1016.000, total_cutting_strokes=4
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Chunking 1 stroke paths with threshold=2032.000 (baseline_extent=1016.000, multiplier=2.0)
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\no-opt\1-inch-square_optimized.plt
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 3.0 segments/path, 84.6% structural), baseline_extent=8122.000, total_cutting_strokes=18
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Chunking 26 stroke paths with threshold=16244.000 (baseline_extent=8122.000, multiplier=2.0)
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\no-opt\2026-07-10 SW0914 1230sheet0_optimi_optimized.plt
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 3.7 segments/path, 85.7% structural), baseline_extent=8122.000, total_cutting_strokes=18
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Structural file detected: Bypassing chunker for 1:1 routing (21 paths)
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\no-opt\2026-07-10 SW0914 1230sheet0_optimized.plt
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 2.2 segments/path, 31.8% structural), baseline_extent=3048.000, total_cutting_strokes=49
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Chunking 22 stroke paths with threshold=6096.000 (baseline_extent=3048.000, multiplier=2.0)
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Created 6 MacroBlocks
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\no-opt\test_rect_grid13sheet0_optimized.plt
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 1 blocks
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:25:17 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\nn2opt\1-inch-square_optimized.plt
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Starting optimization with Cheapest Insertion Heuristic on 1 blocks
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\insertion\1-inch-square_optimized.plt
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 1 blocks
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Reassembly complete: 26 paths
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\nn2opt\2026-07-10 SW0914 1230sheet0_optimi_optimized.plt
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 4.7 segments/path, 100.0% structural), baseline_extent=24383.951, total_cutting_strokes=11
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Structural file detected: Bypassing chunker for 1:1 routing (91 paths)
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\no-opt\SFA3X611sheet1_optimized.plt
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 21 blocks
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 21 blocks
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=30983.210
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Reassembling document with 21 blocks
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Reassembly complete: 21 paths
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\nn2opt\2026-07-10 SW0914 1230sheet0_optimized.plt
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 6 blocks
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 6 blocks
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=13422.480
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Reassembling document with 6 blocks
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Reassembly complete: 22 paths
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\nn2opt\test_rect_grid13sheet0_optimized.plt
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\christofides\1-inch-square_optimized.plt
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 4.5 segments/path, 100.0% structural), baseline_extent=18287.963, total_cutting_strokes=24
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Structural file detected: Bypassing chunker for 1:1 routing (194 paths)
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\no-opt\1x3 half inch letters holes1_optimized.plt
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Starting optimization with Cheapest Insertion Heuristic on 21 blocks
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 21 blocks
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=25398.577
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Reassembling document with 21 blocks
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Reassembly complete: 21 paths
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\insertion\2026-07-10 SW0914 1230sheet0_optimized.plt
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Starting optimization with Simulated Annealing on 1 blocks
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Running Simulated Annealing on 1 blocks
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:25:18 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\sa\1-inch-square_optimized.plt
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Starting optimization with Cheapest Insertion Heuristic on 1 blocks
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Reassembly complete: 26 paths
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\insertion\2026-07-10 SW0914 1230sheet0_optimi_optimized.plt
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Starting optimization with Cheapest Insertion Heuristic on 6 blocks
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 6 blocks
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=13422.480
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Reassembling document with 6 blocks
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Reassembly complete: 22 paths
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\insertion\test_rect_grid13sheet0_optimized.plt
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Starting optimization with Genetic Algorithm on 1 blocks
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Running Genetic Algorithm on 1 blocks
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\genetic\1-inch-square_optimized.plt
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 91 blocks
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 91 blocks
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=144043.049
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Reassembling document with 91 blocks
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Reassembly complete: 91 paths
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\nn2opt\SFA3X611sheet1_optimized.plt
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov S-T Path (5/3 approx) on 21 blocks
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 21 blocks
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Reassembly complete: 26 paths
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\christofides\2026-07-10 SW0914 1230sheet0_optimi_optimized.plt
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=59439.022
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Reassembling document with 21 blocks
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Reassembly complete: 21 paths
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\christofides\2026-07-10 SW0914 1230sheet0_optimized.plt
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov S-T Path (5/3 approx) on 6 blocks
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 6 blocks
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=13422.480
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Reassembling document with 6 blocks
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Reassembly complete: 22 paths
+2026-07-13 12:25:19 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\christofides\test_rect_grid13sheet0_optimized.plt
+2026-07-13 12:25:19 | INFO     | plt_optimizer | [1/7] 1-inch-square.plt done in 2.79s (avg 2.79s, ETA 16.7s)
+2026-07-13 12:25:19 | INFO     | plt_optimizer |   -> OK
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Starting optimization with Simulated Annealing on 1 blocks
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Running Simulated Annealing on 1 blocks
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Starting optimization with Simulated Annealing on 21 blocks
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Running Simulated Annealing on 21 blocks
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Reassembly complete: 26 paths
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\sa\2026-07-10 SW0914 1230sheet0_optimi_optimized.plt
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 194 blocks
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 194 blocks
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=30983.210
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Reassembling document with 21 blocks
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Reassembly complete: 21 paths
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\sa\2026-07-10 SW0914 1230sheet0_optimized.plt
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Starting optimization with Simulated Annealing on 6 blocks
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Running Simulated Annealing on 6 blocks
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=12192.000
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Reassembling document with 6 blocks
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Reassembly complete: 22 paths
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\sa\test_rect_grid13sheet0_optimized.plt
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=158982.057
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Reassembling document with 194 blocks
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Reassembly complete: 194 paths
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\nn2opt\1x3 half inch letters holes1_optimized.plt
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Starting optimization with Cheapest Insertion Heuristic on 91 blocks
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 91 blocks
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Starting optimization with Genetic Algorithm on 1 blocks
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Running Genetic Algorithm on 1 blocks
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Reassembly complete: 26 paths
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\genetic\2026-07-10 SW0914 1230sheet0_optimi_optimized.plt
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Starting optimization with Genetic Algorithm on 21 blocks
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Running Genetic Algorithm on 21 blocks
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Starting optimization with Genetic Algorithm on 6 blocks
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Running Genetic Algorithm on 6 blocks
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=93144.432
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Reassembling document with 91 blocks
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Reassembly complete: 91 paths
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\insertion\SFA3X611sheet1_optimized.plt
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=13422.480
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Reassembling document with 6 blocks
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Reassembly complete: 22 paths
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\genetic\test_rect_grid13sheet0_optimized.plt
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=30575.112
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Reassembling document with 21 blocks
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Reassembly complete: 21 paths
+2026-07-13 12:25:20 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\genetic\2026-07-10 SW0914 1230sheet0_optimized.plt
+2026-07-13 12:25:21 | INFO     | plt_optimizer | [4/7] 2026-07-10 SW0914 1230sheet0_optimi.plt done in 4.30s (avg 3.55s, ETA 17.7s)
+2026-07-13 12:25:21 | INFO     | plt_optimizer |   -> OK
+2026-07-13 12:25:21 | INFO     | plt_optimizer | [7/7] test_rect_grid13sheet0.plt done in 4.39s (avg 3.83s, ETA 15.3s)
+2026-07-13 12:25:21 | INFO     | plt_optimizer |   -> OK
+2026-07-13 12:25:21 | INFO     | plt_optimizer | [3/7] 2026-07-10 SW0914 1230sheet0.plt done in 4.45s (avg 3.98s, ETA 12.0s)
+2026-07-13 12:25:21 | INFO     | plt_optimizer |   -> OK
+2026-07-13 12:25:21 | INFO     | plt_optimizer | Starting optimization with Cheapest Insertion Heuristic on 194 blocks
+2026-07-13 12:25:21 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 194 blocks
+2026-07-13 12:25:21 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov S-T Path (5/3 approx) on 91 blocks
+2026-07-13 12:25:21 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 91 blocks
+2026-07-13 12:25:21 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=322819.740
+2026-07-13 12:25:21 | INFO     | plt_optimizer | Reassembling document with 91 blocks
+2026-07-13 12:25:21 | INFO     | plt_optimizer | Reassembly complete: 91 paths
+2026-07-13 12:25:21 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\christofides\SFA3X611sheet1_optimized.plt
+2026-07-13 12:25:22 | INFO     | plt_optimizer | Starting optimization with Simulated Annealing on 91 blocks
+2026-07-13 12:25:22 | INFO     | plt_optimizer | Running Simulated Annealing on 91 blocks
+2026-07-13 12:25:22 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=144043.049
+2026-07-13 12:25:22 | INFO     | plt_optimizer | Reassembling document with 91 blocks
+2026-07-13 12:25:22 | INFO     | plt_optimizer | Reassembly complete: 91 paths
+2026-07-13 12:25:22 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\sa\SFA3X611sheet1_optimized.plt
+2026-07-13 12:25:23 | INFO     | plt_optimizer | Starting optimization with Genetic Algorithm on 91 blocks
+2026-07-13 12:25:23 | INFO     | plt_optimizer | Running Genetic Algorithm on 91 blocks
+2026-07-13 12:25:24 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=231209.715
+2026-07-13 12:25:24 | INFO     | plt_optimizer | Reassembling document with 194 blocks
+2026-07-13 12:25:24 | INFO     | plt_optimizer | Reassembly complete: 194 paths
+2026-07-13 12:25:24 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\insertion\1x3 half inch letters holes1_optimized.plt
+2026-07-13 12:25:24 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=144043.049
+2026-07-13 12:25:24 | INFO     | plt_optimizer | Reassembling document with 91 blocks
+2026-07-13 12:25:24 | INFO     | plt_optimizer | Reassembly complete: 91 paths
+2026-07-13 12:25:24 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\genetic\SFA3X611sheet1_optimized.plt
+2026-07-13 12:25:24 | INFO     | plt_optimizer | [6/7] SFA3X611sheet1.plt done in 7.97s (avg 4.78s, ETA 9.6s)
+2026-07-13 12:25:24 | INFO     | plt_optimizer |   -> OK
+2026-07-13 12:25:25 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:25:25 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 6.1 segments/path, 23.8% structural), baseline_extent=443.408, total_cutting_strokes=2530
+2026-07-13 12:25:25 | INFO     | plt_optimizer | Chunking 814 stroke paths with threshold=886.816 (baseline_extent=443.408, multiplier=2.0)
+2026-07-13 12:25:25 | INFO     | plt_optimizer | Created 48 MacroBlocks
+2026-07-13 12:25:25 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\no-opt\334X712 RED DANGER conveyers start and stop2_optimized.plt
+2026-07-13 12:25:25 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov S-T Path (5/3 approx) on 194 blocks
+2026-07-13 12:25:25 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 194 blocks
+2026-07-13 12:25:25 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=447612.097
+2026-07-13 12:25:25 | INFO     | plt_optimizer | Reassembling document with 194 blocks
+2026-07-13 12:25:25 | INFO     | plt_optimizer | Reassembly complete: 194 paths
+2026-07-13 12:25:25 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\christofides\1x3 half inch letters holes1_optimized.plt
+2026-07-13 12:25:26 | INFO     | plt_optimizer | Starting optimization with Simulated Annealing on 194 blocks
+2026-07-13 12:25:26 | INFO     | plt_optimizer | Running Simulated Annealing on 194 blocks
+2026-07-13 12:25:26 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=171336.023
+2026-07-13 12:25:26 | INFO     | plt_optimizer | Reassembling document with 194 blocks
+2026-07-13 12:25:26 | INFO     | plt_optimizer | Reassembly complete: 194 paths
+2026-07-13 12:25:26 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\sa\1x3 half inch letters holes1_optimized.plt
+2026-07-13 12:25:27 | INFO     | plt_optimizer | Starting optimization with Genetic Algorithm on 194 blocks
+2026-07-13 12:25:27 | INFO     | plt_optimizer | Running Genetic Algorithm on 194 blocks
+2026-07-13 12:25:29 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=171336.023
+2026-07-13 12:25:29 | INFO     | plt_optimizer | Reassembling document with 194 blocks
+2026-07-13 12:25:29 | INFO     | plt_optimizer | Reassembly complete: 194 paths
+2026-07-13 12:25:29 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\genetic\1x3 half inch letters holes1_optimized.plt
+2026-07-13 12:25:29 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 48 blocks
+2026-07-13 12:25:29 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 48 blocks
+2026-07-13 12:25:29 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=64538.072
+2026-07-13 12:25:29 | INFO     | plt_optimizer | Reassembling document with 48 blocks
+2026-07-13 12:25:29 | INFO     | plt_optimizer | Reassembly complete: 814 paths
+2026-07-13 12:25:29 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\nn2opt\334X712 RED DANGER conveyers start and stop2_optimized.plt
+2026-07-13 12:25:30 | INFO     | plt_optimizer | [2/7] 1x3 half inch letters holes1.plt done in 13.18s (avg 6.18s, ETA 6.2s)
+2026-07-13 12:25:30 | INFO     | plt_optimizer |   -> OK
+2026-07-13 12:25:33 | INFO     | plt_optimizer | Starting optimization with Cheapest Insertion Heuristic on 48 blocks
+2026-07-13 12:25:33 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 48 blocks
+2026-07-13 12:25:33 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=72401.294
+2026-07-13 12:25:33 | INFO     | plt_optimizer | Reassembling document with 48 blocks
+2026-07-13 12:25:33 | INFO     | plt_optimizer | Reassembly complete: 814 paths
+2026-07-13 12:25:33 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\insertion\334X712 RED DANGER conveyers start and stop2_optimized.plt
+2026-07-13 12:25:37 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov S-T Path (5/3 approx) on 48 blocks
+2026-07-13 12:25:37 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 48 blocks
+2026-07-13 12:25:37 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=81860.959
+2026-07-13 12:25:37 | INFO     | plt_optimizer | Reassembling document with 48 blocks
+2026-07-13 12:25:37 | INFO     | plt_optimizer | Reassembly complete: 814 paths
+2026-07-13 12:25:37 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\christofides\334X712 RED DANGER conveyers start and stop2_optimized.plt
+2026-07-13 12:25:41 | INFO     | plt_optimizer | Starting optimization with Simulated Annealing on 48 blocks
+2026-07-13 12:25:41 | INFO     | plt_optimizer | Running Simulated Annealing on 48 blocks
+2026-07-13 12:25:41 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=64538.072
+2026-07-13 12:25:41 | INFO     | plt_optimizer | Reassembling document with 48 blocks
+2026-07-13 12:25:41 | INFO     | plt_optimizer | Reassembly complete: 814 paths
+2026-07-13 12:25:41 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\sa\334X712 RED DANGER conveyers start and stop2_optimized.plt
+2026-07-13 12:25:45 | INFO     | plt_optimizer | Starting optimization with Genetic Algorithm on 48 blocks
+2026-07-13 12:25:45 | INFO     | plt_optimizer | Running Genetic Algorithm on 48 blocks
+2026-07-13 12:25:45 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=64538.072
+2026-07-13 12:25:45 | INFO     | plt_optimizer | Reassembling document with 48 blocks
+2026-07-13 12:25:45 | INFO     | plt_optimizer | Reassembly complete: 814 paths
+2026-07-13 12:25:45 | INFO     | plt_optimizer | Writing PLT file: examples_benchmark\optimized\genetic\334X712 RED DANGER conveyers start and stop2_optimized.plt
+2026-07-13 12:25:49 | INFO     | plt_optimizer | [5/7] 334X712 RED DANGER conveyers start and stop2.plt done in 32.80s (avg 9.98s, ETA 0.0s)
+2026-07-13 12:25:49 | INFO     | plt_optimizer |   -> OK
+2026-07-13 12:25:50 | INFO     | plt_optimizer | Benchmark finished in 34.10s
+2026-07-13 12:25:50 | INFO     | plt_optimizer | Wrote 42 per-strategy row(s) and 7 ensemble row(s); avg 4.87s/file in parallel
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 2.0 segments/path, 0.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=20
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=42.000, total_cutting_strokes=1
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=3
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.9 segments/path, 90.0% structural), baseline_extent=100.000, total_cutting_strokes=29
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 10.5 segments/path, 50.0% structural), baseline_extent=2.000, total_cutting_strokes=105
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 0.0 segments/path, 0.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:05 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-07-13 12:27:28 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_returns_rows_when_loggers0\cad\square.plt
+2026-07-13 12:27:29 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:29 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 4.0 segments/path, 0.0% structural), baseline_extent=1016.000, total_cutting_strokes=4
+2026-07-13 12:27:29 | INFO     | plt_optimizer | Chunking 1 stroke paths with threshold=2032.000 (baseline_extent=1016.000, multiplier=2.0)
+2026-07-13 12:27:29 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-13 12:27:29 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_returns_rows_when_loggers0\cad_benchmark\optimized\no-opt\square_optimized.plt
+2026-07-13 12:27:29 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 1 blocks
+2026-07-13 12:27:29 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-07-13 12:27:29 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:29 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:29 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:29 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_returns_rows_when_loggers0\cad_benchmark\optimized\nn2opt\square_optimized.plt
+2026-07-13 12:27:29 | INFO     | plt_optimizer | Starting optimization with Cheapest Insertion Heuristic on 1 blocks
+2026-07-13 12:27:29 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-07-13 12:27:29 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:29 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:29 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:29 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_returns_rows_when_loggers0\cad_benchmark\optimized\insertion\square_optimized.plt
+2026-07-13 12:27:29 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-13 12:27:29 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-13 12:27:29 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:29 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:29 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:29 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_returns_rows_when_loggers0\cad_benchmark\optimized\christofides\square_optimized.plt
+2026-07-13 12:27:30 | INFO     | plt_optimizer | Starting optimization with Simulated Annealing on 1 blocks
+2026-07-13 12:27:30 | INFO     | plt_optimizer | Running Simulated Annealing on 1 blocks
+2026-07-13 12:27:30 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:30 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:30 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:30 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_returns_rows_when_loggers0\cad_benchmark\optimized\sa\square_optimized.plt
+2026-07-13 12:27:30 | INFO     | plt_optimizer | Starting optimization with Genetic Algorithm on 1 blocks
+2026-07-13 12:27:30 | INFO     | plt_optimizer | Running Genetic Algorithm on 1 blocks
+2026-07-13 12:27:30 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:30 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:30 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:30 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_returns_rows_when_loggers0\cad_benchmark\optimized\genetic\square_optimized.plt
+2026-07-13 12:27:30 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_metric_event_has_correct_0\cad\square.plt
+2026-07-13 12:27:31 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:31 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 4.0 segments/path, 0.0% structural), baseline_extent=1016.000, total_cutting_strokes=4
+2026-07-13 12:27:31 | INFO     | plt_optimizer | Chunking 1 stroke paths with threshold=2032.000 (baseline_extent=1016.000, multiplier=2.0)
+2026-07-13 12:27:31 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-13 12:27:31 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_metric_event_has_correct_0\cad_benchmark\optimized\no-opt\square_optimized.plt
+2026-07-13 12:27:31 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 1 blocks
+2026-07-13 12:27:31 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-07-13 12:27:31 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:31 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:31 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:31 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_metric_event_has_correct_0\cad_benchmark\optimized\nn2opt\square_optimized.plt
+2026-07-13 12:27:31 | INFO     | plt_optimizer | Starting optimization with Cheapest Insertion Heuristic on 1 blocks
+2026-07-13 12:27:31 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-07-13 12:27:31 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:31 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:31 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:31 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_metric_event_has_correct_0\cad_benchmark\optimized\insertion\square_optimized.plt
+2026-07-13 12:27:31 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-13 12:27:31 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-13 12:27:31 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:31 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:31 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:31 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_metric_event_has_correct_0\cad_benchmark\optimized\christofides\square_optimized.plt
+2026-07-13 12:27:32 | INFO     | plt_optimizer | Starting optimization with Simulated Annealing on 1 blocks
+2026-07-13 12:27:32 | INFO     | plt_optimizer | Running Simulated Annealing on 1 blocks
+2026-07-13 12:27:32 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:32 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:32 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:32 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_metric_event_has_correct_0\cad_benchmark\optimized\sa\square_optimized.plt
+2026-07-13 12:27:32 | INFO     | plt_optimizer | Starting optimization with Genetic Algorithm on 1 blocks
+2026-07-13 12:27:32 | INFO     | plt_optimizer | Running Genetic Algorithm on 1 blocks
+2026-07-13 12:27:32 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:32 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:32 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:32 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_metric_event_has_correct_0\cad_benchmark\optimized\genetic\square_optimized.plt
+2026-07-13 12:27:32 | INFO     | plt_optimizer | Parsing PLT file: Z:\does\not\exist.plt
+2026-07-13 12:27:32 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_setup_failure_without_log0\cad\square.plt
+2026-07-13 12:27:33 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_setup_failure_logs_error_0\cad\square.plt
+2026-07-13 12:27:33 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_strategy_failure_logs_err0\cad\square.plt
+2026-07-13 12:27:33 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:33 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 4.0 segments/path, 0.0% structural), baseline_extent=1016.000, total_cutting_strokes=4
+2026-07-13 12:27:33 | INFO     | plt_optimizer | Chunking 1 stroke paths with threshold=2032.000 (baseline_extent=1016.000, multiplier=2.0)
+2026-07-13 12:27:33 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-13 12:27:33 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_strategy_failure_logs_err0\cad_benchmark\optimized\no-opt\square_optimized.plt
+2026-07-13 12:27:33 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 1 blocks
+2026-07-13 12:27:33 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-07-13 12:27:33 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:33 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:33 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:33 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_strategy_failure_logs_err0\cad_benchmark\optimized\nn2opt\square_optimized.plt
+2026-07-13 12:27:34 | INFO     | plt_optimizer | Starting optimization with Cheapest Insertion Heuristic on 1 blocks
+2026-07-13 12:27:34 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-07-13 12:27:34 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:34 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:34 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:34 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_strategy_failure_logs_err0\cad_benchmark\optimized\insertion\square_optimized.plt
+2026-07-13 12:27:34 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-13 12:27:34 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-13 12:27:34 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:34 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:34 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:34 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_strategy_failure_logs_err0\cad_benchmark\optimized\christofides\square_optimized.plt
+2026-07-13 12:27:34 | INFO     | plt_optimizer | Starting optimization with Simulated Annealing on 1 blocks
+2026-07-13 12:27:34 | INFO     | plt_optimizer | Running Simulated Annealing on 1 blocks
+2026-07-13 12:27:34 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:34 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:34 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:34 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_strategy_failure_logs_err0\cad_benchmark\optimized\sa\square_optimized.plt
+2026-07-13 12:27:35 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_strategy_failure_without_0\cad\square.plt
+2026-07-13 12:27:35 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:35 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 4.0 segments/path, 0.0% structural), baseline_extent=1016.000, total_cutting_strokes=4
+2026-07-13 12:27:35 | INFO     | plt_optimizer | Chunking 1 stroke paths with threshold=2032.000 (baseline_extent=1016.000, multiplier=2.0)
+2026-07-13 12:27:35 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-13 12:27:35 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_strategy_failure_without_0\cad_benchmark\optimized\no-opt\square_optimized.plt
+2026-07-13 12:27:35 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 1 blocks
+2026-07-13 12:27:35 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-07-13 12:27:35 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:35 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:35 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:35 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_strategy_failure_without_0\cad_benchmark\optimized\nn2opt\square_optimized.plt
+2026-07-13 12:27:35 | INFO     | plt_optimizer | Starting optimization with Cheapest Insertion Heuristic on 1 blocks
+2026-07-13 12:27:35 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-07-13 12:27:35 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:35 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:35 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:35 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_strategy_failure_without_0\cad_benchmark\optimized\insertion\square_optimized.plt
+2026-07-13 12:27:36 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-13 12:27:36 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-13 12:27:36 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:36 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:36 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:36 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_strategy_failure_without_0\cad_benchmark\optimized\christofides\square_optimized.plt
+2026-07-13 12:27:36 | INFO     | plt_optimizer | Starting optimization with Simulated Annealing on 1 blocks
+2026-07-13 12:27:36 | INFO     | plt_optimizer | Running Simulated Annealing on 1 blocks
+2026-07-13 12:27:36 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:36 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:36 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:36 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_strategy_failure_without_0\cad_benchmark\optimized\sa\square_optimized.plt
+2026-07-13 12:27:37 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_worker_returns_fileresult0\cad\square.plt
+2026-07-13 12:27:37 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:37 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 4.0 segments/path, 0.0% structural), baseline_extent=1016.000, total_cutting_strokes=4
+2026-07-13 12:27:37 | INFO     | plt_optimizer | Chunking 1 stroke paths with threshold=2032.000 (baseline_extent=1016.000, multiplier=2.0)
+2026-07-13 12:27:37 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-13 12:27:37 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_worker_returns_fileresult0\cad_benchmark\optimized\no-opt\square_optimized.plt
+2026-07-13 12:27:37 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 1 blocks
+2026-07-13 12:27:37 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-07-13 12:27:37 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:37 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:37 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:37 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_worker_returns_fileresult0\cad_benchmark\optimized\nn2opt\square_optimized.plt
+2026-07-13 12:27:38 | INFO     | plt_optimizer | Starting optimization with Cheapest Insertion Heuristic on 1 blocks
+2026-07-13 12:27:38 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-07-13 12:27:38 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:38 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:38 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:38 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_worker_returns_fileresult0\cad_benchmark\optimized\insertion\square_optimized.plt
+2026-07-13 12:27:38 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-13 12:27:38 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-13 12:27:38 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:38 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:38 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:38 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_worker_returns_fileresult0\cad_benchmark\optimized\christofides\square_optimized.plt
+2026-07-13 12:27:38 | INFO     | plt_optimizer | Starting optimization with Simulated Annealing on 1 blocks
+2026-07-13 12:27:38 | INFO     | plt_optimizer | Running Simulated Annealing on 1 blocks
+2026-07-13 12:27:38 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:38 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:38 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:38 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_worker_returns_fileresult0\cad_benchmark\optimized\sa\square_optimized.plt
+2026-07-13 12:27:38 | INFO     | plt_optimizer | Starting optimization with Genetic Algorithm on 1 blocks
+2026-07-13 12:27:38 | INFO     | plt_optimizer | Running Genetic Algorithm on 1 blocks
+2026-07-13 12:27:38 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:38 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:38 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:38 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_worker_returns_fileresult0\cad_benchmark\optimized\genetic\square_optimized.plt
+2026-07-13 12:27:39 | INFO     | plt_optimizer | Parsing PLT file: Z:\does\not\exist.plt
+2026-07-13 12:27:39 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_worker_direct_call0\cad\square.plt
+2026-07-13 12:27:39 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:39 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 4.0 segments/path, 0.0% structural), baseline_extent=1016.000, total_cutting_strokes=4
+2026-07-13 12:27:39 | INFO     | plt_optimizer | Chunking 1 stroke paths with threshold=2032.000 (baseline_extent=1016.000, multiplier=2.0)
+2026-07-13 12:27:39 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-13 12:27:39 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_worker_direct_call0\cad_benchmark\optimized\no-opt\square_optimized.plt
+2026-07-13 12:27:40 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 1 blocks
+2026-07-13 12:27:40 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-07-13 12:27:40 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:40 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:40 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:40 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_worker_direct_call0\cad_benchmark\optimized\nn2opt\square_optimized.plt
+2026-07-13 12:27:40 | INFO     | plt_optimizer | Starting optimization with Cheapest Insertion Heuristic on 1 blocks
+2026-07-13 12:27:40 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-07-13 12:27:40 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:40 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:40 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:40 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_worker_direct_call0\cad_benchmark\optimized\insertion\square_optimized.plt
+2026-07-13 12:27:40 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-13 12:27:40 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-13 12:27:40 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:40 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:40 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:40 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_worker_direct_call0\cad_benchmark\optimized\christofides\square_optimized.plt
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Starting optimization with Simulated Annealing on 1 blocks
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Running Simulated Annealing on 1 blocks
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_worker_direct_call0\cad_benchmark\optimized\sa\square_optimized.plt
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Starting optimization with Genetic Algorithm on 1 blocks
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Running Genetic Algorithm on 1 blocks
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\pytest-of-haiiro\pytest-203\test_worker_direct_call0\cad_benchmark\optimized\genetic\square_optimized.plt
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Chunking 1 stroke paths with threshold=150.000 (baseline_extent=100.000, multiplier=1.5)
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Chunking 3 stroke paths with threshold=15.000 (baseline_extent=10.000, multiplier=1.5)
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=15.000 (baseline_extent=10.000, multiplier=1.5)
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Created 2 MacroBlocks
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Chunking 3 stroke paths with threshold=15.000 (baseline_extent=10.000, multiplier=1.5)
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Chunking 3 stroke paths with threshold=15.000 (baseline_extent=10.000, multiplier=1.5)
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=150.000 (baseline_extent=100.000, multiplier=1.5)
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=15.000 (baseline_extent=10.000, multiplier=1.5)
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=100.000 (baseline_extent=10.000, multiplier=10.0)
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=225.000 (baseline_extent=50.000, multiplier=4.5)
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=225.000 (baseline_extent=50.000, multiplier=4.5)
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=300.000 (baseline_extent=50.000, multiplier=6.0)
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=300.000 (baseline_extent=50.000, multiplier=6.0)
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Created 2 MacroBlocks
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Chunking 2 stroke paths with threshold=250.000 (baseline_extent=50.000, multiplier=5.0)
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Structural file detected: Bypassing chunker for 1:1 routing (3 paths)
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Structural file detected: Bypassing chunker for 1:1 routing (1 paths)
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Structural file detected: Bypassing chunker for 1:1 routing (2 paths)
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Structural file detected: Bypassing chunker for 1:1 routing (1 paths)
+2026-07-13 12:27:41 | INFO     | plt_optimizer | Structural file detected: Bypassing chunker for 1:1 routing (1 paths)
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmpkohhfx7k\input.plt
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmpkohhfx7k\output.plt
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmpkohhfx7k\output.plt
+2026-07-13 12:27:42 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-07-13 12:27:42 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Writing PLT file: \nonexistent\path\that\does\not\exist\file.plt
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\Tools\Ploptimizer\examples\test_rect_grid13sheet0.plt
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\Tools\Ploptimizer\examples\test_rect_grid13sheet0.plt
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 4.0 segments/path, 0.0% structural), baseline_extent=3048.000, total_cutting_strokes=80
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Chunking 20 stroke paths with threshold=6096.000 (baseline_extent=3048.000, multiplier=2.0)
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Created 6 MacroBlocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 6 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 6 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=11176.000
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Reassembling document with 6 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Reassembly complete: 20 paths
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmpusgjxih5\test_rect_grid13sheet0_optimized.plt
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmpusgjxih5\test_rect_grid13sheet0_optimized.plt
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\Tools\Ploptimizer\examples\1-inch-square.plt
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 4.0 segments/path, 0.0% structural), baseline_extent=1016.000, total_cutting_strokes=4
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Chunking 1 stroke paths with threshold=2032.000 (baseline_extent=1016.000, multiplier=2.0)
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Created 1 MacroBlocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Starting optimization with NoOp (Baseline) on 1 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running NoOp (Baseline) on 1 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Reassembling document with 1 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Reassembly complete: 1 paths
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmp68bcis0c\1-inch-square_noop.plt
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmp68bcis0c\1-inch-square_noop.plt
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\Tools\Ploptimizer\examples\1x3 half inch letters holes1.plt
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 4.5 segments/path, 100.0% structural), baseline_extent=18287.963, total_cutting_strokes=24
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Structural file detected: Bypassing chunker for 1:1 routing (194 paths)
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 194 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 194 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=158982.057
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Reassembling document with 194 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Reassembly complete: 194 paths
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Writing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmpozqj37nh\1x3_optimized.plt
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmpozqj37nh\1x3_optimized.plt
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Switching intra-chunk strategy: NoOp-Intra (Baseline) -> NearestNeighbor-Intra + 2-Opt
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Switching intra-chunk strategy: NoOp-Intra (Baseline) -> NearestNeighbor-Intra + 2-Opt
+2026-07-13 12:27:42 | WARNING  | plt_optimizer | Greedy construction violated constraints, using original order
+2026-07-13 12:27:42 | INFO     | plt_optimizer | info message
+2026-07-13 12:27:42 | WARNING  | plt_optimizer | warning message
+2026-07-13 12:27:42 | ERROR    | plt_optimizer | error message
+2026-07-13 12:27:42 | CRITICAL | plt_optimizer | critical message
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running NoOp (Baseline) on 2 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running NoOp (Baseline) on 0 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Switching optimization strategy: NoOp (Baseline) -> NearestNeighbor + 2-Opt
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Starting optimization with NoOp (Baseline) on 1 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running NoOp (Baseline) on 1 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=0.000
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 2 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=90.000
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 0 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 3 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 0 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 2 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 3 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running Simulated Annealing on 0 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running Simulated Annealing on 1 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running Simulated Annealing on 2 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running Simulated Annealing on 3 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running Genetic Algorithm on 0 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running Genetic Algorithm on 1 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running Genetic Algorithm on 2 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running Genetic Algorithm on 3 blocks
+2026-07-13 12:27:42 | INFO     | plt_optimizer | Running Parallel Ensemble on 1 blocks with auto workers
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running NoOp (Baseline) on 1 blocks
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 1 blocks
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running Simulated Annealing on 1 blocks
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running Genetic Algorithm on 1 blocks
+2026-07-13 12:27:43 | WARNING  | plt_optimizer | Strategy Christofides-Serdyukov S-T Path (5/3 approx) failed: ChristofidesStrategy.optimize() missing 1 required positional argument: 'end_point'
+2026-07-13 12:27:43 | WARNING  | plt_optimizer | Parallel ensemble: 1/6 strategies failed: Christofides-Serdyukov S-T Path (5/3 approx)
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Parallel ensemble complete: 5/6 strategies succeeded. Best: NoOp (Baseline) (distance=0.000)
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running Parallel Ensemble on 3 blocks with auto workers
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running NoOp (Baseline) on 3 blocks
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 3 blocks
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 3 blocks
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running Simulated Annealing on 3 blocks
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running Genetic Algorithm on 3 blocks
+2026-07-13 12:27:43 | WARNING  | plt_optimizer | Strategy Christofides-Serdyukov S-T Path (5/3 approx) failed: ChristofidesStrategy.optimize() missing 1 required positional argument: 'end_point'
+2026-07-13 12:27:43 | WARNING  | plt_optimizer | Parallel ensemble: 1/6 strategies failed: Christofides-Serdyukov S-T Path (5/3 approx)
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Parallel ensemble complete: 5/6 strategies succeeded. Best: NearestNeighbor + 2-Opt (distance=80.000, improvement=60.00%)
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running Parallel Ensemble on 3 blocks with auto workers
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running NoOp (Baseline) on 3 blocks
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 3 blocks
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 3 blocks
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running Genetic Algorithm on 3 blocks
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running Simulated Annealing on 3 blocks
+2026-07-13 12:27:43 | WARNING  | plt_optimizer | Strategy Christofides-Serdyukov S-T Path (5/3 approx) failed: ChristofidesStrategy.optimize() missing 1 required positional argument: 'end_point'
+2026-07-13 12:27:43 | WARNING  | plt_optimizer | Parallel ensemble: 1/6 strategies failed: Christofides-Serdyukov S-T Path (5/3 approx)
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Parallel ensemble complete: 5/6 strategies succeeded. Best: NoOp (Baseline) (distance=80.000)
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running Parallel Ensemble on 2 blocks with auto workers
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running NoOp (Baseline) on 2 blocks
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running Simulated Annealing on 2 blocks
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running Genetic Algorithm on 2 blocks
+2026-07-13 12:27:43 | WARNING  | plt_optimizer | Strategy Christofides-Serdyukov S-T Path (5/3 approx) failed: ChristofidesStrategy.optimize() missing 1 required positional argument: 'end_point'
+2026-07-13 12:27:43 | WARNING  | plt_optimizer | Parallel ensemble: 1/6 strategies failed: Christofides-Serdyukov S-T Path (5/3 approx)
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Parallel ensemble complete: 5/6 strategies succeeded. Best: NoOp (Baseline) (distance=134.536)
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running Parallel Ensemble on 2 blocks with 2 workers
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running NoOp (Baseline) on 2 blocks
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running Simulated Annealing on 2 blocks
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running Genetic Algorithm on 2 blocks
+2026-07-13 12:27:43 | WARNING  | plt_optimizer | Strategy Christofides-Serdyukov S-T Path (5/3 approx) failed: ChristofidesStrategy.optimize() missing 1 required positional argument: 'end_point'
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-07-13 12:27:43 | WARNING  | plt_optimizer | Parallel ensemble: 1/6 strategies failed: Christofides-Serdyukov S-T Path (5/3 approx)
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Parallel ensemble complete: 5/6 strategies succeeded. Best: NoOp (Baseline) (distance=40.000)
+2026-07-13 12:27:43 | INFO     | plt_optimizer | Running Parallel Ensemble on 3 blocks with auto workers
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running NoOp (Baseline) on 3 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 3 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 3 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Simulated Annealing on 3 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Genetic Algorithm on 3 blocks
+2026-07-13 12:27:44 | WARNING  | plt_optimizer | Strategy Christofides-Serdyukov S-T Path (5/3 approx) failed: ChristofidesStrategy.optimize() missing 1 required positional argument: 'end_point'
+2026-07-13 12:27:44 | WARNING  | plt_optimizer | Parallel ensemble: 1/6 strategies failed: Christofides-Serdyukov S-T Path (5/3 approx)
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Parallel ensemble complete: 5/6 strategies succeeded. Best: NoOp (Baseline) (distance=80.000)
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running NoOp (Baseline) on 0 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running NoOp (Baseline) on 1 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running NoOp (Baseline) on 2 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 0 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 4 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 4 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 1 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 3 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 2 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 1 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Simulated Annealing on 2 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Simulated Annealing on 4 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Genetic Algorithm on 2 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Genetic Algorithm on 4 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Starting optimization with Christofides-Serdyukov S-T Path (5/3 approx) on 2 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Christofides-Serdyukov S-T Path (5/3 approx) on 2 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=30.000
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Starting optimization with Parallel Ensemble on 2 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Parallel Ensemble on 2 blocks with auto workers
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running NoOp (Baseline) on 2 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Simulated Annealing on 2 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Genetic Algorithm on 2 blocks
+2026-07-13 12:27:44 | WARNING  | plt_optimizer | Strategy Christofides-Serdyukov S-T Path (5/3 approx) failed: ChristofidesStrategy.optimize() missing 1 required positional argument: 'end_point'
+2026-07-13 12:27:44 | WARNING  | plt_optimizer | Parallel ensemble: 1/6 strategies failed: Christofides-Serdyukov S-T Path (5/3 approx)
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Parallel ensemble complete: 5/6 strategies succeeded. Best: NoOp (Baseline) (distance=40.000)
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=40.000, winner=NoOp (Baseline)
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Starting optimization with NoOp (Baseline) on 1 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Parallel Ensemble on 2 blocks with auto workers
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running NoOp (Baseline) on 2 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 2 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Simulated Annealing on 2 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Cheapest Insertion Heuristic on 2 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Genetic Algorithm on 2 blocks
+2026-07-13 12:27:44 | WARNING  | plt_optimizer | Strategy Christofides-Serdyukov S-T Path (5/3 approx) failed: ChristofidesStrategy.optimize() missing 1 required positional argument: 'end_point'
+2026-07-13 12:27:44 | WARNING  | plt_optimizer | Parallel ensemble: 1/6 strategies failed: Christofides-Serdyukov S-T Path (5/3 approx)
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Parallel ensemble complete: 5/6 strategies succeeded. Best: NoOp (Baseline) (distance=40.000)
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Parallel Ensemble on 1 blocks with auto workers
+2026-07-13 12:27:44 | WARNING  | plt_optimizer | Strategy Christofides-Serdyukov S-T Path (5/3 approx) failed: All fail
+2026-07-13 12:27:44 | WARNING  | plt_optimizer | All parallel strategies failed, using NoOp fallback
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running NoOp (Baseline) on 1 blocks
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Running Parallel Ensemble on 2 blocks with auto workers
+2026-07-13 12:27:44 | WARNING  | plt_optimizer | Strategy Christofides-Serdyukov S-T Path (5/3 approx) failed: One fail
+2026-07-13 12:27:44 | WARNING  | plt_optimizer | Parallel ensemble: 1/6 strategies failed: Christofides-Serdyukov S-T Path (5/3 approx)
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Parallel ensemble complete: 1/6 strategies succeeded. Best: NoOp (Baseline) (distance=40.000)
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Parsing PLT file: C:\Users\haiiro\AppData\Local\Temp\tmpisnvqtzs\test.plt
+2026-07-13 12:27:44 | INFO     | plt_optimizer | Parsing PLT file: \nonexistent\file.plt
+2026-07-13 12:27:44 | WARNING  | plt_optimizer | Unknown command 'ALL', treating as header
+2026-07-13 12:27:44 | WARNING  | plt_optimizer | Unknown command 'PARSED', treating as header
+2026-07-13 12:27:44 | WARNING  | plt_optimizer | Unknown command 'UNKNOWN123', treating as header
+2026-07-13 12:27:44 | WARNING  | plt_optimizer | Unknown command 'FOO:1,2', treating as header
+2026-07-13 12:27:44 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-07-13 12:27:44 | WARNING  | plt_optimizer | Arc command AR requires 3 parameters
+2026-07-13 12:27:44 | WARNING  | plt_optimizer | Failed to parse arc command CI: could not convert string to float: ''
+2026-07-13 12:27:44 | WARNING  | plt_optimizer | Unknown command 'NOTAREALCMD999,888,777', treating as header
+2026-07-13 12:27:44 | WARNING  | plt_optimizer | Unknown command 'CUSTOM123', treating as header
+2026-07-13 12:27:44 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-07-13 12:27:44 | WARNING  | plt_optimizer | Unknown command 'X:', treating as header
+2026-07-13 12:27:44 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-07-13 12:27:44 | WARNING  | plt_optimizer | Failed to parse arc command CI: could not convert string to float: ''
+2026-07-13 12:27:44 | WARNING  | plt_optimizer | Arc command AA requires 3 parameters
+2026-07-13 12:29:02 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:29:02 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-07-13 12:29:02 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:29:02 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-07-13 12:29:02 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:29:02 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:29:02 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:29:02 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 2.0 segments/path, 0.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-07-13 12:29:02 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:29:02 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=20
+2026-07-13 12:29:02 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:29:02 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:29:02 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=42.000, total_cutting_strokes=1
+2026-07-13 12:29:02 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:29:02 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=3
+2026-07-13 12:30:18 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:18 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 4.7 segments/path, 100.0% structural), baseline_extent=24383.951, total_cutting_strokes=11
+2026-07-13 12:30:18 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:18 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 4.5 segments/path, 100.0% structural), baseline_extent=18287.963, total_cutting_strokes=24
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=20
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=42.000, total_cutting_strokes=1
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=3
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.9 segments/path, 90.0% structural), baseline_extent=100.000, total_cutting_strokes=29
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 10.5 segments/path, 50.0% structural), baseline_extent=2.000, total_cutting_strokes=105
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 0.0 segments/path, 0.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:27 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=20
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=42.000, total_cutting_strokes=1
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=3
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 2.9 segments/path, 90.0% structural), baseline_extent=100.000, total_cutting_strokes=29
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 10.5 segments/path, 50.0% structural), baseline_extent=2.000, total_cutting_strokes=105
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=5
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Profiling complete: is_structural=False (avg 0.0 segments/path, 0.0% structural), baseline_extent=100.000, total_cutting_strokes=1
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-07-13 12:30:56 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=100.000, total_cutting_strokes=1
