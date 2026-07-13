@@ -692,16 +692,7 @@ This project uses GitHub Actions for continuous integration and automated builds
    - Creates a proper release with the `.exe` attached
    - Users can download `PLT-Optimizer.exe` from GitHub Releases
 
-### Manual Builds
+## See Also
 
-For local builds on Windows:
-
-```powershell
-# Install all dependencies
-uv sync --extra dev --extra tray --extra build
-
-# Build
-uv run pyinstaller --noconsole --windowed --name PLT-Optimizer `
-    --icon=assets/icon.ico --add-data "assets/icon.ico;assets" `
-    run_tray.py
-```
+- [Simpler Java implementation of PLT optimization by Fugazza](https://github.com/fugazza/PLTtools)
+- [HPGL reference by Paul Bourke](http://paulbourke.net/dataformats/hpgl/)
