@@ -106,6 +106,47 @@ class TestWatchCommandArgumentParsing:
         assert cmd._args.fast_mode is False
 
 
+class TestPLTFileHandlerIsFileLocked:
+    """Tests for the _is_file_locked helper method."""
+
+    def test_is_file_locked_returns_false_for_unlocked_file(
+        self, tmp_path: Path
+    ) -> None:
+        """Test that an unlocked file is reported as not locked."""
+        from plt_optimizer.cli.watch import PLTFileHandler
+
+        handler = PLTFileHandler(
+            watch_dir=tmp_path,
+            output_dir=tmp_path / "output",
+            text_logger=MagicMock(),
+            metrics_logger=MagicMock(),
+        )
+
+        test_file = tmp_path / "free.plt"
+        test_file.write_text("IN;SP;\n")
+
+        assert handler._is_file_locked(test_file) is False
+
+    def test_is_file_locked_returns_true_on_oserror(
+        self, tmp_path: Path
+    ) -> None:
+        """Test that an OSError from open() reports the file as locked."""
+        from plt_optimizer.cli.watch import PLTFileHandler
+
+        handler = PLTFileHandler(
+            watch_dir=tmp_path,
+            output_dir=tmp_path / "output",
+            text_logger=MagicMock(),
+            metrics_logger=MagicMock(),
+        )
+
+        test_file = tmp_path / "busy.plt"
+        test_file.write_text("IN;SP;\n")
+
+        with patch("builtins.open", side_effect=PermissionError("locked")):
+            assert handler._is_file_locked(test_file) is True
+
+
 class TestPLTFileHandlerDebouncing:
     """Tests for file processing debouncing logic."""
 
@@ -4214,10 +4255,16 @@ class TestDebounceBehavior:
         mock_process.assert_not_called()
         assert missing not in handler._pending_files
 
-    def test_check_pending_files_drops_files_with_stat_oserror(
+    def test_check_pending_files_keeps_files_with_stat_oserror(
         self, tmp_path: Path
     ) -> None:
-        """Test that an OSError from stat drops the entry."""
+        """Test that an OSError from stat keeps the entry pending for retry.
+
+        On Windows, a file that is still being written may raise PermissionError
+        on stat(). The watcher should not discard such entries; instead it
+        should leave them in the pending queue so the next polling cycle can
+        try again once the writer releases the file.
+        """
         from plt_optimizer.cli.watch import PLTFileHandler
 
         handler = PLTFileHandler(
@@ -4237,6 +4284,70 @@ class TestDebounceBehavior:
                     handler._check_pending_files()
 
         mock_process.assert_not_called()
+        assert test_file in handler._pending_files
+
+    def test_check_pending_files_skips_locked_files(
+        self, tmp_path: Path
+    ) -> None:
+        """Test that a locked file is skipped but kept pending for retry."""
+        import os
+        import time
+
+        from plt_optimizer.cli.watch import PLTFileHandler
+
+        handler = PLTFileHandler(
+            watch_dir=tmp_path,
+            output_dir=tmp_path / "output",
+            text_logger=MagicMock(),
+            metrics_logger=MagicMock(),
+            debounce_seconds=0.0,
+        )
+
+        test_file = tmp_path / "locked.plt"
+        test_file.write_text("IN;SP;\n")
+        old_time = time.time() - 10.0
+        os.utime(test_file, (old_time, old_time))
+        handler._pending_files[test_file] = test_file.stat().st_mtime
+
+        with patch.object(handler, "_is_file_locked", return_value=True):
+            with patch.object(handler, "_process_file") as mock_process:
+                handler._check_pending_files()
+
+        mock_process.assert_not_called()
+        # File remains pending so the next poll can retry
+        assert test_file in handler._pending_files
+
+    def test_check_pending_files_processes_file_after_lock_released(
+        self, tmp_path: Path
+    ) -> None:
+        """Test that a file is processed once the lock is released."""
+        import os
+        import time
+
+        from plt_optimizer.cli.watch import PLTFileHandler
+
+        handler = PLTFileHandler(
+            watch_dir=tmp_path,
+            output_dir=tmp_path / "output",
+            text_logger=MagicMock(),
+            metrics_logger=MagicMock(),
+            debounce_seconds=0.0,
+        )
+
+        test_file = tmp_path / "unlocked.plt"
+        test_file.write_text("IN;SP;\n")
+        old_time = time.time() - 10.0
+        os.utime(test_file, (old_time, old_time))
+        handler._pending_files[test_file] = test_file.stat().st_mtime
+
+        with patch.object(handler, "_is_file_locked", return_value=False):
+            with patch.object(handler, "_should_process", return_value=True):
+                with patch.object(handler, "_mark_processed") as mock_mark:
+                    with patch.object(handler, "_process_file") as mock_process:
+                        handler._check_pending_files()
+
+        mock_mark.assert_called_once_with(test_file)
+        mock_process.assert_called_once_with(test_file)
         assert test_file not in handler._pending_files
 
     def test_check_pending_files_skips_already_processed(self, tmp_path: Path) -> None:
