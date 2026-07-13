@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.6.2](https://github.com/twilsonco/Ploptimizer/compare/v1.6.1...v1.6.2) (2026-07-13)
+
+
+### Bug Fixes
+
+* **ci:** update Python setup in CI to version 3.11 and streamline build steps for Windows 7 compatibility ([9f942ce](https://github.com/twilsonco/Ploptimizer/commit/9f942cef4f8aabf7e89b4d5305486d550ad7db89))
+* improve file handling in PLTFileHandler to check for existence before moving or deleting ([34e68fc](https://github.com/twilsonco/Ploptimizer/commit/34e68fcc6938c94bf6f3dba00d228ca5f7f5d07c))
+
+
+### Documentation
+
+* add some references to dev docs ([f570236](https://github.com/twilsonco/Ploptimizer/commit/f57023621d9ff9b1d52c2ba3437abc523cd7e0f1))
+* update README to clarify support for Windows 7 in build instructions ([4c829de](https://github.com/twilsonco/Ploptimizer/commit/4c829de404c53536d5017dac39c0df72a882388f))
+
 ## [1.6.1](https://github.com/twilsonco/Ploptimizer/compare/v1.6.0...v1.6.1) (2026-07-13)
 
 
