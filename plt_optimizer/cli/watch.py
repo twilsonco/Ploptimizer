@@ -203,15 +203,32 @@ class PLTFileHandler(FileSystemEventHandler):
             self._pending_files[path] = mtime
         self._text_logger.debug(f"File enqueued for processing: {path}")
 
-    def _check_pending_files(self) -> None:
-        """Scan pending files and process any that are stable.
+    def _is_file_locked(self, path: Path) -> bool:
+        """Check if the file is currently locked by another process.
 
-        A file is stable when its current ``mtime`` matches the recorded
-        ``mtime`` (no new writes) and at least ``debounce_seconds`` have
-        elapsed since the last modification. Stable files are processed in
-        the calling thread (the debounce thread); errors are logged but do
-        not stop the loop.
+        Attempts to briefly open the file in append mode. If it is
+        exclusively locked by another application (typical on Windows
+        while a writer is still flushing), ``open()`` raises an
+        ``OSError`` (often ``PermissionError``). In that case we treat
+        the file as not yet ready and skip the current polling cycle
+        rather than discarding it from the pending queue.
+
+        Args:
+            path: File path to probe.
+
+        Returns:
+            True if the file appears to be locked; False otherwise.
         """
+        try:
+            # Attempt to open for appending; fails if exclusively locked by another app.
+            with open(path, "a"):
+                pass
+            return False
+        except OSError:
+            return True
+
+    def _check_pending_files(self) -> None:
+        """Scan pending files and process any that are stable."""
         to_process: List[Path] = []
         with self._pending_lock:
             for path, recorded_mtime in list(self._pending_files.items()):
@@ -221,18 +238,27 @@ class PLTFileHandler(FileSystemEventHandler):
                 try:
                     current_mtime = path.stat().st_mtime
                 except OSError:
-                    del self._pending_files[path]
+                    # File might be locked, preventing stat(). Do NOT delete from pending.
                     continue
+
                 if current_mtime > recorded_mtime:
                     self._pending_files[path] = current_mtime
                     continue
+
                 if time.time() - current_mtime < self._debounce_seconds:
                     continue
+
+                # NEW: Ensure the OS has fully released the file lock
+                if self._is_file_locked(path):
+                    continue
+
                 if not self._should_process(path):
                     del self._pending_files[path]
                     continue
+
                 to_process.append(path)
                 del self._pending_files[path]
+
         for path in to_process:
             try:
                 self._mark_processed(path)
