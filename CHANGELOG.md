@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.6.1](https://github.com/twilsonco/Ploptimizer/compare/v1.6.0...v1.6.1) (2026-07-13)
+
+
+### Bug Fixes
+
+* **ci:** update uv installation to remove version constraint for compatibility ([4c3e04b](https://github.com/twilsonco/Ploptimizer/commit/4c3e04b0512d35a5e474590bdd2a9c588857f0b2))
+* initialize _shutdown_requested attribute in WatchCommand ([9c96a28](https://github.com/twilsonco/Ploptimizer/commit/9c96a285d3de287415ea0e75775fe59edc16b90a))
+* restore Python 3.8 compatibility ([d4d06f3](https://github.com/twilsonco/Ploptimizer/commit/d4d06f361e69706d2693e7e0bde985e03bf134ca))
+
 ## [1.6.0](https://github.com/twilsonco/Ploptimizer/compare/v1.5.0...v1.6.0) (2026-07-12)
 
 
