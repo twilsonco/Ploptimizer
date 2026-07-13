@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.6.3](https://github.com/twilsonco/Ploptimizer/compare/v1.6.2...v1.6.3) (2026-07-13)
+
+
+### Bug Fixes
+
+* correct structural detection to enable optimization ([a26f250](https://github.com/twilsonco/Ploptimizer/commit/a26f250cfbe5c00a812daaf0be1e04acd4de1902))
+* enable optimization for multi-arc drill holes in structural files ([760d403](https://github.com/twilsonco/Ploptimizer/commit/760d403a79209efe726f29f6ec51f8dd9a6dd2ef))
+* **watch:** prevent processing files locked by other processes ([75fcc8c](https://github.com/twilsonco/Ploptimizer/commit/75fcc8c50a4f7aba907dee6bbaff660c8b64c8da))
+
 ## [1.6.2](https://github.com/twilsonco/Ploptimizer/compare/v1.6.1...v1.6.2) (2026-07-13)
 
 
