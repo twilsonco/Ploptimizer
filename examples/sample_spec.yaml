@@ -15,7 +15,7 @@ job:
       height: 1.0
       content:
         - text: PUMP WARNING
-          height: 0.5
+          text_height: 0.5
         - text: DO NOT OPERATE
       holes:
         - diameter: 0.125

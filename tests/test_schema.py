@@ -3,9 +3,8 @@
 This test suite validates:
 - Successful parsing of YAML specification files
 - HoleLocation enum string validation
-- Text height inheritance across lines
-- Height consistency validation rules
-- Auto-sizing calculations when dimensions are omitted
+- StyleMixin field availability across hierarchy levels
+- Optional plates field on JobSpec
 """
 
 from __future__ import annotations
@@ -21,6 +20,7 @@ from plt_optimizer.generate.schema import (
     HoleSpec,
     JobSpec,
     LabelSpec,
+    StyleMixin,
     parse_yaml,
     PlateSpec,
     TextLine,
@@ -52,111 +52,62 @@ class TestHoleLocationEnum:
             HoleSpec(diameter=0.125, location="center")  # type: ignore
 
 
-class TestTextHeightInheritance:
-    """Tests for text height inheritance validation."""
+class TestStyleMixin:
+    """Tests for the StyleMixin base class and inheritance."""
 
-    def test_single_defined_height_propagates(self) -> None:
-        """When exactly one line defines height, it should propagate to all."""
+    def test_text_line_inherits_style_fields(self) -> None:
+        """TextLine should expose all StyleMixin fields."""
+        line = TextLine(text="HELLO", text_height=0.5, character_spacing=0.05)
+        assert line.text == "HELLO"
+        assert line.text_height == 0.5
+        assert line.character_spacing == 0.05
+        assert line.margin is None
+        assert line.line_spacing is None
+        assert line.holes is None
+
+    def test_label_inherits_style_fields(self) -> None:
+        """LabelSpec should expose all StyleMixin fields."""
         label = LabelSpec(
-            id="test_label",
+            id="lbl",
             count=1,
-            content=[
-                TextLine(text="WARNING", height=0.5),
-                TextLine(text="HIGH PRESSURE"),  # Should inherit 0.5
-            ],
-        )
-        # Both lines should now have height 0.5
-        assert label.content[0].height == 0.5
-        assert label.content[1].height == 0.5
-
-    def test_all_lines_define_height_no_inheritance(self) -> None:
-        """When all lines define height, no inheritance needed."""
-        label = LabelSpec(
-            id="test_label",
-            count=1,
-            content=[
-                TextLine(text="LINE1", height=0.3),
-                TextLine(text="LINE2", height=0.4),
-            ],
-        )
-        assert label.content[0].height == 0.3
-        assert label.content[1].height == 0.4
-
-    def test_no_lines_define_height_requires_label_height(self) -> None:
-        """When no lines define height, label.height must be specified."""
-        with pytest.raises(ValidationError) as exc_info:
-            LabelSpec(
-                id="test_label",
-                count=1,
-                content=[
-                    TextLine(text="LINE1"),
-                    TextLine(text="LINE2"),
-                ],
-            )
-        assert "If no text line specifies a height" in str(exc_info.value)
-
-    def test_multiple_heights_partial_definition_fails(self) -> None:
-        """When multiple lines define heights but not all, should fail."""
-        with pytest.raises(ValidationError) as exc_info:
-            LabelSpec(
-                id="test_label",
-                count=1,
-                content=[
-                    TextLine(text="LINE1", height=0.3),
-                    TextLine(text="LINE2"),  # Missing height
-                    TextLine(text="LINE3", height=0.5),  # Multiple defined
-                ],
-            )
-        assert "If multiple lines specify height" in str(exc_info.value)
-
-
-class TestAutoSizing:
-    """Tests for auto-sizing validation."""
-
-    def test_missing_width_auto_calculated(self) -> None:
-        """When width is missing, it should be auto-calculated."""
-        label = LabelSpec(
-            id="test_label",
-            count=1,
-            # width omitted
-            height=0.5,
-            content=[
-                TextLine(text="WARNING", height=0.5),
-                TextLine(text="HIGH PRESSURE", height=0.5),
-            ],
-        )
-        assert label.width is not None
-        # Rounded up to nearest 0.25: len("WARNING") * 0.6 + 0.5 = 7 * 0.3 + 0.5 = 2.6 -> ceil(10.4)/4 = 2.75?
-        # Actually: max(len*height*0.6) where height=0.5
-        # len("HIGH PRESSURE") = 12, 12*0.5*0.6+0.5 = 4.1 -> ceil(16.4)/4 = 4.25
-        assert label.width > 0
-
-    def test_missing_height_uses_first_line(self) -> None:
-        """When height is missing, first line's height should be used."""
-        label = LabelSpec(
-            id="test_label",
-            count=1,
-            # height omitted (but valid since one content line has it)
             width=2.0,
-            content=[
-                TextLine(text="WARNING", height=0.5),
-                TextLine(text="HIGH PRESSURE"),  # Should inherit
-            ],
+            height=1.0,
+            content=[TextLine(text="X")],
+            margin=0.1,
+            line_spacing=0.1,
         )
-        assert label.height == 0.5
+        assert label.margin == 0.1
+        assert label.line_spacing == 0.1
+        assert label.text_height is None
+        assert label.character_spacing is None
+        assert label.holes is None
 
-    def test_width_rounded_to_nearest_quarter(self) -> None:
-        """Auto-calculated width should be rounded up to nearest 0.25."""
-        label = LabelSpec(
-            id="test_label",
-            count=1,
-            height=0.4,  # Use consistent height
-            content=[
-                TextLine(text="ABC", height=0.4),
+    def test_job_inherits_style_fields(self) -> None:
+        """JobSpec should expose all StyleMixin fields."""
+        job = JobSpec(
+            job_name="Test",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    count=1,
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X")],
+                ),
             ],
+            text_height=0.4,
+            margin=0.25,
         )
-        # len("ABC") * 0.4 * 0.6 + 0.5 = 3*0.24+0.5 = 1.22 -> ceil(4.88)/4 = 1.25
-        assert label.width == 1.25
+        assert job.text_height == 0.4
+        assert job.margin == 0.25
+        assert job.character_spacing is None
+        assert job.line_spacing is None
+        assert job.holes is None
+
+    def test_text_line_no_height_attribute(self) -> None:
+        """TextLine should no longer expose a 'height' attribute (renamed to text_height)."""
+        line = TextLine(text="X")
+        assert "height" not in line.model_fields
 
 
 class TestParseYaml:
@@ -199,15 +150,15 @@ class TestParseYaml:
         with pytest.raises(FileNotFoundError):
             parse_yaml("nonexistent/path/spec.yaml")
 
-    def test_text_height_inheritance_from_sample_spec(self) -> None:
-        """Text lines in sample spec should have inherited heights."""
+    def test_text_height_parsed_from_sample_spec(self) -> None:
+        """Text lines in sample spec should expose text_height."""
         spec_path = Path("examples/sample_spec.yaml")
         job = parse_yaml(spec_path)
 
         label = job.labels[0]
-        # First line has explicit height, second should inherit
-        assert label.content[0].height == 0.5
-        assert label.content[1].height == 0.5
+        # First line has explicit text_height, second has no height (no inheritance at schema level)
+        assert label.content[0].text_height == 0.5
+        assert label.content[1].text_height is None
 
 
 class TestLabelSpecValidation:
@@ -220,7 +171,7 @@ class TestLabelSpecValidation:
             count=3,
             width=2.0,
             height=1.0,
-            content=[TextLine(text="Simple", height=0.5)],
+            content=[TextLine(text="Simple")],
         )
         assert label.holes is None
 
@@ -243,7 +194,7 @@ class TestLabelSpecValidation:
                 count=0,  # Must be >= 1
                 width=2.0,
                 height=1.0,
-                content=[TextLine(text="Test", height=0.5)],
+                content=[TextLine(text="Test")],
             )
 
 
@@ -296,12 +247,29 @@ class TestJobSpec:
                     count=5,
                     width=2.0,
                     height=1.0,
-                    content=[TextLine(text="Test", height=0.5)],
+                    content=[TextLine(text="Test")],
                 ),
             ],
         )
         assert job.job_name == "Test Job"
         assert len(job.plates) == 1
+        assert len(job.labels) == 1
+
+    def test_plates_optional(self) -> None:
+        """Plates list is optional; backend can auto-allocate defaults."""
+        job = JobSpec(
+            job_name="No Plates Job",
+            labels=[
+                LabelSpec(
+                    id="l1",
+                    count=1,
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="Test")],
+                ),
+            ],
+        )
+        assert job.plates is None
         assert len(job.labels) == 1
 
     def test_multiple_labels(self) -> None:
@@ -323,7 +291,7 @@ class TestJobSpec:
                     count=3,
                     width=2.0,
                     height=1.0,
-                    content=[TextLine(text="Label 1", height=0.5)],
+                    content=[TextLine(text="Label 1")],
                 ),
                 LabelSpec(
                     id="l2",
@@ -331,12 +299,12 @@ class TestJobSpec:
                     width=3.0,
                     height=1.5,
                     content=[
-                        TextLine(text="Label 2 Line 1", height=0.6),
+                        TextLine(text="Label 2 Line 1", text_height=0.6),
                         TextLine(text="Line 2 Here"),
                     ],
                 ),
             ],
         )
         assert len(job.labels) == 2
-        # Second label should have inherited height
-        assert job.labels[1].content[1].height == 0.6
+        # No schema-level inheritance; second line simply has no text_height
+        assert job.labels[1].content[1].text_height is None
