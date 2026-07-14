@@ -14,13 +14,12 @@ Example:
 
 from __future__ import annotations
 
-import math
 from enum import Enum
 from pathlib import Path
 from typing import Optional
 
 import yaml
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class HoleLocation(str, Enum):
@@ -59,33 +58,57 @@ class HoleSpec(BaseModel):
     location: HoleLocation
 
 
-class TextLine(BaseModel):
+class StyleMixin(BaseModel):
+    """Optional styling constraints that can be defined at the Job, Label, or Line level.
+
+    By standardizing these fields in a single mixin, the YAML hierarchy
+    supports top-down inheritance: values defined at a higher level (Job)
+    propagate down to lower levels (Label, TextLine) unless overridden
+    locally. Cross-level resolution is handled by the generation pipeline
+    rather than at schema validation time.
+
+    Attributes:
+        text_height: Optional font height in inches.
+        margin: Optional margin in inches (label or layout context).
+        character_spacing: Optional extra spacing between characters in inches.
+        line_spacing: Optional extra spacing between text lines in inches.
+        holes: Optional list of hole specifications.
+    """
+
+    text_height: Optional[float] = None
+    margin: Optional[float] = None
+    character_spacing: Optional[float] = None
+    line_spacing: Optional[float] = None
+    holes: Optional[list[HoleSpec]] = None
+
+
+class TextLine(StyleMixin):
     """A single line of text content within a label.
 
     Attributes:
         text: The actual text string to render.
-        height: Optional font height in inches. If None, inherits from
-            parent LabelSpec.height or another defined line's height.
+        text_height: Optional font height in inches. Inherits from parent
+            LabelSpec.text_height or JobSpec.text_height if not set locally.
     """
 
     text: str
-    height: Optional[float] = None
 
 
-class LabelSpec(BaseModel):
+class LabelSpec(StyleMixin):
     """Specification for a label to be generated.
+
+    Inherits optional styling fields (text_height, margin, character_spacing,
+    line_spacing, holes) from StyleMixin so they can be set at the Label
+    level and overridden at the TextLine level.
 
     Attributes:
         id: Unique identifier for this label specification.
         count: Number of instances to produce.
-        width: Width in inches. If None, auto-calculated from content.
-        height: Height in inches. Required if no TextLine specifies height.
+        width: Width in inches. If None, auto-calculated by the generation
+            pipeline based on content.
+        height: Height in inches. If None, auto-calculated by the generation
+            pipeline based on content.
         content: List of text lines to render on the label.
-        holes: Optional list of hole specifications.
-
-    Validators:
-        - Text heights must be consistent across all lines (inheritance).
-        - Missing dimensions trigger auto-sizing calculations.
     """
 
     id: str
@@ -93,7 +116,6 @@ class LabelSpec(BaseModel):
     width: Optional[float] = Field(default=None, ge=0.0)
     height: Optional[float] = Field(default=None, ge=0.0)
     content: list[TextLine] = Field(min_length=1, description="At least one text line is required.")
-    holes: Optional[list[HoleSpec]] = None
 
     @field_validator("content")
     @classmethod
@@ -112,84 +134,6 @@ class LabelSpec(BaseModel):
         if len(v) == 0:
             raise ValueError("content must contain at least one TextLine")
         return v
-
-    @model_validator(mode="after")
-    def validate_text_heights(self) -> LabelSpec:
-        """Validate and propagate text heights across all TextLine objects.
-
-        Rules:
-        - If no lines specify height, label.height must be defined.
-        - If exactly one line specifies height, it propagates to all lines.
-        - If multiple lines specify height, all lines must define it.
-
-        Raises:
-            ValueError: If height rules are violated.
-
-        Returns:
-            Self for method chaining.
-        """
-        # Count how many lines have explicit heights
-        lines_with_height = [line for line in self.content if line.height is not None]
-        count_defined = len(lines_with_height)
-
-        if count_defined == 0:
-            # No lines define height - label must provide it
-            if self.height is None:
-                raise ValueError(
-                    "If no text line specifies a height, the label.height "
-                    "attribute must be defined."
-                )
-        elif count_defined == 1:
-            # One line defines height - propagate to all lines
-            inherited_height = lines_with_height[0].height
-            for line in self.content:
-                if line.height is None:
-                    line.height = inherited_height
-        else:
-            # Multiple lines define height - must be consistent or all defined
-            all_defined = all(line.height is not None for line in self.content)
-
-            if not all_defined:
-                raise ValueError("If multiple lines specify height, all lines must specify it.")
-
-        return self
-
-    @model_validator(mode="after")
-    def validate_auto_sizing(self) -> LabelSpec:
-        """Auto-calculate width and height when omitted from specification.
-
-        This validator applies a temporary auto-sizing calculation based on
-        text content. The actual implementation will use vpype text engine
-        bounding boxes in Phase 3 for proper typographic calculations.
-
-        Current stub formula:
-            width ≈ max(len(text) * height * 0.6) + 0.5
-
-        Dimensions are rounded up to the nearest 0.25 inch increment.
-
-        Returns:
-            Self with populated width and height if previously None.
-        """
-        # Calculate height if not defined
-        if self.height is None:
-            # Use first text line's height as reference (already validated)
-            self.height = self.content[0].height
-            if self.height is None:
-                raise ValueError("Label height could not be determined for auto-sizing.")
-
-        # Calculate width if not defined
-        if self.width is None:
-            max_char_width = 0.0
-            for line in self.content:
-                char_count = len(line.text)
-                line_height = line.height if line.height is not None else self.height
-                estimated_width = char_count * line_height * 0.6 + 0.5
-                max_char_width = max(max_char_width, estimated_width)
-
-            # Round up to nearest 0.25
-            self.width = math.ceil(max_char_width * 4) / 4
-
-        return self
 
 
 class PlateSpec(BaseModel):
@@ -212,17 +156,21 @@ class PlateSpec(BaseModel):
     )
 
 
-class JobSpec(BaseModel):
+class JobSpec(StyleMixin):
     """Top-level specification for a batch label generation job.
+
+    Inherits optional styling fields from StyleMixin so they can be set at
+    the Job level and inherited down to Label and TextLine levels.
 
     Attributes:
         job_name: Human-readable name for this job.
-        plates: List of plate specifications defining the cutting substrate.
+        plates: Optional list of plate specifications. If omitted, the
+            generation pipeline auto-allocates default 24x16 sheets.
         labels: List of unique label specifications to produce.
     """
 
     job_name: str
-    plates: list[PlateSpec]
+    plates: Optional[list[PlateSpec]] = None
     labels: list[LabelSpec]
 
 

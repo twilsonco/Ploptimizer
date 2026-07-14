@@ -10,6 +10,7 @@ from plt_optimizer.generate.schema import (
     JobSpec,
     LabelSpec,
     PlateSpec,
+    StyleMixin,
     TextLine,
     parse_yaml,
 )
@@ -19,7 +20,8 @@ __all__ = [
     "HoleSpec",
     "JobSpec",
     "LabelSpec",
-    "parse_yaml",
     "PlateSpec",
+    "StyleMixin",
     "TextLine",
+    "parse_yaml",
 ]

@@ -76,9 +76,10 @@ def run(args: argparse.Namespace) -> int:
     try:
         job = parse_yaml(spec_path)
         unique_labels = len(job.labels)
+        plate_count = len(job.plates) if job.plates is not None else 0
         print(
             f"Loaded {job.job_name}: "
-            f"{len(job.plates)} plates, "
+            f"{plate_count} plates, "
             f"{unique_labels} unique labels. "
             f"Output will be written to: {output_path}"
         )
