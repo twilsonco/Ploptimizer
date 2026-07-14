@@ -32,7 +32,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
 # Third-party imports
 try:
@@ -858,121 +858,57 @@ class WatchCommand:
     This class handles argument parsing and orchestrates the file system
     watcher for automated PLT optimization via CLI arguments.
 
-    For programmatic use (e.g., from tray application), use run_watcher_from_config()
+    The constructor accepts either:
+    * a list of raw CLI argument strings (e.g. ``["--watch-dir", "/input"]``),
+      which is parsed via :func:`setup_parser`; or
+    * a pre-parsed :class:`argparse.Namespace` (e.g. from the main CLI router
+      in ``main.py``).
+
+    For programmatic use (e.g., from tray application), use ``run_watcher_from_config()``
     directly instead of this class.
     """
 
-    def __init__(self, args: Optional[List[str]] = None) -> None:
+    def __init__(self, args: Optional[Union[List[str], argparse.Namespace]] = None) -> None:
         """Initialize the watch command.
 
         Args:
-            args: Command-line arguments (defaults to sys.argv).
+            args: Either a list of raw CLI argument strings (parsed via
+                :func:`setup_parser`) or a pre-parsed ``argparse.Namespace``.
+                If ``None``, ``sys.argv[1:]`` is used.
         """
-        # Check if --log-dir was explicitly provided before parsing
-        self._log_dir_explicitly_set = (args is not None and "--log-dir" in args) or (
-            args is None and "--log-dir" in sys.argv[1:]
-        )
-        self._args = self._parse_args(args)
+        if isinstance(args, argparse.Namespace):
+            # Pre-parsed by the main CLI router; no parsing needed.
+            self._log_dir_explicitly_set = getattr(args, "_log_dir_explicitly_set", True)
+            self._args = args
+        else:
+            # Raw CLI args (or None -> sys.argv[1:]). Detect whether --log-dir
+            # was explicitly provided before parsing so the debug-save-files
+            # default behavior matches the original WatchCommand semantics.
+            raw_args = sys.argv[1:] if args is None else args
+            self._log_dir_explicitly_set = "--log-dir" in raw_args
+            self._args = self._parse_args(raw_args)
         self._existing_handler: Optional[PLTFileHandler] = None
         self._shutdown_requested = False
         self._observer: Optional[Observer] = None  # type: ignore[valid-type]
         self._text_logger: Optional[TextLogger] = None
         self._metrics_logger: Optional[CSVMetricsLogger] = None
 
-    def _parse_args(self, args: Optional[List[str]]) -> argparse.Namespace:
-        """Parse command-line arguments.
+    def _parse_args(self, args: List[str]) -> argparse.Namespace:
+        """Parse command-line arguments via :func:`setup_parser`.
 
         Args:
-            args: Arguments to parse (defaults to sys.argv).
+            args: Arguments to parse (already stripped of any leading
+                ``"watch"`` subcommand token if applicable).
 
         Returns:
             Parsed argument namespace.
         """
-        if args is None:
-            args = sys.argv[1:]
+        # Strip the leading "watch" subcommand token if present so that
+        # `python -m plt_optimizer.cli.watch --watch-dir ...` works whether
+        # invoked directly or routed through the main CLI.
         if args and args[0] == "watch":
             args = args[1:]
-        parser = argparse.ArgumentParser(
-            prog="plt-optimizer watch",
-            description="Watch a directory for PLT files and optimize them automatically.",
-            formatter_class=argparse.RawDescriptionHelpFormatter,
-            epilog="""
-Examples:
-  # Watch current directory, output to ./optimized, logs to ./logs
-  python -m plt_optimizer.cli.watch --watch-dir .
-
-  # With explicit directories and fast mode
-  python -m plt_optimizer.cli.watch --watch-dir /input/plt \\
-                                    --output-dir /output/plt \\
-                                    --log-dir /var/log/plt-optimizer \\
-                                    --fast-mode
-
-  # With processed-dir to archive original files after optimization
-  python -m plt_optimizer.cli.watch --watch-dir /input/plt \\
-                                    --output-dir /output/plt \\
-                                    --processed-dir /archive/plt
-
-  # Run as module
-  uv run plt-optimizer watch --watch-dir /input
-            """,
-        )
-
-        parser.add_argument(
-            "--watch-dir",
-            type=Path,
-            required=True,
-            help="Directory to watch for new/modified PLT files.",
-        )
-        parser.add_argument(
-            "--output-dir",
-            type=Path,
-            default=Path("./optimized"),
-            help="Directory where optimized PLT files are saved (default: ./optimized).",
-        )
-        parser.add_argument(
-            "--log-dir",
-            type=Path,
-            default=Path("./logs"),
-            help="Directory for log files (default: ./logs).",
-        )
-        parser.add_argument(
-            "--processed-dir",
-            type=Path,
-            default=None,
-            help=(
-                "Directory to move processed PLT files to after optimization. "
-                "If not specified, original files remain in the watch directory."
-            ),
-        )
-        parser.add_argument(
-            "--fast-mode",
-            action="store_true",
-            help=(
-                "Use NearestNeighbor2OptStrategy exclusively for faster processing. "
-                "If not specified, uses ParallelEnsembleStrategy which runs multiple "
-                "strategies and selects the best result."
-            ),
-        )
-        parser.add_argument(
-            "--debug-save-files",
-            action="store_true",
-            help=(
-                "Save before/after PLT files and comparison plots to the log directory. "
-                "Only effective when --log-dir is specified. Creates a 'debug' subdirectory "
-                "containing original.plt, optimized.plt, and comparison.png for each job."
-            ),
-        )
-        parser.add_argument(
-            "--debounce-seconds",
-            type=float,
-            default=2.0,
-            help=(
-                "Quiet period (seconds) the watcher waits after the last "
-                "modification to a file before processing it. Prevents "
-                "reading partially-written files (default: 2.0)."
-            ),
-        )
-
+        parser = setup_parser()
         return parser.parse_args(args)
 
     def _validate_path_can_be_created(self, path: pathlib.Path) -> None:
@@ -1251,8 +1187,139 @@ Examples:
         return 0
 
 
+# Default values for arguments; kept module-level so setup_parser() and the
+# "log-dir explicitly set" detection in WatchCommand stay in sync.
+_DEFAULT_OUTPUT_DIR: Path = Path("./optimized")
+_DEFAULT_LOG_DIR: Path = Path("./logs")
+_DEFAULT_DEBOUNCE_SECONDS: float = 2.0
+
+
+def setup_parser(parser: Optional[argparse.ArgumentParser] = None) -> argparse.ArgumentParser:
+    """Configure argument parser for the watch subcommand.
+
+    This is the single source of truth for watch CLI arguments. It supports
+    two modes:
+
+    * If ``parser`` is provided, the watch arguments are added to it (used by
+      the main CLI router in ``main.py``).
+    * If ``parser`` is ``None``, a standalone ``ArgumentParser`` is created
+      with watch-specific prog/description/epilog (used by
+      ``python -m plt_optimizer.cli.watch`` direct invocation).
+
+    Args:
+        parser: Existing ``ArgumentParser`` to extend, or ``None`` to create
+            a new standalone parser.
+
+    Returns:
+        The ``ArgumentParser`` instance (either the one passed in or the newly
+        created standalone one).
+    """
+    if parser is None:
+        parser = argparse.ArgumentParser(
+            prog="plt-optimizer watch",
+            description="Watch a directory for PLT files and optimize them automatically.",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog="""
+Examples:
+  # Watch current directory, output to ./optimized, logs to ./logs
+  python -m plt_optimizer.cli.watch --watch-dir .
+
+  # With explicit directories and fast mode
+  python -m plt_optimizer.cli.watch --watch-dir /input/plt \\
+                                    --output-dir /output/plt \\
+                                    --log-dir /var/log/plt-optimizer \\
+                                    --fast-mode
+
+  # With processed-dir to archive original files after optimization
+  python -m plt_optimizer.cli.watch --watch-dir /input/plt \\
+                                    --output-dir /output/plt \\
+                                    --processed-dir /archive/plt
+
+  # Run as module
+  uv run plt-optimizer watch --watch-dir /input
+            """,
+        )
+
+    parser.add_argument(
+        "--watch-dir",
+        type=Path,
+        required=True,
+        help="Directory to watch for new/modified PLT files.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=_DEFAULT_OUTPUT_DIR,
+        help="Directory where optimized PLT files are saved (default: ./optimized).",
+    )
+    parser.add_argument(
+        "--log-dir",
+        type=Path,
+        default=_DEFAULT_LOG_DIR,
+        help="Directory for log files (default: ./logs).",
+    )
+    parser.add_argument(
+        "--processed-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Directory to move processed PLT files to after optimization. "
+            "If not specified, original files remain in the watch directory."
+        ),
+    )
+    parser.add_argument(
+        "--fast-mode",
+        action="store_true",
+        help=(
+            "Use NearestNeighbor2OptStrategy exclusively for faster processing. "
+            "If not specified, uses ParallelEnsembleStrategy which runs multiple "
+            "strategies and selects the best result."
+        ),
+    )
+    parser.add_argument(
+        "--debug-save-files",
+        action="store_true",
+        help=(
+            "Save before/after PLT files and comparison plots to the log directory. "
+            "Only effective when --log-dir is specified. Creates a 'debug' subdirectory "
+            "containing original.plt, optimized.plt, and comparison.png for each job."
+        ),
+    )
+    parser.add_argument(
+        "--debounce-seconds",
+        type=float,
+        default=_DEFAULT_DEBOUNCE_SECONDS,
+        help=(
+            "Quiet period (seconds) the watcher waits after the last "
+            "modification to a file before processing it. Prevents "
+            "reading partially-written files (default: 2.0)."
+        ),
+    )
+
+    return parser
+
+
+def run(args: argparse.Namespace) -> int:
+    """Execute the watch command.
+
+    This function serves as the entry point when watch is invoked as a subcommand.
+    It wraps ``WatchCommand`` but accepts pre-parsed arguments from argparse.
+
+    Args:
+        args: Parsed command-line arguments namespace.
+
+    Returns:
+        Exit code (0 for success, non-zero for failure).
+    """
+    command = WatchCommand(args)
+    return command.run()
+
+
 def main(args: Optional[List[str]] = None) -> int:
-    """Entry point for the watch command.
+    """Entry point for the watch command (legacy direct invocation).
+
+    This function is kept for backward compatibility when calling
+    `python -m plt_optimizer.cli.watch` directly.
 
     Args:
         args: Command-line arguments (defaults to sys.argv).
