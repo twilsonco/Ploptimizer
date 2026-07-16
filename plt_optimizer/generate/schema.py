@@ -3,8 +3,8 @@
 This module provides Pydantic models that define the data contract for
 job specifications used by the generate pipeline. It handles:
 - Parsing YAML files into typed Python objects
-- Validating text height inheritance rules
-- Auto-sizing label dimensions when omitted
+- Top-down inheritance via two-tier mixins (TextAttributes, LabelAttributes)
+- Root-level single-label jobs (no explicit `labels` list required)
 
 Example:
     >>> job = parse_yaml("examples/sample_spec.yaml")
@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class HoleLocation(str, Enum):
@@ -58,31 +58,44 @@ class HoleSpec(BaseModel):
     location: HoleLocation
 
 
-class StyleMixin(BaseModel):
-    """Optional styling constraints that can be defined at the Job, Label, or Line level.
+class TextAttributes(BaseModel):
+    """Attributes that can cascade down to individual text lines.
 
-    By standardizing these fields in a single mixin, the YAML hierarchy
-    supports top-down inheritance: values defined at a higher level (Job)
-    propagate down to lower levels (Label, TextLine) unless overridden
-    locally. Cross-level resolution is handled by the generation pipeline
-    rather than at schema validation time.
+    These fields are safe to inherit at the TextLine level because they
+    describe typographic properties that apply to rendered glyphs.
 
     Attributes:
         text_height: Optional font height in inches.
-        margin: Optional margin in inches (label or layout context).
         character_spacing: Optional extra spacing between characters in inches.
         line_spacing: Optional extra spacing between text lines in inches.
-        holes: Optional list of hole specifications.
     """
 
     text_height: Optional[float] = None
-    margin: Optional[float] = None
     character_spacing: Optional[float] = None
     line_spacing: Optional[float] = None
+
+
+class LabelAttributes(TextAttributes):
+    """Attributes that cascade down to labels.
+
+    Extends TextAttributes with physical label dimensions and layout
+    properties. These fields must NOT be inherited by TextLine because
+    they describe the label container, not individual glyphs.
+
+    Attributes:
+        width: Optional label width in inches.
+        height: Optional label height in inches.
+        margin: Optional margin in inches.
+        holes: Optional list of hole specifications.
+    """
+
+    width: Optional[float] = Field(default=None, ge=0.0)
+    height: Optional[float] = Field(default=None, ge=0.0)
+    margin: Optional[float] = Field(default=None, ge=0.0)
     holes: Optional[list[HoleSpec]] = None
 
 
-class TextLine(StyleMixin):
+class TextLine(TextAttributes):
     """A single line of text content within a label.
 
     Attributes:
@@ -94,27 +107,22 @@ class TextLine(StyleMixin):
     text: str
 
 
-class LabelSpec(StyleMixin):
+class LabelSpec(LabelAttributes):
     """Specification for a label to be generated.
 
-    Inherits optional styling fields (text_height, margin, character_spacing,
-    line_spacing, holes) from StyleMixin so they can be set at the Label
-    level and overridden at the TextLine level.
+    Inherits optional styling fields (text_height, character_spacing,
+    line_spacing, width, height, margin, holes) from LabelAttributes.
 
     Attributes:
         id: Unique identifier for this label specification.
-        count: Number of instances to produce.
-        width: Width in inches. If None, auto-calculated by the generation
-            pipeline based on content.
-        height: Height in inches. If None, auto-calculated by the generation
-            pipeline based on content.
+        count: Number of instances to produce. Defaults to 1.
         content: List of text lines to render on the label.
     """
 
     id: str
-    count: int = Field(ge=1, description="Number of instances to produce (must be >= 1).")
-    width: Optional[float] = Field(default=None, ge=0.0)
-    height: Optional[float] = Field(default=None, ge=0.0)
+    count: int = Field(
+        ge=1, default=1, description="Number of instances to produce (must be >= 1)."
+    )
     content: list[TextLine] = Field(min_length=1, description="At least one text line is required.")
 
     @field_validator("content")
@@ -156,22 +164,54 @@ class PlateSpec(BaseModel):
     )
 
 
-class JobSpec(StyleMixin):
+class JobSpec(LabelAttributes):
     """Top-level specification for a batch label generation job.
 
-    Inherits optional styling fields from StyleMixin so they can be set at
-    the Job level and inherited down to Label and TextLine levels.
+    Inherits optional styling fields from LabelAttributes so they can be
+    set at the Job level and inherited down to Label and TextLine levels.
+
+    A job may be specified in one of two equivalent forms:
+    1. A list of explicit labels (`labels`).
+    2. A single root-level label definition (`content` + optional `count`).
+
+    The two forms are mutually exclusive; exactly one must be provided.
 
     Attributes:
         job_name: Human-readable name for this job.
         plates: Optional list of plate specifications. If omitted, the
             generation pipeline auto-allocates default 24x16 sheets.
-        labels: List of unique label specifications to produce.
+        labels: Optional list of unique label specifications to produce.
+        count: Optional count for root-level single-label jobs.
+        content: Optional root-level content for single-label jobs.
     """
 
     job_name: str
     plates: Optional[list[PlateSpec]] = None
-    labels: list[LabelSpec]
+
+    # Allow either a list of labels, or a root-level label definition
+    labels: Optional[list[LabelSpec]] = None
+    count: Optional[int] = Field(default=None, ge=1)
+    content: Optional[list[TextLine]] = None
+
+    @model_validator(mode="after")
+    def validate_job_structure(self) -> JobSpec:
+        """Ensure exactly one of `labels` or root-level `content` is provided.
+
+        Raises:
+            ValueError: If neither or both forms are specified.
+
+        Returns:
+            Self for method chaining.
+        """
+        has_labels = self.labels is not None and len(self.labels) > 0
+        has_content = self.content is not None and len(self.content) > 0
+
+        if not has_labels and not has_content:
+            raise ValueError("Job must define either 'labels' or root-level 'content'.")
+        if has_labels and has_content:
+            raise ValueError("Job cannot define both 'labels' and root-level 'content'.")
+
+        return self
 
 
 def parse_yaml(file_path: str | Path) -> JobSpec:
