@@ -93,7 +93,7 @@ warn_unused_configs = true
 
 # Ignore missing stubs for optional third-party libraries (they don't ship type stubs)
 [[tool.mypy.overrides]]
-module = ["pystray.*", "infi.systray", "matplotlib.*", "winshell", "win32com.client", "rectpack"]
+module = ["pystray.*", "infi.systray", "matplotlib.*", "winshell", "win32com.client", "rectpack", "vpype"]
 ignore_missing_imports = true
 
 [tool.ruff]

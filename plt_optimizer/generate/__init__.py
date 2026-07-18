@@ -36,6 +36,16 @@ from plt_optimizer.generate.schema import (
     TextLine,
     parse_yaml,
 )
+from plt_optimizer.generate.vectorize import (
+    LAYER_BOUNDARY,
+    LAYER_HOLES,
+    LAYER_TEXT,
+    POINTS_PER_INCH,
+    export_and_optimize,
+    export_to_plt,
+    vectorize_plate,
+    vectorize_plates,
+)
 
 __all__ = [
     "DEFAULT_CHAR_SPACING",
@@ -47,9 +57,13 @@ __all__ = [
     "HoleLocation",
     "HoleSpec",
     "JobSpec",
+    "LAYER_BOUNDARY",
+    "LAYER_HOLES",
+    "LAYER_TEXT",
     "LabelAttributes",
     "LabelSpec",
     "LayoutFitError",
+    "POINTS_PER_INCH",
     "PackedLabel",
     "PackedPlate",
     "PlateSpec",
@@ -59,9 +73,13 @@ __all__ = [
     "TextAttributes",
     "TextLine",
     "calculate_label_dimensions",
+    "export_and_optimize",
+    "export_to_plt",
     "generate_layout",
     "initialize_packer",
     "parse_yaml",
     "resolve_job_spec",
     "unroll_labels",
+    "vectorize_plate",
+    "vectorize_plates",
 ]
