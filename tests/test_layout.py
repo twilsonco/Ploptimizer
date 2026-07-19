@@ -34,7 +34,14 @@ def _make_label(
         width=width,
         height=height,
         margin=margin,
-        content=[ResolvedTextLine(text="X", text_height=0.5, character_spacing=0.0, line_spacing=0.0)],
+        content=[ResolvedTextLine(
+            text="X",
+            nominal_text_height=0.5,
+            toolpath_text_height=0.5 - 0.03,
+            cutter_diameter=0.03,
+            character_spacing=0.0,
+            line_spacing=0.0,
+        )],
     )
 
 

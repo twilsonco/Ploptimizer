@@ -38,6 +38,89 @@ DEFAULT_MARGIN: float = 0.125
 DEFAULT_CHAR_SPACING: float = 0.05
 DEFAULT_LINE_SPACING: float = 0.1
 
+# ---------------------------------------------------------------------------
+# Cutter lookup table and inventory matching
+# ---------------------------------------------------------------------------
+# Maps nominal text height (inches) to the ideal cutter diameter (inches).
+# Keys are stored as exact float representations of common fractions.
+IDEAL_CUTTER_MAP: dict[float, float] = {
+    0.0625: 0.005,  # 1/16
+    0.09375: 0.01,  # 3/32
+    0.125: 0.015,  # 1/8
+    0.1875: 0.02,  # 3/16
+    0.21875: 0.025,  # 7/32
+    0.25: 0.03,  # 1/4
+    0.3125: 0.04,  # 5/16
+    0.375: 0.045,  # 3/8
+    0.4375: 0.05,  # 7/16
+    0.5: 0.06,  # 1/2
+    0.625: 0.075,  # 5/8
+    0.75: 0.09,  # 3/4
+    1.0: 0.125,  # 1
+    1.25: 0.15,  # 1-1/4
+    1.375: 0.171,  # 1-3/8
+    1.5: 0.187,  # 1-1/2
+    1.75: 0.21,  # 1-3/4
+    2.0: 0.25,  # 2
+}
+
+
+def get_cutter_diameter(
+    nominal_height: float,
+    available_inventory: Optional[list[float]] = None,
+    tolerance_factor: float = 3.0,
+) -> float:
+    """Find the optimal cutter diameter, preferring a narrower tool.
+
+    The logic defaults to a narrower cutter to prevent character bleeding,
+    but switches to a wider cutter when the closest narrower tool exceeds
+    the distance tolerance factor relative to the wider tool. This
+    prevents using an impractically small tool that could result in
+    illegible hairline text or unnecessary tool wear.
+
+    Args:
+        nominal_height: The nominal text height in inches.
+        available_inventory: Optional list of cutter diameters available in
+            the shop. If None or empty, the ideal cutter is returned.
+        tolerance_factor: The multiplier used to decide between narrower and
+            wider cutters. If the distance to the closest narrower cutter
+            exceeds ``tolerance_factor`` times the distance to the closest
+            wider cutter, the wider cutter is selected. Defaults to 3.0.
+
+    Returns:
+        The recommended cutter diameter in inches.
+    """
+    # 1. Find the ideal cutter from the lookup table
+    closest_nominal = min(IDEAL_CUTTER_MAP.keys(), key=lambda k: abs(k - nominal_height))
+    ideal_cutter = IDEAL_CUTTER_MAP[closest_nominal]
+
+    # 2. If no inventory provided, return the ideal cutter
+    if not available_inventory:
+        return ideal_cutter
+
+    # 3. Filter inventory into narrower (including exact match) and wider lists
+    narrower_cutters = [c for c in available_inventory if c <= ideal_cutter]
+    wider_cutters = [c for c in available_inventory if c > ideal_cutter]
+
+    # 4. Handle edge cases where inventory is severely restricted
+    if not narrower_cutters:
+        return min(wider_cutters)  # Must use the smallest available wider cutter
+    if not wider_cutters:
+        return max(narrower_cutters)  # Must use the largest available narrower cutter
+
+    # 5. Find the closest candidates
+    closest_narrower = max(narrower_cutters)
+    closest_wider = min(wider_cutters)
+
+    # 6. Apply the threshold logic
+    dist_narrower = ideal_cutter - closest_narrower
+    dist_wider = closest_wider - ideal_cutter
+
+    if dist_narrower > (tolerance_factor * dist_wider):
+        return closest_wider
+    else:
+        return closest_narrower
+
 
 # ---------------------------------------------------------------------------
 # Strictly typed target dataclasses
@@ -57,17 +140,24 @@ class ResolvedHoleSpec:
 
 @dataclass(frozen=True)
 class ResolvedTextLine:
-    """A fully resolved text line.
+    """A fully resolved text line with cutter compensation applied.
 
     Attributes:
         text: The actual text string to render.
-        text_height: Font height in inches.
+        nominal_text_height: The requested font height in inches (before
+            cutter compensation).
+        toolpath_text_height: The actual toolpath height in inches (after
+            subtracting cutter diameter). This is what vpype renders.
+        cutter_diameter: The matched tool diameter in inches, used for
+            kerf compensation and pre-job reporting.
         character_spacing: Extra spacing between characters in inches.
         line_spacing: Extra spacing between text lines in inches.
     """
 
     text: str
-    text_height: float
+    nominal_text_height: float
+    toolpath_text_height: float
+    cutter_diameter: float
     character_spacing: float
     line_spacing: float
 
@@ -119,13 +209,13 @@ def calculate_label_dimensions(
     total_text_height = 0.0
 
     for i, line in enumerate(content):
-        # Stub width estimation: char count * text height * ratio + char spacing
-        est_width = (len(line.text) * line.text_height * 0.6) + (
+        # Stub width estimation: char count * nominal height * ratio + char spacing
+        est_width = (len(line.text) * line.nominal_text_height * 0.6) + (
             len(line.text) * line.character_spacing
         )
         max_text_width = max(max_text_width, est_width)
 
-        total_text_height += line.text_height
+        total_text_height += line.nominal_text_height
         if i < len(content) - 1:
             total_text_height += line.line_spacing
 
@@ -165,32 +255,46 @@ def _resolve_holes(
 def _resolve_content(
     label_input: LabelSpec | JobSpec,
     job: JobSpec,
+    available_cutters: Optional[list[float]] = None,
+    tolerance_factor: float = 3.0,
 ) -> list[ResolvedTextLine]:
-    """Resolve text lines by cascading values from line -> label -> job -> default.
+    """Resolve text lines with cutter compensation applied.
+
+    Cascades values from line -> label -> job -> default, then determines
+    the appropriate cutter diameter and subtracts it from the nominal
+    height to produce the toolpath height.
 
     Args:
         label_input: The label (or root-level job) being processed.
         job: The outer JobSpec providing fallback values.
+        available_cutters: Optional list of cutter diameters available in
+            the shop. If provided, the cutter is snapped to the closest
+            available tool.
+        tolerance_factor: The multiplier used to decide between narrower and
+            wider cutters. See ``get_cutter_diameter`` for details.
 
     Returns:
-        A list of fully resolved text lines.
+        A list of fully resolved text lines with cutter compensation.
     """
     resolved_content: list[ResolvedTextLine] = []
-    # label_input.content is guaranteed non-None by the schema validator:
-    # LabelSpec.content is required, and JobSpec.content is only None when
-    # labels is provided (in which case we never reach this function with
-    # a JobSpec instance).
     content = label_input.content
     assert content is not None, "label_input.content must not be None"
     for line in content:
-        text_height = (
+        # Resolve nominal height through the inheritance cascade
+        nominal_height = (
             line.text_height or label_input.text_height or job.text_height or DEFAULT_TEXT_HEIGHT
         )
+
+        # Determine cutter and compensate for toolpath
+        cutter_dia = get_cutter_diameter(nominal_height, available_cutters, tolerance_factor)
+        toolpath_height = nominal_height - cutter_dia
+
+        # Resolve spacing (kerning can now dynamically rely on cutter_dia if omitted)
         char_spacing = (
             line.character_spacing
             or label_input.character_spacing
             or job.character_spacing
-            or DEFAULT_CHAR_SPACING
+            or (cutter_dia * 1.5)
         )
         line_spacing = (
             line.line_spacing
@@ -198,10 +302,13 @@ def _resolve_content(
             or job.line_spacing
             or DEFAULT_LINE_SPACING
         )
+
         resolved_content.append(
             ResolvedTextLine(
                 text=line.text,
-                text_height=text_height,
+                nominal_text_height=nominal_height,
+                toolpath_text_height=toolpath_height,
+                cutter_diameter=cutter_dia,
                 character_spacing=char_spacing,
                 line_spacing=line_spacing,
             )
@@ -212,12 +319,18 @@ def _resolve_content(
 def _resolve_label(
     label_input: LabelSpec | JobSpec,
     job: JobSpec,
+    available_cutters: Optional[list[float]] = None,
+    tolerance_factor: float = 3.0,
 ) -> ResolvedLabel:
     """Resolve a single label (or root-level job) into a ResolvedLabel.
 
     Args:
         label_input: The label (or root-level job) being processed.
         job: The outer JobSpec providing fallback values.
+        available_cutters: Optional list of cutter diameters available in
+            the shop.
+        tolerance_factor: The multiplier used to decide between narrower and
+            wider cutters. See ``get_cutter_diameter`` for details.
 
     Returns:
         A fully resolved label with all dimensions guaranteed non-None.
@@ -229,13 +342,13 @@ def _resolve_label(
     # Resolve label-level styles (Label -> Job -> Fallback)
     label_margin: float = label_input.margin or job.margin or DEFAULT_MARGIN
 
-    # Resolve text lines
-    resolved_content = _resolve_content(label_input, job)
+    # Resolve text lines with cutter compensation
+    resolved_content = _resolve_content(label_input, job, available_cutters, tolerance_factor)
 
     # Resolve holes
     resolved_holes = _resolve_holes(label_input, job)
 
-    # Execute auto-sizing calculations
+    # Execute auto-sizing calculations (use nominal heights for sizing)
     final_width: Optional[float] = label_input.width or job.width
     final_height: Optional[float] = label_input.height or job.height
 
@@ -258,7 +371,11 @@ def _resolve_label(
     )
 
 
-def resolve_job_spec(job: JobSpec) -> list[ResolvedLabel]:
+def resolve_job_spec(
+    job: JobSpec,
+    available_cutters: Optional[list[float]] = None,
+    tolerance_factor: float = 3.0,
+) -> list[ResolvedLabel]:
     """Flatten a JobSpec into a list of fully resolved labels.
 
     Handles both the explicit ``labels`` form and the root-level
@@ -267,6 +384,11 @@ def resolve_job_spec(job: JobSpec) -> list[ResolvedLabel]:
 
     Args:
         job: The parsed and validated JobSpec.
+        available_cutters: Optional list of cutter diameters available in
+            the shop. If provided, the cutter matching will snap to the
+            closest available tool.
+        tolerance_factor: The multiplier used to decide between narrower and
+            wider cutters. See ``get_cutter_diameter`` for details.
 
     Returns:
         A list of ResolvedLabel objects with all dimensions guaranteed
@@ -293,4 +415,7 @@ def resolve_job_spec(job: JobSpec) -> list[ResolvedLabel]:
         # Root-level job: treat the JobSpec itself as a single label
         labels_to_process = [job]
 
-    return [_resolve_label(label_input, job) for label_input in labels_to_process]
+    return [
+        _resolve_label(label_input, job, available_cutters, tolerance_factor)
+        for label_input in labels_to_process
+    ]
