@@ -227,9 +227,10 @@ def _render_text(
 ) -> vp.LineCollection:
     """Render text content for a label using vpype's Hershey font engine.
 
-    Each text line is rendered at its resolved ``text_height`` and stacked
-    vertically using ``line_spacing``. Text is left-aligned within the
-    inner content area.
+    Each text line is rendered at its ``toolpath_text_height`` (the nominal
+    height minus the cutter diameter) so the final cut geometry matches
+    the requested nominal size. Lines are stacked vertically using
+    ``line_spacing`` and left-aligned within the inner content area.
 
     Args:
         source_label: The resolved label containing text content.
@@ -246,12 +247,15 @@ def _render_text(
     margin = source_label.margin
     text_lc = vp.LineCollection()
 
-    # Stack lines vertically starting from the top of the inner content area
+    # Stack lines vertically starting from the top of the inner content area.
+    # Use nominal_text_height for spacing so the visual layout matches the
+    # requested nominal size, even though the rendered glyphs are smaller.
     current_y = margin + source_label.height  # Start at top of inner area
 
     for line in source_label.content:
-        # Render at the resolved text_height (convert inches to points)
-        size_pt = line.text_height * POINTS_PER_INCH
+        # Render at the toolpath_text_height (cutter-compensated) so the
+        # final cut geometry matches the requested nominal size.
+        size_pt = line.toolpath_text_height * POINTS_PER_INCH
         # Use a generous width; vpype will render at the given size
         line_lc = vp.text_block(
             line.text,

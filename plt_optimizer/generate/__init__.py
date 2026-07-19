@@ -19,10 +19,12 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_LINE_SPACING,
     DEFAULT_MARGIN,
     DEFAULT_TEXT_HEIGHT,
+    IDEAL_CUTTER_MAP,
     ResolvedHoleSpec,
     ResolvedLabel,
     ResolvedTextLine,
     calculate_label_dimensions,
+    get_cutter_diameter,
     resolve_job_spec,
 )
 from plt_optimizer.generate.schema import (
@@ -56,6 +58,7 @@ __all__ = [
     "DEFAULT_TEXT_HEIGHT",
     "HoleLocation",
     "HoleSpec",
+    "IDEAL_CUTTER_MAP",
     "JobSpec",
     "LAYER_BOUNDARY",
     "LAYER_HOLES",
@@ -76,6 +79,7 @@ __all__ = [
     "export_and_optimize",
     "export_to_plt",
     "generate_layout",
+    "get_cutter_diameter",
     "initialize_packer",
     "parse_yaml",
     "resolve_job_spec",

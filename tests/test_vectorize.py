@@ -43,7 +43,14 @@ def _make_label(
 ) -> ResolvedLabel:
     """Helper to create a ResolvedLabel with minimal boilerplate."""
     if content is None:
-        content = [ResolvedTextLine(text="X", text_height=0.5, character_spacing=0.0, line_spacing=0.0)]
+        content = [ResolvedTextLine(
+            text="X",
+            nominal_text_height=0.5,
+            toolpath_text_height=0.5 - 0.03,
+            cutter_diameter=0.03,
+            character_spacing=0.0,
+            line_spacing=0.0,
+        )]
     return ResolvedLabel(
         id=label_id,
         count=count,
@@ -290,7 +297,7 @@ class TestRenderText:
         label = _make_label(
             width=2.0,
             height=1.0,
-            content=[ResolvedTextLine(text="HELLO", text_height=0.25, character_spacing=0.0, line_spacing=0.0)],
+            content=[ResolvedTextLine(text="HELLO", nominal_text_height=0.25, toolpath_text_height=0.22, cutter_diameter=0.03, character_spacing=0.0, line_spacing=0.0)],
         )
         lc = _render_text(label, 0.0, 0.0, 0.0)
         assert not lc.is_empty()
@@ -301,8 +308,8 @@ class TestRenderText:
             width=2.0,
             height=1.5,
             content=[
-                ResolvedTextLine(text="LINE 1", text_height=0.25, character_spacing=0.0, line_spacing=0.1),
-                ResolvedTextLine(text="LINE 2", text_height=0.25, character_spacing=0.0, line_spacing=0.0),
+                ResolvedTextLine(text="LINE 1", nominal_text_height=0.25, toolpath_text_height=0.22, cutter_diameter=0.03, character_spacing=0.0, line_spacing=0.1),
+                ResolvedTextLine(text="LINE 2", nominal_text_height=0.25, toolpath_text_height=0.22, cutter_diameter=0.03, character_spacing=0.0, line_spacing=0.0),
             ],
         )
         lc = _render_text(label, 0.0, 0.0, 0.0)
@@ -325,7 +332,7 @@ class TestVectorizePlate:
             height=1.0,
             margin=0.1,
             holes=[ResolvedHoleSpec(diameter=0.125, location="left")],
-            content=[ResolvedTextLine(text="X", text_height=0.25, character_spacing=0.0, line_spacing=0.0)],
+            content=[ResolvedTextLine(text="X", nominal_text_height=0.25, toolpath_text_height=0.22, cutter_diameter=0.03, character_spacing=0.0, line_spacing=0.0)],
         )
         packed = _make_packed(label, x=1.0, y=2.0)
         plate = PackedPlate(plate_id="p1", width=24.0, height=12.0, labels=[packed])
@@ -341,7 +348,7 @@ class TestVectorizePlate:
             width=2.0,
             height=1.0,
             holes=[],
-            content=[ResolvedTextLine(text="HELLO", text_height=0.25, character_spacing=0.0, line_spacing=0.0)],
+            content=[ResolvedTextLine(text="HELLO", nominal_text_height=0.25, toolpath_text_height=0.22, cutter_diameter=0.03, character_spacing=0.0, line_spacing=0.0)],
         )
         packed = _make_packed(label)
         plate = PackedPlate(plate_id="p1", width=24.0, height=12.0, labels=[packed])
@@ -357,7 +364,7 @@ class TestVectorizePlate:
             height=1.0,
             margin=0.1,
             holes=[ResolvedHoleSpec(diameter=0.125, location="left")],
-            content=[ResolvedTextLine(text="X", text_height=0.25, character_spacing=0.0, line_spacing=0.0)],
+            content=[ResolvedTextLine(text="X", nominal_text_height=0.25, toolpath_text_height=0.22, cutter_diameter=0.03, character_spacing=0.0, line_spacing=0.0)],
         )
         packed = _make_packed(label, x=1.0, y=2.0, width=1.0, height=2.0, rotated=True)
         plate = PackedPlate(plate_id="p1", width=24.0, height=12.0, labels=[packed])
@@ -421,7 +428,7 @@ class TestExportToPlt:
         label = _make_label(
             width=2.0,
             height=1.0,
-            content=[ResolvedTextLine(text="HELLO", text_height=0.25, character_spacing=0.0, line_spacing=0.0)],
+            content=[ResolvedTextLine(text="HELLO", nominal_text_height=0.25, toolpath_text_height=0.22, cutter_diameter=0.03, character_spacing=0.0, line_spacing=0.0)],
         )
         packed = _make_packed(label)
         plate = PackedPlate(plate_id="p1", width=24.0, height=12.0, labels=[packed])
@@ -469,7 +476,7 @@ class TestExportAndOptimize:
         label = _make_label(
             width=2.0,
             height=1.0,
-            content=[ResolvedTextLine(text="HELLO", text_height=0.25, character_spacing=0.0, line_spacing=0.0)],
+            content=[ResolvedTextLine(text="HELLO", nominal_text_height=0.25, toolpath_text_height=0.22, cutter_diameter=0.03, character_spacing=0.0, line_spacing=0.0)],
         )
         packed = _make_packed(label)
         plate = PackedPlate(plate_id="p1", width=24.0, height=12.0, labels=[packed])
