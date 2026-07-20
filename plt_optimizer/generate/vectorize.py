@@ -252,16 +252,16 @@ def _render_text(
 
     for line in source_label.content:
         # Render at the toolpath_text_height (cutter-compensated).
-        # size_pt is in points: 72 points = 1 inch.
-        # vpype will render this at its natural scale.
+        # vpype's text_block uses a coordinate system of approximately
+        # 47.25 units per inch (based on 0.656 units/point * 72 pt/inch).
+        # We render at the requested size and then scale down to inches.
         size_pt = line.toolpath_text_height * POINTS_PER_INCH
         line_lc = vp.text_block(
             line.text,
-            width=source_label.width * POINTS_PER_INCH,
+            width=source_label.width * 100,  # Scale up width parameter for text wrapping
             size=size_pt,
         )
 
-        # Get the rendered height
         bounds = line_lc.bounds()
         if bounds is None:
             continue
