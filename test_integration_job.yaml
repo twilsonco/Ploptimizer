@@ -1,0 +1,61 @@
+job:
+  job_name: "E2E Integration Test - Hierarchical Resolution & Bin Packing"
+  text_height: 0.25
+  character_spacing: 0.05
+  line_spacing: 0.1
+  margin: 0.125
+  # No plates specified - use unbounded mode (auto-allocate 24x16 default sheets)
+
+  labels:
+    # Label A: Explicit Override - All parameters explicitly stated
+    - id: label_a_explicit
+      count: 1
+      width: 3.0
+      height: 1.5
+      text_height: 0.5
+      character_spacing: 0.075
+      line_spacing: 0.15
+      margin: 0.1875
+      content:
+        - text: "EXPLICIT OVERRIDE"
+        - text: "(All params defined)"
+
+    # Label B: Auto-Sizing - Only text content, no width/height
+    # Should trigger bounding-box calculation
+    # text_height omitted to inherit from JobSpec root (0.25)
+    - id: label_b_auto_size
+      count: 1
+      content:
+        - text: "AUTO SIZED LABEL"
+        - text: "No dimensions given"
+
+    # Label C: Multi-Line Kerning Test with 3x tolerance cutter match
+    # Nominal text height 0.25 should force cutter selection to wider tool
+    # (ideal is 0.03, available are [0.015, 0.02, 0.045, 0.125])
+    # Distance to narrower (0.015): 0.015
+    # Distance to wider (0.045): 0.015
+    # Should prefer narrower (0.015) unless tolerance forces switch
+    - id: label_c_multiline_kerning
+      count: 1
+      width: 3.5
+      height: 2.5
+      text_height: 0.25
+      content:
+        - text: "Multi-line test"
+        - text: "Kerning verification"
+        - text: "Line spacing check"
+
+    # Label D: Volume Test - count:200 forces multi-plate allocation
+    # Each instance: 2.0 x 1.0, with margin 0.125
+    # Total per instance in packer: 2.25 x 1.25 = 2.8125 sq in
+    # Single 24x16 plate = 384 sq in, theoretically fits ~136 instances
+    # With 200 instances we guarantee overflow to 2+ plates
+    - id: label_d_volume
+      count: 200
+      width: 2.0
+      height: 1.0
+      margin: 0.125
+      text_height: 0.3
+      content:
+        - text: "LABEL"
+        - text: "x200 count"
