@@ -247,33 +247,29 @@ def _render_text(
     margin = source_label.margin
     text_lc = vp.LineCollection()
 
-    # Stack lines vertically starting from the top of the inner content area.
-    # Use nominal_text_height for spacing so the visual layout matches the
-    # requested nominal size, even though the rendered glyphs are smaller.
-    current_y = margin + source_label.height  # Start at top of inner area
+    # Start at top of the inner content area
+    current_y = margin + source_label.height
 
     for line in source_label.content:
-        # Render at the toolpath_text_height (cutter-compensated) so the
-        # final cut geometry matches the requested nominal size.
+        # Render at the toolpath_text_height (cutter-compensated).
+        # size_pt is in points: 72 points = 1 inch.
+        # vpype will render this at its natural scale.
         size_pt = line.toolpath_text_height * POINTS_PER_INCH
-        # Use a generous width; vpype will render at the given size
         line_lc = vp.text_block(
             line.text,
             width=source_label.width * POINTS_PER_INCH,
             size=size_pt,
         )
 
-        # Scale from points back to inches
-        line_lc.scale(1.0 / POINTS_PER_INCH)
-
-        # Get the rendered height to position the next line
+        # Get the rendered height
         bounds = line_lc.bounds()
         if bounds is None:
             continue
         _, min_y, _, max_y = bounds
         rendered_height = max_y - min_y
 
-        # Position this line at the current Y (top-down stacking)
+        # Position this line at (margin, current_y - max_y)
+        # This places the top of the text at current_y
         line_lc.translate(margin, current_y - max_y)
 
         text_lc.extend(line_lc)
