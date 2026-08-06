@@ -43,6 +43,7 @@ from plt_optimizer.generate.vectorize import (
     LAYER_HOLES,
     LAYER_TEXT,
     POINTS_PER_INCH,
+    TEXT_BLOCK_HEIGHT_PER_SIZE,
     export_and_optimize,
     export_to_plt,
     vectorize_plate,
