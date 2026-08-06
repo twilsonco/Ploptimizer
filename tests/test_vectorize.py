@@ -19,6 +19,7 @@ from plt_optimizer.generate.vectorize import (
     LAYER_HOLES,
     LAYER_TEXT,
     POINTS_PER_INCH,
+    TEXT_BLOCK_HEIGHT_PER_SIZE,
     _apply_transform,
     _get_transform_matrix,
     _hole_center,
@@ -109,6 +110,29 @@ class TestLayerConstants:
     def test_points_per_inch(self) -> None:
         """POINTS_PER_INCH should be 72.0."""
         assert POINTS_PER_INCH == 72.0
+
+    def test_text_block_height_per_size(self) -> None:
+        """TEXT_BLOCK_HEIGHT_PER_SIZE should be 0.65625.
+
+        This is the empirically measured ratio between the ``size`` parameter
+        passed to ``vpype.text_block()`` and the resulting rendered glyph
+        height in document coordinates (for the default ``futural`` font).
+        """
+        assert math.isclose(TEXT_BLOCK_HEIGHT_PER_SIZE, 0.65625, rel_tol=1e-9)
+
+    def test_text_block_height_per_size_matches_vpype(self) -> None:
+        """TEXT_BLOCK_HEIGHT_PER_SIZE should match vpype's actual behavior.
+
+        This test verifies the constant by rendering text at a known size
+        and checking the resulting height matches the expected ratio.
+        """
+        test_size = 10.0
+        lc = vp.text_block("H", width=1000, size=test_size)
+        bounds = lc.bounds()
+        assert bounds is not None
+        rendered_height = bounds[3] - bounds[1]
+        expected_ratio = rendered_height / test_size
+        assert math.isclose(TEXT_BLOCK_HEIGHT_PER_SIZE, expected_ratio, rel_tol=1e-3)
 
 
 class TestGetTransformMatrix:
@@ -314,6 +338,94 @@ class TestRenderText:
         )
         lc = _render_text(label, 0.0, 0.0, 0.0)
         assert not lc.is_empty()
+
+    def test_text_height_matches_toolpath_height(self) -> None:
+        """Rendered text height should match toolpath_text_height in inches.
+
+        This is a regression test for the vpype text coordinate system bug
+        where ``text_block()`` renders glyphs at approximately 0.65625
+        document units per unit of ``size``, so the size parameter must be
+        divided by that factor to produce correctly-sized text.
+        """
+        target_height = 0.25
+        label = _make_label(
+            width=2.0,
+            height=1.0,
+            content=[ResolvedTextLine(
+                text="HELLO",
+                nominal_text_height=target_height,
+                toolpath_text_height=target_height,
+                cutter_diameter=0.03,
+                character_spacing=0.0,
+                line_spacing=0.0,
+            )],
+        )
+        lc = _render_text(label, 0.0, 0.0, 0.0)
+        bounds = lc.bounds()
+        assert bounds is not None
+        rendered_height = bounds[3] - bounds[1]
+        # Rendered height should be approximately the toolpath_text_height
+        # (within tolerance for font metrics)
+        assert math.isclose(rendered_height, target_height, rel_tol=0.1)
+
+    def test_text_width_fits_within_label(self) -> None:
+        """Rendered text width should be reasonable relative to label width.
+
+        Regression test: previously the width parameter was multiplied by 100
+        and the size by POINTS_PER_INCH (72), producing text ~47x larger than
+        intended. Text should now fit within the label's inner content area.
+        """
+        label_width = 2.0
+        label = _make_label(
+            width=label_width,
+            height=1.0,
+            content=[ResolvedTextLine(
+                text="HELLO",
+                nominal_text_height=0.25,
+                toolpath_text_height=0.22,
+                cutter_diameter=0.03,
+                character_spacing=0.0,
+                line_spacing=0.0,
+            )],
+        )
+        lc = _render_text(label, 0.0, 0.0, 0.0)
+        bounds = lc.bounds()
+        assert bounds is not None
+        rendered_width = bounds[2] - bounds[0]
+        # Text should be much smaller than the label width (not 47x larger)
+        assert rendered_width < label_width * 2
+
+    def test_text_positioned_within_label(self) -> None:
+        """Text should start near the left margin, not at the origin.
+
+        Regression test: previously text was positioned at the origin
+        (0, 0) because the massive scale caused it to overflow.
+        """
+        margin = 0.1
+        label = _make_label(
+            width=2.0,
+            height=1.0,
+            margin=margin,
+            content=[ResolvedTextLine(
+                text="HELLO",
+                nominal_text_height=0.25,
+                toolpath_text_height=0.22,
+                cutter_diameter=0.03,
+                character_spacing=0.0,
+                line_spacing=0.0,
+            )],
+        )
+        lc = _render_text(label, 0.0, 0.0, 0.0)
+        bounds = lc.bounds()
+        assert bounds is not None
+        # Text should start near the left margin (within tolerance)
+        assert math.isclose(bounds[0], margin, abs_tol=0.05)
+        # Text should be near the top of the inner content area
+        # The top of the text is placed at margin + height
+        expected_top = margin + label.height
+        assert math.isclose(bounds[3], expected_top, abs_tol=0.05)
+        # Text should not overflow the bottom of the inner content area
+        assert bounds[1] >= margin - 0.05
 
 
 class TestVectorizePlate:

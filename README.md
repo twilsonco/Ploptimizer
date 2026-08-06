@@ -93,7 +93,7 @@ Once configured, the program runs silently in the background and will automatica
 
 ### macOS / Linux / Windows 7
 
-If you are on macOS or Linux, or Windows 7, or you prefer to build the executable from source, see [`README_DEV.md`](README_DEV.md) for full installation instructions, including prerequisites, building with PyInstaller, and running the headless watch daemon.
+If you are on macOS or Linux, or Windows 7, or you prefer to build the executable from source, see [`README_DEV.md`](docs/README_DEV.md) for full installation instructions, including prerequisites, building with PyInstaller, and running the headless watch daemon.
 
 > **Note:** The system tray GUI is Windows-only. On macOS and Linux, only the headless CLI watch daemon is available.
 

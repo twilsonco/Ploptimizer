@@ -44,7 +44,19 @@ LAYER_BOUNDARY: int = 2
 LAYER_HOLES: int = 3
 
 # vpype text_block uses points (72pt = 1 inch)
+# Retained for backward compatibility; text rendering now uses
+# TEXT_BLOCK_HEIGHT_PER_SIZE to convert directly to document coordinates.
 POINTS_PER_INCH: float = 72.0
+
+# vpype's ``text_block()`` renders glyphs at approximately 0.65625 document
+# units per unit of the ``size`` parameter (empirically measured for the
+# default ``futural`` font). This is because the font's ``max_height`` is
+# 32.0 and the glyphs are scaled by ``size / max_height`` internally, then
+# the rendered glyph height happens to be ``max_height * 0.65625 / max_height
+# * size = 0.65625 * size``. To produce text that is ``target_height``
+# inches tall in document coordinates (matching ``rect``/``circle``), we
+# must divide the target height by this factor.
+TEXT_BLOCK_HEIGHT_PER_SIZE: float = 0.65625
 
 
 # ---------------------------------------------------------------------------
@@ -252,14 +264,16 @@ def _render_text(
 
     for line in source_label.content:
         # Render at the toolpath_text_height (cutter-compensated).
-        # vpype's text_block uses a coordinate system of approximately
-        # 47.25 units per inch (based on 0.656 units/point * 72 pt/inch).
-        # We render at the requested size and then scale down to inches.
-        size_pt = line.toolpath_text_height * POINTS_PER_INCH
+        # vpype's text_block() uses a different coordinate system than
+        # rect()/circle(): the rendered glyph height is approximately
+        # ``size * 0.65625`` document units (for the default ``futural``
+        # font). To produce text that is ``toolpath_text_height`` inches
+        # tall in document coordinates, divide by that factor.
+        size = line.toolpath_text_height / TEXT_BLOCK_HEIGHT_PER_SIZE
         line_lc = vp.text_block(
             line.text,
-            width=source_label.width * 100,  # Scale up width parameter for text wrapping
-            size=size_pt,
+            width=source_label.width,
+            size=size,
         )
 
         bounds = line_lc.bounds()
