@@ -2243,7 +2243,12 @@ class TestParallelEnsembleCoverage2:
         assert result.result.total_travel_distance >= 0.0
 
     def test_parallel_ensemble_all_strategies_fail_fallback(self) -> None:
-        """Cover lines 4047-4050: fallback to NoOp when all strategies fail."""
+        """Cover fallback strategy when all parallel strategies fail.
+
+        When multiprocessing fails (e.g., in PyInstaller frozen executables),
+        the ensemble should fall back to NearestNeighbor + 2-Opt serially,
+        and only resort to NoOp if that also fails.
+        """
         from concurrent.futures import Future
         blocks = [_make_simple_block(0, (0, 0), (10, 0))]
 
@@ -2261,7 +2266,8 @@ class TestParallelEnsembleCoverage2:
                 result = strategy.optimize(blocks)
 
         assert isinstance(result, ParallelEnsembleOptimizationResult)
-        assert result.winner_name == "NoOp (Baseline)"
+        # Should fall back to NearestNeighbor + 2-Opt (Fallback), not NoOp
+        assert result.winner_name == "NearestNeighbor + 2-Opt (Fallback)"
 
     def test_parallel_ensemble_failed_strategies_warning(self) -> None:
         """Cover lines 4067-4068: warning when some strategies fail."""

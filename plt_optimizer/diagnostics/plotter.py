@@ -7,9 +7,18 @@ including color-coded path visualization based on cumulative distance traveled.
 from __future__ import annotations
 
 import math
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import List, Optional, Tuple
+
+import matplotlib
+
+# Use 'Agg' (non-interactive) backend by default to avoid Tcl/Tk initialization issues
+# in headless environments (e.g., PyInstaller frozen executables on Windows).
+# This must be set before importing pyplot.
+if getattr(sys, "frozen", False) or sys.platform == "win32":
+    matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure

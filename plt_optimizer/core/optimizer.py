@@ -9,6 +9,8 @@ be traversed forward or in reverse.
 from __future__ import annotations
 
 import math
+import multiprocessing
+import sys
 import time
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -3981,7 +3983,18 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
         best_result: Optional[StrategyBenchmarkResult] = None
         completed_count = 0
 
-        with ProcessPoolExecutor(max_workers=self._max_workers) as executor:
+        # Use 'spawn' context for Windows compatibility (PyInstaller frozen executables).
+        # 'fork' is not safe on Windows, and PyInstaller needs explicit context setup.
+        # For frozen executables (PyInstaller), spawn is more reliable than fork.
+        mp_context = None
+        if sys.platform == "win32" or getattr(sys, "frozen", False):
+            try:
+                mp_context = multiprocessing.get_context("spawn")
+            except ValueError:
+                # Fallback if spawn is not available; use default
+                mp_context = None
+
+        with ProcessPoolExecutor(max_workers=self._max_workers, mp_context=mp_context) as executor:
             futures = {
                 executor.submit(
                     _run_strategy_worker,
@@ -4051,15 +4064,35 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
                     self._logger.warning(f"Strategy {strategy_name} failed: {e}")
 
         if best_result is None:
-            # All strategies failed - fall back to NoOp
-            self._logger.warning("All parallel strategies failed, using NoOp fallback")
-            noop = NoOpStrategy()
-            noop_result = noop.optimize(blocks, initial_position)
-            return ParallelEnsembleOptimizationResult(
-                result=noop_result,
-                winner_name="NoOp (Baseline)",
-                all_benchmarks=(),
+            # All strategies failed - try NearestNeighbor2OptStrategy serially as fallback.
+            # This handles the case where multiprocessing failed (e.g., PyInstaller frozen
+            # executables on Windows) but a single-threaded strategy can still work.
+            self._logger.warning(
+                "All parallel strategies failed; attempting NearestNeighbor + 2-Opt "
+                "as single-threaded fallback"
             )
+            try:
+                fallback_strategy = NearestNeighbor2OptStrategy()
+                fallback_result = fallback_strategy.optimize(blocks, initial_position)
+                self._logger.info(
+                    f"Fallback strategy succeeded with distance={fallback_result.total_travel_distance:.3f}"
+                )
+                return ParallelEnsembleOptimizationResult(
+                    result=fallback_result,
+                    winner_name="NearestNeighbor + 2-Opt (Fallback)",
+                    all_benchmarks=(),
+                )
+            except Exception as fallback_error:
+                # Even the fallback failed; resort to NoOp
+                self._logger.error(f"Fallback strategy also failed: {fallback_error}")
+                self._logger.warning("Using NoOp (Baseline) as last resort")
+                noop = NoOpStrategy()
+                noop_result = noop.optimize(blocks, initial_position)
+                return ParallelEnsembleOptimizationResult(
+                    result=noop_result,
+                    winner_name="NoOp (Baseline)",
+                    all_benchmarks=(),
+                )
 
         # Sort benchmarks by improvement percent (descending), then by distance (ascending)
         sorted_benchmarks = sorted(
