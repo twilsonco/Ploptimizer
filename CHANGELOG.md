@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.4](https://github.com/twilsonco/Ploptimizer/compare/v1.6.3...v1.6.4) (2026-08-15)
+
+
+### Bug Fixes
+
+* handle PyInstaller multiprocessing issues on Windows ([d596aea](https://github.com/twilsonco/Ploptimizer/commit/d596aea1ecbc6bb92691d3c7fcff12351ba6d273))
+
 ## [1.6.3](https://github.com/twilsonco/Ploptimizer/compare/v1.6.2...v1.6.3) (2026-07-13)
 
 
