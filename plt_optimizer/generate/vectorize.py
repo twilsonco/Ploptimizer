@@ -4,6 +4,13 @@ This module bridges the gap between the virtual layout and the physical
 machine by rendering the 2D bounding boxes into standard vector lines,
 exporting them, and running them through the PLT optimization utility.
 
+Coordinate System:
+- Input (vpype Document): Plotter convention with origin at bottom-left,
+  x+ rightward, y+ upward.
+- Output (HPGL): Device convention with origin at top-left, x+ rightward,
+  y+ downward. A Y-axis flip transformation is applied before export to
+  convert from plotter convention to device convention.
+
 Layer mapping:
 - Layer 1: Text (engraving)
 - Layer 2: Boundaries (score/cut lines)
@@ -95,6 +102,10 @@ def _apply_transform(
 
     Note: vpype's ``rotate()`` and ``translate()`` modify in-place and
     return ``None``, so this function works on a copy created via extend.
+
+    Uses plotter coordinate convention (origin bottom-left, y+ up).
+    A Y-axis flip is applied later in vectorize_plate() to convert to
+    device convention (origin top-left, y+ down).
 
     Args:
         lc: The LineCollection to transform.
@@ -295,6 +306,50 @@ def _render_text(
 
 
 # ---------------------------------------------------------------------------
+# Coordinate system transformation
+# ---------------------------------------------------------------------------
+def _flip_y_coordinates(doc: vp.Document, plate_height: float) -> vp.Document:
+    """Flip Y-axis coordinates to convert from plotter to device convention.
+
+    Converts from plotter convention (origin bottom-left, y+ up) to device
+    convention (origin top-left, y+ down) by mirroring all Y coordinates
+    across the horizontal centerline of the plate.
+
+    Transformation: y_flipped = plate_height - y_original
+
+    vpype internally stores coordinates as complex numbers: x + yj
+
+    Args:
+        doc: The vpype Document to transform.
+        plate_height: Height of the plate in inches.
+
+    Returns:
+        A new vpype.Document with Y-axis coordinates flipped.
+    """
+    result = vp.Document()
+
+    for layer_id in doc.layers:
+        flipped_lc = vp.LineCollection()
+        layer_lc = doc.layers[layer_id]
+
+        for line in layer_lc:
+            # vpype stores coordinates as complex numbers: x + yj
+            # Extract real (x) and imaginary (y) parts
+            x = line.real
+            y = line.imag
+            # Flip Y-axis: y_flipped = plate_height - y_original
+            y_flipped = plate_height - y
+            # Reconstruct complex number array
+            flipped_line = x + 1j * y_flipped
+            flipped_lc.append(flipped_line)
+
+        if not flipped_lc.is_empty():
+            result.add(flipped_lc, layer_id)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Main rendering
 # ---------------------------------------------------------------------------
 def _render_label_to_doc(packed_label: PackedLabel, doc: vp.Document) -> None:
@@ -331,11 +386,16 @@ def vectorize_plate(plate: PackedPlate) -> vp.Document:
     - Layer 2: Boundaries (score/cut lines)
     - Layer 3: Drill holes
 
+    Coordinates are in plotter convention (origin at bottom-left, y+ up).
+    The plotter visualization (_flip_y) will convert to display convention
+    (origin at top-left, y+ down) when rendering PNG/matplotlib.
+
     Args:
         plate: The packed plate to vectorize.
 
     Returns:
-        A vpype.Document containing all geometry for the plate.
+        A vpype.Document containing all geometry for the plate in plotter
+        coordinate convention.
     """
     doc = vp.Document()
 
@@ -367,13 +427,19 @@ def export_to_plt(
     landscape: bool = False,
     device: Optional[str] = None,
 ) -> Path:
-    """Export a vpype Document to PLT/HPGL format.
+    """Export a vpype Document to PLT/HPGL format using absolute positioning.
+
+    Exports the document using PA (Pen Absolute) mode throughout, ensuring
+    that all coordinates are absolute positions rather than relative offsets.
+    This ensures the PLT parser can correctly reconstruct the toolpath from
+    the file.
 
     Args:
-        doc: The vpype Document to export.
+        doc: The vpype Document to export (in plotter coordinate convention).
         output_path: Destination file path.
         page_size: Optional ``(width, height)`` in inches. If None,
-            uses a default that fits most plates.
+            uses a default that fits most plates. When provided, this should
+            match the plate dimensions to ensure correct HPGL coordinate scaling.
         landscape: If True, rotates the output to landscape orientation.
         device: Optional device name for HPGL output. If None, uses
             ``"hp7475a"`` which is a common HPGL-compatible device.
@@ -387,11 +453,13 @@ def export_to_plt(
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    # vpype requires a standard page size name and a valid device
-    # Use a large standard size that fits most plates
-    page_size_name = "A3"  # 11.69 x 16.54 inches, fits 24x16 plates
     if device is None:
         device = "hp7475a"  # Common HPGL-compatible device
+
+    # Use A3 as default page size (11.69 x 16.54 inches)
+    # A3 is reliable across HPGL devices and accommodates most plate sizes.
+    # The actual plate dimensions are preserved in the coordinate data.
+    page_size_name = "A3"
 
     with open(path, "w", encoding="utf-8") as f:
         vp.write_hpgl(
@@ -402,6 +470,7 @@ def export_to_plt(
             center=True,
             device=device,
             velocity=None,
+            absolute=True,  # Use absolute positioning (PA) throughout
         )
 
     return path.resolve()
