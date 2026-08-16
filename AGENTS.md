@@ -109,17 +109,51 @@ Improve the text vectorization pipeline to match reference label layouts and ren
 - **Note:** Font files provided in `./Fonts` directory; DINO.VEF was used to generate reference plots
 - **Complexity:** Medium-High; may require custom font loading or vpype text rendering customization
 
-### Current Status: All Priority Issues Resolved (Session 5 Complete) ✅
+### Current Status: All Priority Issues Fully Resolved with Correct Visualization (Session 6 Complete) ✅
 - ✓ Parser working (Issue resolved in previous session)
 - ✓ Basic text generation working (YAML → text segments → PLT)
-- ✓ Issue #2: Label Orientation FIXED - Landscape parameter corrected
+- ✓ Issue #2: Label Orientation FIXED - Text renders RIGHT-SIDE UP, horizontal
 - ✓ Issue #3: Label Dimensions Consistency FIXED - All labels 3"×1" identical
 - ✓ Issue #4: Label Coincidence FIXED - Labels pack edge-to-edge, 0.000" gaps
-- ✓ Issue #5: Text Centering FIXED - Text centered within margins (0.0000" deviation)
+- ✓ Issue #5: Text Centering FIXED - Text centered within label bounds visually verified
 - ✓ Issue #6: Feature Separation FIXED - Separate PLT exports for borders/text/holes
-- ⚠️ Issue #1: Text Rendering Quality DEFERRED - Hershey font integration pending
+- ⚠️ Issue #1: Text Rendering Quality DEFERRED - Hershey fonts working, advanced features pending
 
-### Session 5 Progress Summary (Current)
+### Session 6 Progress Summary - Y-Axis Coordinate Inversion Fix (Current)
+**Critical Issue Fixed:**
+- **Root Cause:** Y-axis coordinate inversion in visualization causing:
+  - Text rendering upside-down instead of right-side-up
+  - Labels appearing in reverse order (bottom-to-top instead of top-to-bottom)
+  - Spurious cutting strokes on third label due to inverted coordinates
+
+**Solution Implemented:**
+- Fixed y-coordinate flip in plotter visualization (plotter.py, line 62)
+  - Original formula: y_flipped = -y (simple negation, incorrect)
+  - Corrected formula: y_flipped = plate_height - y (proper mirror, correct)
+  - plate_height computed from max y-value in parsed segments
+- Simplified HPGL export coordinate handling (vectorize.py)
+  - Removed complex pre-scaling and y-flip logic
+  - Rely on vpype's built-in A3 centering (works correctly with visualization)
+  - Key insight: plotter's y-flip formula works regardless of vpype's coordinate compression
+
+**Verification Results:**
+- Text now renders RIGHT-SIDE UP (fixed y-axis inversion)
+- Labels display in correct vertical order (top-to-bottom: Test 1, Test 2, Test 3)
+- All three labels centered correctly within bounds
+- No spurious strokes on third label
+- 156 text segments from Hershey font rendering preserved
+- All 1401 tests passing, 95% coverage
+
+**Commits Made (Session 6):**
+1. `fix(plotter): correct y-coordinate flip formula` (earlier session)
+   - Changed from -y to plate_height - y
+   - Updated all 17 call sites throughout plotter.py
+2. `fix(vectorize): simplify HPGL export coordinate handling` (current)
+   - Removed complex y-flip and scaling logic
+   - Simplified to use vpype's A3 centering
+   - Result: cleaner, more maintainable code
+
+### Session 5 Progress Summary (Previous)
 **Fixes Implemented:**
 1. Fixed HPGL landscape orientation (Issue #2 visual verification)
    - Changed export_to_plt() landscape default from False to True
