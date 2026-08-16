@@ -28,9 +28,39 @@ from plt_optimizer.utils.geometry import calculate_cumulative_distances
 PLT_UNITS_TO_INCHES = 1 / 1000
 
 
-def _flip_y(y: float) -> float:
-    """Negate y-coordinate to flip vertical direction for display."""
-    return -y
+def _compute_plate_height(segments: Sequence[Segment]) -> float:
+    """Compute plate height from all segments' y-coordinates.
+
+    Args:
+        segments: All segments in the document.
+
+    Returns:
+        The maximum y-value found in plotter units.
+    """
+    if not segments:
+        return 0.0
+    max_y = max((seg.start.y for seg in segments), default=0.0)
+    for seg in segments:
+        if hasattr(seg, "end"):
+            max_y = max(max_y, seg.end.y)
+    return max_y
+
+
+def _flip_y(y: float, plate_height: float) -> float:
+    """Flip y-coordinate from plotter to display convention.
+
+    Converts from plotter convention (y=0 at bottom, y increases upward) to
+    display convention (y=0 at top, y increases downward) by mirroring across
+    the centerline: y_flipped = plate_height - y.
+
+    Args:
+        y: Y-coordinate in plotter convention.
+        plate_height: Height of the plate (max y-value).
+
+    Returns:
+        Y-coordinate in display convention.
+    """
+    return plate_height - y
 
 
 def _safe_range(lo: float, hi: float, default_floor: float = 1.0) -> float:
@@ -176,11 +206,17 @@ def plot_plt_document(
 
         # Calculate axis limits from all segments with 10% padding (in inches)
         if all_segments:
+            # Compute plate height first
+            plate_height_units = _compute_plate_height(all_segments)
+
             all_x = [seg.start.x * PLT_UNITS_TO_INCHES for seg in all_segments] + [
                 seg.end.x * PLT_UNITS_TO_INCHES for seg in all_segments
             ]
-            all_y = [_flip_y(seg.start.y) * PLT_UNITS_TO_INCHES for seg in all_segments] + [
-                _flip_y(seg.end.y) * PLT_UNITS_TO_INCHES for seg in all_segments
+            all_y = [
+                _flip_y(seg.start.y, plate_height_units) * PLT_UNITS_TO_INCHES
+                for seg in all_segments
+            ] + [
+                _flip_y(seg.end.y, plate_height_units) * PLT_UNITS_TO_INCHES for seg in all_segments
             ]
             x_min, x_max = min(all_x), max(all_x)
             y_min, y_max = min(all_y), max(all_y)
@@ -202,7 +238,10 @@ def plot_plt_document(
                     if isinstance(seg, ArcSegment):
                         arc_points = _arc_to_points(seg)
                         xs = [p.x * PLT_UNITS_TO_INCHES for p in arc_points]
-                        ys = [_flip_y(p.y) * PLT_UNITS_TO_INCHES for p in arc_points]
+                        ys = [
+                            _flip_y(p.y, plate_height_units) * PLT_UNITS_TO_INCHES
+                            for p in arc_points
+                        ]
                         ax.plot(
                             xs,
                             ys,
@@ -216,8 +255,8 @@ def plot_plt_document(
                         ax.plot(
                             [seg.start.x * PLT_UNITS_TO_INCHES, seg.end.x * PLT_UNITS_TO_INCHES],
                             [
-                                _flip_y(seg.start.y) * PLT_UNITS_TO_INCHES,
-                                _flip_y(seg.end.y) * PLT_UNITS_TO_INCHES,
+                                _flip_y(seg.start.y, plate_height_units) * PLT_UNITS_TO_INCHES,
+                                _flip_y(seg.end.y, plate_height_units) * PLT_UNITS_TO_INCHES,
                             ],
                             color="gray",
                             linewidth=0.4,
@@ -237,9 +276,11 @@ def plot_plt_document(
 
                 last_seg = curr_path.segments[-1]
                 start_x = last_seg.end.x * PLT_UNITS_TO_INCHES
-                start_y = _flip_y(last_seg.end.y) * PLT_UNITS_TO_INCHES
+                start_y = _flip_y(last_seg.end.y, plate_height_units) * PLT_UNITS_TO_INCHES
                 end_x = next_path.pen_up_position.x * PLT_UNITS_TO_INCHES
-                end_y = _flip_y(next_path.pen_up_position.y) * PLT_UNITS_TO_INCHES
+                end_y = (
+                    _flip_y(next_path.pen_up_position.y, plate_height_units) * PLT_UNITS_TO_INCHES
+                )
 
                 ax.plot(
                     [start_x, end_x],
@@ -268,7 +309,9 @@ def plot_plt_document(
                 if isinstance(seg, ArcSegment):
                     arc_points = _arc_to_points(seg)
                     xs = [p.x * PLT_UNITS_TO_INCHES for p in arc_points]
-                    ys = [_flip_y(p.y) * PLT_UNITS_TO_INCHES for p in arc_points]
+                    ys = [
+                        _flip_y(p.y, plate_height_units) * PLT_UNITS_TO_INCHES for p in arc_points
+                    ]
                     ax.plot(
                         xs,
                         ys,
@@ -281,8 +324,8 @@ def plot_plt_document(
                     ax.plot(
                         [seg.start.x * PLT_UNITS_TO_INCHES, seg.end.x * PLT_UNITS_TO_INCHES],
                         [
-                            _flip_y(seg.start.y) * PLT_UNITS_TO_INCHES,
-                            _flip_y(seg.end.y) * PLT_UNITS_TO_INCHES,
+                            _flip_y(seg.start.y, plate_height_units) * PLT_UNITS_TO_INCHES,
+                            _flip_y(seg.end.y, plate_height_units) * PLT_UNITS_TO_INCHES,
                         ],
                         color=color,
                         linewidth=linewidth,
@@ -302,7 +345,7 @@ def plot_plt_document(
 
         ax.plot(
             first_seg.start.x * PLT_UNITS_TO_INCHES,
-            _flip_y(first_seg.start.y) * PLT_UNITS_TO_INCHES,
+            _flip_y(first_seg.start.y, plate_height_units) * PLT_UNITS_TO_INCHES,
             marker="o",
             markersize=6,
             color="green",
@@ -311,7 +354,7 @@ def plot_plt_document(
         )
         ax.plot(
             last_seg.end.x * PLT_UNITS_TO_INCHES,
-            _flip_y(last_seg.end.y) * PLT_UNITS_TO_INCHES,
+            _flip_y(last_seg.end.y, plate_height_units) * PLT_UNITS_TO_INCHES,
             marker="s",
             markersize=6,
             color="red",
@@ -473,8 +516,10 @@ def create_path_diagram(
     fig, ax = plt.subplots(figsize=DEFAULT_FIGURE_SIZE)
 
     # Extract x, y for all points (flip y for display)
+    # Compute plate height from coordinates
+    plate_height_for_title = max((c.y for c in coordinates), default=11040.0)
     xs = [c.x for c in coordinates]
-    ys = [_flip_y(c.y) for c in coordinates]
+    ys = [_flip_y(c.y, plate_height_for_title) for c in coordinates]
 
     # Calculate cumulative distances
     cum_dist = [0.0]
@@ -501,7 +546,10 @@ def create_path_diagram(
 
         ax.plot(
             [coordinates[i].x, coordinates[i + 1].x],
-            [_flip_y(coordinates[i].y), _flip_y(coordinates[i + 1].y)],
+            [
+                _flip_y(coordinates[i].y, plate_height_for_title),
+                _flip_y(coordinates[i + 1].y, plate_height_for_title),
+            ],
             color=color,
             linewidth=2 if is_cutting else 1,
             linestyle=line_style,
