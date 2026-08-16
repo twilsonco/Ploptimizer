@@ -79,8 +79,9 @@ class PLTParser:
     # Pattern to split on semicolons (but keep the delimiter)
     COMMAND_PATTERN = re.compile(r"([A-Z][A-Z0-9,.\-:]*?;)")
 
-    # Pattern to match coordinate pairs
-    COORD_PATTERN = re.compile(r"^(-?\d+\.?\d*),(-?\d+\.?\d*)$")
+    # Pattern to match coordinate pairs (without end-anchor to allow multiple pairs)
+    # This matches a single coordinate pair (x,y) with optional leading/trailing content
+    COORD_PATTERN = re.compile(r"^(-?\d+\.?\d*),(-?\d+\.?\d*)")
 
     def __init__(self) -> None:
         """Initialize the PLT parser."""
@@ -462,6 +463,10 @@ class PLTParser:
     ) -> Tuple[List[Coordinate], int]:
         """Extract coordinate pairs from a command and subsequent tokens.
 
+        Handles PLT files where a single PD command may contain multiple
+        coordinate pairs, either within the same token separated by commas
+        (e.g., "PD7838,5546,7838,5547,...") or across multiple tokens.
+
         Args:
             cmd: The current command (PU or PD).
             token_index: Index of the command in tokens list.
@@ -476,7 +481,7 @@ class PLTParser:
 
         # Extract coordinates from the remainder of the current token after PU/PD
         # Command prefix is always 2 characters (PU or PD)
-        rest = current_token[2:] if len(current_token) > 2 else ""
+        rest = current_token[2:].rstrip(";") if len(current_token) > 2 else ""
 
         while True:
             # Try to match coordinates in current token's remainder
@@ -494,13 +499,16 @@ class PLTParser:
                             "Invalid coordinate format",
                             token=rest,
                         ) from e
+                    # Move past the matched coordinate and comma separator
                     rest = rest[coord_match.end() :]
                     if rest.startswith(","):
                         rest = rest[1:]
                     continue
+                else:
+                    # No match in current rest - it's not a coordinate, stop
+                    break
 
             # If no more coordinates in current token, look at next tokens
-            # But only if we haven't already consumed something (to avoid infinite loop)
             i += 1
             if i >= len(tokens):
                 break
@@ -527,5 +535,10 @@ class PLTParser:
                     "Invalid coordinate format",
                     token=next_token,
                 ) from e
+
+            # Set rest to the remainder after this coordinate for next iteration
+            rest = next_token[coord_match.end() :]
+            if rest.startswith(","):
+                rest = rest[1:]
 
         return coords, i
