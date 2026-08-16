@@ -539,47 +539,21 @@ def export_to_plt(
     if device is None:
         device = "hp7475a"  # Common HPGL-compatible device
 
-    # CRITICAL FIX: Apply Y-axis flip BEFORE scaling to ensure coordinates are
-    # in display convention (origin top-left, y+ down) in the exported PLT file.
-    # The vpype Document uses plotter convention (origin bottom-left, y+ up),
-    # but the PLT file should use display convention for proper visualization.
+    # Original document coordinates are in plotter convention (y+ up, origin at bottom).
+    # vpype's write_hpgl() will output HPGL which also uses plotter convention.
+    # The visualization (plotter.py) expects display convention (y+ down, origin at top).
+    # We handle the coordinate flip in the visualization, not the export.
     #
-    # The page_size parameter provides the plate dimensions needed for flipping.
-    if page_size is None:
-        # Default to A3 if no page size specified
-        plate_height = 16.54
-    else:
-        plate_height = page_size[1]  # Use height from (width, height) tuple
+    # NOTE: vpype only supports standard page sizes (A3, A4, etc.) for hp7475a device.
+    # The page_size tuple is ignored here; we use "A3" which is large enough.
 
-    # Apply y-coordinate flip: y_flipped = plate_height - y
-    flipped_doc = _flip_y_coordinates(doc, plate_height * 1000)
-
-    # Scale the flipped document to fit on A3 page.
-    # A3 is 11.69" × 16.54". A 24"×16" document must be scaled by:
-    #   scale_factor = 11.69 / 24 ≈ 0.487 in X
-    # After scaling, the document becomes 11.52" × 7.68" and fits on A3.
-
-    scaled_doc = vp.Document()
-    scale_factor = 0.48
-
-    for layer_id in flipped_doc.layers:
-        scaled_lc = vp.LineCollection()
-        for line in flipped_doc.layers[layer_id]:
-            # Scale each coordinate by multiplying the complex number by scale_factor
-            scaled_line = line * scale_factor
-            scaled_lc.append(scaled_line)
-        if not scaled_lc.is_empty():
-            scaled_doc.add(scaled_lc, layer_id)
-
-    # Export the scaled, flipped document
-    # With scaled coordinates fitting on A3, center=True should work without extreme compression
     with open(path, "w", encoding="utf-8") as f:
         vp.write_hpgl(
             f,
-            scaled_doc,
-            page_size="A3",
+            doc,
+            page_size="A3",  # Always use A3 - vpype only supports standard sizes
             landscape=landscape,
-            center=True,  # Center the scaled document on A3
+            center=True,  # Center on A3 page
             device=device,
             velocity=None,
             absolute=True,
