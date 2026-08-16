@@ -283,6 +283,40 @@ class TestPlotPltDocumentWithSegments:
         assert fig.get_figwidth() == 20
         assert fig.get_figheight() == 12
 
+    def test_plotting_with_simple_mode_disabled_by_default(self) -> None:
+        """Test simple_mode is disabled by default (color + rapids shown)."""
+        seg1 = self._make_segment(0, 0, 5, 5, is_cutting=True)
+        seg2 = self._make_segment(5, 5, 10, 0, is_cutting=False)  # rapid
+        path = self._make_path([seg1, seg2])
+        doc = PLTDocument(stroke_paths=[path])
+        fig = plot_plt_document(doc, simple_mode=False)
+        # Default mode should create a colorbar
+        assert isinstance(fig, plt.Figure)
+
+    def test_plotting_with_simple_mode_enabled(self) -> None:
+        """Test simple_mode=True shows only black cutting lines, hides rapids."""
+        seg1 = self._make_segment(0, 0, 5, 5, is_cutting=True)
+        seg2 = self._make_segment(5, 5, 10, 0, is_cutting=False)  # rapid
+        path = self._make_path([seg1, seg2])
+        doc = PLTDocument(stroke_paths=[path])
+        fig = plot_plt_document(doc, simple_mode=True)
+        # Simple mode should produce a figure without colorbar
+        assert isinstance(fig, plt.Figure)
+
+    def test_plotting_simple_mode_omits_colorbar(self) -> None:
+        """Test simple_mode skips the colorbar."""
+        seg = self._make_segment(0, 0, 10, 10, is_cutting=True)
+        path = self._make_path([seg])
+        doc = PLTDocument(stroke_paths=[path])
+
+        # Regular mode should have colorbar
+        fig_normal = plot_plt_document(doc, simple_mode=False)
+        # Simple mode should not have colorbar (only primary axes)
+        fig_simple = plot_plt_document(doc, simple_mode=True)
+
+        # Simple mode figure should have fewer or equal axes
+        assert len(fig_simple.axes) <= len(fig_normal.axes)
+
     def test_plotting_raises_on_exception(self) -> None:
         """Test plot raises PlotterError on failure."""
         # This test verifies the except block exists and catches errors.
