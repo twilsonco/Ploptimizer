@@ -180,6 +180,9 @@ def phase_3_vectorization_and_export(
 ) -> list[Path]:
     """Phase 3: Vectorize and export to PLT files.
 
+    Exports each layer (text, boundaries, holes) as separate PLT files
+    to allow independent tool/speed selection.
+
     Args:
         packed_plates: List of packed plates from layout phase.
 
@@ -188,6 +191,13 @@ def phase_3_vectorization_and_export(
     """
     print_separator("PHASE 3: VECTORIZATION AND EXPORT")
 
+    from plt_optimizer.generate.vectorize import (
+        LAYER_TEXT,
+        LAYER_BOUNDARY,
+        LAYER_HOLES,
+        extract_layer,
+    )
+
     workspace = Path(__file__).parent
     output_dir = workspace / "test_output" / "integration_test"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -195,15 +205,30 @@ def phase_3_vectorization_and_export(
     logger.info(f"Exporting to: {output_dir}")
 
     exported_paths: list[Path] = []
+    layer_names = {
+        LAYER_TEXT: "text",
+        LAYER_BOUNDARY: "borders",
+        LAYER_HOLES: "holes",
+    }
 
     for plate in packed_plates:
         logger.info(f"Vectorizing plate {plate.plate_id}...")
         doc = vectorize_plate(plate)
 
-        output_path = output_dir / f"{plate.plate_id}_raw.plt"
-        logger.info(f"Exporting raw PLT: {output_path}")
-        export_to_plt(doc, output_path, page_size=(plate.width, plate.height))
-        exported_paths.append(output_path)
+        # Export full document as combined file (for compatibility)
+        combined_path = output_dir / f"{plate.plate_id}_raw.plt"
+        logger.info(f"Exporting combined PLT: {combined_path}")
+        export_to_plt(doc, combined_path, page_size=(plate.width, plate.height))
+        exported_paths.append(combined_path)
+
+        # Export each layer separately
+        for layer_id, layer_name in layer_names.items():
+            if layer_id in doc.layers and not doc.layers[layer_id].is_empty():
+                layer_doc = extract_layer(doc, layer_id)
+                layer_path = output_dir / f"{plate.plate_id}_{layer_name}.plt"
+                logger.info(f"Exporting {layer_name} layer PLT: {layer_path}")
+                export_to_plt(layer_doc, layer_path, page_size=(plate.width, plate.height))
+                exported_paths.append(layer_path)
 
     print("\n--- EXPORT RESULTS ---\n")
     for path in exported_paths:
