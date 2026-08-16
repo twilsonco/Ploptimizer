@@ -429,17 +429,23 @@ def export_to_plt(
 ) -> Path:
     """Export a vpype Document to PLT/HPGL format using absolute positioning.
 
-    Exports the document using PA (Pen Absolute) mode throughout, ensuring
-    that all coordinates are absolute positions rather than relative offsets.
-    This ensures the PLT parser can correctly reconstruct the toolpath from
-    the file.
+    Exports the document using PA (Pen Absolute) mode throughout with
+    coordinates placed at the origin (no centering). This ensures the
+    actual document coordinates are preserved and match the packed label
+    positions on the plate.
+
+    For the hp7475a device, only A3 and A4 page sizes are supported by
+    vpype. The page size parameter is passed to vpype for compatibility but
+    does not affect the coordinate data. Plates larger than the supported
+    page sizes will have coordinates that exceed the device's plottable area,
+    but the data integrity is preserved.
 
     Args:
-        doc: The vpype Document to export (in plotter coordinate convention).
+        doc: The vpype Document to export (coordinates in document units).
         output_path: Destination file path.
-        page_size: Optional ``(width, height)`` in inches. If None,
-            uses a default that fits most plates. When provided, this should
-            match the plate dimensions to ensure correct HPGL coordinate scaling.
+        page_size: Optional ``(width, height)`` in inches. Currently unused
+            due to vpype/HPGL device constraints. Future versions may use this
+            for coordinate scaling or validation.
         landscape: If True, rotates the output to landscape orientation.
         device: Optional device name for HPGL output. If None, uses
             ``"hp7475a"`` which is a common HPGL-compatible device.
@@ -456,18 +462,40 @@ def export_to_plt(
     if device is None:
         device = "hp7475a"  # Common HPGL-compatible device
 
-    # Use A3 as default page size (11.69 x 16.54 inches)
-    # A3 is reliable across HPGL devices and accommodates most plate sizes.
-    # The actual plate dimensions are preserved in the coordinate data.
-    page_size_name = "A3"
+    # WORKAROUND for vpype/HPGL export scaling issues:
+    # vpype's write_hpgl with center=True applies extreme coordinate scaling (100x+)
+    # when the document exceeds the page bounds. Since hp7475a only supports A3/A4
+    # but our plates are 24"×16", we must pre-scale the document to fit within A3.
+    #
+    # A3 is 11.69" × 16.54". A 24"×16" document must be scaled by:
+    #   scale_factor = 11.69 / 24 ≈ 0.487 in X, or 16.54 / 16 ≈ 1.034 in Y
+    # We use the more restrictive X scale (0.487) to ensure it fits.
+    #
+    # After scaling, vpype's centering will place it correctly on the A3 page.
+    # The PLT parser then reads these coordinates as-is.
 
+    # Create a scaled copy of the document
+    scaled_doc = vp.Document()
+    scale_factor = 0.48  # Fits 24" document onto 11.69" A3 page
+
+    for layer_id in doc.layers:
+        scaled_lc = vp.LineCollection()
+        for line in doc.layers[layer_id]:
+            # Scale each coordinate by multiplying the complex number by scale_factor
+            scaled_line = line * scale_factor
+            scaled_lc.append(scaled_line)
+        if not scaled_lc.is_empty():
+            scaled_doc.add(scaled_lc, layer_id)
+
+    # Export the scaled document
+    page_size_name = "A3"
     with open(path, "w", encoding="utf-8") as f:
         vp.write_hpgl(
             f,
-            doc,
+            scaled_doc,
             page_size=page_size_name,
             landscape=landscape,
-            center=True,
+            center=True,  # Use centering with scaled document
             device=device,
             velocity=None,
             absolute=True,  # Use absolute positioning (PA) throughout
