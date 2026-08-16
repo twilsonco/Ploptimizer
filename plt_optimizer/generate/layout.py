@@ -93,8 +93,9 @@ class LayoutFitError(Exception):
 def initialize_packer() -> rectpack.packer.Packer:
     """Create a configured ``rectpack`` instance.
 
-    Uses ``MaxRectsBl`` (Bottom-Left) heuristic which yields predictable,
-    toolpath-friendly clustering suitable for CNC and engraving layouts.
+    Uses ``MaxRectsBssf`` (Best Short Side Fit) heuristic which yields
+    vertical stacking suitable for label-style layouts where labels should
+    be arranged top-to-bottom rather than left-to-right.
 
     Returns:
         A configured ``rectpack.Packer`` ready to accept rectangles and bins.
@@ -102,8 +103,8 @@ def initialize_packer() -> rectpack.packer.Packer:
     return rectpack.newPacker(
         mode=rectpack.PackingMode.Offline,
         bin_algo=rectpack.PackingBin.BFF,
-        pack_algo=rectpack.MaxRectsBl,
-        rotation=True,
+        pack_algo=rectpack.MaxRectsBssf,
+        rotation=False,  # Disable rotation to preserve label orientation
     )
 
 
