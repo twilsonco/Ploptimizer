@@ -78,13 +78,17 @@ class TestUnrollLabels:
         assert [r[2] for r in rects] == ["b_0", "b_1", "b_2"]
 
     def test_margin_added_to_packing_dimensions(self) -> None:
-        """Margin should be added to both sides of packing dimensions."""
+        """Margin is NOT included in packing dimensions.
+        
+        Margin is applied during rendering only, not in packing.
+        This ensures adjacent labels pack coincident with no gaps.
+        """
         labels = [_make_label(width=2.0, height=1.0, margin=0.25)]
         rects = unroll_labels(labels)
-        # pack_width = 2.0 + 0.25*2 = 2.5
-        # pack_height = 1.0 + 0.25*2 = 1.5
-        assert math.isclose(rects[0][0], 2.5)
-        assert math.isclose(rects[0][1], 1.5)
+        # pack_width = 2.0 (no margin added)
+        # pack_height = 1.0 (no margin added)
+        assert math.isclose(rects[0][0], 2.0)
+        assert math.isclose(rects[0][1], 1.0)
 
     def test_multiple_labels(self) -> None:
         """Multiple labels should each produce their own rectangles."""

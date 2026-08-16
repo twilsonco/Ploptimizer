@@ -215,8 +215,9 @@ def _render_boundary(
 ) -> vp.LineCollection:
     """Render the boundary rectangle for a label.
 
-    The boundary is drawn at the inner content area (excluding margin)
-    so adjacent labels share collinear segments.
+    The boundary is drawn at the label's outer edges [0, width] × [0, height].
+    Margin is NOT included in the boundary; it defines internal spacing for
+    content only (text, holes).
 
     Args:
         source_label: The resolved label.
@@ -227,10 +228,9 @@ def _render_boundary(
     Returns:
         A LineCollection containing the boundary rectangle.
     """
-    margin = source_label.margin
-    # Boundary at the inner content area, starting at (margin, margin)
-    x = margin
-    y = margin
+    # Boundary at the label's outer edges, starting at origin (0, 0)
+    x = 0.0
+    y = 0.0
     w = source_label.width
     h = source_label.height
     # vpype.rect(x, y, width, height) returns a closed rectangle
