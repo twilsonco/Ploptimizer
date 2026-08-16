@@ -114,8 +114,9 @@ def unroll_labels(
     """Flatten label counts into individual rectangle definitions.
 
     Each ``ResolvedLabel`` with ``count > 1`` produces that many rectangle
-    entries. The packing dimensions include the label margin on both sides
-    so adjacent labels don't overlap.
+    entry. Margin is NOT included in packing dimensions to ensure labels
+    pack coincident (touching) with no gaps. Margin is applied only during
+    rendering to position content inward from edges.
 
     Args:
         resolved_labels: Flat list of fully resolved labels.
@@ -127,9 +128,10 @@ def unroll_labels(
     rectangles: list[tuple[float, float, str, ResolvedLabel]] = []
     for label in resolved_labels:
         for i in range(label.count):
-            # Include clearance padding on both sides
-            pack_width = label.width + (label.margin * 2)
-            pack_height = label.height + (label.margin * 2)
+            # Pack at nominal dimensions (no margin padding)
+            # Margin is applied during rendering only
+            pack_width = label.width
+            pack_height = label.height
 
             # Unique ID to track instances of the same logical label
             rect_id = f"{label.id}_{i}"
@@ -171,7 +173,8 @@ def _extract_packed_plates(
             rect_id, source_label = rect.rid
 
             # Detect rotation: rect.width/height reflect post-rotation dims
-            original_width = source_label.width + (source_label.margin * 2)
+            # Original packing dimensions (without margin)
+            original_width = source_label.width
             was_rotated = rect.width != original_width
 
             packed_label = PackedLabel(
