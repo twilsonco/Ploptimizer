@@ -305,8 +305,9 @@ def _render_text(
     if not rendered_lines:
         return text_lc
 
-    # Calculate vertical centering: position text block at the middle of label
-    center_y = margin + inner_height / 2
+    # Calculate vertical centering within the available space (after margins)
+    available_height = inner_height - (2 * margin)
+    center_y = margin + available_height / 2
     # Start position: center_y offset by half the total text height
     # (text goes down from this position)
     current_y = center_y + total_rendered_height / 2
@@ -319,8 +320,9 @@ def _render_text(
         min_x, min_y, max_x, max_y = bounds
         rendered_width = max_x - min_x
 
-        # Horizontal centering within the inner width
-        center_x = margin + inner_width / 2
+        # Horizontal centering within the available width
+        available_width = inner_width - (2 * margin)
+        center_x = margin + available_width / 2
         # Position text so it's centered: center_x - rendered_width / 2
         x_offset = center_x - rendered_width / 2 - min_x
 
@@ -478,7 +480,7 @@ def export_to_plt(
     doc: vp.Document,
     output_path: str | Path,
     page_size: Optional[Tuple[float, float]] = None,
-    landscape: bool = False,
+    landscape: bool = True,
     device: Optional[str] = None,
 ) -> Path:
     """Export a vpype Document to PLT/HPGL format using absolute positioning.
