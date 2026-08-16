@@ -13,3 +13,5 @@ build
 dist
 
 *_benchmark
+logs/optimizer.log
+logs/job_metrics.csv
