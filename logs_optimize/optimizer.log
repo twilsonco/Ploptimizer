@@ -1,0 +1,16 @@
+2026-08-16 15:36:37 | INFO     | plt_optimizer | [opt_20260816_153637_e1c3c5a2] Starting optimization: test_output/integration_test/plate_1_raw.plt
+2026-08-16 15:36:37 | INFO     | plt_optimizer | Parsing PLT file: test_output/integration_test/plate_1_raw.plt
+2026-08-16 15:36:37 | WARNING  | plt_optimizer | Unknown command 'PS0', treating as header
+2026-08-16 15:36:37 | WARNING  | plt_optimizer | Unknown command 'SP1', treating as header
+2026-08-16 15:36:37 | WARNING  | plt_optimizer | Unknown command 'SP2', treating as header
+2026-08-16 15:36:37 | WARNING  | plt_optimizer | Unknown command 'SP0', treating as header
+2026-08-16 15:36:37 | INFO     | plt_optimizer | Starting baseline extent profiling
+2026-08-16 15:36:37 | INFO     | plt_optimizer | Profiling complete: is_structural=True (avg 1.0 segments/path, 100.0% structural), baseline_extent=15.000, total_cutting_strokes=59
+2026-08-16 15:36:37 | INFO     | plt_optimizer | Structural file detected: Bypassing chunker for 1:1 routing (45 paths)
+2026-08-16 15:36:37 | INFO     | plt_optimizer | Starting optimization with NearestNeighbor + 2-Opt on 45 blocks
+2026-08-16 15:36:37 | INFO     | plt_optimizer | Running NearestNeighbor + 2-Opt on 45 blocks
+2026-08-16 15:36:37 | INFO     | plt_optimizer | Optimization complete: total_travel_distance=52.856
+2026-08-16 15:36:37 | INFO     | plt_optimizer | Reassembling document with 45 blocks
+2026-08-16 15:36:37 | INFO     | plt_optimizer | Reassembly complete: 45 paths
+2026-08-16 15:36:37 | INFO     | plt_optimizer | Writing PLT file: test_output/integration_test/plate_1_raw_optimized.plt
+2026-08-16 15:36:37 | INFO     | plt_optimizer | [opt_20260816_153637_e1c3c5a2] Success: plate_1_raw.plt -> plate_1_raw_optimized.plt (saved 59.6%)
