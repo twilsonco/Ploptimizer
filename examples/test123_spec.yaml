@@ -1,0 +1,34 @@
+# Job specification reproducing examples/test123.plt (see test123_before.png):
+# three 3in x 1in labels, each with one line of 0.5in text ("Test 1", "Test 2",
+# "Test 3"), stacked in a single column on a 24in x 16in plate.
+job:
+  job_name: Test 1/2/3 - Single Column
+
+  # Shared label dimensions and typography (cascade down to every label).
+  width: 3.0
+  height: 1.0
+  text_height: 0.5
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+      margin: 0.0
+      # Labels sit edge-to-edge in the reference file, so no padding between them.
+      clearance_padding: 0.0
+
+  labels:
+    - id: test_1
+      count: 1
+      content:
+        - text: "Test 1"
+
+    - id: test_2
+      count: 1
+      content:
+        - text: "Test 2"
+
+    - id: test_3
+      count: 1
+      content:
+        - text: "Test 3"
