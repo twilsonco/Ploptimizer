@@ -498,7 +498,7 @@ Stop-ScheduledTask -TaskName "PLT-Optimizer Watch"
 
 ### Running the Example Script
 
-The example script demonstrates the complete workflow:
+The diagnostics script processes all example PLT files and generates before/after comparison plots:
 
 ```bash
 uv run python examples/run_diagnostics.py
@@ -511,10 +511,20 @@ uv run python examples/run_diagnostics.py
 ```
 
 This will:
-1. Create sample PLT files in `examples/`
-2. Parse and validate them
-3. Generate diagnostic plots (saved to `examples/output/`)
+1. Process all `.plt` files in `examples/` directory
+2. Generate three diagnostic plots for each file:
+   - **Before plot** (color-coded toolpath with rapid travel shown)
+   - **Simple outline** (clean black lines only, no rapid travel)
+   - **After optimization** (optimized toolpath with improvements)
+3. Save all plots and optimized PLT files to `examples_diag_output/`
 4. Write logs to `logs/optimizer.log` and `logs/job_metrics.csv`
+5. Display summary statistics showing optimization improvements
+
+**Optional flags:**
+- `--no-optimize`: Skip optimization pipeline (diagnostics only)
+- `--input-dir /path/to/files`: Process a specific directory instead of `./examples`
+- `--output-dir /path/to/output`: Save output to a custom directory instead of `<input-dir>_diag_output`
+- `--same-row-preference 1.5`: Adjust the penalty for vertical movement (higher values prefer same-row blocks)
 
 **Note:** The `logs/` directory is created automatically relative to the working directory where you run the command.
 

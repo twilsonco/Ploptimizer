@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
@@ -108,6 +108,7 @@ def plot_plt_document(
     show_plot: bool = False,
     figure_size: Tuple[float, float] = DEFAULT_FIGURE_SIZE,
     rapid_travel_inches: Optional[float] = None,
+    simple_mode: bool = False,
 ) -> Figure:
     """Plot a complete PLT document with color-coded path segments.
 
@@ -128,6 +129,9 @@ def plot_plt_document(
             If provided, uses this value in the summary text box instead of
             computing it from document.rapid_distance(). This ensures consistency
             with any external calculation passed via title string.
+        simple_mode: If True, render only tool-down segments in thick black lines,
+            omitting all rapid travel (tool-up) visualization. Useful for clean
+            outlines of the actual cutting toolpath.
 
     Returns:
         The matplotlib Figure object.
@@ -191,67 +195,75 @@ def plot_plt_document(
             ax.set_ylim(y_min - padding_y, y_max + padding_y)
 
         # Plot each segment individually for better visibility and axis handling
-        # First, plot all rapid moves (dotted gray lines)
-        for i, seg in enumerate(all_segments):
-            if not seg.is_cutting:  # Rapid travel
-                if isinstance(seg, ArcSegment):
-                    arc_points = _arc_to_points(seg)
-                    xs = [p.x * PLT_UNITS_TO_INCHES for p in arc_points]
-                    ys = [_flip_y(p.y) * PLT_UNITS_TO_INCHES for p in arc_points]
-                    ax.plot(
-                        xs,
-                        ys,
-                        color="gray",
-                        linewidth=0.5,
-                        linestyle="dotted",
-                        alpha=0.7,
-                        label="Rapid Travel (PU)" if i == 0 else "",
-                    )
-                else:
-                    ax.plot(
-                        [seg.start.x * PLT_UNITS_TO_INCHES, seg.end.x * PLT_UNITS_TO_INCHES],
-                        [
-                            _flip_y(seg.start.y) * PLT_UNITS_TO_INCHES,
-                            _flip_y(seg.end.y) * PLT_UNITS_TO_INCHES,
-                        ],
-                        color="gray",
-                        linewidth=0.4,
-                        linestyle="dotted",
-                        alpha=0.7,
-                        label="Rapid Travel (PU)" if i == 0 else "",
-                    )
+        # First, plot all rapid moves (dotted gray lines) unless in simple_mode
+        if not simple_mode:
+            for i, seg in enumerate(all_segments):
+                if not seg.is_cutting:  # Rapid travel
+                    if isinstance(seg, ArcSegment):
+                        arc_points = _arc_to_points(seg)
+                        xs = [p.x * PLT_UNITS_TO_INCHES for p in arc_points]
+                        ys = [_flip_y(p.y) * PLT_UNITS_TO_INCHES for p in arc_points]
+                        ax.plot(
+                            xs,
+                            ys,
+                            color="gray",
+                            linewidth=0.5,
+                            linestyle="dotted",
+                            alpha=0.7,
+                            label="Rapid Travel (PU)" if i == 0 else "",
+                        )
+                    else:
+                        ax.plot(
+                            [seg.start.x * PLT_UNITS_TO_INCHES, seg.end.x * PLT_UNITS_TO_INCHES],
+                            [
+                                _flip_y(seg.start.y) * PLT_UNITS_TO_INCHES,
+                                _flip_y(seg.end.y) * PLT_UNITS_TO_INCHES,
+                            ],
+                            color="gray",
+                            linewidth=0.4,
+                            linestyle="dotted",
+                            alpha=0.7,
+                            label="Rapid Travel (PU)" if i == 0 else "",
+                        )
 
-        # Plot tool-up (rapid) connections between strokes as dashed gray lines
-        paths = document.stroke_paths
-        for i in range(len(paths) - 1):
-            curr_path = paths[i]
-            next_path = paths[i + 1]
+            # Plot tool-up (rapid) connections between strokes as dashed gray lines
+            paths = document.stroke_paths
+            for i in range(len(paths) - 1):
+                curr_path = paths[i]
+                next_path = paths[i + 1]
 
-            if not curr_path.segments or next_path.pen_up_position is None:
-                continue
+                if not curr_path.segments or next_path.pen_up_position is None:
+                    continue
 
-            last_seg = curr_path.segments[-1]
-            start_x = last_seg.end.x * PLT_UNITS_TO_INCHES
-            start_y = _flip_y(last_seg.end.y) * PLT_UNITS_TO_INCHES
-            end_x = next_path.pen_up_position.x * PLT_UNITS_TO_INCHES
-            end_y = _flip_y(next_path.pen_up_position.y) * PLT_UNITS_TO_INCHES
+                last_seg = curr_path.segments[-1]
+                start_x = last_seg.end.x * PLT_UNITS_TO_INCHES
+                start_y = _flip_y(last_seg.end.y) * PLT_UNITS_TO_INCHES
+                end_x = next_path.pen_up_position.x * PLT_UNITS_TO_INCHES
+                end_y = _flip_y(next_path.pen_up_position.y) * PLT_UNITS_TO_INCHES
 
-            ax.plot(
-                [start_x, end_x],
-                [start_y, end_y],
-                color="gray",
-                linewidth=0.4,
-                linestyle="dashed",
-                alpha=0.7,
-                label="Rapid Travel (PU)" if i == 0 else "",
-            )
+                ax.plot(
+                    [start_x, end_x],
+                    [start_y, end_y],
+                    color="gray",
+                    linewidth=0.4,
+                    linestyle="dashed",
+                    alpha=0.7,
+                    label="Rapid Travel (PU)" if i == 0 else "",
+                )
 
-        # Then, plot all cutting moves with plasma colormap
+        # Then, plot all cutting moves with plasma colormap or black in simple_mode
         for i, seg in enumerate(all_segments):
             if seg.is_cutting:  # Cutting
-                color_val = norm_distances[i]
-                cmap = plt.colormaps["plasma"]
-                color = cmap(color_val)
+                if simple_mode:
+                    color: Any = "black"
+                    linewidth = 2.0
+                    alpha = 1.0
+                else:
+                    color_val = norm_distances[i]
+                    cmap = plt.colormaps["plasma"]
+                    color = cmap(color_val)
+                    linewidth = 1.5
+                    alpha = 0.9
 
                 if isinstance(seg, ArcSegment):
                     arc_points = _arc_to_points(seg)
@@ -261,8 +273,8 @@ def plot_plt_document(
                         xs,
                         ys,
                         color=color,
-                        linewidth=0.5,
-                        alpha=0.9,
+                        linewidth=linewidth,
+                        alpha=alpha,
                         label="Cutting Path" if i == 2 else "",
                     )
                 else:
@@ -273,13 +285,13 @@ def plot_plt_document(
                             _flip_y(seg.end.y) * PLT_UNITS_TO_INCHES,
                         ],
                         color=color,
-                        linewidth=0.5,
-                        alpha=0.9,
+                        linewidth=linewidth,
+                        alpha=alpha,
                         label="Cutting Path" if i == 2 else "",
                     )
 
-        # Add colorbar for cutting paths
-        if any(seg.is_cutting for seg in all_segments):
+        # Add colorbar for cutting paths (skip in simple_mode)
+        if not simple_mode and any(seg.is_cutting for seg in all_segments):
             # Create a dummy plot to create colorbar
             cbar = plt.colorbar(plt.cm.ScalarMappable(cmap=plt.cm.plasma), ax=ax, shrink=0.8)
             cbar.set_label("Cumulative Distance (%)", rotation=270, labelpad=15)
