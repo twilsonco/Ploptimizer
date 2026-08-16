@@ -252,8 +252,8 @@ def _render_text(
 
     Each text line is rendered at its ``toolpath_text_height`` (the nominal
     height minus the cutter diameter) so the final cut geometry matches
-    the requested nominal size. Lines are stacked vertically using
-    ``line_spacing`` and left-aligned within the inner content area.
+    the requested nominal size. Lines are centered horizontally and
+    vertically within the inner content area.
 
     Args:
         source_label: The resolved label containing text content.
@@ -268,12 +268,15 @@ def _render_text(
         return vp.LineCollection()
 
     margin = source_label.margin
+    inner_width = source_label.width
+    inner_height = source_label.height
     text_lc = vp.LineCollection()
 
-    # Start at top of the inner content area
-    current_y = margin + source_label.height
+    # First pass: render all lines to calculate total height
+    rendered_lines: list[tuple[vp.LineCollection, float]] = []
+    total_rendered_height = 0.0
 
-    for line in source_label.content:
+    for i, line in enumerate(source_label.content):
         # Render at the toolpath_text_height (cutter-compensated).
         # vpype's text_block() uses a different coordinate system than
         # rect()/circle(): the rendered glyph height is approximately
@@ -283,7 +286,7 @@ def _render_text(
         size = line.toolpath_text_height / TEXT_BLOCK_HEIGHT_PER_SIZE
         line_lc = vp.text_block(
             line.text,
-            width=source_label.width,
+            width=inner_width,
             size=size,
         )
 
@@ -293,14 +296,46 @@ def _render_text(
         _, min_y, _, max_y = bounds
         rendered_height = max_y - min_y
 
-        # Position this line at (margin, current_y - max_y)
-        # This places the top of the text at current_y
-        line_lc.translate(margin, current_y - max_y)
+        rendered_lines.append((line_lc, rendered_height))
+        total_rendered_height += rendered_height
+        # Add line spacing between lines (not after the last line)
+        if i < len(source_label.content) - 1:
+            total_rendered_height += line.line_spacing
 
+    if not rendered_lines:
+        return text_lc
+
+    # Calculate vertical centering: position text block at the middle of label
+    center_y = margin + inner_height / 2
+    # Start position: center_y offset by half the total text height
+    # (text goes down from this position)
+    current_y = center_y + total_rendered_height / 2
+
+    # Second pass: position each line with horizontal and vertical centering
+    for i, (line_lc, rendered_height) in enumerate(rendered_lines):
+        bounds = line_lc.bounds()
+        if bounds is None:
+            continue
+        min_x, min_y, max_x, max_y = bounds
+        rendered_width = max_x - min_x
+
+        # Horizontal centering within the inner width
+        center_x = margin + inner_width / 2
+        # Position text so it's centered: center_x - rendered_width / 2
+        x_offset = center_x - rendered_width / 2 - min_x
+
+        # Vertical centering: position top of text at current_y
+        y_offset = current_y - max_y
+
+        line_lc.translate(x_offset, y_offset)
         text_lc.extend(line_lc)
 
         # Move down for the next line
-        current_y -= rendered_height + line.line_spacing
+        current_y -= rendered_height
+        # Add line spacing between lines
+        if i < len(rendered_lines) - 1:
+            line_spacing = source_label.content[i].line_spacing
+            current_y -= line_spacing
 
     return _apply_transform(text_lc, dx, dy, angle)
 
@@ -418,6 +453,25 @@ def vectorize_plates(plates: list[PackedPlate]) -> list[vp.Document]:
 
 
 # ---------------------------------------------------------------------------
+# Layer extraction and export
+# ---------------------------------------------------------------------------
+def extract_layer(doc: vp.Document, layer_id: int) -> vp.Document:
+    """Extract a single layer from a multi-layer document.
+
+    Args:
+        doc: The source vpype Document.
+        layer_id: The layer ID to extract.
+
+    Returns:
+        A new vpype.Document containing only the specified layer.
+    """
+    new_doc = vp.Document()
+    if layer_id in doc.layers:
+        new_doc.add(doc.layers[layer_id], layer_id)
+    return new_doc
+
+
+# ---------------------------------------------------------------------------
 # Export
 # ---------------------------------------------------------------------------
 def export_to_plt(
@@ -511,18 +565,22 @@ def export_and_optimize(
     plates: list[PackedPlate],
     output_dir: str | Path,
     optimize: bool = True,
+    separate_layers: bool = True,
 ) -> list[Path]:
     """Export plates to PLT files and optionally run them through the optimizer.
 
     This is the main entry point for Phase 3: it vectorizes each plate,
-    exports to PLT format, and then runs the exported files through the
-    PLT optimization utility to deduplicate overlapping score lines and
-    minimize tool-up travel distance.
+    exports to PLT format (optionally as separate layer files), and then
+    runs the exported files through the PLT optimization utility to
+    deduplicate overlapping score lines and minimize tool-up travel distance.
 
     Args:
         plates: List of packed plates to export.
         output_dir: Directory to write PLT files to.
         optimize: If True, run the PLT optimizer on each exported file.
+        separate_layers: If True, export each layer (text, boundaries, holes)
+            as separate PLT files with suffixes (_text, _borders, _holes).
+            If False, export all layers in a single file.
 
     Returns:
         A list of paths to the exported (and optionally optimized) PLT files.
@@ -535,9 +593,25 @@ def export_and_optimize(
     for plate in plates:
         doc = vectorize_plate(plate)
         page_size = (plate.width, plate.height)
-        output_path = output_dir / f"{plate.plate_id}.plt"
-        export_to_plt(doc, output_path, page_size=page_size)
-        exported_paths.append(output_path)
+
+        if separate_layers:
+            # Export each layer separately
+            layer_names = {
+                LAYER_TEXT: "text",
+                LAYER_BOUNDARY: "borders",
+                LAYER_HOLES: "holes",
+            }
+            for layer_id, layer_name in layer_names.items():
+                if layer_id in doc.layers and not doc.layers[layer_id].is_empty():
+                    layer_doc = extract_layer(doc, layer_id)
+                    output_path = output_dir / f"{plate.plate_id}_{layer_name}.plt"
+                    export_to_plt(layer_doc, output_path, page_size=page_size)
+                    exported_paths.append(output_path)
+        else:
+            # Export all layers in a single file
+            output_path = output_dir / f"{plate.plate_id}.plt"
+            export_to_plt(doc, output_path, page_size=page_size)
+            exported_paths.append(output_path)
 
     if optimize:
         # Run the PLT optimizer on each exported file
