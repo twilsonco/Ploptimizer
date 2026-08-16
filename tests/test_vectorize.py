@@ -418,14 +418,21 @@ class TestRenderText:
         lc = _render_text(label, 0.0, 0.0, 0.0)
         bounds = lc.bounds()
         assert bounds is not None
-        # Text should start near the left margin (within tolerance)
-        assert math.isclose(bounds[0], margin, abs_tol=0.05)
-        # Text should be near the top of the inner content area
-        # The top of the text is placed at margin + height
-        expected_top = margin + label.height
-        assert math.isclose(bounds[3], expected_top, abs_tol=0.05)
-        # Text should not overflow the bottom of the inner content area
-        assert bounds[1] >= margin - 0.05
+        # Text should be horizontally centered within the inner width
+        # Center X position: margin + width / 2 = 0.1 + 2.0 / 2 = 1.1
+        label_center_x = margin + label.width / 2
+        text_center_x = (bounds[0] + bounds[2]) / 2
+        assert math.isclose(text_center_x, label_center_x, abs_tol=0.15)
+        # Text should be vertically centered within the inner height
+        # Center Y position: margin + height / 2 = 0.1 + 1.0 / 2 = 0.6
+        label_center_y = margin + label.height / 2
+        text_center_y = (bounds[1] + bounds[3]) / 2
+        assert math.isclose(text_center_y, label_center_y, abs_tol=0.15)
+        # Text should be within label bounds (including margins)
+        assert bounds[0] >= margin - 0.1
+        assert bounds[1] >= margin - 0.1
+        assert bounds[2] <= margin + label.width + 0.1
+        assert bounds[3] <= margin + label.height + 0.1
 
 
 class TestVectorizePlate:
@@ -558,19 +565,22 @@ class TestExportAndOptimize:
     """Tests for the combined export and optimize function."""
 
     def test_export_without_optimization(self, tmp_path: Path) -> None:
-        """Export without optimization should still create files."""
+        """Export without optimization should create separate layer files."""
         label = _make_label(width=2.0, height=1.0)
         packed = _make_packed(label)
         plate = PackedPlate(plate_id="p1", width=24.0, height=12.0, labels=[packed])
 
-        paths = export_and_optimize([plate], tmp_path, optimize=False)
+        paths = export_and_optimize([plate], tmp_path, optimize=False, separate_layers=True)
 
-        assert len(paths) == 1
-        assert paths[0].exists()
-        assert paths[0].suffix == ".plt"
+        # Should have text and borders layers (no holes)
+        assert len(paths) == 2
+        assert all(p.exists() for p in paths)
+        assert all(p.suffix == ".plt" for p in paths)
+        assert any("text" in p.name for p in paths)
+        assert any("border" in p.name for p in paths)
 
     def test_export_multiple_plates(self, tmp_path: Path) -> None:
-        """Multiple plates should produce multiple files."""
+        """Multiple plates should produce multiple layer files per plate."""
         label = _make_label(width=2.0, height=1.0)
         packed = _make_packed(label)
         plates = [
@@ -578,9 +588,10 @@ class TestExportAndOptimize:
             PackedPlate(plate_id="p2", width=24.0, height=12.0, labels=[packed]),
         ]
 
-        paths = export_and_optimize(plates, tmp_path, optimize=False)
+        paths = export_and_optimize(plates, tmp_path, optimize=False, separate_layers=True)
 
-        assert len(paths) == 2
+        # 2 plates × 2 layers each = 4 files (text and borders for each plate)
+        assert len(paths) == 4
         assert all(p.exists() for p in paths)
 
     def test_export_with_optimization(self, tmp_path: Path) -> None:
@@ -593,8 +604,11 @@ class TestExportAndOptimize:
         packed = _make_packed(label)
         plate = PackedPlate(plate_id="p1", width=24.0, height=12.0, labels=[packed])
 
-        paths = export_and_optimize([plate], tmp_path, optimize=True)
+        paths = export_and_optimize([plate], tmp_path, optimize=True, separate_layers=True)
 
-        assert len(paths) == 1
-        assert paths[0].exists()
-        assert paths[0].stat().st_size > 0
+        # 2 layers (text, borders) × 2 (original + optimized for borders only)
+        # Text layer: not optimized (no optimization benefit)
+        # Borders layer: optimized (reduces travel)
+        assert len(paths) >= 2
+        assert all(p.exists() for p in paths)
+        assert all(p.stat().st_size > 0 for p in paths)
