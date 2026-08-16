@@ -80,7 +80,7 @@ def phase_1_data_prep() -> tuple[Path, Path, list[float]]:
     print_separator("PHASE 1: TEST DATA PREPARATION")
 
     workspace = Path(__file__).parent
-    job_yaml = workspace / "test_integration_job.yaml"
+    job_yaml = workspace / "examples" / "test123_spec.yaml"
     tools_json = workspace / "tools.json"
 
     if not job_yaml.exists():
@@ -146,30 +146,7 @@ def phase_2_resolution_and_layout(
             print(f"      Nominal height: {line.nominal_text_height}\"")
             print(f"      Cutter diameter: {line.cutter_diameter}\"")
             print(f"      Toolpath height: {line.toolpath_text_height}\"")
-            print(f"      Character spacing: {line.character_spacing}\"")
-            print(f"      Line spacing: {line.line_spacing}\"")
         print()
-
-    # =========================================================================
-    # VERIFICATION POINT: Label C (Multi-line Kerning Test)
-    # =========================================================================
-    print_separator("VERIFICATION POINT 1: Cutter Selection Logic")
-    label_c = next((l for l in resolved_labels if l.id == "label_c_multiline_kerning"), None)
-    if label_c:
-        print("Label C (Multi-line Kerning Test):")
-        print(f"  Nominal text height: {label_c.content[0].nominal_text_height}\"")
-        print(f"  Selected cutter: {label_c.content[0].cutter_diameter}\"")
-        print(f"  Toolpath height: {label_c.content[0].toolpath_text_height}\"")
-        print()
-
-        # Manual verification of 3x tolerance logic:
-        # Ideal for 0.25 is 0.03, but not in inventory [0.015, 0.02, 0.045, 0.125]
-        # Closest narrower: 0.02 (distance: 0.01)
-        # Closest wider: 0.045 (distance: 0.015)
-        # Threshold: 0.01 > 3 * 0.015? No (0.01 < 0.045)
-        # So it should prefer narrower (0.02)
-        print("  EXPECTED: Cutter should be 0.02 (narrower preference)")
-        print("            Because dist_narrower (0.01) <= 3 * dist_wider (0.045)")
 
     # =========================================================================
     # Step 3: Bin packing
@@ -189,16 +166,8 @@ def phase_2_resolution_and_layout(
             print(f"      Size: {packed_label.width:.2f}\" x {packed_label.height:.2f}\"")
             print(f"      Rotated: {packed_label.rotated}")
 
-    # =========================================================================
-    # VERIFICATION POINT: Multi-plate allocation (Label D volume)
-    # =========================================================================
-    print_separator("VERIFICATION POINT 2: Multi-Plate Allocation")
+    print_separator("VERIFICATION POINT: Plate Generation")
     print(f"Total plates generated: {len(packed_plates)}")
-    print(f"EXPECTED: At least 2 plates due to Label D (200 instances)")
-    if len(packed_plates) >= 2:
-        print("✓ PASS: Multi-plate allocation verified")
-    else:
-        print("✗ FAIL: Expected at least 2 plates")
 
     return resolved_labels, packed_plates
 
@@ -249,6 +218,10 @@ def phase_3_vectorization_and_export(
 def phase_4_visualization(exported_paths: list[Path]) -> None:
     """Phase 4: Generate PNG previews using plotter.
 
+    Generates two plots per PLT file:
+    - Default plot (color-coded with rapid travel visualization)
+    - Simple mode plot (black lines only, no rapids)
+
     Args:
         exported_paths: List of exported PLT file paths.
     """
@@ -257,12 +230,20 @@ def phase_4_visualization(exported_paths: list[Path]) -> None:
     try:
         parser = PLTParser()
         for plt_path in exported_paths:
-            png_path = plt_path.with_stem(plt_path.stem + "_preview").with_suffix(".png")
             logger.info(f"Parsing {plt_path.name}...")
             document = parser.parse_file(plt_path)
-            logger.info(f"Plotting to {png_path.name}...")
-            plot_plt_document(document, output_path=png_path, show_plot=False)
-            print(f"✓ Generated: {png_path.relative_to(Path.cwd())}")
+            
+            # Generate default plot (color-coded with rapid travel)
+            png_path_default = plt_path.with_stem(plt_path.stem + "_default").with_suffix(".png")
+            logger.info(f"Plotting default mode to {png_path_default.name}...")
+            plot_plt_document(document, output_path=png_path_default, show_plot=False, simple_mode=False)
+            print(f"✓ Generated: {png_path_default.relative_to(Path.cwd())}")
+            
+            # Generate simple mode plot (black lines only, no rapids)
+            png_path_simple = plt_path.with_stem(plt_path.stem + "_simple_outline").with_suffix(".png")
+            logger.info(f"Plotting simple mode to {png_path_simple.name}...")
+            plot_plt_document(document, output_path=png_path_simple, show_plot=False, simple_mode=True)
+            print(f"✓ Generated: {png_path_simple.relative_to(Path.cwd())}")
     except Exception as e:
         logger.warning(f"Visualization failed (optional): {e}")
         print(f"⚠ Visualization skipped: {e}")
@@ -295,13 +276,16 @@ def main() -> int:
         print_separator("INTEGRATION TEST COMPLETE")
         print("✓ Pipeline executed successfully")
         print()
-        print("Next steps:")
+        print("Comparison:")
         print("1. Inspect the generated PNG previews in test_output/integration_test/")
-        print("2. Verify that:")
-        print("   - Label C shows correct cutter selection (0.02)")
-        print("   - Label D text is properly scaled with cutter compensation")
-        print("   - Adjacent labels share overlapping boundary lines")
-        print("   - Auto-sized Label B has correct dimensions")
+        print("   - *_default.png: Color-coded toolpath with rapid travel visualization")
+        print("   - *_simple_outline.png: Black lines only (for comparison with reference)")
+        print()
+        print("2. Compare *_simple_outline.png with the reference plots:")
+        print("   - Reference test: examples/test123_02_simple_outline.png")
+        print("   - Reference borders: examples/test123-borders_02_simple_outline.png")
+        print()
+        print("   Use only the simple_mode plots for accurate comparison.")
         print()
 
         return 0
