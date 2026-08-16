@@ -698,13 +698,13 @@ class TestCreatePathDiagram:
         xlim = fig.axes[0].get_xlim()
         ylim = fig.axes[0].get_ylim()
 
-        # Start point at (0, 0) -> displayed Y = -0 = 0
+        # Start point at (0, 0) -> displayed Y = 4 - 0 = 4 (where 4 is plate_height)
         assert xlim[0] <= 0 <= xlim[1], "Start X should be in range"
-        assert ylim[0] <= 0 <= ylim[1], "Start Y should be in range"
+        assert ylim[0] <= 4 <= ylim[1], "Start Y should be in range"
 
-        # End point at (3, 4) -> displayed Y = -4
+        # End point at (3, 4) -> displayed Y = 4 - 4 = 0
         assert xlim[0] <= 3 <= xlim[1], "End X should be in range"
-        assert ylim[0] <= -4 <= ylim[1], "End Y should be in range"
+        assert ylim[0] <= 0 <= ylim[1], "End Y should be in range"
 
     def test_cumulative_distances_affect_colors(self) -> None:
         """Test that cumulative distances affect color mapping."""
@@ -734,9 +734,9 @@ class TestCreatePathDiagram:
         ylim = fig.axes[0].get_ylim()
 
         assert xlim[0] <= 0 <= xlim[1], "X range should include start"
-        assert ylim[0] <= 0 <= ylim[1], "Y range should include start"
+        assert ylim[0] <= 10000 <= ylim[1], "Y range should include start (plate_height - 0 = 10000)"
         assert xlim[0] <= 10000 <= xlim[1], "X range should include end"
-        assert ylim[0] <= -10000 <= ylim[1], "Y range should include end"
+        assert ylim[0] <= 0 <= ylim[1], "Y range should include end (plate_height - 10000 = 0)"
 
     def test_diagram_with_negative_coordinates(self) -> None:
         """Test diagram handles negative coordinate values."""
@@ -752,10 +752,10 @@ class TestCreatePathDiagram:
         ylim = fig.axes[0].get_ylim()
 
         assert xlim[0] <= -10 <= xlim[1], "Range should include negative start"
-        # Y is negated: -(-10) = 10 (start), -(5) = -5 (end)
-        assert ylim[0] <= 10 <= ylim[1], "Range should include negated start Y"
+        # Y is flipped: plate_height(5) - (-10) = 15 (start), plate_height(5) - 5 = 0 (end)
+        assert ylim[0] <= 15 <= ylim[1], "Range should include flipped start Y"
         assert xlim[0] <= 5 <= xlim[1], "Range should include positive end"
-        assert ylim[0] <= -5 <= ylim[1], "Range should include negated end Y"
+        assert ylim[0] <= 0 <= ylim[1], "Range should include flipped end Y"
 
 
 class TestArcSegmentPlotting:
@@ -1802,9 +1802,10 @@ class TestAxisLimitsSafeRangeIntegration:
         fig = plot_plt_document(doc)
         ax = fig.axes[0]
         y_min, y_max = ax.get_ylim()
-        # Display Y range = -20 to -10 -> span 10 -> padding 1.0
-        assert y_min == pytest.approx(-20 - 1.0)
-        assert y_max == pytest.approx(-10 + 1.0)
+        # Display Y range = 0 to 10 inches (plate_height 20000 - 20000 = 0, 20000 - 10000 = 10)
+        # Span 10 inches -> padding 1.0 inch
+        assert y_min == pytest.approx(0 - 1.0)
+        assert y_max == pytest.approx(10 + 1.0)
         plt.close(fig)
 
     def test_no_axis_limit_regression_floating_point(self) -> None:
