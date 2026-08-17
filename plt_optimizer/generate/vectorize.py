@@ -554,12 +554,135 @@ def export_to_plt(
             absolute=True,
         )
 
+    # Post-process: fix rectangle heights to ensure consistency.
+    # Due to vpype's coordinate rounding during compression, rectangles may
+    # end up with slightly different heights. This function ensures all
+    # rectangles have the same height.
+    _fix_rectangle_heights_in_plt(path)
+
     # Post-process: negate all y-coordinates in the PLT file.
     # The toolpath should be in the +x -y quadrant (not +x +y).
     # This is done by negating the y-values in all PA and PU commands.
     _negate_y_coordinates_in_plt(path)
 
     return path.resolve()
+
+
+def _fix_rectangle_heights_in_plt(file_path: Path) -> None:
+    """Fix rectangle heights in PLT file to ensure consistency.
+
+    Due to vpype's coordinate rounding during compression, rectangles may
+    end up with slightly different heights. This function detects rectangles
+    (closed PD commands with vertical and horizontal segments) and adjusts
+    coordinates to ensure all rectangles have the same height.
+
+    The algorithm:
+    1. Find all PD (Pen Down) commands that draw rectangles
+    2. Detect the most common rectangle height
+    3. Adjust rectangles that are 1 unit shorter to match the common height
+    4. Preserve x-coordinates and the top position
+
+    Args:
+        file_path: Path to the PLT file to modify.
+    """
+    import re
+
+    content = file_path.read_text(encoding="utf-8")
+
+    # Find all PD commands with coordinate sequences
+    # Match PD followed by comma-separated coordinates
+    pd_pattern = r"PD([\d,]+)"
+
+    def analyze_rectangle(coords_str: str) -> tuple[bool, int, int, int, int] | None:
+        """Analyze if this PD command draws a rectangle and return its bounds.
+
+        Returns:
+            (is_rect, min_x, max_x, min_y, max_y) if it's a rectangle, None otherwise.
+        """
+        parts = coords_str.split(",")
+        if len(parts) < 8:  # Rectangle needs at least 5 points (4 corners + close)
+            return None
+
+        try:
+            points = [(int(parts[i]), int(parts[i + 1])) for i in range(0, len(parts), 2)]
+        except ValueError:
+            return None
+
+        if len(points) < 4:
+            return None
+
+        # Check if it's a rectangle: should have ~4 unique corners + close point
+        xs = [p[0] for p in points[:-1]]  # Exclude last point (should equal first)
+        ys = [p[1] for p in points[:-1]]
+
+        # A rectangle should have only 2 unique x-values and 2 unique y-values
+        unique_xs = len(set(xs))
+        unique_ys = len(set(ys))
+
+        if unique_xs == 2 and unique_ys == 2:
+            return (True, min(xs), max(xs), min(ys), max(ys))
+
+        return None
+
+    # Collect all rectangles
+    rectangles: list[dict[str, int | str]] = []
+    for match in re.finditer(pd_pattern, content):
+        result = analyze_rectangle(match.group(1))
+        if result:
+            is_rect, min_x, max_x, min_y, max_y = result
+            rectangles.append(
+                {
+                    "min_x": min_x,
+                    "max_x": max_x,
+                    "min_y": min_y,
+                    "max_y": max_y,
+                    "height": max_y - min_y,
+                    "coords_str": match.group(1),
+                }
+            )
+
+    if not rectangles:
+        return
+
+    # Find the most common height
+    heights = [int(r["height"]) for r in rectangles]
+    common_height = max(set(heights), key=heights.count)
+
+    # Fix rectangles that are 1 unit shorter
+    def fix_rectangle(match: re.Match[str]) -> str:
+        """Fix rectangle height if needed."""
+        coords_str = match.group(1)
+        rect_data: dict[str, int | str] | None = None
+
+        # Find which rectangle this is
+        for r in rectangles:
+            if r["coords_str"] == coords_str:
+                rect_data = r
+                break
+
+        if rect_data is None or int(rect_data["height"]) >= common_height:
+            return match.group(0)
+
+        # This rectangle is shorter, extend it
+        parts = coords_str.split(",")
+        points = [(int(parts[i]), int(parts[i + 1])) for i in range(0, len(parts), 2)]
+
+        # Increase the minimum y-value by 1 to make height match
+        adjusted_points = []
+        for x, y in points:
+            if y == int(rect_data["min_y"]):
+                # Decrease min_y by 1 (since y+ is downward in coordinates)
+                adjusted_points.append((x, y - 1))
+            else:
+                adjusted_points.append((x, y))
+
+        # Rebuild coordinate string
+        new_coords = ",".join(str(coord) for point in adjusted_points for coord in point)
+        return f"PD{new_coords}"
+
+    # Apply fixes
+    modified_content = re.sub(pd_pattern, fix_rectangle, content)
+    file_path.write_text(modified_content, encoding="utf-8")
 
 
 def _negate_y_coordinates_in_plt(file_path: Path) -> None:
