@@ -566,15 +566,17 @@ def export_to_plt(
     # back to preserve the actual toolpath dimensions (1 inch = 1000 units).
     _scale_coordinates_in_plt(path)
 
-    # Post-process: negate all y-coordinates in the PLT file.
-    # The toolpath should be in the +x -y quadrant (not +x +y).
-    # This is done by negating the y-values in all PA and PU commands.
-    _negate_y_coordinates_in_plt(path)
-
     # Post-process: translate coordinates so origin (0,0) is at bottom-left.
     # Shifts all coordinates so that the minimum x and minimum y values
     # become 0, placing the origin at the bottom-left corner of the plot.
     _translate_coordinates_to_origin_in_plt(path)
+
+    # Post-process: negate all y-coordinates in the PLT file.
+    # The toolpath should be in the +x -y quadrant (not +x +y).
+    # This is done by negating the y-values in all PA and PU commands.
+    # NOTE: This must happen AFTER translation, otherwise translation
+    # would undo the negation by recalculating based on the negated values.
+    _negate_y_coordinates_in_plt(path)
 
     return path.resolve()
 
@@ -882,7 +884,7 @@ def _negate_y_coordinates_in_plt(file_path: Path) -> None:
     # Replace all PA, PU, and PD commands with negated y-values
     # Pattern: PA, PU, or PD followed by comma-separated integer coordinates
     modified_content = re.sub(
-        r"(PA|PU|PD)([\d,]+)",
+        r"(PA|PU|PD)([\d,\-]+)",
         negate_coordinate_pair,
         content,
     )
