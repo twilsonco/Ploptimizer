@@ -539,11 +539,6 @@ def export_to_plt(
     if device is None:
         device = "hp7475a"  # Common HPGL-compatible device
 
-    # Original document coordinates are in plotter convention (y+ up, origin at bottom).
-    # vpype's write_hpgl() will output HPGL which also uses plotter convention.
-    # The visualization (plotter.py) expects display convention (y+ down, origin at top).
-    # We handle the coordinate flip in the visualization, not the export.
-    #
     # NOTE: vpype only supports standard page sizes (A3, A4, etc.) for hp7475a device.
     # The page_size tuple is ignored here; we use "A3" which is large enough.
 
@@ -559,7 +554,60 @@ def export_to_plt(
             absolute=True,
         )
 
+    # Post-process: negate all y-coordinates in the PLT file.
+    # The toolpath should be in the +x -y quadrant (not +x +y).
+    # This is done by negating the y-values in all PA and PU commands.
+    _negate_y_coordinates_in_plt(path)
+
     return path.resolve()
+
+
+def _negate_y_coordinates_in_plt(file_path: Path) -> None:
+    """Negate all y-coordinates in a PLT file.
+
+    Modifies all PA (Pen Absolute), PU (Pen Up), and PD (Pen Down) commands to
+    have negated y-values. This transforms the toolpath from +x +y quadrant to
+    +x -y quadrant.
+
+    Args:
+        file_path: Path to the PLT file to modify.
+    """
+    import re
+
+    content = file_path.read_text(encoding="utf-8")
+
+    def negate_coordinate_pair(match: re.Match[str]) -> str:
+        """Negate y-coordinate in matched PA/PU/PD command."""
+        prefix = match.group(1)  # "PA", "PU", or "PD"
+        coords = match.group(2)  # "x,y" or "x,y,x,y,..."
+
+        # Split into individual coordinates
+        parts = coords.split(",")
+        negated_parts = []
+
+        # Process pairs: x, y, x, y, ...
+        for i, part in enumerate(parts):
+            if i % 2 == 1:  # Every other value starting from index 1 is y-coordinate
+                try:
+                    y_val = int(part)
+                    negated_parts.append(str(-y_val))
+                except ValueError:
+                    negated_parts.append(part)
+            else:
+                negated_parts.append(part)
+
+        negated_coords = ",".join(negated_parts)
+        return f"{prefix}{negated_coords}"
+
+    # Replace all PA, PU, and PD commands with negated y-values
+    # Pattern: PA, PU, or PD followed by comma-separated integer coordinates
+    modified_content = re.sub(
+        r"(PA|PU|PD)([\d,]+)",
+        negate_coordinate_pair,
+        content,
+    )
+
+    file_path.write_text(modified_content, encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
