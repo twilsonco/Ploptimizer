@@ -34,6 +34,7 @@ Example:
 from __future__ import annotations
 
 import math
+import re
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -570,6 +571,11 @@ def export_to_plt(
     # This is done by negating the y-values in all PA and PU commands.
     _negate_y_coordinates_in_plt(path)
 
+    # Post-process: translate coordinates so origin (0,0) is at bottom-left.
+    # Shifts all coordinates so that the minimum x and minimum y values
+    # become 0, placing the origin at the bottom-left corner of the plot.
+    _translate_coordinates_to_origin_in_plt(path)
+
     return path.resolve()
 
 
@@ -590,8 +596,6 @@ def _fix_rectangle_heights_in_plt(file_path: Path) -> None:
     Args:
         file_path: Path to the PLT file to modify.
     """
-    import re
-
     content = file_path.read_text(encoding="utf-8")
     # Remove newlines to handle HPGL files with line wrapping
     content = content.replace("\n", "")
@@ -715,8 +719,6 @@ def _scale_coordinates_in_plt(file_path: Path) -> None:
     Args:
         file_path: Path to the PLT file to modify.
     """
-    import re
-
     content = file_path.read_text(encoding="utf-8")
     # Remove newlines to handle HPGL files with line wrapping
     content = content.replace("\n", "")
@@ -850,8 +852,6 @@ def _negate_y_coordinates_in_plt(file_path: Path) -> None:
     Args:
         file_path: Path to the PLT file to modify.
     """
-    import re
-
     content = file_path.read_text(encoding="utf-8")
     # Remove newlines to handle HPGL files with line wrapping
     content = content.replace("\n", "")
@@ -887,6 +887,71 @@ def _negate_y_coordinates_in_plt(file_path: Path) -> None:
         content,
     )
 
+    file_path.write_text(modified_content, encoding="utf-8")
+
+
+def _translate_coordinates_to_origin_in_plt(file_path: Path) -> None:
+    """Translate coordinates so that the origin (0, 0) is at bottom-left.
+
+    Finds the minimum x and y coordinates in the PLT file and shifts all
+    coordinates so that min_x becomes 0 and min_y becomes 0, effectively
+    placing the plot origin at the bottom-left corner.
+
+    Args:
+        file_path: Path to the PLT file to modify.
+    """
+    content = file_path.read_text(encoding="utf-8")
+    content_stripped = content.replace("\n", "")
+
+    # Find all coordinate values
+    coord_pattern = r"(PA|PU|PD)([\d,\-]+)"
+    all_x = []
+    all_y = []
+
+    for match in re.finditer(coord_pattern, content_stripped):
+        coords_str = match.group(2)
+        parts = coords_str.split(",")
+        try:
+            for i in range(0, len(parts) - 1, 2):
+                x = int(parts[i])
+                y = int(parts[i + 1])
+                all_x.append(x)
+                all_y.append(y)
+        except (ValueError, IndexError):
+            continue
+
+    if not all_x or not all_y:
+        return
+
+    # Find minimum coordinates
+    min_x = min(all_x)
+    min_y = min(all_y)
+
+    # Skip if already at origin
+    if min_x == 0 and min_y == 0:
+        return
+
+    def translate_coordinates(match: re.Match[str]) -> str:
+        """Translate coordinates by subtracting minimums."""
+        cmd = match.group(1)
+        coords_str = match.group(2)
+        parts = coords_str.split(",")
+
+        try:
+            translated_parts = []
+            for i, part in enumerate(parts):
+                val = int(part)
+                if i % 2 == 0:  # x coordinate
+                    translated_val = val - min_x
+                else:  # y coordinate
+                    translated_val = val - min_y
+                translated_parts.append(str(translated_val))
+            return f"{cmd}{','.join(translated_parts)}"
+        except (ValueError, IndexError):
+            return match.group(0)
+
+    # Apply translation
+    modified_content = re.sub(coord_pattern, translate_coordinates, content_stripped)
     file_path.write_text(modified_content, encoding="utf-8")
 
 
