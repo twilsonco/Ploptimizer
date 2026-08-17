@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sys
 from pathlib import Path
 
@@ -136,15 +137,15 @@ def phase_2_resolution_and_layout(
     for label in resolved_labels:
         print(f"Label ID: {label.id}")
         print(f"  Count: {label.count}")
-        print(f"  Dimensions: {label.width}\" x {label.height}\"")
-        print(f"  Margin: {label.margin}\"")
+        print(f'  Dimensions: {label.width}" x {label.height}"')
+        print(f'  Margin: {label.margin}"')
         print(f"  Content lines: {len(label.content)}")
 
         for i, line in enumerate(label.content):
             print(f"    Line {i}: '{line.text}'")
-            print(f"      Nominal height: {line.nominal_text_height}\"")
-            print(f"      Cutter diameter: {line.cutter_diameter}\"")
-            print(f"      Toolpath height: {line.toolpath_text_height}\"")
+            print(f'      Nominal height: {line.nominal_text_height}"')
+            print(f'      Cutter diameter: {line.cutter_diameter}"')
+            print(f'      Toolpath height: {line.toolpath_text_height}"')
         print()
 
     # =========================================================================
@@ -157,18 +158,68 @@ def phase_2_resolution_and_layout(
     print(f"Total plates generated: {len(packed_plates)}")
     for plate in packed_plates:
         print(f"\nPlate {plate.plate_id}:")
-        print(f"  Dimensions: {plate.width}\" x {plate.height}\"")
+        print(f'  Dimensions: {plate.width}" x {plate.height}"')
         print(f"  Labels packed: {len(plate.labels)}")
         for packed_label in plate.labels:
             print(f"    - {packed_label.label_id}")
             print(f"      Position: ({packed_label.x:.2f}, {packed_label.y:.2f})")
-            print(f"      Size: {packed_label.width:.2f}\" x {packed_label.height:.2f}\"")
+            print(f'      Size: {packed_label.width:.2f}" x {packed_label.height:.2f}"')
             print(f"      Rotated: {packed_label.rotated}")
 
     print_separator("VERIFICATION POINT: Plate Generation")
     print(f"Total plates generated: {len(packed_plates)}")
 
     return resolved_labels, packed_plates
+
+
+def _extract_layer_from_plt_file(plt_file_path: Path, target_pen: int, output_path: Path) -> None:
+    """Extract a single layer from a post-processed PLT file by pen ID.
+
+    Filters the PLT file to only include commands for the target pen,
+    preserving all PA/PU/PD commands and SP selections for that pen.
+
+    Args:
+        plt_file_path: Path to the source PLT file with all layers.
+        target_pen: Pen ID to extract (e.g., 1 for text, 2 for borders).
+        output_path: Path to write the extracted layer.
+    """
+    content = plt_file_path.read_text()
+
+    # Split by SP (Select Pen) commands to identify sections
+    lines = []
+    in_header = True
+    current_pen = None
+
+    # Write header and filter content by pen
+    for line in content.split(";"):
+        line = line.strip()
+        if not line:
+            continue
+
+        # Check for SP command (Select Pen)
+        if line.startswith("SP"):
+            try:
+                pen_id = int(line[2:])
+                current_pen = pen_id
+                # Only include SP commands for our target pen or pen 0 (end)
+                if pen_id == target_pen or pen_id == 0:
+                    lines.append(f"SP{pen_id};")
+            except (ValueError, IndexError):
+                lines.append(f"{line};")
+        elif current_pen == target_pen or in_header:
+            # Include all content for target pen or header content
+            if line.startswith("IN") or line.startswith("DF") or line.startswith("PS"):
+                in_header = True
+                lines.append(f"{line};")
+            elif line and current_pen == target_pen:
+                lines.append(f"{line};")
+
+    # Write extracted layer
+    result = "".join(lines)
+    if result and not result.endswith("%"):
+        result += "%"
+
+    output_path.write_text(result)
 
 
 # ============================================================================
@@ -190,12 +241,11 @@ def phase_3_vectorization_and_export(
     """
     print_separator("PHASE 3: VECTORIZATION AND EXPORT")
 
-    from plt_optimizer.generate.vectorize import (
-        LAYER_BOUNDARY,
-        LAYER_HOLES,
-        LAYER_TEXT,
-        extract_layer,
-    )
+    # Layer ID to pen ID mapping in PLT files
+    # These correspond to the SP (Select Pen) commands in the raw PLT
+    PEN_TEXT = 1
+    PEN_BORDERS = 2
+    PEN_HOLES = 3
 
     workspace = Path(__file__).parent
     output_dir = workspace / "test_output" / "integration_test"
@@ -205,9 +255,9 @@ def phase_3_vectorization_and_export(
 
     exported_paths: list[Path] = []
     layer_names = {
-        LAYER_TEXT: "text",
-        LAYER_BOUNDARY: "borders",
-        LAYER_HOLES: "holes",
+        PEN_TEXT: "text",
+        PEN_BORDERS: "borders",
+        PEN_HOLES: "holes",
     }
 
     for plate in packed_plates:
@@ -221,19 +271,86 @@ def phase_3_vectorization_and_export(
         exported_paths.append(combined_path)
 
         # Export each layer separately
-        for layer_id, layer_name in layer_names.items():
-            if layer_id in doc.layers and not doc.layers[layer_id].is_empty():
-                layer_doc = extract_layer(doc, layer_id)
-                layer_path = output_dir / f"{plate.plate_id}_{layer_name}.plt"
-                logger.info(f"Exporting {layer_name} layer PLT: {layer_path}")
-                export_to_plt(layer_doc, layer_path, page_size=(plate.width, plate.height))
-                exported_paths.append(layer_path)
+        for pen_id, layer_name in layer_names.items():
+            layer_path = output_dir / f"{plate.plate_id}_{layer_name}.plt"
+            logger.info(f"Extracting {layer_name} layer (pen {pen_id}) to: {layer_path}")
+            try:
+                _extract_layer_from_plt_file(combined_path, pen_id, layer_path)
+                # Only add to exported_paths if file has actual content (not just header)
+                content_text = layer_path.read_text()
+                if len(content_text) > 10:  # More than just header
+                    exported_paths.append(layer_path)
+                else:
+                    logger.info(f"Skipping empty layer: {layer_name}")
+                    layer_path.unlink()  # Delete empty file
+            except Exception as e:
+                logger.warning(f"Failed to extract {layer_name} layer: {e}")
 
     print("\n--- EXPORT RESULTS ---\n")
     for path in exported_paths:
         print(f"✓ Exported: {path.relative_to(workspace)}")
 
     return exported_paths
+
+
+# ============================================================================
+# PHASE 3.5: COORDINATE VALIDATION
+# ============================================================================
+def phase_3_5_validate_coordinates(exported_paths: list[Path]) -> None:
+    """Phase 3.5: Validate coordinate ranges in exported PLT files.
+
+    PLT files should have only positive coordinates:
+    - All x-coordinates must be >= 0
+    - All y-coordinates must be >= 0
+
+    Args:
+        exported_paths: List of exported PLT file paths.
+
+    Raises:
+        AssertionError: If any coordinates violate constraints.
+    """
+    print_separator("PHASE 3.5: COORDINATE VALIDATION")
+
+    for plt_path in exported_paths:
+        logger.info(f"Validating {plt_path.name}...")
+        content = plt_path.read_text()
+
+        # Extract all coordinates from PA/PU/PD commands
+        coord_pattern = r"(PA|PU|PD)([\d,\-]+)"
+        x_coords = []
+        y_coords = []
+
+        for cmd, coords_str in re.findall(coord_pattern, content):
+            coords = coords_str.split(",")
+            if len(coords) >= 2:
+                try:
+                    for i in range(0, len(coords) - 1, 2):
+                        x = int(coords[i])
+                        y = int(coords[i + 1])
+                        x_coords.append(x)
+                        y_coords.append(y)
+                except (ValueError, IndexError):
+                    pass
+
+        if not x_coords or not y_coords:
+            logger.warning(f"  No coordinates found in {plt_path.name}")
+            continue
+
+        min_x, max_x = min(x_coords), max(x_coords)
+        min_y, max_y = min(y_coords), max(y_coords)
+
+        # Validate constraints
+        assert min_x >= 0, f"{plt_path.name}: X has negative values (min={min_x})"
+        assert min_y >= 0, f"{plt_path.name}: Y has negative values (min={min_y})"
+
+        print(f"✓ {plt_path.name}:")
+        print(
+            f"    X range: [{min_x:8d}, {max_x:8d}] ({min_x / 1000:.3f}, {max_x / 1000:.3f} inches)"
+        )
+        print(
+            f"    Y range: [{min_y:8d}, {max_y:8d}] ({min_y / 1000:.3f}, {max_y / 1000:.3f} inches)"
+        )
+        print("    Coordinates valid: all X≥0, all Y≥0 ✓")
 
 
 # ============================================================================
@@ -260,13 +377,19 @@ def phase_4_visualization(exported_paths: list[Path]) -> None:
             # Generate default plot (color-coded with rapid travel)
             png_path_default = plt_path.with_stem(plt_path.stem + "_default").with_suffix(".png")
             logger.info(f"Plotting default mode to {png_path_default.name}...")
-            plot_plt_document(document, output_path=png_path_default, show_plot=False, simple_mode=False)
+            plot_plt_document(
+                document, output_path=png_path_default, show_plot=False, simple_mode=False
+            )
             print(f"✓ Generated: {png_path_default.relative_to(Path.cwd())}")
 
             # Generate simple mode plot (black lines only, no rapids)
-            png_path_simple = plt_path.with_stem(plt_path.stem + "_simple_outline").with_suffix(".png")
+            png_path_simple = plt_path.with_stem(plt_path.stem + "_simple_outline").with_suffix(
+                ".png"
+            )
             logger.info(f"Plotting simple mode to {png_path_simple.name}...")
-            plot_plt_document(document, output_path=png_path_simple, show_plot=False, simple_mode=True)
+            plot_plt_document(
+                document, output_path=png_path_simple, show_plot=False, simple_mode=True
+            )
             print(f"✓ Generated: {png_path_simple.relative_to(Path.cwd())}")
     except Exception as e:
         logger.warning(f"Visualization failed (optional): {e}")
@@ -287,12 +410,13 @@ def main() -> int:
         job_yaml, tools_json, inventory = phase_1_data_prep()
 
         # Phase 2: Resolution and Layout
-        resolved_labels, packed_plates = phase_2_resolution_and_layout(
-            job_yaml, inventory
-        )
+        resolved_labels, packed_plates = phase_2_resolution_and_layout(job_yaml, inventory)
 
         # Phase 3: Vectorization and Export
         exported_paths = phase_3_vectorization_and_export(packed_plates)
+
+        # Phase 3.5: Coordinate Validation
+        phase_3_5_validate_coordinates(exported_paths)
 
         # Phase 4: Visualization (optional)
         phase_4_visualization(exported_paths)

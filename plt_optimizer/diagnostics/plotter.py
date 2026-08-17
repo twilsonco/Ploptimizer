@@ -29,17 +29,16 @@ PLT_UNITS_TO_INCHES = 1 / 1000
 
 
 def _compute_plate_height(segments: Sequence[Segment]) -> float:
-    """Compute plate height and detect coordinate system from segments.
+    """Compute plate height from segments.
 
-    Detects whether segments use plotter convention (y >= 0) or machine
-    convention (y <= 0) by examining min and max y-values.
+    Coordinates are in display convention (y=0 at top, y increasing downward).
+    This function returns the maximum y value to determine plot height.
 
     Args:
         segments: All segments in the document.
 
     Returns:
-        - If machine convention (min_y < 0): returns min_y (negative value)
-        - If plotter convention (min_y >= 0): returns max_y (positive value)
+        Maximum y-value (representing plate height).
     """
     if not segments:
         return 0.0
@@ -52,40 +51,25 @@ def _compute_plate_height(segments: Sequence[Segment]) -> float:
     if not all_y:
         return 0.0
 
-    min_y = min(all_y)
-    max_y = max(all_y)
-
-    # If min_y is negative (machine convention), return it to signal the convention
-    # If min_y is non-negative (plotter convention), return max_y as before
-    if min_y < 0:
-        return min_y
-    return max_y
+    return max(all_y)
 
 
 def _flip_y(y: float, plate_height: float) -> float:
-    """Convert y-coordinate to display convention (origin top-left, y+ downward).
+    """Invert y-coordinate for display convention (origin at top, y+ downward).
 
-    Handles both coordinate systems:
-    - Machine convention (y <= 0): negates y to flip from bottom-origin to top-origin
-    - Plotter convention (y >= 0): uses plate_height - y as before
+    PLT files store coordinates in bottom-left origin convention (+x +y quadrant).
+    For display, we need top-left origin convention. This transforms:
+    - y=0 (bottom in PLT) → plate_height (bottom of display)
+    - y=plate_height (top in PLT) → 0 (top of display)
 
     Args:
-        y: Y-coordinate in original convention.
-        plate_height: Either min_y (negative, signals machine convention) or
-            max_y (non-negative, signals plotter convention).
+        y: Y-coordinate in PLT convention (0 at bottom).
+        plate_height: Maximum y value from all coordinates (plate height in PLT units).
 
     Returns:
-        Y-coordinate in display convention (origin at top, positive downward).
+        Y-coordinate in display convention (0 at top, increasing downward).
     """
-    # Machine convention: plate_height is min_y (negative)
-    if plate_height < 0:
-        # Just negate: -(-499090) = 499090 puts top (y=0) at display y=0
-        # and bottom (y=-499090) at display y=499090
-        return -y
-    # Plotter convention: plate_height is max_y (non-negative)
-    else:
-        # Original transformation for plotter convention
-        return plate_height - y
+    return plate_height - y
 
 
 def _safe_range(lo: float, hi: float, default_floor: float = 1.0) -> float:
