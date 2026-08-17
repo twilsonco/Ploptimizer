@@ -13,7 +13,7 @@ from typing import Any, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
-from matplotlib.ticker import MultipleLocator
+from matplotlib.ticker import AutoLocator, MultipleLocator
 
 from plt_optimizer.core.models import (
     ArcSegment,
@@ -366,8 +366,9 @@ def plot_plt_document(
         ax.set_xlabel("X (inches)")
         ax.set_ylabel("Y (inches)")
         ax.set_title(title)
-        ax.xaxis.set_major_locator(MultipleLocator(1))
-        ax.yaxis.set_major_locator(MultipleLocator(1))
+        # Use AutoLocator for better tick placement when axis ranges vary widely
+        ax.xaxis.set_major_locator(AutoLocator())
+        ax.yaxis.set_major_locator(AutoLocator())
         ax.legend(loc="upper right")
         ax.grid(True, alpha=0.3)
 

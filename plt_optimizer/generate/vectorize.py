@@ -548,7 +548,7 @@ def export_to_plt(
             doc,
             page_size="A3",  # Always use A3 - vpype only supports standard sizes
             landscape=landscape,
-            center=True,  # Center on A3 page
+            center=True,  # Center on page for proper rendering by vpype
             device=device,
             velocity=None,
             absolute=True,
