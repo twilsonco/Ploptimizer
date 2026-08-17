@@ -18,15 +18,14 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from plt_optimizer.generate.schema import (
-    HoleLocation,
     HoleSpec,
     JobSpec,
     LabelAttributes,
     LabelSpec,
-    parse_yaml,
     PlateSpec,
     TextAttributes,
     TextLine,
+    parse_yaml,
 )
 
 

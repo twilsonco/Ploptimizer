@@ -5,7 +5,6 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-import pytest
 import vpype as vp
 
 from plt_optimizer.generate.layout import PackedLabel, PackedPlate

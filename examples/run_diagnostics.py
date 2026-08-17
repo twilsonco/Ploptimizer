@@ -29,28 +29,21 @@ from pathlib import Path
 # Add project root to path for imports when running as script
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from plt_optimizer.core.models import Coordinate, PLTDocument, StrokePath, StrokeSegment
-from plt_optimizer.core.parser import PLTParser
-from plt_optimizer.core.profiler import Profiler
 from plt_optimizer.core.chunker import Chunker, ChunkerConfig
 from plt_optimizer.core.optimizer import (
-    GeneticAlgorithmStrategy,
-    ChristofidesStrategy,
-    InsertionHeuristicStrategy,
     NearestNeighbor2OptStrategy,
     OptimizerEngine,
-    SimulatedAnnealingStrategy,
 )
-from plt_optimizer.core.reassembler import Reassembler, MetricsCalculator
+from plt_optimizer.core.parser import PLTParser
+from plt_optimizer.core.profiler import Profiler
+from plt_optimizer.core.reassembler import MetricsCalculator, Reassembler
 from plt_optimizer.core.writer import PLTWriter
 from plt_optimizer.diagnostics.plotter import plot_plt_document
+from plt_optimizer.utils.geometry import remove_redundant_strokes
 from plt_optimizer.utils.logging import (
-    CSVMetricsLogger,
-    TextLogger,
     get_metrics_logger,
     get_text_logger,
 )
-from plt_optimizer.utils.geometry import remove_redundant_strokes
 
 
 def run_diagnostics_on_file(
@@ -231,7 +224,7 @@ def process_directory(
     text_logger.info(f"Processing directory: {input_dir}")
 
     print("\n" + "=" * 70)
-    print(f"PLT-Optimizer Diagnostics")
+    print("PLT-Optimizer Diagnostics")
     print("=" * 70)
     print(f"Input directory:  {input_dir}")
     print(f"Output directory: {output_dir}")
@@ -281,12 +274,12 @@ def process_directory(
             else 0.0
         )
 
-        print(f"\nAggregated Results:")
+        print("\nAggregated Results:")
         print(f"  Total original rapid distance: {total_original:,.0f} units")
         print(f"  Total optimized rapid distance: {total_optimized:,.0f} units")
         print(f"  Overall improvement: {overall_improvement:+.1f}%")
 
-        print(f"\nPer-file Results:")
+        print("\nPer-file Results:")
         for r in results:
             status_emoji = "✓" if r["status"] == "success" else "◆"
             print(
@@ -297,8 +290,8 @@ def process_directory(
             )
 
     print(f"\nOutput saved to: {output_dir}")
-    print(f"Log file: logs/optimizer.log")
-    print(f"Metrics file: logs/job_metrics.csv")
+    print("Log file: logs/optimizer.log")
+    print("Metrics file: logs/job_metrics.csv")
     print("=" * 70 + "\n")
 
     return 0

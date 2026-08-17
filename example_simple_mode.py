@@ -2,6 +2,7 @@
 """Example demonstrating the new simple_mode parameter in plotter.py."""
 
 from pathlib import Path
+
 from plt_optimizer.core.models import Coordinate, PLTDocument, StrokePath, StrokeSegment
 from plt_optimizer.diagnostics.plotter import plot_plt_document
 

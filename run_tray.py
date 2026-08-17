@@ -21,9 +21,10 @@ import logging
 import sys
 import threading
 import time
+from multiprocessing import freeze_support
 from pathlib import Path
 from typing import Any, cast
-from multiprocessing import freeze_support
+
 freeze_support()
 
 # Configure basic logging for the tray app before other imports
@@ -59,12 +60,12 @@ def main() -> int:
     logger.info("Starting PLT-Optimizer Tray Application")
 
     # Import here to allow early logging setup
+    from plt_optimizer.cli.watch import run_watcher_from_config
     from plt_optimizer.utils.config import load_config, save_config
     from plt_optimizer.utils.startup import (
         create_shortcut,
         remove_shortcut,
     )
-    from plt_optimizer.cli.watch import run_watcher_from_config
 
     try:
         from plt_optimizer.ui.tray import TrayIconManager
@@ -146,7 +147,6 @@ def main() -> int:
             cast(threading.Event, app_state["stop_event"]).set()
 
         try:
-            import tkinter as tk
             from plt_optimizer.ui.settings import SettingsWindow
 
             updated_config: list[dict[str, object] | None] = [None]
