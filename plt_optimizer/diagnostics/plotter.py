@@ -237,7 +237,9 @@ def plot_plt_document(
             padding_y = y_range * 0.1
 
             ax.set_xlim(x_min - padding_x, x_max + padding_x)
-            ax.set_ylim(y_min - padding_y, y_max + padding_y)
+            # Invert y-axis so y increases downward (screen/display convention)
+            # With y_max at bottom and y_min at top, y+ points down
+            ax.set_ylim(y_max + padding_y, y_min - padding_y)
 
         # Plot each segment individually for better visibility and axis handling
         # First, plot all rapid moves (dotted gray lines) unless in simple_mode
