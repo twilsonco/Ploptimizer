@@ -560,6 +560,11 @@ def export_to_plt(
     # rectangles have the same height.
     _fix_rectangle_heights_in_plt(path)
 
+    # Post-process: scale coordinates to correct vpype compression.
+    # vpype applies compression to fit the document on the A3 page. We scale
+    # back to preserve the actual toolpath dimensions (1 inch = 1000 units).
+    _scale_coordinates_in_plt(path)
+
     # Post-process: negate all y-coordinates in the PLT file.
     # The toolpath should be in the +x -y quadrant (not +x +y).
     # This is done by negating the y-values in all PA and PU commands.
@@ -588,10 +593,12 @@ def _fix_rectangle_heights_in_plt(file_path: Path) -> None:
     import re
 
     content = file_path.read_text(encoding="utf-8")
+    # Remove newlines to handle HPGL files with line wrapping
+    content = content.replace("\n", "")
 
     # Find all PD commands with coordinate sequences
-    # Match PD followed by comma-separated coordinates
-    pd_pattern = r"PD([\d,]+)"
+    # Match PD followed by comma-separated coordinates (including negative numbers)
+    pd_pattern = r"PD([\d,\-]+)"
 
     def analyze_rectangle(coords_str: str) -> tuple[bool, int, int, int, int] | None:
         """Analyze if this PD command draws a rectangle and return its bounds.
@@ -644,8 +651,14 @@ def _fix_rectangle_heights_in_plt(file_path: Path) -> None:
     if not rectangles:
         return
 
-    # Find the most common height
-    heights = [int(r["height"]) for r in rectangles]
+    # Find the most common height among LARGE rectangles (borders > 5 units)
+    # This filters out small text bounding boxes (1-2 units) which can appear in raw files
+    heights = [int(r["height"]) for r in rectangles if int(r["height"]) > 5]
+
+    if not heights:
+        # Fallback: use all rectangles if no large ones found
+        heights = [int(r["height"]) for r in rectangles]
+
     common_height = max(set(heights), key=heights.count)
 
     # Fix rectangles that are 1 unit shorter
@@ -661,6 +674,10 @@ def _fix_rectangle_heights_in_plt(file_path: Path) -> None:
                 break
 
         if rect_data is None or int(rect_data["height"]) >= common_height:
+            return match.group(0)
+
+        # Skip small rectangles (text bounding boxes) - don't try to fix them
+        if int(rect_data["height"]) <= 5:
             return match.group(0)
 
         # This rectangle is shorter, extend it
@@ -685,6 +702,144 @@ def _fix_rectangle_heights_in_plt(file_path: Path) -> None:
     file_path.write_text(modified_content, encoding="utf-8")
 
 
+def _scale_coordinates_in_plt(file_path: Path) -> None:
+    """Scale all coordinates in a PLT file to correct vpype compression.
+
+    vpype's write_hpgl with center=True applies compression to fit the
+    document on the specified page size (A3 in our case). Since we want
+    to preserve the actual toolpath dimensions, we scale the coordinates
+    back up to their original intended size.
+
+    The scaling factor is determined from the detected rectangles' dimensions.
+
+    Args:
+        file_path: Path to the PLT file to modify.
+    """
+    import re
+
+    content = file_path.read_text(encoding="utf-8")
+    # Remove newlines to handle HPGL files with line wrapping
+    content = content.replace("\n", "")
+
+    # First, detect rectangles to get the current scale
+    pd_pattern = r"PD([\d,\-]+)"
+
+    def analyze_rectangle(coords_str: str) -> tuple[int, int, int] | None:
+        """Analyze if this PD command draws a rectangle.
+
+        Returns:
+            (min_y, max_y, height) if it's a rectangle, None otherwise.
+        """
+        parts = coords_str.split(",")
+        if len(parts) < 8:
+            return None
+
+        try:
+            points = [(int(parts[i]), int(parts[i + 1])) for i in range(0, len(parts), 2)]
+        except ValueError:
+            return None
+
+        if len(points) < 4:
+            return None
+
+        xs = [p[0] for p in points[:-1]]
+        ys = [p[1] for p in points[:-1]]
+
+        unique_xs = len(set(xs))
+        unique_ys = len(set(ys))
+
+        if unique_xs == 2 and unique_ys == 2:
+            height = abs(max(ys) - min(ys))
+            return (min(ys), max(ys), height)
+        return None
+
+    # Find all rectangles
+    rectangles = []
+    for match in re.finditer(pd_pattern, content):
+        result = analyze_rectangle(match.group(1))
+        if result:
+            rectangles.append(result)
+
+    if not rectangles:
+        import logging
+
+        logging.getLogger(__name__).debug(
+            f"_scale_coordinates_in_plt: No rectangles found in {file_path.name}"
+        )
+        return
+
+    # Calculate scale from rectangle heights
+    # Filter to large rectangles (borders > 5 units) to exclude text bounding boxes
+    # This must match the filter in _fix_rectangle_heights_in_plt
+    heights = [r[2] for r in rectangles if r[2] > 5]
+
+    if not heights:
+        # Fallback: use all rectangles if no large ones found
+        heights = [r[2] for r in rectangles]
+
+    avg_height = sum(heights) / len(heights)
+
+    # Expected height: 1.0 inch = 1000 plotter units
+    expected_height = 1000
+    scale = expected_height / avg_height if avg_height > 0 else 1.0
+
+    import logging
+
+    logger = logging.getLogger(__name__)
+    logger.debug(
+        f"_scale_coordinates_in_plt: {file_path.name} - found {len(rectangles)} rectangles, "
+        f"{len(heights)} large (>500), avg_height={avg_height:.1f}, scale={scale:.4f}"
+    )
+
+    # Find all coordinate ranges for centering calculation
+    coord_pattern = r"(PA|PU|PD)([\d,\-]+)"
+    all_x = []
+    all_y = []
+
+    for match in re.finditer(coord_pattern, content):
+        coords_str = match.group(2)
+        parts = coords_str.split(",")
+        try:
+            for i in range(0, len(parts) - 1, 2):
+                x = int(parts[i])
+                y = int(parts[i + 1])
+                all_x.append(x)
+                all_y.append(y)
+        except (ValueError, IndexError):
+            # Skip invalid coordinate pairs
+            continue
+
+    if not all_x or not all_y:
+        return
+
+    # Find center for scaling transformation
+    center_x = (min(all_x) + max(all_x)) / 2
+    center_y = (min(all_y) + max(all_y)) / 2
+
+    def scale_coordinates(match: re.Match[str]) -> str:
+        """Scale coordinates in a command."""
+        cmd = match.group(1)
+        coords_str = match.group(2)
+        parts = coords_str.split(",")
+
+        try:
+            scaled_parts = []
+            for i, part in enumerate(parts):
+                val = int(part)
+                if i % 2 == 0:  # x coordinate
+                    scaled_val = int(round((val - center_x) * scale + center_x))
+                else:  # y coordinate
+                    scaled_val = int(round((val - center_y) * scale + center_y))
+                scaled_parts.append(str(scaled_val))
+            return f"{cmd}{','.join(scaled_parts)}"
+        except (ValueError, IndexError):
+            return match.group(0)
+
+    # Apply scaling
+    modified_content = re.sub(coord_pattern, scale_coordinates, content)
+    file_path.write_text(modified_content, encoding="utf-8")
+
+
 def _negate_y_coordinates_in_plt(file_path: Path) -> None:
     """Negate all y-coordinates in a PLT file.
 
@@ -698,6 +853,8 @@ def _negate_y_coordinates_in_plt(file_path: Path) -> None:
     import re
 
     content = file_path.read_text(encoding="utf-8")
+    # Remove newlines to handle HPGL files with line wrapping
+    content = content.replace("\n", "")
 
     def negate_coordinate_pair(match: re.Match[str]) -> str:
         """Negate y-coordinate in matched PA/PU/PD command."""
