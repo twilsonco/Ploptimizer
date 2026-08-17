@@ -739,10 +739,14 @@ class TestCreatePathDiagram:
         assert ylim[0] <= 0 <= ylim[1], "Y range should include end (plate_height - 10000 = 0)"
 
     def test_diagram_with_negative_coordinates(self) -> None:
-        """Test diagram handles negative coordinate values."""
+        """Test diagram handles positive coordinates with y-axis flipping.
+
+        PLT files use display convention with y=0 at bottom. Plotter should
+        flip y-axis so y=0 displays at top of visualization.
+        """
         coords = [
-            Coordinate(-10, -10),
-            Coordinate(5, 5),
+            Coordinate(0, 0),    # Bottom-left in PLT = top-left in display
+            Coordinate(5, 15),   # Top-right in PLT = bottom-right in display
         ]
         mask = [True]
         fig = create_path_diagram(coords, mask)
@@ -751,10 +755,10 @@ class TestCreatePathDiagram:
         xlim = fig.axes[0].get_xlim()
         ylim = fig.axes[0].get_ylim()
 
-        assert xlim[0] <= -10 <= xlim[1], "Range should include negative start"
-        # Y is flipped: plate_height(5) - (-10) = 15 (start), plate_height(5) - 5 = 0 (end)
+        # Y is flipped: plate_height(15) - 0 = 15 (start), plate_height(15) - 15 = 0 (end)
+        assert xlim[0] <= 0 <= xlim[1], "Range should include start X"
         assert ylim[0] <= 15 <= ylim[1], "Range should include flipped start Y"
-        assert xlim[0] <= 5 <= xlim[1], "Range should include positive end"
+        assert xlim[0] <= 5 <= xlim[1], "Range should include end X"
         assert ylim[0] <= 0 <= ylim[1], "Range should include flipped end Y"
 
 
@@ -1790,10 +1794,15 @@ class TestAxisLimitsSafeRangeIntegration:
         plt.close(fig)
 
     def test_axis_limits_invert_y_via_flip(self) -> None:
-        """Y axis limits reflect flipped Y coordinates (display convention)."""
-        # Plotter y=10000 -> display y=-10 inches; plotter y=20000 -> display y=-20 inches
+        """Y axis limits reflect flipped Y coordinates (display convention).
+
+        PLT uses bottom-origin convention (y=0 at bottom). Plotter flips to
+        top-origin for display (y=0 at top, increasing downward).
+        """
+        # PLT: y=0 (bottom) → display y=20 (bottom of display after flip)
+        # PLT: y=20000 (top) → display y=0 (top of display after flip)
         seg = StrokeSegment(
-            start=Coordinate(0, 10000),
+            start=Coordinate(0, 0),
             end=Coordinate(10000, 20000),
             is_cutting=True,
         )
@@ -1802,10 +1811,11 @@ class TestAxisLimitsSafeRangeIntegration:
         fig = plot_plt_document(doc)
         ax = fig.axes[0]
         y_min, y_max = ax.get_ylim()
-        # Display Y range = 0 to 10 inches (plate_height 20000 - 20000 = 0, 20000 - 10000 = 10)
-        # Span 10 inches -> padding 1.0 inch
-        assert y_min == pytest.approx(0 - 1.0)
-        assert y_max == pytest.approx(10 + 1.0)
+        # plate_height = max(y) = 20000 units = 20 inches
+        # Display Y range: 20000-20000=0 inches (top) to 20000-0=20 inches (bottom)
+        # Span 20 inches -> padding 2.0 inches
+        assert y_min == pytest.approx(0 - 2.0)
+        assert y_max == pytest.approx(20 + 2.0)
         plt.close(fig)
 
     def test_no_axis_limit_regression_floating_point(self) -> None:

@@ -611,3 +611,87 @@ class TestExportAndOptimize:
         assert len(paths) >= 2
         assert all(p.exists() for p in paths)
         assert all(p.stat().st_size > 0 for p in paths)
+
+
+class TestCoordinateConstraints:
+    """Tests that PLT exports contain only positive coordinates."""
+
+    def test_coordinates_all_positive(self, tmp_path: Path) -> None:
+        """Verify all exported coordinates are non-negative (x ≥ 0, y ≥ 0)."""
+        import re
+
+        label = _make_label(
+            width=3.0,
+            height=1.0,
+            content=[
+                ResolvedTextLine(
+                    text="Test",
+                    nominal_text_height=0.5,
+                    toolpath_text_height=0.47,
+                    cutter_diameter=0.03,
+                    character_spacing=0.0,
+                    line_spacing=0.0,
+                )
+            ],
+        )
+        packed = _make_packed(label)
+        plate = PackedPlate(plate_id="p1", width=3.0, height=1.0, labels=[packed])
+
+        # Export to PLT
+        plt_path = tmp_path / "test.plt"
+        export_to_plt(vectorize_plate(plate), plt_path, page_size=(3.0, 1.0))
+
+        # Verify all coordinates are non-negative
+        content = plt_path.read_text()
+        coord_pattern = r"(PA|PU|PD)([\d,\-]+)"
+        
+        for cmd, coords_str in re.findall(coord_pattern, content):
+            coords = coords_str.split(",")
+            for i in range(0, len(coords) - 1, 2):
+                try:
+                    x = int(coords[i])
+                    y = int(coords[i + 1])
+                    assert x >= 0, f"Found negative X coordinate: {x} in {cmd}{coords_str}"
+                    assert y >= 0, f"Found negative Y coordinate: {y} in {cmd}{coords_str}"
+                except (ValueError, IndexError):
+                    pass
+
+    def test_coordinates_within_plate_bounds(self, tmp_path: Path) -> None:
+        """Verify all coordinates are within expected plate bounds."""
+        import re
+
+        # 2x1 inch plate with labels
+        label = _make_label(width=2.0, height=1.0)
+        packed = _make_packed(label)
+        plate = PackedPlate(plate_id="p1", width=2.0, height=1.0, labels=[packed])
+
+        # Export to PLT
+        plt_path = tmp_path / "test.plt"
+        export_to_plt(vectorize_plate(plate), plt_path, page_size=(2.0, 1.0))
+
+        # Extract coordinate ranges
+        content = plt_path.read_text()
+        coord_pattern = r"(PA|PU|PD)([\d,\-]+)"
+        
+        x_coords = []
+        y_coords = []
+        for cmd, coords_str in re.findall(coord_pattern, content):
+            coords = coords_str.split(",")
+            for i in range(0, len(coords) - 1, 2):
+                try:
+                    x = int(coords[i])
+                    y = int(coords[i + 1])
+                    x_coords.append(x)
+                    y_coords.append(y)
+                except (ValueError, IndexError):
+                    pass
+
+        # Verify bounds: coordinates should be within plate dimensions
+        # Allow small margin for text rendering artifacts
+        if x_coords and y_coords:
+            max_x = max(x_coords)
+            max_y = max(y_coords)
+            # Plate is 2.0 × 1.0 inches = 2000 × 1000 units
+            # Text may exceed slightly due to rendering, but should be close
+            assert max_x <= 2500, f"X coordinate {max_x} exceeds plate width 2000"
+            assert max_y <= 1500, f"Y coordinate {max_y} exceeds plate height 1000"

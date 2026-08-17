@@ -504,6 +504,7 @@ def export_to_plt(
     page_size: Optional[Tuple[float, float]] = None,
     landscape: bool = True,
     device: Optional[str] = None,
+    postprocess: bool = True,
 ) -> Path:
     """Export a vpype Document to PLT/HPGL format using absolute positioning.
 
@@ -527,6 +528,9 @@ def export_to_plt(
         landscape: If True, rotates the output to landscape orientation.
         device: Optional device name for HPGL output. If None, uses
             ``"hp7475a"`` which is a common HPGL-compatible device.
+        postprocess: If True, apply coordinate post-processing (height fixing,
+            scaling, translation). Set to False for layer exports that have
+            already been processed through a parent document export.
 
     Returns:
         The absolute path to the written file.
@@ -555,28 +559,24 @@ def export_to_plt(
             absolute=True,
         )
 
-    # Post-process: fix rectangle heights to ensure consistency.
-    # Due to vpype's coordinate rounding during compression, rectangles may
-    # end up with slightly different heights. This function ensures all
-    # rectangles have the same height.
-    _fix_rectangle_heights_in_plt(path)
+    if postprocess:
+        # Post-process: fix rectangle heights to ensure consistency.
+        # Due to vpype's coordinate rounding during compression, rectangles may
+        # end up with slightly different heights. This function ensures all
+        # rectangles have the same height.
+        _fix_rectangle_heights_in_plt(path)
 
-    # Post-process: scale coordinates to correct vpype compression.
-    # vpype applies compression to fit the document on the A3 page. We scale
-    # back to preserve the actual toolpath dimensions (1 inch = 1000 units).
-    _scale_coordinates_in_plt(path)
+        # Post-process: scale coordinates to correct vpype compression.
+        # vpype applies compression to fit the document on the A3 page. We scale
+        # back to preserve the actual toolpath dimensions (1 inch = 1000 units).
+        _scale_coordinates_in_plt(path)
 
-    # Post-process: translate coordinates so origin (0,0) is at bottom-left.
-    # Shifts all coordinates so that the minimum x and minimum y values
-    # become 0, placing the origin at the bottom-left corner of the plot.
-    _translate_coordinates_to_origin_in_plt(path)
-
-    # Post-process: negate all y-coordinates in the PLT file.
-    # The toolpath should be in the +x -y quadrant (not +x +y).
-    # This is done by negating the y-values in all PA and PU commands.
-    # NOTE: This must happen AFTER translation, otherwise translation
-    # would undo the negation by recalculating based on the negated values.
-    _negate_y_coordinates_in_plt(path)
+        # Post-process: translate coordinates so origin (0,0) is at top-left.
+        # Shifts all coordinates so that the minimum x and minimum y values
+        # become 0, placing the origin at the top-left corner of the plot.
+        # This puts the coordinate system in +x +y quadrant (display convention)
+        # with y increasing downward, matching typical screen/plotter coordinates.
+        _translate_coordinates_to_origin_in_plt(path)
 
     return path.resolve()
 
@@ -844,61 +844,16 @@ def _scale_coordinates_in_plt(file_path: Path) -> None:
     file_path.write_text(modified_content, encoding="utf-8")
 
 
-def _negate_y_coordinates_in_plt(file_path: Path) -> None:
-    """Negate all y-coordinates in a PLT file.
-
-    Modifies all PA (Pen Absolute), PU (Pen Up), and PD (Pen Down) commands to
-    have negated y-values. This transforms the toolpath from +x +y quadrant to
-    +x -y quadrant.
-
-    Args:
-        file_path: Path to the PLT file to modify.
-    """
-    content = file_path.read_text(encoding="utf-8")
-    # Remove newlines to handle HPGL files with line wrapping
-    content = content.replace("\n", "")
-
-    def negate_coordinate_pair(match: re.Match[str]) -> str:
-        """Negate y-coordinate in matched PA/PU/PD command."""
-        prefix = match.group(1)  # "PA", "PU", or "PD"
-        coords = match.group(2)  # "x,y" or "x,y,x,y,..."
-
-        # Split into individual coordinates
-        parts = coords.split(",")
-        negated_parts = []
-
-        # Process pairs: x, y, x, y, ...
-        for i, part in enumerate(parts):
-            if i % 2 == 1:  # Every other value starting from index 1 is y-coordinate
-                try:
-                    y_val = int(part)
-                    negated_parts.append(str(-y_val))
-                except ValueError:
-                    negated_parts.append(part)
-            else:
-                negated_parts.append(part)
-
-        negated_coords = ",".join(negated_parts)
-        return f"{prefix}{negated_coords}"
-
-    # Replace all PA, PU, and PD commands with negated y-values
-    # Pattern: PA, PU, or PD followed by comma-separated integer coordinates
-    modified_content = re.sub(
-        r"(PA|PU|PD)([\d,\-]+)",
-        negate_coordinate_pair,
-        content,
-    )
-
-    file_path.write_text(modified_content, encoding="utf-8")
-
-
 def _translate_coordinates_to_origin_in_plt(file_path: Path) -> None:
-    """Translate coordinates so that the origin (0, 0) is at bottom-left.
+    """Translate coordinates so that the origin (0, 0) is at top-left.
 
     Finds the minimum x and y coordinates in the PLT file (considering only
     PA/PD commands for actual content bounds, not spurious PU initialization)
     and shifts all coordinates so that min_x becomes 0 and min_y becomes 0,
-    effectively placing the plot origin at the bottom-left corner.
+    effectively placing the plot origin at the top-left corner.
+
+    Removes spurious PU commands (pen-up/initialization) that have coordinates
+    far outside the actual content bounds.
 
     Args:
         file_path: Path to the PLT file to modify.
@@ -907,7 +862,6 @@ def _translate_coordinates_to_origin_in_plt(file_path: Path) -> None:
     content_stripped = content.replace("\n", "")
 
     # Calculate min/max from PA and PD commands only (actual content)
-    # Skip PU commands as they may include spurious initialization moves
     coord_pattern_pard = r"(PA|PD)([\d,\-]+)"
     all_x = []
     all_y = []
@@ -934,6 +888,34 @@ def _translate_coordinates_to_origin_in_plt(file_path: Path) -> None:
     # Skip if already at origin
     if min_x == 0 and min_y == 0:
         return
+
+    # Remove spurious PU commands that are far outside content bounds
+    # These are vpype initialization commands like "PU-7828000,-5486000"
+    content_range_x = max(all_x) - min(all_x)
+    content_range_y = max(all_y) - min(all_y)
+    threshold_x = 2 * content_range_x if content_range_x > 0 else 100000
+    threshold_y = 2 * content_range_y if content_range_y > 0 else 100000
+
+    def is_spurious_pu(coords_str: str) -> bool:
+        """Check if a PU command has coordinates far from content."""
+        parts = coords_str.split(",")
+        try:
+            if len(parts) >= 2:
+                x = int(parts[0])
+                y = int(parts[1])
+                # If outside content bounds by more than threshold, it's spurious
+                if abs(x - min_x) > threshold_x or abs(y - min_y) > threshold_y:
+                    return True
+        except ValueError:
+            pass
+        return False
+
+    # Remove spurious PU commands
+    pu_pattern = r";PU[\d,\-]+;"
+    for match in re.finditer(pu_pattern, content_stripped):
+        coords_str = match.group(0)[3:-1]  # Extract coords between "PU" and ";"
+        if is_spurious_pu(coords_str):
+            content_stripped = content_stripped.replace(match.group(0), ";", 1)
 
     def translate_coordinates(match: re.Match[str]) -> str:
         """Translate coordinates by subtracting minimums."""
@@ -1007,7 +989,8 @@ def export_and_optimize(
                 if layer_id in doc.layers and not doc.layers[layer_id].is_empty():
                     layer_doc = extract_layer(doc, layer_id)
                     output_path = output_dir / f"{plate.plate_id}_{layer_name}.plt"
-                    export_to_plt(layer_doc, output_path, page_size=page_size)
+                    # Export layer with full post-processing to ensure coordinates are correct
+                    export_to_plt(layer_doc, output_path, page_size=page_size, postprocess=True)
                     exported_paths.append(output_path)
         else:
             # Export all layers in a single file
