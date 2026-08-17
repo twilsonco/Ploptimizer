@@ -27,18 +27,17 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Import pipeline components
+from plt_optimizer.core.parser import PLTParser
+from plt_optimizer.diagnostics.plotter import plot_plt_document
+from plt_optimizer.generate.layout import generate_layout
 from plt_optimizer.generate.resolution import (
-    get_cutter_diameter,
     resolve_job_spec,
 )
 from plt_optimizer.generate.schema import parse_yaml
-from plt_optimizer.generate.layout import generate_layout
 from plt_optimizer.generate.vectorize import (
     export_to_plt,
     vectorize_plate,
 )
-from plt_optimizer.core.parser import PLTParser
-from plt_optimizer.diagnostics.plotter import plot_plt_document
 
 
 def load_tool_inventory(inventory_path: Path) -> list[float]:
@@ -54,7 +53,7 @@ def load_tool_inventory(inventory_path: Path) -> list[float]:
         FileNotFoundError: If inventory_path does not exist.
         json.JSONDecodeError: If JSON is malformed.
     """
-    with open(inventory_path, "r") as f:
+    with open(inventory_path) as f:
         data = json.load(f)
     inventory = data.get("available_cutters", [])
     logger.info(f"Loaded cutter inventory: {inventory}")
@@ -192,9 +191,9 @@ def phase_3_vectorization_and_export(
     print_separator("PHASE 3: VECTORIZATION AND EXPORT")
 
     from plt_optimizer.generate.vectorize import (
-        LAYER_TEXT,
         LAYER_BOUNDARY,
         LAYER_HOLES,
+        LAYER_TEXT,
         extract_layer,
     )
 
@@ -257,13 +256,13 @@ def phase_4_visualization(exported_paths: list[Path]) -> None:
         for plt_path in exported_paths:
             logger.info(f"Parsing {plt_path.name}...")
             document = parser.parse_file(plt_path)
-            
+
             # Generate default plot (color-coded with rapid travel)
             png_path_default = plt_path.with_stem(plt_path.stem + "_default").with_suffix(".png")
             logger.info(f"Plotting default mode to {png_path_default.name}...")
             plot_plt_document(document, output_path=png_path_default, show_plot=False, simple_mode=False)
             print(f"✓ Generated: {png_path_default.relative_to(Path.cwd())}")
-            
+
             # Generate simple mode plot (black lines only, no rapids)
             png_path_simple = plt_path.with_stem(plt_path.stem + "_simple_outline").with_suffix(".png")
             logger.info(f"Plotting simple mode to {png_path_simple.name}...")
