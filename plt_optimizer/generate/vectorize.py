@@ -895,9 +895,10 @@ def _negate_y_coordinates_in_plt(file_path: Path) -> None:
 def _translate_coordinates_to_origin_in_plt(file_path: Path) -> None:
     """Translate coordinates so that the origin (0, 0) is at bottom-left.
 
-    Finds the minimum x and y coordinates in the PLT file and shifts all
-    coordinates so that min_x becomes 0 and min_y becomes 0, effectively
-    placing the plot origin at the bottom-left corner.
+    Finds the minimum x and y coordinates in the PLT file (considering only
+    PA/PD commands for actual content bounds, not spurious PU initialization)
+    and shifts all coordinates so that min_x becomes 0 and min_y becomes 0,
+    effectively placing the plot origin at the bottom-left corner.
 
     Args:
         file_path: Path to the PLT file to modify.
@@ -905,12 +906,13 @@ def _translate_coordinates_to_origin_in_plt(file_path: Path) -> None:
     content = file_path.read_text(encoding="utf-8")
     content_stripped = content.replace("\n", "")
 
-    # Find all coordinate values
-    coord_pattern = r"(PA|PU|PD)([\d,\-]+)"
+    # Calculate min/max from PA and PD commands only (actual content)
+    # Skip PU commands as they may include spurious initialization moves
+    coord_pattern_pard = r"(PA|PD)([\d,\-]+)"
     all_x = []
     all_y = []
 
-    for match in re.finditer(coord_pattern, content_stripped):
+    for match in re.finditer(coord_pattern_pard, content_stripped):
         coords_str = match.group(2)
         parts = coords_str.split(",")
         try:
@@ -925,7 +927,7 @@ def _translate_coordinates_to_origin_in_plt(file_path: Path) -> None:
     if not all_x or not all_y:
         return
 
-    # Find minimum coordinates
+    # Find minimum coordinates from actual content
     min_x = min(all_x)
     min_y = min(all_y)
 
@@ -952,8 +954,9 @@ def _translate_coordinates_to_origin_in_plt(file_path: Path) -> None:
         except (ValueError, IndexError):
             return match.group(0)
 
-    # Apply translation
-    modified_content = re.sub(coord_pattern, translate_coordinates, content_stripped)
+    # Apply translation to ALL commands (PA, PU, PD)
+    coord_pattern_all = r"(PA|PU|PD)([\d,\-]+)"
+    modified_content = re.sub(coord_pattern_all, translate_coordinates, content_stripped)
     file_path.write_text(modified_content, encoding="utf-8")
 
 
