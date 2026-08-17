@@ -88,7 +88,7 @@ class TestPlotPltDocumentEmpty:
         """Test empty document plot contains 'No segments' text."""
         doc = PLTDocument(stroke_paths=[])
         fig = plot_plt_document(doc)
-        texts = [child for child in fig.axes[0].get_children() if hasattr(child, 'get_text')]
+        texts = [child for child in fig.axes[0].get_children() if hasattr(child, "get_text")]
         found = any("No segments" in t.get_text() for t in texts)
         assert found
 
@@ -139,7 +139,8 @@ class TestPlotPltDocumentWithSegments:
         )
 
     def _make_path(
-        self, segments: list[StrokeSegment] | None = None,
+        self,
+        segments: list[StrokeSegment] | None = None,
     ) -> StrokePath:
         """Helper to create a stroke path."""
         return StrokePath(segments=tuple(segments) if segments else ())
@@ -246,8 +247,9 @@ class TestPlotPltDocumentWithSegments:
 
         # Find text elements in the figure
         texts = [
-            child for child in fig.axes[0].get_children()
-            if hasattr(child, 'get_text') and child.get_text()
+            child
+            for child in fig.axes[0].get_children()
+            if hasattr(child, "get_text") and child.get_text()
         ]
 
         full_text = " ".join(t.get_text() for t in texts)
@@ -262,7 +264,7 @@ class TestPlotPltDocumentWithSegments:
 
         # Check colorbar label
         for child in fig.axes[0].get_children():
-            if hasattr(child, 'ax') and hasattr(child, 'set_label'):
+            if hasattr(child, "ax") and hasattr(child, "set_label"):
                 # It's a colorbar or similar
                 pass
 
@@ -325,33 +327,39 @@ class TestPlotPltDocumentWithSegments:
 
     def test_plotting_segments_count(self) -> None:
         """Test plot reflects correct segment count in summary."""
-        path = self._make_path([
-            self._make_segment(0, 0, 1, 1),
-            self._make_segment(1, 1, 2, 2),
-            self._make_segment(2, 2, 3, 3),
-        ])
+        path = self._make_path(
+            [
+                self._make_segment(0, 0, 1, 1),
+                self._make_segment(1, 1, 2, 2),
+                self._make_segment(2, 2, 3, 3),
+            ]
+        )
         doc = PLTDocument(stroke_paths=[path])
         fig = plot_plt_document(doc)
 
         texts = [
-            child for child in fig.axes[0].get_children()
-            if hasattr(child, 'get_text') and child.get_text()
+            child
+            for child in fig.axes[0].get_children()
+            if hasattr(child, "get_text") and child.get_text()
         ]
         full_text = " ".join(t.get_text() for t in texts)
         assert "Total Segments: 3" in full_text
 
     def test_plotting_cuts_distance_and_rapid_distance(self) -> None:
         """Test plot calculates cutting and rapid distances separately."""
-        path = self._make_path([
-            self._make_segment(0, 0, 3, 4),    # length=5 (cutting)
-            self._make_segment(3, 4, 6, 8),    # length=5 (rapid)
-        ])
+        path = self._make_path(
+            [
+                self._make_segment(0, 0, 3, 4),  # length=5 (cutting)
+                self._make_segment(3, 4, 6, 8),  # length=5 (rapid)
+            ]
+        )
         doc = PLTDocument(stroke_paths=[path])
         fig = plot_plt_document(doc)
 
         texts = [
-            child for child in fig.axes[0].get_children()
-            if hasattr(child, 'get_text') and child.get_text()
+            child
+            for child in fig.axes[0].get_children()
+            if hasattr(child, "get_text") and child.get_text()
         ]
         full_text = " ".join(t.get_text() for t in texts)
 
@@ -734,7 +742,9 @@ class TestCreatePathDiagram:
         ylim = fig.axes[0].get_ylim()
 
         assert xlim[0] <= 0 <= xlim[1], "X range should include start"
-        assert ylim[0] <= 10000 <= ylim[1], "Y range should include start (plate_height - 0 = 10000)"
+        assert ylim[0] <= 10000 <= ylim[1], (
+            "Y range should include start (plate_height - 0 = 10000)"
+        )
         assert xlim[0] <= 10000 <= xlim[1], "X range should include end"
         assert ylim[0] <= 0 <= ylim[1], "Y range should include end (plate_height - 10000 = 0)"
 
@@ -745,8 +755,8 @@ class TestCreatePathDiagram:
         flip y-axis so y=0 displays at top of visualization.
         """
         coords = [
-            Coordinate(0, 0),    # Bottom-left in PLT = top-left in display
-            Coordinate(5, 15),   # Top-right in PLT = bottom-right in display
+            Coordinate(0, 0),  # Bottom-left in PLT = top-left in display
+            Coordinate(5, 15),  # Top-right in PLT = bottom-right in display
         ]
         mask = [True]
         fig = create_path_diagram(coords, mask)
@@ -949,8 +959,9 @@ class TestRapidTravelInchesParameter:
 
         # Verify the provided value appears in summary text
         texts = [
-            child for child in fig.axes[0].get_children()
-            if hasattr(child, 'get_text') and child.get_text()
+            child
+            for child in fig.axes[0].get_children()
+            if hasattr(child, "get_text") and child.get_text()
         ]
         full_text = " ".join(t.get_text() for t in texts)
         assert str(custom_rapid) in full_text
@@ -1118,8 +1129,9 @@ class TestCuttingDistanceDisplay:
         fig = plot_plt_document(doc)
 
         texts = [
-            child for child in fig.axes[0].get_children()
-            if hasattr(child, 'get_text') and child.get_text()
+            child
+            for child in fig.axes[0].get_children()
+            if hasattr(child, "get_text") and child.get_text()
         ]
         full_text = " ".join(t.get_text() for t in texts)
         assert "Cutting Distance:" in full_text
@@ -1728,9 +1740,7 @@ class TestSafeRange:
             (-5.0, -5.0),
         ]
         for lo, hi in cases:
-            assert _safe_range(lo, hi) > 0.0, (
-                f"_safe_range({lo}, {hi}) returned non-positive value"
-            )
+            assert _safe_range(lo, hi) > 0.0, f"_safe_range({lo}, {hi}) returned non-positive value"
 
 
 class TestAxisLimitsSafeRangeIntegration:
@@ -1788,9 +1798,11 @@ class TestAxisLimitsSafeRangeIntegration:
         x_min, x_max = ax.get_xlim()
         assert x_min == pytest.approx(-0.1)
         assert x_max == pytest.approx(0.1)
-        y_min, y_max = ax.get_ylim()
-        assert y_min == pytest.approx(-0.1)
-        assert y_max == pytest.approx(0.1)
+        y_bottom, y_top = ax.get_ylim()
+        # With inverted y-axis: bottom of plot (visually) has higher y value
+        # y_bottom is displayed at bottom, y_top is displayed at top
+        assert y_bottom == pytest.approx(0.1)
+        assert y_top == pytest.approx(-0.1)
         plt.close(fig)
 
     def test_axis_limits_invert_y_via_flip(self) -> None:
@@ -1810,12 +1822,13 @@ class TestAxisLimitsSafeRangeIntegration:
         doc = PLTDocument(stroke_paths=[path])
         fig = plot_plt_document(doc)
         ax = fig.axes[0]
-        y_min, y_max = ax.get_ylim()
+        y_bottom, y_top = ax.get_ylim()
         # plate_height = max(y) = 20000 units = 20 inches
         # Display Y range: 20000-20000=0 inches (top) to 20000-0=20 inches (bottom)
         # Span 20 inches -> padding 2.0 inches
-        assert y_min == pytest.approx(0 - 2.0)
-        assert y_max == pytest.approx(20 + 2.0)
+        # With inverted y-axis: bottom (visually) has higher value
+        assert y_bottom == pytest.approx(20 + 2.0)
+        assert y_top == pytest.approx(0 - 2.0)
         plt.close(fig)
 
     def test_no_axis_limit_regression_floating_point(self) -> None:
