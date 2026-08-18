@@ -571,11 +571,12 @@ def export_to_plt(
         # back to preserve the actual toolpath dimensions (1 inch = 1000 units).
         _scale_coordinates_in_plt(path)
 
-        # Post-process: translate coordinates so origin (0,0) is at top-left.
-        # Shifts all coordinates so that the minimum x and minimum y values
-        # become 0, placing the origin at the top-left corner of the plot.
-        # This puts the coordinate system in +x +y quadrant (display convention)
-        # with y increasing downward, matching typical screen/plotter coordinates.
+        # Post-process: translate coordinates to ensure all are non-negative.
+        # - X coordinates are translated so minimum x becomes 0 (left edge)
+        # - Y coordinates are translated to 0 only if any y value is negative
+        # - This maintains plotter convention where y=0 is at the bottom (or below
+        #   all content) and y+ points upward. The visualization uses matplotlib's
+        #   inverted ylim to display this correctly without double-inverting.
         _translate_coordinates_to_origin_in_plt(path)
 
     return path.resolve()
@@ -845,12 +846,14 @@ def _scale_coordinates_in_plt(file_path: Path) -> None:
 
 
 def _translate_coordinates_to_origin_in_plt(file_path: Path) -> None:
-    """Translate coordinates so that the origin (0, 0) is at top-left.
+    """Translate x coordinates to start at origin; adjust y to be all positive.
 
-    Finds the minimum x and y coordinates in the PLT file (considering only
-    PA/PD commands for actual content bounds, not spurious PU initialization)
-    and shifts all coordinates so that min_x becomes 0 and min_y becomes 0,
-    effectively placing the plot origin at the top-left corner.
+    Finds the minimum x coordinate and shifts all x values so that min_x becomes 0.
+
+    For y coordinates, calculates the minimum and maximum to ensure all y values
+    are non-negative (≥ 0). If any y values are negative, translates them so the
+    minimum y becomes 0. This maintains plotter convention where y=0 is at the
+    bottom and y+ points upward.
 
     Removes spurious PU commands (pen-up/initialization) that have coordinates
     far outside the actual content bounds.
@@ -884,26 +887,31 @@ def _translate_coordinates_to_origin_in_plt(file_path: Path) -> None:
     # Find minimum coordinates from actual content
     min_x = min(all_x)
     min_y = min(all_y)
+    max_y = max(all_y)
 
-    # Skip if already at origin
-    if min_x == 0 and min_y == 0:
+    # Determine if we need to translate y-coordinates
+    # If min_y is negative, translate all y values so min_y becomes 0
+    # If min_y is positive, keep y values as-is (don't translate)
+    translate_y = min_y < 0
+
+    # Skip if already at optimal state
+    if min_x == 0 and not translate_y:
         return
 
     # Remove spurious PU commands that are far outside content bounds
-    # These are vpype initialization commands like "PU-7828000,-5486000"
     content_range_x = max(all_x) - min(all_x)
-    content_range_y = max(all_y) - min(all_y)
+    content_range_y = max_y - min_y
     threshold_x = 2 * content_range_x if content_range_x > 0 else 100000
     threshold_y = 2 * content_range_y if content_range_y > 0 else 100000
 
     def is_spurious_pu(coords_str: str) -> bool:
-        """Check if a PU command has coordinates far from content."""
+        """Check if a PU command has coordinates far from content or negative values."""
         parts = coords_str.split(",")
         try:
             if len(parts) >= 2:
                 x = int(parts[0])
                 y = int(parts[1])
-                # If outside content bounds by more than threshold, it's spurious
+                # If any coordinate is far outside content bounds, it's spurious
                 if abs(x - min_x) > threshold_x or abs(y - min_y) > threshold_y:
                     return True
         except ValueError:
@@ -918,7 +926,7 @@ def _translate_coordinates_to_origin_in_plt(file_path: Path) -> None:
             content_stripped = content_stripped.replace(match.group(0), ";", 1)
 
     def translate_coordinates(match: re.Match[str]) -> str:
-        """Translate coordinates by subtracting minimums."""
+        """Translate x to start at 0; translate y only if negative values exist."""
         cmd = match.group(1)
         coords_str = match.group(2)
         parts = coords_str.split(",")
@@ -927,10 +935,13 @@ def _translate_coordinates_to_origin_in_plt(file_path: Path) -> None:
             translated_parts = []
             for i, part in enumerate(parts):
                 val = int(part)
-                if i % 2 == 0:  # x coordinate
+                if i % 2 == 0:  # x coordinate - always translate to start at 0
                     translated_val = val - min_x
-                else:  # y coordinate
-                    translated_val = val - min_y
+                else:  # y coordinate - translate only if min_y is negative
+                    if translate_y:
+                        translated_val = val - min_y
+                    else:
+                        translated_val = val
                 translated_parts.append(str(translated_val))
             return f"{cmd}{','.join(translated_parts)}"
         except (ValueError, IndexError):
