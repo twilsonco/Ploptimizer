@@ -20,6 +20,7 @@ from typing import Tuple
 import numpy as np
 import vpype as vp
 
+from plt_optimizer.generate.arc_converter import polyline_to_arc
 from plt_optimizer.generate.resolution import ResolvedLabel
 
 logger = logging.getLogger(__name__)
@@ -186,6 +187,7 @@ def _export_to_plt_with_postprocessing(
     2. Build raw HPGL commands without any transformation
     3. Scale coordinates to match expected label dimensions
     4. Center text layer (pen 1) vertically
+    5. Convert polylines to arc commands where appropriate
 
     Args:
         doc: The vpype Document to export.
@@ -208,11 +210,14 @@ def _export_to_plt_with_postprocessing(
 
 
 def _linecollection_to_hpgl(doc: vp.Document) -> str:
-    """Convert vpype Document to raw HPGL commands.
+    """Convert vpype Document to raw HPGL commands with arc detection.
 
     Manually generates HPGL from LineCollections instead of using vpype's
     write_hpgl() to preserve coordinate fidelity. vpype's export applies
     complex coordinate transformations that distort text height.
+
+    Attempts to fit circular arcs to polyline segments where possible,
+    outputting AA (Arc Absolute) commands for smooth curves.
 
     Coordinates are converted from inches (vpype units) to plotter units
     (1 inch = 1000 units).
@@ -268,15 +273,33 @@ def _linecollection_to_hpgl(doc: vp.Document) -> str:
                 skipped_first_pu0_0 = True
                 # Still process the drawing if there are more points
                 if len(points) > 1:
-                    pd_coords = ",".join(f"{x},{y}" for x, y in points[1:])
-                    lines.append(f"PD{pd_coords}")
+                    # Try to convert to arc if polyline has enough points
+                    arc_cmd = polyline_to_arc(
+                        [(p[0], p[1]) for p in points[1:]], (x, y), max_error=5.0
+                    )
+                    if arc_cmd is not None:
+                        # Output arc command
+                        lines.append(f"PD;{arc_cmd.to_hpgl()}")
+                    else:
+                        # Output as polyline
+                        pd_coords = ",".join(f"{px},{py}" for px, py in points[1:])
+                        lines.append(f"PD{pd_coords}")
             else:
                 lines.append(f"PU{x},{y}")
 
                 # Draw to remaining points with PD (pen down)
                 if len(points) > 1:
-                    pd_coords = ",".join(f"{x},{y}" for x, y in points[1:])
-                    lines.append(f"PD{pd_coords}")
+                    # Try to convert to arc if polyline has enough points
+                    arc_cmd = polyline_to_arc(
+                        [(p[0], p[1]) for p in points[1:]], (x, y), max_error=5.0
+                    )
+                    if arc_cmd is not None:
+                        # Output arc command
+                        lines.append(f"PD;{arc_cmd.to_hpgl()}")
+                    else:
+                        # Output as polyline
+                        pd_coords = ",".join(f"{px},{py}" for px, py in points[1:])
+                        lines.append(f"PD{pd_coords}")
 
     # End sequence - no PU command in footer, let assembly add it
     if has_content:
