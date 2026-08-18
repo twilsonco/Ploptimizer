@@ -7,6 +7,7 @@ job:
   # Shared label dimensions and typography (cascade down to every label).
   width: 3.0
   height: 1.0
+  margin: 0.1
   text_height: 0.5
 
   plates:
