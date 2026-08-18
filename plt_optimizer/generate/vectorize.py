@@ -41,6 +41,7 @@ from typing import List, Optional, Tuple
 import numpy as np
 import vpype as vp
 
+from plt_optimizer.generate.label_renderer import RenderedLabel
 from plt_optimizer.generate.layout import PackedLabel, PackedPlate
 from plt_optimizer.generate.resolution import ResolvedHoleSpec, ResolvedLabel
 
@@ -1006,6 +1007,107 @@ def _translate_coordinates_to_origin_in_plt(file_path: Path) -> None:
         modified_content = re.sub(coord_pattern_all, ensure_positive, modified_content)
 
     file_path.write_text(modified_content, encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: PLT Assembly and Export (new three-phase architecture)
+# ---------------------------------------------------------------------------
+def translate_plt_coordinates(plt_content: str, dx: float, dy: float) -> str:
+    """Translate all coordinates in a PLT file by an offset.
+
+    Parses HPGL PA/PU/PD commands and applies x/y offsets, converting
+    from inches to plotter units (1 inch = 1000 units).
+
+    Args:
+        plt_content: Raw HPGL PLT text content.
+        dx: X offset in inches.
+        dy: Y offset in inches.
+
+    Returns:
+        Modified PLT content with translated coordinates (without header/footer).
+    """
+    # Convert offsets from inches to plotter units
+    dx_units = int(round(dx * 1000.0))
+    dy_units = int(round(dy * 1000.0))
+
+    if dx_units == 0 and dy_units == 0:
+        # No translation needed
+        return plt_content
+
+    import re
+
+    def translate_coordinates(match: re.Match[str]) -> str:
+        """Translate coordinates within a PA/PU/PD command."""
+        cmd = match.group(1)
+        coords_str = match.group(2)
+        parts = coords_str.split(",")
+
+        try:
+            translated_parts = []
+            for i, part in enumerate(parts):
+                val = int(part)
+                if i % 2 == 0:  # x coordinate
+                    translated_val = val + dx_units
+                else:  # y coordinate
+                    translated_val = val + dy_units
+                translated_parts.append(str(translated_val))
+            return f"{cmd}{','.join(translated_parts)}"
+        except (ValueError, IndexError):
+            return match.group(0)
+
+    coord_pattern = r"(PA|PU|PD)([\d,\-]+)"
+    return re.sub(coord_pattern, translate_coordinates, plt_content)
+
+
+def assemble_plt_from_rendered_labels(
+    plate: PackedPlate,
+    rendered_labels_map: dict[str, RenderedLabel],
+) -> str:
+    """Assemble a complete PLT for a plate from rendered labels.
+
+    Takes all labels on a packed plate and combines their rendered PLT
+    content, applying coordinate offsets to position each label at its
+    final location on the plate.
+
+    Args:
+        plate: A packed plate containing positioned labels.
+        rendered_labels_map: Cache of rendered labels by label ID.
+
+    Returns:
+        Complete HPGL/PLT content for the plate (with header and footer).
+    """
+    import re
+
+    # Start with HPGL header
+    plt_lines = ["IN;DF;PS0;"]
+
+    # Process each label on the plate
+    for packed_label in plate.labels:
+        label_id = packed_label.source_label.id
+        rendered = rendered_labels_map[label_id]
+
+        # Get the rendered PLT content (strip header/footer)
+        plt_content = rendered.plt_content
+        # Remove header and footer
+        plt_content = re.sub(r"IN;DF;PS0;SP\d+;", "", plt_content)
+        plt_content = re.sub(r"SP0;IN;%?$", "", plt_content)
+        plt_content = plt_content.strip()
+        if plt_content.endswith(";"):
+            plt_content = plt_content[:-1]
+
+        # Translate coordinates to position on plate
+        translated = translate_plt_coordinates(plt_content, packed_label.x, packed_label.y)
+
+        # Add to assembly with pen-up command between labels
+        if translated:
+            plt_lines.append("PU0,0;")  # Pen up to safe position
+            plt_lines.append(translated)
+            plt_lines.append(";")
+
+    # Add footer
+    plt_lines.append("SP0;IN;%")
+
+    return "".join(plt_lines)
 
 
 # ---------------------------------------------------------------------------
