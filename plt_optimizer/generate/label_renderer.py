@@ -236,7 +236,6 @@ def _linecollection_to_hpgl(doc: vp.Document) -> str:
 
     # Track if we've added any content to know if we need footer
     has_content = False
-    skipped_first_pu0_0 = False  # Track if we've skipped the initial PU0,0
 
     # Process each pen layer in the document
     # Pens are numbered 0-7, but we typically use 1 (text), 2 (border), 3 (holes)
@@ -267,10 +266,9 @@ def _linecollection_to_hpgl(doc: vp.Document) -> str:
             # Start with PU (pen up) to first point
             x, y = points[0]
 
-            # Skip initial PU0,0 in the very first segment of any layer
-            # Assembly will add it, so we avoid duplication
-            if not skipped_first_pu0_0 and x == 0 and y == 0:
-                skipped_first_pu0_0 = True
+            # Skip all PU0,0 commands - assembly will add a single one for each label
+            # This handles cases where multiple segments start at (0,0)
+            if x == 0 and y == 0:
                 # Still process the drawing if there are more points
                 if len(points) > 1:
                     # Try to convert to arc if polyline has enough points
@@ -523,7 +521,7 @@ def _translate_all_to_origin(content: str) -> str:
     """Translate all coordinates to origin after scaling.
 
     Finds minimum coordinates across all layers and shifts so (min_x, min_y)
-    becomes (0, 0).
+    becomes (0, 0). Skips PU0,0 commands that would be redundant at layer starts.
     """
     # Extract coordinates again after scaling
     pattern = r"(?:PA|PU|PD)([\d,\-]+)"
@@ -553,7 +551,7 @@ def _translate_all_to_origin(content: str) -> str:
         return content
 
     def translate_coordinates(match: re.Match[str]) -> str:
-        """Translate coordinates to origin."""
+        """Translate coordinates to origin, skipping redundant PU0,0."""
         cmd = match.group(1)
         coords_str = match.group(2)
         parts = coords_str.split(",")
@@ -567,12 +565,24 @@ def _translate_all_to_origin(content: str) -> str:
                 else:  # y coordinate
                     translated_val = val - min_y
                 translated_parts.append(str(translated_val))
+
+            # Skip PU0,0 commands - assembly will add them for each layer
+            if cmd == "PU" and len(translated_parts) == 2:
+                x, y = int(translated_parts[0]), int(translated_parts[1])
+                if x == 0 and y == 0:
+                    return ""  # Omit this PU0,0 command
+
             return f"{cmd}{','.join(translated_parts)}"
         except (ValueError, IndexError):
             return match.group(0)
 
     coord_pattern = r"(PA|PU|PD)([\d,\-]+)"
-    return re.sub(coord_pattern, translate_coordinates, content)
+    result = re.sub(coord_pattern, translate_coordinates, content)
+
+    # Clean up any double semicolons left by removing empty matches
+    result = result.replace(";;", ";")
+
+    return result
 
 
 def _extract_coordinates_by_pen(
