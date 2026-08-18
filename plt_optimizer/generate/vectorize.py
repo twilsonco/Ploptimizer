@@ -44,6 +44,7 @@ import vpype as vp
 from plt_optimizer.generate.label_renderer import RenderedLabel
 from plt_optimizer.generate.layout import PackedLabel, PackedPlate
 from plt_optimizer.generate.resolution import ResolvedHoleSpec, ResolvedLabel
+from plt_optimizer.generate.schema import PlateSpec
 
 # ---------------------------------------------------------------------------
 # Layer assignments
@@ -1110,9 +1111,133 @@ def assemble_plt_from_rendered_labels(
     return "".join(plt_lines)
 
 
-# ---------------------------------------------------------------------------
-# PLT optimization integration
-# ---------------------------------------------------------------------------
+def extract_layer_from_plt_text(plt_content: str, layer_pen_id: int) -> str:
+    """Extract a single layer (pen) from PLT text content.
+
+    Parses HPGL PLT text and filters commands to only include those
+    for a specific pen ID (layer).
+
+    Args:
+        plt_content: Raw HPGL PLT text content.
+        layer_pen_id: The pen ID to extract (1=text, 2=borders, 3=holes).
+
+    Returns:
+        PLT text content containing only commands for the specified pen.
+    """
+    lines = []
+    lines.append("IN;DF;PS0;")
+
+    # Parse and filter commands
+    in_target_layer = False
+    commands = plt_content.split(";")
+
+    for cmd in commands:
+        if not cmd.strip():
+            continue
+
+        # Check for pen select command
+        if cmd.startswith("SP"):
+            try:
+                pen_id = int(cmd[2:])
+                in_target_layer = pen_id == layer_pen_id
+                if in_target_layer and pen_id > 0:
+                    lines.append(f"SP{pen_id};")
+            except (ValueError, IndexError):
+                pass
+        # Include drawing commands only if we're in target layer
+        elif in_target_layer and cmd.strip() and not cmd.startswith("IN"):
+            lines.append(f"{cmd};")
+
+    lines.append("SP0;IN;%")
+    return "".join(lines)
+
+
+def export_and_optimize_phase3(
+    resolved_labels: list[ResolvedLabel],
+    provided_plates: list[PlateSpec] | None = None,
+    output_dir: str | Path = "output",
+    optimize: bool = True,
+    separate_layers: bool = True,
+) -> list[Path]:
+    """Export plates to PLT files using the Phase 3 pipeline (new architecture).
+
+    Implements the complete three-phase pipeline:
+    1. Phase 1: Render each label independently with bounds measurement
+    2. Phase 2: Bin-pack labels onto plates using rendered dimensions
+    3. Phase 3: Assemble rendered labels at their packed positions
+
+    This function fixes label centering issues by rendering each label
+    independently rather than using global postprocessing.
+
+    Args:
+        resolved_labels: List of resolved labels from Phase 2 resolution step.
+        provided_plates: Optional list of PlateSpec objects. If None, uses
+            standard A3 paper (11"×8.5").
+        output_dir: Directory to write PLT files to.
+        optimize: If True, run the PLT optimizer on each exported file.
+        separate_layers: If True, export each layer (text, boundaries, holes)
+            as separate PLT files with suffixes (_text, _borders, _holes).
+            If False, export all layers in a single file.
+
+    Returns:
+        A list of paths to the exported (and optionally optimized) PLT files.
+    """
+    from plt_optimizer.generate.layout import generate_layout_with_bounds
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Use default plates if not provided
+    if provided_plates is None:
+        provided_plates = [
+            PlateSpec(
+                id="default",
+                width=11.0,
+                height=8.5,
+                margin=0.5,
+                clearance_padding=0.0,
+            )
+        ]
+
+    # Phase 2: Generate layout with rendered bounds
+    packed_plates, rendered_labels_map = generate_layout_with_bounds(
+        resolved_labels, provided_plates
+    )
+
+    exported_paths: list[Path] = []
+
+    # Phase 3: Assemble PLT from rendered labels for each plate
+    for plate in packed_plates:
+        # Assemble complete PLT
+        plt_content = assemble_plt_from_rendered_labels(plate, rendered_labels_map)
+
+        if separate_layers:
+            # Export each layer separately
+            layer_names = {
+                LAYER_TEXT: "text",
+                LAYER_BOUNDARY: "borders",
+                LAYER_HOLES: "holes",
+            }
+            for layer_id, layer_name in layer_names.items():
+                layer_content = extract_layer_from_plt_text(plt_content, layer_id)
+                # Only write non-empty layers
+                if len(layer_content) > 20:  # More than just header
+                    output_path = output_dir / f"{plate.plate_id}_{layer_name}.plt"
+                    output_path.write_text(layer_content)
+                    exported_paths.append(output_path)
+        else:
+            # Export all layers in a single file
+            output_path = output_dir / f"{plate.plate_id}.plt"
+            output_path.write_text(plt_content)
+            exported_paths.append(output_path)
+
+    if optimize:
+        # Run the PLT optimizer on each exported file
+        exported_paths = _run_optimizer(exported_paths)
+
+    return exported_paths
+
+
 def export_and_optimize(
     plates: list[PackedPlate],
     output_dir: str | Path,
