@@ -11,6 +11,7 @@ from plt_optimizer.generate.layout import (
     PackedLabel,
     PackedPlate,
     generate_layout,
+    generate_layout_with_bounds,
     initialize_packer,
     unroll_labels,
 )
