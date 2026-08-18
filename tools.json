@@ -2,8 +2,10 @@
   "available_cutters": [
     0.015,
     0.02,
-    0.045,
-    0.125
+    0.03,
+    0.06,
+    0.125,
+    0.25
   ],
   "description": "Mock tool inventory for integration testing. Intentionally missing 0.03 to force the 3x tolerance logic to execute for 0.25 text height."
 }

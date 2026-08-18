@@ -1089,9 +1089,10 @@ def assemble_plt_from_rendered_labels(
 
         # Get the rendered PLT content (strip header/footer)
         plt_content = rendered.plt_content
-        # Remove header and footer
-        plt_content = re.sub(r"IN;DF;PS0;SP\d+;", "", plt_content)
-        plt_content = re.sub(r"SP0;IN;%?$", "", plt_content)
+        # Remove ONLY the initial header, not the SP command that follows it
+        plt_content = re.sub(r"^IN;DF;PS0;", "", plt_content)
+        # Remove final footer (pen up, pen off, and end commands)
+        plt_content = re.sub(r"PU[^;]*;SP0;IN;%?$", "", plt_content)
         plt_content = plt_content.strip()
         if plt_content.endswith(";"):
             plt_content = plt_content[:-1]
