@@ -571,12 +571,11 @@ def export_to_plt(
         # back to preserve the actual toolpath dimensions (1 inch = 1000 units).
         _scale_coordinates_in_plt(path)
 
-        # Post-process: translate coordinates to ensure all are non-negative.
-        # - X coordinates are translated so minimum x becomes 0 (left edge)
-        # - Y coordinates are translated to 0 only if any y value is negative
-        # - This maintains plotter convention where y=0 is at the bottom (or below
-        #   all content) and y+ points upward. The visualization uses matplotlib's
-        #   inverted ylim to display this correctly without double-inverting.
+        # Post-process: translate x and flip y-axis for plotter convention.
+        # - X coordinates shifted so minimum x becomes 0 (left edge)
+        # - Y-axis flipped (y_new = max_y - y_original) so first label has smallest y
+        # - This ensures correct label ordering for visualization
+        # - All coordinates remain non-negative and in plotter convention
         _translate_coordinates_to_origin_in_plt(path)
 
     return path.resolve()
@@ -796,12 +795,13 @@ def _scale_coordinates_in_plt(file_path: Path) -> None:
         f"{len(heights)} large (>500), avg_height={avg_height:.1f}, scale={scale:.4f}"
     )
 
-    # Find all coordinate ranges for centering calculation
-    coord_pattern = r"(PA|PU|PD)([\d,\-]+)"
+    # Find coordinate ranges for centering calculation
+    # Use only PA and PD commands (actual content), exclude PU (spurious init)
+    coord_pattern_pard = r"(PA|PD)([\d,\-]+)"
     all_x = []
     all_y = []
 
-    for match in re.finditer(coord_pattern, content):
+    for match in re.finditer(coord_pattern_pard, content):
         coords_str = match.group(2)
         parts = coords_str.split(",")
         try:
@@ -817,7 +817,7 @@ def _scale_coordinates_in_plt(file_path: Path) -> None:
     if not all_x or not all_y:
         return
 
-    # Find center for scaling transformation
+    # Find center for scaling transformation (based on actual content only)
     center_x = (min(all_x) + max(all_x)) / 2
     center_y = (min(all_y) + max(all_y)) / 2
 
@@ -840,20 +840,23 @@ def _scale_coordinates_in_plt(file_path: Path) -> None:
         except (ValueError, IndexError):
             return match.group(0)
 
-    # Apply scaling
-    modified_content = re.sub(coord_pattern, scale_coordinates, content)
+    # Apply scaling to ALL commands (PA, PU, PD)
+    coord_pattern_all = r"(PA|PU|PD)([\d,\-]+)"
+    modified_content = re.sub(coord_pattern_all, scale_coordinates, content)
     file_path.write_text(modified_content, encoding="utf-8")
 
 
 def _translate_coordinates_to_origin_in_plt(file_path: Path) -> None:
-    """Translate x coordinates to start at origin; adjust y to be all positive.
+    """Translate and flip coordinates to plotter convention with correct label order.
 
-    Finds the minimum x coordinate and shifts all x values so that min_x becomes 0.
+    Applies two transformations to all coordinates:
+    1. Translate x so min_x becomes 0 (left edge at origin)
+    2. Flip y-axis: y_new = max_y - y (first label at y=0, last at y=max_y-min_y)
 
-    For y coordinates, calculates the minimum and maximum to ensure all y values
-    are non-negative (≥ 0). If any y values are negative, translates them so the
-    minimum y becomes 0. This maintains plotter convention where y=0 is at the
-    bottom and y+ points upward.
+    The y-axis flip ensures that labels are in the correct order for plotter convention:
+    - First label (which vpype places at y=max_y) becomes y=0 (bottom)
+    - Last label (which vpype places at y=min_y) becomes y=max_y-min_y (top)
+    - Result: y=0 at bottom, y+ points upward, all coordinates non-negative
 
     Removes spurious PU commands (pen-up/initialization) that have coordinates
     far outside the actual content bounds.
@@ -884,28 +887,23 @@ def _translate_coordinates_to_origin_in_plt(file_path: Path) -> None:
     if not all_x or not all_y:
         return
 
-    # Find minimum coordinates from actual content
+    # Find minimum and maximum coordinates from actual content
     min_x = min(all_x)
     min_y = min(all_y)
     max_y = max(all_y)
 
-    # Determine if we need to translate y-coordinates
-    # If min_y is negative, translate all y values so min_y becomes 0
-    # If min_y is positive, keep y values as-is (don't translate)
-    translate_y = min_y < 0
-
-    # Skip if already at optimal state
-    if min_x == 0 and not translate_y:
+    # Skip if already at origin (unlikely after vpype output, but safe to check)
+    if min_x == 0 and min_y == max_y:
         return
 
     # Remove spurious PU commands that are far outside content bounds
-    content_range_x = max(all_x) - min(all_x)
+    content_range_x = max(all_x) - min_x
     content_range_y = max_y - min_y
     threshold_x = 2 * content_range_x if content_range_x > 0 else 100000
     threshold_y = 2 * content_range_y if content_range_y > 0 else 100000
 
     def is_spurious_pu(coords_str: str) -> bool:
-        """Check if a PU command has coordinates far from content or negative values."""
+        """Check if a PU command has coordinates far from content."""
         parts = coords_str.split(",")
         try:
             if len(parts) >= 2:
@@ -918,15 +916,33 @@ def _translate_coordinates_to_origin_in_plt(file_path: Path) -> None:
             pass
         return False
 
-    # Remove spurious PU commands
-    pu_pattern = r";PU[\d,\-]+;"
+    # Remove spurious PU commands - be aggressive to ensure they don't interfere
+    # Remove ALL PU commands that don't match actual content bounds
+    pu_pattern = r"(;?)PU([\d,\-]+)"
+    matches_to_remove = []
     for match in re.finditer(pu_pattern, content_stripped):
-        coords_str = match.group(0)[3:-1]  # Extract coords between "PU" and ";"
+        coords_str = match.group(2)
         if is_spurious_pu(coords_str):
-            content_stripped = content_stripped.replace(match.group(0), ";", 1)
+            matches_to_remove.append((match.start(), match.end(), match.group(1)))
+
+    # Remove matches in reverse order so indices don't shift
+    for start, end, _leading_char in sorted(matches_to_remove, key=lambda x: x[0], reverse=True):
+        # Keep the leading character (semicolon or nothing) if it exists
+        content_stripped = content_stripped[:start] + content_stripped[end:]
 
     def translate_coordinates(match: re.Match[str]) -> str:
-        """Translate x to start at 0; translate y only if negative values exist."""
+        """Translate x and flip y-axis for plotter convention with correct label order.
+
+        Transformation:
+        - x_new = x - min_x (shift to start at 0)
+        - y_new = max_y - y (flip y-axis so first label has smallest y)
+
+        After transformation:
+        - First label (originally at y_max) is now at y=0
+        - Last label (originally at y_min) is now at y=max_y-min_y
+        - All coordinates are non-negative
+        - Plotter convention: y=0 at bottom, y+ upward
+        """
         cmd = match.group(1)
         coords_str = match.group(2)
         parts = coords_str.split(",")
@@ -935,13 +951,13 @@ def _translate_coordinates_to_origin_in_plt(file_path: Path) -> None:
             translated_parts = []
             for i, part in enumerate(parts):
                 val = int(part)
-                if i % 2 == 0:  # x coordinate - always translate to start at 0
+                if i % 2 == 0:  # x coordinate - translate to start at 0
                     translated_val = val - min_x
-                else:  # y coordinate - translate only if min_y is negative
-                    if translate_y:
-                        translated_val = val - min_y
-                    else:
-                        translated_val = val
+                else:  # y coordinate - flip axis
+                    # Flip y-axis: y_new = max_y - y_original
+                    # This reverses label order so first label has smallest y
+                    # Result range: [0, max_y - min_y] which is always non-negative
+                    translated_val = max_y - val
                 translated_parts.append(str(translated_val))
             return f"{cmd}{','.join(translated_parts)}"
         except (ValueError, IndexError):
@@ -950,6 +966,45 @@ def _translate_coordinates_to_origin_in_plt(file_path: Path) -> None:
     # Apply translation to ALL commands (PA, PU, PD)
     coord_pattern_all = r"(PA|PU|PD)([\d,\-]+)"
     modified_content = re.sub(coord_pattern_all, translate_coordinates, content_stripped)
+
+    # Second pass: ensure all coordinates are positive (in case spurious commands remain)
+    final_min_x = None
+    final_min_y = None
+    for match in re.finditer(coord_pattern_all, modified_content):
+        coords_str = match.group(2)
+        parts = coords_str.split(",")
+        try:
+            for i in range(0, len(parts) - 1, 2):
+                x = int(parts[i])
+                y = int(parts[i + 1])
+                if final_min_x is None or x < final_min_x:
+                    final_min_x = x
+                if final_min_y is None or y < final_min_y:
+                    final_min_y = y
+        except (ValueError, IndexError):
+            continue
+
+    # If any negative coordinates remain, translate them
+    if final_min_x is not None and final_min_y is not None and (final_min_x < 0 or final_min_y < 0):
+        shift_x = -final_min_x if final_min_x < 0 else 0
+        shift_y = -final_min_y if final_min_y < 0 else 0
+
+        def ensure_positive(match: re.Match[str]) -> str:
+            """Translate to ensure all coordinates are positive."""
+            cmd = match.group(1)
+            coords_str = match.group(2)
+            parts = coords_str.split(",")
+            try:
+                translated_parts = []
+                for i, part in enumerate(parts):
+                    val = int(part)
+                    translated_parts.append(str(val + (shift_x if i % 2 == 0 else shift_y)))
+                return f"{cmd}{','.join(translated_parts)}"
+            except (ValueError, IndexError):
+                return match.group(0)
+
+        modified_content = re.sub(coord_pattern_all, ensure_positive, modified_content)
+
     file_path.write_text(modified_content, encoding="utf-8")
 
 
