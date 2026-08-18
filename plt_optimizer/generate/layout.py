@@ -28,6 +28,7 @@ from typing import Optional
 
 import rectpack
 
+from plt_optimizer.generate.label_renderer import RenderedLabel, render_label_to_plt
 from plt_optimizer.generate.resolution import ResolvedLabel
 from plt_optimizer.generate.schema import PlateSpec
 
@@ -106,6 +107,61 @@ def initialize_packer() -> rectpack.packer.Packer:
         pack_algo=rectpack.MaxRectsBssf,
         rotation=False,  # Disable rotation to preserve label orientation
     )
+
+
+def _render_labels_cache(
+    resolved_labels: list[ResolvedLabel],
+) -> dict[str, RenderedLabel]:
+    """Render all unique labels and cache by ID.
+
+    For labels with count > 1, renders only once and caches the result
+    to avoid redundant rendering.
+
+    Args:
+        resolved_labels: Flat list of fully resolved labels.
+
+    Returns:
+        Dictionary mapping label ID to RenderedLabel.
+    """
+    rendered_cache: dict[str, RenderedLabel] = {}
+    for label in resolved_labels:
+        if label.id not in rendered_cache:
+            rendered_cache[label.id] = render_label_to_plt(label)
+    return rendered_cache
+
+
+def unroll_labels_with_rendered_bounds(
+    resolved_labels: list[ResolvedLabel],
+    rendered_labels: dict[str, RenderedLabel],
+) -> list[tuple[float, float, str, ResolvedLabel, RenderedLabel]]:
+    """Flatten label counts using rendered dimensions for packing.
+
+    Each ``ResolvedLabel`` with ``count > 1`` produces that many rectangle
+    entry. Uses actual rendered label dimensions instead of nominal
+    dimensions to account for text/border sizing differences.
+
+    Args:
+        resolved_labels: Flat list of fully resolved labels.
+        rendered_labels: Cache of rendered labels by ID.
+
+    Returns:
+        A list of ``(pack_width, pack_height, rect_id, source_label,
+        rendered_label)`` tuples ready to be added to the packer.
+    """
+    rectangles: list[tuple[float, float, str, ResolvedLabel, RenderedLabel]] = []
+    for label in resolved_labels:
+        rendered = rendered_labels[label.id]
+        for i in range(label.count):
+            # Use rendered dimensions for packing (actual width/height)
+            # instead of nominal label dimensions
+            pack_width = rendered.width
+            pack_height = rendered.height
+
+            # Unique ID to track instances of the same logical label
+            rect_id = f"{label.id}_{i}"
+            rectangles.append((pack_width, pack_height, rect_id, label, rendered))
+
+    return rectangles
 
 
 def unroll_labels(
@@ -270,3 +326,91 @@ def generate_layout(
 
     # 5. Extract results into typed data structures
     return _extract_packed_plates(packer)
+
+
+def generate_layout_with_bounds(
+    resolved_labels: list[ResolvedLabel],
+    provided_plates: Optional[list[PlateSpec]] = None,
+) -> tuple[list[PackedPlate], dict[str, RenderedLabel]]:
+    """Pack resolved labels onto plates using rendered dimensions.
+
+    This is an enhanced version of generate_layout() that renders each
+    label independently to determine its actual dimensions, then uses
+    those rendered dimensions for bin-packing instead of nominal dimensions.
+
+    This approach allows the packer to account for text rendering variations
+    and ensures accurate label placement based on actual rendered content.
+
+    Args:
+        resolved_labels: Flat list of fully resolved labels from the
+            resolution engine.
+        provided_plates: Optional list of user-specified plates. If None
+            or empty, the engine auto-allocates default 24x16 sheets.
+
+    Returns:
+        A tuple of:
+        - List of ``PackedPlate`` objects containing all successfully
+          packed labels.
+        - Dictionary mapping label IDs to their RenderedLabel objects
+          (cached for use in Phase 3 assembly).
+
+    Raises:
+        LayoutFitError: If constrained plates cannot fit all labels, or
+            if a single rendered label exceeds the default 24x16 plate size
+            in unbounded mode.
+    """
+    # Phase 2a: Render all unique labels and cache by ID
+    rendered_labels = _render_labels_cache(resolved_labels)
+
+    # Phase 2b: Unroll labels using rendered dimensions
+    packer = initialize_packer()
+    rectangles = unroll_labels_with_rendered_bounds(resolved_labels, rendered_labels)
+
+    # 1. Add rectangles to the packer
+    for w, h, r_id, label_ref, _rendered_ref in rectangles:
+        packer.add_rect(w, h, rid=(r_id, label_ref))
+
+    # 2. Add bins (plates)
+    is_constrained = provided_plates is not None and len(provided_plates) > 0
+
+    if is_constrained:
+        # Constrained mode: use exactly what the user provided
+        assert provided_plates is not None  # narrowed by is_constrained
+        for plate in provided_plates:
+            assert plate.id is not None  # PlateSpec.id is required
+            packer.add_bin(plate.width, plate.height, bid=plate.id)
+    else:
+        # Unbounded mode: provide enough default plates to guarantee a fit.
+        # Theoretical maximum is 1 plate per label instance.
+        max_possible_plates = len(rectangles)
+        for i in range(max_possible_plates):
+            packer.add_bin(
+                DEFAULT_PLATE_WIDTH,
+                DEFAULT_PLATE_HEIGHT,
+                bid=f"default_plate_{i + 1}",
+            )
+
+    # 3. Execute packing algorithm
+    packer.pack()
+
+    # 4. Verify all labels were packed
+    total_packed = sum(len(b) for b in packer)
+    if total_packed < len(rectangles):
+        if is_constrained:
+            raise LayoutFitError(
+                f"Could only fit {total_packed} of {len(rectangles)} labels "
+                "on the provided plates. Please specify larger or "
+                "additional plates."
+            )
+        else:
+            # This should only trigger if a single label is larger than 24x16
+            raise LayoutFitError(
+                "A rendered label's dimensions exceed the maximum plate size of "
+                f"{DEFAULT_PLATE_WIDTH}x{DEFAULT_PLATE_HEIGHT}."
+            )
+
+    # 5. Extract results into typed data structures
+    plates = _extract_packed_plates(packer)
+
+    # Return both the plates and the rendered labels cache for Phase 3
+    return plates, rendered_labels
