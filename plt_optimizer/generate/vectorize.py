@@ -1091,14 +1091,19 @@ def assemble_plt_from_rendered_labels(
         plt_content = rendered.plt_content
         # Remove ONLY the initial header, not the SP command that follows it
         plt_content = re.sub(r"^IN;DF;PS0;", "", plt_content)
-        # Remove final footer (pen up, pen off, and end commands)
-        plt_content = re.sub(r"PU[^;]*;SP0;IN;%?$", "", plt_content)
+        # Remove final footer (pen off and end commands)
+        # Handle both: "SP0;IN;%" (new format) and "PU...;SP0;IN;%" (old format)
+        plt_content = re.sub(r"(?:PU[^;]*;)?SP0;IN;%?$", "", plt_content)
         plt_content = plt_content.strip()
         if plt_content.endswith(";"):
             plt_content = plt_content[:-1]
 
         # Translate coordinates to position on plate
         translated = translate_plt_coordinates(plt_content, packed_label.x, packed_label.y)
+
+        # Remove any leading PU commands to avoid duplication
+        # Assembly will add a single PU0,0; before each label
+        translated = re.sub(r"^(?:PU[^;]*;)+", "", translated)
 
         # Add to assembly with pen-up command between labels
         if translated:

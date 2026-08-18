@@ -175,12 +175,17 @@ def extract_bounds_from_plt(plt_content: str) -> Tuple[float, float, float, floa
 def _export_to_plt_with_postprocessing(
     doc: vp.Document, output_path: Path, label: ResolvedLabel
 ) -> None:
-    """Export vpype Document to PLT with postprocessing for single labels.
+    """Export vpype Document to PLT with unified scaling for single labels.
 
-    For individual labels, we use center=True to ensure vpype properly renders
-    content, then apply scaling based on the label's expected dimensions
-    to convert vpype's output coordinates to the expected 1:1000 plotter
-    coordinate system.
+    Each label is rendered independently. Instead of using vpype's write_hpgl()
+    which applies complex coordinate transformations, we manually generate HPGL
+    commands from the LineCollection to preserve coordinate fidelity.
+
+    Process:
+    1. Extract coordinates directly from vpype LineCollection (units are inches)
+    2. Build raw HPGL commands without any transformation
+    3. Scale coordinates to match expected label dimensions
+    4. Center text layer (pen 1) vertically
 
     Args:
         doc: The vpype Document to export.
@@ -189,33 +194,112 @@ def _export_to_plt_with_postprocessing(
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Export using vpype's HPGL writer
-    with open(output_path, "w", encoding="utf-8") as f:
-        vp.write_hpgl(
-            f,
-            doc,
-            page_size="A3",
-            landscape=True,
-            center=True,  # Center content - vpype scales coordinates accordingly
-            device="hp7475a",
-            velocity=None,
-            absolute=True,
-        )
+    # Manually generate HPGL from LineCollection to preserve coordinates
+    hpgl_content = _linecollection_to_hpgl(doc)
 
-    # For single labels, use simple coordinate scaling based on actual bounds
-    _scale_coordinates_simple(output_path, label)
+    # Write to file
+    output_path.write_text(hpgl_content, encoding="utf-8")
+
+    # Scale all coordinates uniformly to match label dimensions
+    _scale_coordinates_unified(output_path, label)
+
+    # Center text layer (pen 1) vertically within label bounds
+    _center_text_layer_vertically(output_path, label)
 
 
-def _scale_coordinates_simple(file_path: Path, label: ResolvedLabel) -> None:
-    """Scale coordinates for a single label to expected dimensions.
+def _linecollection_to_hpgl(doc: vp.Document) -> str:
+    """Convert vpype Document to raw HPGL commands.
 
-    Vpype's center=True applies scaling to fit content on the A3 page,
-    and the output aspect ratio may differ from the label's expected aspect ratio.
-    We scale x and y independently to achieve the expected label dimensions.
+    Manually generates HPGL from LineCollections instead of using vpype's
+    write_hpgl() to preserve coordinate fidelity. vpype's export applies
+    complex coordinate transformations that distort text height.
+
+    Coordinates are converted from inches (vpype units) to plotter units
+    (1 inch = 1000 units).
+
+    Args:
+        doc: The vpype Document containing line collections for each pen.
+
+    Returns:
+        Raw HPGL/PLT content as a string.
+    """
+    lines = [
+        "IN",  # Initialize
+        "DF",  # Default values
+        "PS0",  # Select primary pen slot
+    ]
+
+    # Track if we've added any content to know if we need footer
+    has_content = False
+    skipped_first_pu0_0 = False  # Track if we've skipped the initial PU0,0
+
+    # Process each pen layer in the document
+    # Pens are numbered 0-7, but we typically use 1 (text), 2 (border), 3 (holes)
+    for pen_num in range(4):
+        lc = doc.layers.get(pen_num)
+        if lc is None or lc.is_empty():
+            continue
+
+        # Select this pen
+        lines.append(f"SP{pen_num}")
+        has_content = True
+
+        # Extract segments from LineCollection
+        for segment in lc:
+            if segment is None or len(segment) == 0:
+                continue
+
+            # Convert from inches to plotter units (1 inch = 1000 units)
+            points = []
+            for point in segment:
+                x_plotter = int(round(point.real * 1000))
+                y_plotter = int(round(point.imag * 1000))
+                points.append((x_plotter, y_plotter))
+
+            if not points:
+                continue
+
+            # Start with PU (pen up) to first point
+            x, y = points[0]
+
+            # Skip initial PU0,0 in the very first segment of any layer
+            # Assembly will add it, so we avoid duplication
+            if not skipped_first_pu0_0 and x == 0 and y == 0:
+                skipped_first_pu0_0 = True
+                # Still process the drawing if there are more points
+                if len(points) > 1:
+                    pd_coords = ",".join(f"{x},{y}" for x, y in points[1:])
+                    lines.append(f"PD{pd_coords}")
+            else:
+                lines.append(f"PU{x},{y}")
+
+                # Draw to remaining points with PD (pen down)
+                if len(points) > 1:
+                    pd_coords = ",".join(f"{x},{y}" for x, y in points[1:])
+                    lines.append(f"PD{pd_coords}")
+
+    # End sequence - no PU command in footer, let assembly add it
+    if has_content:
+        lines.append("SP0")
+        lines.append("IN")
+
+    return ";".join(lines) + ";"
+
+
+def _scale_coordinates_unified(file_path: Path, label: ResolvedLabel) -> None:
+    """Scale all coordinates uniformly for a single label to expected dimensions.
+
+    All pen layers (text, border, holes) are scaled with the SAME scale factors
+    based on the combined bounds of all coordinates. This ensures layers stay
+    aligned even when they have different coordinate ranges from vpype.
+
+    Args:
+        file_path: Path to the PLT file.
+        label: The label being rendered (for expected dimensions).
     """
     content = file_path.read_text(encoding="utf-8")
 
-    # Extract all coordinates to find actual bounds
+    # Extract ALL coordinates from all layers to find actual bounds
     pattern = r"(?:PA|PU|PD)([\d,\-]+)"
     all_x = []
     all_y = []
@@ -247,14 +331,16 @@ def _scale_coordinates_simple(file_path: Path, label: ResolvedLabel) -> None:
     expected_x_range_units = label.width * 1000.0
     expected_y_range_units = label.height * 1000.0
 
+    # UNIFIED scaling: use the same scale for all coordinates
     scale_x = expected_x_range_units / x_range if x_range > 0 else 1.0
     scale_y = expected_y_range_units / y_range if y_range > 0 else 1.0
 
     logger.debug(
-        f"_scale_coordinates_simple: {file_path.name} - "
-        f"vpype ranges: x={x_range}, y={y_range}, "
+        f"_scale_coordinates_unified: {file_path.name} - "
+        f"vpype bounds: x=[{x_min}, {x_max}] ({x_range}), "
+        f"y=[{y_min}, {y_max}] ({y_range}), "
         f'label={label.width:.1f}"×{label.height:.1f}", '
-        f"scale: x={scale_x:.4f}, y={scale_y:.4f}"
+        f"unified scale: x={scale_x:.4f}, y={scale_y:.4f}"
     )
 
     def scale_coordinates(match: re.Match[str]) -> str:
@@ -279,16 +365,142 @@ def _scale_coordinates_simple(file_path: Path, label: ResolvedLabel) -> None:
     coord_pattern = r"(PA|PU|PD)([\d,\-]+)"
     modified_content = re.sub(coord_pattern, scale_coordinates, content)
 
-    # After scaling, translate to origin
-    modified_content = _translate_after_scaling(modified_content)
+    # After scaling, translate all coordinates to origin
+    modified_content = _translate_all_to_origin(modified_content)
 
     file_path.write_text(modified_content, encoding="utf-8")
 
 
-def _translate_after_scaling(content: str) -> str:
-    """Translate coordinates to origin after scaling.
+def _center_text_layer_vertically(file_path: Path, label: ResolvedLabel) -> None:
+    """Center text layer (pen 1) vertically within label bounds after scaling.
 
-    Finds minimum coordinates and shifts so (min_x, min_y) becomes (0, 0).
+    After export and scaling, the text coordinates need to be shifted vertically
+    to center them within the label. This function:
+    1. Extracts Y coordinates from pen 1 (TEXT) only
+    2. Calculates the expected center position
+    3. Adjusts all text Y coordinates to center the text
+
+    Args:
+        file_path: Path to the PLT file (after scaling).
+        label: The label being rendered (for dimensions and margins).
+    """
+    content = file_path.read_text(encoding="utf-8")
+
+    # Extract Y coordinates from pen 1 (TEXT) only
+    pattern = r"SP1;(.*?)(?:SP\d|$)"
+    matches = re.search(pattern, content, re.DOTALL)
+    if not matches:
+        # No text layer found
+        return
+
+    text_section = matches.group(1)
+    y_coords = []
+    coord_pattern = r"(?:PA|PU|PD)([\d,\-]+)"
+    for match in re.finditer(coord_pattern, text_section):
+        coords_str = match.group(1)
+        parts = coords_str.split(",")
+        for i in range(1, len(parts), 2):
+            try:
+                y = int(parts[i])
+                y_coords.append(y)
+            except (ValueError, IndexError):
+                pass
+
+    if not y_coords:
+        # No coordinates in text layer
+        return
+
+    # Calculate text bounds (in plotter units, post-scaling)
+    text_y_min = min(y_coords)
+    text_y_max = max(y_coords)
+
+    # Expected center position (in plotter units: 1 inch = 1000 units)
+    margin_units = label.margin * 1000.0
+    label_height_units = label.height * 1000.0
+    available_height_units = label_height_units - (2 * margin_units)
+    expected_center_y = margin_units + available_height_units / 2.0
+
+    # Current center of text
+    current_center_y = (text_y_min + text_y_max) / 2.0
+
+    # Calculate adjustment
+    y_adjustment = expected_center_y - current_center_y
+
+    if abs(y_adjustment) < 0.1:
+        # Already centered
+        return
+
+    logger.debug(
+        f"_center_text_layer_vertically: {file_path.name} - "
+        f"text Y=[{text_y_min}, {text_y_max}] (center={current_center_y:.1f}), "
+        f"expected center={expected_center_y:.1f}, "
+        f"adjustment={y_adjustment:.1f} plotter units"
+    )
+
+    def adjust_text_y(match: re.Match[str]) -> str:
+        """Adjust Y coordinates in pen 1 (TEXT) only."""
+        coords_str = match.group(1)
+        parts = coords_str.split(",")
+
+        try:
+            adjusted_parts = []
+            for i, part in enumerate(parts):
+                val = int(part)
+                if i % 2 == 1:  # Y coordinate (odd index)
+                    adjusted_val = int(round(val + y_adjustment))
+                    adjusted_parts.append(str(adjusted_val))
+                else:  # X coordinate
+                    adjusted_parts.append(part)
+            return f"PA{','.join(adjusted_parts)}" if ",".join(adjusted_parts) else ""
+        except (ValueError, IndexError):
+            return match.group(0)
+
+    # Find and replace: Extract pen 1 section, adjust Y, replace it
+    def replace_pen1_section(match: re.Match[str]) -> str:
+        sp1_and_content = match.group(0)
+        # Adjust Y coordinates within this section
+        coord_pattern_in_pen = r"(PA|PU|PD)([\d,\-]+)"
+
+        def adjust_coords_in_pen(coord_match: re.Match[str]) -> str:
+            cmd = coord_match.group(1)
+            coords_str = coord_match.group(2)
+            parts = coords_str.split(",")
+
+            try:
+                adjusted_parts = []
+                for i, part in enumerate(parts):
+                    val = int(part)
+                    if i % 2 == 1:  # Y coordinate (odd index)
+                        adjusted_val = int(round(val + y_adjustment))
+                        adjusted_parts.append(str(adjusted_val))
+                    else:  # X coordinate
+                        adjusted_parts.append(part)
+                return f"{cmd}{','.join(adjusted_parts)}"
+            except (ValueError, IndexError):
+                return coord_match.group(0)
+
+        return re.sub(coord_pattern_in_pen, adjust_coords_in_pen, sp1_and_content)
+
+    # Replace the pen 1 section with adjusted coordinates
+    modified_content = re.sub(pattern, replace_pen1_section, content, flags=re.DOTALL)
+
+    file_path.write_text(modified_content, encoding="utf-8")
+
+
+def _scale_coordinates_per_layer(file_path: Path, label: ResolvedLabel) -> None:
+    """[DEPRECATED - use _scale_coordinates_unified instead]
+
+    This function is kept for backward compatibility but should not be used.
+    Use _scale_coordinates_unified which applies uniform scaling to all layers.
+    """
+    pass
+
+
+def _translate_all_to_origin(content: str) -> str:
+    """Translate all coordinates to origin after scaling.
+
+    Finds minimum coordinates across all layers and shifts so (min_x, min_y)
+    becomes (0, 0).
     """
     # Extract coordinates again after scaling
     pattern = r"(?:PA|PU|PD)([\d,\-]+)"
@@ -338,6 +550,65 @@ def _translate_after_scaling(content: str) -> str:
 
     coord_pattern = r"(PA|PU|PD)([\d,\-]+)"
     return re.sub(coord_pattern, translate_coordinates, content)
+
+
+def _extract_coordinates_by_pen(
+    plt_content: str,
+) -> dict[int, list[tuple[float, float]]]:
+    """Extract coordinates grouped by pen number from PLT content.
+
+    [DEPRECATED - no longer needed with unified scaling]
+
+    Args:
+        plt_content: Raw HPGL text content.
+
+    Returns:
+        Dictionary mapping pen number to list of (x, y) coordinate tuples
+        in plotter units.
+    """
+    coordinates_by_pen: dict[int, list[tuple[float, float]]] = {1: [], 2: [], 3: []}
+
+    current_pen = 0
+
+    # Split by SP (Select Pen) commands
+    pen_sections = re.split(r"SP(\d+);", plt_content)
+
+    # pen_sections will be: [before_first_SP, first_pen_num, first_pen_content, ...]
+    for i in range(1, len(pen_sections), 2):
+        pen_num_str = pen_sections[i]
+        pen_content = pen_sections[i + 1] if i + 1 < len(pen_sections) else ""
+
+        try:
+            pen_num = int(pen_num_str)
+            current_pen = pen_num
+        except (ValueError, IndexError):
+            continue
+
+        # Extract coordinates from this pen section
+        coordinate_pattern = r"(PA|PU|PD)([\d,\-]+)"
+        matches = re.findall(coordinate_pattern, pen_content)
+
+        for _cmd, coords_str in matches:
+            parts = coords_str.split(",")
+            for j in range(0, len(parts) - 1, 2):
+                try:
+                    x_val = int(parts[j])
+                    y_val = int(parts[j + 1])
+                    if current_pen in coordinates_by_pen:
+                        coordinates_by_pen[current_pen].append((x_val, y_val))
+                except (ValueError, IndexError):
+                    pass
+
+    return coordinates_by_pen
+
+
+def _translate_after_scaling(content: str) -> str:
+    """Translate coordinates to origin after scaling.
+
+    Finds minimum coordinates and shifts so (min_x, min_y) becomes (0, 0).
+    [DEPRECATED - use _translate_all_to_origin instead]
+    """
+    return _translate_all_to_origin(content)
 
 
 def _fix_rectangle_heights_in_plt(file_path: Path) -> None:
@@ -629,22 +900,21 @@ def _translate_coordinates_to_origin_in_plt(file_path: Path) -> None:
 def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
     """Render text at local coordinates (0, 0).
 
-    Renders all text lines centered within the label's content area,
-    matching the original vectorize._render_text() implementation.
+    NOTE: We render at (0, 0) WITHOUT vertical centering because vpype's
+    write_hpgl() with center=True overwrites any pre-export translation.
+    Vertical centering is applied POST-EXPORT in _center_text_layer_vertically().
+
+    Renders all text lines horizontally centered within the label's content area.
     """
     if not label.content:
         return vp.LineCollection()
 
     margin = label.margin
     inner_width = label.width
-    inner_height = label.height
     text_lc = vp.LineCollection()
 
-    # First pass: render all lines to calculate total height
-    rendered_lines: list[tuple[vp.LineCollection, float]] = []
-    total_rendered_height = 0.0
-
-    for i, line in enumerate(label.content):
+    # Render all lines at their natural positions (no vertical offset)
+    for _i, line in enumerate(label.content):
         # Render at the toolpath_text_height (cutter-compensated)
         # vpype's text_block() rendered glyph height ≈ size * 0.65625 document units
         size = line.toolpath_text_height / TEXT_BLOCK_HEIGHT_PER_SIZE
@@ -674,29 +944,6 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
         bounds = filtered_lc.bounds()
         if bounds is None:
             continue
-        _, min_y, _, max_y = bounds
-        rendered_height = max_y - min_y
-
-        rendered_lines.append((filtered_lc, rendered_height))
-        total_rendered_height += rendered_height
-        # Add line spacing between lines (not after the last line)
-        if i < len(label.content) - 1:
-            total_rendered_height += line.line_spacing
-
-    if not rendered_lines:
-        return text_lc
-
-    # Calculate vertical centering within the available space (after margins)
-    available_height = inner_height - (2 * margin)
-    center_y = margin + available_height / 2
-    # Start position: center_y offset by half the total text height
-    current_y = center_y + total_rendered_height / 2
-
-    # Second pass: position each line with horizontal and vertical centering
-    for i, (line_lc, rendered_height) in enumerate(rendered_lines):
-        bounds = line_lc.bounds()
-        if bounds is None:
-            continue
         min_x, min_y, max_x, max_y = bounds
         rendered_width = max_x - min_x
 
@@ -706,18 +953,11 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
         # Position text so it's centered horizontally
         x_offset = center_x - rendered_width / 2 - min_x
 
-        # Vertical centering: position top of text at current_y
-        y_offset = current_y - max_y
+        # NO vertical offset here - will be applied post-export
+        y_offset = -min_y
 
         line_lc.translate(x_offset, y_offset)
         text_lc.extend(line_lc)
-
-        # Move down for the next line
-        current_y -= rendered_height
-        # Add line spacing between lines
-        if i < len(rendered_lines) - 1:
-            line_spacing = label.content[i].line_spacing
-            current_y -= line_spacing
 
     return text_lc
 
