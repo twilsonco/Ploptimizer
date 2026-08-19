@@ -72,10 +72,15 @@ def _break_loop_at_chord(line: np.ndarray) -> Optional[np.ndarray]:
     not necessarily the final segment - it can appear anywhere (e.g. for a "t"
     whose vertical stem was rotated to the end of the array).
 
-    This scans every segment in the closed loop and finds its single longest
-    one. If that segment exceeds ``CHORD_THRESHOLD_INCHES`` it is treated as
-    the erroneous chord: the loop is broken there and reordered so the toolpath
-    flows from the true start to the true end without drawing the chord.
+    The erroneous chord is specifically the long segment whose endpoint returns
+    to ``line[0]`` - i.e. the path's starting point, which TrueType connects back
+    to when it closes the outline. This holds even for simple geometric glyphs
+    ("1", "4", "7") that contain several legitimately-long straight strokes: only
+    one of them returns to the start.
+
+    If no long segment returns to the start (e.g. a closed loop whose array was
+    not rotated), fall back to breaking at any single long segment - which is
+    correct for curved glyphs like "C" that have exactly one such jump.
 
     Args:
         line: A closed polyline (first point == last point) in inches.
@@ -98,11 +103,26 @@ def _break_loop_at_chord(line: np.ndarray) -> Optional[np.ndarray]:
     if longest_length <= CHORD_THRESHOLD_INCHES:
         return None
 
-    # The chord connects point `longest_idx` to `longest_idx + 1`. Break the
-    # loop there: the true open stroke starts at `longest_idx + 1`, wraps around
-    # through the end of the array, and continues from index 0 up to (and
-    # including) `longest_idx`.
-    new_line = np.concatenate((line[longest_idx + 1 :], line[: longest_idx + 1]))
+    break_idx: Optional[int] = None
+
+    # Prefer the long segment whose endpoint returns to line[0]: this is always
+    # the TrueType closing chord. Simple geometric glyphs ("1", "4", "7") have
+    # several legitimately-long straight strokes, but only one returns to start.
+    for i in range(n - 1):
+        if segment_lengths[i] > CHORD_THRESHOLD_INCHES and abs(line[i + 1] - line[0]) < 1e-5:
+            break_idx = i
+            break
+
+    # Fall back to the single longest segment (curved glyphs like "C" whose
+    # array was not rotated, so no segment returns to start).
+    if break_idx is None:
+        break_idx = longest_idx
+
+    # The chord connects point `break_idx` to `break_idx + 1`. Break the loop
+    # there: the true open stroke starts at `break_idx + 1`, wraps around through
+    # the end of the array, and continues from index 0 up to (and including)
+    # `break_idx`.
+    new_line = np.concatenate((line[break_idx + 1 :], line[: break_idx + 1]))
     return new_line
 
 
