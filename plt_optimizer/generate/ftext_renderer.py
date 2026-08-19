@@ -27,6 +27,7 @@ import shlex
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
 import vpype as vp
 import vpype_cli  # noqa: F401  (registers plugin commands)
 import vpype_ttf  # noqa: F401  (registers the ``ftext`` command)
@@ -36,18 +37,22 @@ logger = logging.getLogger(__name__)
 # Resolution factor used internally by ftext when rasterizing glyph outlines.
 _FTEXT_RESOLUTION: int = 1024
 
-# TrueType forces every outline path closed, so the renderer appends a
-# duplicate of the first coordinate as the last. For open strokes (like "C")
-# this creates an erroneous straight chord from the stroke's end back to its
-# start; for genuinely closed loops (like "o") it is only the microscopic final
-# step that lands on the starting point.
+# TrueType forces every outline path closed, so a single-line stroke becomes a
+# continuous geometric loop. The font renderer adds an erroneous straight chord
+# that jumps from the true end of the stroke back to its true start (e.g. the
+# diagonal connecting the bottom lip of a "C" up to its top lip). Genuinely
+# closed loops (like "o") have no such long jump - only microscopic quantized
+# steps.
 #
-# We distinguish the two by measuring the closing segment length. Measured in
-# normalized inches (after scaling to toolpath height), genuine loop closures
-# measure ~0 while erroneous chords are >= ~70 thousandths of an inch for this
-# font. A threshold of 2 CSS pixels (~20.8 thousandths-inch, vpype uses
+# Because the parser may rotate which node starts the array, this chord can sit
+# anywhere in the loop. We therefore scan every segment and break the loop at
+# its single longest segment when that exceeds a threshold.
+#
+# Measured in normalized inches (after scaling to toolpath height), genuine
+# curve steps are tiny while erroneous chords are >= ~70 thousandths of an inch
+# for this font. A threshold of 2 CSS pixels (~20.8 thousandths-inch, vpype uses
 # 96 px/inch) safely isolates long chords while protecting tight curves.
-CHORD_THRESHOLD_INCHES: float = 2.0 / 72.0
+CHORD_THRESHOLD_INCHES: float = 0.02
 
 # Default bundled single-line engraving font. Resolved relative to this module
 # so it works regardless of the current working directory at runtime.
@@ -59,16 +64,60 @@ DEFAULT_FONT_PATH: Path = (
 )
 
 
+def _break_loop_at_chord(line: np.ndarray) -> Optional[np.ndarray]:
+    """Break a forced-closed loop at its erroneous chord, if present.
+
+    TrueType forces every outline closed into a continuous geometric loop. The
+    array may start at any node of that loop, so the redundant closing chord is
+    not necessarily the final segment - it can appear anywhere (e.g. for a "t"
+    whose vertical stem was rotated to the end of the array).
+
+    This scans every segment in the closed loop and finds its single longest
+    one. If that segment exceeds ``CHORD_THRESHOLD_INCHES`` it is treated as
+    the erroneous chord: the loop is broken there and reordered so the toolpath
+    flows from the true start to the true end without drawing the chord.
+
+    Args:
+        line: A closed polyline (first point == last point) in inches.
+
+    Returns:
+        The reordered open stroke with the chord removed, or ``None`` if no
+        erroneous chord is found (i.e. a genuine loop like "o").
+    """
+    n = len(line)
+    if n <= 2:
+        return None
+
+    # Length of every segment in the closed loop.
+    segment_lengths = np.abs(np.diff(line))
+    longest_idx = int(np.argmax(segment_lengths))
+    longest_length = float(segment_lengths[longest_idx])
+
+    # A genuine loop's segments are all microscopic; only an erroneous chord is
+    # a massive jump, so leave genuine loops untouched.
+    if longest_length <= CHORD_THRESHOLD_INCHES:
+        return None
+
+    # The chord connects point `longest_idx` to `longest_idx + 1`. Break the
+    # loop there: the true open stroke starts at `longest_idx + 1`, wraps around
+    # through the end of the array, and continues from index 0 up to (and
+    # including) `longest_idx`.
+    new_line = np.concatenate((line[longest_idx + 1 :], line[: longest_idx + 1]))
+    return new_line
+
+
 def _remove_closing_chords(lc: vp.LineCollection) -> vp.LineCollection:
     """Remove erroneous closing chords forced by the TrueType renderer.
 
-    FreeType forces every glyph outline closed by duplicating its first
-    coordinate as the last. For open single-line strokes (e.g. "C", "D") this
-    produces a long straight chord from the stroke's end back to its start.
-    Genuinely closed loops (e.g. "o") only gain a microscopic final step.
+    FreeType forces every glyph outline closed into a continuous loop. For open
+    single-line strokes (e.g. "C", "D") this adds an erroneous straight chord
+    from the stroke's true end back to its true start; genuinely closed loops
+    (like "o") only contain microscopic quantized steps.
 
-    This helper drops that forced closing point when it represents a large
-    jump, leaving genuine loop closures untouched.
+    Because the parser may rotate which node starts each array, the chord is not
+    always at the end. This scans every segment of each closed loop and breaks
+    it at its single longest segment when that exceeds a threshold, reordering
+    so the toolpath flows correctly from true start to true end.
 
     Args:
         lc: The LineCollection of rendered glyph outlines in inches.
@@ -79,10 +128,9 @@ def _remove_closing_chords(lc: vp.LineCollection) -> vp.LineCollection:
     cleaned = vp.LineCollection()
     for line in lc:
         if len(line) > 2 and abs(line[0] - line[-1]) < 1e-5:
-            # The renderer forced the path closed; check how big that jump is.
-            closing_segment_length = abs(line[-2] - line[-1])
-            if closing_segment_length > CHORD_THRESHOLD_INCHES:
-                cleaned.append(line[:-1])
+            broken = _break_loop_at_chord(np.asarray(line))
+            if broken is not None:
+                cleaned.append(broken)
                 continue
         cleaned.append(line)
     return cleaned

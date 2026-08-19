@@ -101,33 +101,59 @@ class TestRenderTextLineFtext:
 class TestRemoveClosingChords:
     """Tests for the _remove_closing_chords helper."""
 
-    def test_removes_long_closing_segment(self) -> None:
-        """A long forced closing chord should be sliced off."""
+    def test_removes_long_closing_segment_at_end(self) -> None:
+        """A long forced closing chord at the array end should be sliced off."""
         import numpy as np
 
-        # Closed loop (first == last) whose second-to-last point is far from
-        # the start: an erroneous chord that must be removed.
-        line = np.array([0 + 1j, 2 + 3j, 5 + 7j, 100 - 50j, 0 + 1j], dtype=complex)
+        # Closed loop (first == last); the segment from point 3 back to point 0
+        # is a huge jump - an erroneous chord that must be removed.
+        line = np.array([0 + 10j, 1 + 11j, 2 + 12j, 100 - 50j, 5 + 7j], dtype=complex)
         lc_in = vp.LineCollection()
         lc_in.append(line)
         out = _remove_closing_chords(lc_in)
         assert len(out) == 1
-        # The duplicate closing point (long chord endpoint) is removed.
-        assert len(out[0]) == 4
+        # The loop is broken open: first no longer equals last.
+        result = out[0]
+        assert abs(result[0] - result[-1]) > CHORD_THRESHOLD_INCHES
+
+    def test_removes_long_segment_not_at_end(self) -> None:
+        """A long chord in the middle of the array must also be found.
+
+        Regression test for the 't' shifting-node problem: TrueType can rotate
+        which node starts a closed loop, so the erroneous chord is not always
+        at the end. The helper scans every segment and breaks there.
+        """
+        import numpy as np
+
+        # Closed loop (first == last) where the long chord sits in the middle of
+        # the array rather than at its end.
+        line = np.array([0 + 10j, 100 - 50j, 5 + 7j, 3 + 9j, 2 + 8.99j], dtype=complex)
+        lc_in = vp.LineCollection()
+        lc_in.append(line)
+        out = _remove_closing_chords(lc_in)
+        assert len(out) == 1
+        # The loop is broken open at the chord, wherever it sat.
+        result = out[0]
+        assert abs(result[0] - result[-1]) > CHORD_THRESHOLD_INCHES
 
     def test_preserves_short_closing_segment(self) -> None:
         """A microscopic closing step of a genuine loop should be kept."""
         import numpy as np
 
-        # Closed loop (first == last) whose second-to-last point sits right
-        # next to the start: only a tiny final step, so it must be preserved.
-        line = np.array([0 + 1j, 2 + 3j, 5 + 6j, 0.00001 + 1.001j, 0 + 1j], dtype=complex)
+        # Closed loop (first == last); all segments are tiny, so it is a
+        # genuine closed shape like "o" and must remain untouched.
+        line = np.array(
+            [0 + 1j, 2 + 3j, 5 + 6j, 4.00001 + 7.001j, 0.000005 + 1.002j],
+            dtype=complex,
+        )
         lc_in = vp.LineCollection()
         lc_in.append(line)
         out = _remove_closing_chords(lc_in)
         assert len(out) == 1
-        # Short closing segment preserved (length unchanged).
-        assert len(out[0]) == 5
+        # Genuine loop preserved: still closed, length unchanged.
+        result = out[0]
+        assert abs(result[0] - result[-1]) < CHORD_THRESHOLD_INCHES
+        assert len(result) == 5
 
 
 class TestShellQuote:
