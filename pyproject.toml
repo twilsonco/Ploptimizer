@@ -29,6 +29,7 @@ dependencies = [
     "watchdog>=2.6,<5.0",
     "pystray>=0.19.5",
     "pillow>=10.0.0,<11.0",
+    "vpype-ttf>=0.0.7",
 ]
 
 [project.scripts]
@@ -93,7 +94,7 @@ warn_unused_configs = true
 
 # Ignore missing stubs for optional third-party libraries (they don't ship type stubs)
 [[tool.mypy.overrides]]
-module = ["pystray.*", "infi.systray", "matplotlib.*", "winshell", "win32com.client", "rectpack", "vpype"]
+module = ["pystray.*", "infi.systray", "matplotlib.*", "winshell", "win32com.client", "rectpack", "vpype", "vpype_cli", "vpype_ttf"]
 ignore_missing_imports = true
 
 [tool.ruff]
