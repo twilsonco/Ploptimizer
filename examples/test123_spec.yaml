@@ -33,3 +33,18 @@ job:
       count: 1
       content:
         - text: "Test 3"
+    
+    - id: alpha_lower
+      count: 1
+      content:
+        - text: "abcdefghijklmnopqrstuvwxyz"
+    
+    - id: alpha_upper
+      count: 1
+      content:
+        - text: "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+    - id: digits
+      count: 1
+      content:
+        - text: "0123456789"
