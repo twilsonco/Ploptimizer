@@ -36,6 +36,19 @@ logger = logging.getLogger(__name__)
 # Resolution factor used internally by ftext when rasterizing glyph outlines.
 _FTEXT_RESOLUTION: int = 1024
 
+# TrueType forces every outline path closed, so the renderer appends a
+# duplicate of the first coordinate as the last. For open strokes (like "C")
+# this creates an erroneous straight chord from the stroke's end back to its
+# start; for genuinely closed loops (like "o") it is only the microscopic final
+# step that lands on the starting point.
+#
+# We distinguish the two by measuring the closing segment length. Measured in
+# normalized inches (after scaling to toolpath height), genuine loop closures
+# measure ~0 while erroneous chords are >= ~70 thousandths of an inch for this
+# font. A threshold of 2 CSS pixels (~20.8 thousandths-inch, vpype uses
+# 96 px/inch) safely isolates long chords while protecting tight curves.
+CHORD_THRESHOLD_INCHES: float = 2.0 / 72.0
+
 # Default bundled single-line engraving font. Resolved relative to this module
 # so it works regardless of the current working directory at runtime.
 DEFAULT_FONT_PATH: Path = (
@@ -44,6 +57,35 @@ DEFAULT_FONT_PATH: Path = (
     / "ReliefSingleLine"
     / "ReliefSingleLineCAD-Regular.ttf"
 )
+
+
+def _remove_closing_chords(lc: vp.LineCollection) -> vp.LineCollection:
+    """Remove erroneous closing chords forced by the TrueType renderer.
+
+    FreeType forces every glyph outline closed by duplicating its first
+    coordinate as the last. For open single-line strokes (e.g. "C", "D") this
+    produces a long straight chord from the stroke's end back to its start.
+    Genuinely closed loops (e.g. "o") only gain a microscopic final step.
+
+    This helper drops that forced closing point when it represents a large
+    jump, leaving genuine loop closures untouched.
+
+    Args:
+        lc: The LineCollection of rendered glyph outlines in inches.
+
+    Returns:
+        A new LineCollection with erroneous closing chords removed.
+    """
+    cleaned = vp.LineCollection()
+    for line in lc:
+        if len(line) > 2 and abs(line[0] - line[-1]) < 1e-5:
+            # The renderer forced the path closed; check how big that jump is.
+            closing_segment_length = abs(line[-2] - line[-1])
+            if closing_segment_length > CHORD_THRESHOLD_INCHES:
+                cleaned.append(line[:-1])
+                continue
+        cleaned.append(line)
+    return cleaned
 
 
 def _shell_quote(value: str) -> str:
@@ -109,9 +151,10 @@ def render_text_line_ftext(
     # ftext emits glyphs with a negative Y factor (downward from baseline).
     # Flip the imaginary component and apply uniform scaling to produce
     # upright geometry at exactly the requested height.
-    result = vp.LineCollection()
+    flipped = vp.LineCollection()
     for line in lc:
-        flipped = (line.real * scale) - 1j * (line.imag * scale)
-        result.append(flipped)
+        flipped.append((line.real * scale) - 1j * (line.imag * scale))
 
-    return result
+    # Drop erroneous closing chords forced by TrueType's closed-path outlines,
+    # so open strokes like "C" don't get a straight connector back to their start.
+    return _remove_closing_chords(flipped)
