@@ -136,6 +136,29 @@ class TestRemoveClosingChords:
         result = out[0]
         assert abs(result[0] - result[-1]) > CHORD_THRESHOLD_INCHES
 
+    def test_breaks_at_return_to_start_for_multi_stroke_digit(self) -> None:
+        """Simple geometric digits ('1', '4', '7') break at the closing chord.
+
+        Regression test for the digit "1": these glyphs contain several
+        legitimately-long straight strokes, so picking the single longest one is
+        wrong. The erroneous chord is specifically the long segment whose
+        endpoint returns to ``line[0]``.
+        """
+        import numpy as np
+
+        # Mimic '1': real diagonal serif + vertical stem are both long; only the
+        # final segment (index 3 -> index 4 == start) is the closing chord.
+        line = np.array([97 - 539j, 320 + 0j, 321 - 696j, 317 - 697j], dtype=complex)
+        lc_in = vp.LineCollection()
+        # Append duplicate of first to make it a closed loop.
+        line_closed = np.concatenate((line, [line[0]]))
+        lc_in.append(line_closed)
+        out = _remove_closing_chords(lc_in)
+        assert len(out) == 1
+        result = out[0]
+        # Broken at the closing chord (return-to-start), not at a real stroke.
+        assert abs(result[0] - result[-1]) > CHORD_THRESHOLD_INCHES
+
     def test_preserves_short_closing_segment(self) -> None:
         """A microscopic closing step of a genuine loop should be kept."""
         import numpy as np
