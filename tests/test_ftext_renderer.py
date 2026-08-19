@@ -8,7 +8,9 @@ from pathlib import Path
 import vpype as vp
 
 from plt_optimizer.generate.ftext_renderer import (
+    CHORD_THRESHOLD_INCHES,
     DEFAULT_FONT_PATH,
+    _remove_closing_chords,
     _shell_quote,
     render_text_line_ftext,
 )
@@ -69,6 +71,63 @@ class TestRenderTextLineFtext:
         """A custom font path should render successfully."""
         lc = render_text_line_ftext("ABC", 1.2, DEFAULT_FONT_PATH)
         assert not lc.is_empty()
+
+    def test_open_stroke_chord_is_removed(self) -> None:
+        """Erroneous closing chords on open strokes (e.g. 'D') are removed.
+
+        TrueType forces every outline closed; for a single-line "D" this adds
+        a long straight chord back to the start, which must be sliced off.
+        """
+        lc = render_text_line_ftext("D", 4.5, DEFAULT_FONT_PATH)
+        assert not lc.is_empty()
+        for line in lc:
+            # After processing no closing segment should exceed the threshold,
+            # i.e. the erroneous chord has been removed and the stroke is open.
+            if len(line) > 2:
+                closing = abs(line[-2] - line[-1])
+                assert closing <= CHORD_THRESHOLD_INCHES
+
+    def test_closed_loop_is_preserved(self) -> None:
+        """Genuine closed loops (e.g. 'o') must not be sliced open."""
+        lc = render_text_line_ftext("o", 4.5, DEFAULT_FONT_PATH)
+        assert not lc.is_empty()
+        # The loop's closing segment should remain microscopic.
+        for line in lc:
+            if len(line) > 2 and abs(line[0] - line[-1]) < 1e-3:
+                closing = abs(line[-2] - line[-1])
+                assert closing <= CHORD_THRESHOLD_INCHES
+
+
+class TestRemoveClosingChords:
+    """Tests for the _remove_closing_chords helper."""
+
+    def test_removes_long_closing_segment(self) -> None:
+        """A long forced closing chord should be sliced off."""
+        import numpy as np
+
+        # Closed loop (first == last) whose second-to-last point is far from
+        # the start: an erroneous chord that must be removed.
+        line = np.array([0 + 1j, 2 + 3j, 5 + 7j, 100 - 50j, 0 + 1j], dtype=complex)
+        lc_in = vp.LineCollection()
+        lc_in.append(line)
+        out = _remove_closing_chords(lc_in)
+        assert len(out) == 1
+        # The duplicate closing point (long chord endpoint) is removed.
+        assert len(out[0]) == 4
+
+    def test_preserves_short_closing_segment(self) -> None:
+        """A microscopic closing step of a genuine loop should be kept."""
+        import numpy as np
+
+        # Closed loop (first == last) whose second-to-last point sits right
+        # next to the start: only a tiny final step, so it must be preserved.
+        line = np.array([0 + 1j, 2 + 3j, 5 + 6j, 0.00001 + 1.001j, 0 + 1j], dtype=complex)
+        lc_in = vp.LineCollection()
+        lc_in.append(line)
+        out = _remove_closing_chords(lc_in)
+        assert len(out) == 1
+        # Short closing segment preserved (length unchanged).
+        assert len(out[0]) == 5
 
 
 class TestShellQuote:
