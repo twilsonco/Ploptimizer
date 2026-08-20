@@ -1,17 +1,17 @@
-"""Unit tests for the single-line TTF text renderer (ftext wrapper)."""
+"""Unit tests for the single-line TTF text renderer (matplotlib path codes)."""
 
 from __future__ import annotations
 
 import math
 from pathlib import Path
 
+import numpy as np
 import vpype as vp
 
 from plt_optimizer.generate.ftext_renderer import (
     CHORD_THRESHOLD_INCHES,
     DEFAULT_FONT_PATH,
     _remove_closing_chords,
-    _shell_quote,
     render_text_line_ftext,
 )
 
@@ -72,20 +72,60 @@ class TestRenderTextLineFtext:
         lc = render_text_line_ftext("ABC", 1.2, DEFAULT_FONT_PATH)
         assert not lc.is_empty()
 
-    def test_open_stroke_chord_is_removed(self) -> None:
-        """Erroneous closing chords on open strokes (e.g. 'D') are removed.
-
-        TrueType forces every outline closed; for a single-line "D" this adds
-        a long straight chord back to the start, which must be sliced off.
-        """
-        lc = render_text_line_ftext("D", 4.5, DEFAULT_FONT_PATH)
-        assert not lc.is_empty()
+    @staticmethod
+    def _assert_no_long_closing_segment(lc: vp.LineCollection) -> None:
+        """Assert no rendered stroke ends with an erroneous long chord."""
         for line in lc:
-            # After processing no closing segment should exceed the threshold,
-            # i.e. the erroneous chord has been removed and the stroke is open.
-            if len(line) > 2:
+            if len(line) > 2 and abs(line[0] - line[-1]) < 1e-3:
                 closing = abs(line[-2] - line[-1])
                 assert closing <= CHORD_THRESHOLD_INCHES
+
+    def test_open_stroke_chord_is_removed_for_digit_one(self) -> None:
+        """The erroneous closing chord on '1' must be removed.
+
+        Regression for the geometry-heuristic bug: digit "1" has an intended
+        vertical stem longer than its closing chord, so a longest-segment scan
+        wrongly deleted the stem. The matplotlib path-code approach drops only
+        the final LINETO-back-to-origin.
+        """
+        lc = render_text_line_ftext("1", 4.5, DEFAULT_FONT_PATH)
+        assert not lc.is_empty()
+        self._assert_no_long_closing_segment(lc)
+
+    def test_open_stroke_chord_is_removed_for_digit_four(self) -> None:
+        """The erroneous closing chord on '4' must be removed."""
+        lc = render_text_line_ftext("4", 4.5, DEFAULT_FONT_PATH)
+        assert not lc.is_empty()
+        self._assert_no_long_closing_segment(lc)
+
+    def test_open_stroke_chord_is_removed_for_digit_seven(self) -> None:
+        """The erroneous closing chord on '7' must be removed."""
+        lc = render_text_line_ftext("7", 4.5, DEFAULT_FONT_PATH)
+        assert not lc.is_empty()
+        self._assert_no_long_closing_segment(lc)
+
+    def test_open_stroke_chord_is_removed_for_c(self) -> None:
+        """Erroneous closing chords on open strokes (e.g. 'C') are removed."""
+        lc = render_text_line_ftext("C", 4.5, DEFAULT_FONT_PATH)
+        assert not lc.is_empty()
+        self._assert_no_long_closing_segment(lc)
+
+    def test_digit_one_preserves_intended_stem(self) -> None:
+        """Digit '1' must keep its long vertical stem (not delete it)."""
+        lc = render_text_line_ftext("1", 4.5, DEFAULT_FONT_PATH)
+        assert not lc.is_empty()
+        # The intended stroke is the tall stem; after chord removal a segment
+        # close to the full glyph height should remain.
+        bounds = lc.bounds()
+        assert bounds is not None
+        glyph_height = bounds[3] - bounds[1]
+        max_seg = 0.0
+        for line in lc:
+            segs = np.abs(np.diff(line))
+            if len(segs):
+                max_seg = max(max_seg, float(segs.max()))
+        # The stem spans most of the glyph height.
+        assert max_seg > glyph_height * 0.5
 
     def test_closed_loop_is_preserved(self) -> None:
         """Genuine closed loops (e.g. 'o') must not be sliced open."""
@@ -97,14 +137,21 @@ class TestRenderTextLineFtext:
                 closing = abs(line[-2] - line[-1])
                 assert closing <= CHORD_THRESHOLD_INCHES
 
+    def test_digit_zero_loop_is_preserved(self) -> None:
+        """Digit '0' is a genuine closed loop and must stay intact."""
+        lc = render_text_line_ftext("0", 4.5, DEFAULT_FONT_PATH)
+        assert not lc.is_empty()
+        # A genuine loop remains geometrically closed.
+        for line in lc:
+            if len(line) > 2:
+                assert abs(line[0] - line[-1]) < CHORD_THRESHOLD_INCHES
+
 
 class TestRemoveClosingChords:
     """Tests for the _remove_closing_chords helper."""
 
-    def test_removes_long_closing_segment_at_end(self) -> None:
-        """A long forced closing chord at the array end should be sliced off."""
-        import numpy as np
-
+    def test_removes_long_final_segment(self) -> None:
+        """A long final closing chord should be sliced off."""
         # Closed loop (first == last); the segment from point 3 back to point 0
         # is a huge jump - an erroneous chord that must be removed.
         line = np.array([0 + 10j, 1 + 11j, 2 + 12j, 100 - 50j, 5 + 7j], dtype=complex)
@@ -116,34 +163,14 @@ class TestRemoveClosingChords:
         result = out[0]
         assert abs(result[0] - result[-1]) > CHORD_THRESHOLD_INCHES
 
-    def test_removes_long_segment_not_at_end(self) -> None:
-        """A long chord in the middle of the array must also be found.
-
-        Regression test for the 't' shifting-node problem: TrueType can rotate
-        which node starts a closed loop, so the erroneous chord is not always
-        at the end. The helper scans every segment and breaks there.
-        """
-        import numpy as np
-
-        # Closed loop (first == last) where the long chord sits in the middle of
-        # the array rather than at its end.
-        line = np.array([0 + 10j, 100 - 50j, 5 + 7j, 3 + 9j, 2 + 8.99j], dtype=complex)
-        lc_in = vp.LineCollection()
-        lc_in.append(line)
-        out = _remove_closing_chords(lc_in)
-        assert len(out) == 1
-        # The loop is broken open at the chord, wherever it sat.
-        result = out[0]
-        assert abs(result[0] - result[-1]) > CHORD_THRESHOLD_INCHES
-
-    def test_preserves_short_closing_segment(self) -> None:
+    def test_preserves_short_final_segment(self) -> None:
         """A microscopic closing step of a genuine loop should be kept."""
-        import numpy as np
-
-        # Closed loop (first == last); all segments are tiny, so it is a
-        # genuine closed shape like "o" and must remain untouched.
+        # Closed loop (first == last); the final segment back to origin is
+        # tiny, so it is a genuine closed shape like "o" and must remain
+        # untouched.
+        start = 0 + 10j
         line = np.array(
-            [0 + 1j, 2 + 3j, 5 + 6j, 4.00001 + 7.001j, 0.000005 + 1.002j],
+            [start, 2 + 11j, 5 + 12j, 3 + 13j, 0.001 + 9.999j, start],
             dtype=complex,
         )
         lc_in = vp.LineCollection()
@@ -153,21 +180,15 @@ class TestRemoveClosingChords:
         # Genuine loop preserved: still closed, length unchanged.
         result = out[0]
         assert abs(result[0] - result[-1]) < CHORD_THRESHOLD_INCHES
-        assert len(result) == 5
+        assert len(result) == 6
 
-
-class TestShellQuote:
-    """Tests for the shell-quoting helper."""
-
-    def test_plain_string(self) -> None:
-        """Safe plain strings need no quoting."""
-        result = _shell_quote("hello")
-        # shlex.quote leaves already-safe tokens unquoted.
-        assert "'" not in result
-        assert "hello" in result
-
-    def test_spaces_and_special_chars(self) -> None:
-        """Strings with spaces/shell metacharacters must remain safe."""
-        result = _shell_quote("/path/with space/font.ttf")
-        # Must be a single quoted token, not split by the shell.
-        assert " " in result or "'" in result
+    def test_keeps_open_stroke(self) -> None:
+        """An already-open stroke (first != last) should pass through."""
+        line = np.array([0 + 10j, 20 - 50j, 30 + 7j], dtype=complex)
+        lc_in = vp.LineCollection()
+        lc_in.append(line)
+        out = _remove_closing_chords(lc_in)
+        assert len(out) == 1
+        result = out[0]
+        # Unchanged.
+        assert np.array_equal(result, line)
