@@ -3,11 +3,59 @@
 import pytest
 
 from plt_optimizer.generate.label_renderer import (
+    _flip_y_coordinates_in_plt,
     extract_bounds_from_plt,
     render_label_to_plt,
 )
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
 from plt_optimizer.generate.schema import parse_yaml
+
+
+class TestFlipYCoordinatesInPlt:
+    """Tests for the Y-axis inversion post-processing step."""
+
+    def test_flip_mirrors_y_across_centerline(self, tmp_path) -> None:
+        """Y coordinates should be mirrored across the vertical centerline."""
+        plt_file = tmp_path / "label.plt"
+        # Points at y=200 and y=800; min+max = 1000.
+        plt_file.write_text(
+            "IN;DF;PS0;SP1;PU500,200;PD500,800;PA300,400;SP0;IN;%",
+            encoding="utf-8",
+        )
+
+        _flip_y_coordinates_in_plt(plt_file)
+
+        content = plt_file.read_text(encoding="utf-8")
+        # 1000 - y: 200->800, 500->500 (center), 400->600
+        assert "PU500,800" in content
+        assert "PD500,200" in content
+        assert "PA300,600" in content
+
+    def test_flip_preserves_bounds(self, tmp_path) -> None:
+        """Flipping should preserve min/max bounds (only orientation changes)."""
+        plt_file = tmp_path / "label.plt"
+        # y-values are 200 and 800; mirrored across centerline sum=1000.
+        plt_file.write_text(
+            "IN;DF;PS0;SP1;PU100,200;PD900,300;PA500,400;SP0;IN;%",
+            encoding="utf-8",
+        )
+
+        before = extract_bounds_from_plt(plt_file.read_text(encoding="utf-8"))
+        _flip_y_coordinates_in_plt(plt_file)
+        after = extract_bounds_from_plt(plt_file.read_text(encoding="utf-8"))
+
+        # min/max bounds are unchanged by the mirror.
+        assert before == pytest.approx(after)
+
+    def test_flip_no_coordinates_returns_unchanged(self, tmp_path) -> None:
+        """A file with no coordinates should be left unchanged."""
+        plt_file = tmp_path / "label.plt"
+        original = "IN;DF;PS0;SP0;IN;%"
+        plt_file.write_text(original, encoding="utf-8")
+
+        _flip_y_coordinates_in_plt(plt_file)
+
+        assert plt_file.read_text(encoding="utf-8") == original
 
 
 class TestExtractBoundsFromPlt:

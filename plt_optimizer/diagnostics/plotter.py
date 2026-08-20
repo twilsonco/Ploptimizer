@@ -272,7 +272,7 @@ def plot_plt_document(
                         color=color,
                         linewidth=linewidth,
                         alpha=alpha,
-                        label="Cutting Path" if i == 2 else "",
+                        label="Cutting Path" if i == 2 and not simple_mode else "",
                     )
                 else:
                     ax.plot(
@@ -281,7 +281,7 @@ def plot_plt_document(
                         color=color,
                         linewidth=linewidth,
                         alpha=alpha,
-                        label="Cutting Path" if i == 2 else "",
+                        label="Cutting Path" if i == 2 and not simple_mode else "",
                     )
 
         # Add colorbar for cutting paths (skip in simple_mode)
@@ -294,24 +294,25 @@ def plot_plt_document(
         first_seg = all_segments[0]
         last_seg = all_segments[-1]
 
-        ax.plot(
-            first_seg.start.x * PLT_UNITS_TO_INCHES,
-            first_seg.start.y * PLT_UNITS_TO_INCHES,
-            marker="o",
-            markersize=6,
-            color="green",
-            zorder=10,
-            label="Start",
-        )
-        ax.plot(
-            last_seg.end.x * PLT_UNITS_TO_INCHES,
-            last_seg.end.y * PLT_UNITS_TO_INCHES,
-            marker="s",
-            markersize=6,
-            color="red",
-            zorder=10,
-            label="End",
-        )
+        if not simple_mode:
+            ax.plot(
+                first_seg.start.x * PLT_UNITS_TO_INCHES,
+                first_seg.start.y * PLT_UNITS_TO_INCHES,
+                marker="o",
+                markersize=6,
+                color="green",
+                zorder=10,
+                label="Start",
+            )
+            ax.plot(
+                last_seg.end.x * PLT_UNITS_TO_INCHES,
+                last_seg.end.y * PLT_UNITS_TO_INCHES,
+                marker="s",
+                markersize=6,
+                color="red",
+                zorder=10,
+                label="End",
+            )
 
         # Configure axes
         ax.set_xlabel("X (inches)")
@@ -335,20 +336,21 @@ def plot_plt_document(
             else (document.rapid_distance() * PLT_UNITS_TO_INCHES)
         )
 
-        summary_text = (
-            f"Total Segments: {len(all_segments)}\n"
-            f"Cutting Distance: {cutting_dist:,.2f} in\n"
-            f"Rapid Travel: {rapid_dist:,.2f} in"
-        )
-        ax.text(
-            0.02,
-            0.98,
-            summary_text,
-            transform=ax.transAxes,
-            verticalalignment="top",
-            fontsize=9,
-            bbox={"boxstyle": "round", "facecolor": "wheat", "alpha": 0.5},
-        )
+        if not simple_mode:
+            summary_text = (
+                f"Total Segments: {len(all_segments)}\n"
+                f"Cutting Distance: {cutting_dist:,.2f} in\n"
+                f"Rapid Travel: {rapid_dist:,.2f} in"
+            )
+            ax.text(
+                0.02,
+                0.98,
+                summary_text,
+                transform=ax.transAxes,
+                verticalalignment="top",
+                fontsize=9,
+                bbox={"boxstyle": "round", "facecolor": "wheat", "alpha": 0.5},
+            )
 
         plt.tight_layout()
 
