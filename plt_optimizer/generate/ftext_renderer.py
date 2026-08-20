@@ -1,57 +1,62 @@
-"""Single-line TrueType font text rendering via the ``vpype-ttf`` plugin.
+"""Single-line TrueType font text rendering via matplotlib's raw path codes.
 
 Replaces vpype's internal Hershey stroke-font engine (``vp.text_block()``)
-with a real single-line TTF engraving font (Relief Single Line CAD). Text is
-rendered as glyph outlines by FreeType through the ``ftext`` vpype plugin and
-returned in plotter coordinate convention (upright, baseline at y=0).
+and the earlier ``vpype-ttf``/FreeType approach with low-level access to the
+raw TrueType drawing instructions through :class:`matplotlib.textpath.TextPath`.
 
-Coordinate notes on ``ftext``:
+Why this is more robust than geometry heuristics:
 
-- The command takes an integer point size via ``-s``; it rasterizes each glyph
-  against a fixed resolution of 1024 units per em.
-- It emits geometry with a **negative Y scale factor**, so glyph outlines are
-  drawn downward from the text baseline (which sits at y=0).
-- The rendered outline height scales linearly with the requested size.
+The previous implementation rendered glyphs as closed polygons and then tried
+to *guess* which straight segment was an erroneous "closing chord" by scanning
+for the longest line in each loop. That heuristic fails on characters whose
+intended strokes are physically longer than the closing chord (e.g. digits 1,
+4, and 7), causing the wrong stroke to be deleted.
 
-This module therefore normalizes each rendered line by flipping the imaginary
-component back to upright and applying uniform scaling so that the total bounds
-height equals the requested toolpath text height in inches. This makes the
-resulting geometry drop-in compatible with the rest of the label/plate layout
-pipeline (which works entirely in inches).
+matplotlib exposes the literal path codes a font designer encoded:
+
+- ``MOVETO`` starts an open stroke / contour.
+- ``LINETO``/curve commands continue it.
+- A final ``LINETO`` returns to the start point (the TrueType closing chord).
+- ``CLOSEPOLY`` carries no geometry.
+
+For single-line engraving fonts every intended *open* stroke is therefore
+emitted as: MOVETO -> ...points... -> LINETO(back to start) -> CLOSEPOLY.
+The erroneous chord is always that final ``LINETO`` returning exactly to the
+origin, so we can drop it deterministically instead of guessing. Genuine loops
+(e.g. "0", "8", "o") have a microscopic closing step and are preserved intact.
+
+Coordinate convention (matches matplotlib/plotter):
+
+- Baseline sits at y=0; glyphs extend upward into positive Y.
+- Output scales linearly with the requested point size, so we normalize to the
+  target toolpath height in inches. The result is drop-in compatible with the
+  rest of the label/plate layout pipeline (which works entirely in inches).
 """
 
 from __future__ import annotations
 
 import logging
-import shlex
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
 import vpype as vp
-import vpype_cli  # noqa: F401  (registers plugin commands)
-import vpype_ttf  # noqa: F401  (registers the ``ftext`` command)
+from matplotlib.font_manager import FontProperties
+from matplotlib.path import Path as MplPath
+from matplotlib.textpath import TextPath
 
 logger = logging.getLogger(__name__)
 
-# Resolution factor used internally by ftext when rasterizing glyph outlines.
-_FTEXT_RESOLUTION: int = 1024
-
-# TrueType forces every outline path closed, so a single-line stroke becomes a
-# continuous geometric loop. The font renderer adds an erroneous straight chord
-# that jumps from the true end of the stroke back to its true start (e.g. the
-# diagonal connecting the bottom lip of a "C" up to its top lip). Genuinely
-# closed loops (like "o") have no such long jump - only microscopic quantized
-# steps.
-#
-# Because the parser may rotate which node starts the array, this chord can sit
-# anywhere in the loop. We therefore scan every segment and break the loop at
-# its single longest segment when that exceeds a threshold.
+# TrueType forces every contour closed, so a single-line stroke becomes:
+#   MOVETO -> ...points... -> LINETO(back to start) -> CLOSEPOLY.
+# The final ``LINETO`` back to the origin is the erroneous closing chord for an
+# open stroke; genuine loops (like "0" or "o") end with a microscopic step.
 #
 # Measured in normalized inches (after scaling to toolpath height), genuine
-# curve steps are tiny while erroneous chords are >= ~70 thousandths of an inch
-# for this font. A threshold of 2 CSS pixels (~20.8 thousandths-inch, vpype uses
-# 96 px/inch) safely isolates long chords while protecting tight curves.
+# loop-closing steps are tiny while erroneous chords are >= ~70 thousandths of
+# an inch for this font. A threshold of 2 CSS pixels (~20.8 thousandths-inch,
+# vpype uses 96 px/inch) safely isolates long chords while protecting tight
+# curves.
 CHORD_THRESHOLD_INCHES: float = 0.02
 
 # Default bundled single-line engraving font. Resolved relative to this module
@@ -63,64 +68,64 @@ DEFAULT_FONT_PATH: Path = (
     / "ReliefSingleLineCAD-Regular.ttf"
 )
 
+# Resolution factor used internally by TextPath when rasterizing glyph outlines.
+_FTEXT_RESOLUTION: int = 1024
 
-def _break_loop_at_chord(line: np.ndarray) -> Optional[np.ndarray]:
-    """Break a forced-closed loop at its erroneous chord, if present.
 
-    TrueType forces every outline closed into a continuous geometric loop. The
-    array may start at any node of that loop, so the redundant closing chord is
-    not necessarily the final segment - it can appear anywhere (e.g. for a "t"
-    whose vertical stem was rotated to the end of the array).
+def _split_contours(text_path: TextPath) -> list[np.ndarray]:
+    """Split a matplotlib path into its raw contours, preserving all geometry.
 
-    This scans every segment in the closed loop and finds its single longest
-    one. If that segment exceeds ``CHORD_THRESHOLD_INCHES`` it is treated as
-    the erroneous chord: the loop is broken there and reordered so the toolpath
-    flows from the true start to the true end without drawing the chord.
+    Each contour is emitted as ``MOVETO`` followed by points and a final
+    ``LINETO`` back to its origin plus a geometry-less ``CLOSEPOLY``. This
+    function only groups the vertices; closing-chord removal happens later in
+    inch space (see :func:`_remove_closing_chords`).
 
     Args:
-        line: A closed polyline (first point == last point) in inches.
+        text_path: A matplotlib :class:`TextPath` containing glyph outlines in
+            points (baseline at y=0, +y upward).
 
     Returns:
-        The reordered open stroke with the chord removed, or ``None`` if no
-        erroneous chord is found (i.e. a genuine loop like "o").
+        A list of numpy complex arrays. Each array is one raw contour including
+        its final closing chord back to the origin.
     """
-    n = len(line)
-    if n <= 2:
-        return None
+    contours: list[np.ndarray] = []
+    current: list[complex] = []
 
-    # Length of every segment in the closed loop.
-    segment_lengths = np.abs(np.diff(line))
-    longest_idx = int(np.argmax(segment_lengths))
-    longest_length = float(segment_lengths[longest_idx])
+    def _flush() -> None:
+        """Finalize and append the in-progress contour."""
+        nonlocal current
+        if not current:
+            return
+        contours.append(np.asarray(current, dtype=complex))
+        current = []
 
-    # A genuine loop's segments are all microscopic; only an erroneous chord is
-    # a massive jump, so leave genuine loops untouched.
-    if longest_length <= CHORD_THRESHOLD_INCHES:
-        return None
+    for vertex, code in text_path.iter_segments(simplify=False, curves=False):
+        c = int(code)
+        if c == MplPath.MOVETO:
+            _flush()
+            current = [complex(float(vertex[0]), float(vertex[1]))]
+        elif c in (MplPath.LINETO, MplPath.CURVE3, MplPath.CURVE4):
+            # curves=False flattens beziers into LINETOs; curve codes are
+            # handled defensively.
+            current.append(complex(float(vertex[0]), float(vertex[1])))
+        elif c == MplPath.CLOSEPOLY:
+            # CLOSEPOLY carries no geometry and the closing chord was already
+            # emitted as a LINETO; nothing to do here.
+            continue
 
-    # The chord connects point `longest_idx` to `longest_idx + 1`. Break the
-    # loop there: the true open stroke starts at `longest_idx + 1`, wraps around
-    # through the end of the array, and continues from index 0 up to (and
-    # including) `longest_idx`.
-    new_line = np.concatenate((line[longest_idx + 1 :], line[: longest_idx + 1]))
-    return new_line
+    _flush()
+    return contours
 
 
 def _remove_closing_chords(lc: vp.LineCollection) -> vp.LineCollection:
-    """Remove erroneous closing chords forced by the TrueType renderer.
+    """Remove erroneous closing chords from glyph outlines (in inches).
 
-    FreeType forces every glyph outline closed into a continuous loop. For open
-    single-line strokes (e.g. "C", "D") this adds an erroneous straight chord
-    from the stroke's true end back to its true start; genuinely closed loops
-    (like "o") only contain microscopic quantized steps.
-
-    Because the parser may rotate which node starts each array, the chord is not
-    always at the end. This scans every segment of each closed loop and breaks
-    it at its single longest segment when that exceeds a threshold, reordering
-    so the toolpath flows correctly from true start to true end.
+    Every contour ends with a ``LINETO`` back to its origin. For an open stroke
+    that final segment is the long, erroneous TrueType closing chord and must be
+    dropped; for a genuine closed loop it is microscopic and preserved.
 
     Args:
-        lc: The LineCollection of rendered glyph outlines in inches.
+        lc: A LineCollection of glyph outlines in inches (baseline at y=0).
 
     Returns:
         A new LineCollection with erroneous closing chords removed.
@@ -128,24 +133,20 @@ def _remove_closing_chords(lc: vp.LineCollection) -> vp.LineCollection:
     cleaned = vp.LineCollection()
     for line in lc:
         if len(line) > 2 and abs(line[0] - line[-1]) < 1e-5:
-            broken = _break_loop_at_chord(np.asarray(line))
-            if broken is not None:
-                cleaned.append(broken)
-                continue
-        cleaned.append(line)
+            last_seg = abs(line[-1] - line[-2])
+            if last_seg <= CHORD_THRESHOLD_INCHES:
+                # Genuine closed loop: keep the full contour.
+                cleaned.append(np.asarray(line))
+            else:
+                # Open stroke: drop the erroneous closing chord (the final
+                # LINETO back to origin).
+                cleaned.append(np.asarray(line[:-1]))
+        elif len(line) > 2 and abs(line[0] - line[-1]) >= 1e-5:
+            # Not closed; keep as-is.
+            cleaned.append(np.asarray(line))
+        else:
+            cleaned.append(np.asarray(line))
     return cleaned
-
-
-def _shell_quote(value: str) -> str:
-    """Shell-quote a string for safe embedding in a vpype pipeline command.
-
-    Args:
-        value: The raw string to quote.
-
-    Returns:
-        A shell-safe quoted form of ``value``.
-    """
-    return shlex.quote(value)
 
 
 def render_text_line_ftext(
@@ -155,8 +156,10 @@ def render_text_line_ftext(
 ) -> vp.LineCollection:
     """Render a single line of text with the Relief Single Line TTF font.
 
-    Uses the ``ftext`` plugin to rasterize glyph outlines, then normalizes
-    orientation and scale so that:
+    Uses matplotlib's :class:`TextPath` to access the raw TrueType drawing
+    instructions, then flattens curves and drops erroneous closing chords so
+    open strokes (e.g. "1", "4", "7") render correctly while genuine loops are
+    preserved. Normalizes orientation and scale so that:
 
     - Glyphs are upright in plotter convention (baseline at y=0, +y upward).
     - The total rendered bounds height equals ``target_height_inches``.
@@ -177,17 +180,21 @@ def render_text_line_ftext(
     resolved_font = font_path if font_path is not None else DEFAULT_FONT_PATH
 
     try:
-        pipeline = (
-            f"ftext -s {_FTEXT_RESOLUTION} {_shell_quote(str(resolved_font))} {_shell_quote(text)}"
-        )
-        doc = vpype_cli.execute(pipeline)
+        # 1024 points per em keeps the raw geometry high-resolution; it scales
+        # linearly with size so normalization below yields exact target height.
+        font_props = FontProperties(fname=str(resolved_font))
+        text_path = TextPath((0, 0), text, prop=font_props, size=_FTEXT_RESOLUTION)
     except Exception as exc:  # pragma: no cover - defensive
-        logger.error("ftext rendering failed for %r: %s", text, exc)
+        logger.error("matplotlib rendering failed for %r: %s", text, exc)
         return vp.LineCollection()
 
-    lc = doc.layers.get(1)
-    if lc is None or lc.is_empty():
+    contours = _split_contours(text_path)
+    if not contours:
         return vp.LineCollection()
+
+    lc = vp.LineCollection()
+    for contour in contours:
+        lc.append(contour)
 
     bounds = lc.bounds()
     if bounds is None:
@@ -196,13 +203,13 @@ def render_text_line_ftext(
     current_height = bounds[3] - bounds[1]
     scale = target_height_inches / current_height if current_height > 0 else 1.0
 
-    # ftext emits glyphs with a negative Y factor (downward from baseline).
-    # Flip the imaginary component and apply uniform scaling to produce
-    # upright geometry at exactly the requested height.
-    flipped = vp.LineCollection()
+    # matplotlib emits upright glyphs (baseline at y=0, +y up) in plotter
+    # convention. Apply uniform scaling to reach exactly the requested height.
+    scaled = vp.LineCollection()
     for line in lc:
-        flipped.append((line.real * scale) - 1j * (line.imag * scale))
+        scaled.append(line * scale)
 
     # Drop erroneous closing chords forced by TrueType's closed-path outlines,
-    # so open strokes like "C" don't get a straight connector back to their start.
-    return _remove_closing_chords(flipped)
+    # so open strokes like "1", "4", "7" don't get a straight connector back to
+    # their start, while genuine loops are preserved.
+    return _remove_closing_chords(scaled)
