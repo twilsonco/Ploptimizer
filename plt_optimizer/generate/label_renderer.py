@@ -207,6 +207,12 @@ def _export_to_plt_with_postprocessing(
     # Center text layer (pen 1) vertically within label bounds
     _center_text_layer_vertically(output_path, label)
 
+    # Invert Y-axis to device convention so rendered labels display upright.
+    # ftext emits glyphs in plotter convention (+y up), but the plotting /
+    # HPGL device convention uses +y downward. Without this flip the text is
+    # upside-down when visualized (see debug_visualize_text_only.py).
+    _flip_y_coordinates_in_plt(output_path)
+
 
 def _linecollection_to_hpgl(doc: vp.Document) -> str:
     """Convert vpype Document to raw HPGL commands.
@@ -486,6 +492,75 @@ def _center_text_layer_vertically(file_path: Path, label: ResolvedLabel) -> None
     modified_content = re.sub(pattern, replace_pen1_section, content, flags=re.DOTALL)
 
     file_path.write_text(modified_content, encoding="utf-8")
+
+
+def _flip_y_coordinates_in_plt(file_path: Path) -> None:
+    """Invert Y-axis coordinates to device (HPGL/display) convention.
+
+    ftext emits glyphs in plotter convention with +y pointing up from the
+    baseline. The plotting and HPGL device conventions use +y downward, so
+    without this flip rendered text appears upside-down when visualized.
+
+    Mirrors every Y coordinate across the vertical centerline of all content:
+        y_flipped = (min_y + max_y) - y
+
+    This keeps bounds non-negative after translation-to-origin and preserves
+    label height while correcting orientation. Applies uniformly to all pen
+    layers so text, borders, and holes stay aligned.
+
+    Args:
+        file_path: Path to the PLT file (after scaling/centering).
+    """
+    content = file_path.read_text(encoding="utf-8")
+
+    # Extract ALL coordinates across every layer.
+    pattern = r"(?:PA|PU|PD)([\d,\-]+)"
+    all_y: list[int] = []
+
+    for match in re.finditer(pattern, content):
+        coords_str = match.group(1)
+        parts = coords_str.split(",")
+        try:
+            for i in range(0, len(parts) - 1, 2):
+                y_val = int(parts[i + 1])
+                all_y.append(y_val)
+        except (ValueError, IndexError):
+            continue
+
+    if not all_y:
+        return
+
+    min_y = min(all_y)
+    max_y = max(all_y)
+
+    # Mirror across the vertical centerline.
+    def flip_coordinates(match: re.Match[str]) -> str:
+        """Flip Y coordinates within a PA/PU/PD command."""
+        cmd = match.group(1)
+        coords_str = match.group(2)
+        parts = coords_str.split(",")
+
+        try:
+            flipped_parts: list[str] = []
+            for i, part in enumerate(parts):
+                val = int(part)
+                if i % 2 == 0:  # x coordinate
+                    flipped_parts.append(str(val))
+                else:  # y coordinate - mirror across centerline
+                    flipped_val = (min_y + max_y) - val
+                    flipped_parts.append(str(int(round(flipped_val))))
+            return f"{cmd}{','.join(flipped_parts)}"
+        except (ValueError, IndexError):
+            return match.group(0)
+
+    coord_pattern = r"(PA|PU|PD)([\d,\-]+)"
+    modified_content = re.sub(coord_pattern, flip_coordinates, content)
+    file_path.write_text(modified_content, encoding="utf-8")
+
+    logger.debug(
+        f"_flip_y_coordinates_in_plt: {file_path.name} - "
+        f"mirrored Y across centerline (min_y={min_y}, max_y={max_y})"
+    )
 
 
 def _scale_coordinates_per_layer(file_path: Path, label: ResolvedLabel) -> None:

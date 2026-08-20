@@ -70,6 +70,12 @@ def visualize_text_only() -> None:
             plot_file = output_dir / f"{label.id}_text_only_plot.png"
             save_figure(fig, plot_file)
             print(f"  Text-only Plot: {plot_file}")
+
+            # Now plot and save a `simple_mode=True` plot
+            fig_simple = plot_plt_document(doc, simple_mode=True)
+            plot_file_simple = output_dir / f"{label.id}_text_only_plot_simple.png"
+            save_figure(fig_simple, plot_file_simple)
+            print(f"  Text-only Simple Plot: {plot_file_simple}")
         except Exception as e:
             print(f"  Plot error: {e}")
 
