@@ -30,14 +30,13 @@ logger = logging.getLogger(__name__)
 # Import pipeline components
 from plt_optimizer.core.parser import PLTParser
 from plt_optimizer.diagnostics.plotter import plot_plt_document
-from plt_optimizer.generate.layout import generate_layout
+from plt_optimizer.generate.layout import generate_layout, generate_layout_with_bounds
 from plt_optimizer.generate.resolution import (
     resolve_job_spec,
 )
 from plt_optimizer.generate.schema import parse_yaml
 from plt_optimizer.generate.vectorize import (
-    export_to_plt,
-    vectorize_plate,
+    assemble_plt_from_rendered_labels,
 )
 
 
@@ -226,15 +225,25 @@ def _extract_layer_from_plt_file(plt_file_path: Path, target_pen: int, output_pa
 # PHASE 3: OPTIMIZATION AND VISUALIZATION
 # ============================================================================
 def phase_3_vectorization_and_export(
-    packed_plates: list,
+    resolved_labels: list,
+    provided_plates: list | None = None,
 ) -> list[Path]:
-    """Phase 3: Vectorize and export to PLT files.
+    """Phase 3: Assemble and export PLT files using the clean Phase 3 pipeline.
 
-    Exports each layer (text, boundaries, holes) as separate PLT files
-    to allow independent tool/speed selection.
+    Renders each label independently via ``render_label_to_plt`` (which uses
+    the matplotlib TTF text renderer with a custom, lossless HPGL writer),
+    bin-packs labels onto plates using their rendered dimensions, then
+    assembles the per-label PLT content at packed positions. This avoids
+    vpype's ``write_hpgl`` page-fitting compression that otherwise crushes
+    small glyph geometry into repeated coordinates (unclean text).
+
+    Exports each layer (text, boundaries, holes) as separate PLT files to
+    allow independent tool/speed selection.
 
     Args:
-        packed_plates: List of packed plates from layout phase.
+        resolved_labels: List of fully resolved labels from the resolution step.
+        provided_plates: Optional list of PlateSpec objects. If None, uses a
+            default 24x16 plate (matching ``generate_layout`` behavior).
 
     Returns:
         List of exported PLT file paths.
@@ -253,6 +262,11 @@ def phase_3_vectorization_and_export(
 
     logger.info(f"Exporting to: {output_dir}")
 
+    # Phase 2 (bounds-aware): render each label and pack using rendered sizes.
+    packed_plates, rendered_labels_map = generate_layout_with_bounds(
+        resolved_labels, provided_plates
+    )
+
     exported_paths: list[Path] = []
     layer_names = {
         PEN_TEXT: "text",
@@ -261,13 +275,14 @@ def phase_3_vectorization_and_export(
     }
 
     for plate in packed_plates:
-        logger.info(f"Vectorizing plate {plate.plate_id}...")
-        doc = vectorize_plate(plate)
+        logger.info(f"Assembling PLT for plate {plate.plate_id}...")
+        # Assemble complete, lossless PLT from independently rendered labels.
+        plt_content = assemble_plt_from_rendered_labels(plate, rendered_labels_map)
 
         # Export full document as combined file (for compatibility)
         combined_path = output_dir / f"{plate.plate_id}_raw.plt"
         logger.info(f"Exporting combined PLT: {combined_path}")
-        export_to_plt(doc, combined_path, page_size=(plate.width, plate.height))
+        combined_path.write_text(plt_content)
         exported_paths.append(combined_path)
 
         # Export each layer separately
@@ -409,11 +424,13 @@ def main() -> int:
         # Phase 1: Data Preparation
         job_yaml, tools_json, inventory = phase_1_data_prep()
 
-        # Phase 2: Resolution and Layout
+        # Phase 2: Resolution and Layout (nominal-dimension packing for reporting)
         resolved_labels, packed_plates = phase_2_resolution_and_layout(job_yaml, inventory)
 
-        # Phase 3: Vectorization and Export
-        exported_paths = phase_3_vectorization_and_export(packed_plates)
+        # Phase 3: Vectorization and Export using the clean bounds-aware pipeline.
+        # Uses a default 24x16 plate (same as generate_layout) so all labels pack
+        # onto one sheet for comparison with the reference output.
+        exported_paths = phase_3_vectorization_and_export(resolved_labels)
 
         # Phase 3.5: Coordinate Validation
         phase_3_5_validate_coordinates(exported_paths)
