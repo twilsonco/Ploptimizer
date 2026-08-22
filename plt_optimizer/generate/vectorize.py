@@ -1232,9 +1232,15 @@ def export_and_optimize(
 ) -> list[Path]:
     """Export plates to PLT files and optionally run them through the optimizer.
 
-    This is the main entry point for Phase 3: it vectorizes each plate,
-    exports to PLT format (optionally as separate layer files), and then
-    runs the exported files through the PLT optimization utility to
+    This is the main entry point for Phase 3. Each label on every plate is
+    rendered independently via ``render_label_to_plt`` (which uses the
+    matplotlib TTF text renderer with a custom, lossless HPGL writer), then
+    assembled at its packed position with ``assemble_plt_from_rendered_labels``.
+    This avoids vpype's ``write_hpgl`` page-fitting compression that otherwise
+    crushes small glyph geometry into repeated coordinates (unclean text).
+
+    Output is written to PLT format (optionally as separate layer files), then
+    the exported files are run through the PLT optimization utility to
     deduplicate overlapping score lines and minimize tool-up travel distance.
 
     Args:
@@ -1248,33 +1254,48 @@ def export_and_optimize(
     Returns:
         A list of paths to the exported (and optionally optimized) PLT files.
     """
+    from plt_optimizer.generate.label_renderer import render_label_to_plt
+
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Render each unique label once and cache by ID. This uses the clean
+    # matplotlib TTF pipeline with a lossless HPGL writer (no vpype write_hpgl).
+    rendered_labels_map: dict[str, RenderedLabel] = {}
+    for plate in plates:
+        for packed_label in plate.labels:
+            label_id = packed_label.source_label.id
+            if label_id not in rendered_labels_map:
+                rendered_labels_map[label_id] = render_label_to_plt(packed_label.source_label)
+
+    layer_names = {
+        LAYER_TEXT: "text",
+        LAYER_BOUNDARY: "borders",
+        LAYER_HOLES: "holes",
+    }
 
     exported_paths: list[Path] = []
 
     for plate in plates:
-        doc = vectorize_plate(plate)
-        page_size = (plate.width, plate.height)
+        # Assemble complete, lossless PLT from independently rendered labels.
+        plt_content = assemble_plt_from_rendered_labels(plate, rendered_labels_map)
 
         if separate_layers:
-            # Export each layer separately
-            layer_names = {
-                LAYER_TEXT: "text",
-                LAYER_BOUNDARY: "borders",
-                LAYER_HOLES: "holes",
-            }
+            # Write all layers to a combined file, then split by pen.
+            combined_path = output_dir / f"{plate.plate_id}_raw.plt"
+            combined_path.write_text(plt_content)
+
             for layer_id, layer_name in layer_names.items():
-                if layer_id in doc.layers and not doc.layers[layer_id].is_empty():
-                    layer_doc = extract_layer(doc, layer_id)
+                layer_content = extract_layer_from_plt_text(plt_content, layer_id)
+                if len(layer_content) > 20:
+                    # Only write non-empty layers
                     output_path = output_dir / f"{plate.plate_id}_{layer_name}.plt"
-                    # Export layer with full post-processing to ensure coordinates are correct
-                    export_to_plt(layer_doc, output_path, page_size=page_size, postprocess=True)
+                    output_path.write_text(layer_content)
                     exported_paths.append(output_path)
         else:
             # Export all layers in a single file
             output_path = output_dir / f"{plate.plate_id}.plt"
-            export_to_plt(doc, output_path, page_size=page_size)
+            output_path.write_text(plt_content)
             exported_paths.append(output_path)
 
     if optimize:
