@@ -50,6 +50,11 @@ three criteria: best ``rapid_improvement_pct``, lowest ``time_ms``, and a
 combined quality/speed score (per-file min-max normalisation of both
 criteria, averaged with equal weight). Files with no successful non-baseline
 strategy are omitted from the winners reports.
+
+The summary table and all three winners CSVs additionally carry per-strategy
+runtime statistics aggregated across the whole batch: the slowest single-file
+runtime (``max_time_ms``) plus min/max/average runtime per path and per
+segment (``time_ms`` divided by ``before_paths`` / ``before_segments``).
 """
 
 from __future__ import annotations
@@ -858,6 +863,20 @@ _CRITERION_RAPID: str = "rapid_improvement"
 _CRITERION_TIME: str = "time"
 _CRITERION_COMBINED: str = "combined"
 
+# Per-strategy runtime statistics appended to every winners CSV (and shown
+# as extra columns in the stdout summary table). Values are aggregated over
+# all eligible (successful, non-baseline) rows for the strategy across the
+# whole batch, then stamped onto each row the strategy won.
+_TIMING_STAT_COLUMNS: List[str] = [
+    "max_time_ms",
+    "min_ms_per_path",
+    "max_ms_per_path",
+    "avg_ms_per_path",
+    "min_ms_per_segment",
+    "max_ms_per_segment",
+    "avg_ms_per_segment",
+]
+
 
 def _read_report_rows(report_path: Path) -> List[Dict[str, str]]:
     """Read every row of a benchmark ``report.csv`` as string dicts.
@@ -1046,19 +1065,136 @@ def _select_combined_winner(rows: List[Dict[str, str]]) -> Tuple[Dict[str, str],
     return rows[ranked], scores[ranked]
 
 
-def _print_winner_summary(win_counts: Dict[str, Dict[str, int]]) -> None:
-    """Print the per-strategy win-count table to stdout.
+def _ratio_stats(
+    rows: List[Dict[str, str]],
+    denominator_column: str,
+) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+    """Compute min/max/average of ``time_ms`` divided by ``denominator_column``.
+
+    Rows whose denominator is missing, zero or negative are skipped — they
+    would divide by zero or yield meaningless ratios (e.g. legacy rows
+    written before the ``before_*`` columns were populated).
+
+    Args:
+        rows: Successful rows for a single strategy across the batch.
+        denominator_column: Column holding the per-file workload size
+            (``before_paths`` or ``before_segments``).
+
+    Returns:
+        ``(min, max, avg)`` in milliseconds per unit, or
+        ``(None, None, None)`` when no row has a usable denominator.
+    """
+    ratios: List[float] = []
+    for row in rows:
+        denominator = _report_float(row, denominator_column)
+        if denominator <= 0.0:
+            continue
+        ratios.append(_report_float(row, "time_ms") / denominator)
+    if not ratios:
+        return None, None, None
+    return min(ratios), max(ratios), sum(ratios) / len(ratios)
+
+
+def _round_or_none(value: Optional[float], digits: int) -> Optional[float]:
+    """Round ``value`` to ``digits`` decimal places, passing ``None`` through.
+
+    Args:
+        value: Value to round, or ``None``.
+        digits: Number of decimal places.
+
+    Returns:
+        The rounded value, or ``None``.
+    """
+    return None if value is None else round(value, digits)
+
+
+def _compute_timing_stats(
+    grouped: List[Tuple[str, List[Dict[str, str]]]],
+) -> Dict[str, Dict[str, Any]]:
+    """Aggregate per-strategy runtime statistics across the whole batch.
+
+    For every strategy observed in the eligible rows, computes the slowest
+    single-file runtime plus min/max/average runtime per path and per
+    segment. These describe each strategy's cost profile independently of
+    which files it won, and are stamped onto every winners row the strategy
+    claimed as well as printed in the stdout summary table.
+
+    Args:
+        grouped: Per-file eligible rows from
+            :func:`_group_eligible_rows_by_file`.
+
+    Returns:
+        Mapping of ``strategy_name -> {column: value}`` for every column in
+        :data:`_TIMING_STAT_COLUMNS`. Values are rounded floats, or ``None``
+        when no row had a usable path/segment denominator.
+    """
+    rows_by_strategy: Dict[str, List[Dict[str, str]]] = {}
+    for _file_name, file_rows in grouped:
+        for row in file_rows:
+            strategy = str(row.get("strategy_name") or "")
+            rows_by_strategy.setdefault(strategy, []).append(row)
+
+    stats: Dict[str, Dict[str, Any]] = {}
+    for strategy, strategy_rows in rows_by_strategy.items():
+        times = [_report_float(row, "time_ms") for row in strategy_rows]
+        path_min, path_max, path_avg = _ratio_stats(strategy_rows, "before_paths")
+        seg_min, seg_max, seg_avg = _ratio_stats(strategy_rows, "before_segments")
+        stats[strategy] = {
+            "max_time_ms": round(max(times), 2) if times else None,
+            "min_ms_per_path": _round_or_none(path_min, 6),
+            "max_ms_per_path": _round_or_none(path_max, 6),
+            "avg_ms_per_path": _round_or_none(path_avg, 6),
+            "min_ms_per_segment": _round_or_none(seg_min, 6),
+            "max_ms_per_segment": _round_or_none(seg_max, 6),
+            "avg_ms_per_segment": _round_or_none(seg_avg, 6),
+        }
+    return stats
+
+
+def _format_stat_number(value: Optional[float]) -> str:
+    """Render an optional statistic compactly for the stdout table.
+
+    Args:
+        value: Statistic to render, or ``None`` when unavailable.
+
+    Returns:
+        ``"n/a"`` for ``None``, otherwise the value in up to six
+        significant digits with trailing zeros stripped.
+    """
+    return "n/a" if value is None else f"{value:.6g}"
+
+
+def _print_winner_summary(
+    win_counts: Dict[str, Dict[str, int]],
+    timing_stats: Dict[str, Dict[str, Any]],
+) -> None:
+    """Print the per-strategy win-count and runtime-statistics table.
 
     Args:
         win_counts: Mapping of ``strategy_name -> {criterion_key: wins}``
             covering every strategy observed in eligible rows.
+        timing_stats: Per-strategy runtime statistics from
+            :func:`_compute_timing_stats`; missing strategies render as
+            ``n/a`` / blank cells.
     """
-    headers = ("strategy", "rapid_improvement_wins", "runtime_wins", "combined_wins")
     criterion_order = (_CRITERION_RAPID, _CRITERION_TIME, _CRITERION_COMBINED)
-    table_rows = [headers] + [
-        (strategy,) + tuple(str(counts.get(criterion, 0)) for criterion in criterion_order)
-        for strategy, counts in win_counts.items()
-    ]
+    headers = (
+        "strategy",
+        "rapid_improvement_wins",
+        "runtime_wins",
+        "combined_wins",
+        *_TIMING_STAT_COLUMNS,
+    )
+    table_rows = [headers]
+    for strategy, counts in win_counts.items():
+        stats = timing_stats.get(strategy, {})
+        table_rows.append(
+            (
+                strategy,
+                *(str(counts.get(criterion, 0)) for criterion in criterion_order),
+                *(_format_stat_number(stats.get(column)) for column in _TIMING_STAT_COLUMNS),
+            )
+        )
     widths = [max(len(row[col]) for row in table_rows) for col in range(len(headers))]
     separator = "  "
 
@@ -1086,10 +1222,13 @@ def analyze_report_winners(report_path: Path) -> Dict[str, Dict[str, int]]:
     Three winners CSVs are written next to ``report.csv``, named after its
     stem (e.g. ``report_rapid_improvement_winners.csv`` for ``report.csv``).
     The rapid and time CSVs reuse :data:`CSV_COLUMNS` and contain the full
-    winning row; the combined CSV appends a ``combined_score`` column.
+    winning row; the combined CSV appends a ``combined_score`` column. All
+    three additionally append :data:`_TIMING_STAT_COLUMNS` — per-strategy
+    runtime statistics (slowest run, min/max/avg ms per path and per
+    segment) aggregated over the whole batch for the winning strategy.
     Files without any eligible winner are omitted from all three CSVs.
 
-    Finally, a win-count summary table (strategy x criterion) is printed to
+    Finally, a win-count + runtime-statistics summary table is printed to
     stdout.
 
     Args:
@@ -1106,6 +1245,7 @@ def analyze_report_winners(report_path: Path) -> Dict[str, Dict[str, int]]:
     """
     rows = _read_report_rows(report_path)
     grouped = _group_eligible_rows_by_file(rows)
+    timing_stats = _compute_timing_stats(grouped)
 
     rapid_winners: List[Dict[str, Any]] = []
     time_winners: List[Dict[str, Any]] = []
@@ -1127,15 +1267,31 @@ def analyze_report_winners(report_path: Path) -> Dict[str, Dict[str, int]]:
     def _tally(strategy_name: str, criterion: str) -> None:
         _register(strategy_name)[criterion] += 1
 
+    def _stamp_timing(winner_row: Dict[str, Any], winner: Dict[str, str]) -> None:
+        """Attach the winning strategy's batch-wide timing stats to a row.
+
+        ``None`` statistics (unavailable ratios) become empty cells so the
+        CSV never contains a literal ``None``.
+        """
+        stats = timing_stats.get(str(winner.get("strategy_name") or ""), {})
+        winner_row.update({key: ("" if value is None else value) for key, value in stats.items()})
+
     for _file_name, file_rows in grouped:
         rapid_winner = _select_rapid_winner(file_rows)
         time_winner = _select_time_winner(file_rows)
         combined_winner, combined_score = _select_combined_winner(file_rows)
 
-        rapid_winners.append(dict(rapid_winner))
-        time_winners.append(dict(time_winner))
+        rapid_row: Dict[str, Any] = dict(rapid_winner)
+        _stamp_timing(rapid_row, rapid_winner)
+        rapid_winners.append(rapid_row)
+
+        time_row: Dict[str, Any] = dict(time_winner)
+        _stamp_timing(time_row, time_winner)
+        time_winners.append(time_row)
+
         combined_row: Dict[str, Any] = dict(combined_winner)
         combined_row["combined_score"] = round(combined_score, 4)
+        _stamp_timing(combined_row, combined_winner)
         combined_winners.append(combined_row)
 
         _tally(str(rapid_winner.get("strategy_name") or ""), _CRITERION_RAPID)
@@ -1144,12 +1300,15 @@ def analyze_report_winners(report_path: Path) -> Dict[str, Dict[str, int]]:
 
     stem = report_path.stem
     output_dir = report_path.parent
-    write_report(rapid_winners, output_dir / f"{stem}_{_CRITERION_RAPID}_winners.csv", CSV_COLUMNS)
-    write_report(time_winners, output_dir / f"{stem}_{_CRITERION_TIME}_winners.csv", CSV_COLUMNS)
+    timing_fields = [*CSV_COLUMNS, *_TIMING_STAT_COLUMNS]
+    write_report(
+        rapid_winners, output_dir / f"{stem}_{_CRITERION_RAPID}_winners.csv", timing_fields
+    )
+    write_report(time_winners, output_dir / f"{stem}_{_CRITERION_TIME}_winners.csv", timing_fields)
     write_report(
         combined_winners,
         output_dir / f"{stem}_{_CRITERION_COMBINED}_winners.csv",
-        [*CSV_COLUMNS, "combined_score"],
+        [*CSV_COLUMNS, "combined_score", *_TIMING_STAT_COLUMNS],
     )
 
     print()
@@ -1157,7 +1316,7 @@ def analyze_report_winners(report_path: Path) -> Dict[str, Dict[str, int]]:
     print("STRATEGY WINNER SUMMARY (per-file wins, excluding no-opt)")
     print(f"  Files with winners: {len(grouped)}")
     if win_counts:
-        _print_winner_summary(win_counts)
+        _print_winner_summary(win_counts, timing_stats)
     else:
         print("  No successful non-baseline strategies found; winners CSVs not written.")
     return win_counts
