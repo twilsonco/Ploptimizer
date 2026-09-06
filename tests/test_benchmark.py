@@ -1068,6 +1068,7 @@ class TestAnalyzeReportWinners:
 
         assert win_counts == {}
         assert not (tmp_path / "report_rapid_improvement_winners.csv").exists()
+        assert not (tmp_path / "report_winner_summary.csv").exists()
         out = capsys.readouterr().out
         assert "No successful non-baseline strategies found" in out
 
@@ -1094,6 +1095,56 @@ class TestAnalyzeReportWinners:
         nn_line = next(line for line in table.splitlines() if line.startswith("nn2opt"))
         assert sa_line.split() == ["sa", "1", "0", "0", "800", *(["n/a"] * 6)]
         assert nn_line.split() == ["nn2opt", "0", "1", "1", "5", *(["n/a"] * 6)]
+
+    def test_writes_summary_csv_matching_stdout_table(self, tmp_path: Path, capsys: Any) -> None:
+        """The summary CSV must mirror the printed win-count table exactly."""
+        report = _write_report_csv(
+            tmp_path / "report.csv",
+            [
+                _rapid_row("a.plt", "nn2opt", rapid_pct=30.0, time_ms=5.0, paths=5.0),
+                _rapid_row("a.plt", "sa", rapid_pct=45.0, time_ms=800.0, paths=10.0),
+            ],
+        )
+        analyze_report_winners(report)
+
+        rows = _read_csv(tmp_path / "report_winner_summary.csv")
+        assert [r["strategy"] for r in rows] == ["nn2opt", "sa"]
+        nn, sa = rows
+        # sa wins rapid; nn2opt wins time, and the combined tie (both 0.5)
+        # breaks to the faster strategy, nn2opt.
+        assert (nn["rapid_improvement_wins"], nn["runtime_wins"], nn["combined_wins"]) == (
+            "0",
+            "1",
+            "1",
+        )
+        assert (sa["rapid_improvement_wins"], sa["runtime_wins"], sa["combined_wins"]) == (
+            "1",
+            "0",
+            "0",
+        )
+        # Timing stats use the same compact rendering as the stdout table.
+        assert nn["max_time_ms"] == "5"
+        assert nn["min_ms_per_path"] == nn["max_ms_per_path"] == nn["avg_ms_per_path"] == "1"
+        assert sa["max_time_ms"] == "800"
+        assert sa["avg_ms_per_path"] == "80"
+        # No before_segments in the fixture -> n/a, identical to the table.
+        assert nn["min_ms_per_segment"] == "n/a"
+        out = capsys.readouterr().out
+        table = out.split("STRATEGY WINNER SUMMARY", 1)[1]
+        nn_line = next(line for line in table.splitlines() if line.startswith("nn2opt"))
+        assert nn_line.split() == [
+            "nn2opt",
+            "0",
+            "1",
+            "1",
+            nn["max_time_ms"],
+            nn["min_ms_per_path"],
+            nn["max_ms_per_path"],
+            nn["avg_ms_per_path"],
+            nn["min_ms_per_segment"],
+            nn["max_ms_per_segment"],
+            nn["avg_ms_per_segment"],
+        ]
 
     def test_win_counts_sum_to_file_count(self, tmp_path: Path) -> None:
         """Each criterion's wins must total the number of files with winners."""
@@ -1122,6 +1173,7 @@ class TestAnalyzeReportWinners:
         assert (tmp_path / "myrun_rapid_improvement_winners.csv").exists()
         assert (tmp_path / "myrun_time_winners.csv").exists()
         assert (tmp_path / "myrun_combined_winners.csv").exists()
+        assert (tmp_path / "myrun_winner_summary.csv").exists()
 
     def test_winners_csvs_carry_timing_stat_columns(self, tmp_path: Path) -> None:
         """Every winners CSV must append the per-strategy timing statistics.
@@ -1317,6 +1369,7 @@ class TestMain:
         assert (tmp_path / "report_rapid_improvement_winners.csv").exists()
         assert (tmp_path / "report_time_winners.csv").exists()
         assert (tmp_path / "report_combined_winners.csv").exists()
+        assert (tmp_path / "report_winner_summary.csv").exists()
         out = capsys.readouterr().out
         assert "STRATEGY WINNER SUMMARY" in out
 

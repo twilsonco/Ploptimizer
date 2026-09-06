@@ -34,6 +34,7 @@ Output structure:
         report_rapid_improvement_winners.csv  # Per-file best rapid improvement
         report_time_winners.csv      # Per-file fastest strategy
         report_combined_winners.csv  # Per-file best quality/speed balance
+        report_winner_summary.csv    # Per-strategy win counts + timing stats
         optimized/<strategy>/        # Optimized PLT files, one folder per strategy
         plots/                       # Before + after plots per file/strategy
 
@@ -48,11 +49,12 @@ defined in :data:`CSV_COLUMNS`.
 
 After both reports are written, :func:`analyze_report_winners` re-reads
 ``report.csv`` and produces the three winners CSVs plus a stdout summary
-table counting per-strategy wins across the batch. Winners are selected per
-file among successful strategies excluding the ``no-opt`` baseline, under
-three criteria: best ``rapid_improvement_pct``, lowest ``time_ms``, and a
-combined quality/speed score (per-file min-max normalisation of both
-criteria, averaged with equal weight). Files with no successful non-baseline
+table (mirrored to ``<stem>_winner_summary.csv``) counting per-strategy
+wins across the batch. Winners are selected per file among successful
+strategies excluding the ``no-opt`` baseline, under three criteria: best
+``rapid_improvement_pct``, lowest ``time_ms``, and a combined
+quality/speed score (per-file min-max normalisation of both criteria,
+averaged with equal weight). Files with no successful non-baseline
 strategy are omitted from the winners reports.
 
 The summary table and all three winners CSVs additionally carry per-strategy
@@ -881,6 +883,16 @@ _TIMING_STAT_COLUMNS: List[str] = [
     "avg_ms_per_segment",
 ]
 
+# Column order of the stdout win-count table, also written verbatim to a
+# summary CSV so the printed table can be loaded/spreadsheeted later.
+_WINNER_SUMMARY_COLUMNS: List[str] = [
+    "strategy",
+    "rapid_improvement_wins",
+    "runtime_wins",
+    "combined_wins",
+    *_TIMING_STAT_COLUMNS,
+]
+
 
 def _read_report_rows(report_path: Path) -> List[Dict[str, str]]:
     """Read every row of a benchmark ``report.csv`` as string dicts.
@@ -1168,6 +1180,49 @@ def _format_stat_number(value: Optional[float]) -> str:
     return "n/a" if value is None else f"{value:.6g}"
 
 
+def _winner_summary_rows(
+    win_counts: Dict[str, Dict[str, int]],
+    timing_stats: Dict[str, Dict[str, Any]],
+) -> List[Dict[str, str]]:
+    """Build the per-strategy summary table rows (stdout + CSV shared).
+
+    Values are pre-formatted strings so the printed table and the written
+    CSV carry identical content; unavailable statistics render as ``n/a``.
+
+    Args:
+        win_counts: Mapping of ``strategy_name -> {criterion_key: wins}``
+            covering every strategy observed in eligible rows.
+        timing_stats: Per-strategy runtime statistics from
+            :func:`_compute_timing_stats`; missing strategies render as
+            ``n/a``.
+
+    Returns:
+        One dict per strategy keyed by :data:`_WINNER_SUMMARY_COLUMNS`.
+    """
+    criterion_columns = {
+        _CRITERION_RAPID: "rapid_improvement_wins",
+        _CRITERION_TIME: "runtime_wins",
+        _CRITERION_COMBINED: "combined_wins",
+    }
+    rows: List[Dict[str, str]] = []
+    for strategy, counts in win_counts.items():
+        stats = timing_stats.get(strategy, {})
+        rows.append(
+            {
+                "strategy": strategy,
+                **{
+                    criterion_columns[criterion]: str(counts.get(criterion, 0))
+                    for criterion in criterion_columns
+                },
+                **{
+                    column: _format_stat_number(stats.get(column))
+                    for column in _TIMING_STAT_COLUMNS
+                },
+            }
+        )
+    return rows
+
+
 def _print_winner_summary(
     win_counts: Dict[str, Dict[str, int]],
     timing_stats: Dict[str, Dict[str, Any]],
@@ -1181,24 +1236,9 @@ def _print_winner_summary(
             :func:`_compute_timing_stats`; missing strategies render as
             ``n/a`` / blank cells.
     """
-    criterion_order = (_CRITERION_RAPID, _CRITERION_TIME, _CRITERION_COMBINED)
-    headers = (
-        "strategy",
-        "rapid_improvement_wins",
-        "runtime_wins",
-        "combined_wins",
-        *_TIMING_STAT_COLUMNS,
-    )
-    table_rows = [headers]
-    for strategy, counts in win_counts.items():
-        stats = timing_stats.get(strategy, {})
-        table_rows.append(
-            (
-                strategy,
-                *(str(counts.get(criterion, 0)) for criterion in criterion_order),
-                *(_format_stat_number(stats.get(column)) for column in _TIMING_STAT_COLUMNS),
-            )
-        )
+    rows = _winner_summary_rows(win_counts, timing_stats)
+    headers = tuple(_WINNER_SUMMARY_COLUMNS)
+    table_rows = [headers] + [tuple(row[column] for column in headers) for row in rows]
     widths = [max(len(row[col]) for row in table_rows) for col in range(len(headers))]
     separator = "  "
 
@@ -1233,7 +1273,8 @@ def analyze_report_winners(report_path: Path) -> Dict[str, Dict[str, int]]:
     Files without any eligible winner are omitted from all three CSVs.
 
     Finally, a win-count + runtime-statistics summary table is printed to
-    stdout.
+    stdout and mirrored to ``<stem>_winner_summary.csv`` (one row per
+    strategy, columns in :data:`_WINNER_SUMMARY_COLUMNS`).
 
     Args:
         report_path: Path to a ``report.csv`` produced by :func:`main`.
@@ -1313,6 +1354,14 @@ def analyze_report_winners(report_path: Path) -> Dict[str, Dict[str, int]]:
         combined_winners,
         output_dir / f"{stem}_{_CRITERION_COMBINED}_winners.csv",
         [*CSV_COLUMNS, "combined_score", *_TIMING_STAT_COLUMNS],
+    )
+    # Mirror the stdout summary table to disk so it can be loaded later.
+    # write_report() is a no-op when no strategy won, matching the printed
+    # "winners CSVs not written" notice.
+    write_report(
+        _winner_summary_rows(win_counts, timing_stats),
+        output_dir / f"{stem}_winner_summary.csv",
+        _WINNER_SUMMARY_COLUMNS,
     )
 
     print()

@@ -69,6 +69,7 @@ directory, containing:
 ├── report_rapid_improvement_winners.csv    # Per-file best rapid improvement
 ├── report_time_winners.csv                 # Per-file fastest strategy
 ├── report_combined_winners.csv             # Per-file best quality/speed balance
+├── report_winner_summary.csv               # Per-strategy win counts + runtime stats (mirrors stdout table)
 ├── optimized/
 │   ├── nn2opt/                             # Optimized PLT files per strategy
 │   ├── insertion/
@@ -85,7 +86,7 @@ directory, containing:
   - **time winners** — lowest `time_ms`
   - **combined winners** — highest blend of both: each criterion is min-max normalised to [0, 1] within the file, then averaged with equal weight (the extra `combined_score` column holds the score). Ties resolve to the faster strategy.
 - All three winners CSVs (and the stdout table) additionally append per-strategy runtime statistics, aggregated across the whole batch for the winning strategy: `max_time_ms` (slowest single-file run) plus min/max/average runtime per path (`min_ms_per_path`, `max_ms_per_path`, `avg_ms_per_path`) and per segment (`min_ms_per_segment`, `max_ms_per_segment`, `avg_ms_per_segment`). Ratio columns are blank when a report predates the `before_paths`/`before_segments` columns.
-- A win-count + runtime-statistics summary table (strategy × criterion) is printed to stdout at the end of the run.
+- A win-count + runtime-statistics summary table (strategy × criterion) is printed to stdout at the end of the run, and the same table is written to `report_winner_summary.csv` (one row per strategy: `strategy`, `rapid_improvement_wins`, `runtime_wins`, `combined_wins`, plus the seven runtime-statistic columns; unavailable ratios appear as `n/a`).
 
 ## Installation
 
