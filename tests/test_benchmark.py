@@ -24,14 +24,22 @@ from plt_optimizer.cli.benchmark import (
     FileResult,
     ReportWriter,
     _build_csv_columns,
+    _combined_scores,
     _empty_row,
+    _group_eligible_rows_by_file,
     _log_metrics_from_row,
     _populate_metrics,
     _process_file_worker,
+    _read_report_rows,
+    _report_float,
     _save_plot,
+    _select_combined_winner,
     _select_ensemble_winner,
+    _select_rapid_winner,
+    _select_time_winner,
     _strip_private_keys,
     _summarize_file_result,
+    analyze_report_winners,
     build_ensemble_rows,
     build_output_directory,
     find_plt_files,
@@ -712,6 +720,340 @@ class TestWriteReport:
 
 
 # ---------------------------------------------------------------------------
+# Winner analysis post-processing (analyze_report_winners and helpers)
+# ---------------------------------------------------------------------------
+
+
+class TestReadReportRows:
+    """Tests for the report.csv reader."""
+
+    def test_reads_rows_in_order(self, tmp_path: Path) -> None:
+        """Rows must come back in on-disk order keyed by header names."""
+        target = tmp_path / "report.csv"
+        write_report(
+            [_row("a.plt", "nn2opt", "success"), _row("b.plt", "sa", "failed")],
+            target,
+            CSV_COLUMNS,
+        )
+        rows = _read_report_rows(target)
+        assert [r["file_name"] for r in rows] == ["a.plt", "b.plt"]
+
+    def test_missing_file_raises(self, tmp_path: Path) -> None:
+        """A missing report must raise FileNotFoundError."""
+        with pytest.raises(FileNotFoundError):
+            _read_report_rows(tmp_path / "nope.csv")
+
+
+class TestReportFloat:
+    """Tests for the lenient numeric-cell coercion helper."""
+
+    def test_valid_number(self) -> None:
+        """A normal numeric cell parses to float."""
+        assert _report_float({"time_ms": "12.5"}, "time_ms") == 12.5
+
+    def test_empty_string_is_zero(self) -> None:
+        """An empty cell (failed strategy) coerces to 0.0."""
+        assert _report_float({"time_ms": ""}, "time_ms") == 0.0
+
+    def test_missing_column_is_zero(self) -> None:
+        """A missing column coerces to 0.0."""
+        assert _report_float({}, "rapid_improvement_pct") == 0.0
+
+    def test_junk_value_is_zero(self) -> None:
+        """A non-numeric cell must not raise; it coerces to 0.0."""
+        assert _report_float({"time_ms": "n/a"}, "time_ms") == 0.0
+
+
+class TestGroupEligibleRowsByFile:
+    """Tests for the per-file eligibility grouping used by winners reports."""
+
+    def test_excludes_no_opt_and_failures(self) -> None:
+        """no-opt rows, failed rows and sentinels are never eligible."""
+        rows = [
+            _row("a.plt", "no-opt", "success"),
+            _row("a.plt", "nn2opt", "success"),
+            _row("a.plt", "sa", "failed"),
+            _row("a.plt", _FILE_LEVEL_SENTINEL, "parse_failed"),
+        ]
+        grouped = _group_eligible_rows_by_file(rows)
+        assert len(grouped) == 1
+        assert grouped[0][0] == "a.plt"
+        assert [r["strategy_name"] for r in grouped[0][1]] == ["nn2opt"]
+
+    def test_preserves_file_order_and_omits_empty(self) -> None:
+        """Files keep first-appearance order; all-failed files are omitted."""
+        rows = [
+            _row("b.plt", "nn2opt", "success"),
+            _row("a.plt", "sa", "failed"),
+            _row("b.plt", "sa", "success"),
+            _row("c.plt", "nn2opt", "success"),
+        ]
+        grouped = _group_eligible_rows_by_file(rows)
+        assert [name for name, _ in grouped] == ["b.plt", "c.plt"]
+        assert [r["strategy_name"] for r in grouped[0][1]] == ["nn2opt", "sa"]
+
+
+class TestCombinedScores:
+    """Tests for the min-max normalised quality/speed blend."""
+
+    def test_best_on_both_criteria_scores_one(self) -> None:
+        """The row that is both fastest and most improved must score 1.0."""
+        rows = [
+            _rapid_row("a.plt", "fast", rapid_pct=50.0, time_ms=10.0),
+            _rapid_row("a.plt", "slow", rapid_pct=10.0, time_ms=1000.0),
+        ]
+        scores = _combined_scores(rows)
+        assert scores[0] == pytest.approx(1.0)
+        assert scores[1] == pytest.approx(0.0)
+
+    def test_perfect_tradeoff_ties(self) -> None:
+        """A perfect quality/speed tradeoff must produce equal scores."""
+        rows = [
+            _rapid_row("a.plt", "quality", rapid_pct=60.0, time_ms=900.0),
+            _rapid_row("a.plt", "speed", rapid_pct=10.0, time_ms=10.0),
+        ]
+        scores = _combined_scores(rows)
+        assert scores[0] == pytest.approx(scores[1])
+
+    def test_zero_spread_scores_one(self) -> None:
+        """Exact ties on both criteria give every row a score of 1.0."""
+        rows = [
+            _rapid_row("a.plt", "x", rapid_pct=20.0, time_ms=5.0),
+            _rapid_row("a.plt", "y", rapid_pct=20.0, time_ms=5.0),
+        ]
+        assert _combined_scores(rows) == [1.0, 1.0]
+
+    def test_single_row_scores_one(self) -> None:
+        """A lone successful strategy is its own winner with score 1.0."""
+        rows = [_rapid_row("a.plt", "solo", rapid_pct=-3.0, time_ms=7.0)]
+        assert _combined_scores(rows) == [1.0]
+
+    def test_negative_improvements_are_normalised(self) -> None:
+        """Negative improvements must not break the [0, 1] scaling."""
+        rows = [
+            _rapid_row("a.plt", "less_bad", rapid_pct=-1.0, time_ms=10.0),
+            _rapid_row("a.plt", "worse", rapid_pct=-50.0, time_ms=20.0),
+        ]
+        scores = _combined_scores(rows)
+        assert scores[0] == pytest.approx(1.0)
+        assert scores[1] == pytest.approx(0.0)
+
+
+class TestWinnerSelectors:
+    """Tests for the three per-file winner selectors."""
+
+    def test_rapid_winner_prefers_improvement(self) -> None:
+        """Highest rapid_improvement_pct wins the rapid criterion."""
+        rows = [
+            _rapid_row("a.plt", "slow_but_good", rapid_pct=40.0, time_ms=900.0),
+            _rapid_row("a.plt", "fast_but_weak", rapid_pct=5.0, time_ms=1.0),
+        ]
+        assert _select_rapid_winner(rows)["strategy_name"] == "slow_but_good"
+
+    def test_rapid_winner_ties_break_on_time(self) -> None:
+        """Equal improvements resolve to the faster strategy."""
+        rows = [
+            _rapid_row("a.plt", "slow", rapid_pct=30.0, time_ms=900.0),
+            _rapid_row("a.plt", "fast", rapid_pct=30.0, time_ms=2.0),
+        ]
+        assert _select_rapid_winner(rows)["strategy_name"] == "fast"
+
+    def test_rapid_winner_ties_break_on_name(self) -> None:
+        """Full ties resolve alphabetically for determinism."""
+        rows = [
+            _rapid_row("a.plt", "zzz", rapid_pct=30.0, time_ms=5.0),
+            _rapid_row("a.plt", "aaa", rapid_pct=30.0, time_ms=5.0),
+        ]
+        assert _select_rapid_winner(rows)["strategy_name"] == "aaa"
+
+    def test_time_winner_prefers_speed(self) -> None:
+        """Lowest time_ms wins the runtime criterion."""
+        rows = [
+            _rapid_row("a.plt", "slow", rapid_pct=90.0, time_ms=5000.0),
+            _rapid_row("a.plt", "fast", rapid_pct=1.0, time_ms=3.0),
+        ]
+        assert _select_time_winner(rows)["strategy_name"] == "fast"
+
+    def test_time_winner_ties_break_on_improvement(self) -> None:
+        """Equal runtimes resolve to the more-improved strategy."""
+        rows = [
+            _rapid_row("a.plt", "weak", rapid_pct=2.0, time_ms=4.0),
+            _rapid_row("a.plt", "strong", rapid_pct=50.0, time_ms=4.0),
+        ]
+        assert _select_time_winner(rows)["strategy_name"] == "strong"
+
+    def test_empty_time_ms_treated_as_zero(self) -> None:
+        """A blank time cell must not raise and sorts as fastest."""
+        rows = [
+            _rapid_row("a.plt", "timed", rapid_pct=10.0, time_ms=5.0),
+            _rapid_row("a.plt", "blank", rapid_pct=10.0, time_ms=0.0),
+        ]
+        rows[1]["time_ms"] = ""
+        assert _select_time_winner(rows)["strategy_name"] == "blank"
+
+    def test_combined_winner_returns_row_and_score(self) -> None:
+        """The combined selector returns the winner plus its score."""
+        rows = [
+            _rapid_row("a.plt", "balanced", rapid_pct=55.0, time_ms=100.0),
+            _rapid_row("a.plt", "extreme", rapid_pct=60.0, time_ms=9000.0),
+        ]
+        winner, score = _select_combined_winner(rows)
+        assert winner["strategy_name"] == "balanced"
+        assert 0.0 <= score <= 1.0
+
+
+class TestAnalyzeReportWinners:
+    """End-to-end tests for the winners post-processing entry point."""
+
+    def test_writes_three_csvs_with_winners(self, tmp_path: Path) -> None:
+        """Each criterion CSV must contain the per-file winning rows."""
+        report = _write_report_csv(
+            tmp_path / "report.csv",
+            [
+                _rapid_row("a.plt", "no-opt", rapid_pct=0.0, time_ms=0.1),
+                _rapid_row("a.plt", "nn2opt", rapid_pct=30.0, time_ms=5.0),
+                _rapid_row("a.plt", "christofides", rapid_pct=45.0, time_ms=800.0),
+                _rapid_row("a.plt", "insertion", rapid_pct=50.0, time_ms=20.0),
+                _rapid_row("b.plt", "nn2opt", rapid_pct=10.0, time_ms=900.0),
+                _rapid_row("b.plt", "sa", rapid_pct=12.0, time_ms=4000.0),
+            ],
+        )
+
+        win_counts = analyze_report_winners(report)
+
+        rapid_rows = _read_csv(tmp_path / "report_rapid_improvement_winners.csv")
+        time_rows = _read_csv(tmp_path / "report_time_winners.csv")
+        combined_rows = _read_csv(tmp_path / "report_combined_winners.csv")
+
+        assert [(r["file_name"], r["strategy_name"]) for r in rapid_rows] == [
+            ("a.plt", "insertion"),
+            ("b.plt", "sa"),
+        ]
+        assert [(r["file_name"], r["strategy_name"]) for r in time_rows] == [
+            ("a.plt", "nn2opt"),
+            ("b.plt", "nn2opt"),
+        ]
+        # a.plt: insertion nearly tops both normalised criteria (best
+        # improvement, second-fastest) -> combined winner. b.plt: sa beats
+        # nn2opt on improvement but loses on time, so the 0.5/0.5 tie
+        # resolves to the faster nn2opt.
+        assert [(r["file_name"], r["strategy_name"]) for r in combined_rows] == [
+            ("a.plt", "insertion"),
+            ("b.plt", "nn2opt"),
+        ]
+        # Combined CSV carries the extra score column; others do not.
+        # insertion: 0.5 * 1.0 + 0.5 * (800 - 20) / (800 - 5) = 0.9906.
+        assert float(combined_rows[0]["combined_score"]) == pytest.approx(0.9906, abs=1e-4)
+        assert float(combined_rows[1]["combined_score"]) == pytest.approx(0.5)
+        assert "combined_score" not in rapid_rows[0]
+        # Full winning rows are preserved (e.g. time_ms survives).
+        assert rapid_rows[0]["time_ms"] == "20.0"
+
+        assert win_counts["nn2opt"] == {"rapid_improvement": 0, "time": 2, "combined": 1}
+        assert win_counts["insertion"] == {"rapid_improvement": 1, "time": 0, "combined": 1}
+        # Observed but never winning strategies still appear in the table.
+        assert win_counts["christofides"] == {"rapid_improvement": 0, "time": 0, "combined": 0}
+
+    def test_no_opt_never_wins(self, tmp_path: Path) -> None:
+        """Even a faster/cleaner no-opt row must be excluded from wins."""
+        report = _write_report_csv(
+            tmp_path / "report.csv",
+            [
+                _rapid_row("a.plt", "no-opt", rapid_pct=100.0, time_ms=0.01),
+                _rapid_row("a.plt", "nn2opt", rapid_pct=1.0, time_ms=50.0),
+            ],
+        )
+        win_counts = analyze_report_winners(report)
+        assert "no-opt" not in win_counts
+        for name in (
+            "report_rapid_improvement_winners.csv",
+            "report_time_winners.csv",
+            "report_combined_winners.csv",
+        ):
+            rows = _read_csv(tmp_path / name)
+            assert [r["strategy_name"] for r in rows] == ["nn2opt"]
+
+    def test_files_without_winners_are_omitted(self, tmp_path: Path) -> None:
+        """Parse-failed / all-failed files must not appear in winners CSVs."""
+        report = _write_report_csv(
+            tmp_path / "report.csv",
+            [
+                _row("bad.plt", _FILE_LEVEL_SENTINEL, "parse_failed", error="[parse] boom"),
+                _row("worse.plt", "nn2opt", "failed", error="[nn2opt] boom"),
+                _rapid_row("good.plt", "nn2opt", rapid_pct=5.0, time_ms=2.0),
+            ],
+        )
+        win_counts = analyze_report_winners(report)
+        for name in (
+            "report_rapid_improvement_winners.csv",
+            "report_time_winners.csv",
+            "report_combined_winners.csv",
+        ):
+            rows = _read_csv(tmp_path / name)
+            assert [r["file_name"] for r in rows] == ["good.plt"]
+        assert win_counts == {"nn2opt": {"rapid_improvement": 1, "time": 1, "combined": 1}}
+
+    def test_header_only_report_writes_nothing(
+        self, tmp_path: Path, capsys: Any
+    ) -> None:
+        """A report with no data rows must skip CSV writes and say so."""
+        report = tmp_path / "report.csv"
+        report.write_text(",".join(CSV_COLUMNS) + "\n", encoding="utf-8")
+
+        win_counts = analyze_report_winners(report)
+
+        assert win_counts == {}
+        assert not (tmp_path / "report_rapid_improvement_winners.csv").exists()
+        out = capsys.readouterr().out
+        assert "No successful non-baseline strategies found" in out
+
+    def test_prints_summary_table(self, tmp_path: Path, capsys: Any) -> None:
+        """The stdout table must list per-strategy wins for all criteria."""
+        report = _write_report_csv(
+            tmp_path / "report.csv",
+            [
+                _rapid_row("a.plt", "nn2opt", rapid_pct=30.0, time_ms=5.0),
+                _rapid_row("a.plt", "sa", rapid_pct=45.0, time_ms=800.0),
+            ],
+        )
+        analyze_report_winners(report)
+        out = capsys.readouterr().out
+        assert "STRATEGY WINNER SUMMARY" in out
+        assert "rapid_improvement_wins" in out
+        # sa wins rapid, nn2opt wins time and combined.
+        table = out.split("STRATEGY WINNER SUMMARY", 1)[1]
+        sa_line = next(line for line in table.splitlines() if line.startswith("sa"))
+        nn_line = next(line for line in table.splitlines() if line.startswith("nn2opt"))
+        assert sa_line.split() == ["sa", "1", "0", "0"]
+        assert nn_line.split() == ["nn2opt", "0", "1", "1"]
+
+    def test_win_counts_sum_to_file_count(self, tmp_path: Path) -> None:
+        """Each criterion's wins must total the number of files with winners."""
+        report = _write_report_csv(
+            tmp_path / "report.csv",
+            [
+                _rapid_row(f"f{i}.plt", "nn2opt", rapid_pct=float(i), time_ms=float(10 - i))
+                for i in range(3)
+            ]
+            + [_rapid_row(f"f{i}.plt", "sa", rapid_pct=float(3 - i), time_ms=float(20 + i)) for i in range(3)],
+        )
+        win_counts = analyze_report_winners(report)
+        for criterion in ("rapid_improvement", "time", "combined"):
+            total = sum(counts[criterion] for counts in win_counts.values())
+            assert total == 3
+
+    def test_custom_stem_is_respected(self, tmp_path: Path) -> None:
+        """Output names derive from the report stem, not a hardcoded name."""
+        report = _write_report_csv(
+            tmp_path / "myrun.csv", [_rapid_row("a.plt", "nn2opt", rapid_pct=1.0, time_ms=1.0)]
+        )
+        analyze_report_winners(report)
+        assert (tmp_path / "myrun_rapid_improvement_winners.csv").exists()
+        assert (tmp_path / "myrun_time_winners.csv").exists()
+        assert (tmp_path / "myrun_combined_winners.csv").exists()
+
+
+# ---------------------------------------------------------------------------
 # find_plt_files / build_output_directory
 # ---------------------------------------------------------------------------
 
@@ -829,7 +1171,6 @@ class TestMain:
         self, sample_input_dir: Path, tmp_path: Path, capsys: Any
     ) -> None:
         """The parallel loop must stream per-strategy rows and the ensemble CSV."""
-        output_dir = tmp_path / "out"
         plt_file = sample_input_dir / "square.plt"
 
         # Build two synthetic per-strategy rows that the worker would return.
@@ -882,12 +1223,15 @@ class TestMain:
 
         assert rc == 0
         # CSVs must exist next to the input dir.
-        report = sample_input_dir.parent / f"{sample_input_dir.name}_benchmark" / "report.csv"
-        ensemble_report = (
-            sample_input_dir.parent / f"{sample_input_dir.name}_benchmark" / "ensemble_report.csv"
-        )
+        bench_dir = sample_input_dir.parent / f"{sample_input_dir.name}_benchmark"
+        report = bench_dir / "report.csv"
+        ensemble_report = bench_dir / "ensemble_report.csv"
         assert report.exists()
         assert ensemble_report.exists()
+        # Winner analysis must have run automatically after the reports.
+        assert (bench_dir / "report_rapid_improvement_winners.csv").exists()
+        assert (bench_dir / "report_time_winners.csv").exists()
+        assert (bench_dir / "report_combined_winners.csv").exists()
         # Per-strategy CSV must contain both rows.
         with open(report, newline="", encoding="utf-8") as f:
             written = list(csv.DictReader(f))
@@ -1270,3 +1614,42 @@ def _success_row(
     row["total_after_in"] = total_after
     row["time_ms"] = time_ms
     return row
+
+
+def _rapid_row(
+    file_name: str,
+    strategy: str,
+    *,
+    rapid_pct: float,
+    time_ms: float,
+) -> dict[str, Any]:
+    """Build a success row with the rapid-analysis columns populated.
+
+    Winner-analysis tests key off ``rapid_improvement_pct`` and ``time_ms``
+    only; this helper sets exactly those (plus ``status == "success"``).
+    """
+    row = _row(file_name, strategy, "success")
+    row["rapid_improvement_pct"] = rapid_pct
+    row["time_ms"] = time_ms
+    return row
+
+
+def _write_report_csv(path: Path, rows: list[dict[str, Any]]) -> Path:
+    """Write winner-analysis input rows to ``path`` as a report.csv stand-in.
+
+    Numeric values are stringified the way ``ReportWriter``/``csv`` would on
+    disk, so tests exercise the same string-typed cells that
+    :func:`analyze_report_winners` sees in production.
+    """
+    with open(path, "w", newline="", encoding="utf-8") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=CSV_COLUMNS)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({k: ("" if v == "" else str(v)) for k, v in row.items()})
+    return path
+
+
+def _read_csv(path: Path) -> list[dict[str, str]]:
+    """Read a CSV file into a list of string dicts."""
+    with open(path, newline="", encoding="utf-8") as csvfile:
+        return list(csv.DictReader(csvfile))

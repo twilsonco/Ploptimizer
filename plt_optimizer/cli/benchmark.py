@@ -27,6 +27,9 @@ Output structure:
     <input_dir_name>_benchmark/
         report.csv                   # Per-(file, strategy) summary, streamed
         ensemble_report.csv          # Synthetic ParallelEnsemble rows
+        report_rapid_improvement_winners.csv  # Per-file best rapid improvement
+        report_time_winners.csv      # Per-file fastest strategy
+        report_combined_winners.csv  # Per-file best quality/speed balance
         optimized/<strategy>/        # Optimized PLT files, one folder per strategy
         plots/                       # Before + after plots per file/strategy
 
@@ -38,12 +41,22 @@ have produced: the ``strategy_name`` column holds the winning strategy's
 name (selected by greatest total improvement %, ties broken by shortest
 total distance then fastest runtime). Both CSVs share the same schema
 defined in :data:`CSV_COLUMNS`.
+
+After both reports are written, :func:`analyze_report_winners` re-reads
+``report.csv`` and produces the three winners CSVs plus a stdout summary
+table counting per-strategy wins across the batch. Winners are selected per
+file among successful strategies excluding the ``no-opt`` baseline, under
+three criteria: best ``rapid_improvement_pct``, lowest ``time_ms``, and a
+combined quality/speed score (per-file min-max normalisation of both
+criteria, averaged with equal weight). Files with no successful non-baseline
+strategy are omitted from the winners reports.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import math
 import os
 import sys
 import threading
@@ -52,7 +65,7 @@ import traceback
 from concurrent.futures import Future, ProcessPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, NamedTuple, Optional, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple
 
 # Add project root to path for imports when running as script
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -823,6 +836,333 @@ def write_report(
             writer.writerow(_strip_private_keys(row))
 
 
+# ---------------------------------------------------------------------------
+# Post-run winner analysis (comparative post-processing of report.csv)
+# ---------------------------------------------------------------------------
+
+# Strategy names that are never eligible to win a winners report: the
+# no-optimization baseline plus the file-level / no-winner sentinels.
+_INELIGIBLE_WINNER_STRATEGIES: Set[str] = {
+    "no-opt",
+    _FILE_LEVEL_SENTINEL,
+    _NO_WINNER_SENTINEL,
+}
+
+# Weight applied to the normalised rapid improvement in the combined score.
+# The remaining weight (1 - this value) goes to normalised speed.
+_COMBINED_IMPROVEMENT_WEIGHT: float = 0.5
+
+# Canonical criterion keys used in the returned win-count mapping and as the
+# suffixes of the generated winners CSVs.
+_CRITERION_RAPID: str = "rapid_improvement"
+_CRITERION_TIME: str = "time"
+_CRITERION_COMBINED: str = "combined"
+
+
+def _read_report_rows(report_path: Path) -> List[Dict[str, str]]:
+    """Read every row of a benchmark ``report.csv`` as string dicts.
+
+    Args:
+        report_path: Path to a previously written ``report.csv``.
+
+    Returns:
+        List of row dicts keyed by the CSV header names. Rows are returned
+        in on-disk order.
+
+    Raises:
+        FileNotFoundError: If ``report_path`` does not exist.
+    """
+    if not report_path.exists():
+        raise FileNotFoundError(f"Report CSV not found: {report_path}")
+    with open(report_path, newline="", encoding="utf-8") as csvfile:
+        return list(csv.DictReader(csvfile))
+
+
+def _report_float(row: Dict[str, str], column: str) -> float:
+    """Coerce a numeric CSV cell to ``float`` with lenient fallbacks.
+
+    Mirrors the ``"" -> 0.0`` coercion used by :func:`_select_ensemble_winner`
+    and additionally treats non-numeric junk (possible in hand-edited or
+    truncated historical reports) as ``0.0`` rather than raising.
+
+    Args:
+        row: Row dict read from ``report.csv`` (or an in-memory row dict).
+        column: Column name to read.
+
+    Returns:
+        The cell value as a float, or ``0.0`` when empty/missing/invalid.
+    """
+    raw = str(row.get(column) or "").strip()
+    if not raw:
+        return 0.0
+    try:
+        return float(raw)
+    except ValueError:
+        return 0.0
+
+
+def _group_eligible_rows_by_file(
+    rows: List[Dict[str, str]],
+) -> List[Tuple[str, List[Dict[str, str]]]]:
+    """Group rows by file, keeping only strategies eligible to win.
+
+    An eligible row has ``status == "success"`` and a ``strategy_name`` that
+    is not the ``no-opt`` baseline or one of the sentinel names. Files with
+    no eligible rows are omitted entirely (per the winners-report contract).
+
+    Args:
+        rows: Raw rows read from ``report.csv``.
+
+    Returns:
+        List of ``(file_name, eligible_rows)`` tuples in first-appearance
+        order of the files, mirroring :func:`build_ensemble_rows`.
+    """
+    files_in_order: List[str] = []
+    grouped: Dict[str, List[Dict[str, str]]] = {}
+    for row in rows:
+        file_name = row.get("file_name") or ""
+        if row.get("status") != "success":
+            continue
+        if (row.get("strategy_name") or "") in _INELIGIBLE_WINNER_STRATEGIES:
+            continue
+        if file_name not in grouped:
+            grouped[file_name] = []
+            files_in_order.append(file_name)
+        grouped[file_name].append(row)
+    return [(name, grouped[name]) for name in files_in_order]
+
+
+def _combined_scores(rows: List[Dict[str, str]]) -> List[float]:
+    """Compute the combined quality/speed score for one file's eligible rows.
+
+    Both criteria are min-max normalised *within the file* into [0, 1]
+    "goodness" scores — which cancels scale differences between tiny and
+    huge files and tolerates negative improvements or multi-second runtimes
+    without outlier blow-ups — then averaged with equal weight:
+
+    $$score = w \\cdot \\frac{imp - imp_{min}}{imp_{max} - imp_{min}}
+            + (1 - w) \\cdot \\frac{t_{max} - t}{t_{max} - t_{min}}$$
+
+    where $imp$ is ``rapid_improvement_pct`` (higher is better), $t$ is
+    ``time_ms`` (lower is better), and $w$ is
+    :data:`_COMBINED_IMPROVEMENT_WEIGHT`. A criterion with zero spread
+    (e.g. a single successful strategy, or exact ties) contributes ``1.0``
+    for every row, so it cannot create a false winner.
+
+    Args:
+        rows: Eligible (successful, non-baseline) rows for a single file.
+
+    Returns:
+        Score per input row, in the same order. Higher is better.
+    """
+    improvements = [_report_float(row, "rapid_improvement_pct") for row in rows]
+    times = [_report_float(row, "time_ms") for row in rows]
+
+    def _normalise(values: List[float], higher_is_better: bool) -> List[float]:
+        lo = min(values)
+        hi = max(values)
+        spread = hi - lo
+        if math.isclose(spread, 0.0, abs_tol=1e-12):
+            return [1.0] * len(values)
+        if higher_is_better:
+            return [(v - lo) / spread for v in values]
+        return [(hi - v) / spread for v in values]
+
+    imp_norm = _normalise(improvements, higher_is_better=True)
+    time_norm = _normalise(times, higher_is_better=False)
+    w = _COMBINED_IMPROVEMENT_WEIGHT
+    return [w * i + (1.0 - w) * t for i, t in zip(imp_norm, time_norm)]
+
+
+def _select_rapid_winner(rows: List[Dict[str, str]]) -> Dict[str, str]:
+    """Pick the row with the best ``rapid_improvement_pct`` for one file.
+
+    Tie-breaks: fastest ``time_ms``, then alphabetical ``strategy_name``
+    (so results are deterministic even across reruns of the same batch).
+
+    Args:
+        rows: Eligible rows for a single file (non-empty).
+
+    Returns:
+        The winning row.
+    """
+    return min(
+        rows,
+        key=lambda r: (
+            -_report_float(r, "rapid_improvement_pct"),
+            _report_float(r, "time_ms"),
+            r.get("strategy_name") or "",
+        ),
+    )
+
+
+def _select_time_winner(rows: List[Dict[str, str]]) -> Dict[str, str]:
+    """Pick the fastest row (lowest ``time_ms``) for one file.
+
+    Tie-breaks: best ``rapid_improvement_pct``, then alphabetical
+    ``strategy_name``.
+
+    Args:
+        rows: Eligible rows for a single file (non-empty).
+
+    Returns:
+        The winning row.
+    """
+    return min(
+        rows,
+        key=lambda r: (
+            _report_float(r, "time_ms"),
+            -_report_float(r, "rapid_improvement_pct"),
+            r.get("strategy_name") or "",
+        ),
+    )
+
+
+def _select_combined_winner(rows: List[Dict[str, str]]) -> Tuple[Dict[str, str], float]:
+    """Pick the best combined quality/speed row for one file.
+
+    Scores rows with :func:`_combined_scores` and returns the highest.
+    Ties (common with exactly two strategies whose rankings oppose, where
+    both score 0.5) resolve to the faster strategy, then alphabetical
+    ``strategy_name``.
+
+    Args:
+        rows: Eligible rows for a single file (non-empty).
+
+    Returns:
+        Tuple ``(winning_row, winning_score)`` where ``winning_score`` is
+        the combined score of the winner (for the ``combined_score`` column
+        in the combined winners CSV).
+    """
+    scores = _combined_scores(rows)
+    ranked = min(
+        range(len(rows)),
+        key=lambda i: (
+            -scores[i],
+            _report_float(rows[i], "time_ms"),
+            rows[i].get("strategy_name") or "",
+        ),
+    )
+    return rows[ranked], scores[ranked]
+
+
+def _print_winner_summary(win_counts: Dict[str, Dict[str, int]]) -> None:
+    """Print the per-strategy win-count table to stdout.
+
+    Args:
+        win_counts: Mapping of ``strategy_name -> {criterion_key: wins}``
+            covering every strategy observed in eligible rows.
+    """
+    headers = ("strategy", "rapid_improvement_wins", "runtime_wins", "combined_wins")
+    criterion_order = (_CRITERION_RAPID, _CRITERION_TIME, _CRITERION_COMBINED)
+    table_rows = [headers] + [
+        (strategy,) + tuple(str(counts.get(criterion, 0)) for criterion in criterion_order)
+        for strategy, counts in win_counts.items()
+    ]
+    widths = [max(len(row[col]) for row in table_rows) for col in range(len(headers))]
+    separator = "  "
+
+    def _format_row(row: Tuple[str, ...]) -> str:
+        return separator.join(value.ljust(widths[i]) for i, value in enumerate(row))
+
+    print(_format_row(headers))
+    print(separator.join("-" * width for width in widths))
+    for row in table_rows[1:]:
+        print(_format_row(row))
+
+
+def analyze_report_winners(report_path: Path) -> Dict[str, Dict[str, int]]:
+    """Comparative post-processing of a benchmark ``report.csv``.
+
+    Re-reads the per-(file, strategy) report written by a benchmark run and,
+    for every file with at least one successful strategy excluding the
+    ``no-opt`` baseline, selects a winning strategy under three criteria:
+
+    1. **rapid improvement** — highest ``rapid_improvement_pct``.
+    2. **runtime** — lowest ``time_ms``.
+    3. **combined** — highest per-file min-max normalised blend of the two
+       (see :func:`_combined_scores`).
+
+    Three winners CSVs are written next to ``report.csv``, named after its
+    stem (e.g. ``report_rapid_improvement_winners.csv`` for ``report.csv``).
+    The rapid and time CSVs reuse :data:`CSV_COLUMNS` and contain the full
+    winning row; the combined CSV appends a ``combined_score`` column.
+    Files without any eligible winner are omitted from all three CSVs.
+
+    Finally, a win-count summary table (strategy x criterion) is printed to
+    stdout.
+
+    Args:
+        report_path: Path to a ``report.csv`` produced by :func:`main`.
+
+    Returns:
+        Mapping of ``strategy_name -> {criterion: wins}`` in first-seen
+        strategy order, counting only strategies that appeared in eligible
+        rows. Criterion keys are ``"rapid_improvement"``, ``"time"`` and
+        ``"combined"``.
+
+    Raises:
+        FileNotFoundError: If ``report_path`` does not exist.
+    """
+    rows = _read_report_rows(report_path)
+    grouped = _group_eligible_rows_by_file(rows)
+
+    rapid_winners: List[Dict[str, Any]] = []
+    time_winners: List[Dict[str, Any]] = []
+    combined_winners: List[Dict[str, Any]] = []
+    win_counts: Dict[str, Dict[str, int]] = {}
+
+    def _register(strategy_name: str) -> Dict[str, int]:
+        return win_counts.setdefault(
+            strategy_name,
+            dict.fromkeys((_CRITERION_RAPID, _CRITERION_TIME, _CRITERION_COMBINED), 0),
+        )
+
+    # Pre-register every strategy observed in eligible rows (first-seen
+    # order) so the summary table also lists strategies that never won.
+    for _name, file_rows in grouped:
+        for eligible in file_rows:
+            _register(str(eligible.get("strategy_name") or ""))
+
+    def _tally(strategy_name: str, criterion: str) -> None:
+        _register(strategy_name)[criterion] += 1
+
+    for _file_name, file_rows in grouped:
+        rapid_winner = _select_rapid_winner(file_rows)
+        time_winner = _select_time_winner(file_rows)
+        combined_winner, combined_score = _select_combined_winner(file_rows)
+
+        rapid_winners.append(dict(rapid_winner))
+        time_winners.append(dict(time_winner))
+        combined_row: Dict[str, Any] = dict(combined_winner)
+        combined_row["combined_score"] = round(combined_score, 4)
+        combined_winners.append(combined_row)
+
+        _tally(str(rapid_winner.get("strategy_name") or ""), _CRITERION_RAPID)
+        _tally(str(time_winner.get("strategy_name") or ""), _CRITERION_TIME)
+        _tally(str(combined_winner.get("strategy_name") or ""), _CRITERION_COMBINED)
+
+    stem = report_path.stem
+    output_dir = report_path.parent
+    write_report(rapid_winners, output_dir / f"{stem}_{_CRITERION_RAPID}_winners.csv", CSV_COLUMNS)
+    write_report(time_winners, output_dir / f"{stem}_{_CRITERION_TIME}_winners.csv", CSV_COLUMNS)
+    write_report(
+        combined_winners,
+        output_dir / f"{stem}_{_CRITERION_COMBINED}_winners.csv",
+        [*CSV_COLUMNS, "combined_score"],
+    )
+
+    print()
+    print("=" * 60)
+    print("STRATEGY WINNER SUMMARY (per-file wins, excluding no-opt)")
+    print(f"  Files with winners: {len(grouped)}")
+    if win_counts:
+        _print_winner_summary(win_counts)
+    else:
+        print("  No successful non-baseline strategies found; winners CSVs not written.")
+    return win_counts
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     """Entry point for the batch benchmark utility.
 
@@ -1024,6 +1364,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     # collected into ``all_rows``.
     ensemble_rows = build_ensemble_rows(all_rows)
     write_report(ensemble_rows, ensemble_report_path, CSV_COLUMNS)
+
+    # Comparative post-processing: per-file winners per criterion + stdout
+    # summary table. Re-reads report.csv from disk (the streaming writer is
+    # closed by now) so the same code path works on historical reports.
+    analyze_report_winners(report_path)
 
     avg_per_file = total_elapsed / len(plt_files) if plt_files else 0.0
     text_logger.info(
