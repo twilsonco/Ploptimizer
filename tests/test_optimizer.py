@@ -396,7 +396,7 @@ class TestChristofidesStrategy:
     def test_optimize_empty_list(self) -> None:
         """Test optimization of empty block list returns empty result."""
         strategy = ChristofidesStrategy()
-        result = strategy.optimize([], start_point=(0.0, 0.0), end_point=(10.0, 10.0))
+        result = strategy.optimize([], initial_position=(0.0, 0.0), end_point=(10.0, 10.0))
 
         assert len(result.traverse_order) == 0
         assert result.total_travel_distance == 0.0
@@ -406,7 +406,9 @@ class TestChristofidesStrategy:
         block_a = _make_simple_block(0, (100, 0), (110, 0))
 
         strategy = ChristofidesStrategy()
-        result = strategy.optimize([block_a], start_point=(0.0, 0.0), end_point=(200.0, 200.0))
+        result = strategy.optimize(
+            [block_a], initial_position=(0.0, 0.0), end_point=(200.0, 200.0)
+        )
 
         assert len(result.traverse_order) == 1
         state = result.traverse_order[0]
@@ -419,7 +421,7 @@ class TestChristofidesStrategy:
 
         strategy = ChristofidesStrategy()
         result = strategy.optimize(
-            [block_a, block_b], start_point=(0.0, 0.0), end_point=(200.0, 200.0)
+            [block_a, block_b], initial_position=(0.0, 0.0), end_point=(200.0, 200.0)
         )
 
         assert len(result.traverse_order) == 2
@@ -453,7 +455,7 @@ class TestChristofidesStrategy:
 
         strategy = ChristofidesStrategy()
         result = strategy.optimize(
-            [block_a, block_b, block_c], start_point=(0.0, 0.0), end_point=(200.0, 200.0)
+            [block_a, block_b, block_c], initial_position=(0.0, 0.0), end_point=(200.0, 200.0)
         )
 
         assert len(result.traverse_order) == 3
@@ -896,12 +898,12 @@ class TestChristofidesStrategyCoverage:
         assert strategy.END_VERTEX_ID in vertices
 
     def test_find_nearest_endpoints(self) -> None:
-        """Test _find_nearest_endpoints method."""
+        """Test _find_nearest_origin_endpoints method (inherited from base class)."""
         strategy = ChristofidesStrategy()
         block_a = _make_simple_block(0, (1000, 1000), (1010, 1000))
         block_b = _make_simple_block(1, (5, 5), (15, 5))
 
-        candidates = strategy._find_nearest_endpoints([block_a, block_b], n_candidates=2)
+        candidates = strategy._find_nearest_origin_endpoints([block_a, block_b], n_candidates=2)
         assert len(candidates) <= 2
 
     def test_find_farthest_origin_endpoints_christofides(self) -> None:
@@ -1355,6 +1357,32 @@ class TestRunStrategyWorker:
         )
 
         assert result.strategy_name == "NearestNeighbor + 2-Opt"
+
+    def test_run_strategy_worker_with_christofides(self) -> None:
+        """Test worker runs Christofides S-T Path strategy with fixed terminals.
+
+        Regression test: ChristofidesStrategy.optimize() requires both
+        start_point and end_point positional arguments; the worker must
+        dispatch them like OptimizerEngine does instead of calling the
+        generic two-argument signature.
+        """
+        from plt_optimizer.core.optimizer import _run_strategy_worker
+
+        blocks_serialized = (
+            (0, (10.0, 20.0), (30.0, 40.0)),
+            (1, (50.0, 60.0), (70.0, 80.0)),
+            (2, (90.0, 100.0), (110.0, 120.0)),
+        )
+
+        result = _run_strategy_worker(
+            strategy_name="Christofides-Serdyukov S-T Path (5/3 approx)",
+            blocks_serialized=blocks_serialized,
+            initial_position=(0.0, 0.0),
+        )
+
+        assert result.strategy_name == "Christofides-Serdyukov S-T Path (5/3 approx)"
+        assert isinstance(result.result, OptimizationResult)
+        assert len(result.result.traverse_order) == 3
 
     def test_run_strategy_worker_unknown_strategy_raises(self) -> None:
         """Test worker raises ValueError for unknown strategy."""
@@ -1812,24 +1840,29 @@ class TestChristofidesCoverage2:
     """Coverage for ChristofidesStrategy missing lines."""
 
     def test_same_block_skip_continue(self) -> None:
-        """Cover line 1377: continue when start and end candidates share same block."""
-        # Block 0: entrance (1,0) very close to origin, exit (999,0) very far
-        # Block 1: entrance (2,0), exit (3,0) — both close
-        # start_candidates: block0.entrance AND block1.entrance
-        # end_candidates: block0.exit AND block1.exit
-        # combination (block0, block0) triggers continue
+        """Cover continue when start and end candidates share same block.
+
+        No explicit terminals are passed so Christofides derives its own
+        candidate lists and the same-block combination guard is exercised.
+        Three blocks are required: 1- and 2-block inputs take dedicated
+        shortcuts before the candidate-combination loop.
+        """
+        # Block 0: entrance (1,0) nearest to origin AND exit (999,0) farthest
+        # from origin, so the (start=block0, end=block0) combination appears in
+        # the candidate cross product and must be skipped.
         block_0 = _make_simple_block(0, (1, 0), (999, 0))
-        block_1 = _make_simple_block(1, (2, 0), (3, 0))
+        block_1 = _make_simple_block(1, (100, 0), (110, 0))
+        block_2 = _make_simple_block(2, (200, 0), (210, 0))
         strategy = ChristofidesStrategy()
-        result = strategy.optimize([block_0, block_1], start_point=(0.0, 0.0), end_point=(1000.0, 0.0))
-        assert result.block_count == 2
+        result = strategy.optimize([block_0, block_1, block_2])
+        assert result.block_count == 3
 
     def test_single_block_exit_closer_to_start(self) -> None:
         """Cover line 1502: reversed=True in _optimize_single_block when exit closer to start."""
         # exit (1,0) is closer to start (0,0) than entrance (100,0)
         block = _make_simple_block(0, (100, 0), (1, 0))
         strategy = ChristofidesStrategy()
-        result = strategy.optimize([block], start_point=(0.0, 0.0), end_point=(200.0, 0.0))
+        result = strategy.optimize([block], initial_position=(0.0, 0.0), end_point=(200.0, 0.0))
         assert result.block_count == 1
         assert result.traverse_order[0].reversed is True
 
