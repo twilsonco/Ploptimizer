@@ -176,7 +176,7 @@ def extract_bounds_from_plt(plt_content: str) -> Tuple[float, float, float, floa
 def _export_to_plt_with_postprocessing(
     doc: vp.Document, output_path: Path, label: ResolvedLabel
 ) -> None:
-    """Export vpype Document to PLT with unified scaling for single labels.
+    """Export vpype Document to PLT for a single label.
 
     Each label is rendered independently. Instead of using vpype's write_hpgl()
     which applies complex coordinate transformations, we manually generate HPGL
@@ -184,9 +184,12 @@ def _export_to_plt_with_postprocessing(
 
     Process:
     1. Extract coordinates directly from vpype LineCollection (units are inches)
-    2. Build raw HPGL commands without any transformation
-    3. Scale coordinates to match expected label dimensions
-    4. Center text layer (pen 1) vertically
+       and convert them losslessly to plotter units at 1:1000 scale.
+    2. Center text layer (pen 1) vertically within label bounds.
+    3. Invert the Y-axis to device convention for upright display.
+
+    No uniform scaling is applied because ``_linecollection_to_hpgl`` already
+    produces coordinates at nominal scale; rescaling would distort footprints.
 
     Args:
         doc: The vpype Document to export.
@@ -201,8 +204,12 @@ def _export_to_plt_with_postprocessing(
     # Write to file
     output_path.write_text(hpgl_content, encoding="utf-8")
 
-    # Scale all coordinates uniformly to match label dimensions
-    _scale_coordinates_unified(output_path, label)
+    # NOTE: No uniform scaling is applied here. ``_linecollection_to_hpgl``
+    # already converts vpype inches directly to plotter units (1 inch = 1000
+    # units), so the boundary rectangle spans exactly [0,w]x[0,h]. Rescaling
+    # against combined text+boundary bounds would compress geometry whenever
+    # ftext glyph descenders extend below y=0, distorting label footprints and
+    # causing overlapping borders after bin-packing.
 
     # Center text layer (pen 1) vertically within label bounds
     _center_text_layer_vertically(output_path, label)
@@ -269,14 +276,19 @@ def _linecollection_to_hpgl(doc: vp.Document) -> str:
             # Start with PU (pen up) to first point
             x, y = points[0]
 
-            # Skip initial PU0,0 in the very first segment of any layer
-            # Assembly will add it, so we avoid duplication
+            # Skip the redundant initial pen-up when a segment genuinely begins
+            # at the origin. This avoids emitting an extra "PU0,0;" that would be
+            # duplicated by assembly. Crucially, we must NOT drop any vertices:
+            # closed shapes (e.g. boundary rectangles) begin AND end at the
+            # origin, so dropping points[0] here would remove a real corner and
+            # leave an open outline.
             if not skipped_first_pu0_0 and x == 0 and y == 0:
                 skipped_first_pu0_0 = True
-                # Still process the drawing if there are more points
-                if len(points) > 1:
-                    pd_coords = ",".join(f"{x},{y}" for x, y in points[1:])
-                    lines.append(f"PD{pd_coords}")
+                # Emit ALL points (including the leading origin vertex) as PD so
+                # closed loops remain geometrically closed. The pen-up to (0,0)
+                # is omitted here because assembly supplies it.
+                pd_coords = ",".join(f"{px},{py}" for px, py in points)
+                lines.append(f"PD{pd_coords}")
             else:
                 lines.append(f"PU{x},{y}")
 

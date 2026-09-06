@@ -272,9 +272,26 @@ class PLTParser:
 
                 continue
 
-            elif cmd == "SP":
-                footer = FooterCommand(instruction="SP")
-                doc.footer_commands.append(footer)
+            elif re.match(r"^SP\d*$", cmd):
+                # Pen-select (``SP`` or ``SP<n>``). Selecting a pen establishes
+                # a fresh drawing context: any prior position is no longer valid,
+                # so reset it to prevent spurious cut segments from connecting
+                # across a pen change.
+                if cmd == "SP":
+                    footer = FooterCommand(instruction="SP")
+                    doc.footer_commands.append(footer)
+                else:
+                    try:
+                        header = HeaderCommand.from_token(token)
+                        doc.header_commands.append(header)
+                    except (ValueError, AttributeError) as e:
+                        raise ParseError(
+                            "Failed to parse command",
+                            token=token,
+                        ) from e
+                last_position = None
+                pen_state = PenState.UP
+                current_path = None
                 i += 1
 
             else:

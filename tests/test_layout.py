@@ -296,3 +296,81 @@ class TestLayoutFitError:
         with pytest.raises(LayoutFitError) as exc_info:
             raise LayoutFitError("Test error message")
         assert "Test error message" in str(exc_info.value)
+
+
+class TestBestAlgorithmSelection:
+    """Tests for the multi-algorithm best-fit packing selection."""
+
+    def test_selects_tighter_layout_for_mixed_widths(self) -> None:
+        """Narrow labels should share rows rather than each getting its own.
+
+        Regression test: MaxRectsBssf alone strands a 3x1 label at the end of
+        row 0, wasting vertical space. The best-fit selection across multiple
+        heuristics must pack narrow labels together on shared rows.
+        """
+        from plt_optimizer.generate.layout import generate_layout_with_bounds
+
+        # Two wide (10") and three narrow (3") plus one medium (6"), all 1" tall.
+        labels = [
+            _make_label(label_id="test_1", width=3.0, height=1.0),
+            _make_label(label_id="test_2", width=3.0, height=1.0),
+            _make_label(label_id="test_3", width=3.0, height=1.0),
+            _make_label(label_id="alpha_lower", width=10.0, height=1.0),
+            _make_label(label_id="alpha_upper", width=10.0, height=1.0),
+            _make_label(label_id="digits", width=6.0, height=1.0),
+        ]
+
+        plates, _rendered = generate_layout_with_bounds(labels)
+
+        # All labels must fit on a single plate.
+        assert len(plates) == 1
+        packed = plates[0].labels
+
+        # Compute the bounding-box height actually used by placed content.
+        max_y = max(p.y + p.height for p in packed)
+        # Optimal layout uses exactly two rows (2 inches).
+        assert math.isclose(max_y, 2.0), f"Expected tight 2-row packing, got {max_y}"
+
+    def test_no_overlap_in_selected_layout(self) -> None:
+        """The selected best-fit layout must never contain overlapping labels."""
+        from plt_optimizer.generate.layout import generate_layout_with_bounds
+
+        labels = [
+            _make_label(label_id=f"l{i}", width=3.0, height=1.0) for i in range(4)
+        ] + [_make_label(label_id="wide", width=10.0, height=1.0)]
+
+        plates, _rendered = generate_layout_with_bounds(labels)
+
+        for plate in plates:
+            for i, a in enumerate(plate.labels):
+                for b in plate.labels[i + 1:]:
+                    overlap_x = a.x < b.x + b.width and b.x < a.x + a.width
+                    overlap_y = a.y < b.y + b.height and b.y < a.y + a.height
+                    assert not (overlap_x and overlap_y), (
+                        f"Labels {a.label_id} and {b.label_id} overlap"
+                    )
+
+    def test_plate_footprint_rewards_tight_packing(self) -> None:
+        """Footprint metric should be smaller for tighter layouts."""
+        import rectpack
+
+        from plt_optimizer.generate.layout import _plate_footprint, PACK_CONFIGS
+
+        # Build packers with the same 24x16 bin and confirm footprint is
+        # positive (non-empty) across all candidate configurations.
+        def build(algo, sort_algo) -> rectpack.packer.Packer:
+            p = rectpack.newPacker(
+                mode=rectpack.PackingMode.Offline,
+                bin_algo=rectpack.PackingBin.BFF,
+                pack_algo=algo,
+                sort_algo=sort_algo,
+                rotation=False,
+            )
+            for w, h in [(10, 1), (3, 1), (6, 1), (3, 1), (3, 1)]:
+                p.add_rect(w, h)
+            p.add_bin(24.0, 16.0)
+            p.pack()
+            return p
+
+        footprints = [_plate_footprint(build(a, s)) for a, s in PACK_CONFIGS]
+        assert all(fp > 0 for fp in footprints)

@@ -1,5 +1,7 @@
 """Unit tests for label rendering engine."""
 
+import re
+
 import pytest
 
 from plt_optimizer.generate.label_renderer import (
@@ -105,6 +107,65 @@ class TestExtractBoundsFromPlt:
 
         assert x_min == 0.0
         assert x_max == 10.0  # Now includes PU coordinate
+
+
+class TestBoundaryClosure:
+    """Tests that rendered boundary rectangles are geometrically closed.
+
+    Regression: the ``_linecollection_to_hpgl`` "skip initial PU0,0" logic used
+    to drop a genuine origin vertex of each boundary rectangle, leaving an open
+    4-vertex outline instead of a closed 5-vertex loop.
+    """
+
+    def _boundary_points(self, plt_content: str) -> list[tuple[int, int]]:
+        """Extract all coordinate pairs from the SP2 (boundary) section."""
+        m = re.search(r"SP2;(.*?)(?:SP\d|$)", plt_content, re.DOTALL)
+        assert m is not None, "No boundary layer found"
+        points: list[tuple[int, int]] = []
+        for mm in re.finditer(r"(PA|PU|PD)([\d,\-]+)", m.group(1)):
+            parts = mm.group(2).split(",")
+            try:
+                for i in range(0, len(parts) - 1, 2):
+                    points.append((int(parts[i]), int(parts[i + 1])))
+            except (ValueError, IndexError):
+                pass
+        return points
+
+    def test_boundary_is_closed_loop(self) -> None:
+        """Boundary rectangle should close back to its starting vertex."""
+        job = parse_yaml("examples/test123_spec.yaml")
+        from plt_optimizer.generate.resolution import resolve_job_spec
+
+        labels = resolve_job_spec(job)
+        rendered = render_label_to_plt(labels[0])
+
+        points = self._boundary_points(rendered.plt_content)
+        # A closed rectangle has 5 vertices (4 corners + return to start).
+        assert len(points) == 5, f"Expected 5 boundary vertices, got {points}"
+        assert points[0] == points[-1], "Boundary must close back to its origin"
+        # Exactly two unique x and y values => a proper axis-aligned rectangle.
+        xs = {p[0] for p in points}
+        ys = {p[1] for p in points}
+        assert len(xs) == 2
+        assert len(ys) == 2
+
+    def test_boundary_spans_nominal_dimensions(self) -> None:
+        """Boundary should span exactly the label's nominal width and height."""
+        job = parse_yaml("examples/test123_spec.yaml")
+        from plt_optimizer.generate.resolution import resolve_job_spec
+
+        labels = resolve_job_spec(job)
+        rendered = render_label_to_plt(labels[0])
+
+        points = self._boundary_points(rendered.plt_content)
+        xs = [p[0] for p in points]
+        ys = [p[1] for p in points]
+
+        width_inches = (max(xs) - min(xs)) / 1000.0
+        height_inches = (max(ys) - min(ys)) / 1000.0
+
+        assert pytest.approx(width_inches, abs=0.01) == labels[0].width
+        assert pytest.approx(height_inches, abs=0.01) == labels[0].height
 
 
 class TestRenderLabelToPlt:

@@ -422,6 +422,46 @@ class TestExtractCoordinatesEdgeCases:
         assert idx == 1
 
 
+class TestPenSelectBreaksPath:
+    """Tests that pen-select (``SP<n>``) resets drawing position.
+
+    Regression: selecting a new pen must break continuity so no spurious cut
+    segment connects from the previous pen's last position to the next shape.
+    """
+
+    def test_sp2_does_not_create_cross_shape_segment(self) -> None:
+        """Two rectangles separated by PU0,0;SP2 should not be joined."""
+        content = (
+            "IN;DF;PS0;"
+            "SP2;PD0,1000,0,0,3000,0,3000,1000,0,1000;"  # rect1
+            "PU0,0;"
+            "SP2;PD5000,2000,5000,1000,8000,1000,8000,2000,5000,2000;"  # rect2
+            "SP0;IN;%"
+        )
+        parser = PLTParser()
+        doc = parser.parse_string(content)
+
+        segments: list[tuple] = []
+        for path in doc.stroke_paths:
+            for seg in path.segments:
+                if seg.is_cutting:
+                    segments.append((seg.start.x, seg.start.y, seg.end.x, seg.end.y))
+
+        # Rect1 has 4 cut segments; rect2 has 4. No diagonal (0,0)->(5000,2000).
+        assert len(segments) == 8
+        spurious = [
+            s for s in segments if s[0] < 100 and s[1] < 50 and s[2] > 4000 and s[3] > 1500
+        ]
+        assert not spurious, f"Found spurious cross-shape segment: {spurious}"
+
+    def test_sp_footer_still_parsed(self) -> None:
+        """Bare SP footer should still be recorded as a footer command."""
+        parser = PLTParser()
+        doc = parser.parse_string("SP;")
+        assert len(doc.footer_commands) >= 1
+        assert doc.footer_commands[0].instruction == "SP"
+
+
 class TestFooterCommandParsing:
     """Tests for footer command parsing."""
 
