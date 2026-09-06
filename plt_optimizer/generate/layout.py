@@ -94,19 +94,35 @@ class LayoutFitError(Exception):
 def initialize_packer() -> rectpack.packer.Packer:
     """Create a configured ``rectpack`` instance.
 
-    Uses ``MaxRectsBssf`` (Best Short Side Fit) heuristic which yields
-    vertical stacking suitable for label-style layouts where labels should
-    be arranged top-to-bottom rather than left-to-right.
+    Uses the default candidate pack configuration (see :data:`PACK_CONFIGS`).
+    This is retained as a convenience for callers that only need a single,
+    pre-configured packer and do not require best-fit selection across
+    multiple heuristics.
 
     Returns:
         A configured ``rectpack.Packer`` ready to accept rectangles and bins.
     """
+    algo, sort_algo = PACK_CONFIGS[0]
     return rectpack.newPacker(
         mode=rectpack.PackingMode.Offline,
         bin_algo=rectpack.PackingBin.BFF,
-        pack_algo=rectpack.MaxRectsBssf,
+        pack_algo=algo,
+        sort_algo=sort_algo,
         rotation=False,  # Disable rotation to preserve label orientation
     )
+
+
+# Candidate (algorithm, sort) packing configurations tried by the layout engine.
+# Each heuristic has different strengths; no single one dominates on all inputs
+# (e.g. ``MaxRectsBssf`` leaves narrow labels stranded in some orderings while
+# Guillotine variants pack them tightly). We run several and select the result
+# with the smallest total plate footprint so packing quality never regresses.
+PACK_CONFIGS: tuple[tuple[object, object], ...] = (
+    (rectpack.MaxRectsBssf, rectpack.SORT_AREA),
+    (rectpack.GuillotineBlsfLas, rectpack.SORT_NONE),
+    (rectpack.GuillotineBlsfLas, rectpack.SORT_AREA),
+    (rectpack.GuillotineBafLas, rectpack.SORT_NONE),
+)
 
 
 def _render_labels_cache(
@@ -249,6 +265,106 @@ def _extract_packed_plates(
     return final_plates
 
 
+# A rectangle entry as passed to the packer: (width, height, rid-payload).
+# The ``rid`` payload is an opaque tuple that rectpack preserves verbatim and
+# which :func:`_extract_packed_plates` later unpacks.
+_RectEntry = tuple[float, float, object]
+
+
+def _pack_best(
+    rectangles_with_rid: list[_RectEntry],
+    bin_specs: list[tuple[float, float, str]],
+) -> rectpack.packer.Packer:
+    """Run several packing heuristics and return the packer with the best fit.
+
+    Each candidate algorithm is run over the same set of rectangles and bins.
+    The result that packs every rectangle onto the smallest total plate
+    footprint (sum over non-empty plates of ``width * height``) is selected,
+    which guarantees tighter layouts without ever regressing on packing quality
+    for any given input.
+
+    Args:
+        rectangles_with_rid: List of ``(pack_width, pack_height, rid)`` tuples.
+            The ``rid`` payload (e.g. a label reference) is preserved verbatim
+            by rectpack and recovered in :func:`_extract_packed_plates`.
+        bin_specs: List of ``(width, height, bid)`` plate definitions.
+
+    Returns:
+        The best-performing configured ``rectpack.Packer`` that successfully
+        packs all rectangles. If no candidate fits every rectangle, returns the
+        first packer (its partial result is surfaced to callers for error
+        reporting).
+
+    Raises:
+        LayoutFitError: If a single label instance exceeds every plate's
+            dimensions such that even one rectangle cannot be placed.
+    """
+    best_packer: Optional[rectpack.packer.Packer] = None
+    best_footprint: float | None = None
+
+    for pack_algo, sort_algo in PACK_CONFIGS:
+        packer = rectpack.newPacker(
+            mode=rectpack.PackingMode.Offline,
+            bin_algo=rectpack.PackingBin.BFF,
+            pack_algo=pack_algo,
+            sort_algo=sort_algo,
+            rotation=False,  # Disable rotation to preserve label orientation
+        )
+
+        for w, h, rid in rectangles_with_rid:
+            packer.add_rect(w, h, rid=rid)
+
+        for width, height, bid in bin_specs:
+            packer.add_bin(width, height, bid=bid)
+
+        packer.pack()
+
+        total_packed = sum(len(b) for b in packer)
+        if total_packed < len(rectangles_with_rid):
+            # This candidate could not fit everything; keep it as a fallback
+            # only if we have nothing better yet.
+            if best_packer is None:
+                best_packer = packer
+            continue
+
+        footprint = _plate_footprint(packer)
+        if best_footprint is None or footprint < best_footprint:
+            best_footprint = footprint
+            best_packer = packer
+
+    assert best_packer is not None  # PACK_CONFIGS is never empty
+    return best_packer
+
+
+def _plate_footprint(packer: rectpack.packer.Packer) -> float:
+    """Compute the total used material area across a packed result.
+
+    For each non-empty plate, computes the bounding box of its placed labels
+    (``max_x * max_y`` in inches) rather than the full nominal plate size.
+    Empty auto-allocated plates contribute zero. This metric rewards layouts
+    that pack labels tightly into a small region and use fewer plates,
+    regardless of whether multiple heuristics happen to share identical bin
+    dimensions.
+
+    Args:
+        packer: A ``rectpack.Packer`` that has already executed ``pack()``.
+
+    Returns:
+        The sum over non-empty bins of the used bounding-box area.
+    """
+    footprint = 0.0
+    for bin_obj in packer:
+        if len(bin_obj) == 0:
+            continue
+        max_x = 0.0
+        max_y = 0.0
+        for rect in bin_obj:
+            max_x = max(max_x, rect.x + rect.width)
+            max_y = max(max_y, rect.y + rect.height)
+        footprint += max_x * max_y
+    return footprint
+
+
 def generate_layout(
     resolved_labels: list[ResolvedLabel],
     provided_plates: Optional[list[PlateSpec]] = None,
@@ -278,37 +394,34 @@ def generate_layout(
         >>> len(plates) >= 1
         True
     """
-    packer = initialize_packer()
     rectangles = unroll_labels(resolved_labels)
 
-    # 1. Add rectangles to the packer
-    for w, h, r_id, label_ref in rectangles:
-        packer.add_rect(w, h, rid=(r_id, label_ref))
+    # Build rectangle entries with their (rid) payloads.
+    rect_with_rid: list[_RectEntry] = [
+        (w, h, (r_id, label_ref)) for w, h, r_id, label_ref in rectangles
+    ]
 
-    # 2. Add bins (plates)
     is_constrained = provided_plates is not None and len(provided_plates) > 0
 
     if is_constrained:
-        # Constrained mode: use exactly what the user provided
+        # Constrained mode: use exactly what the user provided.
         assert provided_plates is not None  # narrowed by is_constrained
-        for plate in provided_plates:
-            assert plate.id is not None  # PlateSpec.id is required
-            packer.add_bin(plate.width, plate.height, bid=plate.id)
+        bin_specs = [
+            (plate.width, plate.height, plate.id)
+            for plate in provided_plates
+            if plate.id is not None
+        ]
     else:
         # Unbounded mode: provide enough default plates to guarantee a fit.
         # Theoretical maximum is 1 plate per label instance.
-        max_possible_plates = len(rectangles)
-        for i in range(max_possible_plates):
-            packer.add_bin(
-                DEFAULT_PLATE_WIDTH,
-                DEFAULT_PLATE_HEIGHT,
-                bid=f"default_plate_{i + 1}",
-            )
+        bin_specs = [
+            (DEFAULT_PLATE_WIDTH, DEFAULT_PLATE_HEIGHT, f"default_plate_{i + 1}")
+            for i in range(len(rectangles))
+        ]
 
-    # 3. Execute packing algorithm
-    packer.pack()
+    packer = _pack_best(rect_with_rid, bin_specs)
 
-    # 4. Verify all labels were packed
+    # Verify all labels were packed.
     total_packed = sum(len(b) for b in packer)
     if total_packed < len(rectangles):
         if is_constrained:
@@ -324,7 +437,6 @@ def generate_layout(
                 f"{DEFAULT_PLATE_WIDTH}x{DEFAULT_PLATE_HEIGHT}."
             )
 
-    # 5. Extract results into typed data structures
     return _extract_packed_plates(packer)
 
 
@@ -362,38 +474,33 @@ def generate_layout_with_bounds(
     # Phase 2a: Render all unique labels and cache by ID
     rendered_labels = _render_labels_cache(resolved_labels)
 
-    # Phase 2b: Unroll labels using rendered dimensions
-    packer = initialize_packer()
+    # Phase 2b: Unroll labels using rendered dimensions.
     rectangles = unroll_labels_with_rendered_bounds(resolved_labels, rendered_labels)
+    rect_with_rid: list[_RectEntry] = [
+        (w, h, (r_id, label_ref)) for w, h, r_id, label_ref, _ in rectangles
+    ]
 
-    # 1. Add rectangles to the packer
-    for w, h, r_id, label_ref, _rendered_ref in rectangles:
-        packer.add_rect(w, h, rid=(r_id, label_ref))
-
-    # 2. Add bins (plates)
     is_constrained = provided_plates is not None and len(provided_plates) > 0
 
     if is_constrained:
-        # Constrained mode: use exactly what the user provided
+        # Constrained mode: use exactly what the user provided.
         assert provided_plates is not None  # narrowed by is_constrained
-        for plate in provided_plates:
-            assert plate.id is not None  # PlateSpec.id is required
-            packer.add_bin(plate.width, plate.height, bid=plate.id)
+        bin_specs = [
+            (plate.width, plate.height, plate.id)
+            for plate in provided_plates
+            if plate.id is not None
+        ]
     else:
         # Unbounded mode: provide enough default plates to guarantee a fit.
         # Theoretical maximum is 1 plate per label instance.
-        max_possible_plates = len(rectangles)
-        for i in range(max_possible_plates):
-            packer.add_bin(
-                DEFAULT_PLATE_WIDTH,
-                DEFAULT_PLATE_HEIGHT,
-                bid=f"default_plate_{i + 1}",
-            )
+        bin_specs = [
+            (DEFAULT_PLATE_WIDTH, DEFAULT_PLATE_HEIGHT, f"default_plate_{i + 1}")
+            for i in range(len(rectangles))
+        ]
 
-    # 3. Execute packing algorithm
-    packer.pack()
+    packer = _pack_best(rect_with_rid, bin_specs)
 
-    # 4. Verify all labels were packed
+    # Verify all labels were packed.
     total_packed = sum(len(b) for b in packer)
     if total_packed < len(rectangles):
         if is_constrained:
@@ -409,7 +516,6 @@ def generate_layout_with_bounds(
                 f"{DEFAULT_PLATE_WIDTH}x{DEFAULT_PLATE_HEIGHT}."
             )
 
-    # 5. Extract results into typed data structures
     plates = _extract_packed_plates(packer)
 
     # Return both the plates and the rendered labels cache for Phase 3

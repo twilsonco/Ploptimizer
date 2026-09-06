@@ -4,21 +4,21 @@ repos:
     hooks:
       - id: ruff-check
         name: ruff check
-        entry: uv run ruff check plt_optimizer/
+        entry: uv run --extra dev ruff check plt_optimizer/
         language: system
         pass_filenames: false
         types_or: [python]
 
       - id: ruff-format
         name: ruff format
-        entry: uv run ruff format plt_optimizer/
+        entry: uv run --extra dev ruff format plt_optimizer/
         language: system
         pass_filenames: false
         types_or: [python]
 
       - id: mypy
         name: mypy type check
-        entry: uv run mypy plt_optimizer/
+        entry: uv run --extra dev mypy plt_optimizer/
         language: system
         pass_filenames: false
         types_or: [python]
