@@ -23,6 +23,10 @@ Usage:
     python examples/benchmark.py /path/to/cad_files/ --same-row-preference 1.5
     python examples/benchmark.py /path/to/cad_files/ --workers 8
 
+The winners post-processing can also be re-run standalone against an
+existing report (no PLT processing):
+    python plt_optimizer/cli/benchmark.py --analyze-only <dir>/report.csv
+
 Output structure:
     <input_dir_name>_benchmark/
         report.csv                   # Per-(file, strategy) summary, streamed
@@ -1332,7 +1336,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             contract is identical either way.
 
     Returns:
-        Exit code (0 for success, 1 for invalid arguments).
+        Exit code (0 for success, 1 for invalid arguments or a missing
+        ``--analyze-only`` report).
     """
     parser = argparse.ArgumentParser(
         description=(
@@ -1347,12 +1352,29 @@ def main(argv: Optional[List[str]] = None) -> int:
             "  python examples/benchmark.py /path/to/cad_files/ "
             "--same-row-preference 1.5\n"
             "  python examples/benchmark.py /path/to/cad_files/ --workers 8\n"
+            "  python plt_optimizer/cli/benchmark.py --analyze-only "
+            "/path/to/cad_files_benchmark/report.csv\n"
         ),
     )
     parser.add_argument(
         "input_dir",
         type=Path,
-        help="Directory containing PLT files to process",
+        nargs="?",
+        default=None,
+        help=(
+            "Directory containing PLT files to process. Required unless --analyze-only is given."
+        ),
+    )
+    parser.add_argument(
+        "--analyze-only",
+        type=Path,
+        default=None,
+        metavar="REPORT_CSV",
+        help=(
+            "Skip benchmarking and only run the winners post-processing "
+            "(analyze_report_winners) on an existing report.csv, rewriting "
+            "the winners CSVs beside it and printing the summary table."
+        ),
     )
     parser.add_argument(
         "--same-row-preference",
@@ -1374,6 +1396,27 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
 
     args = parser.parse_args(argv)
+
+    if args.analyze_only is not None:
+        if args.input_dir is not None:
+            print(
+                "Error: input_dir and --analyze-only are mutually exclusive.",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            analyze_report_winners(args.analyze_only)
+        except FileNotFoundError as analyze_err:
+            print(f"Error: {analyze_err}", file=sys.stderr)
+            return 1
+        return 0
+
+    if args.input_dir is None:
+        print(
+            "Error: input_dir is required unless --analyze-only is given.",
+            file=sys.stderr,
+        )
+        return 1
 
     input_dir: Path = args.input_dir
     if not input_dir.exists() or not input_dir.is_dir():

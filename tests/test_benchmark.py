@@ -1296,6 +1296,46 @@ class TestMain:
         out = capsys.readouterr().out
         assert "No PLT files found" in out
 
+    def test_no_arguments_returns_1(self, capsys: Any) -> None:
+        """Omitting both input_dir and --analyze-only must exit 1 with an error."""
+        rc = main([])
+        assert rc == 1
+        err = capsys.readouterr().err
+        assert "input_dir is required" in err
+
+    def test_analyze_only_runs_post_processing(self, tmp_path: Path, capsys: Any) -> None:
+        """--analyze-only must analyze the report and write winners CSVs."""
+        report = _write_report_csv(
+            tmp_path / "report.csv",
+            [
+                _rapid_row("a.plt", "nn2opt", rapid_pct=10.0, time_ms=5.0),
+                _rapid_row("a.plt", "sa", rapid_pct=20.0, time_ms=500.0),
+            ],
+        )
+        rc = main(["--analyze-only", str(report)])
+        assert rc == 0
+        assert (tmp_path / "report_rapid_improvement_winners.csv").exists()
+        assert (tmp_path / "report_time_winners.csv").exists()
+        assert (tmp_path / "report_combined_winners.csv").exists()
+        out = capsys.readouterr().out
+        assert "STRATEGY WINNER SUMMARY" in out
+
+    def test_analyze_only_missing_report_returns_1(self, tmp_path: Path, capsys: Any) -> None:
+        """--analyze-only against a missing report must exit 1 with an error."""
+        rc = main(["--analyze-only", str(tmp_path / "nope.csv")])
+        assert rc == 1
+        err = capsys.readouterr().err
+        assert "Report CSV not found" in err
+
+    def test_analyze_only_with_input_dir_returns_1(
+        self, sample_input_dir: Path, capsys: Any
+    ) -> None:
+        """Passing both input_dir and --analyze-only must exit 1 as ambiguous."""
+        rc = main(["--analyze-only", "report.csv", str(sample_input_dir)])
+        assert rc == 1
+        err = capsys.readouterr().err
+        assert "mutually exclusive" in err
+
     def test_happy_path_streams_results(
         self, sample_input_dir: Path, tmp_path: Path, capsys: Any
     ) -> None:

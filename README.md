@@ -49,6 +49,14 @@ python plt_optimizer/cli/benchmark.py /path/to/cad_files/
 python plt_optimizer/cli/benchmark.py /path/to/cad_files/ --same-row-preference 1.5
 ```
 
+The winners post-processing described below also runs automatically at the end of
+every benchmark. To re-run it standalone against an existing `report.csv` (without
+re-processing any PLT files):
+
+```bash
+python plt_optimizer/cli/benchmark.py --analyze-only /path/to/cad_files_benchmark/report.csv
+```
+
 ### Output
 
 A `<input_dir_name>_benchmark/` directory is created adjacent to the input
