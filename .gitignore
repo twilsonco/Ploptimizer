@@ -13,3 +13,4 @@ build
 dist
 
 *_benchmark
+*_output
