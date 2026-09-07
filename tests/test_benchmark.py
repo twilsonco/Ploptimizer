@@ -21,6 +21,7 @@ from plt_optimizer.cli.benchmark import (
     _FILE_LEVEL_SENTINEL,
     _NO_WINNER_SENTINEL,
     _TIMING_STAT_COLUMNS,
+    _WINNER_JOB_TIMING_COLUMNS,
     CSV_COLUMNS,
     FileResult,
     ReportWriter,
@@ -29,6 +30,7 @@ from plt_optimizer.cli.benchmark import (
     _compute_timing_stats,
     _empty_row,
     _group_eligible_rows_by_file,
+    _job_timing_fields,
     _log_metrics_from_row,
     _populate_metrics,
     _process_file_worker,
@@ -968,6 +970,27 @@ class TestComputeTimingStats:
         assert _compute_timing_stats([]) == {}
 
 
+class TestJobTimingFields:
+    """Tests for the per-job runtime-per-path/segment helper."""
+
+    def test_computes_ratios_from_own_row(self) -> None:
+        """The job's own time_ms divides by its own workload sizes."""
+        row = _rapid_row("a.plt", "x", rapid_pct=1.0, time_ms=30.0, paths=10.0, segments=150.0)
+        assert _job_timing_fields(row) == {"ms_per_path": 3.0, "ms_per_segment": 0.2}
+
+    def test_missing_denominators_yield_blank_cells(self) -> None:
+        """Zero/absent workload sizes must produce empty cells, not errors."""
+        row = _rapid_row("a.plt", "x", rapid_pct=1.0, time_ms=30.0, paths=0.0)
+        fields = _job_timing_fields(row)
+        assert fields["ms_per_path"] == ""
+        assert fields["ms_per_segment"] == ""
+
+    def test_columns_constant(self) -> None:
+        """The helper's keys must match the exported column constant."""
+        row = _rapid_row("a.plt", "x", rapid_pct=1.0, time_ms=1.0, paths=1.0, segments=1.0)
+        assert sorted(_job_timing_fields(row)) == sorted(_WINNER_JOB_TIMING_COLUMNS)
+
+
 class TestAnalyzeReportWinners:
     """End-to-end tests for the winners post-processing entry point."""
 
@@ -1175,18 +1198,16 @@ class TestAnalyzeReportWinners:
         assert (tmp_path / "myrun_combined_winners.csv").exists()
         assert (tmp_path / "myrun_winner_summary.csv").exists()
 
-    def test_winners_csvs_carry_timing_stat_columns(self, tmp_path: Path) -> None:
-        """Every winners CSV must append the per-strategy timing statistics.
+    def test_winners_csvs_carry_job_timing_columns(self, tmp_path: Path) -> None:
+        """Every winners CSV must append the winning job's own runtime ratios.
 
-        The stamped values describe the winning strategy's whole-batch cost
-        profile (not just the winning file), and unavailable ratios render as
-        empty cells rather than the string "None".
+        The values come from the winning row itself (its ``time_ms`` over its
+        ``before_paths`` / ``before_segments``), not from batch-wide strategy
+        aggregates, which now live only in the winner-summary CSV.
         """
         report = _write_report_csv(
             tmp_path / "report.csv",
             [
-                # nn2opt spans two files: ratios 10/5=2 and 60/10=6 ms/path,
-                # 10/50=0.2 and 60/100=0.6 ms/segment; slowest run 60 ms.
                 _rapid_row(
                     "a.plt", "nn2opt", rapid_pct=10.0, time_ms=10.0, paths=5.0, segments=50.0
                 ),
@@ -1209,29 +1230,31 @@ class TestAnalyzeReportWinners:
             rows = _read_csv(tmp_path / name)
             assert rows, name
             for row in rows:
-                for column in _TIMING_STAT_COLUMNS:
+                for column in _WINNER_JOB_TIMING_COLUMNS:
                     assert column in row, f"{name} missing {column}"
-            # sa wins every rapid criterion here; its batch stats must be
-            # stamped on its winning rows (max 900 ms; per-path ratios
-            # 500/5=100 and 900/10=90 -> min 90, max 100).
-            sa_rows = [r for r in rows if r["strategy_name"] == "sa"]
+                # Batch-wide aggregates belong to the summary CSV only.
+                for column in _TIMING_STAT_COLUMNS:
+                    assert column not in row, f"{name} unexpectedly has {column}"
+            # sa wins every rapid criterion here; each winning row must carry
+            # its own ratios: a.plt 500/5=100 ms/path, 500/50=10 ms/segment;
+            # b.plt 900/10=90 ms/path, 900/100=9 ms/segment.
+            sa_rows = {r["file_name"]: r for r in rows if r["strategy_name"] == "sa"}
             if sa_rows:
-                assert float(sa_rows[0]["max_time_ms"]) == pytest.approx(900.0)
-                assert float(sa_rows[0]["min_ms_per_path"]) == pytest.approx(90.0)
-                assert float(sa_rows[0]["max_ms_per_path"]) == pytest.approx(100.0)
+                assert float(sa_rows["a.plt"]["ms_per_path"]) == pytest.approx(100.0)
+                assert float(sa_rows["a.plt"]["ms_per_segment"]) == pytest.approx(10.0)
+                assert float(sa_rows["b.plt"]["ms_per_path"]) == pytest.approx(90.0)
+                assert float(sa_rows["b.plt"]["ms_per_segment"]) == pytest.approx(9.0)
 
     def test_unavailable_ratios_render_as_blank_cells(self, tmp_path: Path) -> None:
-        """Strategies without workload sizes must not emit 'None' into CSVs."""
+        """Winning jobs without workload sizes must not emit 'None' into CSVs."""
         report = _write_report_csv(
             tmp_path / "report.csv",
             [_rapid_row("a.plt", "nn2opt", rapid_pct=1.0, time_ms=5.0)],
         )
         analyze_report_winners(report)
         rows = _read_csv(tmp_path / "report_time_winners.csv")
-        assert rows[0]["max_time_ms"] == "5.0"
-        for column in _TIMING_STAT_COLUMNS:
-            if column != "max_time_ms":
-                assert rows[0][column] == ""
+        for column in _WINNER_JOB_TIMING_COLUMNS:
+            assert rows[0][column] == ""
 
 
 # ---------------------------------------------------------------------------
