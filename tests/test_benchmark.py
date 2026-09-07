@@ -341,6 +341,27 @@ class TestProcessFileOptionalLoggers:
         assert success_rows, "expected at least one strategy to succeed"
         assert all(r["_metrics_event"]["status"] == "success" for r in success_rows)
 
+    def test_success_rows_carry_job_timing_ratios(
+        self, sample_input_dir: Path, sample_output_dir: Path
+    ) -> None:
+        """Successful rows must carry per-job ms/path and ms/segment values."""
+        rows = process_file(
+            input_path=sample_input_dir / "square.plt",
+            output_dir=sample_output_dir,
+            same_row_preference=1.0,
+            metrics_logger=None,
+            text_logger=None,
+        )
+        success_rows = [r for r in rows if r["status"] == "success"]
+        assert success_rows, "expected at least one strategy to succeed"
+        for row in success_rows:
+            assert float(row["ms_per_path"]) == pytest.approx(
+                float(row["time_ms"]) / float(row["before_paths"]), rel=1e-4
+            )
+            assert float(row["ms_per_segment"]) == pytest.approx(
+                float(row["time_ms"]) / float(row["before_segments"]), rel=1e-4
+            )
+
     def test_file_level_failure_still_returns_sentinel(self, sample_output_dir: Path) -> None:
         """A missing input file should produce a sentinel row, not raise."""
         rows = process_file(
@@ -985,6 +1006,13 @@ class TestJobTimingFields:
         assert fields["ms_per_path"] == ""
         assert fields["ms_per_segment"] == ""
 
+    def test_missing_time_ms_yields_blank_cells(self) -> None:
+        """Failed rows without a recorded runtime must produce empty cells."""
+        row = _row("a.plt", "x", "failed")
+        row["before_paths"] = 10.0
+        row["before_segments"] = 150.0
+        assert _job_timing_fields(row) == {"ms_per_path": "", "ms_per_segment": ""}
+
     def test_columns_constant(self) -> None:
         """The helper's keys must match the exported column constant."""
         row = _rapid_row("a.plt", "x", rapid_pct=1.0, time_ms=1.0, paths=1.0, segments=1.0)
@@ -1199,11 +1227,12 @@ class TestAnalyzeReportWinners:
         assert (tmp_path / "myrun_winner_summary.csv").exists()
 
     def test_winners_csvs_carry_job_timing_columns(self, tmp_path: Path) -> None:
-        """Every winners CSV must append the winning job's own runtime ratios.
+        """Every winners CSV must carry the winning job's own runtime ratios.
 
         The values come from the winning row itself (its ``time_ms`` over its
-        ``before_paths`` / ``before_segments``), not from batch-wide strategy
-        aggregates, which now live only in the winner-summary CSV.
+        ``before_paths`` / ``before_segments``) via the canonical
+        ``ms_per_path`` / ``ms_per_segment`` columns, not from batch-wide
+        strategy aggregates, which live only in the winner-summary CSV.
         """
         report = _write_report_csv(
             tmp_path / "report.csv",
@@ -1255,6 +1284,34 @@ class TestAnalyzeReportWinners:
         rows = _read_csv(tmp_path / "report_time_winners.csv")
         for column in _WINNER_JOB_TIMING_COLUMNS:
             assert rows[0][column] == ""
+
+    def test_legacy_report_gets_job_timing_backfilled(self, tmp_path: Path) -> None:
+        """Reports written before the ratio columns existed must still win.
+
+        The winners CSVs recompute ``ms_per_path`` / ``ms_per_segment`` from
+        the row's own ``time_ms`` / ``before_*`` values, so historical
+        reports lacking the columns produce fully populated winners rows.
+        """
+        legacy_columns = [c for c in CSV_COLUMNS if c not in _WINNER_JOB_TIMING_COLUMNS]
+        report = tmp_path / "report.csv"
+        with open(report, "w", newline="", encoding="utf-8") as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=legacy_columns)
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "file_name": "a.plt",
+                    "strategy_name": "nn2opt",
+                    "status": "success",
+                    "rapid_improvement_pct": "10.0",
+                    "time_ms": "30.0",
+                    "before_paths": "10",
+                    "before_segments": "150",
+                }
+            )
+        analyze_report_winners(report)
+        rows = _read_csv(tmp_path / "report_time_winners.csv")
+        assert float(rows[0]["ms_per_path"]) == pytest.approx(3.0)
+        assert float(rows[0]["ms_per_segment"]) == pytest.approx(0.2)
 
 
 # ---------------------------------------------------------------------------
@@ -1316,6 +1373,11 @@ class TestCsvSchemaHelpers:
     def test_csv_columns_first_is_file_name(self) -> None:
         """The first column must be ``file_name`` for downstream tools."""
         assert CSV_COLUMNS[0] == "file_name"
+
+    def test_job_timing_columns_follow_time_ms(self) -> None:
+        """``ms_per_path``/``ms_per_segment`` must sit right after ``time_ms``."""
+        time_index = CSV_COLUMNS.index("time_ms")
+        assert CSV_COLUMNS[time_index + 1 : time_index + 3] == _WINNER_JOB_TIMING_COLUMNS
 
     def test_empty_row_initializes_all_columns(self) -> None:
         """``_empty_row`` must populate every column with ``""``."""

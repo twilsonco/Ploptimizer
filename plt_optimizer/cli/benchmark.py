@@ -60,9 +60,10 @@ strategy are omitted from the winners reports.
 The summary table additionally carries per-strategy runtime statistics
 aggregated across the whole batch: the slowest single-file runtime
 (``max_time_ms``) plus min/max/average runtime per path and per segment.
-Each winners CSV instead carries the winning job's own runtime per path and
-per segment (``ms_per_path`` / ``ms_per_segment``: the row's ``time_ms``
-divided by its ``before_paths`` / ``before_segments``).
+The report rows themselves (and therefore the winners CSVs) carry each
+job's own runtime per path and per segment (``ms_per_path`` /
+``ms_per_segment``: the row's ``time_ms`` divided by its ``before_paths`` /
+``before_segments``).
 """
 
 from __future__ import annotations
@@ -147,6 +148,8 @@ def _build_csv_columns() -> List[str]:
         "cutting_improvement_pct",
         "total_improvement_pct",
         "time_ms",
+        "ms_per_path",
+        "ms_per_segment",
         "error_message",
     ]
 
@@ -562,6 +565,8 @@ def process_file(
         row["before_paths"] = before_paths
         row["before_segments"] = before_segments
         row["blocks_created"] = blocks_created
+        # Per-job runtime ratios (blank for failed rows without time_ms).
+        row.update(_job_timing_fields(row))
         rows.append(row)
     return rows
 
@@ -884,8 +889,10 @@ _TIMING_STAT_COLUMNS: List[str] = [
     "avg_ms_per_segment",
 ]
 
-# Per-job runtime columns appended to every winners CSV: the winning row's
-# own ``time_ms`` divided by its ``before_paths`` / ``before_segments``.
+# Per-job runtime ratio columns (each row's ``time_ms`` divided by its
+# ``before_paths`` / ``before_segments``). They are part of
+# :data:`CSV_COLUMNS`; this constant keeps them addressable as a pair for
+# computation and backfilling.
 _WINNER_JOB_TIMING_COLUMNS: List[str] = ["ms_per_path", "ms_per_segment"]
 
 # Column order of the stdout win-count table, also written verbatim to a
@@ -1189,14 +1196,19 @@ def _job_timing_fields(row: Dict[str, str]) -> Dict[str, Any]:
     """Compute a single job's own runtime per path and per segment.
 
     Args:
-        row: One eligible report row (a single file/strategy run).
+        row: One report row (a single file/strategy run).
 
     Returns:
         Mapping with :data:`_WINNER_JOB_TIMING_COLUMNS` keys holding the
         row's ``time_ms`` divided by its ``before_paths`` /
         ``before_segments`` (rounded to six decimals), or ``""`` when the
-        denominator is missing, zero or negative.
+        row has no recorded runtime or the denominator is missing, zero or
+        negative.
     """
+    raw_time = row.get("time_ms")
+    if raw_time is None or not str(raw_time).strip():
+        return dict.fromkeys(_WINNER_JOB_TIMING_COLUMNS, "")
+    time_ms = _report_float(row, "time_ms")
     denominators = ("before_paths", "before_segments")
     fields: Dict[str, Any] = {}
     for column, denominator_column in zip(_WINNER_JOB_TIMING_COLUMNS, denominators):
@@ -1204,7 +1216,7 @@ def _job_timing_fields(row: Dict[str, str]) -> Dict[str, Any]:
         if denominator <= 0.0:
             fields[column] = ""
         else:
-            fields[column] = round(_report_float(row, "time_ms") / denominator, 6)
+            fields[column] = round(time_ms / denominator, 6)
     return fields
 
 
@@ -1294,11 +1306,9 @@ def analyze_report_winners(report_path: Path) -> Dict[str, Dict[str, int]]:
     Three winners CSVs are written next to ``report.csv``, named after its
     stem (e.g. ``report_rapid_improvement_winners.csv`` for ``report.csv``).
     The rapid and time CSVs reuse :data:`CSV_COLUMNS` and contain the full
-    winning row; the combined CSV appends a ``combined_score`` column. All
-    three additionally append :data:`_WINNER_JOB_TIMING_COLUMNS` — the
-    winning job's own runtime per path and per segment (its ``time_ms``
-    divided by its ``before_paths`` / ``before_segments``). Files without
-    any eligible winner are omitted from all three CSVs.
+    winning row (including its canonical ``ms_per_path`` / ``ms_per_segment``
+    columns); the combined CSV appends a ``combined_score`` column. Files
+    without any eligible winner are omitted from all three CSVs.
 
     Finally, a win-count + runtime-statistics summary table is printed to
     stdout and mirrored to ``<stem>_winner_summary.csv`` (one row per
@@ -1341,7 +1351,12 @@ def analyze_report_winners(report_path: Path) -> Dict[str, Dict[str, int]]:
         _register(strategy_name)[criterion] += 1
 
     def _stamp_job_timing(winner_row: Dict[str, Any], winner: Dict[str, str]) -> None:
-        """Attach the winning job's own per-path / per-segment runtime."""
+        """Attach the winning job's own per-path / per-segment runtime.
+
+        New reports already carry these canonical columns; recomputing keeps
+        the values correct for historical reports written before the columns
+        existed.
+        """
         winner_row.update(_job_timing_fields(winner))
 
     for _file_name, file_rows in grouped:
@@ -1368,15 +1383,12 @@ def analyze_report_winners(report_path: Path) -> Dict[str, Dict[str, int]]:
 
     stem = report_path.stem
     output_dir = report_path.parent
-    timing_fields = [*CSV_COLUMNS, *_WINNER_JOB_TIMING_COLUMNS]
-    write_report(
-        rapid_winners, output_dir / f"{stem}_{_CRITERION_RAPID}_winners.csv", timing_fields
-    )
-    write_report(time_winners, output_dir / f"{stem}_{_CRITERION_TIME}_winners.csv", timing_fields)
+    write_report(rapid_winners, output_dir / f"{stem}_{_CRITERION_RAPID}_winners.csv", CSV_COLUMNS)
+    write_report(time_winners, output_dir / f"{stem}_{_CRITERION_TIME}_winners.csv", CSV_COLUMNS)
     write_report(
         combined_winners,
         output_dir / f"{stem}_{_CRITERION_COMBINED}_winners.csv",
-        [*CSV_COLUMNS, "combined_score", *_WINNER_JOB_TIMING_COLUMNS],
+        [*CSV_COLUMNS, "combined_score"],
     )
     # Mirror the stdout summary table to disk so it can be loaded later.
     # write_report() is a no-op when no strategy won, matching the printed
