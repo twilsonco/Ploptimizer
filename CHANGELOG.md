@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.7.0](https://github.com/twilsonco/Ploptimizer/compare/v1.6.4...v1.7.0) (2026-09-07)
+
+
+### Features
+
+* add --analyze-only mode to re-run benchmark winner analysis ([1bd8ec9](https://github.com/twilsonco/Ploptimizer/commit/1bd8ec98907d776010856ca9ab133a7b8583f089))
+* add --log-level flag to benchmark tool (default WARNING) ([e9cadfe](https://github.com/twilsonco/Ploptimizer/commit/e9cadfe8df4dcf17cecfe3bf4869866c0eed3865))
+* add configurable per-job timeout to parallel ensemble optimization ([191d7c2](https://github.com/twilsonco/Ploptimizer/commit/191d7c2a972a3004e56baa46050b9ba5bbc677ca))
+* add ms_per_path and ms_per_segment columns to benchmark report.csv ([302dbda](https://github.com/twilsonco/Ploptimizer/commit/302dbdabaa510240d957871d5abc507696e54802))
+* add per-file strategy winner analysis to benchmark reports ([fb772ae](https://github.com/twilsonco/Ploptimizer/commit/fb772aede9b8212549377733d468fe37f2fdf157))
+* add per-strategy runtime stats to benchmark winner analysis ([cdeb478](https://github.com/twilsonco/Ploptimizer/commit/cdeb47825db157f4ad10e9ff4a5836cac3010b82))
+* apply benchmark timeout to per-strategy runs via killable subprocesses ([0b835c0](https://github.com/twilsonco/Ploptimizer/commit/0b835c09f3b5d600b91a6a9fbebd786beca8c9ca))
+* mirror benchmark winner summary table to report_winner_summary.csv ([95c6cec](https://github.com/twilsonco/Ploptimizer/commit/95c6cec28a8e4005da12e1788e7a3046940f062e))
+
 ## [1.6.4](https://github.com/twilsonco/Ploptimizer/compare/v1.6.3...v1.6.4) (2026-08-15)
 
 
