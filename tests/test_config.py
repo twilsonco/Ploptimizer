@@ -179,11 +179,46 @@ class TestDefaultConfig:
             "processed_dir",
             "fast_mode",
             "debug_save_files",
+            "ensemble_timeout_seconds",
+            "same_row_preference",
             "run_at_startup",
             "first_run"
         ]
         for key in required_keys:
             assert key in DEFAULT_CONFIG
+
+    def test_default_config_ensemble_timeout_value(self) -> None:
+        """Test that the ensemble job timeout defaults to 10.0 seconds."""
+        assert DEFAULT_CONFIG["ensemble_timeout_seconds"] == 10.0
+
+    def test_default_config_same_row_preference_value(self) -> None:
+        """Test that same_row_preference defaults to the neutral 1.0."""
+        assert DEFAULT_CONFIG["same_row_preference"] == 1.0
+
+    def test_load_config_merges_new_keys_for_old_files(self) -> None:
+        """Old config files without the new keys get the new defaults."""
+        json_content = json.dumps({"watch_dir": "/old/path"})
+
+        with patch.object(Path, "exists", return_value=True):
+            with patch("builtins.open", mock_open(read_data=json_content)):
+                result = load_config()
+
+        assert result["watch_dir"] == "/old/path"
+        assert result["ensemble_timeout_seconds"] == 10.0
+        assert result["same_row_preference"] == 1.0
+
+    def test_load_config_preserves_stored_new_keys(self) -> None:
+        """Stored timeout/preference values override the defaults."""
+        json_content = json.dumps(
+            {"ensemble_timeout_seconds": 30.0, "same_row_preference": 2.5}
+        )
+
+        with patch.object(Path, "exists", return_value=True):
+            with patch("builtins.open", mock_open(read_data=json_content)):
+                result = load_config()
+
+        assert result["ensemble_timeout_seconds"] == 30.0
+        assert result["same_row_preference"] == 2.5
 
 
 class TestConfigRoundTrip:

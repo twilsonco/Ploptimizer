@@ -7,7 +7,7 @@ determining both traversal sequence and direction for MacroBlocks.
 from __future__ import annotations
 
 import math
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -708,6 +708,244 @@ class TestParallelEnsembleStrategy:
             assert state.block_id not in seen_ids
             seen_ids.add(state.block_id)
         assert seen_ids == {0, 1, 2}
+
+
+class TestParallelEnsembleJobTimeout:
+    """Tests for the per-job timeout of ParallelEnsembleStrategy."""
+
+    @staticmethod
+    def _make_good_future(name: str, distance: float) -> object:
+        """Build a real Future carrying a successful benchmark result."""
+        from concurrent.futures import Future
+
+        opt_result = OptimizationResult(
+            traverse_order=(
+                BlockTraverseState(block_id=0, reversed=False, entrance=(0, 0), exit=(10, 0)),
+            ),
+            connections=(),
+            total_travel_distance=distance,
+            initial_position=(0.0, 0.0),
+        )
+        fut: Future = Future()
+        fut.set_result(StrategyBenchmarkResult(name, opt_result, 0.01))
+        return fut
+
+    @staticmethod
+    def _mock_executor(mock_ctx: MagicMock) -> MagicMock:
+        """Wire a ProcessPoolExecutor patch to return ``mock_ctx`` from ``with``."""
+        mock_exec = MagicMock()
+        mock_exec.return_value.__enter__ = MagicMock(return_value=mock_ctx)
+        mock_exec.return_value.__exit__ = MagicMock(return_value=False)
+        return mock_exec
+
+    def test_partial_timeout_keeps_completed_results(self) -> None:
+        """Jobs completed before the deadline win; the rest are marked timed out."""
+        from concurrent.futures import TimeoutError as FuturesTimeoutError
+
+        blocks = [
+            _make_simple_block(0, (0, 0), (10, 0)),
+            _make_simple_block(1, (50, 0), (60, 0)),
+        ]
+        good = self._make_good_future("NoOp (Baseline)", 40.0)
+        captured_timeout: dict = {}
+
+        def fake_as_completed(fs: object, timeout: Optional[float] = None):
+            captured_timeout["timeout"] = timeout
+            yield good
+            raise FuturesTimeoutError()
+
+        strategy = ParallelEnsembleStrategy(baseline_distance=100.0, job_timeout=0.01)
+        mock_ctx = MagicMock()
+        pending = [good]
+
+        def submit_side(*args: object, **kwargs: object) -> object:
+            if pending:
+                return pending.pop(0)
+            return MagicMock()
+
+        mock_ctx.submit = MagicMock(side_effect=submit_side)
+        with patch(
+            "plt_optimizer.core.optimizer.ProcessPoolExecutor", self._mock_executor(mock_ctx)
+        ):
+            with patch(
+                "plt_optimizer.core.optimizer.as_completed", side_effect=fake_as_completed
+            ):
+                result = strategy.optimize(blocks)
+
+        assert captured_timeout["timeout"] == 0.01
+        assert isinstance(result, ParallelEnsembleOptimizationResult)
+        assert result.winner_name == "NoOp (Baseline)"
+
+    def test_all_jobs_timeout_falls_back_to_nn2opt(self) -> None:
+        """When every job times out, the serial NN2Opt fallback must run."""
+        from concurrent.futures import TimeoutError as FuturesTimeoutError
+
+        blocks = [
+            _make_simple_block(0, (0, 0), (10, 0)),
+            _make_simple_block(1, (50, 0), (60, 0)),
+        ]
+
+        def fake_as_completed(fs: object, timeout: Optional[float] = None):
+            raise FuturesTimeoutError()
+            yield  # pragma: no cover - makes this function a generator
+
+        strategy = ParallelEnsembleStrategy(job_timeout=0.01)
+        mock_ctx = MagicMock()
+        mock_ctx.submit = MagicMock(side_effect=lambda *a, **k: MagicMock())
+        with patch(
+            "plt_optimizer.core.optimizer.ProcessPoolExecutor", self._mock_executor(mock_ctx)
+        ):
+            with patch(
+                "plt_optimizer.core.optimizer.as_completed", side_effect=fake_as_completed
+            ):
+                result = strategy.optimize(blocks)
+
+        assert result.winner_name == "NearestNeighbor + 2-Opt (Fallback)"
+
+    def test_future_finished_after_deadline_is_still_consumed(self) -> None:
+        """A future that completed just after the deadline (not seen by
+        ``as_completed``) must still contribute its result instead of being
+        reported as timed out."""
+        from concurrent.futures import TimeoutError as FuturesTimeoutError
+
+        blocks = [
+            _make_simple_block(0, (0, 0), (10, 0)),
+            _make_simple_block(1, (50, 0), (60, 0)),
+        ]
+        late = self._make_good_future("Insertion Heuristic", 30.0)
+
+        def fake_as_completed(fs: object, timeout: Optional[float] = None):
+            raise FuturesTimeoutError()
+            yield  # pragma: no cover - makes this function a generator
+
+        strategy = ParallelEnsembleStrategy(baseline_distance=100.0, job_timeout=0.01)
+        mock_ctx = MagicMock()
+        pending = [late]
+
+        def submit_side(*args: object, **kwargs: object) -> object:
+            if pending:
+                return pending.pop(0)
+            return MagicMock()
+
+        mock_ctx.submit = MagicMock(side_effect=submit_side)
+        with patch(
+            "plt_optimizer.core.optimizer.ProcessPoolExecutor", self._mock_executor(mock_ctx)
+        ):
+            with patch(
+                "plt_optimizer.core.optimizer.as_completed", side_effect=fake_as_completed
+            ):
+                result = strategy.optimize(blocks)
+
+        assert result.winner_name == "Insertion Heuristic"
+
+    def test_job_timeout_none_disables_deadline(self) -> None:
+        """``job_timeout=None`` must pass ``timeout=None`` to as_completed."""
+        blocks = [
+            _make_simple_block(0, (0, 0), (10, 0)),
+            _make_simple_block(1, (50, 0), (60, 0)),
+        ]
+        strategy = ParallelEnsembleStrategy(job_timeout=None)
+        mock_ctx = MagicMock()
+        mock_ctx.submit = MagicMock(side_effect=lambda *a, **k: MagicMock())
+        with patch(
+            "plt_optimizer.core.optimizer.ProcessPoolExecutor", self._mock_executor(mock_ctx)
+        ):
+            with patch("plt_optimizer.core.optimizer.as_completed") as mock_ac:
+                mock_ac.return_value = iter([])
+                result = strategy.optimize(blocks)
+
+        assert mock_ac.call_args.kwargs["timeout"] is None
+        # No completions -> serial fallback still produces a result.
+        assert result.winner_name == "NearestNeighbor + 2-Opt (Fallback)"
+
+    def test_timeout_terminates_running_worker_processes(self) -> None:
+        """On timeout, live worker processes are terminated via _processes."""
+        from concurrent.futures import TimeoutError as FuturesTimeoutError
+
+        blocks = [
+            _make_simple_block(0, (0, 0), (10, 0)),
+            _make_simple_block(1, (50, 0), (60, 0)),
+        ]
+
+        def fake_as_completed(fs: object, timeout: Optional[float] = None):
+            raise FuturesTimeoutError()
+            yield  # pragma: no cover - makes this function a generator
+
+        strategy = ParallelEnsembleStrategy(job_timeout=0.01)
+        mock_ctx = MagicMock()
+        mock_ctx.submit = MagicMock(side_effect=lambda *a, **k: MagicMock())
+        mock_proc = MagicMock()
+        mock_ctx._processes = {"123": mock_proc}
+        with patch(
+            "plt_optimizer.core.optimizer.ProcessPoolExecutor", self._mock_executor(mock_ctx)
+        ):
+            with patch(
+                "plt_optimizer.core.optimizer.as_completed", side_effect=fake_as_completed
+            ):
+                result = strategy.optimize(blocks)
+
+        mock_proc.terminate.assert_called_once()
+        assert result.winner_name == "NearestNeighbor + 2-Opt (Fallback)"
+
+    def test_terminate_failure_is_swallowed(self) -> None:
+        """A failing terminate() must not crash the timeout handling."""
+        strategy = ParallelEnsembleStrategy(job_timeout=0.01)
+        mock_ctx = MagicMock()
+        mock_proc = MagicMock()
+        mock_proc.terminate.side_effect = RuntimeError("cannot kill")
+        mock_ctx._processes = {"123": mock_proc}
+        # Must not raise despite terminate() blowing up.
+        strategy._terminate_running_jobs(mock_ctx)
+        mock_proc.terminate.assert_called_once()
+
+    def test_terminate_noop_without_process_dict(self) -> None:
+        """Executors without a dict ``_processes`` degrade to a no-op."""
+        import types
+
+        strategy = ParallelEnsembleStrategy()
+        # Object without _processes attribute at all.
+        strategy._terminate_running_jobs(types.SimpleNamespace())
+        # Object with a non-dict _processes (e.g. MagicMock executors).
+        strategy._terminate_running_jobs(types.SimpleNamespace(_processes=MagicMock()))
+
+    def test_same_row_preference_forwarded_to_jobs(self) -> None:
+        """The configured same_row_preference is passed to every submitted job."""
+        blocks = [
+            _make_simple_block(0, (0, 0), (10, 0)),
+            _make_simple_block(1, (50, 0), (60, 0)),
+        ]
+        strategy = ParallelEnsembleStrategy(job_timeout=None, same_row_preference=2.5)
+        mock_ctx = MagicMock()
+        mock_ctx.submit = MagicMock(side_effect=lambda *a, **k: MagicMock())
+        with patch(
+            "plt_optimizer.core.optimizer.ProcessPoolExecutor", self._mock_executor(mock_ctx)
+        ):
+            with patch("plt_optimizer.core.optimizer.as_completed") as mock_ac:
+                mock_ac.return_value = iter([])
+                strategy.optimize(blocks)
+
+        assert mock_ctx.submit.call_args_list
+        for call in mock_ctx.submit.call_args_list:
+            # submit(_run_strategy_worker, name, blocks, start, end, same_row_preference)
+            assert call.args[5] == 2.5
+
+    def test_worker_applies_same_row_preference_to_nn2opt(self) -> None:
+        """``_run_strategy_worker`` builds NN2Opt with the given preference."""
+        from plt_optimizer.core.optimizer import _run_strategy_worker
+
+        blocks_serialized = ((0, (0.0, 0.0), (10.0, 0.0)), (1, (50.0, 0.0), (60.0, 0.0)))
+        with patch(
+            "plt_optimizer.core.optimizer.NearestNeighbor2OptStrategy",
+            wraps=NearestNeighbor2OptStrategy,
+        ) as wrapped:
+            _run_strategy_worker(
+                "NearestNeighbor + 2-Opt",
+                blocks_serialized,
+                (0.0, 0.0),
+                None,
+                same_row_preference=3.0,
+            )
+        wrapped.assert_called_once_with(same_row_preference=3.0)
 
 
 class TestStrategyBenchmarkResult:

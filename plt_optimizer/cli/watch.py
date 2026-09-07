@@ -99,6 +99,8 @@ class PLTFileHandler(FileSystemEventHandler):
         temp_dir: Optional[Path] = None,
         debounce_seconds: float = 2.0,
         poll_interval: float = 0.5,
+        ensemble_timeout_seconds: float = 10.0,
+        same_row_preference: float = 1.0,
     ) -> None:
         """Initialize the PLT file handler.
 
@@ -116,6 +118,10 @@ class PLTFileHandler(FileSystemEventHandler):
             debounce_seconds: Quiet period (seconds) after the last modification
                 before a file is considered stable and processed.
             poll_interval: How often the debounce thread polls for stable files.
+            ensemble_timeout_seconds: Seconds each ParallelEnsemble strategy job
+                may take before it is aborted and marked as failed.
+            same_row_preference: Penalty multiplier for y-differences during
+                greedy selection (NearestNeighbor2Opt and ensemble jobs).
         """
         super().__init__()
         self._watch_dir = watch_dir
@@ -131,6 +137,8 @@ class PLTFileHandler(FileSystemEventHandler):
         self._processed_files: set[Path] = set()
         self._debounce_seconds = debounce_seconds
         self._poll_interval = poll_interval
+        self._ensemble_timeout_seconds = ensemble_timeout_seconds
+        self._same_row_preference = same_row_preference
         self._temp_dir = temp_dir if temp_dir is not None else output_dir / ".incomplete"
         self._pending_files: Dict[Path, float] = {}
         self._pending_lock = threading.Lock()
@@ -463,9 +471,15 @@ class PLTFileHandler(FileSystemEventHandler):
             # Select strategy based on fast_mode
             strategy: OptimizationStrategy
             if self._fast_mode:
-                strategy = NearestNeighbor2OptStrategy()
+                strategy = NearestNeighbor2OptStrategy(
+                    same_row_preference=self._same_row_preference
+                )
             else:
-                strategy = ParallelEnsembleStrategy(baseline_distance=original_distance)
+                strategy = ParallelEnsembleStrategy(
+                    baseline_distance=original_distance,
+                    job_timeout=self._ensemble_timeout_seconds,
+                    same_row_preference=self._same_row_preference,
+                )
 
             # Optimize
             optimizer = OptimizerEngine(strategy=strategy)
@@ -731,6 +745,8 @@ def run_watcher_from_config(
     fast_mode = bool(config.get("fast_mode", False))
     debug_save_files = bool(config.get("debug_save_files", False))
     debounce_seconds = float(config.get("debounce_seconds", 2.0))
+    ensemble_timeout_seconds = float(config.get("ensemble_timeout_seconds", 10.0))
+    same_row_preference = float(config.get("same_row_preference", 1.0))
 
     text_log_file = log_dir / "optimizer.log"
     csv_metrics_file = log_dir / "job_metrics.csv"
@@ -762,6 +778,8 @@ def run_watcher_from_config(
         f"Strategy: {'NearestNeighbor2Opt (Fast Mode)' if fast_mode else 'ParallelEnsemble'}"
     )
     text_logger.info(f"Debounce window: {debounce_seconds}s")
+    text_logger.info(f"Ensemble job timeout: {ensemble_timeout_seconds}s")
+    text_logger.info(f"Same row preference: {same_row_preference}")
     text_logger.info("=" * 60)
 
     # Validate watch directory
@@ -795,6 +813,8 @@ def run_watcher_from_config(
         debug_save_files=debug_save_files,
         log_dir=log_dir if debug_save_files else None,
         debounce_seconds=debounce_seconds,
+        ensemble_timeout_seconds=ensemble_timeout_seconds,
+        same_row_preference=same_row_preference,
     )
     handler.start()
 
@@ -826,6 +846,8 @@ def run_watcher_from_config(
         debug_save_files=debug_save_files,
         log_dir=log_dir if debug_save_files else None,
         debounce_seconds=debounce_seconds,
+        ensemble_timeout_seconds=ensemble_timeout_seconds,
+        same_row_preference=same_row_preference,
     )
     event_handler.start()
 
@@ -970,6 +992,26 @@ Examples:
                 "Quiet period (seconds) the watcher waits after the last "
                 "modification to a file before processing it. Prevents "
                 "reading partially-written files (default: 2.0)."
+            ),
+        )
+        parser.add_argument(
+            "--ensemble-timeout",
+            type=float,
+            default=10.0,
+            help=(
+                "Seconds each ParallelEnsemble strategy job may take before it "
+                "is aborted and marked as failed. If all jobs fail, the serial "
+                "NearestNeighbor + 2-Opt fallback runs (default: 10.0). "
+                "Ignored with --fast-mode."
+            ),
+        )
+        parser.add_argument(
+            "--same-row-preference",
+            type=float,
+            default=1.0,
+            help=(
+                "Penalty multiplier for y-differences during greedy selection "
+                "(default: 1.0, values > 1.0 prefer same-row blocks)"
             ),
         )
 
@@ -1141,6 +1183,8 @@ Examples:
             debug_save_files=(self._args.debug_save_files and self._log_dir_explicitly_set),
             log_dir=self._args.log_dir if self._args.debug_save_files else None,
             debounce_seconds=self._args.debounce_seconds,
+            ensemble_timeout_seconds=self._args.ensemble_timeout,
+            same_row_preference=self._args.same_row_preference,
         )
         self._existing_handler.start()
 
@@ -1196,6 +1240,8 @@ Examples:
         self._text_logger.info(
             f"Strategy: {'NearestNeighbor2Opt (Fast Mode)' if self._args.fast_mode else 'ParallelEnsemble'}"
         )
+        self._text_logger.info(f"Ensemble job timeout: {self._args.ensemble_timeout}s")
+        self._text_logger.info(f"Same row preference: {self._args.same_row_preference}")
         self._text_logger.info("=" * 60)
 
         # Validate directories
@@ -1222,6 +1268,8 @@ Examples:
             debug_save_files=(self._args.debug_save_files and self._log_dir_explicitly_set),
             log_dir=self._args.log_dir if self._args.debug_save_files else None,
             debounce_seconds=self._args.debounce_seconds,
+            ensemble_timeout_seconds=self._args.ensemble_timeout,
+            same_row_preference=self._args.same_row_preference,
         )
         event_handler.start()
 

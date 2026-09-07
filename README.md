@@ -35,6 +35,13 @@ PLT-Optimizer provides multiple routing algorithms for MacroBlock traversal:
 
 For **fast mode** (single strategy), use `--fast-mode` flag.
 
+The **ParallelEnsemble** strategy runs each member strategy in its own worker
+process with a configurable per-job timeout (default 10 seconds). Any strategy
+that exceeds the timeout is aborted and marked as failed; if every job fails,
+the serial Nearest Neighbor + 2-Opt fallback runs instead. Tune it with
+`--ensemble-timeout <seconds>` (watch daemon and benchmark) or the
+**Ensemble Timeout (s)** field in the settings window.
+
 ## Batch Benchmark Tool
 
 A standalone utility lives in `examples/benchmark.py` for processing every `*.plt`
@@ -47,6 +54,7 @@ benchmarking the optimization strategies on real-world inputs.
 ```bash
 python plt_optimizer/cli/benchmark.py /path/to/cad_files/
 python plt_optimizer/cli/benchmark.py /path/to/cad_files/ --same-row-preference 1.5
+python plt_optimizer/cli/benchmark.py /path/to/cad_files/ --ensemble-timeout 30
 ```
 
 The winners post-processing described below also runs automatically at the end of

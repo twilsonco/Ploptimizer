@@ -156,6 +156,33 @@ class SettingsWindow:
         )
         debug_check.grid(row=0, column=2, sticky="w", pady=3)
 
+        # Numeric optimization parameters (row 1)
+        ttk.Label(opt_section, text="Ensemble Timeout (s):").grid(
+            row=1, column=0, sticky="w", padx=(0, 5), pady=3
+        )
+        self._ensemble_timeout_var = tk.DoubleVar()
+        ttk.Spinbox(
+            opt_section,
+            from_=0.1,
+            to=3600.0,
+            increment=1.0,
+            textvariable=self._ensemble_timeout_var,
+            width=10,
+        ).grid(row=1, column=1, sticky="w", pady=3)
+
+        ttk.Label(opt_section, text="Same Row Preference:").grid(
+            row=1, column=2, sticky="e", padx=(10, 5), pady=3
+        )
+        self._same_row_preference_var = tk.DoubleVar()
+        ttk.Spinbox(
+            opt_section,
+            from_=1.0,
+            to=100.0,
+            increment=0.5,
+            textvariable=self._same_row_preference_var,
+            width=10,
+        ).grid(row=1, column=3, sticky="w", pady=3)
+
         # Startup and Maintenance sections - TWO COLUMN LAYOUT
         if _IS_WINDOWS:
             startup_section = ttk.LabelFrame(main_frame, text="Startup", padding="8")
@@ -287,6 +314,8 @@ class SettingsWindow:
 
         self._fast_mode_var.set(bool(self._config.get("fast_mode", False)))
         self._debug_save_files_var.set(bool(self._config.get("debug_save_files", False)))
+        self._ensemble_timeout_var.set(float(self._config.get("ensemble_timeout_seconds", 10.0)))
+        self._same_row_preference_var.set(float(self._config.get("same_row_preference", 1.0)))
 
         if _IS_WINDOWS and hasattr(self, "_run_at_startup_var"):
             # Reflect actual system state as the source of truth, falling back
@@ -331,6 +360,31 @@ class SettingsWindow:
             )
             return False
 
+        # Numeric optimization parameters must be positive
+        try:
+            ensemble_timeout = float(self._ensemble_timeout_var.get())
+        except (TypeError, ValueError):
+            ensemble_timeout = 0.0
+        if ensemble_timeout <= 0:
+            messagebox.showerror(
+                "Validation Error",
+                "Ensemble Timeout must be greater than 0 seconds.",
+                parent=self._root,
+            )
+            return False
+
+        try:
+            same_row_preference = float(self._same_row_preference_var.get())
+        except (TypeError, ValueError):
+            same_row_preference = 0.0
+        if same_row_preference <= 0:
+            messagebox.showerror(
+                "Validation Error",
+                "Same Row Preference must be greater than 0.",
+                parent=self._root,
+            )
+            return False
+
         # Check watch directory exists
         if not Path(watch_dir).exists():
             result = messagebox.askyesno(
@@ -368,6 +422,8 @@ class SettingsWindow:
 
         self._config["fast_mode"] = self._fast_mode_var.get()
         self._config["debug_save_files"] = self._debug_save_files_var.get()
+        self._config["ensemble_timeout_seconds"] = float(self._ensemble_timeout_var.get())
+        self._config["same_row_preference"] = float(self._same_row_preference_var.get())
 
         if _IS_WINDOWS and hasattr(self, "_run_at_startup_var"):
             self._config["run_at_startup"] = self._run_at_startup_var.get()

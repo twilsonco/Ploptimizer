@@ -22,6 +22,7 @@ Usage:
     python examples/benchmark.py /path/to/cad_files/
     python examples/benchmark.py /path/to/cad_files/ --same-row-preference 1.5
     python examples/benchmark.py /path/to/cad_files/ --workers 8
+    python examples/benchmark.py /path/to/cad_files/ --ensemble-timeout 30
 
 The winners post-processing can also be re-run standalone against an
 existing report (no PLT processing):
@@ -40,12 +41,15 @@ Output structure:
 
 The first CSV (``report.csv``) contains one row per registered strategy for
 every input file, allowing per-strategy error reporting and per-strategy
-distance-saved metrics. The second CSV (``ensemble_report.csv``) contains a
-single row per file, simulating what the ParallelEnsemble strategy would
-have produced: the ``strategy_name`` column holds the winning strategy's
-name (selected by greatest total improvement %, ties broken by shortest
-total distance then fastest runtime). Both CSVs share the same schema
-defined in :data:`CSV_COLUMNS`.
+distance-saved metrics, followed by one ``ensemble`` row per file produced by
+running the real ``ParallelEnsembleStrategy`` with the per-job timeout
+configured via ``--ensemble-timeout`` (the ensemble row is excluded from the
+winners reports since it aggregates the other strategies). The second CSV
+(``ensemble_report.csv``) contains a single row per file, simulating what the
+ParallelEnsemble strategy would have produced: the ``strategy_name`` column
+holds the winning strategy's name (selected by greatest total improvement %,
+ties broken by shortest total distance then fastest runtime). Both CSVs share
+the same schema defined in :data:`CSV_COLUMNS`.
 
 After both reports are written, :func:`analyze_report_winners` re-reads
 ``report.csv`` and produces the three winners CSVs plus a stdout summary
@@ -91,6 +95,7 @@ from plt_optimizer.core.optimizer import (
     InsertionHeuristicStrategy,
     NearestNeighbor2OptStrategy,
     OptimizerEngine,
+    ParallelEnsembleStrategy,
     SimulatedAnnealingStrategy,
 )
 from plt_optimizer.core.parser import ParseError, PLTParser
@@ -113,6 +118,11 @@ STRATEGY_REGISTRY: Dict[str, type] = {
 
 # Strategies that accept a same_row_preference parameter.
 _STRATEGIES_WITH_SAME_ROW_PREFERENCE = {"nn2opt"}
+
+# Strategy name for the real ParallelEnsemble run appended to every file's
+# rows. It is excluded from the winners reports (it would compete against
+# the very strategies it aggregates).
+_ENSEMBLE_STRATEGY_NAME: str = "ensemble"
 
 # Sentinel strategy name used in the per-strategy CSV when a file fails
 # before any strategy is actually run.
@@ -434,10 +444,137 @@ def _run_strategy(
     return row
 
 
+def _run_ensemble_row(
+    blocks: Any,
+    doc: Any,
+    before_rapid: float,
+    before_cutting: float,
+    input_path: Path,
+    output_dir: Path,
+    ensemble_timeout: float,
+    same_row_preference: float,
+    text_logger: Optional[Any],
+) -> Dict[str, Any]:
+    """Run the real ParallelEnsemble strategy and return a populated CSV row.
+
+    Mirrors :func:`_run_strategy` but drives
+    :class:`~plt_optimizer.core.optimizer.ParallelEnsembleStrategy` with the
+    configured per-job ``ensemble_timeout`` (seconds each member strategy job
+    may take before it is aborted). The ensemble result is unwrapped before
+    reassembly, exactly like the watch pipeline does.
+
+    Args:
+        blocks: MacroBlocks to optimize.
+        doc: Simplified PLTDocument used for reassembly.
+        before_rapid: Rapid travel distance before optimization (internal units).
+        before_cutting: Cutting distance before optimization (internal units).
+        input_path: Source PLT path (for naming outputs).
+        output_dir: Destination directory for outputs.
+        ensemble_timeout: Per-job timeout in seconds for the ensemble.
+        same_row_preference: Penalty multiplier for y-differences.
+        text_logger: Text logger, or ``None`` to suppress log output.
+
+    Returns:
+        Row dict with ``strategy_name == "ensemble"`` containing every column
+        declared in :data:`CSV_COLUMNS` plus the private ``_metrics_event`` /
+        ``_optimized_plt_path`` bookkeeping keys.
+    """
+    row = _empty_row(input_path.name)
+    row["strategy_name"] = _ENSEMBLE_STRATEGY_NAME
+    optimized_plt_path: Optional[Path] = None
+    metrics_event: Dict[str, Any] = {
+        "kind": "strategy",
+        "strategy_name": _ENSEMBLE_STRATEGY_NAME,
+        "status": "failed",
+        "job_id": (
+            f"{input_path.stem}_{_ENSEMBLE_STRATEGY_NAME}_"
+            f"{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        ),
+        "original_file": input_path,
+        "optimized_file": None,
+        "original_distance": before_rapid,
+        "optimized_distance": before_rapid,
+        "notes": "",
+    }
+
+    try:
+        strategy = ParallelEnsembleStrategy(
+            baseline_distance=before_rapid,
+            job_timeout=ensemble_timeout,
+            same_row_preference=same_row_preference,
+        )
+        optimizer = OptimizerEngine(strategy=strategy)
+
+        opt_start = time.perf_counter()
+        optimization_result = optimizer.optimize(blocks)
+        opt_elapsed_ms = (time.perf_counter() - opt_start) * 1000
+
+        # The ensemble returns a wrapper carrying the winning result; unwrap
+        # it before reassembly (same contract as the watch pipeline).
+        result_for_reassembly = getattr(optimization_result, "result", optimization_result)
+
+        reassembler = Reassembler()
+        optimized_doc = reassembler.reassemble(doc, blocks, result_for_reassembly)
+
+        optimized_rapid = optimized_doc.rapid_distance()
+        optimized_cutting = optimized_doc.cutting_distance()
+
+        total_before = before_rapid + before_cutting
+        total_after = optimized_rapid + optimized_cutting
+        total_pct = ((total_after - total_before) / total_before) * 100 if total_before > 0 else 0.0
+
+        strategy_output_dir = output_dir / "optimized" / _ENSEMBLE_STRATEGY_NAME
+        strategy_output_dir.mkdir(parents=True, exist_ok=True)
+        optimized_plt_path = strategy_output_dir / f"{input_path.stem}_optimized.plt"
+
+        writer = PLTWriter()
+        writer.write_file(optimized_doc, optimized_plt_path)
+
+        after_plot_path = (
+            output_dir / "plots" / f"{input_path.stem}_after_{_ENSEMBLE_STRATEGY_NAME}.png"
+        )
+        _save_plot(
+            optimized_doc,
+            after_plot_path,
+            title=(
+                f"{input_path.name} [{_ENSEMBLE_STRATEGY_NAME}]: "
+                f"Total {total_pct:+.1f}% ({opt_elapsed_ms:.0f} ms)"
+            ),
+            rapid_travel_inches=optimized_rapid / 1000,
+            text_logger=text_logger,
+        )
+
+        metrics_event["status"] = "success"
+        metrics_event["optimized_file"] = optimized_plt_path
+        metrics_event["optimized_distance"] = optimized_rapid
+
+        row["status"] = "success"
+        _populate_metrics(
+            row,
+            before_rapid=before_rapid,
+            before_cutting=before_cutting,
+            optimized_rapid=optimized_rapid,
+            optimized_cutting=optimized_cutting,
+            time_ms=opt_elapsed_ms,
+        )
+    except Exception as ens_err:  # noqa: BLE001 - ensemble failure must not kill the file
+        err_msg = f"{type(ens_err).__name__}: {ens_err}"
+        row["status"] = "failed"
+        row["error_message"] = f"[{_ENSEMBLE_STRATEGY_NAME}] {err_msg}"
+        metrics_event["notes"] = err_msg[:200]
+        if text_logger is not None:
+            text_logger.error(f"Ensemble strategy failed on {input_path.name}: {ens_err}")
+
+    row["_metrics_event"] = metrics_event
+    row["_optimized_plt_path"] = str(optimized_plt_path) if optimized_plt_path else None
+    return row
+
+
 def process_file(
     input_path: Path,
     output_dir: Path,
     same_row_preference: float,
+    ensemble_timeout: float = 10.0,
     metrics_logger: Optional[Any] = None,
     text_logger: Optional[Any] = None,
 ) -> List[Dict[str, Any]]:
@@ -457,13 +594,16 @@ def process_file(
         input_path: Path to the input PLT file.
         output_dir: Destination directory for optimized files and plots.
         same_row_preference: Penalty multiplier for y-differences.
+        ensemble_timeout: Per-job timeout (seconds) for the real
+            ParallelEnsemble run appended after the per-strategy rows.
         metrics_logger: CSV metrics logger, or ``None`` to skip metrics.
         text_logger: Text logger, or ``None`` to suppress log output.
 
     Returns:
         List of row dicts. On file-level failure: one sentinel row. On
-        success: one row per strategy in :data:`STRATEGY_REGISTRY` order.
-        Every dict contains every column in :data:`CSV_COLUMNS`.
+        success: one row per strategy in :data:`STRATEGY_REGISTRY` order,
+        followed by the real ensemble row. Every dict contains every column
+        in :data:`CSV_COLUMNS`.
     """
     parser = PLTParser()
     try:
@@ -568,6 +708,28 @@ def process_file(
         # Per-job runtime ratios (blank for failed rows without time_ms).
         row.update(_job_timing_fields(row))
         rows.append(row)
+
+    # Real ParallelEnsemble run (with the configured per-job timeout),
+    # appended after the individual strategies so its row reflects the same
+    # blocks/document the simulation in ensemble_report.csv is built from.
+    ensemble_row = _run_ensemble_row(
+        blocks=blocks,
+        doc=simplified_doc,
+        before_rapid=before_rapid,
+        before_cutting=before_cutting,
+        input_path=input_path,
+        output_dir=output_dir,
+        ensemble_timeout=ensemble_timeout,
+        same_row_preference=same_row_preference,
+        text_logger=text_logger,
+    )
+    ensemble_row["before_rapid_in"] = round(before_rapid / 1000, 3)
+    ensemble_row["before_cutting_in"] = round(before_cutting / 1000, 3)
+    ensemble_row["before_paths"] = before_paths
+    ensemble_row["before_segments"] = before_segments
+    ensemble_row["blocks_created"] = blocks_created
+    ensemble_row.update(_job_timing_fields(ensemble_row))
+    rows.append(ensemble_row)
     return rows
 
 
@@ -589,6 +751,7 @@ def _process_file_worker(
     input_path_str: str,
     output_dir_str: str,
     same_row_preference: float,
+    ensemble_timeout: float = 10.0,
 ) -> FileResult:
     """Top-level worker invoked by the process pool.
 
@@ -606,6 +769,8 @@ def _process_file_worker(
         input_path_str: Absolute path to the PLT file.
         output_dir_str: Absolute path to the output directory.
         same_row_preference: Penalty multiplier for y-differences.
+        ensemble_timeout: Per-job timeout (seconds) for the real
+            ParallelEnsemble run.
 
     Returns:
         :class:`FileResult` bundling the source path, elapsed seconds, and
@@ -618,6 +783,7 @@ def _process_file_worker(
         input_path=input_path,
         output_dir=output_dir,
         same_row_preference=same_row_preference,
+        ensemble_timeout=ensemble_timeout,
         metrics_logger=None,
         text_logger=None,
     )
@@ -796,7 +962,13 @@ def build_ensemble_rows(per_strategy_rows: List[Dict[str, Any]]) -> List[Dict[st
     ensemble_rows: List[Dict[str, Any]] = []
     for file_name in files_in_order:
         file_rows = grouped[file_name]
-        successful = [r for r in file_rows if r["status"] == "success"]
+        # The synthetic ensemble simulates picking a single member strategy,
+        # so the real ensemble row (when present) is not a candidate.
+        successful = [
+            r
+            for r in file_rows
+            if r["status"] == "success" and r["strategy_name"] != _ENSEMBLE_STRATEGY_NAME
+        ]
 
         if successful:
             winner = _select_ensemble_winner(successful)
@@ -859,9 +1031,12 @@ def write_report(
 # ---------------------------------------------------------------------------
 
 # Strategy names that are never eligible to win a winners report: the
-# no-optimization baseline plus the file-level / no-winner sentinels.
+# no-optimization baseline, the real ensemble run (which aggregates the very
+# strategies it would compete against), plus the file-level / no-winner
+# sentinels.
 _INELIGIBLE_WINNER_STRATEGIES: Set[str] = {
     "no-opt",
+    _ENSEMBLE_STRATEGY_NAME,
     _FILE_LEVEL_SENTINEL,
     _NO_WINNER_SENTINEL,
 }
@@ -1470,6 +1645,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         ),
     )
     parser.add_argument(
+        "--ensemble-timeout",
+        type=float,
+        default=10.0,
+        help=(
+            "Seconds each ParallelEnsemble strategy job may take before it is "
+            "aborted and marked as failed in the real ensemble run appended to "
+            "each file's rows (default: 10.0)"
+        ),
+    )
+    parser.add_argument(
         "--workers",
         type=int,
         default=None,
@@ -1520,7 +1705,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(f"  Output:   {output_dir}")
     print(f"  Files:    {len(plt_files)}")
     print(f"  Workers:  {worker_count}")
-    print(f"  Strategies: {', '.join(STRATEGY_REGISTRY.keys())}")
+    print(f"  Strategies: {', '.join(STRATEGY_REGISTRY.keys())}, ensemble")
+    print(f"  Ensemble job timeout: {args.ensemble_timeout}s")
     print("=" * 60)
 
     if not plt_files:
@@ -1628,6 +1814,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                     str(plt_file),
                     str(output_dir),
                     args.same_row_preference,
+                    args.ensemble_timeout,
                 )
                 future_to_file[future] = (index, plt_file)
 

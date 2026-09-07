@@ -41,6 +41,19 @@ class MockBooleanVar:
         self._value = value
 
 
+class MockDoubleVar:
+    """Mock DoubleVar that stores and returns float values properly."""
+
+    def __init__(self, initial: float = 0.0) -> None:
+        self._value = initial
+
+    def get(self) -> float:
+        return self._value
+
+    def set(self, value: float) -> None:
+        self._value = value
+
+
 def _install_tkinter_mocks() -> None:
     """Install tkinter mocks at the earliest possible moment."""
 
@@ -194,6 +207,7 @@ def _install_tkinter_mocks() -> None:
         Toplevel = MockToplevel
         StringVar = MockStringVar
         BooleanVar = MockBooleanVar
+        DoubleVar = MockDoubleVar
 
         BOTH = "both"
         LEFT = "left"

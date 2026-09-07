@@ -1977,3 +1977,259 @@ def _read_csv(path: Path) -> list[dict[str, str]]:
     """Read a CSV file into a list of string dicts."""
     with open(path, newline="", encoding="utf-8") as csvfile:
         return list(csv.DictReader(csvfile))
+
+
+# ---------------------------------------------------------------------------
+# _run_ensemble_row / real ensemble integration
+# ---------------------------------------------------------------------------
+
+
+class TestRunEnsembleRow:
+    """Tests for the real ParallelEnsemble row appended by process_file."""
+
+    @staticmethod
+    def _fake_ensemble_result() -> Any:
+        """Build a ParallelEnsembleOptimizationResult wrapper for mocking."""
+        from plt_optimizer.core.optimizer import (
+            BlockTraverseState,
+            OptimizationResult,
+            ParallelEnsembleOptimizationResult,
+        )
+
+        inner = OptimizationResult(
+            traverse_order=(
+                BlockTraverseState(block_id=0, reversed=False, entrance=(0, 0), exit=(10, 0)),
+            ),
+            connections=(),
+            total_travel_distance=42.0,
+            initial_position=(0.0, 0.0),
+        )
+        return ParallelEnsembleOptimizationResult(
+            result=inner,
+            winner_name="NoOp (Baseline)",
+            all_benchmarks=(),
+        )
+
+    def test_success_row(self, sample_input_dir: Path, sample_output_dir: Path) -> None:
+        """A successful ensemble run produces a metrics-complete success row."""
+        from plt_optimizer.cli.benchmark import _ENSEMBLE_STRATEGY_NAME, _run_ensemble_row
+
+        fake_strategy = MagicMock()
+        fake_strategy.optimize.return_value = self._fake_ensemble_result()
+
+        fake_doc = MagicMock()
+        fake_doc.rapid_distance.return_value = 800.0
+        fake_doc.cutting_distance.return_value = 500.0
+
+        with patch(
+            "plt_optimizer.cli.benchmark.ParallelEnsembleStrategy",
+            return_value=fake_strategy,
+        ) as MockStrategy, patch(
+            "plt_optimizer.cli.benchmark.Reassembler"
+        ) as MockReassembler, patch("plt_optimizer.cli.benchmark.PLTWriter"):
+            MockReassembler.return_value.reassemble.return_value = fake_doc
+            row = _run_ensemble_row(
+                blocks=[MagicMock()],
+                doc=MagicMock(),
+                before_rapid=1000.0,
+                before_cutting=500.0,
+                input_path=sample_input_dir / "square.plt",
+                output_dir=sample_output_dir,
+                ensemble_timeout=7.5,
+                same_row_preference=2.0,
+                text_logger=None,
+            )
+
+        assert row["strategy_name"] == _ENSEMBLE_STRATEGY_NAME
+        assert row["status"] == "success"
+        assert row["rapid_saved_in"] == pytest.approx(0.2, rel=1e-3)
+        assert row["rapid_improvement_pct"] == pytest.approx(20.0, rel=1e-3)
+        assert row["time_ms"] != ""
+        # Strategy constructed with the configured timeout + preference.
+        MockStrategy.assert_called_once_with(
+            baseline_distance=1000.0, job_timeout=7.5, same_row_preference=2.0
+        )
+        # The wrapper must be unwrapped before reassembly.
+        reassemble_arg = MockReassembler.return_value.reassemble.call_args[0][2]
+        assert reassemble_arg.total_travel_distance == 42.0
+        assert row["_metrics_event"]["status"] == "success"
+
+    def test_failure_row(self, sample_input_dir: Path, sample_output_dir: Path) -> None:
+        """An ensemble exception yields a failed row with the [ensemble] prefix."""
+        from plt_optimizer.cli.benchmark import _ENSEMBLE_STRATEGY_NAME, _run_ensemble_row
+
+        text_logger = MagicMock()
+        with patch(
+            "plt_optimizer.cli.benchmark.ParallelEnsembleStrategy",
+            side_effect=RuntimeError("ensemble boom"),
+        ):
+            row = _run_ensemble_row(
+                blocks=[MagicMock()],
+                doc=MagicMock(),
+                before_rapid=1000.0,
+                before_cutting=500.0,
+                input_path=sample_input_dir / "square.plt",
+                output_dir=sample_output_dir,
+                ensemble_timeout=10.0,
+                same_row_preference=1.0,
+                text_logger=text_logger,
+            )
+
+        assert row["strategy_name"] == _ENSEMBLE_STRATEGY_NAME
+        assert row["status"] == "failed"
+        assert row["error_message"].startswith("[ensemble]")
+        assert "ensemble boom" in row["error_message"]
+        assert row["_metrics_event"]["status"] == "failed"
+        error_calls = [call.args[0] for call in text_logger.error.call_args_list]
+        assert any("ensemble" in msg for msg in error_calls)
+
+    def test_failure_without_logger_does_not_crash(
+        self, sample_input_dir: Path, sample_output_dir: Path
+    ) -> None:
+        """text_logger=None on failure must not raise (subprocess path)."""
+        from plt_optimizer.cli.benchmark import _run_ensemble_row
+
+        with patch(
+            "plt_optimizer.cli.benchmark.ParallelEnsembleStrategy",
+            side_effect=RuntimeError("boom"),
+        ):
+            row = _run_ensemble_row(
+                blocks=[MagicMock()],
+                doc=MagicMock(),
+                before_rapid=1000.0,
+                before_cutting=500.0,
+                input_path=sample_input_dir / "square.plt",
+                output_dir=sample_output_dir,
+                ensemble_timeout=10.0,
+                same_row_preference=1.0,
+                text_logger=None,
+            )
+        assert row["status"] == "failed"
+
+
+class TestProcessFileEnsembleRow:
+    """``process_file`` must append a real ensemble row after the strategies."""
+
+    def test_last_row_is_ensemble(self, sample_input_dir: Path, sample_output_dir: Path) -> None:
+        """The final row carries strategy_name='ensemble' with file metrics tagged."""
+        from plt_optimizer.cli.benchmark import _ENSEMBLE_STRATEGY_NAME
+
+        fake_strategy = MagicMock()
+        fake_result = TestRunEnsembleRow._fake_ensemble_result()
+        fake_strategy.optimize.return_value = fake_result
+        fake_doc = MagicMock()
+        fake_doc.rapid_distance.return_value = 900.0
+        fake_doc.cutting_distance.return_value = 500.0
+
+        with patch(
+            "plt_optimizer.cli.benchmark.ParallelEnsembleStrategy",
+            return_value=fake_strategy,
+        ) as MockStrategy, patch(
+            "plt_optimizer.cli.benchmark.Reassembler"
+        ) as MockReassembler, patch("plt_optimizer.cli.benchmark.PLTWriter"):
+            MockReassembler.return_value.reassemble.return_value = fake_doc
+            rows = process_file(
+                input_path=sample_input_dir / "square.plt",
+                output_dir=sample_output_dir,
+                same_row_preference=1.0,
+                ensemble_timeout=5.0,
+                metrics_logger=None,
+                text_logger=None,
+            )
+
+        assert rows[-1]["strategy_name"] == _ENSEMBLE_STRATEGY_NAME
+        assert rows[-1]["status"] == "success"
+        assert rows[-1]["before_paths"] != ""
+        assert rows[-1]["blocks_created"] != ""
+        # The configured timeout reached the strategy constructor.
+        assert MockStrategy.call_args.kwargs["job_timeout"] == 5.0
+        # Every strategy row precedes the ensemble row.
+        names = [r["strategy_name"] for r in rows]
+        assert names.index(_ENSEMBLE_STRATEGY_NAME) == len(names) - 1
+
+
+class TestEnsembleWinnerExclusion:
+    """The real ensemble row must never compete in winners reports."""
+
+    def test_group_eligible_rows_excludes_ensemble(self) -> None:
+        """Rows with strategy_name='ensemble' are filtered as ineligible."""
+        rows = [
+            {"file_name": "a.plt", "status": "success", "strategy_name": "ensemble"},
+            {"file_name": "a.plt", "status": "success", "strategy_name": "nn2opt"},
+        ]
+        grouped = _group_eligible_rows_by_file(rows)
+        assert len(grouped) == 1
+        names = [r["strategy_name"] for r in grouped[0][1]]
+        assert names == ["nn2opt"]
+
+    def test_build_ensemble_rows_ignores_real_ensemble(self) -> None:
+        """The synthetic ensemble winner excludes the real ensemble row."""
+        nn = _row("a.plt", "nn2opt", "success")
+        nn["total_improvement_pct"] = 10.0
+        nn["total_after_in"] = 9.0
+        nn["time_ms"] = 5.0
+        ens = _row("a.plt", "ensemble", "success")
+        ens["total_improvement_pct"] = 99.0
+        ens["total_after_in"] = 1.0
+        ens["time_ms"] = 6.0
+
+        out = build_ensemble_rows([nn, ens])
+        assert len(out) == 1
+        # The synthetic winner must be the nn2opt simulation, not the real run.
+        assert out[0]["strategy_name"] == "nn2opt"
+
+    def test_all_ensemble_only_file_gets_no_winner(self) -> None:
+        """A file whose only success is the ensemble row gets no winner."""
+        ens = _row("a.plt", "ensemble", "success")
+        grouped = _group_eligible_rows_by_file([ens])
+        assert grouped == []
+
+
+class TestMainEnsembleTimeoutArg:
+    """main() must parse --ensemble-timeout and pass it to the workers."""
+
+    def test_default_passed_to_submit(self, sample_input_dir: Path) -> None:
+        """Without the flag, workers receive the 10.0s default."""
+        plt_file = sample_input_dir / "square.plt"
+        rows = [_row(plt_file.name, "nn2opt", "success")]
+        rows[0]["total_improvement_pct"] = 10.0
+        rows[0]["total_after_in"] = 9.0
+        rows[0]["time_ms"] = 5.0
+        fake_future = _fake_future(1, plt_file, rows, elapsed_s=0.1)
+        fake_executor = MagicMock()
+        fake_executor.__enter__.return_value = fake_executor
+        fake_executor.submit.return_value = fake_future
+
+        with patch("plt_optimizer.cli.benchmark.get_text_logger", return_value=MagicMock()), patch(
+            "plt_optimizer.cli.benchmark.get_metrics_logger", return_value=MagicMock()
+        ), patch(
+            "plt_optimizer.cli.benchmark.ProcessPoolExecutor", return_value=fake_executor
+        ), patch("plt_optimizer.cli.benchmark.as_completed", return_value=iter([fake_future])):
+            rc = main(["--workers", "1", str(sample_input_dir)])
+
+        assert rc == 0
+        submit_args = fake_executor.submit.call_args[0]
+        # (worker, input_path, output_dir, same_row_preference, ensemble_timeout)
+        assert submit_args[4] == 10.0
+
+    def test_custom_value_passed_to_submit(self, sample_input_dir: Path) -> None:
+        """--ensemble-timeout 2.5 reaches the worker submit args."""
+        plt_file = sample_input_dir / "square.plt"
+        rows = [_row(plt_file.name, "nn2opt", "success")]
+        rows[0]["total_improvement_pct"] = 10.0
+        rows[0]["total_after_in"] = 9.0
+        rows[0]["time_ms"] = 5.0
+        fake_future = _fake_future(1, plt_file, rows, elapsed_s=0.1)
+        fake_executor = MagicMock()
+        fake_executor.__enter__.return_value = fake_executor
+        fake_executor.submit.return_value = fake_future
+
+        with patch("plt_optimizer.cli.benchmark.get_text_logger", return_value=MagicMock()), patch(
+            "plt_optimizer.cli.benchmark.get_metrics_logger", return_value=MagicMock()
+        ), patch(
+            "plt_optimizer.cli.benchmark.ProcessPoolExecutor", return_value=fake_executor
+        ), patch("plt_optimizer.cli.benchmark.as_completed", return_value=iter([fake_future])):
+            rc = main(["--workers", "1", "--ensemble-timeout", "2.5", str(sample_input_dir)])
+
+        assert rc == 0
+        assert fake_executor.submit.call_args[0][4] == 2.5

@@ -13,7 +13,14 @@ import multiprocessing
 import sys
 import time
 from abc import ABC, abstractmethod
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import (
+    Future,
+    ProcessPoolExecutor,
+    as_completed,
+)
+from concurrent.futures import (
+    TimeoutError as FuturesTimeoutError,
+)
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple, Type
 
@@ -3619,6 +3626,7 @@ def _run_strategy_worker(
     blocks_serialized: Tuple[Tuple[int, tuple[float, float], tuple[float, float]], ...],
     initial_position: Optional[tuple[float, float]],
     end_point: Optional[tuple[float, float]] = None,
+    same_row_preference: float = 1.0,
 ) -> StrategyBenchmarkResult:
     """Worker function to run a single strategy in a subprocess.
 
@@ -3630,6 +3638,9 @@ def _run_strategy_worker(
         initial_position: Starting position for optimization.
         end_point: Fixed ending position for strategies that support it
             (e.g. ChristofidesStrategy S-T path). Ignored by the rest.
+        same_row_preference: Penalty multiplier for y-differences during greedy
+            selection. Only consumed by NearestNeighbor2OptStrategy; ignored
+            by the other strategies.
 
     Returns:
         StrategyBenchmarkResult with timing and result data.
@@ -3670,7 +3681,9 @@ def _run_strategy_worker(
 
     strategy_map: Dict[str, OptimizationStrategy] = {
         "NoOp (Baseline)": NoOpStrategy(),
-        "NearestNeighbor + 2-Opt": NearestNeighbor2OptStrategy(),
+        "NearestNeighbor + 2-Opt": NearestNeighbor2OptStrategy(
+            same_row_preference=same_row_preference
+        ),
         "Insertion Heuristic": InsertionHeuristicStrategy(),
         "Simulated Annealing": SimulatedAnnealingStrategy(),
         "Genetic Algorithm": GeneticAlgorithmStrategy(),
@@ -3709,12 +3722,21 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
     The selection metric is:
     - If baseline_distance provided: maximize improvement percent
     - Otherwise: minimize absolute travel distance
+
+    Each submitted job gets ``job_timeout`` seconds to complete (measured from
+    submission, since every job is submitted up-front). Jobs still queued at
+    the deadline are cancelled and jobs still running are terminated; both are
+    recorded as failures. When every job fails (including by timeout), the
+    serial NearestNeighbor + 2-Opt fallback runs without a timeout as the
+    last-resort chain.
     """
 
     def __init__(
         self,
         baseline_distance: Optional[float] = None,
         max_workers: Optional[int] = None,
+        job_timeout: Optional[float] = 10.0,
+        same_row_preference: float = 1.0,
     ) -> None:
         """Initialize the parallel ensemble strategy.
 
@@ -3723,15 +3745,46 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
                 If None, selection is based on absolute travel distance.
             max_workers: Maximum number of parallel workers. Defaults to number
                 of available strategies (typically 5-6).
+            job_timeout: Seconds each submitted strategy job may take before it
+                is cancelled/terminated and marked as failed. ``None`` disables
+                the timeout (jobs may run indefinitely).
+            same_row_preference: Penalty multiplier for y-differences during
+                greedy selection, forwarded to NearestNeighbor2OptStrategy jobs.
         """
         super().__init__()
         self._baseline_distance = baseline_distance
         self._max_workers = max_workers
+        self._job_timeout = job_timeout
+        self._same_row_preference = same_row_preference
 
     @property
     def name(self) -> str:
         """Return the strategy name."""
         return "Parallel Ensemble"
+
+    def _terminate_running_jobs(self, executor: ProcessPoolExecutor) -> None:
+        """Forcefully terminate worker processes still executing jobs.
+
+        Used when the per-job deadline expires: queued futures have already
+        been cancelled, and the processes still running live jobs are killed
+        so the ensemble can return within a bounded time.
+
+        Relies on the ``_processes`` private attribute of
+        :class:`ProcessPoolExecutor` (a ``pid -> _ProcessImage`` mapping,
+        stable through Python 3.13). Guarded so exotic executor
+        implementations (e.g. test mocks) degrade to a no-op.
+
+        Args:
+            executor: The executor whose worker processes should be terminated.
+        """
+        processes = getattr(executor, "_processes", None)
+        if not isinstance(processes, dict):
+            return
+        for process in list(processes.values()):
+            try:
+                process.terminate()
+            except Exception as terminate_err:  # noqa: BLE001 - best-effort kill
+                self._logger.debug(f"Failed to terminate worker process: {terminate_err}")
 
     def optimize(  # type: ignore[override]
         self,
@@ -3846,13 +3899,18 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
                     blocks_serialized,
                     start_pos,
                     end_pos,
+                    self._same_row_preference,
                 ): (name, start_pos, end_pos)
                 for (name, start_pos, end_pos) in jobs
             }
 
             # Collect results dynamically as they complete (fast strategies first)
             failed_strategies: List[Tuple[str, str]] = []  # Track (name, error_msg) for logging
-            for future in as_completed(futures):
+            completed_futures: Set[Future[StrategyBenchmarkResult]] = set()
+
+            def _consume(future: Future[StrategyBenchmarkResult]) -> None:
+                """Record one finished job's benchmark result and update the best."""
+                nonlocal best_result, completed_count
                 strategy_name, _job_start, _job_end = futures[future]
                 try:
                     benchmark_result = future.result()
@@ -3908,6 +3966,37 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
                     failed_strategies.append((strategy_name, str(e)))
                     self._logger.warning(f"Strategy {strategy_name} failed: {e}")
 
+            timed_out = False
+            try:
+                for future in as_completed(futures, timeout=self._job_timeout):
+                    completed_futures.add(future)
+                    _consume(future)
+            except FuturesTimeoutError:
+                timed_out = True
+
+            if timed_out:
+                # Deadline reached: cancel queued jobs, then terminate the
+                # worker processes still running live jobs.
+                for future in futures:
+                    if future not in completed_futures:
+                        future.cancel()
+                self._terminate_running_jobs(executor)
+                for future, (strategy_name, _s, _e) in futures.items():
+                    if future in completed_futures:
+                        continue
+                    if future.cancelled() or not future.done():
+                        # Queued-and-cancelled, or running-and-terminated.
+                        self._logger.warning(
+                            f"Strategy {strategy_name} timed out after "
+                            f"{self._job_timeout}s and was aborted"
+                        )
+                        failed_strategies.append(
+                            (strategy_name, f"timed out after {self._job_timeout}s")
+                        )
+                    else:
+                        # Finished (or failed) just after the deadline; still usable.
+                        _consume(future)
+
         if best_result is None:
             # All strategies failed - try NearestNeighbor2OptStrategy serially as fallback.
             # This handles the case where multiprocessing failed (e.g., PyInstaller frozen
@@ -3918,7 +4007,9 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
             )
             fallback_start = start_candidates[0].position if start_candidates else None
             try:
-                fallback_strategy = NearestNeighbor2OptStrategy()
+                fallback_strategy = NearestNeighbor2OptStrategy(
+                    same_row_preference=self._same_row_preference
+                )
                 fallback_result = fallback_strategy.optimize(blocks, fallback_start)
                 self._logger.info(
                     f"Fallback strategy succeeded with distance={fallback_result.total_travel_distance:.3f}"

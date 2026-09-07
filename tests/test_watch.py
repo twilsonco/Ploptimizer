@@ -4937,3 +4937,204 @@ class TestParseArgsDebounceSeconds:
         assert kwargs["debounce_seconds"] == 7.5
 
 
+
+class TestParseArgsEnsembleOptions:
+    """Tests for the --ensemble-timeout and --same-row-preference CLI arguments."""
+
+    def test_defaults(self) -> None:
+        """Defaults are 10.0s timeout and 1.0 same-row preference."""
+        from plt_optimizer.cli.watch import WatchCommand
+
+        cmd = WatchCommand(args=["--watch-dir", "/some/path"])
+
+        assert cmd._args.ensemble_timeout == 10.0
+        assert cmd._args.same_row_preference == 1.0
+
+    def test_custom_values(self) -> None:
+        """--ensemble-timeout 30 and --same-row-preference 2.5 are parsed."""
+        from plt_optimizer.cli.watch import WatchCommand
+
+        cmd = WatchCommand(args=[
+            "--watch-dir", "/some/path",
+            "--ensemble-timeout", "30",
+            "--same-row-preference", "2.5",
+        ])
+
+        assert cmd._args.ensemble_timeout == 30.0
+        assert cmd._args.same_row_preference == 2.5
+
+    def test_passed_to_handler(self, tmp_path: Path) -> None:
+        """Both values must be propagated to PLTFileHandler kwargs."""
+        from plt_optimizer.cli.watch import WatchCommand
+
+        watch_dir = tmp_path / "watch"
+        output_dir = tmp_path / "output"
+        log_dir = tmp_path / "logs"
+        watch_dir.mkdir()
+        output_dir.mkdir()
+        log_dir.mkdir()
+
+        cmd = WatchCommand(args=[
+            "--watch-dir", str(watch_dir),
+            "--output-dir", str(output_dir),
+            "--log-dir", str(log_dir),
+            "--ensemble-timeout", "4.5",
+            "--same-row-preference", "3.0",
+        ])
+        cmd._text_logger = MagicMock()
+        cmd._metrics_logger = MagicMock()
+
+        with patch.object(cmd.__class__, "_process_existing_files", return_value=0):
+            with patch("plt_optimizer.cli.watch.PLTFileHandler") as MockHandler:
+                with patch("plt_optimizer.cli.watch.Observer") as MockObserver:
+                    MockObserver.return_value = MagicMock()
+                    cmd._shutdown_requested = True
+                    cmd.run()
+
+        kwargs = MockHandler.call_args.kwargs
+        assert kwargs["ensemble_timeout_seconds"] == 4.5
+        assert kwargs["same_row_preference"] == 3.0
+
+
+class TestHandlerPassesTimeoutToEnsemble:
+    """PLTFileHandler must forward timeout/same-row values to the strategy."""
+
+    def _run_with_mocks(self, handler: object, test_file: Path) -> MagicMock:
+        """Run _process_file with mocked pipeline, return OptimizerEngine mock."""
+        mock_doc = MagicMock()
+        mock_doc.stroke_paths = [MagicMock()]
+
+        with patch.object(handler, "_parser") as mock_parser:
+            mock_parser.parse_file.return_value = mock_doc
+            with patch("plt_optimizer.cli.watch.Profiler") as MockProfiler:
+                mock_profile_result = MagicMock()
+                mock_profile_result.baseline_extent = 10.0
+                MockProfiler.return_value.profile.return_value = mock_profile_result
+                with patch("plt_optimizer.cli.watch.MetricsCalculator") as MockMetricsCalc:
+                    MockMetricsCalc.return_value.calculate_original_travel_distance.return_value = (
+                        1000.0
+                    )
+                    with patch("plt_optimizer.cli.watch.Chunker") as MockChunker:
+                        MockChunker.return_value.chunk.return_value = [MagicMock()]
+                        with patch("plt_optimizer.cli.watch.OptimizerEngine") as MockOptimizer:
+                            handler._process_file(test_file)
+                            return MockOptimizer
+
+    def test_ensemble_receives_job_timeout(self, tmp_path: Path) -> None:
+        """ParallelEnsembleStrategy gets job_timeout + same_row_preference."""
+        from plt_optimizer.cli.watch import PLTFileHandler
+
+        test_file = tmp_path / "test.plt"
+        test_file.write_text("IN;PD100,100;SP;\n", encoding="utf-8")
+
+        handler = PLTFileHandler(
+            watch_dir=tmp_path,
+            output_dir=Path("/output"),
+            text_logger=MagicMock(),
+            metrics_logger=MagicMock(),
+            fast_mode=False,
+            ensemble_timeout_seconds=7.5,
+            same_row_preference=2.0,
+        )
+        mock_optimizer = self._run_with_mocks(handler, test_file)
+        strategy = mock_optimizer.call_args[1]["strategy"]
+        assert strategy.__class__.__name__ == "ParallelEnsembleStrategy"
+        assert strategy._job_timeout == 7.5
+        assert strategy._same_row_preference == 2.0
+
+    def test_fast_mode_receives_same_row_preference(self, tmp_path: Path) -> None:
+        """Fast-mode NN2Opt strategy gets the configured same_row_preference."""
+        from plt_optimizer.cli.watch import PLTFileHandler
+
+        test_file = tmp_path / "test.plt"
+        test_file.write_text("IN;PD100,100;SP;\n", encoding="utf-8")
+
+        handler = PLTFileHandler(
+            watch_dir=tmp_path,
+            output_dir=Path("/output"),
+            text_logger=MagicMock(),
+            metrics_logger=MagicMock(),
+            fast_mode=True,
+            same_row_preference=4.0,
+        )
+        mock_optimizer = self._run_with_mocks(handler, test_file)
+        strategy = mock_optimizer.call_args[1]["strategy"]
+        assert strategy.__class__.__name__ == "NearestNeighbor2OptStrategy"
+        assert strategy._same_row_preference == 4.0
+
+
+class TestRunWatcherFromConfigEnsembleOptions:
+    """run_watcher_from_config must read + forward the new config keys."""
+
+    def test_config_values_passed_to_handlers(self, tmp_path: Path) -> None:
+        """ensemble_timeout_seconds / same_row_preference flow to handlers."""
+        import threading as _threading
+
+        from plt_optimizer.cli.watch import run_watcher_from_config
+
+        watch_dir = tmp_path / "watch"
+        output_dir = tmp_path / "output"
+        log_dir = tmp_path / "logs"
+        watch_dir.mkdir()
+        output_dir.mkdir()
+        log_dir.mkdir()
+
+        config = {
+            "watch_dir": str(watch_dir),
+            "output_dir": str(output_dir),
+            "log_dir": str(log_dir),
+            "ensemble_timeout_seconds": 5.0,
+            "same_row_preference": 2.5,
+        }
+        stop_event = _threading.Event()
+        stop_event.set()
+
+        with patch("plt_optimizer.utils.logging.setup_logging") as mock_setup:
+            mock_setup.return_value = (MagicMock(), MagicMock())
+            with patch("plt_optimizer.cli.watch.PLTFileHandler") as MockHandler:
+                MockHandler.return_value = MagicMock()
+                with patch("plt_optimizer.cli.watch.Observer") as MockObserver:
+                    MockObserver.return_value = MagicMock()
+                    with patch("signal.pause", side_effect=KeyboardInterrupt, create=True):
+                        result = run_watcher_from_config(config, stop_event)
+
+        assert result == 0
+        assert MockHandler.call_count == 2
+        for call in MockHandler.call_args_list:
+            assert call.kwargs["ensemble_timeout_seconds"] == 5.0
+            assert call.kwargs["same_row_preference"] == 2.5
+
+    def test_defaults_when_keys_missing(self, tmp_path: Path) -> None:
+        """Missing config keys fall back to 10.0 / 1.0."""
+        import threading as _threading
+
+        from plt_optimizer.cli.watch import run_watcher_from_config
+
+        watch_dir = tmp_path / "watch"
+        output_dir = tmp_path / "output"
+        log_dir = tmp_path / "logs"
+        watch_dir.mkdir()
+        output_dir.mkdir()
+        log_dir.mkdir()
+
+        config = {
+            "watch_dir": str(watch_dir),
+            "output_dir": str(output_dir),
+            "log_dir": str(log_dir),
+        }
+        stop_event = _threading.Event()
+        stop_event.set()
+
+        with patch("plt_optimizer.utils.logging.setup_logging") as mock_setup:
+            mock_setup.return_value = (MagicMock(), MagicMock())
+            with patch("plt_optimizer.cli.watch.PLTFileHandler") as MockHandler:
+                MockHandler.return_value = MagicMock()
+                with patch("plt_optimizer.cli.watch.Observer") as MockObserver:
+                    MockObserver.return_value = MagicMock()
+                    with patch("signal.pause", side_effect=KeyboardInterrupt, create=True):
+                        result = run_watcher_from_config(config, stop_event)
+
+        assert result == 0
+        kwargs = MockHandler.call_args.kwargs
+        assert kwargs["ensemble_timeout_seconds"] == 10.0
+        assert kwargs["same_row_preference"] == 1.0

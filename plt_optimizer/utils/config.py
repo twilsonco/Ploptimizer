@@ -21,6 +21,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "processed_dir": "C:/Vision Machine Tools/Outbox" if _IS_WINDOWS else "./processed-input",
     "fast_mode": False,
     "debug_save_files": False,
+    "ensemble_timeout_seconds": 10.0,
+    "same_row_preference": 1.0,
     "run_at_startup": False,
     "first_run": True,
 }

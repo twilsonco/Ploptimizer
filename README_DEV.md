@@ -272,6 +272,8 @@ uv run plt-optimizer --help
 # usage: plt-optimizer [-h] [--watch-dir WATCH_DIR] [--output-dir OUTPUT_DIR]
 #                    [--log-dir LOG_DIR] [--processed-dir PROCESSED_DIR]
 #                    [--fast-mode] [--debug-save-files]
+#                    [--ensemble-timeout SECONDS]
+#                    [--same-row-preference FACTOR]
 ```
 
 ## Usage
@@ -326,6 +328,8 @@ uv run plt-optimizer watch --watch-dir /input/plt \
 - `--processed-dir` (optional): Move processed files here after optimization
 - `--fast-mode`: Use only `NearestNeighbor2OptStrategy` for faster processing
 - `--debug-save-files`: Save intermediate optimization data for diagnostics
+- `--ensemble-timeout` (default: `10.0`): Seconds each ParallelEnsemble strategy job may take before it is aborted and marked as failed. If all jobs fail, the serial NearestNeighbor + 2-Opt fallback runs. Ignored with `--fast-mode`
+- `--same-row-preference` (default: `1.0`): Penalty multiplier for y-differences during greedy selection (values > 1.0 prefer same-row blocks)
 
 The daemon processes existing files on startup, then continues watching for new changes. Press Ctrl+C for graceful shutdown.
 
@@ -348,6 +352,9 @@ python run_tray.py
 - "Run at Windows Startup" checkbox for auto-start
 
 The tray application stores configuration in `%LOCALAPPDATA%\PLT-Optimizer\config.json`.
+Recognized keys include `watch_dir`, `output_dir`, `log_dir`, `processed_dir`,
+`fast_mode`, `debug_save_files`, `ensemble_timeout_seconds` (default `10.0`),
+`same_row_preference` (default `1.0`), and `run_at_startup`.
 
 #### Windows-Specific Usage
 
