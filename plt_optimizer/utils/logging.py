@@ -11,15 +11,73 @@ from __future__ import annotations
 
 import csv
 import logging
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple, Union
 
 # Log directory constant
 LOG_DIR = Path("logs")
 TEXT_LOG_FILE = LOG_DIR / "optimizer.log"
 METRICS_LOG_FILE = LOG_DIR / "job_metrics.csv"
+
+# Environment variable consulted by :func:`setup_logging` when no explicit
+# level is given. CLI entry points set it so spawned subprocesses (which
+# inherit ``os.environ`` under the ``spawn`` start method) resolve the same
+# verbosity without threading the value through every worker signature.
+LOG_LEVEL_ENV_VAR: str = "PLT_LOG_LEVEL"
+
+# Recognized level names for :func:`resolve_log_level` (upper-case canonical).
+_VALID_LOG_LEVEL_NAMES: Dict[str, int] = {
+    "CRITICAL": logging.CRITICAL,
+    "ERROR": logging.ERROR,
+    "WARNING": logging.WARNING,
+    "INFO": logging.INFO,
+    "DEBUG": logging.DEBUG,
+}
+
+
+def resolve_log_level(
+    value: Optional[Union[int, str]] = None,
+    default: int = logging.INFO,
+) -> int:
+    """Resolve a logging level from an explicit value or the environment.
+
+    Resolution order:
+
+    1. ``value`` when provided — an ``int`` passes through unchanged; a
+       string is interpreted as a level name (case-insensitive, e.g.
+       ``"debug"``/``"WARNING"``) or a numeric string such as ``"20"``.
+    2. The :data:`LOG_LEVEL_ENV_VAR` environment variable (used to propagate
+       a CLI choice into spawned subprocesses).
+    3. ``default``.
+
+    Args:
+        value: Explicit level (int, level-name string, or ``None``).
+        default: Level to use when neither ``value`` nor the env var is set.
+
+    Returns:
+        The resolved numeric logging level.
+
+    Raises:
+        ValueError: If ``value`` (or the env var) is not a recognized level.
+    """
+    if value is None:
+        value = os.environ.get(LOG_LEVEL_ENV_VAR) or None
+    if value is None:
+        return default
+    if isinstance(value, int):
+        return value
+    name = str(value).strip().upper()
+    if name.isdigit():
+        return int(name)
+    if name in _VALID_LOG_LEVEL_NAMES:
+        return _VALID_LOG_LEVEL_NAMES[name]
+    raise ValueError(
+        f"Invalid log level {value!r}; expected one of "
+        f"{', '.join(_VALID_LOG_LEVEL_NAMES)} or a numeric level"
+    )
 
 
 class TextLogger:
@@ -197,7 +255,7 @@ _csv_logger: Optional[CSVMetricsLogger] = None
 
 
 def setup_logging(
-    level: int = logging.INFO,
+    level: Optional[Union[int, str]] = None,
     text_log_file: Optional[Path] = None,
     csv_metrics_file: Optional[Path] = None,
 ) -> Tuple[TextLogger, CSVMetricsLogger]:
@@ -207,7 +265,10 @@ def setup_logging(
     with optional custom file paths.
 
     Args:
-        level: Minimum logging level for text logger.
+        level: Minimum logging level for text logger. Accepts a numeric level
+            or a level name (case-insensitive). When ``None``, the
+            :data:`LOG_LEVEL_ENV_VAR` environment variable is consulted, and
+            finally :data:`logging.INFO` is used.
         text_log_file: Custom path for optimizer.log.
         csv_metrics_file: Custom path for job_metrics.csv.
 
@@ -217,7 +278,7 @@ def setup_logging(
     global _text_logger, _csv_logger
 
     if _text_logger is None:
-        _text_logger = TextLogger(level=level, log_file=text_log_file)
+        _text_logger = TextLogger(level=resolve_log_level(level), log_file=text_log_file)
     if _csv_logger is None:
         _csv_logger = CSVMetricsLogger(log_file=csv_metrics_file)
 

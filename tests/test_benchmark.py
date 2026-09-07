@@ -10,6 +10,8 @@ arguments set to ``None``.
 from __future__ import annotations
 
 import csv
+import logging
+import os
 import time
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
@@ -26,9 +28,11 @@ from plt_optimizer.cli.benchmark import (
     CSV_COLUMNS,
     FileResult,
     ReportWriter,
+    _apply_log_level,
     _build_csv_columns,
     _combined_scores,
     _compute_timing_stats,
+    _configure_child_logging,
     _empty_row,
     _group_eligible_rows_by_file,
     _job_timing_fields,
@@ -60,6 +64,7 @@ from plt_optimizer.cli.benchmark import (
     write_report,
 )
 from plt_optimizer.core.optimizer import OptimizationResult, OptimizationStrategy
+from plt_optimizer.utils.logging import LOG_LEVEL_ENV_VAR
 
 # ---------------------------------------------------------------------------
 # Test fixtures
@@ -2601,3 +2606,146 @@ class TestOptimizeStrategyWorker:
         result, elapsed_s = _optimize_strategy_worker(_InstantStrategy(), [])
         assert isinstance(result, OptimizationResult)
         assert elapsed_s >= 0.0
+
+
+# ---------------------------------------------------------------------------
+# --log-level plumbing
+# ---------------------------------------------------------------------------
+
+
+def _child_logging_probe() -> Tuple[int, int]:
+    """Return ``(env_level, resolved_level)`` observed inside a child process.
+
+    Module-level so ``ProcessPoolExecutor`` can pickle it into the child; the
+    resolved level comes from :func:`resolve_log_level` with no explicit
+    value, i.e. purely from the inherited environment.
+    """
+    import os
+
+    from plt_optimizer.utils.logging import resolve_log_level
+
+    return int(os.environ[LOG_LEVEL_ENV_VAR]), resolve_log_level(None)
+
+
+class TestApplyLogLevel:
+    """``_apply_log_level`` must retune an already-built logger in place."""
+
+    def test_sets_logger_and_handlers(self) -> None:
+        """The logger and every handler adopt the requested level."""
+        from plt_optimizer.utils.logging import TextLogger
+
+        text_logger = TextLogger(name="bench_apply_level", level=logging.DEBUG)
+        assert text_logger.logger.handlers  # sanity: handlers exist to retune
+
+        _apply_log_level(text_logger, logging.ERROR)
+
+        assert text_logger.logger.level == logging.ERROR
+        assert all(h.level == logging.ERROR for h in text_logger.logger.handlers)
+
+
+class TestConfigureChildLogging:
+    """``_configure_child_logging`` publishes the level for lazy child loggers."""
+
+    def test_sets_env_var(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The numeric level lands in the propagation env var."""
+        monkeypatch.delenv(LOG_LEVEL_ENV_VAR, raising=False)
+        _configure_child_logging(logging.ERROR)
+        assert os.environ[LOG_LEVEL_ENV_VAR] == str(logging.ERROR)
+
+    def test_spawned_child_resolves_level_from_env(self) -> None:
+        """A real spawn child sees the initializer's level and resolves it."""
+        with ProcessPoolExecutor(
+            max_workers=1,
+            initializer=_configure_child_logging,
+            initargs=(logging.ERROR,),
+        ) as ex:
+            env_level, resolved = ex.submit(_child_logging_probe).result(timeout=60)
+
+        assert env_level == logging.ERROR
+        assert resolved == logging.ERROR
+
+
+class TestMainLogLevelArg:
+    """main() must parse --log-level and wire it into the executor children."""
+
+    def _run_main_with_fake_executor(
+        self, sample_input_dir: Path, extra_args: list[str]
+    ) -> MagicMock:
+        """Run main() against a fake executor; return the executor *class* mock.
+
+        The returned mock records constructor kwargs (``call_args``) while its
+        ``return_value`` acts as the executor instance used by main().
+        """
+        plt_file = sample_input_dir / "square.plt"
+        rows = [_row(plt_file.name, "nn2opt", "success")]
+        rows[0]["total_improvement_pct"] = 10.0
+        rows[0]["total_after_in"] = 9.0
+        rows[0]["time_ms"] = 5.0
+        fake_future = _fake_future(1, plt_file, rows, elapsed_s=0.1)
+        fake_executor = MagicMock()
+        fake_executor.__enter__.return_value = fake_executor
+        fake_executor.submit.return_value = fake_future
+        pool_class = MagicMock(return_value=fake_executor)
+
+        with patch(
+            "plt_optimizer.cli.benchmark.get_text_logger", return_value=MagicMock()
+        ), patch(
+            "plt_optimizer.cli.benchmark.get_metrics_logger", return_value=MagicMock()
+        ), patch(
+            "plt_optimizer.cli.benchmark.ProcessPoolExecutor", new=pool_class
+        ), patch(
+            "plt_optimizer.cli.benchmark.as_completed", return_value=iter([fake_future])
+        ):
+            rc = main(["--workers", "1", *extra_args, str(sample_input_dir)])
+
+        assert rc == 0
+        return pool_class
+
+    def test_default_warning_passed_as_initializer(self, sample_input_dir: Path) -> None:
+        """Without the flag, children are initialized at WARNING (30)."""
+        fake_executor = self._run_main_with_fake_executor(sample_input_dir, [])
+        init_kwargs = fake_executor.call_args.kwargs
+        assert init_kwargs["initializer"] is _configure_child_logging
+        assert init_kwargs["initargs"] == (logging.WARNING,)
+
+    def test_custom_level_passed_as_initializer(self, sample_input_dir: Path) -> None:
+        """--log-level info reaches the children as INFO (20), case-insensitive."""
+        fake_executor = self._run_main_with_fake_executor(sample_input_dir, ["--log-level", "info"])
+        assert fake_executor.call_args.kwargs["initargs"] == (logging.INFO,)
+
+    def test_invalid_level_rejected(self, sample_input_dir: Path) -> None:
+        """An unknown level name exits with argparse's usage error (code 2)."""
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--workers", "1", "--log-level", "chatty", str(sample_input_dir)])
+        assert exc_info.value.code == 2
+
+    def test_parent_logger_retuned_to_requested_level(
+        self, sample_input_dir: Path
+    ) -> None:
+        """The parent's own logger is retuned even if already initialized."""
+        from plt_optimizer.utils.logging import TextLogger
+
+        text_logger = TextLogger(name="bench_main_level", level=logging.DEBUG)
+        fake_future_rows = [_row("square.plt", "nn2opt", "success")]
+        fake_future_rows[0]["total_improvement_pct"] = 10.0
+        fake_future_rows[0]["total_after_in"] = 9.0
+        fake_future_rows[0]["time_ms"] = 5.0
+        plt_file = sample_input_dir / "square.plt"
+        fake_future = _fake_future(1, plt_file, fake_future_rows, elapsed_s=0.1)
+        fake_executor = MagicMock()
+        fake_executor.__enter__.return_value = fake_executor
+        fake_executor.submit.return_value = fake_future
+
+        with patch(
+            "plt_optimizer.cli.benchmark.get_text_logger", return_value=text_logger
+        ), patch(
+            "plt_optimizer.cli.benchmark.get_metrics_logger", return_value=MagicMock()
+        ), patch(
+            "plt_optimizer.cli.benchmark.ProcessPoolExecutor", return_value=fake_executor
+        ), patch(
+            "plt_optimizer.cli.benchmark.as_completed", return_value=iter([fake_future])
+        ):
+            rc = main(["--workers", "1", str(sample_input_dir)])
+
+        assert rc == 0
+        assert text_logger.logger.level == logging.WARNING

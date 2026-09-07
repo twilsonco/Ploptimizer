@@ -61,7 +61,12 @@ benchmarking the optimization strategies on real-world inputs.
 python plt_optimizer/cli/benchmark.py /path/to/cad_files/
 python plt_optimizer/cli/benchmark.py /path/to/cad_files/ --same-row-preference 1.5
 python plt_optimizer/cli/benchmark.py /path/to/cad_files/ --ensemble-timeout 30
+python plt_optimizer/cli/benchmark.py /path/to/cad_files/ --log-level info
 ```
+
+Log verbosity (the text log and `logs/optimizer.log`, including every spawned
+worker process) defaults to `WARNING` and is controlled with `--log-level
+{debug,info,warning,error,critical}`.
 
 The winners post-processing described below also runs automatically at the end of
 every benchmark. To re-run it standalone against an existing `report.csv` (without

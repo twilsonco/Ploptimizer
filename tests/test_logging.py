@@ -13,11 +13,15 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import pytest
+
 from plt_optimizer.utils.logging import (
+    LOG_LEVEL_ENV_VAR,
     CSVMetricsLogger,
     TextLogger,
     get_metrics_logger,
     get_text_logger,
+    resolve_log_level,
     setup_logging,
 )
 
@@ -323,3 +327,75 @@ class TestModuleLevelLoggers:
         # Restore original state
         logging_module._text_logger = original_text
         logging_module._csv_logger = original_csv
+
+
+class TestResolveLogLevel:
+    """Tests for resolve_log_level() level parsing and env fallback."""
+
+    def test_none_returns_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """With no value and no env var, the default level is returned."""
+        monkeypatch.delenv(LOG_LEVEL_ENV_VAR, raising=False)
+        assert resolve_log_level(None) == logging.INFO
+        assert resolve_log_level(default=logging.WARNING) == logging.WARNING
+
+    def test_int_passes_through(self) -> None:
+        """A numeric level is returned unchanged."""
+        assert resolve_log_level(logging.DEBUG) == logging.DEBUG
+        assert resolve_log_level(5) == 5
+
+    def test_level_name_case_insensitive(self) -> None:
+        """Level names resolve regardless of casing or surrounding space."""
+        assert resolve_log_level("WARNING") == logging.WARNING
+        assert resolve_log_level("debug") == logging.DEBUG
+        assert resolve_log_level("  Error ") == logging.ERROR
+
+    def test_numeric_string(self) -> None:
+        """A numeric string resolves to its int value."""
+        assert resolve_log_level("20") == logging.INFO
+
+    def test_env_var_used_when_value_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The env var supplies the level when no explicit value is given."""
+        monkeypatch.setenv(LOG_LEVEL_ENV_VAR, "error")
+        assert resolve_log_level(None) == logging.ERROR
+
+    def test_explicit_value_beats_env_var(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An explicit value takes precedence over the env var."""
+        monkeypatch.setenv(LOG_LEVEL_ENV_VAR, "error")
+        assert resolve_log_level("debug") == logging.DEBUG
+
+    def test_invalid_value_raises(self) -> None:
+        """An unrecognized level name raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid log level"):
+            resolve_log_level("nope")
+
+    def test_invalid_env_var_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An unrecognized env var value raises ValueError."""
+        monkeypatch.setenv(LOG_LEVEL_ENV_VAR, "verbose")
+        with pytest.raises(ValueError, match="Invalid log level"):
+            resolve_log_level(None)
+
+
+class TestSetupLoggingEnvLevel:
+    """setup_logging() must honor LOG_LEVEL_ENV_VAR when no level is given."""
+
+    def test_setup_logging_reads_env_var(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Without an explicit level, the env var configures the logger."""
+        import plt_optimizer.utils.logging as logging_module
+
+        monkeypatch.setenv(LOG_LEVEL_ENV_VAR, "WARNING")
+        monkeypatch.setattr(logging_module, "_text_logger", None)
+        monkeypatch.setattr(logging_module, "_csv_logger", None)
+
+        text_logger, _ = setup_logging()
+        assert text_logger.logger.level == logging.WARNING
+
+    def test_setup_logging_explicit_level_wins(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An explicit level overrides the env var."""
+        import plt_optimizer.utils.logging as logging_module
+
+        monkeypatch.setenv(LOG_LEVEL_ENV_VAR, "WARNING")
+        monkeypatch.setattr(logging_module, "_text_logger", None)
+        monkeypatch.setattr(logging_module, "_csv_logger", None)
+
+        text_logger, _ = setup_logging(level=logging.DEBUG)
+        assert text_logger.logger.level == logging.DEBUG

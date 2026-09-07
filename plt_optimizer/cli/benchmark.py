@@ -23,6 +23,7 @@ Usage:
     python examples/benchmark.py /path/to/cad_files/ --same-row-preference 1.5
     python examples/benchmark.py /path/to/cad_files/ --workers 8
     python examples/benchmark.py /path/to/cad_files/ --ensemble-timeout 30
+    python examples/benchmark.py /path/to/cad_files/ --log-level info
 
 The winners post-processing can also be re-run standalone against an
 existing report (no PLT processing):
@@ -77,6 +78,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import logging
 import math
 import os
 import sys
@@ -114,7 +116,12 @@ from plt_optimizer.core.reassembler import Reassembler
 from plt_optimizer.core.writer import PLTWriter
 from plt_optimizer.diagnostics.plotter import plot_plt_document
 from plt_optimizer.utils.geometry import remove_redundant_strokes
-from plt_optimizer.utils.logging import get_metrics_logger, get_text_logger
+from plt_optimizer.utils.logging import (
+    LOG_LEVEL_ENV_VAR,
+    get_metrics_logger,
+    get_text_logger,
+    resolve_log_level,
+)
 
 # Registry of strategies to benchmark, in execution order.
 STRATEGY_REGISTRY: Dict[str, type] = {
@@ -1779,6 +1786,42 @@ def analyze_report_winners(report_path: Path) -> Dict[str, Dict[str, int]]:
     return win_counts
 
 
+def _apply_log_level(text_logger: Any, log_level: int) -> None:
+    """Force an already-initialized text logger to the requested level.
+
+    :func:`plt_optimizer.utils.logging.setup_logging` intentionally never
+    re-initializes an existing logger, so a logger created before this call
+    (e.g. by an earlier in-process run) would keep its old verbosity. This
+    helper adjusts the logger and its handlers in place so ``--log-level``
+    always wins in the parent process.
+
+    Args:
+        text_logger: The :class:`~plt_optimizer.utils.logging.TextLogger`
+            returned by :func:`get_text_logger`.
+        log_level: Numeric logging level to apply.
+    """
+    text_logger.logger.setLevel(log_level)
+    for handler in text_logger.logger.handlers:
+        handler.setLevel(log_level)
+
+
+def _configure_child_logging(log_level: int) -> None:
+    """Executor initializer: pin the child's log verbosity before any task.
+
+    Runs once in every :class:`ProcessPoolExecutor` worker at startup (via
+    ``initializer=``/``initargs=``, supported since Python 3.7). It stores the
+    resolved level in :data:`LOG_LEVEL_ENV_VAR`, which
+    :func:`plt_optimizer.utils.logging.setup_logging` consults when the child
+    lazily creates its loggers. Grandchildren spawned by the worker
+    (per-strategy pools, ensemble members) inherit the variable through the
+    child's environment, so the whole process tree honors ``--log-level``.
+
+    Args:
+        log_level: Numeric logging level resolved in the parent process.
+    """
+    os.environ[LOG_LEVEL_ENV_VAR] = str(log_level)
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     """Entry point for the batch benchmark utility.
 
@@ -1859,6 +1902,16 @@ def main(argv: Optional[List[str]] = None) -> int:
             "CPU count reported by the OS, capped at the number of files."
         ),
     )
+    parser.add_argument(
+        "--log-level",
+        type=str.upper,
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        default="WARNING",
+        help=(
+            "Minimum severity for text/file log output, including every "
+            "spawned worker process (default: WARNING)"
+        ),
+    )
 
     args = parser.parse_args(argv)
 
@@ -1890,7 +1943,16 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     output_dir = build_output_directory(input_dir)
 
+    # Resolve the verbosity once. The parent's own logger is adjusted directly
+    # (setup_logging never re-initializes an existing logger); spawn children
+    # instead inherit the level via LOG_LEVEL_ENV_VAR, which setup_logging()
+    # consults when they lazily create their loggers. That propagates the
+    # choice to file workers and the strategy/ensemble grandchildren they
+    # spawn, without threading the value through every worker signature.
+    log_level = resolve_log_level(args.log_level)
+
     text_logger = get_text_logger()
+    _apply_log_level(text_logger, log_level)
     metrics_logger = get_metrics_logger()
 
     plt_files = find_plt_files(input_dir)
@@ -1903,6 +1965,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(f"  Workers:  {worker_count}")
     print(f"  Strategies: {', '.join(STRATEGY_REGISTRY.keys())}, ensemble")
     print(f"  Strategy job timeout: {args.ensemble_timeout}s")
+    print(f"  Log level:  {logging.getLevelName(log_level)}")
     print("=" * 60)
 
     if not plt_files:
@@ -1998,6 +2061,13 @@ def main(argv: Optional[List[str]] = None) -> int:
                 executor_kwargs["max_workers"] = worker_count
         else:
             executor_kwargs["max_workers"] = worker_count
+
+        # Children build their loggers lazily during the run, so each one is
+        # initialized with the resolved level via LOG_LEVEL_ENV_VAR before any
+        # task executes. The grandchildren they spawn (per-strategy pools and
+        # ensemble members) inherit it through the child's environment.
+        executor_kwargs["initializer"] = _configure_child_logging
+        executor_kwargs["initargs"] = (log_level,)
 
         with ProcessPoolExecutor(**executor_kwargs) as executor:
             # Submit every file up front, then process completions as they
