@@ -10,9 +10,10 @@ arguments set to ``None``.
 from __future__ import annotations
 
 import csv
+import time
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, List, Optional, Tuple
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -32,18 +33,24 @@ from plt_optimizer.cli.benchmark import (
     _group_eligible_rows_by_file,
     _job_timing_fields,
     _log_metrics_from_row,
+    _optimize_strategy_worker,
     _populate_metrics,
     _process_file_worker,
     _ratio_stats,
     _read_report_rows,
     _report_float,
+    _run_one_strategy_with_timeout,
+    _run_strategies_with_timeout,
+    _run_strategy,
     _save_plot,
     _select_combined_winner,
     _select_ensemble_winner,
     _select_rapid_winner,
     _select_time_winner,
+    _StrategyOutcome,
     _strip_private_keys,
     _summarize_file_result,
+    _terminate_pool_workers,
     analyze_report_winners,
     build_ensemble_rows,
     build_output_directory,
@@ -52,6 +59,7 @@ from plt_optimizer.cli.benchmark import (
     process_file,
     write_report,
 )
+from plt_optimizer.core.optimizer import OptimizationResult, OptimizationStrategy
 
 # ---------------------------------------------------------------------------
 # Test fixtures
@@ -2233,3 +2241,363 @@ class TestMainEnsembleTimeoutArg:
 
         assert rc == 0
         assert fake_executor.submit.call_args[0][4] == 2.5
+
+
+# ---------------------------------------------------------------------------
+# Per-strategy subprocess timeout helpers
+# ---------------------------------------------------------------------------
+
+
+class _InstantStrategy(OptimizationStrategy):
+    """Picklable test strategy returning a trivial result immediately."""
+
+    @property
+    def name(self) -> str:
+        """Return the strategy name."""
+        return "instant"
+
+    def optimize(
+        self,
+        blocks: List[Any],
+        initial_position: Optional[Tuple[float, float]] = None,
+        end_point: Optional[Tuple[float, float]] = None,
+    ) -> OptimizationResult:
+        """Return an empty result without doing any work."""
+        return OptimizationResult(
+            traverse_order=(),
+            connections=(),
+            total_travel_distance=0.0,
+            initial_position=None,
+        )
+
+
+class _SleepingStrategy(OptimizationStrategy):
+    """Picklable test strategy that sleeps far longer than any test timeout."""
+
+    @property
+    def name(self) -> str:
+        """Return the strategy name."""
+        return "sleeping"
+
+    def optimize(
+        self,
+        blocks: List[Any],
+        initial_position: Optional[Tuple[float, float]] = None,
+        end_point: Optional[Tuple[float, float]] = None,
+    ) -> OptimizationResult:
+        """Sleep for an hour so the timeout is guaranteed to fire."""
+        time.sleep(3600)  # pragma: no cover - killed by the timeout
+        raise AssertionError("unreachable")  # pragma: no cover
+
+
+class _ExplodingStrategy(OptimizationStrategy):
+    """Picklable test strategy whose ``optimize`` always raises."""
+
+    @property
+    def name(self) -> str:
+        """Return the strategy name."""
+        return "exploding"
+
+    def optimize(
+        self,
+        blocks: List[Any],
+        initial_position: Optional[Tuple[float, float]] = None,
+        end_point: Optional[Tuple[float, float]] = None,
+    ) -> OptimizationResult:
+        """Raise unconditionally."""
+        raise RuntimeError("synthetic boom")
+
+
+class TestRunOneStrategyWithTimeout:
+    """``_run_one_strategy_with_timeout`` bounds each run in a subprocess."""
+
+    def test_success_returns_result_and_elapsed(self) -> None:
+        """A fast strategy yields its result plus a positive elapsed time."""
+        outcome = _run_one_strategy_with_timeout(
+            _InstantStrategy(), [], strategy_timeout=60.0, text_logger=None
+        )
+        assert outcome.error is None
+        assert isinstance(outcome.result, OptimizationResult)
+        assert outcome.elapsed_ms is not None
+        assert outcome.elapsed_ms >= 0.0
+
+    def test_timeout_aborts_and_reports(self) -> None:
+        """A strategy exceeding the budget is killed and reported as timed out."""
+        text_logger = MagicMock()
+        outcome = _run_one_strategy_with_timeout(
+            _SleepingStrategy(), [], strategy_timeout=1.0, text_logger=text_logger
+        )
+        assert outcome.result is None
+        assert outcome.elapsed_ms is None
+        assert outcome.error == "timed out after 1.0s"
+        assert any("timed out" in str(call) for call in text_logger.warning.call_args_list)
+
+    def test_strategy_exception_becomes_failed_outcome(self) -> None:
+        """An exception inside the child surfaces as a failed outcome."""
+        outcome = _run_one_strategy_with_timeout(
+            _ExplodingStrategy(), [], strategy_timeout=60.0, text_logger=None
+        )
+        assert outcome.result is None
+        assert outcome.error is not None
+        # The engine normalizes strategy failures into OptimizationError.
+        assert "OptimizationError" in outcome.error
+        assert "synthetic boom" in outcome.error
+
+    def test_pool_creation_failure_falls_back_in_process(self) -> None:
+        """When no subprocess pool can be created, run in-process instead."""
+        with patch(
+            "plt_optimizer.cli.benchmark.ProcessPoolExecutor",
+            side_effect=OSError("no processes allowed"),
+        ):
+            text_logger = MagicMock()
+            outcome = _run_one_strategy_with_timeout(
+                _InstantStrategy(), [], strategy_timeout=60.0, text_logger=text_logger
+            )
+        assert outcome.error is None
+        assert isinstance(outcome.result, OptimizationResult)
+        assert any("in-process" in str(call) for call in text_logger.warning.call_args_list)
+
+    def test_pool_creation_failure_fallback_reports_errors(self) -> None:
+        """In-process fallback still converts exceptions into failed outcomes."""
+        with patch(
+            "plt_optimizer.cli.benchmark.ProcessPoolExecutor",
+            side_effect=OSError("no processes allowed"),
+        ):
+            outcome = _run_one_strategy_with_timeout(
+                _ExplodingStrategy(), [], strategy_timeout=60.0, text_logger=None
+            )
+        assert outcome.error is not None
+        assert "synthetic boom" in outcome.error
+
+
+class TestRunStrategiesWithTimeout:
+    """``_run_strategies_with_timeout`` runs strategies sequentially, one budget each."""
+
+    def test_returns_outcome_per_strategy_in_order(self) -> None:
+        """Every strategy gets an outcome, preserving insertion order."""
+        strategies = {"instant": _InstantStrategy(), "exploding": _ExplodingStrategy()}
+        outcomes = _run_strategies_with_timeout(
+            strategies, [], strategy_timeout=60.0, text_logger=None
+        )
+        assert list(outcomes) == ["instant", "exploding"]
+        assert outcomes["instant"].error is None
+        assert outcomes["exploding"].error is not None
+
+    def test_timeout_only_affects_the_offending_strategy(self) -> None:
+        """A slow strategy fails while its fast sibling still succeeds."""
+        strategies = {"instant": _InstantStrategy(), "sleeping": _SleepingStrategy()}
+        outcomes = _run_strategies_with_timeout(
+            strategies, [], strategy_timeout=1.0, text_logger=None
+        )
+        assert outcomes["instant"].error is None
+        assert outcomes["sleeping"].error == "timed out after 1.0s"
+
+
+class TestTerminatePoolWorkers:
+    """``_terminate_pool_workers`` must degrade gracefully on odd executors."""
+
+    def test_terminates_tracked_processes(self) -> None:
+        """Each tracked worker process receives ``terminate()``."""
+        executor = MagicMock()
+        proc_a, proc_b = MagicMock(), MagicMock()
+        executor._processes = {1: proc_a, 2: proc_b}  # noqa: SLF001
+        _terminate_pool_workers(executor)
+        proc_a.terminate.assert_called_once()
+        proc_b.terminate.assert_called_once()
+
+    def test_missing_processes_attribute_is_noop(self) -> None:
+        """An executor without ``_processes`` is left alone."""
+        executor = MagicMock(spec=[])
+        _terminate_pool_workers(executor)  # must not raise
+
+    def test_terminate_errors_are_swallowed(self) -> None:
+        """A worker refusing to terminate must not propagate."""
+        executor = MagicMock()
+        grumpy = MagicMock()
+        grumpy.terminate.side_effect = OSError("already gone")
+        executor._processes = {1: grumpy}  # noqa: SLF001
+        _terminate_pool_workers(executor)  # must not raise
+
+
+class TestRunStrategyOutcomeConsumption:
+    """``_run_strategy`` turns a pre-computed outcome into a CSV row."""
+
+    def test_failed_outcome_short_circuits(self, sample_input_dir: Path, sample_output_dir: Path) -> None:
+        """An errored outcome produces a failed row without reassembly."""
+        text_logger = MagicMock()
+        doc = MagicMock()
+        row = _run_strategy(
+            strategy_name="genetic",
+            outcome=_StrategyOutcome(result=None, elapsed_ms=None, error="timed out after 10.0s"),
+            doc=doc,
+            blocks=[],
+            before_rapid=100.0,
+            before_cutting=50.0,
+            input_path=sample_input_dir / "square.plt",
+            output_dir=sample_output_dir,
+            text_logger=text_logger,
+        )
+        assert row["status"] == "failed"
+        assert "timed out after 10.0s" in row["error_message"]
+        assert row["_metrics_event"]["status"] == "failed"
+        # Reassembly must never be attempted for a failed outcome.
+        doc.rapid_distance.assert_not_called()
+        assert any("genetic" in str(call) for call in text_logger.error.call_args_list)
+
+    def test_failed_outcome_without_logger(self, sample_input_dir: Path, sample_output_dir: Path) -> None:
+        """A failed outcome with ``text_logger=None`` must not crash."""
+        row = _run_strategy(
+            strategy_name="sa",
+            outcome=_StrategyOutcome(result=None, elapsed_ms=None, error="boom"),
+            doc=MagicMock(),
+            blocks=[],
+            before_rapid=100.0,
+            before_cutting=50.0,
+            input_path=sample_input_dir / "square.plt",
+            output_dir=sample_output_dir,
+            text_logger=None,
+        )
+        assert row["status"] == "failed"
+
+    def test_success_without_result_is_reported_as_failure(
+        self, sample_input_dir: Path, sample_output_dir: Path
+    ) -> None:
+        """A success outcome missing its result degrades to a failed row."""
+        row = _run_strategy(
+            strategy_name="nn2opt",
+            outcome=_StrategyOutcome(result=None, elapsed_ms=1.0, error=None),
+            doc=MagicMock(),
+            blocks=[],
+            before_rapid=100.0,
+            before_cutting=50.0,
+            input_path=sample_input_dir / "square.plt",
+            output_dir=sample_output_dir,
+            text_logger=None,
+        )
+        assert row["status"] == "failed"
+        assert "without producing a result" in row["error_message"]
+
+    def test_no_opt_outcome_reuses_baseline_metrics(
+        self, sample_input_dir: Path, sample_output_dir: Path
+    ) -> None:
+        """The no-opt outcome writes the input document with unchanged metrics."""
+        from plt_optimizer.core.parser import PLTParser
+
+        doc = PLTParser().parse_file(sample_input_dir / "square.plt")
+        before_rapid = doc.rapid_distance()
+        before_cutting = doc.cutting_distance()
+
+        row = _run_strategy(
+            strategy_name="no-opt",
+            outcome=_StrategyOutcome(result=None, elapsed_ms=0.0, error=None),
+            doc=doc,
+            blocks=[],
+            before_rapid=before_rapid,
+            before_cutting=before_cutting,
+            input_path=sample_input_dir / "square.plt",
+            output_dir=sample_output_dir,
+            text_logger=None,
+        )
+        assert row["status"] == "success"
+        assert row["rapid_after_in"] == round(before_rapid / 1000, 3)
+        assert row["cutting_after_in"] == round(before_cutting / 1000, 3)
+        assert float(row["total_improvement_pct"]) == 0.0
+        assert row["_optimized_plt_path"] is not None
+
+
+class TestProcessFilePerStrategyTimeout:
+    """``process_file`` must bound every individual strategy run."""
+
+    def test_timeout_marks_strategy_failed_without_killing_file(
+        self, sample_input_dir: Path, sample_output_dir: Path
+    ) -> None:
+        """A timed-out strategy yields a failed row; the rest still succeed."""
+        real_runner = _run_one_strategy_with_timeout
+
+        def selective_runner(
+            strategy: Any, blocks: Any, strategy_timeout: float, text_logger: Any
+        ) -> _StrategyOutcome:
+            if type(strategy).__name__ == "GeneticAlgorithmStrategy":
+                return _StrategyOutcome(None, None, f"timed out after {strategy_timeout}s")
+            return real_runner(strategy, blocks, strategy_timeout, text_logger)
+
+        text_logger = MagicMock()
+        with patch(
+            "plt_optimizer.cli.benchmark._run_one_strategy_with_timeout",
+            side_effect=selective_runner,
+        ):
+            rows = process_file(
+                input_path=sample_input_dir / "square.plt",
+                output_dir=sample_output_dir,
+                same_row_preference=1.0,
+                ensemble_timeout=7.5,
+                metrics_logger=None,
+                text_logger=text_logger,
+            )
+
+        by_name = {r["strategy_name"]: r for r in rows}
+        assert by_name["genetic"]["status"] == "failed"
+        assert "timed out after 7.5s" in by_name["genetic"]["error_message"]
+        assert by_name["nn2opt"]["status"] == "success"
+        assert by_name["no-opt"]["status"] == "success"
+
+    def test_timeout_is_forwarded_to_every_strategy(
+        self, sample_input_dir: Path, sample_output_dir: Path
+    ) -> None:
+        """The configured budget reaches every per-strategy subprocess run."""
+        seen: list[float] = []
+        real_runner = _run_one_strategy_with_timeout
+
+        def spy_runner(strategy: Any, blocks: Any, strategy_timeout: float, text_logger: Any) -> _StrategyOutcome:
+            seen.append(strategy_timeout)
+            return real_runner(strategy, blocks, strategy_timeout, text_logger)
+
+        with patch(
+            "plt_optimizer.cli.benchmark._run_one_strategy_with_timeout",
+            side_effect=spy_runner,
+        ):
+            process_file(
+                input_path=sample_input_dir / "square.plt",
+                output_dir=sample_output_dir,
+                same_row_preference=1.0,
+                ensemble_timeout=3.25,
+                metrics_logger=None,
+                text_logger=None,
+            )
+
+        # One call per real strategy (no-opt is synthesized, never run).
+        assert seen == [3.25] * 5
+
+    def test_construction_failure_becomes_failed_row(
+        self, sample_input_dir: Path, sample_output_dir: Path
+    ) -> None:
+        """A strategy that cannot even be constructed reports a failed row."""
+        from plt_optimizer.core.optimizer import GeneticAlgorithmStrategy
+
+        def patched_init(self: Any, *args: Any, **kwargs: Any) -> None:
+            raise RuntimeError("synthetic construct boom")
+
+        with patch.object(GeneticAlgorithmStrategy, "__init__", patched_init):
+            rows = process_file(
+                input_path=sample_input_dir / "square.plt",
+                output_dir=sample_output_dir,
+                same_row_preference=1.0,
+                ensemble_timeout=30.0,
+                metrics_logger=None,
+                text_logger=None,
+            )
+
+        by_name = {r["strategy_name"]: r for r in rows}
+        assert by_name["genetic"]["status"] == "failed"
+        assert "synthetic construct boom" in by_name["genetic"]["error_message"]
+        assert by_name["nn2opt"]["status"] == "success"
+
+
+class TestOptimizeStrategyWorker:
+    """``_optimize_strategy_worker`` times the strategy call inside the child."""
+
+    def test_returns_result_and_elapsed(self) -> None:
+        """The worker returns the strategy result and a non-negative duration."""
+        result, elapsed_s = _optimize_strategy_worker(_InstantStrategy(), [])
+        assert isinstance(result, OptimizationResult)
+        assert elapsed_s >= 0.0

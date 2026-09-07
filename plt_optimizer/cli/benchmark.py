@@ -42,9 +42,12 @@ Output structure:
 The first CSV (``report.csv``) contains one row per registered strategy for
 every input file, allowing per-strategy error reporting and per-strategy
 distance-saved metrics, followed by one ``ensemble`` row per file produced by
-running the real ``ParallelEnsembleStrategy`` with the per-job timeout
-configured via ``--ensemble-timeout`` (the ensemble row is excluded from the
-winners reports since it aggregates the other strategies). The second CSV
+running the real ``ParallelEnsembleStrategy`` (the ensemble row is excluded
+from the winners reports since it aggregates the other strategies). Every
+optimization job is bounded by the per-job timeout configured via
+``--ensemble-timeout``: each individual strategy runs in its own killable
+subprocess and is aborted (marked ``failed``) when it exceeds the budget, and
+the same budget applies to each member job inside the ensemble. The second CSV
 (``ensemble_report.csv``) contains a single row per file, simulating what the
 ParallelEnsemble strategy would have produced: the ``strategy_name`` column
 holds the winning strategy's name (selected by greatest total improvement %,
@@ -80,7 +83,14 @@ import sys
 import threading
 import time
 import traceback
-from concurrent.futures import Future, ProcessPoolExecutor, as_completed
+from concurrent.futures import (
+    Future,
+    ProcessPoolExecutor,
+    as_completed,
+)
+from concurrent.futures import (
+    TimeoutError as FuturesTimeoutError,
+)
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple
@@ -306,43 +316,196 @@ def _populate_metrics(
     row["time_ms"] = round(time_ms, 2)
 
 
+class _StrategyOutcome(NamedTuple):
+    """Result of running one strategy under a subprocess timeout.
+
+    Exactly one of the fields is meaningful per run: on success ``result``
+    and ``elapsed_ms`` are set and ``error`` is ``None``; on failure/timeout
+    ``error`` carries a human-readable message and the others are ``None``.
+    """
+
+    result: Optional[Any]
+    elapsed_ms: Optional[float]
+    error: Optional[str]
+
+
+def _optimize_strategy_worker(
+    strategy: Any,
+    blocks: Any,
+) -> Tuple[Any, float]:
+    """Run one strategy through the engine and return its result plus elapsed time.
+
+    Module-level so :class:`concurrent.futures.ProcessPoolExecutor` can pickle
+    it into the child process (``spawn`` re-imports this module and cannot use
+    closures). The strategy instance itself is pickled by the caller, which
+    keeps construction (and therefore ``same_row_preference`` wiring) in the
+    parent process.
+
+    Going through :class:`OptimizerEngine` keeps the child's behaviour identical
+    to the previous in-process runs: the engine emits the established
+    "Starting optimization" / "Optimization complete" INFO lines and wraps
+    strategy failures in :class:`OptimizationError`.
+
+    Args:
+        strategy: A constructed ``OptimizationStrategy`` instance.
+        blocks: MacroBlocks to optimize.
+
+    Returns:
+        Tuple ``(OptimizationResult, elapsed_seconds)`` measured inside the
+        child so the reported ``time_ms`` reflects pure optimization work.
+    """
+    optimizer = OptimizerEngine(strategy=strategy)
+    start = time.perf_counter()
+    result = optimizer.optimize(blocks)
+    return result, time.perf_counter() - start
+
+
+def _terminate_pool_workers(executor: ProcessPoolExecutor) -> None:
+    """Terminate the worker processes still owned by ``executor``.
+
+    Uses the ``_processes`` private attribute (a ``pid -> _ProcessImage``
+    mapping, stable through Python 3.13) because ``shutdown(wait=False)``
+    alone does not interrupt running work, and ``cancel_futures=`` requires
+    Python 3.9+ (this codebase targets 3.8). Guarded so exotic executor
+    implementations degrade to a no-op.
+
+    Args:
+        executor: The executor whose workers should be killed.
+    """
+    processes = getattr(executor, "_processes", None)
+    if not isinstance(processes, dict):
+        return
+    for process in list(processes.values()):
+        try:
+            process.terminate()
+        except Exception:  # noqa: BLE001 - best-effort kill
+            pass
+
+
+def _run_one_strategy_with_timeout(
+    strategy: Any,
+    blocks: Any,
+    strategy_timeout: float,
+    text_logger: Optional[Any],
+) -> _StrategyOutcome:
+    """Run a single strategy in a killable subprocess bounded by a timeout.
+
+    A dedicated one-worker :class:`ProcessPoolExecutor` runs
+    :func:`_optimize_strategy_worker`; if it does not finish within
+    ``strategy_timeout`` seconds the worker is terminated and a timeout outcome
+    is returned. Running each strategy in its own process is what makes the
+    bound enforceable — a runaway in-process optimization cannot be interrupted
+    otherwise. If the pool cannot be created (restricted environments), the run
+    degrades to an in-process call so the benchmark still produces a result.
+
+    Args:
+        strategy: A constructed ``OptimizationStrategy`` instance.
+        blocks: MacroBlocks to optimize.
+        strategy_timeout: Seconds the job may take before being aborted.
+        text_logger: Text logger for abort diagnostics, or ``None``.
+
+    Returns:
+        A :class:`_StrategyOutcome` describing success, failure, or timeout.
+    """
+    try:
+        executor = ProcessPoolExecutor(max_workers=1)
+    except Exception as pool_err:  # noqa: BLE001 - degrade to in-process, never fail the row
+        if text_logger is not None:
+            text_logger.warning(
+                f"Could not create strategy worker pool ({pool_err}); "
+                "running strategy in-process without a timeout"
+            )
+        try:
+            result, elapsed_s = _optimize_strategy_worker(strategy, blocks)
+            return _StrategyOutcome(result, elapsed_s * 1000, None)
+        except Exception as strat_err:  # noqa: BLE001 - surfaced as a failed outcome
+            return _StrategyOutcome(None, None, f"{type(strat_err).__name__}: {strat_err}")
+
+    with executor:
+        future = executor.submit(_optimize_strategy_worker, strategy, blocks)
+        try:
+            result, elapsed_s = future.result(timeout=strategy_timeout)
+            return _StrategyOutcome(result, elapsed_s * 1000, None)
+        except FuturesTimeoutError:
+            future.cancel()
+            _terminate_pool_workers(executor)
+            if text_logger is not None:
+                text_logger.warning(f"Strategy timed out after {strategy_timeout}s and was aborted")
+            return _StrategyOutcome(None, None, f"timed out after {strategy_timeout}s")
+        except Exception as strat_err:  # noqa: BLE001 - surfaced as a failed outcome
+            return _StrategyOutcome(None, None, f"{type(strat_err).__name__}: {strat_err}")
+
+
+def _run_strategies_with_timeout(
+    strategies: Dict[str, Any],
+    blocks: Any,
+    strategy_timeout: float,
+    text_logger: Optional[Any],
+) -> Dict[str, _StrategyOutcome]:
+    """Run each strategy in a killable subprocess, one at a time, with a timeout.
+
+    Strategies execute sequentially (each with the CPU to itself) so their
+    measured ``time_ms`` stays comparable across strategies — the property the
+    winners analysis relies on — while still being bounded by
+    ``strategy_timeout`` via :func:`_run_one_strategy_with_timeout`.
+
+    Args:
+        strategies: Mapping of ``strategy_name -> constructed strategy`` to run,
+            in execution order.
+        blocks: MacroBlocks shared by every strategy.
+        strategy_timeout: Seconds each individual job may take before abort.
+        text_logger: Text logger for abort diagnostics, or ``None``.
+
+    Returns:
+        Mapping of ``strategy_name -> _StrategyOutcome`` for every input
+        strategy, in the same order.
+    """
+    return {
+        name: _run_one_strategy_with_timeout(strategy, blocks, strategy_timeout, text_logger)
+        for name, strategy in strategies.items()
+    }
+
+
 def _run_strategy(
     strategy_name: str,
-    strategy_class: type,
-    blocks: Any,
+    outcome: _StrategyOutcome,
     doc: Any,
+    blocks: Any,
     before_rapid: float,
     before_cutting: float,
     input_path: Path,
     output_dir: Path,
-    same_row_preference: float,
-    metrics_logger: Optional[Any],
     text_logger: Optional[Any],
 ) -> Dict[str, Any]:
-    """Run a single strategy and return a populated CSV row.
+    """Build a CSV row from one strategy's pre-computed optimization outcome.
+
+    The strategy itself has already been executed (in a killable subprocess by
+    :func:`_run_strategies_with_timeout`); this function only performs the
+    post-processing that must stay in the parent process: reassembly, metrics,
+    PLT writing and plotting.
 
     On success, the returned dict has ``status == "success"`` and all metric
-    columns filled. On any exception raised by the strategy, the dict has
-    ``status == "failed"`` with the error captured in ``error_message`` and
-    all other columns left empty.
+    columns filled. When ``outcome.error`` is set (strategy raised, or was
+    aborted by the timeout), the dict has ``status == "failed"`` with the
+    error captured in ``error_message`` and all other columns left empty.
 
-    When ``metrics_logger`` and/or ``text_logger`` are ``None``, the function
-    still completes its work but skips logger side-effects. This lets
-    :func:`process_file` be called from a subprocess worker that has no
-    shared logger handle; the main process can re-emit metrics events from
-    the returned row using :func:`_log_metrics_from_row`.
+    When ``text_logger`` is ``None``, the function still completes its work
+    but skips logger side-effects. This lets :func:`process_file` be called
+    from a subprocess worker that has no shared logger handle; the main
+    process can re-emit metrics events from the returned row using
+    :func:`_log_metrics_from_row`.
 
     Args:
-        strategy_name: Strategy key from ``STRATEGY_REGISTRY``.
-        strategy_class: Strategy class implementing ``OptimizationStrategy``.
-        blocks: MacroBlocks to optimize.
+        strategy_name: Strategy key from ``STRATEGY_REGISTRY`` (or the
+            no-opt baseline pseudo-name, whose outcome carries the input
+            document unchanged).
+        outcome: The :class:`_StrategyOutcome` from the strategy's run.
         doc: Simplified PLTDocument used for reassembly.
+        blocks: MacroBlocks to optimize (used for reassembly on success).
         before_rapid: Rapid travel distance before optimization (internal units).
         before_cutting: Cutting distance before optimization (internal units).
         input_path: Source PLT path (for naming outputs).
         output_dir: Destination directory for outputs.
-        same_row_preference: Penalty multiplier for y-differences.
-        metrics_logger: CSV metrics logger, or ``None`` to skip metrics.
         text_logger: Text logger, or ``None`` to suppress log output.
 
     Returns:
@@ -366,30 +529,29 @@ def _run_strategy(
         "notes": "",
     }
 
+    if outcome.error is not None:
+        err_msg = outcome.error
+        row["status"] = "failed"
+        row["error_message"] = f"[{strategy_name}] {err_msg}"
+        metrics_event["notes"] = err_msg[:200]
+        if text_logger is not None:
+            text_logger.error(f"Strategy {strategy_name} failed on {input_path.name}: {err_msg}")
+        row["_metrics_event"] = metrics_event
+        row["_optimized_plt_path"] = None
+        return row
+
     try:
-        # Handle no-opt baseline: skip optimization and use baseline metrics as-is
+        opt_elapsed_ms = outcome.elapsed_ms if outcome.elapsed_ms is not None else 0.0
         if strategy_name == "no-opt":
-            opt_start = time.perf_counter()
-            # No optimization—use baseline metrics directly
+            # Baseline: no reassembly, metrics are the input document's own.
+            optimized_doc = doc
             optimized_rapid = before_rapid
             optimized_cutting = before_cutting
-            opt_elapsed_ms = (time.perf_counter() - opt_start) * 1000
-            optimization_result = None
-            optimized_doc = doc
         else:
-            if strategy_name in _STRATEGIES_WITH_SAME_ROW_PREFERENCE:
-                optimizer = OptimizerEngine(
-                    strategy=strategy_class(same_row_preference=same_row_preference)
-                )
-            else:
-                optimizer = OptimizerEngine(strategy=strategy_class())
-
-            opt_start = time.perf_counter()
-            optimization_result = optimizer.optimize(blocks)
-            opt_elapsed_ms = (time.perf_counter() - opt_start) * 1000
-
+            if outcome.result is None:
+                raise ValueError("strategy reported success without producing a result")
             reassembler = Reassembler()
-            optimized_doc = reassembler.reassemble(doc, blocks, optimization_result)
+            optimized_doc = reassembler.reassemble(doc, blocks, outcome.result)
 
             optimized_rapid = optimized_doc.rapid_distance()
             optimized_cutting = optimized_doc.cutting_distance()
@@ -594,8 +756,10 @@ def process_file(
         input_path: Path to the input PLT file.
         output_dir: Destination directory for optimized files and plots.
         same_row_preference: Penalty multiplier for y-differences.
-        ensemble_timeout: Per-job timeout (seconds) for the real
-            ParallelEnsemble run appended after the per-strategy rows.
+        ensemble_timeout: Per-job timeout (seconds) applied to every strategy
+            run for this file: each individual strategy executes in a killable
+            subprocess bounded by this budget, as does each member job of the
+            real ParallelEnsemble run appended after the per-strategy rows.
         metrics_logger: CSV metrics logger, or ``None`` to skip metrics.
         text_logger: Text logger, or ``None`` to suppress log output.
 
@@ -684,19 +848,48 @@ def process_file(
             text_logger.error(traceback.format_exc())
         return [row]
 
-    rows: List[Dict[str, Any]] = []
+    # Build the strategy instances to run. The no-opt baseline is a pseudo
+    # strategy (no optimization), so it is given a synthetic zero-cost outcome
+    # instead of a subprocess run. Every real strategy runs in its own killable
+    # subprocess bounded by ``ensemble_timeout`` so a runaway optimization
+    # cannot exceed the configured budget.
+    strategies: Dict[str, Any] = {}
+    construction_errors: Dict[str, str] = {}
     for strategy_name, strategy_class in STRATEGY_REGISTRY.items():
+        if strategy_name == "no-opt" or strategy_class is None:
+            continue
+        try:
+            if strategy_name in _STRATEGIES_WITH_SAME_ROW_PREFERENCE:
+                strategies[strategy_name] = strategy_class(same_row_preference=same_row_preference)
+            else:
+                strategies[strategy_name] = strategy_class()
+        except Exception as construct_err:  # noqa: BLE001 - one bad strategy is one failed row
+            construction_errors[strategy_name] = f"{type(construct_err).__name__}: {construct_err}"
+
+    outcomes = _run_strategies_with_timeout(
+        strategies=strategies,
+        blocks=blocks,
+        strategy_timeout=ensemble_timeout,
+        text_logger=text_logger,
+    )
+    # Fold construction failures in as failed outcomes.
+    for name, err in construction_errors.items():
+        outcomes[name] = _StrategyOutcome(None, None, err)
+    # The no-opt baseline never runs: synthesize a zero-cost success outcome.
+    outcomes["no-opt"] = _StrategyOutcome(result=None, elapsed_ms=0.0, error=None)
+
+    rows: List[Dict[str, Any]] = []
+    for strategy_name in STRATEGY_REGISTRY:
+        outcome = outcomes[strategy_name]
         row = _run_strategy(
             strategy_name=strategy_name,
-            strategy_class=strategy_class,
-            blocks=blocks,
+            outcome=outcome,
             doc=simplified_doc,
+            blocks=blocks,
             before_rapid=before_rapid,
             before_cutting=before_cutting,
             input_path=input_path,
             output_dir=output_dir,
-            same_row_preference=same_row_preference,
-            metrics_logger=metrics_logger,
             text_logger=text_logger,
         )
         # Tag baseline file metrics on every per-strategy row.
@@ -769,8 +962,9 @@ def _process_file_worker(
         input_path_str: Absolute path to the PLT file.
         output_dir_str: Absolute path to the output directory.
         same_row_preference: Penalty multiplier for y-differences.
-        ensemble_timeout: Per-job timeout (seconds) for the real
-            ParallelEnsemble run.
+        ensemble_timeout: Per-job timeout (seconds) applied to every strategy
+            run for this file (individual strategies and ensemble member jobs
+            alike); see :func:`process_file`.
 
     Returns:
         :class:`FileResult` bundling the source path, elapsed seconds, and
@@ -1649,9 +1843,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         type=float,
         default=10.0,
         help=(
-            "Seconds each ParallelEnsemble strategy job may take before it is "
-            "aborted and marked as failed in the real ensemble run appended to "
-            "each file's rows (default: 10.0)"
+            "Seconds each optimization job may take before it is aborted and "
+            "marked as failed (default: 10.0). Applies to every individual "
+            "strategy run (each executes in a killable subprocess) and to every "
+            "ParallelEnsemble member job in the real ensemble run appended to "
+            "each file's rows"
         ),
     )
     parser.add_argument(
@@ -1706,7 +1902,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(f"  Files:    {len(plt_files)}")
     print(f"  Workers:  {worker_count}")
     print(f"  Strategies: {', '.join(STRATEGY_REGISTRY.keys())}, ensemble")
-    print(f"  Ensemble job timeout: {args.ensemble_timeout}s")
+    print(f"  Strategy job timeout: {args.ensemble_timeout}s")
     print("=" * 60)
 
     if not plt_files:

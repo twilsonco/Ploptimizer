@@ -42,6 +42,12 @@ the serial Nearest Neighbor + 2-Opt fallback runs instead. Tune it with
 `--ensemble-timeout <seconds>` (watch daemon and benchmark) or the
 **Ensemble Timeout (s)** field in the settings window.
 
+In the **batch benchmark tool**, the same `--ensemble-timeout` budget bounds
+*every* optimization job: each individual strategy run executes in its own
+killable subprocess and is marked `failed` (with `timed out after Xs`) when it
+exceeds the budget, so one pathological file/strategy pair can no longer stall
+the whole batch.
+
 ## Batch Benchmark Tool
 
 A standalone utility lives in `examples/benchmark.py` for processing every `*.plt`
