@@ -156,32 +156,34 @@ class SettingsWindow:
         )
         debug_check.grid(row=0, column=2, sticky="w", pady=3)
 
-        # Numeric optimization parameters (row 1)
-        ttk.Label(opt_section, text="Ensemble Timeout (s):").grid(
-            row=1, column=0, sticky="w", padx=(0, 5), pady=3
-        )
+        # Numeric optimization parameters (row 1). Each label/spinbox pair is
+        # wrapped in its own frame so the spinbox sits flush against its
+        # label, independent of the wider checkbutton columns above.
+        timeout_frame = ttk.Frame(opt_section)
+        timeout_frame.grid(row=1, column=0, sticky="w", pady=3)
+        ttk.Label(timeout_frame, text="Ensemble Timeout (s):").pack(side=tk.LEFT, padx=(0, 3))
         self._ensemble_timeout_var = tk.DoubleVar()
         ttk.Spinbox(
-            opt_section,
+            timeout_frame,
             from_=0.1,
             to=3600.0,
             increment=1.0,
             textvariable=self._ensemble_timeout_var,
             width=10,
-        ).grid(row=1, column=1, sticky="w", pady=3)
+        ).pack(side=tk.LEFT)
 
-        ttk.Label(opt_section, text="Same Row Preference:").grid(
-            row=1, column=2, sticky="e", padx=(10, 5), pady=3
-        )
+        same_row_frame = ttk.Frame(opt_section)
+        same_row_frame.grid(row=1, column=2, columnspan=2, sticky="w", pady=3)
+        ttk.Label(same_row_frame, text="Same Row Preference:").pack(side=tk.LEFT, padx=(10, 5))
         self._same_row_preference_var = tk.DoubleVar()
         ttk.Spinbox(
-            opt_section,
+            same_row_frame,
             from_=1.0,
             to=100.0,
             increment=0.5,
             textvariable=self._same_row_preference_var,
             width=10,
-        ).grid(row=1, column=3, sticky="w", pady=3)
+        ).pack(side=tk.LEFT)
 
         # Startup and Maintenance sections - TWO COLUMN LAYOUT
         if _IS_WINDOWS:
