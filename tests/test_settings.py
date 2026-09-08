@@ -1458,3 +1458,159 @@ class TestEnsembleOptionFields:
                 result = window._validate_inputs()
 
         assert result is False
+
+
+class TestOpenPath:
+    """Tests for the _open_path platform dispatch helper."""
+
+    def test_open_path_windows_uses_startfile(self) -> None:
+        """On Windows, os.startfile must be used."""
+        path = Path("C:/tmp")
+        with patch("plt_optimizer.ui.settings._IS_WINDOWS", True):
+            with patch("plt_optimizer.ui.settings.os.startfile") as mock_start:
+                SettingsWindow._open_path(path)
+        mock_start.assert_called_once_with(str(path))
+
+    def test_open_path_linux_uses_xdg_open(self) -> None:
+        """On Linux, xdg-open must be spawned."""
+        path = Path("/tmp/logs")
+        with patch("plt_optimizer.ui.settings._IS_WINDOWS", False):
+            with patch("plt_optimizer.ui.settings.sys") as mock_sys:
+                mock_sys.platform = "linux"
+                with patch("plt_optimizer.ui.settings.subprocess.Popen") as mock_popen:
+                    SettingsWindow._open_path(path)
+        mock_popen.assert_called_once_with(["xdg-open", str(path)])
+
+    def test_open_path_macos_uses_open(self) -> None:
+        """On macOS, the open command must be spawned."""
+        path = Path("/tmp/logs")
+        with patch("plt_optimizer.ui.settings._IS_WINDOWS", False):
+            with patch("plt_optimizer.ui.settings.sys") as mock_sys:
+                mock_sys.platform = "darwin"
+                with patch("plt_optimizer.ui.settings.subprocess.Popen") as mock_popen:
+                    SettingsWindow._open_path(path)
+        mock_popen.assert_called_once_with(["open", str(path)])
+
+
+class TestOpenDirectory:
+    """Tests for the _open_directory method behind the Open buttons."""
+
+    def test_open_directory_warns_when_empty(self) -> None:
+        """An empty directory variable must show a warning and do nothing."""
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            window = SettingsWindow({}, MagicMock())
+            var = MockStringVar("")
+            with patch("plt_optimizer.ui.settings.messagebox.showwarning") as mock_warn:
+                with patch.object(SettingsWindow, "_open_path") as mock_open:
+                    window._open_directory(var)  # type: ignore[arg-type]
+        mock_warn.assert_called_once()
+        mock_open.assert_not_called()
+
+    def test_open_directory_warns_when_missing(self) -> None:
+        """A non-existent directory must show a warning and do nothing."""
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            window = SettingsWindow({}, MagicMock())
+            var = MockStringVar("/does/not/exist")
+            with patch.object(Path, "is_dir", return_value=False):
+                with patch("plt_optimizer.ui.settings.messagebox.showwarning") as mock_warn:
+                    with patch.object(SettingsWindow, "_open_path") as mock_open:
+                        window._open_directory(var)  # type: ignore[arg-type]
+        mock_warn.assert_called_once()
+        mock_open.assert_not_called()
+
+    def test_open_directory_handles_oserror_on_is_dir(self) -> None:
+        """OSError from stat (e.g. unreachable network path) must warn, not raise."""
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            window = SettingsWindow({}, MagicMock())
+            var = MockStringVar("\\\\server\\share")
+            with patch.object(Path, "is_dir", side_effect=OSError("unreachable")):
+                with patch("plt_optimizer.ui.settings.messagebox.showwarning") as mock_warn:
+                    with patch.object(SettingsWindow, "_open_path") as mock_open:
+                        window._open_directory(var)  # type: ignore[arg-type]
+        mock_warn.assert_called_once()
+        mock_open.assert_not_called()
+
+    def test_open_directory_opens_existing_dir(self) -> None:
+        """An existing directory must be handed to _open_path."""
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            window = SettingsWindow({}, MagicMock())
+            var = MockStringVar("/existing/dir")
+            with patch.object(Path, "is_dir", return_value=True):
+                with patch.object(SettingsWindow, "_open_path") as mock_open:
+                    window._open_directory(var)  # type: ignore[arg-type]
+        mock_open.assert_called_once_with(Path("/existing/dir"))
+
+    def test_open_directory_shows_error_on_failure(self) -> None:
+        """A failure inside _open_path must surface an error dialog."""
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            window = SettingsWindow({}, MagicMock())
+            var = MockStringVar("/existing/dir")
+            with patch.object(Path, "is_dir", return_value=True):
+                with patch.object(
+                    SettingsWindow, "_open_path", side_effect=OSError("no handler")
+                ):
+                    with patch("plt_optimizer.ui.settings.messagebox.showerror") as mock_err:
+                        window._open_directory(var)  # type: ignore[arg-type]
+        mock_err.assert_called_once()
+
+
+class TestOpenLogs:
+    """Tests for the _open_logs method behind the Open Logs button."""
+
+    def test_open_logs_warns_when_dir_empty(self) -> None:
+        """An empty log directory must show a warning and do nothing."""
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            window = SettingsWindow({}, MagicMock())
+            window._log_dir_var.set("")
+            with patch("plt_optimizer.ui.settings.messagebox.showwarning") as mock_warn:
+                with patch.object(SettingsWindow, "_open_path") as mock_open:
+                    window._open_logs()
+        mock_warn.assert_called_once()
+        mock_open.assert_not_called()
+
+    def test_open_logs_info_when_file_missing(self) -> None:
+        """A missing optimizer.log must show an info dialog and do nothing."""
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            window = SettingsWindow({}, MagicMock())
+            window._log_dir_var.set("/logs")
+            with patch.object(Path, "is_file", return_value=False):
+                with patch("plt_optimizer.ui.settings.messagebox.showinfo") as mock_info:
+                    with patch.object(SettingsWindow, "_open_path") as mock_open:
+                        window._open_logs()
+        mock_info.assert_called_once()
+        mock_open.assert_not_called()
+
+    def test_open_logs_handles_oserror_on_is_file(self) -> None:
+        """OSError from stat (e.g. unreachable network path) must not raise."""
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            window = SettingsWindow({}, MagicMock())
+            window._log_dir_var.set("\\\\server\\logs")
+            with patch.object(Path, "is_file", side_effect=OSError("unreachable")):
+                with patch("plt_optimizer.ui.settings.messagebox.showinfo") as mock_info:
+                    with patch.object(SettingsWindow, "_open_path") as mock_open:
+                        window._open_logs()
+        mock_info.assert_called_once()
+        mock_open.assert_not_called()
+
+    def test_open_logs_opens_existing_file(self) -> None:
+        """An existing optimizer.log must be handed to _open_path."""
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            window = SettingsWindow({}, MagicMock())
+            window._log_dir_var.set("/logs")
+            with patch.object(Path, "is_file", return_value=True):
+                with patch.object(SettingsWindow, "_open_path") as mock_open:
+                    window._open_logs()
+        mock_open.assert_called_once_with(Path("/logs/optimizer.log"))
+
+    def test_open_logs_shows_error_on_failure(self) -> None:
+        """A failure inside _open_path must surface an error dialog."""
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            window = SettingsWindow({}, MagicMock())
+            window._log_dir_var.set("/logs")
+            with patch.object(Path, "is_file", return_value=True):
+                with patch.object(
+                    SettingsWindow, "_open_path", side_effect=OSError("no handler")
+                ):
+                    with patch("plt_optimizer.ui.settings.messagebox.showerror") as mock_err:
+                        window._open_logs()
+        mock_err.assert_called_once()

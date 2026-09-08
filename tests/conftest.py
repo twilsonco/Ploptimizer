@@ -80,6 +80,10 @@ def _install_tkinter_mocks() -> None:
             pass
 
         @staticmethod
+        def showwarning(title: str, message: str, **kwargs: Any) -> None:
+            pass
+
+        @staticmethod
         def askyesno(title: str, message: str, **kwargs: Any) -> bool:
             return False
 

@@ -9,6 +9,8 @@ This module provides a tkinter-based configuration dialog that allows users to:
 from __future__ import annotations
 
 import logging
+import os
+import subprocess
 import sys
 import tkinter as tk
 from collections.abc import Callable
@@ -88,12 +90,17 @@ class SettingsWindow:
         watch_entry = ttk.Entry(dir_section, textvariable=self._watch_dir_var, width=50)
         watch_entry.grid(row=0, column=1, sticky="ew", padx=(0, 5), pady=3)
 
-        # Right column (col 2-3) - Watch Browse
+        # Right column (col 2-3) - Watch Browse / Open
         ttk.Button(
             dir_section,
             text="Browse",
             command=lambda: self._browse_directory(self._watch_dir_var),
         ).grid(row=0, column=3, pady=3)
+        ttk.Button(
+            dir_section,
+            text="Open",
+            command=lambda: self._open_directory(self._watch_dir_var),
+        ).grid(row=0, column=4, padx=(3, 0), pady=3)
 
         # Left column
         ttk.Label(dir_section, text="Output:").grid(
@@ -103,12 +110,17 @@ class SettingsWindow:
         output_entry = ttk.Entry(dir_section, textvariable=self._output_dir_var, width=50)
         output_entry.grid(row=1, column=1, sticky="ew", padx=(0, 5), pady=3)
 
-        # Right column - Output Browse
+        # Right column - Output Browse / Open
         ttk.Button(
             dir_section,
             text="Browse",
             command=lambda: self._browse_directory(self._output_dir_var),
         ).grid(row=1, column=3, pady=3)
+        ttk.Button(
+            dir_section,
+            text="Open",
+            command=lambda: self._open_directory(self._output_dir_var),
+        ).grid(row=1, column=4, padx=(3, 0), pady=3)
 
         # Left column
         ttk.Label(dir_section, text="Log:").grid(row=2, column=0, sticky="w", padx=(0, 5), pady=3)
@@ -116,10 +128,15 @@ class SettingsWindow:
         log_entry = ttk.Entry(dir_section, textvariable=self._log_dir_var, width=50)
         log_entry.grid(row=2, column=1, sticky="ew", padx=(0, 5), pady=3)
 
-        # Right column - Log Browse
+        # Right column - Log Browse / Open
         ttk.Button(
             dir_section, text="Browse", command=lambda: self._browse_directory(self._log_dir_var)
         ).grid(row=2, column=3, pady=3)
+        ttk.Button(
+            dir_section,
+            text="Open",
+            command=lambda: self._open_directory(self._log_dir_var),
+        ).grid(row=2, column=4, padx=(3, 0), pady=3)
 
         # Left column
         ttk.Label(dir_section, text="Processed:").grid(
@@ -129,12 +146,17 @@ class SettingsWindow:
         processed_entry = ttk.Entry(dir_section, textvariable=self._processed_dir_var, width=50)
         processed_entry.grid(row=3, column=1, sticky="ew", padx=(0, 5), pady=3)
 
-        # Right column - Processed Browse
+        # Right column - Processed Browse / Open
         ttk.Button(
             dir_section,
             text="Browse",
             command=lambda: self._browse_directory(self._processed_dir_var),
         ).grid(row=3, column=3, pady=3)
+        ttk.Button(
+            dir_section,
+            text="Open",
+            command=lambda: self._open_directory(self._processed_dir_var),
+        ).grid(row=3, column=4, padx=(3, 0), pady=3)
 
         # Optimization settings section - TWO COLUMN LAYOUT
         opt_section = ttk.LabelFrame(main_frame, text="Optimization Options", padding="8")
@@ -250,6 +272,10 @@ class SettingsWindow:
             row=0, column=0, sticky="w", pady=(5, 0), padx=5
         )
 
+        ttk.Button(cleanup_section, text="Open Logs", command=self._open_logs).grid(
+            row=0, column=1, sticky="w", pady=(5, 0), padx=(0, 5)
+        )
+
         ttk.Button(button_frame, text="Save", command=self._on_save).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Cancel", command=self._on_cancel).pack(side=tk.LEFT, padx=5)
 
@@ -303,6 +329,92 @@ class SettingsWindow:
         if selected:
             _logger.debug(f"Selected directory: {selected}")
             var.set(selected)
+
+    @staticmethod
+    def _open_path(path: Path) -> None:
+        """Open a file or directory with the platform default application.
+
+        Args:
+            path: File or directory to open.
+        """
+        if _IS_WINDOWS:
+            os.startfile(str(path))
+        else:
+            opener = "open" if sys.platform == "darwin" else "xdg-open"
+            subprocess.Popen([opener, str(path)])
+
+    def _open_directory(self, var: tk.StringVar) -> None:
+        """Open the directory held by the given variable in the file manager.
+
+        Args:
+            var: StringVar holding the directory path to open.
+        """
+        raw = var.get().strip()
+        if not raw:
+            messagebox.showwarning(
+                "Directory Not Set",
+                "No directory is configured for this field.",
+                parent=self._root,
+            )
+            return
+
+        path = Path(raw)
+        # Network paths can raise OSError on exists()/stat()
+        try:
+            exists = path.is_dir()
+        except OSError:
+            exists = False
+        if not exists:
+            messagebox.showwarning(
+                "Directory Not Found",
+                f"Directory '{raw}' does not exist.",
+                parent=self._root,
+            )
+            return
+
+        try:
+            self._open_path(path)
+        except Exception as e:
+            _logger.error(f"Failed to open directory '{raw}': {e}")
+            messagebox.showerror(
+                "Error",
+                f"Failed to open directory: {e}",
+                parent=self._root,
+            )
+
+    def _open_logs(self) -> None:
+        """Open the optimizer.log file in the default text editor."""
+        log_dir = self._log_dir_var.get().strip()
+        if not log_dir:
+            messagebox.showwarning(
+                "Directory Not Set",
+                "No log directory is configured.",
+                parent=self._root,
+            )
+            return
+
+        log_file = Path(log_dir) / "optimizer.log"
+        try:
+            exists = log_file.is_file()
+        except OSError:
+            exists = False
+        if not exists:
+            messagebox.showinfo(
+                "No Log File",
+                f"Log file '{log_file}' does not exist yet.",
+                parent=self._root,
+            )
+            return
+
+        try:
+            self._open_path(log_file)
+        except Exception as e:
+            _logger.error(f"Failed to open log file '{log_file}': {e}")
+            messagebox.showerror(
+                "Error",
+                f"Failed to open log file: {e}",
+                parent=self._root,
+            )
 
     def _load_current_values(self) -> None:
         """Load current configuration values into UI fields."""
