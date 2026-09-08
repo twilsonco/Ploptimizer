@@ -106,11 +106,22 @@ powershell -Command "irm https://astral.sh/uv/install.ps1 | iex"
    # Install build tools (maintainer/release builder only)
    uv sync --extra build
 
-   # Build with PyInstaller
-   uv run pyinstaller --noconsole --windowed --name PLT-Optimizer ^
-       --icon=assets/icon.ico --add-data "assets/icon.ico;assets" ^
+   # Build with PyInstaller (single-file standalone executable)
+   uv run pyinstaller --onefile --noconsole ^
+       --name "Ploptimizer" ^
+       --add-data "assets;assets" ^
+       --icon "assets/icon.ico" ^
        run_tray.py
    ```
+
+   The compiled executable will be created at `dist\Ploptimizer.exe`.
+
+   > **Important:** Always include `--onefile`. Without it, PyInstaller produces a
+   > *one-folder* bundle where `dist\<name>\<name>.exe` depends on the sibling
+   > `_internal\` folder (which contains `python311.dll`). Copying the `.exe` by
+   > itself fails with `Failed to load Python DLL "...\_internal\python311.dll"`.
+   > If you intentionally build without `--onefile`, you must copy the entire
+   > `dist\<name>\` directory together, not just the executable.
 
 ### Windows-Specific Setup
 
@@ -385,7 +396,7 @@ uv run plt-optimizer watch --watch-dir \\Server\Plotter\Input --output-dir \\Ser
 
 The simplest method is to use the **system tray application** which provides a "Run at Startup" checkbox in its settings:
 
-1. Run `run_tray.py` or launch the compiled executable (`PLT-Optimizer.exe`)
+1. Run `run_tray.py` or launch the compiled executable (`Ploptimizer.exe`)
 2. Right-click the system tray icon → **Open Settings**
 3. Configure your watch directory, output directory, and other options
 4. Check **Run at Windows Startup**
@@ -422,7 +433,7 @@ The application will now start automatically when you log in to Windows, with no
       run_tray.py
    ```
 
-4. The compiled executable will be in `dist/PLT-Optimizer.exe`
+4. The compiled executable will be in `dist/Ploptimizer.exe`
 
 ##### Method 2: Task Scheduler (Recommended)
 
@@ -697,7 +708,7 @@ This project uses GitHub Actions for continuous integration and automated builds
 
 2. On every git tag, the build workflow:
    - Creates a proper release with the `.exe` attached
-   - Users can download `PLT-Optimizer.exe` from GitHub Releases
+   - Users can download `Ploptimizer.exe` from GitHub Releases
 
 ## See Also
 
