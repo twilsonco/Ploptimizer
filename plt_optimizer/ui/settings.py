@@ -337,7 +337,11 @@ class SettingsWindow:
         Args:
             path: File or directory to open.
         """
-        if _IS_WINDOWS:
+        # NOTE: mypy only narrows platform-specific attributes (os.startfile
+        # exists in typeshed solely under sys.platform == "win32") when it sees
+        # a direct sys.platform comparison, so do not route this through
+        # _IS_WINDOWS here.
+        if sys.platform == "win32":
             os.startfile(str(path))
         else:
             opener = "open" if sys.platform == "darwin" else "xdg-open"

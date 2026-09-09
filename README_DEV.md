@@ -628,21 +628,28 @@ pre-commit install
 
 Now `ruff check`, `ruff format`, and `mypy` will run automatically on each `git commit`.
 
+The hooks invoke the tools through `uv run --extra dev` (plus `--extra plotting`
+for mypy) so the tool versions come from `uv.lock` — the exact same versions CI
+uses. Never commit with `git commit --no-verify`; CI runs the identical checks
+(`ruff check`, `ruff format --check`, and `mypy` in
+`.github/workflows/ci.yml`), and mypy is pinned to `platform = "win32"` in
+`pyproject.toml` so results are identical on every OS.
+
 #### Manual Checks
 
 Run the linter:
 ```bash
-uv run ruff check plt_optimizer/
+uv run --extra dev ruff check plt_optimizer/
 ```
 
 Format code:
 ```bash
-uv run ruff format plt_optimizer/
+uv run --extra dev ruff format plt_optimizer/
 ```
 
 Type checking:
 ```bash
-uv run mypy plt_optimizer/
+uv run --extra dev --extra plotting mypy plt_optimizer/
 ```
 
 ### Adding New Commands

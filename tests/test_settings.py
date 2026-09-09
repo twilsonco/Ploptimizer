@@ -1464,12 +1464,18 @@ class TestOpenPath:
     """Tests for the _open_path platform dispatch helper."""
 
     def test_open_path_windows_uses_startfile(self) -> None:
-        """On Windows, os.startfile must be used."""
+        """On Windows, os.startfile must be used.
+
+        The whole ``os`` module is patched (instead of ``os.startfile``)
+        because ``startfile`` does not exist on macOS/Linux, which would make
+        the patch itself fail on non-Windows CI runners.
+        """
         path = Path("C:/tmp")
-        with patch("plt_optimizer.ui.settings._IS_WINDOWS", True):
-            with patch("plt_optimizer.ui.settings.os.startfile") as mock_start:
+        with patch("plt_optimizer.ui.settings.sys") as mock_sys:
+            mock_sys.platform = "win32"
+            with patch("plt_optimizer.ui.settings.os") as mock_os:
                 SettingsWindow._open_path(path)
-        mock_start.assert_called_once_with(str(path))
+        mock_os.startfile.assert_called_once_with(str(path))
 
     def test_open_path_linux_uses_xdg_open(self) -> None:
         """On Linux, xdg-open must be spawned."""

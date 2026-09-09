@@ -74,6 +74,11 @@ jobs:
       - name: Lint with ruff
         run: uv run ruff check plt_optimizer/
 
+      # Mirrors the ruff-format pre-commit hook so CI verifies the exact same
+      # checks the hooks enforce (hooks auto-format; CI verifies it happened).
+      - name: Check formatting with ruff
+        run: uv run ruff format --check plt_optimizer/
+
   type-check:
     name: Type Check
     needs: changes

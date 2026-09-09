@@ -82,6 +82,13 @@ partial_branches = [
 
 [tool.mypy]
 python_version = "3.10"
+# Pin the platform so mypy performs identical dead-code narrowing of
+# `sys.platform == "win32"` branches on every machine AND in CI. Without this,
+# mypy uses the host OS: a commit made on Windows (where os.startfile
+# type-checks) can pass pre-commit hooks locally yet fail CI (or vice versa).
+# Pinned to win32 because the deployment target is Windows, so platform-
+# guarded Windows branches are the ones shipped to users and must be checked.
+platform = "win32"
 strict = true
 warn_return_any = true
 warn_unused_configs = true

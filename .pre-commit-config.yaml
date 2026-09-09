@@ -2,23 +2,31 @@
 repos:
   - repo: local
     hooks:
+      # NOTE: The --extra flags below MUST mirror the uv sync commands used in
+      # .github/workflows/ci.yml (type-check job: --extra dev --extra plotting,
+      # the superset of what these hooks need). mypy/ruff live in the `dev`
+      # extra, which is NOT part of uv's default environment; without the flag,
+      # `uv run` does not manage their versions from uv.lock and the hook can
+      # silently use a stale local toolchain, letting CI fail on a version
+      # mypy/ruff never sees. All three hooks share the SAME extras so uv
+      # syncs the venv once per commit instead of flip-flopping packages.
       - id: ruff-check
         name: ruff check
-        entry: uv run ruff check plt_optimizer/
+        entry: uv run --extra dev --extra plotting ruff check plt_optimizer/
         language: system
         pass_filenames: false
         types_or: [python]
 
       - id: ruff-format
         name: ruff format
-        entry: uv run ruff format plt_optimizer/
+        entry: uv run --extra dev --extra plotting ruff format plt_optimizer/
         language: system
         pass_filenames: false
         types_or: [python]
 
       - id: mypy
         name: mypy type check
-        entry: uv run mypy plt_optimizer/
+        entry: uv run --extra dev --extra plotting mypy plt_optimizer/
         language: system
         pass_filenames: false
         types_or: [python]
