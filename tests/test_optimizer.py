@@ -7,7 +7,9 @@ determining both traversal sequence and direction for MacroBlocks.
 from __future__ import annotations
 
 import math
-from typing import List, Optional, Tuple
+from concurrent.futures import Future
+from concurrent.futures.process import BrokenProcessPool
+from typing import Callable, List, Optional, Tuple
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -2587,3 +2589,235 @@ class TestParallelEnsembleCoverage2:
 
         assert isinstance(result, ParallelEnsembleOptimizationResult)
         assert result.winner_name == "NoOp (Baseline)"
+
+
+class TestParallelEnsemblePoolBreakRetry:
+    """Tests for broken-process-pool detection and retry in ParallelEnsembleStrategy.
+
+    Worker processes inside a PyInstaller frozen executable on Windows can die
+    abruptly, which raises :class:`BrokenProcessPool` for every job still in
+    flight at once. These tests pin down that such jobs are retried in a fresh
+    pool while genuine strategy errors are not.
+    """
+
+    @staticmethod
+    def _good_future(name: str, distance: float) -> Future:
+        """Build a resolved future carrying a successful benchmark result."""
+        opt_result = OptimizationResult(
+            traverse_order=(
+                BlockTraverseState(block_id=0, reversed=False, entrance=(0, 0), exit=(10, 0)),
+            ),
+            connections=(),
+            total_travel_distance=distance,
+            initial_position=(0.0, 0.0),
+        )
+        fut: Future = Future()
+        fut.set_result(StrategyBenchmarkResult(name, opt_result, 0.01))
+        return fut
+
+    @staticmethod
+    def _broken_future() -> Future:
+        """Build a future rejected with the frozen-executable pool-break error."""
+        fut: Future = Future()
+        fut.set_exception(
+            BrokenProcessPool(
+                "A process in the process pool was terminated abruptly while the "
+                "future was running or pending."
+            )
+        )
+        return fut
+
+    @staticmethod
+    def _failing_future(message: str) -> Future:
+        """Build a future rejected with a genuine (non-pool) strategy error."""
+        fut: Future = Future()
+        fut.set_exception(RuntimeError(message))
+        return fut
+
+    @staticmethod
+    def _executor_mock(ctx: MagicMock) -> MagicMock:
+        """Wrap a context mock so ``with ProcessPoolExecutor(...)`` yields it."""
+        executor = MagicMock()
+        executor.__enter__ = MagicMock(return_value=ctx)
+        executor.__exit__ = MagicMock(return_value=False)
+        return executor
+
+    @staticmethod
+    def _two_blocks() -> List[MacroBlock]:
+        """Two blocks, enough to produce multiple ensemble jobs."""
+        return [
+            _make_simple_block(0, (0, 0), (10, 0)),
+            _make_simple_block(1, (50, 0), (60, 0)),
+        ]
+
+    @staticmethod
+    def _recording_submit(
+        factory: Callable[[int], Future],
+    ) -> Tuple[Callable[..., Future], List[Future]]:
+        """Return a submit stand-in plus the list recording what it returned.
+
+        ``as_completed`` is patched with the recorded list, so the futures it
+        yields are the very objects the ensemble keyed its results by.
+        """
+        submitted: List[Future] = []
+
+        def _submit(*args: object, **kwargs: object) -> Future:
+            future = factory(len(submitted))
+            submitted.append(future)
+            return future
+
+        return _submit, submitted
+
+    def test_is_pool_broken_error_matches_canonical_forms(self) -> None:
+        """BrokenProcessPool and its cross-process message both count as breaks."""
+        from plt_optimizer.core.optimizer import _is_pool_broken_error
+
+        assert _is_pool_broken_error(BrokenProcessPool("boom")) is True
+        assert (
+            _is_pool_broken_error(
+                RuntimeError(
+                    "A process in the process pool was terminated abruptly while the "
+                    "future was running or pending."
+                )
+            )
+            is True
+        )
+        assert _is_pool_broken_error(RuntimeError("genuine strategy error")) is False
+
+    def test_select_best_result_uses_improvement_then_distance(self) -> None:
+        """Selection prefers improvement % with a baseline, else absolute distance."""
+        strategy_with_baseline = ParallelEnsembleStrategy(baseline_distance=100.0)
+        near = self._good_future("near", 40.0).result().result
+        far = self._good_future("far", 80.0).result().result
+        near_bench = StrategyBenchmarkResult("near", near, 0.01, improvement_percent=60.0)
+        far_bench = StrategyBenchmarkResult("far", far, 0.01, improvement_percent=20.0)
+
+        best = strategy_with_baseline._select_best_result([far_bench, near_bench])
+        assert best is not None
+        assert best.strategy_name == "near"
+
+        # Without a baseline the lower absolute distance wins.
+        strategy_no_baseline = ParallelEnsembleStrategy(baseline_distance=None)
+        best = strategy_no_baseline._select_best_result([far_bench, near_bench])
+        assert best is not None
+        assert best.strategy_name == "near"
+        assert strategy_no_baseline._select_best_result([]) is None
+
+    def test_jobs_lost_with_pool_are_retried_in_fresh_pool(self) -> None:
+        """A mid-run pool break re-runs only the lost jobs and keeps their results."""
+        strategy = ParallelEnsembleStrategy(baseline_distance=100.0)
+
+        # Attempt 1: the first job finishes, everything else dies with the pool.
+        submit1, submitted1 = self._recording_submit(
+            lambda i: (
+                self._good_future("NoOp (Baseline)", 40.0) if i == 0 else self._broken_future()
+            )
+        )
+        ctx1 = MagicMock()
+        ctx1.submit = MagicMock(side_effect=submit1)
+
+        # Attempt 2: every retried job succeeds with a better distance.
+        submit2, submitted2 = self._recording_submit(
+            lambda _i: self._good_future("Insertion Heuristic", 30.0)
+        )
+        ctx2 = MagicMock()
+        ctx2.submit = MagicMock(side_effect=submit2)
+
+        with patch(
+            "plt_optimizer.core.optimizer.ProcessPoolExecutor",
+            side_effect=[self._executor_mock(ctx1), self._executor_mock(ctx2)],
+        ) as mock_exec:
+            with patch(
+                "plt_optimizer.core.optimizer.as_completed",
+                side_effect=[submitted1, submitted2],
+            ):
+                result = strategy.optimize(self._two_blocks())
+
+        assert mock_exec.call_count == 2
+        # The retry pool is capped so a resource-pressure crash is less likely.
+        assert mock_exec.call_args_list[1].kwargs["max_workers"] <= 4
+        # Results from both attempts survive; the better one wins.
+        assert result.winner_name == "Insertion Heuristic"
+        assert len(result.all_benchmarks) == 1 + len(submitted2)
+        # Only the jobs lost with the pool were re-submitted, not all of them.
+        assert len(submitted2) == len(submitted1) - 1
+
+    def test_pool_break_during_submission_retries_all_jobs(self) -> None:
+        """A pool that dies before any job runs re-runs the whole job list."""
+        strategy = ParallelEnsembleStrategy(baseline_distance=100.0)
+
+        ctx1 = MagicMock()
+        ctx1.submit = MagicMock(side_effect=BrokenProcessPool("died on startup"))
+
+        submit2, submitted2 = self._recording_submit(
+            lambda _i: self._good_future("Simulated Annealing", 25.0)
+        )
+        ctx2 = MagicMock()
+        ctx2.submit = MagicMock(side_effect=submit2)
+
+        with patch(
+            "plt_optimizer.core.optimizer.ProcessPoolExecutor",
+            side_effect=[self._executor_mock(ctx1), self._executor_mock(ctx2)],
+        ) as mock_exec:
+            # The first pool dies during submission, before as_completed runs,
+            # so only the retry consumes an as_completed stub.
+            with patch(
+                "plt_optimizer.core.optimizer.as_completed",
+                side_effect=[submitted2],
+            ):
+                result = strategy.optimize(self._two_blocks())
+
+        assert mock_exec.call_count == 2
+        assert result.winner_name == "Simulated Annealing"
+        assert len(result.all_benchmarks) == len(submitted2)
+
+    def test_genuine_strategy_failure_is_not_retried(self) -> None:
+        """A real strategy exception must not trigger a whole-pool retry."""
+        strategy = ParallelEnsembleStrategy(baseline_distance=100.0)
+
+        submit1, submitted1 = self._recording_submit(
+            lambda i: (
+                self._good_future("NoOp (Baseline)", 40.0) if i == 0 else self._failing_future(
+                    "genuine strategy error"
+                )
+            )
+        )
+        ctx1 = MagicMock()
+        ctx1.submit = MagicMock(side_effect=submit1)
+
+        with patch(
+            "plt_optimizer.core.optimizer.ProcessPoolExecutor",
+            side_effect=[self._executor_mock(ctx1)],
+        ) as mock_exec:
+            with patch(
+                "plt_optimizer.core.optimizer.as_completed",
+                side_effect=[submitted1],
+            ):
+                result = strategy.optimize(self._two_blocks())
+
+        assert mock_exec.call_count == 1
+        assert result.winner_name == "NoOp (Baseline)"
+        assert len(result.all_benchmarks) == 1
+
+    def test_repeated_pool_breaks_exhaust_retries_and_use_fallback(self) -> None:
+        """When every attempt breaks, the serial NN2Opt fallback still produces a route."""
+        strategy = ParallelEnsembleStrategy(baseline_distance=100.0)
+
+        executors = []
+        drains: List[List[object]] = []
+        for _ in range(2):
+            submit, submitted = self._recording_submit(lambda _i: self._broken_future())
+            ctx = MagicMock()
+            ctx.submit = MagicMock(side_effect=submit)
+            executors.append(self._executor_mock(ctx))
+            drains.append(submitted)
+
+        with patch(
+            "plt_optimizer.core.optimizer.ProcessPoolExecutor",
+            side_effect=executors,
+        ) as mock_exec:
+            with patch("plt_optimizer.core.optimizer.as_completed", side_effect=drains):
+                result = strategy.optimize(self._two_blocks())
+
+        assert mock_exec.call_count == 2
+        assert result.winner_name == "NearestNeighbor + 2-Opt (Fallback)"

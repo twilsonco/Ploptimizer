@@ -21,11 +21,49 @@ from concurrent.futures import (
 from concurrent.futures import (
     TimeoutError as FuturesTimeoutError,
 )
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
+from multiprocessing.context import BaseContext
 from typing import Dict, List, Optional, Set, Tuple, Type
 
 from plt_optimizer.core.chunker import MacroBlock
 from plt_optimizer.utils.logging import get_text_logger
+
+# Maximum worker processes used when retrying the parallel ensemble after a
+# broken process pool. The first attempt uses the caller-provided worker count
+# (auto = one worker per strategy job); the retry caps the pool so a crash that
+# was caused by resource pressure (many spawn workers booting at once inside a
+# frozen executable) is less likely to recur.
+ENSEMBLE_RETRY_MAX_WORKERS = 4
+
+# Number of times the whole worker pool is re-run when it breaks mid-flight
+# (worker processes dying abruptly, e.g. crashes or antivirus kills inside a
+# PyInstaller frozen executable on Windows).
+ENSEMBLE_POOL_BREAK_RETRIES = 1
+
+# One ensemble work item: a strategy to run plus the fixed start/end terminals
+# for that run. ``(strategy_name, start_position, end_position)``.
+_StrategyJob = Tuple[str, Tuple[float, float], Optional[Tuple[float, float]]]
+
+
+def _is_pool_broken_error(error: BaseException) -> bool:
+    """Return True when ``error`` indicates worker processes died abruptly.
+
+    :class:`concurrent.futures.process.BrokenProcessPool` is raised by
+    :class:`ProcessPoolExecutor` when a worker exits unexpectedly. The check
+    also matches the exception's canonical message because the exception can
+    be re-raised as a different class after crossing a process boundary
+    (e.g. when a nested pool inside a worker breaks).
+
+    Args:
+        error: Exception raised while consuming a strategy job's future.
+
+    Returns:
+        True if the error signifies a broken process pool.
+    """
+    if isinstance(error, BrokenProcessPool):
+        return True
+    return "process pool was terminated abruptly" in str(error)
 
 
 class OptimizationError(Exception):
@@ -3705,6 +3743,28 @@ def _run_strategy_worker(
     )
 
 
+@dataclass(frozen=True)
+class _EnsembleAttemptOutcome:
+    """Results from one worker-pool attempt of the parallel ensemble.
+
+    Attributes:
+        all_benchmarks: Benchmark results for jobs that completed successfully
+            during this attempt.
+        failed_strategies: ``(strategy_name, error_message)`` pairs for jobs
+            that permanently failed (strategy error, timeout, or pool breakage
+            with no retries left).
+        retry_jobs: Jobs lost with a broken pool that should be re-run in a
+            fresh pool. Empty when no retry is needed or no retries remain.
+        pool_broken: True when worker processes died abruptly during this
+            attempt (broken process pool).
+    """
+
+    all_benchmarks: List[StrategyBenchmarkResult]
+    failed_strategies: List[Tuple[str, str]]
+    retry_jobs: List[_StrategyJob]
+    pool_broken: bool
+
+
 class ParallelEnsembleStrategy(OptimizationStrategy):
     """Parallel ensemble that runs all optimization strategies concurrently.
 
@@ -3729,6 +3789,13 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
     recorded as failures. When every job fails (including by timeout), the
     serial NearestNeighbor + 2-Opt fallback runs without a timeout as the
     last-resort chain.
+
+    Worker processes inside a frozen (PyInstaller) executable can die abruptly
+    on Windows, which breaks the whole :class:`ProcessPoolExecutor` and fails
+    every job still in flight at once with ``BrokenProcessPool``. Those jobs
+    never got a fair chance, so they are re-run once in a fresh pool capped at
+    :data:`ENSEMBLE_RETRY_MAX_WORKERS` workers. Jobs that raised a genuine
+    strategy error are never retried.
     """
 
     def __init__(
@@ -3785,6 +3852,188 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
                 process.terminate()
             except Exception as terminate_err:  # noqa: BLE001 - best-effort kill
                 self._logger.debug(f"Failed to terminate worker process: {terminate_err}")
+
+    def _select_best_result(
+        self, benchmarks: List[StrategyBenchmarkResult]
+    ) -> Optional[StrategyBenchmarkResult]:
+        """Pick the best benchmark result from a set of completed jobs.
+
+        Prefers the highest improvement percent when a baseline distance was
+        provided, otherwise the lowest absolute travel distance.
+
+        Args:
+            benchmarks: Completed benchmark results to choose from.
+
+        Returns:
+            The best result, or ``None`` when ``benchmarks`` is empty.
+        """
+        best: Optional[StrategyBenchmarkResult] = None
+        for benchmark in benchmarks:
+            if best is None:
+                best = benchmark
+            elif self._baseline_distance is not None and best.improvement_percent is not None:
+                # Prefer higher improvement percent
+                if (benchmark.improvement_percent or 0) > best.improvement_percent:
+                    best = benchmark
+            else:
+                # Fall back to absolute distance minimization
+                if benchmark.result.total_travel_distance < best.result.total_travel_distance:
+                    best = benchmark
+        return best
+
+    def _run_pool_attempt(
+        self,
+        blocks_serialized: Tuple[Tuple[int, tuple[float, float], tuple[float, float]], ...],
+        jobs: List[_StrategyJob],
+        mp_context: Optional[BaseContext],
+        max_workers: Optional[int],
+    ) -> _EnsembleAttemptOutcome:
+        """Run a set of strategy jobs once in a fresh worker pool.
+
+        Collects results dynamically as they complete, enforces the
+        ``job_timeout`` deadline (cancelling queued jobs and terminating live
+        workers at the deadline), and detects broken-process-pool failures so
+        the caller can re-run the lost jobs in a fresh pool.
+
+        A broken pool kills every job still in flight at once, so those jobs
+        are reported in ``retry_jobs`` rather than as permanent failures: they
+        never got a fair chance. Jobs that raised a genuine strategy error are
+        permanent failures and are never retried.
+
+        Args:
+            blocks_serialized: Picklable representation of the MacroBlocks.
+            jobs: Jobs to run in this attempt.
+            mp_context: Multiprocessing context (``spawn`` on Windows/frozen),
+                or ``None`` for the default.
+            max_workers: Worker cap for this attempt's pool; ``None`` lets
+                :class:`ProcessPoolExecutor` choose.
+
+        Returns:
+            An :class:`_EnsembleAttemptOutcome` describing completions,
+            permanent failures, jobs to retry, and whether the pool broke.
+        """
+        all_benchmarks: List[StrategyBenchmarkResult] = []
+        failed_strategies: List[Tuple[str, str]] = []  # (name, error_msg) pairs
+        lost_jobs: List[_StrategyJob] = []  # Jobs killed by a broken pool
+        pool_broken = False
+
+        with ProcessPoolExecutor(max_workers=max_workers, mp_context=mp_context) as executor:
+            try:
+                futures = {
+                    executor.submit(
+                        _run_strategy_worker,
+                        name,
+                        blocks_serialized,
+                        start_pos,
+                        end_pos,
+                        self._same_row_preference,
+                    ): (name, start_pos, end_pos)
+                    for (name, start_pos, end_pos) in jobs
+                }
+            except BrokenProcessPool as pool_err:
+                # The pool died before/during submission (e.g. spawn workers
+                # crashing on startup inside a frozen executable). Nothing ran,
+                # so every job is retryable rather than permanently failed.
+                self._logger.warning(
+                    f"Worker process pool broke during submission ({pool_err}); "
+                    "no strategy jobs executed"
+                )
+                return _EnsembleAttemptOutcome(
+                    all_benchmarks=all_benchmarks,
+                    failed_strategies=failed_strategies,
+                    retry_jobs=list(jobs),
+                    pool_broken=True,
+                )
+
+            completed_futures: Set[Future[StrategyBenchmarkResult]] = set()
+
+            def _consume(future: Future[StrategyBenchmarkResult]) -> None:
+                """Record one finished job's benchmark result."""
+                nonlocal pool_broken
+                strategy_name, job_start, job_end = futures[future]
+                try:
+                    benchmark_result = future.result()
+
+                    self._logger.debug(
+                        f"Strategy {strategy_name} completed in "
+                        f"{benchmark_result.execution_time_seconds:.3f}s with "
+                        f"distance={benchmark_result.result.total_travel_distance:.3f}"
+                    )
+
+                    # Calculate improvement percent if baseline provided
+                    if self._baseline_distance is not None and self._baseline_distance > 0:
+                        pct_improvement = (
+                            (
+                                self._baseline_distance
+                                - benchmark_result.result.total_travel_distance
+                            )
+                            / self._baseline_distance
+                            * 100
+                        )
+                        # Create new result with improvement percent attached
+                        benchmark_result = StrategyBenchmarkResult(
+                            strategy_name=benchmark_result.strategy_name,
+                            result=benchmark_result.result,
+                            execution_time_seconds=benchmark_result.execution_time_seconds,
+                            improvement_percent=pct_improvement,
+                        )
+
+                    all_benchmarks.append(benchmark_result)
+
+                except Exception as e:
+                    if _is_pool_broken_error(e):
+                        # A dead worker poisons every pending future with the
+                        # same error: log the pool break once, then mark each
+                        # affected job as retryable instead of failed.
+                        if not pool_broken:
+                            self._logger.warning(
+                                "Worker process pool terminated abruptly; strategy jobs "
+                                "still in flight were lost with the pool"
+                            )
+                        pool_broken = True
+                        self._logger.debug(f"Strategy {strategy_name} lost with pool: {e}")
+                        lost_jobs.append((strategy_name, job_start, job_end))
+                    else:
+                        self._logger.warning(f"Strategy {strategy_name} failed: {e}")
+                        failed_strategies.append((strategy_name, str(e)))
+
+            timed_out = False
+            try:
+                for future in as_completed(futures, timeout=self._job_timeout):
+                    completed_futures.add(future)
+                    _consume(future)
+            except FuturesTimeoutError:
+                timed_out = True
+
+            if timed_out:
+                # Deadline reached: cancel queued jobs, then terminate the
+                # worker processes still running live jobs.
+                for future in futures:
+                    if future not in completed_futures:
+                        future.cancel()
+                self._terminate_running_jobs(executor)
+                for future, (strategy_name, _s, _e) in futures.items():
+                    if future in completed_futures:
+                        continue
+                    if future.cancelled() or not future.done():
+                        # Queued-and-cancelled, or running-and-terminated.
+                        self._logger.warning(
+                            f"Strategy {strategy_name} timed out after "
+                            f"{self._job_timeout}s and was aborted"
+                        )
+                        failed_strategies.append(
+                            (strategy_name, f"timed out after {self._job_timeout}s")
+                        )
+                    else:
+                        # Finished (or failed) just after the deadline; still usable.
+                        _consume(future)
+
+        return _EnsembleAttemptOutcome(
+            all_benchmarks=all_benchmarks,
+            failed_strategies=failed_strategies,
+            retry_jobs=lost_jobs,
+            pool_broken=pool_broken,
+        )
 
     def optimize(  # type: ignore[override]
         self,
@@ -3876,14 +4125,10 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
                 for start_cand in start_candidates:
                     jobs.append((strategy_name, start_cand.position, None))
 
-        all_benchmarks: List[StrategyBenchmarkResult] = []
-        best_result: Optional[StrategyBenchmarkResult] = None
-        completed_count = 0
-
         # Use 'spawn' context for Windows compatibility (PyInstaller frozen executables).
         # 'fork' is not safe on Windows, and PyInstaller needs explicit context setup.
         # For frozen executables (PyInstaller), spawn is more reliable than fork.
-        mp_context = None
+        mp_context: Optional[BaseContext] = None
         if sys.platform == "win32" or getattr(sys, "frozen", False):
             try:
                 mp_context = multiprocessing.get_context("spawn")
@@ -3891,111 +4136,47 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
                 # Fallback if spawn is not available; use default
                 mp_context = None
 
-        with ProcessPoolExecutor(max_workers=self._max_workers, mp_context=mp_context) as executor:
-            futures = {
-                executor.submit(
-                    _run_strategy_worker,
-                    name,
-                    blocks_serialized,
-                    start_pos,
-                    end_pos,
-                    self._same_row_preference,
-                ): (name, start_pos, end_pos)
-                for (name, start_pos, end_pos) in jobs
-            }
+        # Run every strategy job in a fresh worker pool. When worker processes
+        # die abruptly mid-run (a broken process pool: crashes, resource
+        # pressure, or antivirus kills inside a frozen executable), the jobs
+        # lost with the pool are re-run once in a fresh pool with a capped
+        # worker count. Each attempt gets its own ``job_timeout`` budget.
+        all_benchmarks: List[StrategyBenchmarkResult] = []
+        failed_strategies: List[Tuple[str, str]] = []
+        pending_jobs: List[_StrategyJob] = jobs
+        for attempt_index in range(1 + ENSEMBLE_POOL_BREAK_RETRIES):
+            max_workers = self._max_workers
+            if attempt_index > 0:
+                cap = min(len(pending_jobs), ENSEMBLE_RETRY_MAX_WORKERS)
+                max_workers = cap if self._max_workers is None else min(self._max_workers, cap)
+                self._logger.warning(
+                    f"Parallel ensemble lost {len(pending_jobs)} job(s) to a broken worker "
+                    f"pool; retrying them with at most {max_workers} workers"
+                )
+            attempt = self._run_pool_attempt(
+                blocks_serialized, pending_jobs, mp_context, max_workers
+            )
+            all_benchmarks.extend(attempt.all_benchmarks)
+            failed_strategies.extend(attempt.failed_strategies)
+            if not attempt.pool_broken:
+                pending_jobs = []
+                break
+            pending_jobs = attempt.retry_jobs
 
-            # Collect results dynamically as they complete (fast strategies first)
-            failed_strategies: List[Tuple[str, str]] = []  # Track (name, error_msg) for logging
-            completed_futures: Set[Future[StrategyBenchmarkResult]] = set()
+        if pending_jobs:
+            # Retries exhausted and the pool kept breaking: report the jobs that
+            # never completed so failure accounting stays accurate.
+            lost_names = ", ".join(name for (name, _s, _e) in pending_jobs)
+            self._logger.warning(
+                f"Parallel ensemble: {len(pending_jobs)} job(s) lost to broken worker "
+                f"pools after all retries: {lost_names}"
+            )
+            failed_strategies.extend(
+                (name, "worker process pool terminated abruptly") for (name, _s, _e) in pending_jobs
+            )
 
-            def _consume(future: Future[StrategyBenchmarkResult]) -> None:
-                """Record one finished job's benchmark result and update the best."""
-                nonlocal best_result, completed_count
-                strategy_name, _job_start, _job_end = futures[future]
-                try:
-                    benchmark_result = future.result()
-                    completed_count += 1
-
-                    self._logger.debug(
-                        f"Strategy {strategy_name} completed in "
-                        f"{benchmark_result.execution_time_seconds:.3f}s with "
-                        f"distance={benchmark_result.result.total_travel_distance:.3f}"
-                    )
-
-                    # Calculate improvement percent if baseline provided
-                    if self._baseline_distance is not None and self._baseline_distance > 0:
-                        pct_improvement = (
-                            (
-                                self._baseline_distance
-                                - benchmark_result.result.total_travel_distance
-                            )
-                            / self._baseline_distance
-                            * 100
-                        )
-                        # Create new result with improvement percent attached
-                        benchmark_result = StrategyBenchmarkResult(
-                            strategy_name=benchmark_result.strategy_name,
-                            result=benchmark_result.result,
-                            execution_time_seconds=benchmark_result.execution_time_seconds,
-                            improvement_percent=pct_improvement,
-                        )
-
-                    all_benchmarks.append(benchmark_result)
-
-                    # Select best result based on metric
-                    if best_result is None:
-                        best_result = benchmark_result
-                    elif (
-                        self._baseline_distance is not None
-                        and best_result.improvement_percent is not None
-                    ):
-                        # Prefer higher improvement percent
-                        if (
-                            benchmark_result.improvement_percent or 0
-                        ) > best_result.improvement_percent:
-                            best_result = benchmark_result
-                    else:
-                        # Fall back to absolute distance minimization
-                        if (
-                            benchmark_result.result.total_travel_distance
-                            < best_result.result.total_travel_distance
-                        ):
-                            best_result = benchmark_result
-
-                except Exception as e:
-                    failed_strategies.append((strategy_name, str(e)))
-                    self._logger.warning(f"Strategy {strategy_name} failed: {e}")
-
-            timed_out = False
-            try:
-                for future in as_completed(futures, timeout=self._job_timeout):
-                    completed_futures.add(future)
-                    _consume(future)
-            except FuturesTimeoutError:
-                timed_out = True
-
-            if timed_out:
-                # Deadline reached: cancel queued jobs, then terminate the
-                # worker processes still running live jobs.
-                for future in futures:
-                    if future not in completed_futures:
-                        future.cancel()
-                self._terminate_running_jobs(executor)
-                for future, (strategy_name, _s, _e) in futures.items():
-                    if future in completed_futures:
-                        continue
-                    if future.cancelled() or not future.done():
-                        # Queued-and-cancelled, or running-and-terminated.
-                        self._logger.warning(
-                            f"Strategy {strategy_name} timed out after "
-                            f"{self._job_timeout}s and was aborted"
-                        )
-                        failed_strategies.append(
-                            (strategy_name, f"timed out after {self._job_timeout}s")
-                        )
-                    else:
-                        # Finished (or failed) just after the deadline; still usable.
-                        _consume(future)
+        best_result = self._select_best_result(all_benchmarks)
+        completed_count = len(all_benchmarks)
 
         if best_result is None:
             # All strategies failed - try NearestNeighbor2OptStrategy serially as fallback.
