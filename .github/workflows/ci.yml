@@ -6,6 +6,7 @@ on:
     tags: ['**']
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 # Required for release-please to create releases and for uploading release assets
 permissions:
@@ -197,21 +198,118 @@ jobs:
           python-version: '3.11'
       - name: Install uv
         run: pip install uv
+      - name: Resolve build version
+        # Single source of truth for the installer version: release tag when
+        # release-please cut one (or a direct tag push), else the
+        # pyproject.toml version. Written to $GITHUB_ENV so every later step
+        # (PyInstaller, ISCC, artifact names) sees the same value. Strips a
+        # leading "v" so e.g. tag v1.7.0 yields version 1.7.0.
+        shell: powershell
+        env:
+          TAG_NAME: ${{ needs.release-please.outputs.tag_name || github.ref_name }}
+        run: |
+          $v = $env:TAG_NAME
+          if ([string]::IsNullOrWhiteSpace($v)) {
+            $m = Select-String -Path pyproject.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1
+            $v = if ($m) { $m.Matches[0].Groups[1].Value } else { "0.0.0" }
+          }
+          $v = $v.TrimStart('v')
+          # -Encoding ascii on purpose: Windows PowerShell 5.1's "utf8" writes
+          # a BOM that corrupts the first GITHUB_ENV key. Values are ASCII.
+          "PLOPTIMIZER_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Encoding ascii -Append
+          "INSTALLER_NAME=Ploptimizer-Setup-$v-windows-x64.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding ascii -Append
+          Write-Host "Build version: $v"
       - run: uv sync --all-extras
-      - name: Create assets directory
-        run: New-Item -ItemType Directory -Force -Path assets
-      - name: Build executable
+      # One-dir (PyInstaller default, no --onefile): produces
+      # dist\Ploptimizer\Ploptimizer.exe + _internal\, which the Inno Setup
+      # script packages into a single installer EXE. The one-dir layout also
+      # avoids the Trojan:Win32/Wacatac.B!ml false positive that one-file
+      # self-extracting archives commonly trigger in Defender.
+      - name: Build executable (one-dir)
         shell: powershell
         run: |
-          uv run pyinstaller --onefile --noconsole `
+          uv run pyinstaller --clean --noconfirm --noconsole `
             --name "Ploptimizer" `
             --add-data "assets;assets" `
             --icon "assets/icon.ico" `
             run_tray.py
+      - name: Install Inno Setup (pinned, hash-verified)
+        # Inno Setup is NOT preinstalled on windows-latest anymore: it was
+        # dropped from the windows-2025 image and GitHub declined to add it
+        # back (actions/runner-images#12464). Pin the exact version and
+        # verify its SHA-256 against jrsoftware's published hash
+        # (https://github.com/jrsoftware/issrc/releases/tag/is-6_7_3) so a
+        # compromised download can never end up compiling a release.
+        # Upgrade deliberately: new version -> new hash -> review.
+        shell: powershell
+        run: |
+          $innoVersion = "6.7.3"
+          $expected = "9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732"
+          $exe = "innosetup-$innoVersion.exe"
+          $tag = "is-" + ($innoVersion -replace '\.', '_')
+          $url = "https://github.com/jrsoftware/issrc/releases/download/$tag/$exe"
+          Invoke-WebRequest -Uri $url -OutFile $exe
+          $actual = (Get-FileHash -Algorithm SHA256 $exe).Hash
+          # -ne is case-insensitive; Get-FileHash returns uppercase hex.
+          if ($actual -ne $expected) {
+            Write-Error "Inno Setup SHA-256 mismatch! expected=$expected actual=$actual Refusing to build a release with an unverified compiler."
+            exit 1
+          }
+          Start-Process -FilePath ".\$exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait
+          Remove-Item $exe
+      - name: Build installer (Inno Setup)
+        shell: powershell
+        run: |
+          # Resolve ISCC defensively: 6.x installs to "Inno Setup 6" under
+          # Program Files (x86), but older/local installs vary. Fail loudly
+          # rather than silently skipping the installer build.
+          $iscc = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "${env:ProgramFiles}\Inno Setup 6\ISCC.exe",
+            "${env:ProgramFiles(x86)}\Inno Setup\ISCC.exe",
+            "${env:LOCALAPPDATA}\Programs\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) {
+            Write-Error "ISCC.exe not found in any known Inno Setup location."
+            exit 1
+          }
+          Write-Host "Using ISCC: $iscc"
+          & $iscc "installer\ploptimizer.iss"
+          if ($LASTEXITCODE -ne 0) { Write-Error "ISCC failed with exit code $LASTEXITCODE"; exit $LASTEXITCODE }
+          Get-Item "dist\$env:INSTALLER_NAME" | Select-Object Name, Length
+          Get-FileHash -Algorithm SHA256 "dist\$env:INSTALLER_NAME"
+      - name: Log build provenance
+        shell: powershell
+        run: |
+          $exe = "dist\Ploptimizer\Ploptimizer.exe"
+          Write-Host "== EXE version metadata =="
+          Get-Item $exe | Select-Object -ExpandProperty VersionInfo | Format-List ProductName, CompanyName, FileVersion, FileDescription
+          Write-Host "== Installer version metadata =="
+          Get-Item "dist\$env:INSTALLER_NAME" | Select-Object -ExpandProperty VersionInfo | Format-List ProductName, CompanyName, FileVersion, FileDescription
+          Write-Host "== Authenticode signatures =="
+          Get-AuthenticodeSignature $exe | Format-List Status, StatusMessage, SignerCertificate
+      # The single-file installer is the ONLY published file: it ships the
+      # same one-dir tree the bare EXE build produced, and publishing one
+      # file removes the "which of the two do I run?" confusion.
       - name: Upload Release Artifact
+        if: ${{ needs.release-please.outputs.release_created == 'true' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.release-please.outputs.tag_name || github.ref_name }}
-          files: dist/Ploptimizer.exe
+          files: dist/${{ env.INSTALLER_NAME }}
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+      # ...everything else (PRs, manual runs) publishes the installer as a
+      # workflow artifact so it can be tested without cutting a release.
+      # Artifacts appear in the "Artifacts" box on the run *summary* page
+      # (left column, below the job list) and require being signed in to
+      # GitHub to download. The run number is in the name so consecutive test
+      # builds are distinguishable in that list.
+      - name: Upload Build Artifact
+        if: ${{ needs.release-please.outputs.release_created != 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ploptimizer-installer-windows-x64-build${{ github.run_number }}
+          path: dist/${{ env.INSTALLER_NAME }}
+          if-no-files-found: error
+          retention-days: 14

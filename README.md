@@ -113,12 +113,12 @@ directory, containing:
 
 ### Windows (End Users)
 
-1. Download `Ploptimizer.exe` from the [latest release](https://github.com/twilsonco/PLT-Optimizer/releases/latest).
-2. Move the downloaded executable to a desired location. Suggested locations:
-   - `C:\Program Files\PLT-Optimizer\` (system-wide install; requires admin)
-   - `%LOCALAPPDATA%\PLT-Optimizer\` (per-user install; no admin needed)
-   - A folder on your Desktop or in `Documents` for easy access
-3. Double-click `Ploptimizer.exe` to launch the program. The settings window will open automatically on first run.
+1. Download `Ploptimizer-Setup-<version>-windows-x64.exe` from the [latest release](https://github.com/twilsonco/PLT-Optimizer/releases/latest).
+2. Run the installer. The default is a per-user install to `%LOCALAPPDATA%\Programs\Ploptimizer\` (no admin needed); the wizard also allows a machine-wide install to `C:\Program Files\Ploptimizer\` if you elevate.
+
+   > **Note:** The installer is unsigned, so Windows SmartScreen may show an "unknown publisher" warning on first run — click **More info** → **Run anyway**.
+
+3. Launch **Ploptimizer** from the Start menu (or the desktop shortcut, if you opted in during setup). The settings window will open automatically on first run.
 4. Configure the program to your liking. You may want to change:
    - **Watch directory** — where new PLT files appear (e.g., your Cadlink export folder)
    - **Output directory** — where optimized PLT files are saved

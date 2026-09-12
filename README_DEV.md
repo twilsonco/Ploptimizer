@@ -101,27 +101,34 @@ powershell -Command "irm https://astral.sh/uv/install.ps1 | iex"
    uv sync --extra tray
    ```
 
-6. (Optional) To build standalone executable (requires Windows):
+6. (Optional) To build the Windows installer (requires Windows + [Inno Setup 6](https://jrsoftware.org/isdl.php)):
    ```powershell
    # Install build tools (maintainer/release builder only)
    uv sync --extra build
 
-   # Build with PyInstaller (single-file standalone executable)
-   uv run pyinstaller --onefile --noconsole ^
-       --name "Ploptimizer" ^
-       --add-data "assets;assets" ^
-       --icon "assets/icon.ico" ^
+   # Build with PyInstaller (one-dir layout, same as CI)
+   uv run pyinstaller --clean --noconfirm --noconsole `
+       --name "Ploptimizer" `
+       --add-data "assets;assets" `
+       --icon "assets/icon.ico" `
        run_tray.py
+
+   # Package dist\Ploptimizer\ into a single installer EXE
+   "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\ploptimizer.iss
    ```
 
-   The compiled executable will be created at `dist\Ploptimizer.exe`.
+   The one-dir build produces `dist\Ploptimizer\Ploptimizer.exe` plus a sibling
+   `_internal\` folder (which contains `python311.dll`); the Inno Setup script
+   (`installer\ploptimizer.iss`) packages the whole tree into a single
+   `dist\Ploptimizer-Setup-<version>-windows-x64.exe` installer. The one-dir
+   layout is deliberate: one-file self-extracting archives commonly trigger
+   the `Trojan:Win32/Wacatac.B!ml` Defender false positive, and the installer
+   removes the "copying the `.exe` by itself fails" pitfall.
 
-   > **Important:** Always include `--onefile`. Without it, PyInstaller produces a
-   > *one-folder* bundle where `dist\<name>\<name>.exe` depends on the sibling
-   > `_internal\` folder (which contains `python311.dll`). Copying the `.exe` by
-   > itself fails with `Failed to load Python DLL "...\_internal\python311.dll"`.
-   > If you intentionally build without `--onefile`, you must copy the entire
-   > `dist\<name>\` directory together, not just the executable.
+   > **Note:** For a *portable* single-file build (e.g. dropping the EXE into
+   > `System32`), `--onefile` still works — see "Build the Executable" under
+   > Windows-Specific Setup below. Never ship a one-dir `Ploptimizer.exe`
+   > without its `_internal\` folder.
 
 ### Windows-Specific Setup
 
@@ -709,13 +716,14 @@ This project uses GitHub Actions for continuous integration and automated builds
 
 ### Automated Build Process
 
-1. On every push to `main`, the build workflow:
-   - Creates a Windows executable via PyInstaller
-   - Uploads it as an artifact (downloadable from Actions tab)
+1. On every push to `main`, the CI workflow lints, type-checks, and tests the code.
 
-2. On every git tag, the build workflow:
-   - Creates a proper release with the `.exe` attached
-   - Users can download `Ploptimizer.exe` from GitHub Releases
+2. When release-please cuts a release (or a `v*` tag is pushed), the CI workflow:
+   - Builds a Windows executable via PyInstaller (one-dir layout)
+   - Packages it with Inno Setup (`installer/ploptimizer.iss`) into a single
+     installer: `Ploptimizer-Setup-<version>-windows-x64.exe`
+   - Attaches the installer to the GitHub Release
+   - Users download and run the installer from GitHub Releases
 
 ## See Also
 
