@@ -190,12 +190,16 @@ jobs:
 
   build-windows-exe:
     needs: release-please
-    # Run on tag pushes OR when release-please creates a release
+    # Run on tag pushes, when release-please creates a release, OR on manual
+    # workflow_dispatch runs. The release-please job is skipped for
+    # workflow_dispatch events, and a skipped needed job would normally skip
+    # this job too - always() plus the explicit workflow_dispatch branch keep
+    # manual builds working.
     if: |
       always() && 
       !failure() && 
       !cancelled() && 
-      (startsWith(github.ref, 'refs/tags/v') || needs.release-please.outputs.release_created == 'true')
+      (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') || needs.release-please.outputs.release_created == 'true')
     runs-on: windows-latest
     permissions:
       contents: write
@@ -218,7 +222,11 @@ jobs:
           TAG_NAME: ${{ needs.release-please.outputs.tag_name || github.ref_name }}
         run: |
           $v = $env:TAG_NAME
-          if ([string]::IsNullOrWhiteSpace($v)) {
+          # Fall back to pyproject.toml unless TAG_NAME actually looks like a
+          # version. On workflow_dispatch the release-please job is skipped, so
+          # TAG_NAME resolves to the branch name (e.g. "main"), which would
+          # otherwise become VersionInfoVersion and break ISCC.
+          if ([string]::IsNullOrWhiteSpace($v) -or $v -notmatch '^v?\d+(\.\d+)*$') {
             $m = Select-String -Path pyproject.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1
             $v = if ($m) { $m.Matches[0].Groups[1].Value } else { "0.0.0" }
           }
