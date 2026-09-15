@@ -125,6 +125,15 @@ jobs:
         ))
       )
     runs-on: ${{ matrix.os }}
+    # The macOS py3.8 runner ships pip 21.1.1; setup-python's internal
+    # "Install OpenSSL certificates" step runs `pip install certifi` with it,
+    # and the old pip prints an "A new release of pip is available" notice to
+    # stderr. The runner wraps action stderr in ##[error], so every py3.8 macOS
+    # job shows a spurious "1 error" annotation even though the job succeeds.
+    # Upgrading pip in a later step cannot help (the notice fires inside
+    # setup-python itself), so silence the version check instead.
+    env:
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
     strategy:
       fail-fast: false
       matrix:
