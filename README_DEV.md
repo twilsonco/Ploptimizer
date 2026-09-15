@@ -127,8 +127,8 @@ powershell -Command "irm https://astral.sh/uv/install.ps1 | iex"
 
    > **Note:** For a *portable* single-file build (e.g. dropping the EXE into
    > `System32`), `--onefile` still works — see "Build the Executable" under
-   > Windows-Specific Setup below. Never ship a one-dir `Ploptimizer.exe`
-   > without its `_internal\` folder.
+   > [Windows 7 Notes](#windows-7-notes) below. Never ship a one-dir
+   > `Ploptimizer.exe` without its `_internal\` folder.
 
 ### Windows-Specific Setup
 
@@ -422,6 +422,11 @@ The application will now start automatically when you log in to Windows, with no
 
 ##### Method 2: Standalone Executable (PyInstaller)
 
+> **Note:** GitHub Releases publish only the installer
+> (`Ploptimizer-Setup-<version>-windows-x64.exe`); building a standalone EXE
+> is a developer/portable scenario (e.g. a single file in `System32`). For
+> normal Windows 10+/11 deployments, install the released installer instead.
+
 **Note:** This build step must be run on **Windows**. The system tray functionality requires Windows APIs.
 
 1. On **Windows**, install all dependencies:
@@ -442,7 +447,7 @@ The application will now start automatically when you log in to Windows, with no
 
 4. The compiled executable will be in `dist/Ploptimizer.exe`
 
-##### Method 2: Task Scheduler (Recommended)
+##### Method 3: Task Scheduler (Recommended)
 
 1. Open **Task Scheduler** (`taskschd.msc`)
 
@@ -461,7 +466,7 @@ The application will now start automatically when you log in to Windows, with no
 
 6. Click **OK** and enter your Windows password when prompted.
 
-##### Method 3: Windows Service (Advanced)
+##### Method 4: Windows Service (Advanced)
 
 For a persistent background service that survives user logoff, use NSSM (Non-Sucking Service Manager):
 
@@ -487,7 +492,7 @@ $nssm = "C:\Program Files\nssm\win64\nssm.exe"
 & $nssm status PLT-Optimizer
 ```
 
-##### Method 4: Startup Folder Shortcut
+##### Method 5: Startup Folder Shortcut
 
 For a simple user-level auto-start:
 
@@ -709,21 +714,31 @@ New-NetFirewallRule -DisplayName "PLT-Optimizer Python" -Direction Inbound -Prog
 
 This project uses GitHub Actions for continuous integration and automated builds:
 
-| Workflow | Trigger | Purpose |
+| Workflow / Job | Trigger | Purpose |
 |----------|---------|---------|
 | **CI** | Push to main / PRs | Lint, type check, run tests |
-| **Build** | Push to main / Tags | Build Windows executable |
+| **CI → `build-windows-exe`** | Release created / `v*` tag push / manual `workflow_dispatch` | Build the Windows installer |
 
 ### Automated Build Process
 
 1. On every push to `main`, the CI workflow lints, type-checks, and tests the code.
 
-2. When release-please cuts a release (or a `v*` tag is pushed), the CI workflow:
-   - Builds a Windows executable via PyInstaller (one-dir layout)
+2. When release-please cuts a release, the CI workflow:
+   - Builds the app via PyInstaller (one-dir layout)
    - Packages it with Inno Setup (`installer/ploptimizer.iss`) into a single
      installer: `Ploptimizer-Setup-<version>-windows-x64.exe`
-   - Attaches the installer to the GitHub Release
+   - Attaches the installer to the GitHub Release. The installer is the
+     **only** published file — the former practice of publishing the bare
+     `Ploptimizer.exe` directly has been retired (a one-dir EXE is useless
+     without its `_internal\` folder, and a bare EXE has no uninstaller,
+     Start Menu entries, or upgrade-in-place support)
    - Users download and run the installer from GitHub Releases
+
+3. Non-release builds (`v*` tag runs without a release, PRs, and manual
+   `workflow_dispatch` runs) also produce the installer, but publish it as a
+   downloadable **workflow artifact** (`Ploptimizer-installer-windows-x64-build<run>`)
+   on the run summary page instead of attaching it to a release. Manual runs
+   resolve the version from `pyproject.toml`.
 
 ## See Also
 

@@ -109,7 +109,7 @@ directory, containing:
 
 ## Installation
 
-> **Note:** This program is primarily intended for **Windows** users. A pre-built executable is available from the [Releases page](https://github.com/twilsonco/PLT-Optimizer/releases) for the simplest setup.
+> **Note:** This program is primarily intended for **Windows** users. A pre-built installer is available from the [Releases page](https://github.com/twilsonco/PLT-Optimizer/releases) for the simplest setup.
 
 ### Windows (End Users)
 
