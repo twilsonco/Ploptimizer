@@ -1115,31 +1115,57 @@ def _render_boundary_local(label: ResolvedLabel) -> vp.LineCollection:
 
 
 def _render_holes_local(label: ResolvedLabel) -> vp.LineCollection:
-    """Render holes at local coordinates."""
+    """Render holes at local coordinates.
+
+    Each hole is emitted as a closed circle on the holes layer (pen 3). The
+    hole center is placed tangent to the relevant edge(s), inset by the hole
+    radius (``diameter / 2``), so the circle just touches the label boundary.
+
+    Args:
+        label: The resolved label whose ``holes`` should be rendered.
+
+    Returns:
+        A LineCollection containing one closed circle per hole.
+    """
     lc = vp.LineCollection()
 
     for hole in label.holes:
-        # Calculate hole position based on location
-        # Offset is the hole radius (diameter/2) from the edge
+        # Offset is the hole radius (diameter/2) from the edge.
         offset = hole.diameter / 2.0
+        location = str(hole.location)
 
-        if hole.location == "top-left":
+        if location == "top-left":
             hole_x = offset
             hole_y = label.height - offset
-        elif hole.location == "top-right":
+        elif location == "top-right":
             hole_x = label.width - offset
             hole_y = label.height - offset
-        elif hole.location == "bottom-left":
+        elif location == "bottom-left":
             hole_x = offset
             hole_y = offset
-        elif hole.location == "bottom-right":
+        elif location == "bottom-right":
             hole_x = label.width - offset
             hole_y = offset
-        else:
+        elif location == "left":
+            hole_x = offset
+            hole_y = label.height / 2.0
+        elif location == "right":
+            hole_x = label.width - offset
+            hole_y = label.height / 2.0
+        elif location == "top":
+            hole_x = label.width / 2.0
+            hole_y = label.height - offset
+        elif location == "bottom":
+            hole_x = label.width / 2.0
+            hole_y = offset
+        else:  # pragma: no cover - schema validates the location enum
             continue
 
-        # Render hole as circle
+        # Render hole as a circle. ``vp.circle`` returns a flat 1-D ndarray of
+        # points describing a single closed line, so it must be added with
+        # ``append`` (one line), NOT ``extend`` (which expects an iterable of
+        # lines and would silently drop the circle, leaving the layer empty).
         circle = vp.circle(hole_x, hole_y, offset)
-        lc.extend(circle)
+        lc.append(circle)
 
     return lc

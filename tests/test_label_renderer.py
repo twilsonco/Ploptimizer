@@ -7,11 +7,16 @@ import pytest
 
 from plt_optimizer.generate.label_renderer import (
     _flip_y_coordinates_in_plt,
+    _render_holes_local,
     _render_text_local,
     extract_bounds_from_plt,
     render_label_to_plt,
 )
-from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
+from plt_optimizer.generate.resolution import (
+    ResolvedHoleSpec,
+    ResolvedLabel,
+    ResolvedTextLine,
+)
 from plt_optimizer.generate.schema import parse_yaml
 
 
@@ -484,3 +489,119 @@ class TestMarginPrecedence:
             f"Block height {block_height:.3f}in exceeds inner area "
             f"{available:.3f}in; margins would be breached"
         )
+
+
+def _make_hole_label(
+    holes: list[ResolvedHoleSpec],
+    width: float = 4.0,
+    height: float = 2.0,
+    margin: float = 0.1,
+) -> ResolvedLabel:
+    """Helper to build a ResolvedLabel containing only holes."""
+    return ResolvedLabel(
+        id="hole_label",
+        count=1,
+        width=width,
+        height=height,
+        margin=margin,
+        holes=holes,
+        content=[],
+    )
+
+
+class TestRenderHolesLocal:
+    """Regression: drill holes must actually render on the holes layer.
+
+    ``_render_holes_local`` used to call ``LineCollection.extend()`` with the
+    flat 1-D ndarray returned by ``vp.circle``. ``extend`` expects an iterable
+    of *lines*, so every circle was silently dropped and the holes layer
+    (pen 3) stayed empty for every spec. Edge locations (left/right/top/
+    bottom) were additionally skipped by the corner-only if/elif chain.
+    """
+
+    def test_no_holes_returns_empty(self) -> None:
+        """A label without holes must produce an empty LineCollection."""
+        label = _make_hole_label([])
+        assert _render_holes_local(label).is_empty()
+
+    def test_corner_holes_produce_one_closed_circle_each(self) -> None:
+        """Each corner hole must yield exactly one closed circular line."""
+        holes = [
+            ResolvedHoleSpec(diameter=0.125, location="top-left"),
+            ResolvedHoleSpec(diameter=0.1875, location="top-right"),
+            ResolvedHoleSpec(diameter=0.25, location="bottom-right"),
+            ResolvedHoleSpec(diameter=0.125, location="bottom-left"),
+        ]
+        lc = _render_holes_local(_make_hole_label(holes))
+
+        assert not lc.is_empty()
+        assert len(lc) == len(holes)
+        for line, hole in zip(lc, holes):
+            # Circle is closed: first point equals last point.
+            assert line[0] == pytest.approx(line[-1])
+            radius = hole.diameter / 2.0
+            center_x = {
+                "top-left": radius,
+                "top-right": 4.0 - radius,
+                "bottom-right": 4.0 - radius,
+                "bottom-left": radius,
+            }[hole.location]
+            center_y = {
+                "top-left": 2.0 - radius,
+                "top-right": 2.0 - radius,
+                "bottom-right": radius,
+                "bottom-left": radius,
+            }[hole.location]
+            for point in line:
+                dist = math.hypot(point.real - center_x, point.imag - center_y)
+                assert dist == pytest.approx(radius, abs=1e-9)
+
+    def test_edge_locations_render_circles(self) -> None:
+        """left/right/top/bottom holes must render, not be silently skipped."""
+        holes = [
+            ResolvedHoleSpec(diameter=0.125, location="left"),
+            ResolvedHoleSpec(diameter=0.125, location="right"),
+            ResolvedHoleSpec(diameter=0.25, location="top"),
+            ResolvedHoleSpec(diameter=0.25, location="bottom"),
+        ]
+        lc = _render_holes_local(_make_hole_label(holes))
+
+        assert not lc.is_empty()
+        assert len(lc) == len(holes)
+        expected_centers = {
+            "left": (0.0625, 1.0),
+            "right": (4.0 - 0.0625, 1.0),
+            "top": (2.0, 2.0 - 0.125),
+            "bottom": (2.0, 0.125),
+        }
+        for line, hole in zip(lc, holes):
+            center_x, center_y = expected_centers[hole.location]
+            radius = hole.diameter / 2.0
+            for point in line:
+                dist = math.hypot(point.real - center_x, point.imag - center_y)
+                assert dist == pytest.approx(radius, abs=1e-9)
+
+    def test_render_label_to_plt_emits_holes_layer(self) -> None:
+        """End-to-end: rendered PLT must contain an SP3 section with circles."""
+        label = _make_hole_label(
+            [
+                ResolvedHoleSpec(diameter=0.125, location="left"),
+                ResolvedHoleSpec(diameter=0.125, location="right"),
+            ],
+            width=3.0,
+            height=1.0,
+            margin=0.125,
+        )
+        rendered = render_label_to_plt(label)
+
+        match = re.search(r"SP3;(.*?)(?:SP\d|$)", rendered.plt_content, re.DOTALL)
+        assert match is not None, "No holes layer (SP3) found in rendered PLT"
+        coords = re.findall(r"(?:PA|PU|PD)([\d,\-]+)", match.group(1))
+        assert coords, "Holes layer (SP3) contains no coordinates"
+
+    def test_render_label_to_plt_without_holes_omits_layer(self) -> None:
+        """A hole-free label must not emit an empty SP3 section."""
+        label = _make_hole_label([])
+        rendered = render_label_to_plt(label)
+
+        assert "SP3" not in rendered.plt_content
