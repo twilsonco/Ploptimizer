@@ -1,11 +1,13 @@
 """Unit tests for label rendering engine."""
 
+import math
 import re
 
 import pytest
 
 from plt_optimizer.generate.label_renderer import (
     _flip_y_coordinates_in_plt,
+    _render_text_local,
     extract_bounds_from_plt,
     render_label_to_plt,
 )
@@ -244,3 +246,152 @@ class TestRenderLabelToPlt:
         # Heights should all be close to 1.0"
         for h in heights:
             assert 0.7 < h < 1.3
+
+
+def _make_local_label(
+    content: list[ResolvedTextLine],
+    width: float = 4.0,
+    height: float = 2.0,
+    margin: float = 0.1,
+) -> ResolvedLabel:
+    """Helper to build a ResolvedLabel for local text-rendering tests."""
+    return ResolvedLabel(
+        id="multi_line",
+        count=1,
+        width=width,
+        height=height,
+        margin=margin,
+        holes=[],
+        content=content,
+    )
+
+
+class TestMultiLineStacking:
+    """Regression: multi-line labels must stack lines, not overlap them.
+
+    The Phase 3 render path (``_render_text_local``) used to translate every
+    line to y=0, printing all lines on the same baseline with overlapping
+    glyphs (visible in complex_test_job.yaml PNG previews).
+    """
+
+    def test_two_line_block_height_includes_spacing(self) -> None:
+        """Rendered block height must equal sum of line heights plus spacing."""
+        h1, h2, spacing = 0.3, 0.2, 0.1
+        label = _make_local_label(
+            [
+                ResolvedTextLine(
+                    text="AAA",
+                    nominal_text_height=h1,
+                    toolpath_text_height=h1,
+                    cutter_diameter=0.0,
+                    character_spacing=0.0,
+                    line_spacing=spacing,
+                ),
+                ResolvedTextLine(
+                    text="BBB",
+                    nominal_text_height=h2,
+                    toolpath_text_height=h2,
+                    cutter_diameter=0.0,
+                    character_spacing=0.0,
+                    line_spacing=0.0,
+                ),
+            ]
+        )
+
+        lc = _render_text_local(label)
+        assert not lc.is_empty()
+        _min_x, min_y, _max_x, max_y = lc.bounds()
+        block_height = max_y - min_y
+
+        expected = h1 + spacing + h2
+        assert math.isclose(block_height, expected, abs_tol=0.02), (
+            f"Block height {block_height:.3f}in != stacked {expected:.3f}in "
+            "(lines are likely overlapping on one baseline)"
+        )
+
+    def test_gap_between_lines_has_no_geometry(self) -> None:
+        """The line_spacing gap between stacked lines must stay empty."""
+        h1, h2, spacing = 0.3, 0.2, 0.1
+        label = _make_local_label(
+            [
+                ResolvedTextLine(
+                    text="AAA",
+                    nominal_text_height=h1,
+                    toolpath_text_height=h1,
+                    cutter_diameter=0.0,
+                    character_spacing=0.0,
+                    line_spacing=spacing,
+                ),
+                ResolvedTextLine(
+                    text="BBB",
+                    nominal_text_height=h2,
+                    toolpath_text_height=h2,
+                    cutter_diameter=0.0,
+                    character_spacing=0.0,
+                    line_spacing=0.0,
+                ),
+            ]
+        )
+
+        lc = _render_text_local(label)
+        ys = [point.imag for segment in lc for point in segment]
+
+        # Block is anchored centered: total 0.6 spans [-0.3, 0.3].
+        # Top line occupies [0.0, 0.3]; bottom line [-0.3, -0.1].
+        # Nothing may fall strictly inside the spacing gap (-0.1, 0.0).
+        in_gap = [y for y in ys if -0.09 < y < -0.01]
+        assert not in_gap, f"Geometry found inside inter-line gap: {in_gap}"
+
+    def test_render_label_to_plt_stacks_three_lines(self) -> None:
+        """End-to-end: rendered PLT text layer must span all stacked lines."""
+        label = _make_local_label(
+            [
+                ResolvedTextLine(
+                    text="MAIN PANEL",
+                    nominal_text_height=0.7,
+                    toolpath_text_height=0.7,
+                    cutter_diameter=0.0,
+                    character_spacing=0.0,
+                    line_spacing=0.12,
+                ),
+                ResolvedTextLine(
+                    text="SECTION B",
+                    nominal_text_height=0.3,
+                    toolpath_text_height=0.3,
+                    cutter_diameter=0.0,
+                    character_spacing=0.0,
+                    line_spacing=0.12,
+                ),
+                ResolvedTextLine(
+                    text="ACCESS ONLY",
+                    nominal_text_height=0.2,
+                    toolpath_text_height=0.2,
+                    cutter_diameter=0.0,
+                    character_spacing=0.0,
+                    line_spacing=0.0,
+                ),
+            ],
+            width=6.0,
+            height=2.0,
+        )
+
+        rendered = render_label_to_plt(label)
+
+        match = re.search(r"SP1;(.*?)(?:SP\d|$)", rendered.plt_content, re.DOTALL)
+        assert match is not None, "No text layer found in rendered PLT"
+        ys: list[float] = []
+        for coord_match in re.finditer(r"(?:PA|PU|PD)([\d,\-]+)", match.group(1)):
+            parts = coord_match.group(1).split(",")
+            for i in range(1, len(parts), 2):
+                ys.append(int(parts[i]) / 1000.0)
+        assert ys, "No text coordinates found"
+
+        text_span = max(ys) - min(ys)
+        expected_total = 0.7 + 0.12 + 0.3 + 0.12 + 0.2
+        # Stacked span must cover all three lines plus spacing; the buggy
+        # behavior collapsed everything to the tallest single line (0.7).
+        assert text_span > expected_total - 0.05, (
+            f"Text layer spans only {text_span:.3f}in; expected ~"
+            f"{expected_total:.3f}in stacked (lines overlapping?)"
+        )
+        assert text_span < expected_total + 0.1

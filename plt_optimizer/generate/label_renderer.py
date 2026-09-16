@@ -986,15 +986,25 @@ def _translate_coordinates_to_origin_in_plt(file_path: Path) -> None:
 
 
 def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
-    """Render text at local coordinates (0, 0).
+    """Render text at local coordinates, stacking multi-line content.
 
-    NOTE: We render at (0, 0) WITHOUT vertical centering because the export
-    pipeline applies vertical centering POST-EXPORT in
-    ``_center_text_layer_vertically()``.
+    NOTE: The absolute vertical anchor is irrelevant because the export
+    pipeline re-centers the whole text block POST-EXPORT in
+    ``_center_text_layer_vertically()``. Individual lines are still stacked
+    here: rendering every line at y=0 caused multi-line labels to print all
+    lines on top of each other (overlapping glyphs).
 
-    Renders all text lines horizontally centered within the label's content area.
-    Text is rendered with the single-line Relief CAD font via ftext, replacing
-    vpype's built-in Hershey stroke-font engine.
+    Two-pass algorithm (mirrors ``vectorize._render_text``):
+    1. Render each line at its ``toolpath_text_height`` and measure its
+       rendered height; total height = sum of line heights plus
+       ``line_spacing`` between consecutive rendered lines.
+    2. Position each line top-to-bottom (plotter convention, +y up) so lines
+       are stacked without overlap. The later Y-flip in
+       ``_flip_y_coordinates_in_plt`` preserves the visual line order.
+
+    Lines are horizontally centered within the label's content area. Text is
+    rendered with the single-line Relief CAD font via ftext, replacing vpype's
+    built-in Hershey stroke-font engine.
     """
     if not label.content:
         return vp.LineCollection()
@@ -1003,8 +1013,13 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
     inner_width = label.width
     text_lc = vp.LineCollection()
 
-    # Render all lines at their natural positions (no vertical offset)
-    for _i, line in enumerate(label.content):
+    # First pass: render all lines and measure their heights. Keep each
+    # line's own line_spacing alongside the rendered geometry so empty or
+    # unrenderable lines don't misalign spacing between real lines.
+    rendered_lines: list[Tuple[vp.LineCollection, float, float]] = []
+    total_rendered_height = 0.0
+
+    for line in label.content:
         # Render at the toolpath_text_height (cutter-compensated) using the
         # single-line TTF font. ftext returns upright glyphs with baseline at 0.
         filtered_lc = render_text_line_ftext(
@@ -1018,7 +1033,30 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
         bounds = filtered_lc.bounds()
         if bounds is None:
             continue
-        min_x, _min_y, max_x, _max_y = bounds
+        _min_x, min_y, _max_x, max_y = bounds
+        rendered_height = max_y - min_y
+
+        rendered_lines.append((filtered_lc, rendered_height, line.line_spacing))
+        total_rendered_height += rendered_height
+
+    if not rendered_lines:
+        return text_lc
+
+    # Add line spacing between lines (not after the last line).
+    for _lc, _height, line_spacing in rendered_lines[:-1]:
+        total_rendered_height += line_spacing
+
+    # Anchor the block so its vertical center sits at y = total / 2. The
+    # absolute anchor is irrelevant (post-export centering fixes it); only
+    # the relative stacking matters.
+    current_y = total_rendered_height / 2.0
+
+    # Second pass: position each line, stacked top-to-bottom (+y up).
+    for i, (filtered_lc, rendered_height, line_spacing) in enumerate(rendered_lines):
+        bounds = filtered_lc.bounds()
+        if bounds is None:  # pragma: no cover - measured in first pass
+            continue
+        min_x, _min_y, max_x, max_y = bounds
         rendered_width = max_x - min_x
 
         # Horizontal centering within the available width
@@ -1027,9 +1065,15 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
         # Position text so it's centered horizontally
         x_offset = center_x - rendered_width / 2 - min_x
 
-        # NO vertical offset here - will be applied post-export.
-        filtered_lc.translate(x_offset, 0.0)
+        # Vertical stacking: top of this line's glyphs at current_y.
+        y_offset = current_y - max_y
+        filtered_lc.translate(x_offset, y_offset)
         text_lc.extend(filtered_lc)
+
+        # Move down past this line (plus spacing, except after the last).
+        current_y -= rendered_height
+        if i < len(rendered_lines) - 1:
+            current_y -= line_spacing
 
     return text_lc
 

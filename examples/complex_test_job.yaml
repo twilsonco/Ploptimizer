@@ -1,0 +1,153 @@
+# Complex test job specification for the PLT-Optimizer generate pipeline.
+#
+# Designed to stress-test every layer of the pipeline in a single run:
+#   - Constrained multi-plate packing (24x16 primary + 24x12 scrap sheet)
+#   - Full inheritance cascade: TextLine -> LabelSpec -> JobSpec -> defaults
+#   - Cutter selection across the whole IDEAL_CUTTER_MAP range (0.125" - 1.5")
+#   - Auto-sizing (bounding-box calculation) mixed with fixed dimensions
+#   - Job-level hole inheritance, label-level hole overrides, and holes: []
+#     suppression of inherited holes
+#   - High-count volume labels forcing overflow onto the second plate
+#
+# Run with: python run_integration_test.py examples/complex_test_job.yaml
+job:
+  job_name: "Complex Plant Signage - Batch 42"
+
+  # ---------------------------------------------------------------------
+  # Job-level defaults (cascade down to every label / text line unless
+  # overridden). Includes a job-level hole to verify inheritance.
+  # ---------------------------------------------------------------------
+  text_height: 0.3
+  character_spacing: 0.04
+  line_spacing: 0.12
+  margin: 0.15
+  holes:
+    - diameter: 0.125
+      location: bottom-left
+
+  # ---------------------------------------------------------------------
+  # Constrained mode: exactly these two sheets are available. Total label
+  # area (~450 sq in) exceeds plate_1's 384 sq in, forcing multi-plate
+  # allocation across both bins.
+  # ---------------------------------------------------------------------
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+      margin: 0.0
+      clearance_padding: 0.125
+    - id: plate_2_scrap
+      width: 24.0
+      height: 12.0
+      margin: 0.5
+      clearance_padding: 0.25
+
+  labels:
+    # 1. Volume + edge holes: 60 instances guarantee overflow past plate_1.
+    #    Explicit left/right drill holes override the inherited job hole.
+    - id: valve_tag
+      count: 60
+      width: 3.0
+      height: 1.0
+      margin: 0.125
+      text_height: 0.3
+      content:
+        - text: "VALVE V-104"
+        - text: "OPEN CW"
+      holes:
+        - diameter: 0.125
+          location: left
+        - diameter: 0.125
+          location: right
+
+    # 2. Per-line typography overrides: each line picks its own text_height,
+    #    exercising three different cutter selections within one label.
+    - id: panel_header
+      count: 4
+      width: 6.0
+      height: 2.0
+      margin: 0.1
+      content:
+        - text: "MAIN PANEL"
+          text_height: 0.5
+        - text: "SECTION B REV 4"
+        # (inherits job text_height 0.3)
+        - text: "MAINTENANCE ACCESS ONLY"
+          text_height: 0.2
+
+    # 3. Extreme mixed heights: 1.0" / 0.25" / 0.125" lines verify cutter
+    #    lookup across the full inventory range incl. exact matches.
+    - id: mixed_height_motto
+      count: 2
+      width: 5.0
+      height: 1.5
+      margin: 0.1
+      content:
+        - text: "SAFETY"
+          text_height: 0.5
+        - text: "FIRST"
+          text_height: 0.25
+        - text: "ZERO HARM ZONE"
+          text_height: 0.125
+
+    # 4. All four corner hole locations with mixed diameters.
+    - id: corner_drill
+      count: 8
+      width: 2.5
+      height: 2.0
+      text_height: 0.4
+      content:
+        - text: "DRILL"
+        - text: "PATTERN"
+      holes:
+        - diameter: 0.125
+          location: top-left
+        - diameter: 0.1875
+          location: top-right
+        - diameter: 0.25
+          location: bottom-right
+        - diameter: 0.125
+          location: bottom-left
+
+    # 5. Oversize single-instance label: 1.5" text maps to the largest
+    #    common cutter (0.187"); verifies large glyph vectorization.
+    - id: big_banner
+      count: 1
+      width: 10.0
+      height: 3.0
+      text_height: 1.5
+      content:
+        - text: "OVERSIZE"
+
+    # 6. Auto-sizing: no width/height, bounding-box calculation from
+    #    content. Inherits job margin/typography and the job-level hole.
+    - id: auto_warning
+      count: 6
+      text_height: 0.3
+      content:
+        - text: "WARNING"
+        - text: "HIGH VOLTAGE"
+
+    # 7. holes: [] explicitly suppresses the inherited job-level hole.
+    - id: serial_tag
+      count: 10
+      width: 5.0
+      height: 1.0
+      text_height: 0.35
+      content:
+        - text: "SERIAL 0000-0000"
+      holes: []
+
+    # 8. Top/bottom edge holes at a larger diameter.
+    - id: edge_holes
+      count: 4
+      width: 4.0
+      height: 1.0
+      text_height: 0.3
+      content:
+        - text: "TOP/BOT DRILL"
+      holes:
+        - diameter: 0.25
+          location: top
+        - diameter: 0.25
+          location: bottom

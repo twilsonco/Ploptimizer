@@ -204,7 +204,7 @@ def plot_plt_document(
                             xs,
                             ys,
                             color="gray",
-                            linewidth=0.5,
+                            linewidth=0.2,
                             linestyle="dotted",
                             alpha=0.7,
                             label="Rapid Travel (PU)" if i == 0 else "",
@@ -217,7 +217,7 @@ def plot_plt_document(
                                 seg.end.y * PLT_UNITS_TO_INCHES,
                             ],
                             color="gray",
-                            linewidth=0.4,
+                            linewidth=0.15,
                             linestyle="dotted",
                             alpha=0.7,
                             label="Rapid Travel (PU)" if i == 0 else "",
@@ -242,7 +242,7 @@ def plot_plt_document(
                     [start_x, end_x],
                     [start_y, end_y],
                     color="gray",
-                    linewidth=0.4,
+                    linewidth=0.15,
                     linestyle="dashed",
                     alpha=0.7,
                     label="Rapid Travel (PU)" if i == 0 else "",
@@ -253,13 +253,13 @@ def plot_plt_document(
             if seg.is_cutting:  # Cutting
                 if simple_mode:
                     color: Any = "black"
-                    linewidth = 2.0
+                    linewidth = 0.5
                     alpha = 1.0
                 else:
                     color_val = norm_distances[i]
                     cmap = plt.colormaps["plasma"]
                     color = cmap(color_val)
-                    linewidth = 1.5
+                    linewidth = 0.3
                     alpha = 0.9
 
                 if isinstance(seg, ArcSegment):

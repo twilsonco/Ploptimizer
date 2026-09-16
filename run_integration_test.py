@@ -70,8 +70,12 @@ def print_separator(title: str) -> None:
 # ============================================================================
 # PHASE 1: TEST DATA PREPARATION
 # ============================================================================
-def phase_1_data_prep() -> tuple[Path, Path, list[float]]:
+def phase_1_data_prep(job_yaml_override: Path | None = None) -> tuple[Path, Path, list[float]]:
     """Phase 1: Load test data and inventory.
+
+    Args:
+        job_yaml_override: Optional path to an alternative job spec YAML.
+            If None, defaults to ``examples/test123_spec.yaml``.
 
     Returns:
         Tuple of (job_yaml_path, tools_json_path, inventory).
@@ -79,7 +83,9 @@ def phase_1_data_prep() -> tuple[Path, Path, list[float]]:
     print_separator("PHASE 1: TEST DATA PREPARATION")
 
     workspace = Path(__file__).parent
-    job_yaml = workspace / "examples" / "test123_spec.yaml"
+    job_yaml = job_yaml_override or workspace / "examples" / "test123_spec.yaml"
+    if not job_yaml.is_absolute():
+        job_yaml = workspace / job_yaml
     tools_json = workspace / "tools.json"
 
     if not job_yaml.exists():
@@ -100,7 +106,7 @@ def phase_1_data_prep() -> tuple[Path, Path, list[float]]:
 def phase_2_resolution_and_layout(
     job_yaml: Path,
     inventory: list[float],
-) -> tuple[list, list]:
+) -> tuple[list, list, list | None]:
     """Phase 2: Resolution, bin packing, and verification.
 
     Executes:
@@ -113,7 +119,7 @@ def phase_2_resolution_and_layout(
         inventory: List of available cutter diameters.
 
     Returns:
-        Tuple of (resolved_labels, packed_plates).
+        Tuple of (resolved_labels, packed_plates, provided_plates).
     """
     print_separator("PHASE 2: PIPELINE EXECUTION")
 
@@ -168,7 +174,7 @@ def phase_2_resolution_and_layout(
     print_separator("VERIFICATION POINT: Plate Generation")
     print(f"Total plates generated: {len(packed_plates)}")
 
-    return resolved_labels, packed_plates
+    return resolved_labels, packed_plates, job.plates
 
 
 def _extract_layer_from_plt_file(plt_file_path: Path, target_pen: int, output_path: Path) -> None:
@@ -227,6 +233,7 @@ def _extract_layer_from_plt_file(plt_file_path: Path, target_pen: int, output_pa
 def phase_3_vectorization_and_export(
     resolved_labels: list,
     provided_plates: list | None = None,
+    output_dir: Path | None = None,
 ) -> list[Path]:
     """Phase 3: Assemble and export PLT files using the clean Phase 3 pipeline.
 
@@ -244,6 +251,8 @@ def phase_3_vectorization_and_export(
         resolved_labels: List of fully resolved labels from the resolution step.
         provided_plates: Optional list of PlateSpec objects. If None, uses a
             default 24x16 plate (matching ``generate_layout`` behavior).
+        output_dir: Optional output directory. Defaults to
+            ``test_output/integration_test``.
 
     Returns:
         List of exported PLT file paths.
@@ -257,7 +266,10 @@ def phase_3_vectorization_and_export(
     PEN_HOLES = 3
 
     workspace = Path(__file__).parent
-    output_dir = workspace / "test_output" / "integration_test"
+    if output_dir is None:
+        output_dir = workspace / "test_output" / "integration_test"
+    elif not output_dir.is_absolute():
+        output_dir = workspace / output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info(f"Exporting to: {output_dir}")
@@ -414,23 +426,45 @@ def phase_4_visualization(exported_paths: list[Path]) -> None:
 # ============================================================================
 # MAIN EXECUTION
 # ============================================================================
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     """Execute the full end-to-end integration test pipeline.
+
+    Args:
+        argv: Optional CLI arguments. An optional positional argument
+            selects an alternative job spec YAML (e.g.
+            ``examples/complex_test_job.yaml``). Defaults to
+            ``examples/test123_spec.yaml``.
 
     Returns:
         Exit code (0 for success, 1 for failure).
     """
+    argv = list(sys.argv[1:] if argv is None else argv)
+    spec_override = Path(argv[0]) if argv else None
+
     try:
         # Phase 1: Data Preparation
-        job_yaml, tools_json, inventory = phase_1_data_prep()
+        job_yaml, tools_json, inventory = phase_1_data_prep(spec_override)
 
         # Phase 2: Resolution and Layout (nominal-dimension packing for reporting)
-        resolved_labels, packed_plates = phase_2_resolution_and_layout(job_yaml, inventory)
+        resolved_labels, packed_plates, provided_plates = phase_2_resolution_and_layout(
+            job_yaml, inventory
+        )
 
         # Phase 3: Vectorization and Export using the clean bounds-aware pipeline.
-        # Uses a default 24x16 plate (same as generate_layout) so all labels pack
-        # onto one sheet for comparison with the reference output.
-        exported_paths = phase_3_vectorization_and_export(resolved_labels)
+        # For the default test123 job, keep the historical default 24x16
+        # auto-allocation so reference artifacts (default_plate_* filenames)
+        # remain stable. Alternative specs honor their own constrained plates.
+        if spec_override is not None:
+            phase_3_output_dir = (
+                Path("test_output") / "integration_test" / job_yaml.stem
+            )
+            phase_3_plates = provided_plates
+        else:
+            phase_3_output_dir = None
+            phase_3_plates = None
+        exported_paths = phase_3_vectorization_and_export(
+            resolved_labels, phase_3_plates, phase_3_output_dir
+        )
 
         # Phase 3.5: Coordinate Validation
         phase_3_5_validate_coordinates(exported_paths)
