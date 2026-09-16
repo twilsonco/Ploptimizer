@@ -19,7 +19,7 @@ job:
   # ---------------------------------------------------------------------
   text_height: 0.3
   character_spacing: 0.04
-  line_spacing: 0.12
+  line_spacing: 0.3
   margin: 0.15
   holes:
     - diameter: 0.125
@@ -34,7 +34,7 @@ job:
     - id: plate_1
       width: 24.0
       height: 16.0
-      margin: 0.0
+      margin: 0.2
       clearance_padding: 0.125
     - id: plate_2_scrap
       width: 24.0
@@ -81,7 +81,6 @@ job:
       count: 2
       width: 5.0
       height: 1.5
-      margin: 0.1
       content:
         - text: "SAFETY"
           text_height: 0.5

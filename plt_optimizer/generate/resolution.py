@@ -23,12 +23,15 @@ Example:
 
 from __future__ import annotations
 
+import logging
 import math
 import uuid
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass, field, replace
+from typing import Optional, Sequence
 
 from plt_optimizer.generate.schema import JobSpec, LabelSpec
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Global fallback constants
@@ -231,6 +234,109 @@ def calculate_label_dimensions(
 
 
 # ---------------------------------------------------------------------------
+# Margin precedence helper
+# ---------------------------------------------------------------------------
+def fit_line_spacing_to_margins(
+    line_heights: Sequence[float],
+    line_spacings: Sequence[float],
+    available_height: float,
+) -> list[float]:
+    """Shrink inter-line spacing so a stacked text block fits the margin box.
+
+    Margins take precedence over requested line spacing: when the stacked
+    block (sum of line heights plus inter-line spacing) exceeds the
+    available inner height, the spacings are scaled down proportionally
+    (down to a floor of ``0.0``) until the block fits exactly.
+
+    Args:
+        line_heights: Rendered (or nominal) height of each text line in
+            inches. Length ``n``.
+        line_spacings: Extra spacing applied *after* each line except the
+            last, in inches. Length ``n - 1``.
+        available_height: Inner content height in inches
+            (label height minus both margins).
+
+    Returns:
+        A new list of inter-line spacings. Equal to the input when the
+        block already fits; proportionally reduced otherwise. Spacing is
+        never increased and never negative. Note that if the line heights
+        alone exceed ``available_height``, all spacings collapse to ``0.0``
+        and the block still overflows (text height is never reduced).
+    """
+    spacings = [max(0.0, float(s)) for s in line_spacings]
+    total_height = sum(float(h) for h in line_heights) + sum(spacings)
+    excess = total_height - available_height
+    if excess <= 0.0 or not spacings:
+        return spacings
+
+    total_spacing = sum(spacings)
+    if total_spacing <= 0.0:
+        return spacings
+
+    # Proportional scale-down so the total reduction equals the excess
+    # (capped at the total spacing available, i.e. a floor of zero).
+    factor = max(0.0, (total_spacing - excess) / total_spacing)
+    return [s * factor for s in spacings]
+
+
+def _fit_content_to_margins(
+    content: list[ResolvedTextLine],
+    label_height: float,
+    margin: float,
+    label_id: str,
+) -> list[ResolvedTextLine]:
+    """Clamp resolved line spacing so text respects the label margins.
+
+    Uses nominal text heights for the fit estimate; the renderer applies a
+    final safety check against measured glyph heights.
+
+    Args:
+        content: Fully resolved text lines for the label.
+        label_height: Final label height in inches (outer boundary).
+        margin: Resolved label margin in inches.
+        label_id: Identifier used in log messages.
+
+    Returns:
+        The original content list when no adjustment is needed, otherwise
+        a new list with reduced ``line_spacing`` values.
+    """
+    if len(content) < 2:
+        return content
+
+    available_height = label_height - (2 * margin)
+    heights = [line.nominal_text_height for line in content]
+    spacings = [line.line_spacing for line in content[:-1]]
+
+    adjusted = fit_line_spacing_to_margins(heights, spacings, available_height)
+    if all(math.isclose(a, b, abs_tol=1e-9) for a, b in zip(adjusted, spacings)):
+        return content
+
+    logger.debug(
+        "Label %s: line_spacing reduced from %s to %s to preserve margin "
+        "%.3fin (available inner height %.3fin).",
+        label_id,
+        [round(s, 4) for s in spacings],
+        [round(s, 4) for s in adjusted],
+        margin,
+        available_height,
+    )
+    if sum(heights) > available_height:
+        logger.warning(
+            "Label %s: text lines alone (%.3fin) exceed the available inner "
+            "height (%.3fin); margins cannot be fully preserved without "
+            "reducing text height.",
+            label_id,
+            sum(heights),
+            available_height,
+        )
+
+    return [
+        replace(line, line_spacing=adjusted[i]) if i < len(adjusted) else line
+        for i, line in enumerate(content)
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Resolution engine
 # ---------------------------------------------------------------------------
 def _resolve_holes(
@@ -359,6 +465,12 @@ def _resolve_label(
 
     # At this point, final_width and final_height are guaranteed non-None
     assert final_width is not None and final_height is not None
+
+    # Margin precedence: shrink line spacing (never margins) so the stacked
+    # text block fits within the inner content area.
+    resolved_content = _fit_content_to_margins(
+        resolved_content, final_height, label_margin, label_id
+    )
 
     return ResolvedLabel(
         id=label_id,

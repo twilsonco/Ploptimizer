@@ -394,6 +394,35 @@ class TestRenderText:
         # Text should be much smaller than the label width (not 47x larger)
         assert rendered_width < label_width * 2
 
+    def test_high_line_spacing_shrinks_to_preserve_margin(self) -> None:
+        """Render-time safety check: oversized spacing must shrink, margins win.
+
+        Regression test: a label whose stacked block (line heights plus
+        requested spacing) exceeds the inner content area used to render
+        text across the margins. The renderer must reduce inter-line
+        spacing so the block fits within [margin, height - margin].
+        """
+        margin = 0.125
+        label = _make_label(
+            width=3.0,
+            height=1.0,
+            margin=margin,
+            content=[
+                ResolvedTextLine(text="VALVE V-104", nominal_text_height=0.3, toolpath_text_height=0.27, cutter_diameter=0.03, character_spacing=0.0, line_spacing=0.3),
+                ResolvedTextLine(text="OPEN CW", nominal_text_height=0.3, toolpath_text_height=0.27, cutter_diameter=0.03, character_spacing=0.0, line_spacing=0.0),
+            ],
+        )
+        lc = _render_text(label, 0.0, 0.0, 0.0)
+        bounds = lc.bounds()
+        assert bounds is not None
+        _min_x, min_y, _max_x, max_y = bounds
+        # Text must stay inside the margin box (small tolerance for glyph
+        # metrics rounding in the ftext renderer).
+        assert min_y >= margin - 0.02, f"Text bottom {min_y:.3f} breaches margin {margin}"
+        assert max_y <= label.height - margin + 0.02, (
+            f"Text top {max_y:.3f} breaches margin box top {label.height - margin}"
+        )
+
     def test_text_positioned_within_label(self) -> None:
         """Text should start near the left margin, not at the origin.
 

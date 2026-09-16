@@ -21,7 +21,10 @@ import numpy as np
 import vpype as vp
 
 from plt_optimizer.generate.ftext_renderer import render_text_line_ftext
-from plt_optimizer.generate.resolution import ResolvedLabel
+from plt_optimizer.generate.resolution import (
+    ResolvedLabel,
+    fit_line_spacing_to_margins,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1042,9 +1045,32 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
     if not rendered_lines:
         return text_lc
 
-    # Add line spacing between lines (not after the last line).
-    for _lc, _height, line_spacing in rendered_lines[:-1]:
-        total_rendered_height += line_spacing
+    # Add line spacing between lines (not after the last line). Margin
+    # precedence: if the measured block (line heights + requested spacing)
+    # overflows the inner area, shrink the spacing so margins win.
+    spacings = [line_spacing for _lc, _height, line_spacing in rendered_lines[:-1]]
+    available_height = label.height - (2 * margin)
+    adjusted_spacings = fit_line_spacing_to_margins(
+        [height for _lc, height, _spacing in rendered_lines],
+        spacings,
+        available_height,
+    )
+    if adjusted_spacings != spacings:
+        logger.warning(
+            "Label %s: line_spacing reduced at render time from %s to %s "
+            "to preserve margin %.3fin.",
+            label.id,
+            [round(s, 4) for s in spacings],
+            [round(s, 4) for s in adjusted_spacings],
+            margin,
+        )
+    rendered_lines = [
+        (filtered_lc, rendered_height, adjusted_spacings[i] if i < len(adjusted_spacings) else 0.0)
+        for i, (filtered_lc, rendered_height, _spacing) in enumerate(rendered_lines)
+    ]
+    total_rendered_height = sum(height for _lc, height, _spacing in rendered_lines) + sum(
+        adjusted_spacings
+    )
 
     # Anchor the block so its vertical center sits at y = total / 2. The
     # absolute anchor is irrelevant (post-export centering fixes it); only

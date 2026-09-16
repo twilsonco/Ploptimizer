@@ -33,6 +33,7 @@ Example:
 
 from __future__ import annotations
 
+import logging
 import math
 import re
 from pathlib import Path
@@ -44,7 +45,11 @@ import vpype as vp
 from plt_optimizer.generate.ftext_renderer import render_text_line_ftext
 from plt_optimizer.generate.label_renderer import RenderedLabel
 from plt_optimizer.generate.layout import PackedLabel, PackedPlate
-from plt_optimizer.generate.resolution import ResolvedHoleSpec, ResolvedLabel
+from plt_optimizer.generate.resolution import (
+    ResolvedHoleSpec,
+    ResolvedLabel,
+    fit_line_spacing_to_margins,
+)
 from plt_optimizer.generate.schema import PlateSpec
 
 # ---------------------------------------------------------------------------
@@ -280,10 +285,9 @@ def _render_text(
     text_lc = vp.LineCollection()
 
     # First pass: render all lines to calculate total height
-    rendered_lines: list[tuple[vp.LineCollection, float]] = []
-    total_rendered_height = 0.0
+    rendered_lines: list[tuple[vp.LineCollection, float, float]] = []
 
-    for i, line in enumerate(source_label.content):
+    for line in source_label.content:
         # Render at the toolpath_text_height (cutter-compensated) using the
         # single-line TTF font via ftext.
         filtered_lc = render_text_line_ftext(
@@ -300,24 +304,41 @@ def _render_text(
         _, min_y, _, max_y = bounds
         rendered_height = max_y - min_y
 
-        rendered_lines.append((filtered_lc, rendered_height))
-        total_rendered_height += rendered_height
-        # Add line spacing between lines (not after the last line)
-        if i < len(source_label.content) - 1:
-            total_rendered_height += line.line_spacing
+        rendered_lines.append((filtered_lc, rendered_height, line.line_spacing))
 
     if not rendered_lines:
         return text_lc
 
     # Calculate vertical centering within the available space (after margins)
     available_height = inner_height - (2 * margin)
+
+    # Margin precedence: if the measured block (line heights + requested
+    # spacing) overflows the inner area, shrink the spacing so margins win.
+    heights = [height for _, height, _ in rendered_lines]
+    spacings = [spacing for _, _, spacing in rendered_lines[:-1]]
+    adjusted_spacings = fit_line_spacing_to_margins(heights, spacings, available_height)
+    if adjusted_spacings != spacings:
+        logging.getLogger(__name__).warning(
+            "Label %s: line_spacing reduced at render time from %s to %s "
+            "to preserve margin %.3fin.",
+            source_label.id,
+            [round(s, 4) for s in spacings],
+            [round(s, 4) for s in adjusted_spacings],
+            margin,
+        )
+    rendered_lines = [
+        (line_lc, height, adjusted_spacings[i] if i < len(adjusted_spacings) else 0.0)
+        for i, (line_lc, height, _spacing) in enumerate(rendered_lines)
+    ]
+    total_rendered_height = sum(heights) + sum(adjusted_spacings)
+
     center_y = margin + available_height / 2
     # Start position: center_y offset by half the total text height
     # (text goes down from this position)
     current_y = center_y + total_rendered_height / 2
 
     # Second pass: position each line with horizontal and vertical centering
-    for i, (line_lc, rendered_height) in enumerate(rendered_lines):
+    for i, (line_lc, rendered_height, line_spacing) in enumerate(rendered_lines):
         bounds = line_lc.bounds()
         if bounds is None:
             continue
@@ -340,7 +361,6 @@ def _render_text(
         current_y -= rendered_height
         # Add line spacing between lines
         if i < len(rendered_lines) - 1:
-            line_spacing = source_label.content[i].line_spacing
             current_y -= line_spacing
 
     return _apply_transform(text_lc, dx, dy, angle)

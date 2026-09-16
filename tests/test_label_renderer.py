@@ -395,3 +395,92 @@ class TestMultiLineStacking:
             f"{expected_total:.3f}in stacked (lines overlapping?)"
         )
         assert text_span < expected_total + 0.1
+
+
+class TestMarginPrecedence:
+    """Regression: line spacing must never push text across the margins.
+
+    When the stacked block (line heights plus requested spacing) exceeds
+    the inner content area, the renderer shrinks inter-line spacing so the
+    resolved margin is preserved.
+    """
+
+    def test_high_spacing_block_stays_inside_margin_box(self) -> None:
+        """Rendered text layer must stay within [margin, height - margin]."""
+        margin = 0.125
+        label = _make_local_label(
+            [
+                ResolvedTextLine(
+                    text="VALVE V-104",
+                    nominal_text_height=0.3,
+                    toolpath_text_height=0.27,
+                    cutter_diameter=0.03,
+                    character_spacing=0.0,
+                    line_spacing=0.3,
+                ),
+                ResolvedTextLine(
+                    text="OPEN CW",
+                    nominal_text_height=0.3,
+                    toolpath_text_height=0.27,
+                    cutter_diameter=0.03,
+                    character_spacing=0.0,
+                    line_spacing=0.0,
+                ),
+            ],
+            width=3.0,
+            height=1.0,
+            margin=margin,
+        )
+
+        rendered = render_label_to_plt(label)
+
+        match = re.search(r"SP1;(.*?)(?:SP\d|$)", rendered.plt_content, re.DOTALL)
+        assert match is not None, "No text layer found in rendered PLT"
+        ys: list[float] = []
+        for coord_match in re.finditer(r"(?:PA|PU|PD)([\d,\-]+)", match.group(1)):
+            parts = coord_match.group(1).split(",")
+            for i in range(1, len(parts), 2):
+                ys.append(int(parts[i]) / 1000.0)
+        assert ys, "No text coordinates found"
+
+        # Text must stay inside the margin box (small tolerance for
+        # plotter-unit rounding in the HPGL writer).
+        assert min(ys) >= margin - 0.02, f"Text breaches bottom margin: {min(ys):.3f}"
+        assert max(ys) <= label.height - margin + 0.02, f"Text breaches top margin: {max(ys):.3f}"
+
+    def test_render_text_local_clamps_spacing(self) -> None:
+        """Stacked block height must not exceed the inner content height."""
+        margin = 0.125
+        label = _make_local_label(
+            [
+                ResolvedTextLine(
+                    text="VALVE V-104",
+                    nominal_text_height=0.3,
+                    toolpath_text_height=0.27,
+                    cutter_diameter=0.03,
+                    character_spacing=0.0,
+                    line_spacing=0.3,
+                ),
+                ResolvedTextLine(
+                    text="OPEN CW",
+                    nominal_text_height=0.3,
+                    toolpath_text_height=0.27,
+                    cutter_diameter=0.03,
+                    character_spacing=0.0,
+                    line_spacing=0.0,
+                ),
+            ],
+            width=3.0,
+            height=1.0,
+            margin=margin,
+        )
+
+        lc = _render_text_local(label)
+        assert not lc.is_empty()
+        _min_x, min_y, _max_x, max_y = lc.bounds()
+        block_height = max_y - min_y
+        available = label.height - 2 * margin
+        assert block_height <= available + 0.02, (
+            f"Block height {block_height:.3f}in exceeds inner area "
+            f"{available:.3f}in; margins would be breached"
+        )

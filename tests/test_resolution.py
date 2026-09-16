@@ -16,6 +16,7 @@ from plt_optimizer.generate.resolution import (
     ResolvedLabel,
     ResolvedTextLine,
     calculate_label_dimensions,
+    fit_line_spacing_to_margins,
     get_cutter_diameter,
     resolve_job_spec,
 )
@@ -601,3 +602,192 @@ class TestFallbackConstants:
         """DEFAULT_LINE_SPACING should be a non-negative float."""
         assert isinstance(DEFAULT_LINE_SPACING, float)
         assert DEFAULT_LINE_SPACING >= 0
+
+
+class TestFitLineSpacingToMargins:
+    """Tests for the margin-precedence line spacing fit helper."""
+
+    def test_no_change_when_block_fits(self) -> None:
+        """Spacings should be returned unchanged when the block already fits."""
+        result = fit_line_spacing_to_margins([0.3, 0.3], [0.1], 1.0)
+        assert result == [0.1]
+
+    def test_spacing_shrinks_to_fit(self) -> None:
+        """Excess height must be removed from spacing, not margins."""
+        # Heights 0.6 + spacing 0.6 = 1.2 vs available 1.0 -> excess 0.2.
+        result = fit_line_spacing_to_margins([0.3, 0.3], [0.6], 1.0)
+        assert len(result) == 1
+        assert math.isclose(result[0], 0.4, abs_tol=1e-9)
+        total = 0.3 + 0.3 + result[0]
+        assert math.isclose(total, 1.0, abs_tol=1e-9)
+
+    def test_multiple_gaps_scale_proportionally(self) -> None:
+        """Unequal gaps must shrink proportionally to the same factor."""
+        # Heights 0.9, spacing 0.3 + 0.1 = 0.4 -> total 1.3 vs available 1.1.
+        result = fit_line_spacing_to_margins([0.3, 0.3, 0.3], [0.3, 0.1], 1.1)
+        assert math.isclose(result[0], 0.15, abs_tol=1e-9)
+        assert math.isclose(result[1], 0.05, abs_tol=1e-9)
+        assert math.isclose(sum(result), 0.2, abs_tol=1e-9)
+
+    def test_spacing_collapses_to_zero_when_lines_alone_overflow(self) -> None:
+        """Spacing floors at zero when line heights alone exceed the space."""
+        result = fit_line_spacing_to_margins([0.6, 0.6], [0.3], 1.0)
+        assert result == [0.0]
+
+    def test_single_line_returns_empty_list(self) -> None:
+        """A single line has no inter-line gaps to adjust."""
+        assert fit_line_spacing_to_margins([0.5], [], 0.25) == []
+
+    def test_spacing_is_never_increased(self) -> None:
+        """The helper must only ever reduce spacing."""
+        result = fit_line_spacing_to_margins([0.2, 0.2], [0.05, 0.05], 5.0)
+        assert result == [0.05, 0.05]
+
+    def test_negative_input_spacing_is_clamped(self) -> None:
+        """Negative spacing input is floored at zero."""
+        result = fit_line_spacing_to_margins([0.3, 0.3], [-0.2], 1.0)
+        assert result == [0.0]
+
+    def test_zero_total_spacing_is_returned_unchanged(self) -> None:
+        """Nothing to scale when all spacing is already zero."""
+        result = fit_line_spacing_to_margins([0.6, 0.6], [0.0], 1.0)
+        assert result == [0.0]
+
+    def test_exact_fit_is_left_alone(self) -> None:
+        """A block exactly matching the available height must not change."""
+        result = fit_line_spacing_to_margins([0.4, 0.4], [0.2], 1.0)
+        assert result == [0.2]
+
+
+class TestMarginPrecedenceInResolution:
+    """Resolution must shrink line spacing rather than violate margins."""
+
+    def test_high_line_spacing_is_reduced_to_preserve_margin(self) -> None:
+        """valve_tag-style case: 2 x 0.3in lines with 0.3in spacing."""
+        job = JobSpec(
+            job_name="Tight",
+            text_height=0.3,
+            line_spacing=0.3,
+            labels=[
+                LabelSpec(
+                    id="valve_tag",
+                    count=1,
+                    width=3.0,
+                    height=1.0,
+                    margin=0.125,
+                    content=[TextLine(text="VALVE V-104"), TextLine(text="OPEN CW")],
+                ),
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+
+        # Margin is untouched.
+        assert math.isclose(label.margin, 0.125)
+        # Spacing reduced so the stacked block fits the 0.75in inner height.
+        assert label.content[0].line_spacing < 0.3
+        total = sum(line.nominal_text_height for line in label.content)
+        total += sum(line.line_spacing for line in label.content[:-1])
+        assert total <= (label.height - 2 * label.margin) + 1e-9
+
+    def test_margin_wins_over_job_level_spacing(self) -> None:
+        """A job-level spacing that overflows a label must be clamped."""
+        job = JobSpec(
+            job_name="Tight",
+            text_height=0.3,
+            line_spacing=0.3,
+            margin=0.25,
+            labels=[
+                LabelSpec(
+                    id="panel",
+                    count=1,
+                    width=6.0,
+                    height=1.0,
+                    content=[TextLine(text="AAA"), TextLine(text="BBB")],
+                ),
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.margin, 0.25)
+        assert label.content[0].line_spacing == pytest.approx(0.0, abs=1e-9)
+
+    def test_untouched_when_spacing_fits(self) -> None:
+        """Labels with room to spare keep their requested spacing."""
+        job = JobSpec(
+            job_name="Roomy",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    count=1,
+                    width=4.0,
+                    height=2.0,
+                    margin=0.1,
+                    text_height=0.3,
+                    line_spacing=0.15,
+                    content=[TextLine(text="AAA"), TextLine(text="BBB")],
+                ),
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].line_spacing, 0.15)
+
+    def test_auto_sized_label_keeps_spacing(self) -> None:
+        """Auto-sizing already reserves spacing, so nothing should clamp."""
+        job = JobSpec(
+            job_name="Auto",
+            text_height=0.3,
+            line_spacing=0.3,
+            margin=0.25,
+            labels=[
+                LabelSpec(
+                    id="auto_warning",
+                    count=1,
+                    content=[TextLine(text="WARNING"), TextLine(text="HIGH VOLTAGE")],
+                ),
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].line_spacing, 0.3)
+
+    def test_single_line_label_is_unaffected(self) -> None:
+        """Single-line labels have no spacing to clamp even when too tall."""
+        job = JobSpec(
+            job_name="Single",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    count=1,
+                    width=5.0,
+                    height=0.5,
+                    margin=0.25,
+                    text_height=0.5,
+                    line_spacing=0.3,
+                    content=[TextLine(text="OVERSIZE")],
+                ),
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].line_spacing, 0.3)
+
+    def test_per_line_spacing_override_is_respected(self) -> None:
+        """A line-level spacing smaller than the label's need stays intact."""
+        job = JobSpec(
+            job_name="Mixed",
+            text_height=0.3,
+            line_spacing=0.5,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    count=1,
+                    width=4.0,
+                    height=1.0,
+                    margin=0.125,
+                    content=[
+                        TextLine(text="AAA", line_spacing=0.1),
+                        TextLine(text="BBB"),
+                    ],
+                ),
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        # Inner height 0.75, heights 0.6, requested gap 0.1 -> fits untouched.
+        assert math.isclose(label.content[0].line_spacing, 0.1)
