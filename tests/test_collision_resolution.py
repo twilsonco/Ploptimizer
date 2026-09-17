@@ -31,6 +31,7 @@ from plt_optimizer.generate.label_renderer import (
     _render_text_local_with_bounds,
     _resolve_collision_via_compression,
     _resolve_collision_via_margin_adjustment,
+    assert_no_collisions,
     log_text_hole_collisions,
     render_label_to_plt,
 )
@@ -122,8 +123,8 @@ class TestMarginAdjustment:
         _lc, entries = _render_text_local_with_bounds(label)
         assert _resolve_collision_via_margin_adjustment(label, entries) is None
 
-        with pytest.raises(LabelRenderError):
-            render_label_to_plt(label)
+        rendered = render_label_to_plt(label)
+        assert rendered.has_collisions is True
 
     def test_no_floor_configured_skips_phase2(self) -> None:
         """Without min_hole_margin, margin adjustment is not attempted."""
@@ -156,11 +157,11 @@ class TestMarginAdjustment:
         _lc, entries = _render_text_local_with_bounds(label)
         assert _resolve_collision_via_margin_adjustment(label, entries) is None
 
-    def test_margin_already_at_floor_raises(self) -> None:
+    def test_margin_already_at_floor_flags_collision(self) -> None:
         """With hole_margin pinned at the floor, Phase 2 has no budget to shrink."""
         label = _label(text="HELLO", holes=BOTTOM_HOLE, hole_margin=0.05, min_hole_margin=0.05)
-        with pytest.raises(LabelRenderError):
-            render_label_to_plt(label)
+        rendered = render_label_to_plt(label)
+        assert rendered.has_collisions is True
 
     def test_log_text_hole_collisions_no_holes_returns_empty(self) -> None:
         """The observational helper short-circuits for hole-free labels."""
@@ -234,16 +235,68 @@ class TestCompressionFallback:
         at_floor = replace(label, collision_compress=0.0)
         assert _resolve_collision_via_compression(at_floor, 1.0) is None
 
-    def test_unresolvable_error_lists_diagnostic_information(self) -> None:
-        """The raised error names margins, compression, and recommendations."""
+    def test_unresolvable_error_lists_diagnostic_information(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The ERROR log names margins, compression, and recommendations."""
         label = _label(max_h_compress=0.05, min_hole_margin=0.15)
-        with pytest.raises(LabelRenderError) as exc_info:
-            render_label_to_plt(label)
+        with caplog.at_level(logging.ERROR, logger=LOGGER_NAME):
+            rendered = render_label_to_plt(label)
 
-        message = str(exc_info.value)
+        assert rendered.has_collisions is True
+        errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert errors, "No ERROR logged for unresolvable collision"
+        message = errors[0].getMessage()
         assert "resolve_label" in message
         assert "Hole margin" in message
         assert "min: 0.15" in message
         assert "max_h_compress=0.05" in message
         assert "penetration" in message
         assert "Recommendations" in message
+
+    def test_avoidance_disabled_logs_error(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A collision with no avoidance knobs configured is still an ERROR."""
+        label = _label(min_hole_margin=None, max_h_compress=0.0)
+        with caplog.at_level(logging.ERROR, logger=LOGGER_NAME):
+            rendered = render_label_to_plt(label)
+
+        assert rendered.has_collisions is True
+        assert any(r.levelno >= logging.ERROR for r in caplog.records)
+
+
+class TestJobLevelAbort:
+    """assert_no_collisions aborts the job after all labels rendered."""
+
+    def test_clean_labels_pass(self) -> None:
+        """A job whose labels all render clean does not abort."""
+        label = _label(text="HI", holes=[])
+        rendered = render_label_to_plt(label)
+        assert_no_collisions([rendered])
+
+    def test_colliding_label_aborts_job(self) -> None:
+        """One colliding label aborts the whole job with its id named."""
+        label = _label()  # full-width text over side holes, no avoidance
+        rendered = render_label_to_plt(label)
+        with pytest.raises(LabelRenderError) as exc_info:
+            assert_no_collisions([rendered])
+        assert "resolve_label" in str(exc_info.value)
+        assert "unavoidable" in str(exc_info.value)
+
+    def test_abort_names_each_offending_label_once(self) -> None:
+        """Duplicate renders of the same label are reported once."""
+        label = _label()
+        rendered = render_label_to_plt(label)
+        with pytest.raises(LabelRenderError) as exc_info:
+            assert_no_collisions([rendered, rendered])
+        message = str(exc_info.value)
+        assert "1 label(s)" in message
+
+    def test_layout_gate_aborts_before_packing(self) -> None:
+        """generate_layout_with_bounds aborts when any label collides."""
+        from plt_optimizer.generate.layout import generate_layout_with_bounds
+
+        clean = _label(text="HI", holes=[], width=2.0)
+        colliding = replace(_label(), id="bad_label")
+        with pytest.raises(LabelRenderError) as exc_info:
+            generate_layout_with_bounds([clean, colliding])
+        assert "bad_label" in str(exc_info.value)

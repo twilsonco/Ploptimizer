@@ -28,7 +28,11 @@ from typing import Optional
 
 import rectpack
 
-from plt_optimizer.generate.label_renderer import RenderedLabel, render_label_to_plt
+from plt_optimizer.generate.label_renderer import (
+    RenderedLabel,
+    assert_no_collisions,
+    render_label_to_plt,
+)
 from plt_optimizer.generate.resolution import ResolvedLabel
 from plt_optimizer.generate.schema import PlateSpec
 
@@ -476,9 +480,17 @@ def generate_layout_with_bounds(
         LayoutFitError: If constrained plates cannot fit all labels, or
             if a single rendered label exceeds the default 24x16 plate size
             in unbounded mode.
+        LabelRenderError: If any rendered label still overlaps a drill
+            hole after collision avoidance (all labels are rendered and
+            their ERROR diagnostics logged before aborting).
     """
     # Phase 2a: Render all unique labels and cache by ID
     rendered_labels = _render_labels_cache(resolved_labels)
+
+    # Job-level gate: unavoidable text-hole collisions are unacceptable.
+    # Every label has now been rendered (all per-label ERROR diagnostics
+    # printed), so abort before wasting time on packing.
+    assert_no_collisions(rendered_labels.values())
 
     # Phase 2b: Unroll labels using rendered dimensions.
     rectangles = unroll_labels_with_rendered_bounds(resolved_labels, rendered_labels)

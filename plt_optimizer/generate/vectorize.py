@@ -45,6 +45,7 @@ import vpype as vp
 from plt_optimizer.generate.ftext_renderer import render_text_line_ftext
 from plt_optimizer.generate.label_renderer import (
     RenderedLabel,
+    assert_no_collisions,
     compress_line_to_width,
     log_text_hole_collisions,
 )
@@ -373,7 +374,13 @@ def _render_text(
         # Margin precedence for width: compress over-wide lines so they
         # respect the inner content area (bounded by max_h_compress).
         available_width = inner_width - (2 * margin)
-        line_lc = compress_line_to_width(line_lc, available_width, max_h_compress, source_label.id)
+        line_lc = compress_line_to_width(
+            line_lc,
+            available_width,
+            max_h_compress,
+            source_label.id,
+            line_text=source_label.content[i].text,
+        )
         bounds = line_lc.bounds()
         if bounds is None:
             continue
@@ -1335,6 +1342,10 @@ def export_and_optimize(
             label_id = packed_label.source_label.id
             if label_id not in rendered_labels_map:
                 rendered_labels_map[label_id] = render_label_to_plt(packed_label.source_label)
+
+    # Job-level gate: abort once every label rendered (all per-label
+    # collision ERROR diagnostics printed first).
+    assert_no_collisions(rendered_labels_map.values())
 
     layer_names = {
         LAYER_TEXT: "text",

@@ -4,6 +4,11 @@ This module provides the generation pipeline for creating PLT files from
 YAML job specifications.
 """
 
+from plt_optimizer.generate.label_renderer import (
+    LabelRenderError,
+    RenderedLabel,
+    assert_no_collisions,
+)
 from plt_optimizer.generate.layout import (
     DEFAULT_PLATE_HEIGHT,
     DEFAULT_PLATE_WIDTH,
@@ -69,12 +74,14 @@ __all__ = [
     "LAYER_HOLES",
     "LAYER_TEXT",
     "LabelAttributes",
+    "LabelRenderError",
     "LabelSpec",
     "LayoutFitError",
     "POINTS_PER_INCH",
     "PackedLabel",
     "PackedPlate",
     "PlateSpec",
+    "RenderedLabel",
     "ResolvedHoleSpec",
     "ResolvedLabel",
     "ResolvedTextLine",
@@ -82,6 +89,7 @@ __all__ = [
     "TextLine",
     "TEXT_BLOCK_HEIGHT_PER_SIZE",
     "assemble_plt_from_rendered_labels",
+    "assert_no_collisions",
     "calculate_label_dimensions",
     "export_and_optimize",
     "export_and_optimize_phase3",

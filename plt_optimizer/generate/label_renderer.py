@@ -16,7 +16,7 @@ import re
 import tempfile
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
+from typing import Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 import vpype as vp
@@ -54,11 +54,13 @@ _LineEntry = Tuple[int, str, Tuple[float, float, float, float]]
 
 
 class LabelRenderError(Exception):
-    """Raised when a text-hole collision cannot be resolved.
+    """Raised to abort a job containing unavoidable text-hole collisions.
 
-    Emitted by :func:`render_label_to_plt` after both collision-avoidance
-    phases (hole-margin reduction and horizontal text compression) have
-    been exhausted without clearing the collision.
+    Emitted by :func:`assert_no_collisions` once every label in the job has
+    been rendered (so all per-label ERROR diagnostics were logged first)
+    and at least one label still overlaps a drill hole. Collisions are
+    unacceptable output; the job specification must be revised to avoid
+    them.
     """
 
 
@@ -158,7 +160,7 @@ def _log_collisions(label_id: str, collisions: Sequence[CollisionResult]) -> Non
         collisions: Collision results from :func:`_detect_text_hole_collisions`.
     """
     for collision in collisions:
-        logger.warning(
+        logger.error(
             "Label %s: text line %d (%r) collides with %s drill hole "
             "(index %d); penetration %.4fin.",
             label_id,
@@ -170,9 +172,29 @@ def _log_collisions(label_id: str, collisions: Sequence[CollisionResult]) -> Non
         )
 
 
+def _collision_line_desc(collisions: Sequence[CollisionResult]) -> str:
+    """Describe the distinct colliding text lines for log messages.
+
+    Args:
+        collisions: Collision results from :func:`_detect_text_hole_collisions`.
+
+    Returns:
+        A human-readable summary such as ``line 0 ('TOP/BOT DRILL')``, with
+        multiple distinct lines joined by ``"; "``. Empty string when there
+        are no collisions.
+    """
+    seen: List[str] = []
+    for collision in collisions:
+        desc = f"line {collision.line_index} ({collision.line_text!r})"
+        if desc not in seen:
+            seen.append(desc)
+    return "; ".join(seen)
+
+
 def _resolve_collision_via_margin_adjustment(
     label: ResolvedLabel,
     line_entries: Sequence[_LineEntry],
+    line_desc: str = "",
 ) -> Optional[ResolvedLabel]:
     """Phase 2: shrink ``hole_margin`` toward ``min_hole_margin`` (no re-render).
 
@@ -186,6 +208,8 @@ def _resolve_collision_via_margin_adjustment(
     Args:
         label: The label whose collision should be resolved.
         line_entries: Rendered text bounds from the initial render.
+        line_desc: Optional description of the offending text lines,
+            included in the resolution WARNING for informative output.
 
     Returns:
         A clone of ``label`` with a reduced ``hole_margin`` when one clears
@@ -205,10 +229,11 @@ def _resolve_collision_via_margin_adjustment(
         if not _detect_text_hole_collisions(candidate_label, line_entries):
             logger.warning(
                 "Label %s: adjusted hole_margin from %.4fin to %.4fin to "
-                "avoid text-hole collision (minimum allowed %.4fin).",
+                "avoid text-hole collision on %s (minimum allowed %.4fin).",
                 label.id,
                 label.hole_margin,
                 candidate,
+                line_desc or "colliding text",
                 floor,
             )
             return candidate_label
@@ -218,6 +243,7 @@ def _resolve_collision_via_margin_adjustment(
 def _resolve_collision_via_compression(
     label: ResolvedLabel,
     budget: float,
+    line_desc: str = "",
 ) -> Optional[ResolvedLabel]:
     """Phase 3: compress text horizontally until collisions clear.
 
@@ -232,6 +258,8 @@ def _resolve_collision_via_compression(
         budget: Maximum compression fraction in ``(0.0, 1.0]`` (the
             label-level ``max_h_compress`` budget, i.e. the minimum across
             all content lines).
+        line_desc: Optional description of the offending text lines,
+            included in the resolution WARNING for informative output.
 
     Returns:
         A clone of ``label`` with ``collision_compress`` set below ``1.0``
@@ -250,9 +278,10 @@ def _resolve_collision_via_compression(
         if not _detect_text_hole_collisions(candidate_label, candidate_entries):
             logger.warning(
                 "Label %s: compressed text horizontally to %.1f%% width to "
-                "avoid text-hole collision (max_h_compress budget %.2f).",
+                "avoid text-hole collision on %s (max_h_compress budget %.2f).",
                 label.id,
                 scale * 100.0,
+                line_desc or "colliding text",
                 budget,
             )
             return candidate_label
@@ -289,6 +318,16 @@ def _format_unresolvable_collision(
         f"{collision.hole_location} hole (penetration {-collision.gap:.4f}in)"
         for collision in collisions
     )
+    if label.min_hole_margin is None and budget <= 0.0:
+        advice = (
+            "enable collision avoidance (set min_hole_margin and/or "
+            "max_h_compress), increase label width, or reduce text height."
+        )
+    else:
+        advice = (
+            "increase label width, reduce text height, lower "
+            "min_hole_margin, or increase max_h_compress."
+        )
     return (
         f"Label {label.id}: text-hole collision cannot be resolved.\n"
         f"- Collisions: {details}\n"
@@ -297,8 +336,7 @@ def _format_unresolvable_collision(
         f"- Compression: max_h_compress={budget:.2f} applied, still insufficient "
         f"(most aggressive text scale {scale_text})\n"
         f"- Worst penetration: {-worst_gap:.4f}in\n"
-        "- Recommendations: increase label width, reduce text height, lower "
-        "min_hole_margin, or increase max_h_compress."
+        f"- Recommendations: {advice}"
     )
 
 
@@ -327,6 +365,38 @@ def log_text_hole_collisions(label: ResolvedLabel) -> List[CollisionResult]:
     return collisions
 
 
+def assert_no_collisions(rendered_labels: Iterable[RenderedLabel]) -> None:
+    """Abort a job when any rendered label still overlaps a drill hole.
+
+    Text-hole collisions are unacceptable output: the job specification
+    must be revised to avoid them. Each offending label already received
+    its per-label ERROR diagnostics during :func:`render_label_to_plt`;
+    this gate runs once *after* every label in the job has been rendered
+    (so all errors were printed) and raises a single job-level error.
+
+    Args:
+        rendered_labels: All RenderedLabel objects produced for the job
+            (typically the render cache's values).
+
+    Raises:
+        LabelRenderError: If at least one rendered label reports
+            :attr:`RenderedLabel.has_collisions`.
+    """
+    offending: List[str] = []
+    for rendered in rendered_labels:
+        label_id = rendered.source_label.id
+        if rendered.has_collisions and label_id not in offending:
+            offending.append(label_id)
+    if not offending:
+        return
+    raise LabelRenderError(
+        f"Job aborted: {len(offending)} label(s) have unavoidable text-hole "
+        f"collisions and must be revised: {', '.join(offending)}. "
+        "See the per-label ERROR messages above for the offending text "
+        "lines and drill holes."
+    )
+
+
 def render_label_to_plt(label: ResolvedLabel) -> RenderedLabel:
     """Render a label independently to HPGL format and extract bounds.
 
@@ -346,13 +416,12 @@ def render_label_to_plt(label: ResolvedLabel) -> RenderedLabel:
        uniformly compressed horizontally (stacked on top of any Phase 2
        margin reduction) until the collisions clear.
 
-    The render aborts with :class:`LabelRenderError` only when the
-    dedicated collision-avoidance knob (``min_hole_margin``) is set and no
-    enabled phase could clear the collision. ``max_h_compress`` is a shared
-    margin-fitting knob often set job-wide, so a failed compression sweep
-    alone (without ``min_hole_margin``) degrades to the log-only behaviour
-    instead of aborting -- some collisions (e.g. top/bottom holes) are
-    geometrically unfixable by horizontal compression.
+    A collision that no enabled phase can clear is logged at ERROR level
+    with full diagnostics (label id, offending text lines, holes, and
+    penetration) and flagged via ``has_collisions=True``. Collisions are
+    unacceptable output: the job-level gate :func:`assert_no_collisions`
+    aborts the run with :class:`LabelRenderError` once every label has
+    been rendered, so all offending labels report before the job stops.
 
     Args:
         label: The ResolvedLabel to render (text, borders, holes).
@@ -367,9 +436,6 @@ def render_label_to_plt(label: ResolvedLabel) -> RenderedLabel:
 
     Raises:
         ValueError: If bounds cannot be extracted from rendered PLT.
-        LabelRenderError: If a text-hole collision was detected,
-            ``min_hole_margin`` was configured, and no enabled phase
-            could clear it.
     """
     rendered, line_entries = _render_label_once(label)
     collisions = _detect_text_hole_collisions(label, line_entries)
@@ -380,12 +446,13 @@ def render_label_to_plt(label: ResolvedLabel) -> RenderedLabel:
     _log_collisions(label.id, collisions)
 
     base_label: ResolvedLabel = label
-    resolution_attempted = False
+    line_desc = _collision_line_desc(collisions)
 
     # ---- Phase 2: reduce hole_margin toward min_hole_margin ----
     if label.min_hole_margin is not None:
-        resolution_attempted = True
-        margin_label = _resolve_collision_via_margin_adjustment(label, line_entries)
+        margin_label = _resolve_collision_via_margin_adjustment(
+            label, line_entries, line_desc=line_desc
+        )
         if margin_label is not None:
             resolved_rendered, _ = _render_label_once(margin_label)
             return resolved_rendered
@@ -401,8 +468,9 @@ def render_label_to_plt(label: ResolvedLabel) -> RenderedLabel:
     budget = min((line.max_h_compress for line in label.content), default=0.0)
     attempted_scale: Optional[float] = None
     if budget > 0.0:
-        resolution_attempted = True
-        compressed_label = _resolve_collision_via_compression(base_label, budget)
+        compressed_label = _resolve_collision_via_compression(
+            base_label, budget, line_desc=line_desc
+        )
         if compressed_label is not None:
             resolved_rendered, _ = _render_label_once(compressed_label)
             return resolved_rendered
@@ -414,24 +482,11 @@ def render_label_to_plt(label: ResolvedLabel) -> RenderedLabel:
         collisions = _detect_text_hole_collisions(final_label, final_entries)
         base_label = final_label
 
-    if resolution_attempted and label.min_hole_margin is not None:
-        raise LabelRenderError(
-            _format_unresolvable_collision(base_label, collisions, attempted_scale)
-        )
-
-    if resolution_attempted:
-        logger.warning(
-            "Label %s: text-hole collision left unresolved; horizontal "
-            "compression could not clear it. Set min_hole_margin to enable "
-            "hole-margin reduction (required for top/bottom hole collisions).",
-            label.id,
-        )
-    else:
-        logger.warning(
-            "Label %s: text-hole collision left unresolved; collision avoidance "
-            "is disabled (set min_hole_margin and/or max_h_compress to enable).",
-            label.id,
-        )
+    # ---- Unresolvable: collisions are unacceptable output ----
+    # Log the full diagnostics at ERROR level and flag the render. The
+    # job-level gate (assert_no_collisions) aborts the run once every
+    # label has been rendered, so all offending labels report first.
+    logger.error("%s", _format_unresolvable_collision(base_label, collisions, attempted_scale))
     return replace(rendered, has_collisions=True)
 
 
@@ -1469,6 +1524,7 @@ def compress_line_to_width(
     available_width: float,
     max_h_compress: float,
     label_id: str,
+    line_text: Optional[str] = None,
 ) -> vp.LineCollection:
     """Uniformly compress a rendered text line horizontally to fit the margin box.
 
@@ -1487,6 +1543,8 @@ def compress_line_to_width(
             both margins).
         max_h_compress: Maximum compression fraction in ``[0.0, 1.0]``.
         label_id: Identifier used in log messages.
+        line_text: Optional rendered text of the line, included in log
+            messages so warnings identify the offending line.
 
     Returns:
         The original collection when no compression is needed or allowed,
@@ -1503,12 +1561,14 @@ def compress_line_to_width(
         return line_lc
 
     compressed_width = rendered_width * scale
+    line_desc = f" {line_text!r}" if line_text is not None else ""
     if compressed_width > available_width + 1e-9:
         logger.warning(
-            "Label %s: text line compressed to %.1f%% (%.3fin -> %.3fin) but "
+            "Label %s: text line%s compressed to %.1f%% (%.3fin -> %.3fin) but "
             "still exceeds the available inner width (%.3fin); increase "
             "max_h_compress, widen the label, or reduce margin.",
             label_id,
+            line_desc,
             scale * 100.0,
             rendered_width,
             compressed_width,
@@ -1516,9 +1576,10 @@ def compress_line_to_width(
         )
     else:
         logger.warning(
-            "Label %s: text line horizontally compressed to fit margin (%.3fin "
-            "-> %.3fin, scale %.3f).",
+            "Label %s: text line%s horizontally compressed to fit margin "
+            "(%.3fin -> %.3fin, scale %.3f).",
             label_id,
+            line_desc,
             rendered_width,
             compressed_width,
             scale,
@@ -1725,7 +1786,13 @@ def _render_text_local_with_bounds(
         # Margin precedence for width: compress over-wide lines so they
         # respect the inner content area (bounded by max_h_compress).
         available_width = inner_width - (2 * margin)
-        filtered_lc = compress_line_to_width(filtered_lc, available_width, max_h_compress, label.id)
+        filtered_lc = compress_line_to_width(
+            filtered_lc,
+            available_width,
+            max_h_compress,
+            label.id,
+            line_text=label.content[line_index].text,
+        )
         bounds = filtered_lc.bounds()
         if bounds is None:  # pragma: no cover - measured in first pass
             continue

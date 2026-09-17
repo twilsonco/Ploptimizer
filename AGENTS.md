@@ -136,17 +136,21 @@ collision). Detection runs in the label-local y-up frame, shifted by
 - **Phase 2 (opt-in via `min_hole_margin`):** sweep `hole_margin` toward the
   floor (analytical — hole positions are pure functions of `hole_margin`);
   on success re-render from the adjusted label clone and log WARNING with
-  before/after margins. (Any geometry-altering avoidance action — margin
-  reduction or collision compression — always logs at WARNING.)
+  before/after margins and the offending text line. (Any geometry-altering
+  avoidance action — margin reduction or collision compression — always logs
+  at WARNING and names the label id plus the affected text line.)
 - **Phase 3 (opt-in via `max_h_compress`):** if margins cannot clear the
   overlap, sweep a uniform horizontal compression (`collision_compress` on
   `ResolvedLabel`, applied before margin-driven compression) up to the line
   budget floor `1 - max_h_compress`. Stacks on top of the Phase 2 floor.
-- **Failure semantics:** `LabelRenderError` (with diagnostics) is raised only
-  when `min_hole_margin` is set and resolution failed. Compression-only
-  failure logs a WARNING and returns the unmodified render with
-  `has_collisions=True` (top/bottom hole collisions are geometrically
-  unfixable by horizontal compression).
+- **Failure semantics (collisions are unacceptable):** when no enabled phase
+  clears a collision, `render_label_to_plt` logs the full diagnostics at
+  ERROR (label id, offending lines, holes, penetrations, recommendations)
+  and returns the render flagged `has_collisions=True`. The job-level gate
+  `assert_no_collisions()` — wired into `layout.generate_layout_with_bounds`
+  and `vectorize.export_and_optimize` — raises `LabelRenderError` once every
+  label has been rendered (so all per-label ERRORs print first), naming
+  every offending label id. The jobspec must then be revised.
 - Adjusted label clones propagate to downstream rendering via
   `RenderedLabel.source_label` (consumed by `layout.unroll_labels_with_rendered_bounds`).
 
