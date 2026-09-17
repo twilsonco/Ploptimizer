@@ -91,7 +91,7 @@ job:
       width: 5.0
       height: 1.5
       content:
-        - text: "SAFETY long long long text"
+        - text: "SAFETY horizontally compressed text"
           text_height: 0.5
         - text: "FIRST"
           text_height: 0.25
