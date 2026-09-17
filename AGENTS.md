@@ -35,3 +35,71 @@ Testing is not an afterthought; it is a primary deliverable.
 ## 5. Python 3.8 (Windows 7) compatibility requirement for watch directory function
 * **Watch Directory Function:** Ensure that the directory watching mechanism works correctly on Python 3.8 running on Windows 7. Avoid using features introduced in later Python versions. Test the function thoroughly on the target environment to confirm compatibility.
 * **Plotting and development:** Plotting and benchmarking is not necessary to run on Windows 7, so this constraint only applies to the watch directory function and core operational logic. Development tools that require newer Python versions can be used for plotting and benchmarking on other environments.
+
+## 6. YAML Job Specification & Label Generation Schema
+
+### Overview
+The `plt_optimizer/generate/schema.py` module defines the complete data contract for label generation jobs via YAML specifications. All models use **Pydantic** for validation and inherit from typed base classes supporting cascading attributes.
+
+### Core Data Model
+
+**Inheritance Hierarchy (Top-Down Cascade):**
+```
+JobSpec (job-level defaults)
+  ├── LabelSpec (per-label overrides)
+  │   └── TextLine (individual text rendering)
+  └── PlateSpec (material sheet definitions)
+```
+
+**TextAttributes** (cascades to TextLine):
+- `text_height`: Font height in inches
+- `character_spacing`: Extra spacing between characters
+- `line_spacing`: Extra spacing between text lines
+
+**LabelAttributes** (extends TextAttributes, cascades to LabelSpec only):
+- `width`, `height`, `margin`: Label dimensions & safety margins
+- `hole_margin`: Distance from hole edge to label edge (cascades: label → plate → job)
+- `holes`: List of `HoleSpec` objects (diameter + location enum)
+
+### Key Classes
+
+| Class | Purpose | Validation Rules |
+|-------|---------|------------------|
+| `JobSpec` | Root job container | Requires either `labels` list OR root-level `content` (mutually exclusive) |
+| `LabelSpec` | Individual label definition | `count >= 1`, `content` (min 1 TextLine) |
+| `TextLine` | Text content unit | Requires non-empty `text` string |
+| `PlateSpec` | Physical sheet definition | All dimensions `>= 0`, includes `clearance_padding` |
+| `HoleSpec` | Drilled hole definition | Diameter + location (8 enum values: corners + edges) |
+| `parse_yaml()` | Entry point | Returns validated `JobSpec` or raises `ValueError` |
+
+### Job Specification Patterns
+
+**Pattern 1: Explicit Labels List**
+```yaml
+job:
+  job_name: "Batch 01"
+  text_height: 0.5
+  labels:
+    - id: "label_1"
+      count: 10
+      content:
+        - text: "Line 1"
+        - text: "Line 2"
+```
+
+**Pattern 2: Root-Level Single Label** (auto-repeated via `count`)
+```yaml
+job:
+  job_name: "Simple Labels"
+  count: 20
+  content:
+    - text: "Single repeating label"
+```
+
+### Cascading Resolution
+When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default.
+
+### Integration Points
+- `parse_yaml(file_path)` returns a `JobSpec` ready for downstream bin-packing and rendering pipelines
+- All numeric fields support Pydantic's `ge` (greater-than-or-equal) validators for safety
+- Use `job.labels` or synthesize from root-level `content` + `count` when processing
