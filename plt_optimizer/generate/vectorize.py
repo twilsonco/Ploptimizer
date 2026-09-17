@@ -460,7 +460,7 @@ def _flip_y_coordinates(doc: vp.Document, plate_height: float) -> vp.Document:
 def _render_label_to_doc(packed_label: PackedLabel, doc: vp.Document) -> None:
     """Render a single packed label into the appropriate layers of a document.
 
-    Text-hole collisions are detected and logged (WARNING) for labels with
+    Text-hole collisions are detected and logged (ERROR) for labels with
     drill holes, mirroring Phase 1 of ``render_label_to_plt``. This path is
     purely observational: no margin or compression adjustments are applied
     here -- resolution happens once, upstream, during label rendering.

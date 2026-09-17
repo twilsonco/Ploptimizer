@@ -235,6 +235,7 @@ class TestCLIIntegration:
             spec = spec_file
             output = None
             verbose = False
+            tools = Path("tools.json")
 
         result = run(MockArgs())
         assert result == 0

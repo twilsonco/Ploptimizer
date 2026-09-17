@@ -887,8 +887,8 @@ class TestRenderTextHorizontalAlignment:
 class TestVectorizeCollisionLogging:
     """``_render_label_to_doc`` must surface text-hole collisions (Phase 1)."""
 
-    def test_colliding_label_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Rendering a colliding label to a doc logs a collision WARNING."""
+    def test_colliding_label_logs_error(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Rendering a colliding label to a doc logs a collision ERROR."""
         import logging
 
         label = _make_label(
@@ -910,14 +910,14 @@ class TestVectorizeCollisionLogging:
         plate = PackedPlate(plate_id="p1", width=12.0, height=8.0, labels=[_make_packed(label)])
 
         with caplog.at_level(
-            logging.WARNING, logger="plt_optimizer.generate.label_renderer"
+            logging.ERROR, logger="plt_optimizer.generate.label_renderer"
         ):
             vectorize_plate(plate)
 
         assert any("collides with" in r.message for r in caplog.records)
 
     def test_clean_label_logs_nothing(self, caplog: pytest.LogCaptureFixture) -> None:
-        """A label whose text clears its holes logs no collision warning."""
+        """A label whose text clears its holes logs no collision error."""
         import logging
 
         label = _make_label(

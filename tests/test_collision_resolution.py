@@ -99,6 +99,7 @@ class TestMarginAdjustment:
         rendered = render_label_to_plt(label)
 
         assert rendered.has_collisions is False
+        assert rendered.collision_detected is True
         adjusted = rendered.source_label
         assert adjusted is not label
         assert 0.0 <= adjusted.hole_margin < label.hole_margin
@@ -178,6 +179,7 @@ class TestCompressionFallback:
         rendered = render_label_to_plt(label)
 
         assert rendered.has_collisions is False
+        assert rendered.collision_detected is True
         adjusted = rendered.source_label
         assert adjusted.collision_compress < 1.0
         # Never compress below the configured budget floor (1 - 0.7).
@@ -228,6 +230,7 @@ class TestCompressionFallback:
         assert adjusted.hole_margin < 0.1875
         assert adjusted.collision_compress < 1.0
         assert rendered.has_collisions is False
+        assert rendered.collision_detected is True
 
     def test_compression_helper_returns_none_at_floor(self) -> None:
         """A label already at the compression floor cannot compress more."""
@@ -244,7 +247,11 @@ class TestCompressionFallback:
             rendered = render_label_to_plt(label)
 
         assert rendered.has_collisions is True
-        errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        errors = [
+            r
+            for r in caplog.records
+            if r.levelno >= logging.ERROR and "cannot be resolved" in r.getMessage()
+        ]
         assert errors, "No ERROR logged for unresolvable collision"
         message = errors[0].getMessage()
         assert "resolve_label" in message
@@ -280,7 +287,19 @@ class TestJobLevelAbort:
         with pytest.raises(LabelRenderError) as exc_info:
             assert_no_collisions([rendered])
         assert "resolve_label" in str(exc_info.value)
-        assert "unavoidable" in str(exc_info.value)
+        assert "jobspec must be revised" in str(exc_info.value)
+
+    def test_avoidance_repaired_collision_still_aborts(self) -> None:
+        """A collision repaired by avoidance is still unacceptable output."""
+        label = _label(text="HELLO", holes=BOTTOM_HOLE, min_hole_margin=0.0)
+        rendered = render_label_to_plt(label)
+        # Avoidance succeeded (final render is clean) but the collision was
+        # detected, so the jobspec must still be revised.
+        assert rendered.has_collisions is False
+        assert rendered.collision_detected is True
+        with pytest.raises(LabelRenderError) as exc_info:
+            assert_no_collisions([rendered])
+        assert "resolve_label" in str(exc_info.value)
 
     def test_abort_names_each_offending_label_once(self) -> None:
         """Duplicate renders of the same label are reported once."""

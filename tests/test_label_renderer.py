@@ -1188,23 +1188,25 @@ class TestCollisionDetectionPhase1:
         label = _make_collision_label(text="HI")
         rendered = render_label_to_plt(label)
         assert rendered.has_collisions is False
+        assert rendered.collision_detected is False
 
     def test_full_width_text_flags_collision(self) -> None:
         """A full-width line overlapping a left-edge hole sets the flag."""
         label = _make_collision_label()
         rendered = render_label_to_plt(label)
         assert rendered.has_collisions is True
+        assert rendered.collision_detected is True
 
     def test_collision_logged_with_label_id_and_hole_location(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """WARNING logs must name the label, line index, and hole location."""
+        """ERROR logs must name the label, line index, and hole location."""
         label = _make_collision_label()
-        with caplog.at_level(logging.WARNING, logger="plt_optimizer.generate.label_renderer"):
+        with caplog.at_level(logging.ERROR, logger="plt_optimizer.generate.label_renderer"):
             render_label_to_plt(label)
 
         messages = [r.message for r in caplog.records if "collides with" in r.message]
-        assert messages, "No collision warning logged"
+        assert messages, "No collision error logged"
         joined = "\n".join(messages)
         assert "collision_label" in joined
         assert "text line 0" in joined
@@ -1225,6 +1227,7 @@ class TestCollisionDetectionPhase1:
         label = _make_collision_label(holes=[])
         rendered = render_label_to_plt(label)
         assert rendered.has_collisions is False
+        assert rendered.collision_detected is False
 
     def test_avoidance_disabled_keeps_render_unmodified(self) -> None:
         """Without min_hole_margin/max_h_compress the render passes through."""

@@ -129,10 +129,12 @@ collision). Detection runs in the label-local y-up frame, shifted by
 `height / 2` to match export centering; Y-flip is intersection-invariant.
 
 - **Phase 1 (always on, observational):** `_detect_text_hole_collisions()`
-  flags per-(line, hole) penetrations and logs a WARNING with label id, line
-  index, hole location, and measured gap. `RenderedLabel.has_collisions`
-  marks renders that still collide after resolution. `vectorize.py` calls the
-  observational `log_text_hole_collisions()` per label.
+  flags per-(line, hole) penetrations and logs an ERROR with label id, line
+  index, hole location, and measured gap. `RenderedLabel.collision_detected`
+  marks any render where a collision was found (even if a later phase fixed
+  it) and `RenderedLabel.has_collisions` marks renders that still collide
+  after resolution. `vectorize.py` calls the observational
+  `log_text_hole_collisions()` per label.
 - **Phase 2 (opt-in via `min_hole_margin`):** sweep `hole_margin` toward the
   floor (analytical — hole positions are pure functions of `hole_margin`);
   on success re-render from the adjusted label clone and log WARNING with
@@ -143,14 +145,18 @@ collision). Detection runs in the label-local y-up frame, shifted by
   overlap, sweep a uniform horizontal compression (`collision_compress` on
   `ResolvedLabel`, applied before margin-driven compression) up to the line
   budget floor `1 - max_h_compress`. Stacks on top of the Phase 2 floor.
-- **Failure semantics (collisions are unacceptable):** when no enabled phase
-  clears a collision, `render_label_to_plt` logs the full diagnostics at
-  ERROR (label id, offending lines, holes, penetrations, recommendations)
-  and returns the render flagged `has_collisions=True`. The job-level gate
-  `assert_no_collisions()` — wired into `layout.generate_layout_with_bounds`
-  and `vectorize.export_and_optimize` — raises `LabelRenderError` once every
+- **Failure semantics (collisions are unacceptable):** every detected
+  collision logs an ERROR naming the label id, offending text line, and hole.
+  When no enabled phase clears a collision, `render_label_to_plt` adds full
+  diagnostics (penetrations, margin/compression state, recommendations) at
+  ERROR and flags `has_collisions=True`. Either way the render is flagged
+  `collision_detected=True`, and the job-level gate `assert_no_collisions()`
+  — wired into `layout.generate_layout_with_bounds` and
+  `vectorize.export_and_optimize` — raises `LabelRenderError` once every
   label has been rendered (so all per-label ERRORs print first), naming
-  every offending label id. The jobspec must then be revised.
+  every offending label id. Avoidance repairing a collision does **not**
+  excuse it: the jobspec must be revised. The `generate` CLI surfaces the
+  abort as a non-zero exit code.
 - Adjusted label clones propagate to downstream rendering via
   `RenderedLabel.source_label` (consumed by `layout.unroll_labels_with_rendered_bounds`).
 
