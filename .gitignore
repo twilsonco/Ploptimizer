@@ -13,7 +13,12 @@ build
 dist
 
 *_benchmark
+
+# runtime artifacts
 logs/optimizer.log
-logs/job_metrics.csv
+logs_optimize/optimizer.log
+generate.log
+job_metrics.csv
+.coverage
 
 *_output
