@@ -8,6 +8,7 @@ import pytest
 
 from plt_optimizer.generate.resolution import (
     DEFAULT_CHAR_SPACING,
+    DEFAULT_HOLE_MARGIN,
     DEFAULT_LINE_SPACING,
     DEFAULT_MARGIN,
     DEFAULT_TEXT_HEIGHT,
@@ -404,6 +405,88 @@ class TestHoleResolution:
         )
         labels = resolve_job_spec(job)
         assert labels[0].holes == []
+
+
+class TestHoleMarginResolution:
+    """Tests for the hole_margin inheritance cascade."""
+
+    def test_default_hole_margin_when_unset(self) -> None:
+        """hole_margin should fall back to the global default."""
+        job = JobSpec(
+            job_name="HM",
+            labels=[
+                LabelSpec(id="lbl", count=1, width=2.0, height=1.0, content=[TextLine(text="X")]),
+            ],
+        )
+        labels = resolve_job_spec(job)
+        assert math.isclose(labels[0].hole_margin, DEFAULT_HOLE_MARGIN)
+
+    def test_job_hole_margin_used_when_label_omits(self) -> None:
+        """Job-level hole_margin should apply when the label omits it."""
+        job = JobSpec(
+            job_name="HM",
+            hole_margin=0.25,
+            labels=[
+                LabelSpec(id="lbl", count=1, width=2.0, height=1.0, content=[TextLine(text="X")]),
+            ],
+        )
+        labels = resolve_job_spec(job)
+        assert math.isclose(labels[0].hole_margin, 0.25)
+
+    def test_label_hole_margin_overrides_job(self) -> None:
+        """Label-level hole_margin should take precedence over the job."""
+        job = JobSpec(
+            job_name="HM",
+            hole_margin=0.25,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    count=1,
+                    width=2.0,
+                    height=1.0,
+                    hole_margin=0.5,
+                    content=[TextLine(text="X")],
+                ),
+            ],
+        )
+        labels = resolve_job_spec(job)
+        assert math.isclose(labels[0].hole_margin, 0.5)
+
+    def test_explicit_zero_hole_margin_is_honored(self) -> None:
+        """An explicit hole_margin of 0.0 must not fall through to the default.
+
+        A zero margin means the hole circle is tangent to the label edge,
+        which is a valid and intentional configuration.
+        """
+        job = JobSpec(
+            job_name="HM",
+            hole_margin=0.25,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    count=1,
+                    width=2.0,
+                    height=1.0,
+                    hole_margin=0.0,
+                    content=[TextLine(text="X")],
+                ),
+            ],
+        )
+        labels = resolve_job_spec(job)
+        assert math.isclose(labels[0].hole_margin, 0.0)
+
+    def test_negative_hole_margin_rejected(self) -> None:
+        """Negative hole_margin values must fail schema validation."""
+        with pytest.raises(Exception):
+            JobSpec(
+                job_name="HM",
+                hole_margin=-0.1,
+                labels=[
+                    LabelSpec(
+                        id="lbl", count=1, width=2.0, height=1.0, content=[TextLine(text="X")]
+                    ),
+                ],
+            )
 
 
 class TestAutoSizing:

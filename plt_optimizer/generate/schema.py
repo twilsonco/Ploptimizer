@@ -86,12 +86,17 @@ class LabelAttributes(TextAttributes):
         width: Optional label width in inches.
         height: Optional label height in inches.
         margin: Optional margin in inches.
+        hole_margin: Optional hole margin in inches. The closest point of a
+            hole circle to the label edge will be this far from the edge.
+            Cascades job -> plate -> label (label overrides plate overrides
+            job).
         holes: Optional list of hole specifications.
     """
 
     width: Optional[float] = Field(default=None, ge=0.0)
     height: Optional[float] = Field(default=None, ge=0.0)
     margin: Optional[float] = Field(default=None, ge=0.0)
+    hole_margin: Optional[float] = Field(default=None, ge=0.0)
     holes: Optional[list[HoleSpec]] = None
 
 
@@ -152,6 +157,12 @@ class PlateSpec(BaseModel):
         width: Total width of the plate in inches.
         height: Total height of the plate in inches.
         margin: Safety margin around plate edges in inches.
+        hole_margin: Optional hole margin in inches. Accepted for schema
+            parity with the job/label ``hole_margin`` cascade. NOTE: labels
+            are rendered once and cached before bin-packing (and a single
+            label may span multiple plates), so a per-plate value is not
+            currently applied during rendering; the effective value is
+            resolved from the label -> job -> default cascade.
         clearance_padding: Padding between adjacent labels in inches.
     """
 
@@ -159,6 +170,9 @@ class PlateSpec(BaseModel):
     width: float = Field(ge=0.0, description="Plate width in inches (must be >= 0).")
     height: float = Field(ge=0.0, description="Plate height in inches (must be >= 0).")
     margin: float = Field(ge=0.0, description="Safety margin in inches (must be >= 0).")
+    hole_margin: Optional[float] = Field(
+        default=None, ge=0.0, description="Hole margin in inches (must be >= 0)."
+    )
     clearance_padding: float = Field(
         ge=0.0, description="Padding between labels in inches (must be >= 0)."
     )

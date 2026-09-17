@@ -40,6 +40,7 @@ DEFAULT_TEXT_HEIGHT: float = 0.25
 DEFAULT_MARGIN: float = 0.125
 DEFAULT_CHAR_SPACING: float = 0.05
 DEFAULT_LINE_SPACING: float = 0.1
+DEFAULT_HOLE_MARGIN: float = 0.1875
 
 # ---------------------------------------------------------------------------
 # Cutter lookup table and inventory matching
@@ -175,6 +176,11 @@ class ResolvedLabel:
         width: Label width in inches (never None).
         height: Label height in inches (never None).
         margin: Label margin in inches.
+        hole_margin: Hole margin in inches. The closest point of a hole
+            circle to the label edge sits this far from the edge. Defaults
+            to 0.0 (circle tangent to the edge) for manually constructed
+            labels; the resolution engine always populates the cascaded
+            value.
         holes: List of resolved hole specifications.
         content: List of resolved text lines.
     """
@@ -184,6 +190,7 @@ class ResolvedLabel:
     width: float
     height: float
     margin: float
+    hole_margin: float = 0.0
     holes: list[ResolvedHoleSpec] = field(default_factory=list)
     content: list[ResolvedTextLine] = field(default_factory=list)
 
@@ -448,6 +455,15 @@ def _resolve_label(
     # Resolve label-level styles (Label -> Job -> Fallback)
     label_margin: float = label_input.margin or job.margin or DEFAULT_MARGIN
 
+    # Resolve hole margin explicitly so an intentional ``0.0`` (hole tangent
+    # to the edge) is honored instead of falling through to the default.
+    if label_input.hole_margin is not None:
+        label_hole_margin: float = label_input.hole_margin
+    elif job.hole_margin is not None:
+        label_hole_margin = job.hole_margin
+    else:
+        label_hole_margin = DEFAULT_HOLE_MARGIN
+
     # Resolve text lines with cutter compensation
     resolved_content = _resolve_content(label_input, job, available_cutters, tolerance_factor)
 
@@ -478,6 +494,7 @@ def _resolve_label(
         width=final_width,
         height=final_height,
         margin=label_margin,
+        hole_margin=label_hole_margin,
         holes=resolved_holes,
         content=resolved_content,
     )

@@ -1038,7 +1038,7 @@ def translate_plt_coordinates(plt_content: str, dx: float, dy: float) -> str:
     import re
 
     def translate_coordinates(match: re.Match[str]) -> str:
-        """Translate coordinates within a PA/PU/PD command."""
+        """Translate coordinates within a PA/PU/PD/AA command."""
         cmd = match.group(1)
         coords_str = match.group(2)
         parts = coords_str.split(",")
@@ -1047,16 +1047,18 @@ def translate_plt_coordinates(plt_content: str, dx: float, dy: float) -> str:
             translated_parts = []
             for i, part in enumerate(parts):
                 val = int(part)
-                if i % 2 == 0:  # x coordinate
-                    translated_val = val + dx_units
+                # AA carries a trailing sweep angle that must not be shifted.
+                if cmd == "AA" and i >= 2:
+                    translated_parts.append(str(val))
+                elif i % 2 == 0:  # x coordinate
+                    translated_parts.append(str(val + dx_units))
                 else:  # y coordinate
-                    translated_val = val + dy_units
-                translated_parts.append(str(translated_val))
+                    translated_parts.append(str(val + dy_units))
             return f"{cmd}{','.join(translated_parts)}"
         except (ValueError, IndexError):
             return match.group(0)
 
-    coord_pattern = r"(PA|PU|PD)([\d,\-]+)"
+    coord_pattern = r"(PA|PU|PD|AA)([\d,\-]+)"
     return re.sub(coord_pattern, translate_coordinates, plt_content)
 
 

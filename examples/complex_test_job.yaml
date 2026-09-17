@@ -7,6 +7,7 @@
 #   - Auto-sizing (bounding-box calculation) mixed with fixed dimensions
 #   - Job-level hole inheritance, label-level hole overrides, and holes: []
 #     suppression of inherited holes
+#   - hole_margin cascade: job-level default inset plus a label-level override
 #   - High-count volume labels forcing overflow onto the second plate
 #
 # Run with: python run_integration_test.py examples/complex_test_job.yaml
@@ -21,9 +22,7 @@ job:
   character_spacing: 0.04
   line_spacing: 0.3
   margin: 0.15
-  holes:
-    - diameter: 0.125
-      location: bottom-left
+  hole_margin: 0.1875
 
   # ---------------------------------------------------------------------
   # Constrained mode: exactly these two sheets are available. Total label
@@ -89,12 +88,14 @@ job:
         - text: "ZERO HARM ZONE"
           text_height: 0.125
 
-    # 4. All four corner hole locations with mixed diameters.
+    # 4. All four corner hole locations with mixed diameters. The explicit
+    #    hole_margin overrides the job-level default for this label only.
     - id: corner_drill
       count: 8
       width: 2.5
       height: 2.0
       text_height: 0.4
+      hole_margin: 0.35
       content:
         - text: "DRILL"
         - text: "PATTERN"

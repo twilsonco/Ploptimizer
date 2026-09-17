@@ -58,6 +58,65 @@ class TestTranslatePltCoordinates:
         # -1.0 inch = -1000 units, -0.5 inch = -500 units
         assert "1000,1500" in result  # (2000-1000, 2000-500)
 
+    def test_translate_arc_center_but_not_sweep(self) -> None:
+        """AA centers translate; the trailing sweep angle must not."""
+        plt_content = "PU1000,0;PD1000,0;AA1000,2000,90"
+        result = translate_plt_coordinates(plt_content, 1.0, 0.5)
+
+        # Center shifts by (1000, 500); the 90-degree sweep is untouched.
+        assert "AA2000,2500,90" in result
+        assert "PU2000,500" in result
+
+    def test_assembled_arcs_land_at_packed_positions(self) -> None:
+        """Holes must follow their label when assembled onto a plate."""
+        from plt_optimizer.core.models import ArcSegment
+        from plt_optimizer.core.parser import PLTParser
+        from plt_optimizer.generate.resolution import ResolvedHoleSpec
+
+        label = ResolvedLabel(
+            id="arc_label",
+            count=1,
+            width=2.0,
+            height=1.0,
+            margin=0.1,
+            hole_margin=0.1875,
+            holes=[ResolvedHoleSpec(diameter=0.125, location="bottom-left")],
+            content=[],
+        )
+        rendered = render_label_to_plt(label)
+
+        plate = PackedPlate(plate_id="p1", width=24.0, height=16.0)
+        plate.labels.append(
+            PackedLabel(
+                label_id="arc_label_0",
+                x=5.0,
+                y=3.0,
+                width=rendered.width,
+                height=rendered.height,
+                rotated=False,
+                source_label=label,
+            )
+        )
+
+        assembled = assemble_plt_from_rendered_labels(plate, {label.id: rendered})
+        doc = PLTParser().parse_string(assembled)
+
+        arcs = [
+            seg
+            for path in doc.stroke_paths
+            for seg in path.segments
+            if isinstance(seg, ArcSegment)
+        ]
+        assert arcs, "Assembled plate lost the drill-hole arcs"
+        # Local center x = hole_margin + radius = 0.25; the device-convention
+        # Y flip mirrors it to 1.0 - 0.25 = 0.75. Adding the packed offset
+        # (5.0, 3.0) gives the expected plate position.
+        centers = {(round(a.center.x / 1000, 2), round(a.center.y / 1000, 2)) for a in arcs}
+        assert len(centers) == 1
+        center_x, center_y = centers.pop()
+        assert center_x == pytest.approx(5.25, abs=0.01)
+        assert center_y == pytest.approx(3.75, abs=0.01)
+
 
 class TestAssemblePltFromRenderedLabels:
     """Tests for PLT assembly from rendered labels."""

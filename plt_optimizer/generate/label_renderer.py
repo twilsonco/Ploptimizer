@@ -11,11 +11,12 @@ and postprocessing that was causing edge cases (e.g., label 3 centering bug).
 from __future__ import annotations
 
 import logging
+import math
 import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 import vpype as vp
@@ -92,10 +93,10 @@ def render_label_to_plt(label: ResolvedLabel) -> RenderedLabel:
     if not boundary_lc.is_empty():
         doc.add(boundary_lc, LAYER_BOUNDARY)
 
-    # Render holes layer
-    holes_lc = _render_holes_local(label)
-    if not holes_lc.is_empty():
-        doc.add(holes_lc, LAYER_HOLES)
+    # NOTE: Drill holes are intentionally NOT added to the vpype document.
+    # A LineCollection can only represent polylines, which would force the
+    # circles to be emitted as polygons. Holes are instead emitted directly
+    # as native HPGL arc (``AA``) commands by ``_render_holes_hpgl``.
 
     # Export to temporary file with postprocessing
     with tempfile.NamedTemporaryFile(mode="w", suffix=".plt", delete=False) as f:
@@ -129,6 +130,126 @@ def render_label_to_plt(label: ResolvedLabel) -> RenderedLabel:
         temp_path.unlink(missing_ok=True)
 
 
+def _collect_hpgl_geometry(
+    content: str,
+) -> Tuple[List[Tuple[int, int]], List[Tuple[int, int, int]]]:
+    """Extract all point coordinates and arc definitions from HPGL content.
+
+    Parses ``PA``/``PU``/``PD`` coordinate pairs and ``AA`` (arc absolute)
+    commands. Arc parameters are returned as ``(center_x, center_y, radius)``
+    tuples in plotter units, where the radius is the distance from the arc
+    center to the current pen position at the time of the command.
+
+    Args:
+        content: Raw HPGL text content.
+
+    Returns:
+        Tuple of ``(points, arcs)`` where ``points`` is a list of ``(x, y)``
+        pairs and ``arcs`` is a list of ``(cx, cy, radius)`` triples.
+    """
+    points: List[Tuple[int, int]] = []
+    arcs: List[Tuple[int, int, int]] = []
+
+    current_x = 0
+    current_y = 0
+
+    # A command token starts with two letters; capture the mnemonic and the
+    # parameter string separately so AA parameters (which include a trailing
+    # angle) are not mistaken for coordinate pairs.
+    for match in re.finditer(r"(PA|PU|PD|AA)([\d,\.\-]+)", content):
+        cmd = match.group(1)
+        parts = [p for p in match.group(2).split(",") if p != ""]
+
+        try:
+            values = [int(float(p)) for p in parts]
+        except ValueError:  # pragma: no cover - malformed numeric token
+            continue
+
+        if cmd == "AA":
+            # AA takes (center_x, center_y, angle); radius is implicit from
+            # the current pen position.
+            if len(values) >= 3:
+                cx, cy = values[0], values[1]
+                radius = int(round(math.hypot(current_x - cx, current_y - cy)))
+                arcs.append((cx, cy, radius))
+                # An arc ends on the circle; without an exact end coordinate
+                # we conservatively keep the pen position (the following PU
+                # re-establishes it in generated content).
+            continue
+
+        for i in range(0, len(values) - 1, 2):
+            current_x, current_y = values[i], values[i + 1]
+            points.append((current_x, current_y))
+
+    return points, arcs
+
+
+def _transform_hpgl_coordinates(
+    content: str,
+    *,
+    scale_x: float = 1.0,
+    scale_y: float = 1.0,
+    translate_x: int = 0,
+    translate_y: int = 0,
+    flip_y_span: Optional[int] = None,
+    flip_y_axis: bool = False,
+) -> str:
+    """Apply an affine transform to every coordinate in HPGL content.
+
+    Handles ``PA``/``PU``/``PD`` coordinate pairs and ``AA`` arc commands.
+    For arcs, the center is transformed like any point and the sweep angle
+    sign is inverted when the Y axis is mirrored (``flip_y_axis``), which
+    preserves the circle's orientation under the reflection.
+
+    Args:
+        content: Raw HPGL text content.
+        scale_x: Multiplicative scale applied to X coordinates.
+        scale_y: Multiplicative scale applied to Y coordinates.
+        translate_x: Additive offset applied to X coordinates (plotter units).
+        translate_y: Additive offset applied to Y coordinates (plotter units).
+        flip_y_span: When set, Y coordinates are mirrored across the
+            centerline implied by this total span (``y' = span - y``) before
+            any translation. Used by the device-convention Y inversion.
+        flip_y_axis: When True, arc sweep angles are negated. Should be set
+            together with ``flip_y_span``.
+
+    Returns:
+        Transformed HPGL content.
+    """
+
+    def _map_y(y: float) -> float:
+        if flip_y_span is not None:
+            y = flip_y_span - y
+        return y * scale_y + translate_y
+
+    def _map_x(x: float) -> float:
+        return x * scale_x + translate_x
+
+    def _transform(match: re.Match[str]) -> str:
+        cmd = match.group(1)
+        parts = [p for p in match.group(2).split(",") if p != ""]
+        try:
+            values = [float(p) for p in parts]
+        except ValueError:  # pragma: no cover - malformed numeric token
+            return match.group(0)
+
+        if cmd == "AA":
+            if len(values) < 3:  # pragma: no cover - malformed arc
+                return match.group(0)
+            cx = _map_x(values[0])
+            cy = _map_y(values[1])
+            angle = -values[2] if flip_y_axis else values[2]
+            return f"AA{int(round(cx))},{int(round(cy))},{int(round(angle))}"
+
+        out: List[str] = []
+        for i, value in enumerate(values):
+            mapped = _map_x(value) if i % 2 == 0 else _map_y(value)
+            out.append(str(int(round(mapped))))
+        return f"{cmd}{','.join(out)}"
+
+    return re.sub(r"(PA|PU|PD|AA)([\d,\.\-]+)", _transform, content)
+
+
 def extract_bounds_from_plt(plt_content: str) -> Tuple[float, float, float, float]:
     """Extract coordinate bounds from HPGL PLT content.
 
@@ -148,21 +269,18 @@ def extract_bounds_from_plt(plt_content: str) -> Tuple[float, float, float, floa
     x_coords = []
     y_coords = []
 
-    # Extract all coordinates from PA, PU, and PD commands
-    pattern = r"(?:PA|PU|PD)([\d,\-]+)"
+    points, arcs = _collect_hpgl_geometry(plt_content)
 
-    for match in re.finditer(pattern, plt_content):
-        coords_str = match.group(1)
-        parts = coords_str.split(",")
+    for x, y in points:
+        x_coords.append(x)
+        y_coords.append(y)
 
-        try:
-            for i in range(0, len(parts) - 1, 2):
-                x = int(parts[i])
-                y = int(parts[i + 1])
-                x_coords.append(x)
-                y_coords.append(y)
-        except (ValueError, IndexError):
-            continue
+    # Arcs (drill holes) contribute their full circle bounding box so the
+    # measured footprint always contains the complete circle, even for
+    # partial sweeps.
+    for cx, cy, radius in arcs:
+        x_coords.extend((cx - radius, cx + radius))
+        y_coords.extend((cy - radius, cy + radius))
 
     if not x_coords or not y_coords:
         raise ValueError("No valid coordinates found in PLT content")
@@ -201,8 +319,11 @@ def _export_to_plt_with_postprocessing(
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Manually generate HPGL from LineCollection to preserve coordinates
-    hpgl_content = _linecollection_to_hpgl(doc)
+    # Manually generate HPGL from LineCollection to preserve coordinates.
+    # Drill holes are emitted as native HPGL arcs (pen 3) alongside the
+    # polyline text/boundary layers.
+    holes_hpgl = _render_holes_hpgl(label)
+    hpgl_content = _linecollection_to_hpgl(doc, holes_hpgl=holes_hpgl)
 
     # Write to file
     output_path.write_text(hpgl_content, encoding="utf-8")
@@ -224,7 +345,7 @@ def _export_to_plt_with_postprocessing(
     _flip_y_coordinates_in_plt(output_path)
 
 
-def _linecollection_to_hpgl(doc: vp.Document) -> str:
+def _linecollection_to_hpgl(doc: vp.Document, holes_hpgl: str = "") -> str:
     """Convert vpype Document to raw HPGL commands.
 
     Manually generates HPGL from LineCollections instead of using vpype's
@@ -236,6 +357,9 @@ def _linecollection_to_hpgl(doc: vp.Document) -> str:
 
     Args:
         doc: The vpype Document containing line collections for each pen.
+        holes_hpgl: Optional pre-rendered HPGL for the drill-hole layer
+            (pen 3), produced by :func:`_render_holes_hpgl`. It is emitted
+            as native arc commands after the polyline layers.
 
     Returns:
         Raw HPGL/PLT content as a string.
@@ -299,6 +423,13 @@ def _linecollection_to_hpgl(doc: vp.Document) -> str:
                 if len(points) > 1:
                     pd_coords = ",".join(f"{x},{y}" for x, y in points[1:])
                     lines.append(f"PD{pd_coords}")
+
+    # Drill holes (pen 3) are emitted as native arc commands rather than
+    # polylines, so they arrive pre-rendered instead of via the document.
+    if holes_hpgl:
+        lines.append("SP3")
+        lines.append(holes_hpgl)
+        has_content = True
 
     # End sequence - no PU command in footer, let assembly add it
     if has_content:
@@ -528,19 +659,13 @@ def _flip_y_coordinates_in_plt(file_path: Path) -> None:
     """
     content = file_path.read_text(encoding="utf-8")
 
-    # Extract ALL coordinates across every layer.
-    pattern = r"(?:PA|PU|PD)([\d,\-]+)"
-    all_y: list[int] = []
-
-    for match in re.finditer(pattern, content):
-        coords_str = match.group(1)
-        parts = coords_str.split(",")
-        try:
-            for i in range(0, len(parts) - 1, 2):
-                y_val = int(parts[i + 1])
-                all_y.append(y_val)
-        except (ValueError, IndexError):
-            continue
+    # Extract ALL coordinates and arcs across every layer. Arc (drill hole)
+    # extents are included so the mirror centerline accounts for the full
+    # circle, keeping holes aligned with text and borders.
+    points, arcs = _collect_hpgl_geometry(content)
+    all_y: list[int] = [y for _x, y in points]
+    for _cx, cy, radius in arcs:
+        all_y.extend((cy - radius, cy + radius))
 
     if not all_y:
         return
@@ -548,28 +673,12 @@ def _flip_y_coordinates_in_plt(file_path: Path) -> None:
     min_y = min(all_y)
     max_y = max(all_y)
 
-    # Mirror across the vertical centerline.
-    def flip_coordinates(match: re.Match[str]) -> str:
-        """Flip Y coordinates within a PA/PU/PD command."""
-        cmd = match.group(1)
-        coords_str = match.group(2)
-        parts = coords_str.split(",")
-
-        try:
-            flipped_parts: list[str] = []
-            for i, part in enumerate(parts):
-                val = int(part)
-                if i % 2 == 0:  # x coordinate
-                    flipped_parts.append(str(val))
-                else:  # y coordinate - mirror across centerline
-                    flipped_val = (min_y + max_y) - val
-                    flipped_parts.append(str(int(round(flipped_val))))
-            return f"{cmd}{','.join(flipped_parts)}"
-        except (ValueError, IndexError):
-            return match.group(0)
-
-    coord_pattern = r"(PA|PU|PD)([\d,\-]+)"
-    modified_content = re.sub(coord_pattern, flip_coordinates, content)
+    # Mirror across the vertical centerline (y' = span - y). Arc centers are
+    # mirrored like any point and their sweep angles are negated so the
+    # reflected circles keep their orientation.
+    modified_content = _transform_hpgl_coordinates(
+        content, flip_y_span=min_y + max_y, flip_y_axis=True
+    )
     file_path.write_text(modified_content, encoding="utf-8")
 
     logger.debug(
@@ -1114,24 +1223,28 @@ def _render_boundary_local(label: ResolvedLabel) -> vp.LineCollection:
     return lc
 
 
-def _render_holes_local(label: ResolvedLabel) -> vp.LineCollection:
-    """Render holes at local coordinates.
+def _hole_circles_local(label: ResolvedLabel) -> List[Tuple[float, float, float]]:
+    """Compute drill-hole circles in the label's local coordinate space.
 
-    Each hole is emitted as a closed circle on the holes layer (pen 3). The
-    hole center is placed tangent to the relevant edge(s), inset by the hole
-    radius (``diameter / 2``), so the circle just touches the label boundary.
+    Each circle center is inset from the relevant edge(s) by ``hole_margin +
+    radius``, so the closest point of the circle sits exactly
+    ``label.hole_margin`` inches from the label boundary. With a margin of
+    0.0 the circle is tangent to the edge.
 
     Args:
-        label: The resolved label whose ``holes`` should be rendered.
+        label: The resolved label whose ``holes`` should be measured.
 
     Returns:
-        A LineCollection containing one closed circle per hole.
+        One ``(center_x, center_y, radius)`` tuple per hole, in inches.
     """
-    lc = vp.LineCollection()
+    circles: List[Tuple[float, float, float]] = []
 
     for hole in label.holes:
-        # Offset is the hole radius (diameter/2) from the edge.
-        offset = hole.diameter / 2.0
+        radius = hole.diameter / 2.0
+        # Distance from the edge to the hole center: the requested hole
+        # margin plus the radius, so the circle's closest point is
+        # hole_margin inches away from the edge.
+        offset = label.hole_margin + radius
         location = str(hole.location)
 
         if location == "top-left":
@@ -1161,11 +1274,80 @@ def _render_holes_local(label: ResolvedLabel) -> vp.LineCollection:
         else:  # pragma: no cover - schema validates the location enum
             continue
 
-        # Render hole as a circle. ``vp.circle`` returns a flat 1-D ndarray of
-        # points describing a single closed line, so it must be added with
-        # ``append`` (one line), NOT ``extend`` (which expects an iterable of
-        # lines and would silently drop the circle, leaving the layer empty).
-        circle = vp.circle(hole_x, hole_y, offset)
+        circles.append((hole_x, hole_y, radius))
+
+    return circles
+
+
+def _render_holes_local(label: ResolvedLabel) -> vp.LineCollection:
+    """Render holes as densely sampled circles at local coordinates.
+
+    Retained for bounds measurement and geometry assertions. The actual
+    toolpath is emitted as native HPGL arcs by :func:`_render_holes_hpgl`;
+    this sampling exists only because a ``LineCollection`` cannot represent
+    arcs.
+
+    Args:
+        label: The resolved label whose ``holes`` should be rendered.
+
+    Returns:
+        A LineCollection containing one densely sampled closed circle per hole.
+    """
+    lc = vp.LineCollection()
+
+    for center_x, center_y, radius in _hole_circles_local(label):
+        # 0.001 inch quantization keeps the sampled polygon visually and
+        # numerically indistinguishable from the true circle.
+        circle = vp.circle(center_x, center_y, radius, quantization=0.001)
         lc.append(circle)
 
     return lc
+
+
+def _render_holes_hpgl(label: ResolvedLabel) -> str:
+    """Render drill holes as native HPGL arc (``AA``) commands.
+
+    Each hole becomes one closed circle drawn as four 90-degree absolute
+    arcs, matching the EngraveLab drill-hole convention already understood
+    by the parser, writer, profiler and plotter::
+
+        PU{sx},{sy};PD{sx},{sy};AA{cx},{cy},90;AA{cx},{cy},90;AA{cx},{cy},90;AA{cx},{cy},90
+
+    The zero-length ``PD`` plunge is deliberate: the parser only opens a new
+    stroke path when a pen-down segment is emitted, so without it every hole
+    on the layer would merge into one path and the profiler's "3+ arcs
+    totaling ~360 degrees plus an optional plunge" drill-hole rule would not
+    fire.
+
+    Emitting arcs instead of a sampled polygon keeps the drill circles
+    perfectly smooth on the plotter regardless of hole diameter, and lets
+    the profiler recognise them as structural features.
+
+    Args:
+        label: The resolved label whose ``holes`` should be emitted.
+
+    Returns:
+        HPGL command string (without the ``SP`` wrapper), or an empty string
+        when the label has no holes. Coordinates are in plotter units
+        (1 inch = 1000 units).
+    """
+    commands: List[str] = []
+
+    for center_x, center_y, radius in _hole_circles_local(label):
+        # Convert to plotter units so the emitted PU start and AA center are
+        # mutually consistent integers (the parser derives the radius from
+        # their distance).
+        cx = int(round(center_x * 1000))
+        cy = int(round(center_y * 1000))
+        r = int(round(radius * 1000))
+        if r <= 0:  # pragma: no cover - degenerate hole
+            continue
+
+        # Begin at the rightmost point of the circle, then sweep four
+        # quarter-arcs back to it.
+        start = f"{cx + r},{cy}"
+        commands.append(f"PU{start}")
+        commands.append(f"PD{start}")  # zero-length plunge, opens a new path
+        commands.extend(f"AA{cx},{cy},90" for _ in range(4))
+
+    return ";".join(commands)
