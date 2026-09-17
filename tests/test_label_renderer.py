@@ -3,12 +3,15 @@
 import math
 import re
 
+import numpy as np
 import pytest
+import vpype as vp
 
 from plt_optimizer.generate.label_renderer import (
     _flip_y_coordinates_in_plt,
     _render_holes_local,
     _render_text_local,
+    compress_line_to_width,
     extract_bounds_from_plt,
     render_label_to_plt,
 )
@@ -18,6 +21,24 @@ from plt_optimizer.generate.resolution import (
     ResolvedTextLine,
 )
 from plt_optimizer.generate.schema import parse_yaml
+
+
+def _make_line(
+    text: str,
+    height: float = 0.3,
+    max_h_compress: float = 0.0,
+) -> ResolvedTextLine:
+    """Build a ResolvedTextLine with cutter compensation applied."""
+    cutter_dia = 0.03
+    return ResolvedTextLine(
+        text=text,
+        nominal_text_height=height,
+        toolpath_text_height=height - cutter_dia,
+        cutter_diameter=cutter_dia,
+        character_spacing=0.0,
+        line_spacing=0.0,
+        max_h_compress=max_h_compress,
+    )
 
 
 class TestFlipYCoordinatesInPlt:
@@ -843,3 +864,180 @@ class TestHoleMarginRendering:
         top_gap = label.height - (cy + radius_units) / 1000.0
         assert left_gap == pytest.approx(hole_margin, abs=0.002)
         assert top_gap == pytest.approx(hole_margin, abs=0.002)
+
+
+class TestCompressLineToWidth:
+    """Unit tests for the uniform horizontal line compression helper."""
+
+    @staticmethod
+    def _stub_line(min_x: float, max_x: float, min_y: float, max_y: float) -> vp.LineCollection:
+        """Build a two-point diagonal segment spanning the given bounds."""
+        lc = vp.LineCollection()
+        lc.append(np.array([complex(min_x, min_y), complex(max_x, max_y)]))
+        return lc
+
+    def test_line_that_fits_is_returned_unchanged(self) -> None:
+        """A line within the available width must be returned as the same object."""
+        lc = self._stub_line(0.0, 2.0, 0.0, 0.5)
+        assert compress_line_to_width(lc, 3.0, 0.5, "lbl") is lc
+
+    def test_compression_disabled_returns_same_object(self) -> None:
+        """max_h_compress=0.0 must leave an over-wide line untouched."""
+        lc = self._stub_line(0.0, 10.0, 0.0, 0.5)
+        assert compress_line_to_width(lc, 3.0, 0.0, "lbl") is lc
+
+    def test_compresses_x_and_preserves_y(self) -> None:
+        """X must scale to the available width while Y is untouched."""
+        lc = self._stub_line(1.0, 7.0, 0.2, 0.7)
+        out = compress_line_to_width(lc, 3.0, 0.8, "lbl")
+
+        min_x, min_y, max_x, max_y = out.bounds()
+        assert max_x - min_x == pytest.approx(3.0, abs=1e-9)
+        assert min_x == pytest.approx(1.0, abs=1e-9)
+        assert (min_y, max_y) == pytest.approx((0.2, 0.7))
+
+    def test_scale_is_clamped_by_max_h_compress(self) -> None:
+        """Compression must stop at the configured limit."""
+        lc = self._stub_line(0.0, 10.0, 0.0, 0.5)
+        out = compress_line_to_width(lc, 1.0, 0.4, "lbl")
+
+        _min_x, _min_y, max_x, _max_y = out.bounds()
+        # Limit 0.4 floors the scale at 0.6 -> width 6.0, not the needed 1.0.
+        assert max_x == pytest.approx(6.0, abs=1e-9)
+
+    def test_empty_collection_is_returned_unchanged(self) -> None:
+        """An empty collection has no bounds and must pass through."""
+        lc = vp.LineCollection()
+        assert compress_line_to_width(lc, 3.0, 0.5, "lbl") is lc
+
+
+class TestHorizontalCompressionRendering:
+    """End-to-end: over-wide lines must compress to respect the margins."""
+
+    LONG_TEXT = "SAFETY long long text"
+
+    def test_long_line_stays_inside_margin_box(self) -> None:
+        """With compression allowed, rendered text must not breach the margins."""
+        margin = 0.15
+        label = _make_local_label(
+            [_make_line(self.LONG_TEXT, height=0.5, max_h_compress=0.5)],
+            width=5.0,
+            height=1.5,
+            margin=margin,
+        )
+        lc = _render_text_local(label)
+        assert not lc.is_empty()
+
+        min_x, _min_y, max_x, _max_y = lc.bounds()
+        available = label.width - (2 * margin)
+        assert min_x >= margin - 0.01, f"Text breaches left margin: {min_x:.3f}"
+        assert max_x <= label.width - margin + 0.01, (
+            f"Text breaches right margin: {max_x:.3f}"
+        )
+        assert (max_x - min_x) <= available + 0.02
+
+    def test_disabled_compression_leaves_line_over_wide(self) -> None:
+        """Without max_h_compress the line still overflows (opt-in behaviour)."""
+        margin = 0.15
+        label = _make_local_label(
+            [_make_line(self.LONG_TEXT, height=0.5, max_h_compress=0.0)],
+            width=5.0,
+            height=1.5,
+            margin=margin,
+        )
+        lc = _render_text_local(label)
+        min_x, _min_y, max_x, _max_y = lc.bounds()
+        available = label.width - (2 * margin)
+        assert (max_x - min_x) > available + 0.02, (
+            "Line unexpectedly fits without compression; test text is too short"
+        )
+
+    def test_compression_shrinks_width_vs_disabled(self) -> None:
+        """The same line must render narrower when compression is allowed."""
+        kwargs = {"width": 5.0, "height": 1.5, "margin": 0.15}
+        compressed = _render_text_local(
+            _make_local_label(
+                [_make_line(self.LONG_TEXT, height=0.5, max_h_compress=0.5)], **kwargs
+            )
+        )
+        natural = _render_text_local(
+            _make_local_label(
+                [_make_line(self.LONG_TEXT, height=0.5, max_h_compress=0.0)], **kwargs
+            )
+        )
+
+        c_min_x, _c0, c_max_x, _c1 = compressed.bounds()
+        n_min_x, _n0, n_max_x, _n1 = natural.bounds()
+        assert (c_max_x - c_min_x) < (n_max_x - n_min_x)
+
+    def test_compression_preserves_glyph_height(self) -> None:
+        """Horizontal-only scaling must not change the rendered block height."""
+        kwargs = {"width": 5.0, "height": 1.5, "margin": 0.15}
+        compressed = _render_text_local(
+            _make_local_label(
+                [_make_line(self.LONG_TEXT, height=0.5, max_h_compress=0.5)], **kwargs
+            )
+        )
+        natural = _render_text_local(
+            _make_local_label(
+                [_make_line(self.LONG_TEXT, height=0.5, max_h_compress=0.0)], **kwargs
+            )
+        )
+
+        _c0, c_min_y, _c1, c_max_y = compressed.bounds()
+        _n0, n_min_y, _n1, n_max_y = natural.bounds()
+        assert (c_max_y - c_min_y) == pytest.approx(n_max_y - n_min_y, abs=1e-6)
+
+    def test_short_lines_are_untouched(self) -> None:
+        """Lines that already fit must render identically with compression on."""
+        kwargs = {"width": 5.0, "height": 1.5, "margin": 0.15}
+        with_compress = _render_text_local(
+            _make_local_label([_make_line("FIRST", height=0.25, max_h_compress=0.5)], **kwargs)
+        )
+        without = _render_text_local(
+            _make_local_label([_make_line("FIRST", height=0.25, max_h_compress=0.0)], **kwargs)
+        )
+
+        assert with_compress.bounds() == pytest.approx(without.bounds())
+
+    def test_per_line_compression_is_independent(self) -> None:
+        """Only the over-wide line in a multi-line label should shrink."""
+        margin = 0.15
+        label = _make_local_label(
+            [
+                _make_line(self.LONG_TEXT, height=0.5, max_h_compress=0.5),
+                _make_line("FIRST", height=0.25, max_h_compress=0.5),
+            ],
+            width=5.0,
+            height=1.5,
+            margin=margin,
+        )
+        lc = _render_text_local(label)
+        min_x, _min_y, max_x, _max_y = lc.bounds()
+        available = label.width - (2 * margin)
+        assert (max_x - min_x) <= available + 0.02
+
+    def test_render_label_to_plt_respects_margin_box(self) -> None:
+        """The full HPGL pipeline must emit text inside the margin box."""
+        margin = 0.15
+        label = _make_local_label(
+            [_make_line(self.LONG_TEXT, height=0.5, max_h_compress=0.5)],
+            width=5.0,
+            height=1.5,
+            margin=margin,
+        )
+        rendered = render_label_to_plt(label)
+
+        match = re.search(r"SP1;(.*?)(?:SP\d|$)", rendered.plt_content, re.DOTALL)
+        assert match is not None, "No text layer found in rendered PLT"
+        xs: list[float] = []
+        for coord_match in re.finditer(r"(?:PA|PU|PD)([\d,\-]+)", match.group(1)):
+            parts = coord_match.group(1).split(",")
+            for i in range(0, len(parts) - 1, 2):
+                xs.append(int(parts[i]) / 1000.0)
+        assert xs, "No text coordinates found"
+
+        assert min(xs) >= margin - 0.02, f"Text breaches left margin: {min(xs):.3f}"
+        assert max(xs) <= label.width - margin + 0.02, (
+            f"Text breaches right margin: {max(xs):.3f}"
+        )

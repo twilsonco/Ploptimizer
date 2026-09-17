@@ -43,7 +43,7 @@ import numpy as np
 import vpype as vp
 
 from plt_optimizer.generate.ftext_renderer import render_text_line_ftext
-from plt_optimizer.generate.label_renderer import RenderedLabel
+from plt_optimizer.generate.label_renderer import RenderedLabel, compress_line_to_width
 from plt_optimizer.generate.layout import PackedLabel, PackedPlate
 from plt_optimizer.generate.resolution import (
     ResolvedHoleSpec,
@@ -285,7 +285,7 @@ def _render_text(
     text_lc = vp.LineCollection()
 
     # First pass: render all lines to calculate total height
-    rendered_lines: list[tuple[vp.LineCollection, float, float]] = []
+    rendered_lines: list[tuple[vp.LineCollection, float, float, float]] = []
 
     for line in source_label.content:
         # Render at the toolpath_text_height (cutter-compensated) using the
@@ -304,7 +304,9 @@ def _render_text(
         _, min_y, _, max_y = bounds
         rendered_height = max_y - min_y
 
-        rendered_lines.append((filtered_lc, rendered_height, line.line_spacing))
+        rendered_lines.append(
+            (filtered_lc, rendered_height, line.line_spacing, line.max_h_compress)
+        )
 
     if not rendered_lines:
         return text_lc
@@ -314,8 +316,8 @@ def _render_text(
 
     # Margin precedence: if the measured block (line heights + requested
     # spacing) overflows the inner area, shrink the spacing so margins win.
-    heights = [height for _, height, _ in rendered_lines]
-    spacings = [spacing for _, _, spacing in rendered_lines[:-1]]
+    heights = [height for _, height, _, _mhc in rendered_lines]
+    spacings = [spacing for _, _, spacing, _mhc in rendered_lines[:-1]]
     adjusted_spacings = fit_line_spacing_to_margins(heights, spacings, available_height)
     if adjusted_spacings != spacings:
         logging.getLogger(__name__).warning(
@@ -327,8 +329,13 @@ def _render_text(
             margin,
         )
     rendered_lines = [
-        (line_lc, height, adjusted_spacings[i] if i < len(adjusted_spacings) else 0.0)
-        for i, (line_lc, height, _spacing) in enumerate(rendered_lines)
+        (
+            line_lc,
+            height,
+            adjusted_spacings[i] if i < len(adjusted_spacings) else 0.0,
+            max_h_compress,
+        )
+        for i, (line_lc, height, _spacing, max_h_compress) in enumerate(rendered_lines)
     ]
     total_rendered_height = sum(heights) + sum(adjusted_spacings)
 
@@ -338,7 +345,15 @@ def _render_text(
     current_y = center_y + total_rendered_height / 2
 
     # Second pass: position each line with horizontal and vertical centering
-    for i, (line_lc, rendered_height, line_spacing) in enumerate(rendered_lines):
+    for i, (line_lc, rendered_height, line_spacing, max_h_compress) in enumerate(rendered_lines):
+        bounds = line_lc.bounds()
+        if bounds is None:
+            continue
+
+        # Margin precedence for width: compress over-wide lines so they
+        # respect the inner content area (bounded by max_h_compress).
+        available_width = inner_width - (2 * margin)
+        line_lc = compress_line_to_width(line_lc, available_width, max_h_compress, source_label.id)
         bounds = line_lc.bounds()
         if bounds is None:
             continue
@@ -346,7 +361,6 @@ def _render_text(
         rendered_width = max_x - min_x
 
         # Horizontal centering within the available width
-        available_width = inner_width - (2 * margin)
         center_x = margin + available_width / 2
         # Position text so it's centered: center_x - rendered_width / 2
         x_offset = center_x - rendered_width / 2 - min_x

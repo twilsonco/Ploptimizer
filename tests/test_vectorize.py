@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
+import pytest
 import vpype as vp
 
 from plt_optimizer.generate.layout import PackedLabel, PackedPlate
@@ -724,3 +725,77 @@ class TestCoordinateConstraints:
             # Text may exceed slightly due to rendering, but should be close
             assert max_x <= 2500, f"X coordinate {max_x} exceeds plate width 2000"
             assert max_y <= 1500, f"Y coordinate {max_y} exceeds plate height 1000"
+
+
+class TestRenderTextHorizontalCompression:
+    """The vectorize render path must compress over-wide lines to the margins."""
+
+    @staticmethod
+    def _line(max_h_compress: float) -> ResolvedTextLine:
+        return ResolvedTextLine(
+            text="SAFETY long long text",
+            nominal_text_height=0.5,
+            toolpath_text_height=0.47,
+            cutter_diameter=0.03,
+            character_spacing=0.0,
+            line_spacing=0.0,
+            max_h_compress=max_h_compress,
+        )
+
+    def test_long_line_stays_inside_margin_box(self) -> None:
+        """With compression allowed, rendered text must respect the margins."""
+        margin = 0.15
+        label = _make_label(
+            width=5.0, height=1.5, margin=margin, content=[self._line(0.5)]
+        )
+        lc = _render_text(label, 0.0, 0.0, 0.0)
+        assert not lc.is_empty()
+
+        min_x, _min_y, max_x, _max_y = lc.bounds()
+        assert min_x >= margin - 0.01, f"Text breaches left margin: {min_x:.3f}"
+        assert max_x <= label.width - margin + 0.01, (
+            f"Text breaches right margin: {max_x:.3f}"
+        )
+
+    def test_disabled_compression_leaves_line_over_wide(self) -> None:
+        """Without max_h_compress the line still overflows (opt-in behaviour)."""
+        margin = 0.15
+        label = _make_label(
+            width=5.0, height=1.5, margin=margin, content=[self._line(0.0)]
+        )
+        lc = _render_text(label, 0.0, 0.0, 0.0)
+        min_x, _min_y, max_x, _max_y = lc.bounds()
+        available = label.width - (2 * margin)
+        assert (max_x - min_x) > available + 0.02, (
+            "Line unexpectedly fits without compression; test text is too short"
+        )
+
+    def test_compression_shrinks_width_vs_disabled(self) -> None:
+        """The same line must render narrower when compression is allowed."""
+        compressed = _render_text(
+            _make_label(width=5.0, height=1.5, margin=0.15, content=[self._line(0.5)]),
+            0.0, 0.0, 0.0,
+        )
+        natural = _render_text(
+            _make_label(width=5.0, height=1.5, margin=0.15, content=[self._line(0.0)]),
+            0.0, 0.0, 0.0,
+        )
+
+        c_min_x, _c0, c_max_x, _c1 = compressed.bounds()
+        n_min_x, _n0, n_max_x, _n1 = natural.bounds()
+        assert (c_max_x - c_min_x) < (n_max_x - n_min_x)
+
+    def test_compression_preserves_glyph_height(self) -> None:
+        """Horizontal-only scaling must not change the rendered block height."""
+        compressed = _render_text(
+            _make_label(width=5.0, height=1.5, margin=0.15, content=[self._line(0.5)]),
+            0.0, 0.0, 0.0,
+        )
+        natural = _render_text(
+            _make_label(width=5.0, height=1.5, margin=0.15, content=[self._line(0.0)]),
+            0.0, 0.0, 0.0,
+        )
+
+        _c0, c_min_y, _c1, c_max_y = compressed.bounds()
+        _n0, n_min_y, _n1, n_max_y = natural.bounds()
+        assert (c_max_y - c_min_y) == pytest.approx(n_max_y - n_min_y, abs=1e-6)

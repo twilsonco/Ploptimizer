@@ -55,6 +55,10 @@ JobSpec (job-level defaults)
 - `text_height`: Font height in inches
 - `character_spacing`: Extra spacing between characters
 - `line_spacing`: Extra spacing between text lines
+- `max_h_compress`: Maximum horizontal compression fraction in [0, 1] (default
+  0.0 = disabled). When a rendered line is wider than the label's inner
+  content area, it is uniformly compressed horizontally down to at most
+  `(1 - max_h_compress)` of its natural width.
 
 **LabelAttributes** (extends TextAttributes, cascades to LabelSpec only):
 - `width`, `height`, `margin`: Label dimensions & safety margins
@@ -71,6 +75,21 @@ JobSpec (job-level defaults)
 | `PlateSpec` | Physical sheet definition | All dimensions `>= 0`, includes `clearance_padding` |
 | `HoleSpec` | Drilled hole definition | Diameter + location (8 enum values: corners + edges) |
 | `parse_yaml()` | Entry point | Returns validated `JobSpec` or raises `ValueError` |
+
+### Horizontal Text Compression
+
+Over-wide text lines are uniformly compressed horizontally (glyphs + spacing
+scale together; Y is untouched) so they respect the label margins. This is
+**opt-in** via `max_h_compress` in [0, 1] (default 0.0 = disabled), cascading
+line → label → job (accepted on plates for schema parity only).
+
+- `compute_horizontal_scale()` (resolution.py): pure scale-factor math,
+  clamped to `[1 - max_h_compress, 1.0]`.
+- `compress_line_to_width()` (label_renderer.py): applies the scale to a
+  rendered LineCollection; called per-line by both render paths
+  (`_render_text_local` and `vectorize._render_text`) before centering.
+- Lines that already fit are never modified. If compression cannot fully
+  resolve the overflow (limit too small), a WARNING is logged.
 
 ### Job Specification Patterns
 
@@ -97,7 +116,7 @@ job:
 ```
 
 ### Cascading Resolution
-When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default.
+When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset).
 
 ### Integration Points
 - `parse_yaml(file_path)` returns a `JobSpec` ready for downstream bin-packing and rendering pipelines

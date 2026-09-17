@@ -11,12 +11,14 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_HOLE_MARGIN,
     DEFAULT_LINE_SPACING,
     DEFAULT_MARGIN,
+    DEFAULT_MAX_H_COMPRESS,
     DEFAULT_TEXT_HEIGHT,
     IDEAL_CUTTER_MAP,
     ResolvedHoleSpec,
     ResolvedLabel,
     ResolvedTextLine,
     calculate_label_dimensions,
+    compute_horizontal_scale,
     fit_line_spacing_to_margins,
     get_cutter_diameter,
     resolve_job_spec,
@@ -874,3 +876,165 @@ class TestMarginPrecedenceInResolution:
         label = resolve_job_spec(job)[0]
         # Inner height 0.75, heights 0.6, requested gap 0.1 -> fits untouched.
         assert math.isclose(label.content[0].line_spacing, 0.1)
+
+
+class TestComputeHorizontalScale:
+    """Tests for the per-line horizontal compression scale computation."""
+
+    def test_no_compression_when_disabled(self) -> None:
+        """max_h_compress=0.0 must never compress, regardless of overflow."""
+        assert compute_horizontal_scale(10.0, 3.0, 0.0) == 1.0
+
+    def test_no_compression_when_line_fits(self) -> None:
+        """A line narrower than the available width is left alone."""
+        assert compute_horizontal_scale(2.0, 3.0, 0.5) == 1.0
+
+    def test_exact_fit_is_left_alone(self) -> None:
+        """A line exactly as wide as the available width needs no scaling."""
+        assert compute_horizontal_scale(3.0, 3.0, 0.5) == 1.0
+
+    def test_needed_scale_when_limit_allows(self) -> None:
+        """When the limit permits, scale exactly to the available width."""
+        # 6in line into 3in space -> 0.5; limit 0.6 allows down to 0.4.
+        assert math.isclose(compute_horizontal_scale(6.0, 3.0, 0.6), 0.5)
+
+    def test_scale_clamped_to_limit(self) -> None:
+        """Compression never exceeds max_h_compress."""
+        # 10in into 3in needs 0.3, but limit 0.5 floors at 0.5.
+        assert math.isclose(compute_horizontal_scale(10.0, 3.0, 0.5), 0.5)
+
+    def test_full_limit_allows_total_squeeze(self) -> None:
+        """max_h_compress=1.0 permits compressing to zero width."""
+        assert math.isclose(compute_horizontal_scale(10.0, 1.0, 1.0), 0.1)
+
+    def test_zero_rendered_width_is_noop(self) -> None:
+        """A degenerate zero-width line must not scale (avoids div-by-zero)."""
+        assert compute_horizontal_scale(0.0, 3.0, 0.5) == 1.0
+
+    def test_negative_limit_is_clamped(self) -> None:
+        """Out-of-range limits are clamped rather than trusted."""
+        assert compute_horizontal_scale(10.0, 3.0, -0.5) == 1.0
+
+    def test_limit_above_one_is_clamped(self) -> None:
+        """A limit above 1.0 behaves like 1.0 (no lower bound beyond zero)."""
+        assert math.isclose(compute_horizontal_scale(10.0, 1.0, 2.0), 0.1)
+
+
+class TestMaxHCompressCascade:
+    """max_h_compress must cascade line -> label -> job -> default."""
+
+    def test_default_when_all_omit(self) -> None:
+        """All levels omitting yields the no-compression default."""
+        job = JobSpec(
+            job_name="J",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].max_h_compress, DEFAULT_MAX_H_COMPRESS)
+
+    def test_job_value_used_when_label_omits(self) -> None:
+        """Job-level value cascades to the line."""
+        job = JobSpec(
+            job_name="J",
+            max_h_compress=0.4,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].max_h_compress, 0.4)
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level value overrides the job-level value."""
+        job = JobSpec(
+            job_name="J",
+            max_h_compress=0.4,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    max_h_compress=0.8,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].max_h_compress, 0.8)
+
+    def test_line_overrides_label(self) -> None:
+        """Line-level value overrides the label-level value."""
+        job = JobSpec(
+            job_name="J",
+            max_h_compress=0.4,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    max_h_compress=0.8,
+                    content=[TextLine(text="X", max_h_compress=0.25)],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].max_h_compress, 0.25)
+
+    def test_explicit_zero_at_label_disables_job_compression(self) -> None:
+        """An explicit 0.0 must win over a parent value, not fall through."""
+        job = JobSpec(
+            job_name="J",
+            max_h_compress=0.5,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    max_h_compress=0.0,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].max_h_compress, 0.0)
+
+    def test_explicit_zero_at_line_disables_parent(self) -> None:
+        """An explicit 0.0 at the line level disables inherited compression."""
+        job = JobSpec(
+            job_name="J",
+            max_h_compress=0.5,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X", max_h_compress=0.0)],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].max_h_compress, 0.0)
+
+    def test_root_level_job_cascades(self) -> None:
+        """Root-level single-label jobs inherit the job-level value."""
+        job = JobSpec(
+            job_name="J",
+            max_h_compress=0.7,
+            width=2.0,
+            height=1.0,
+            content=[TextLine(text="X")],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].max_h_compress, 0.7)

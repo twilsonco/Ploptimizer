@@ -8,6 +8,8 @@
 #   - Job-level hole inheritance, label-level hole overrides, and holes: []
 #     suppression of inherited holes
 #   - hole_margin cascade: job-level default inset plus a label-level override
+#   - Horizontal text compression: over-wide lines are uniformly squeezed
+#     (bounded by max_h_compress) so they respect the label margins
 #   - High-count volume labels forcing overflow onto the second plate
 #
 # Run with: python run_integration_test.py examples/complex_test_job.yaml
@@ -23,6 +25,12 @@ job:
   line_spacing: 0.3
   margin: 0.15
   hole_margin: 0.1875
+
+  # Allow over-wide text lines to be uniformly compressed horizontally by up
+  # to 50% of their natural width so they respect the label margins (e.g.
+  # "SAFETY long long text" in mixed_height_motto). Lines that already fit
+  # are never touched. Cascades job -> label -> text line.
+  max_h_compress: 0.5
 
   # ---------------------------------------------------------------------
   # Constrained mode: exactly these two sheets are available. Total label
@@ -81,7 +89,7 @@ job:
       width: 5.0
       height: 1.5
       content:
-        - text: "SAFETY"
+        - text: "SAFETY long long text"
           text_height: 0.5
         - text: "FIRST"
           text_height: 0.25
@@ -144,6 +152,7 @@ job:
       width: 4.0
       height: 1.0
       text_height: 0.3
+      hole_margin: 0.1825
       content:
         - text: "TOP/BOT DRILL"
       holes:

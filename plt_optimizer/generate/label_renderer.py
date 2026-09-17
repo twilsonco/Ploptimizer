@@ -24,6 +24,7 @@ import vpype as vp
 from plt_optimizer.generate.ftext_renderer import render_text_line_ftext
 from plt_optimizer.generate.resolution import (
     ResolvedLabel,
+    compute_horizontal_scale,
     fit_line_spacing_to_margins,
 )
 
@@ -1097,6 +1098,77 @@ def _translate_coordinates_to_origin_in_plt(file_path: Path) -> None:
 # ============================================================================
 
 
+def compress_line_to_width(
+    line_lc: vp.LineCollection,
+    available_width: float,
+    max_h_compress: float,
+    label_id: str,
+) -> vp.LineCollection:
+    """Uniformly compress a rendered text line horizontally to fit the margin box.
+
+    Margin precedence for width: when the rendered line is wider than the
+    label's inner content area (``available_width``), every X coordinate is
+    scaled toward the line's left edge by a uniform factor (Y is untouched),
+    so glyphs, kerning, and inter-character spacing all compress together
+    (uniform line compression). The scale is bounded by ``max_h_compress``
+    via :func:`compute_horizontal_scale`; lines that already fit, or labels
+    where compression is disabled (``max_h_compress == 0.0``), are returned
+    unchanged.
+
+    Args:
+        line_lc: The rendered LineCollection for a single text line.
+        available_width: Inner content width in inches (label width minus
+            both margins).
+        max_h_compress: Maximum compression fraction in ``[0.0, 1.0]``.
+        label_id: Identifier used in log messages.
+
+    Returns:
+        The original collection when no compression is needed or allowed,
+        otherwise a new horizontally compressed collection.
+    """
+    bounds = line_lc.bounds()
+    if bounds is None:
+        return line_lc
+    min_x, _min_y, max_x, _max_y = bounds
+    rendered_width = max_x - min_x
+
+    scale = compute_horizontal_scale(rendered_width, available_width, max_h_compress)
+    if scale >= 1.0:
+        return line_lc
+
+    compressed_width = rendered_width * scale
+    if compressed_width > available_width + 1e-9:
+        logger.warning(
+            "Label %s: text line compressed to %.1f%% (%.3fin -> %.3fin) but "
+            "still exceeds the available inner width (%.3fin); increase "
+            "max_h_compress, widen the label, or reduce margin.",
+            label_id,
+            scale * 100.0,
+            rendered_width,
+            compressed_width,
+            available_width,
+        )
+    else:
+        logger.info(
+            "Label %s: text line horizontally compressed to fit margin (%.3fin "
+            "-> %.3fin, scale %.3f).",
+            label_id,
+            rendered_width,
+            compressed_width,
+            scale,
+        )
+
+    # Uniform X scaling anchored at the line's left edge; Y coordinates are
+    # untouched so glyph height and vertical stacking are unaffected. The
+    # caller re-centers the compressed line horizontally afterwards.
+    # NOTE: complex arithmetic must touch only .real -- multiplying a complex
+    # segment by a float would (wrongly) scale Y as well.
+    compressed = vp.LineCollection()
+    for segment in line_lc:
+        compressed.append(min_x + (segment.real - min_x) * scale + 1j * segment.imag)
+    return compressed
+
+
 def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
     """Render text at local coordinates, stacking multi-line content.
 
@@ -1128,7 +1200,7 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
     # First pass: render all lines and measure their heights. Keep each
     # line's own line_spacing alongside the rendered geometry so empty or
     # unrenderable lines don't misalign spacing between real lines.
-    rendered_lines: list[Tuple[vp.LineCollection, float, float]] = []
+    rendered_lines: list[Tuple[vp.LineCollection, float, float, float]] = []
     total_rendered_height = 0.0
 
     for line in label.content:
@@ -1148,7 +1220,9 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
         _min_x, min_y, _max_x, max_y = bounds
         rendered_height = max_y - min_y
 
-        rendered_lines.append((filtered_lc, rendered_height, line.line_spacing))
+        rendered_lines.append(
+            (filtered_lc, rendered_height, line.line_spacing, line.max_h_compress)
+        )
         total_rendered_height += rendered_height
 
     if not rendered_lines:
@@ -1157,10 +1231,10 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
     # Add line spacing between lines (not after the last line). Margin
     # precedence: if the measured block (line heights + requested spacing)
     # overflows the inner area, shrink the spacing so margins win.
-    spacings = [line_spacing for _lc, _height, line_spacing in rendered_lines[:-1]]
+    spacings = [line_spacing for _lc, _height, line_spacing, _mhc in rendered_lines[:-1]]
     available_height = label.height - (2 * margin)
     adjusted_spacings = fit_line_spacing_to_margins(
-        [height for _lc, height, _spacing in rendered_lines],
+        [height for _lc, height, _spacing, _mhc in rendered_lines],
         spacings,
         available_height,
     )
@@ -1174,10 +1248,15 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
             margin,
         )
     rendered_lines = [
-        (filtered_lc, rendered_height, adjusted_spacings[i] if i < len(adjusted_spacings) else 0.0)
-        for i, (filtered_lc, rendered_height, _spacing) in enumerate(rendered_lines)
+        (
+            filtered_lc,
+            rendered_height,
+            adjusted_spacings[i] if i < len(adjusted_spacings) else 0.0,
+            max_h_compress,
+        )
+        for i, (filtered_lc, rendered_height, _spacing, max_h_compress) in enumerate(rendered_lines)
     ]
-    total_rendered_height = sum(height for _lc, height, _spacing in rendered_lines) + sum(
+    total_rendered_height = sum(height for _lc, height, _spacing, _mhc in rendered_lines) + sum(
         adjusted_spacings
     )
 
@@ -1187,7 +1266,17 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
     current_y = total_rendered_height / 2.0
 
     # Second pass: position each line, stacked top-to-bottom (+y up).
-    for i, (filtered_lc, rendered_height, line_spacing) in enumerate(rendered_lines):
+    for i, (filtered_lc, rendered_height, line_spacing, max_h_compress) in enumerate(
+        rendered_lines
+    ):
+        bounds = filtered_lc.bounds()
+        if bounds is None:  # pragma: no cover - measured in first pass
+            continue
+
+        # Margin precedence for width: compress over-wide lines so they
+        # respect the inner content area (bounded by max_h_compress).
+        available_width = inner_width - (2 * margin)
+        filtered_lc = compress_line_to_width(filtered_lc, available_width, max_h_compress, label.id)
         bounds = filtered_lc.bounds()
         if bounds is None:  # pragma: no cover - measured in first pass
             continue
@@ -1195,7 +1284,6 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
         rendered_width = max_x - min_x
 
         # Horizontal centering within the available width
-        available_width = inner_width - (2 * margin)
         center_x = margin + available_width / 2
         # Position text so it's centered horizontally
         x_offset = center_x - rendered_width / 2 - min_x

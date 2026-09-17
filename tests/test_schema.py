@@ -408,3 +408,56 @@ class TestMixinHierarchy:
     def test_job_spec_inherits_label_attributes(self) -> None:
         """JobSpec should inherit from LabelAttributes."""
         assert issubclass(JobSpec, LabelAttributes)
+
+
+class TestMaxHCompress:
+    """Tests for the max_h_compress horizontal compression field."""
+
+    def test_text_line_accepts_max_h_compress(self) -> None:
+        """TextLine should expose max_h_compress via TextAttributes."""
+        line = TextLine(text="HELLO", max_h_compress=0.5)
+        assert math.isclose(line.max_h_compress, 0.5)
+
+    def test_default_is_none(self) -> None:
+        """max_h_compress defaults to None (inherit from parent)."""
+        assert TextLine(text="X").max_h_compress is None
+        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).max_h_compress is None
+        assert JobSpec(job_name="J", content=[TextLine(text="X")]).max_h_compress is None
+
+    def test_explicit_zero_is_accepted(self) -> None:
+        """max_h_compress=0.0 (compression disabled) is a valid explicit value."""
+        assert math.isclose(TextLine(text="X", max_h_compress=0.0).max_h_compress, 0.0)
+
+    def test_above_one_rejected(self) -> None:
+        """Values above 1.0 must be rejected by the le=1.0 constraint."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", max_h_compress=1.5)
+
+    def test_negative_rejected(self) -> None:
+        """Negative values must be rejected by the ge=0.0 constraint."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", max_h_compress=-0.1)
+
+    def test_plate_accepts_max_h_compress(self) -> None:
+        """PlateSpec should accept max_h_compress for schema parity."""
+        plate = PlateSpec(
+            id="plate_1",
+            width=24.0,
+            height=12.0,
+            margin=0.25,
+            clearance_padding=0.125,
+            max_h_compress=0.6,
+        )
+        assert math.isclose(plate.max_h_compress, 0.6)
+
+    def test_plate_rejects_out_of_range(self) -> None:
+        """PlateSpec must enforce the [0.0, 1.0] range too."""
+        with pytest.raises(ValidationError):
+            PlateSpec(
+                id="plate_1",
+                width=24.0,
+                height=12.0,
+                margin=0.25,
+                clearance_padding=0.125,
+                max_h_compress=1.2,
+            )

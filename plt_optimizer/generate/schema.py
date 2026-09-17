@@ -68,11 +68,25 @@ class TextAttributes(BaseModel):
         text_height: Optional font height in inches.
         character_spacing: Optional extra spacing between characters in inches.
         line_spacing: Optional extra spacing between text lines in inches.
+        max_h_compress: Optional maximum horizontal compression fraction in
+            ``[0.0, 1.0]``. When a rendered line is wider than the label's
+            inner content area, the line may be uniformly compressed
+            horizontally down to ``(1 - max_h_compress)`` of its natural
+            width. ``0.0`` (the default) disables compression; ``0.5`` allows
+            squeezing wide lines to 50% of their natural width. Cascades
+            line -> label -> job (and is accepted on plates for schema
+            parity, where it is not currently applied during rendering).
     """
 
     text_height: Optional[float] = None
     character_spacing: Optional[float] = None
     line_spacing: Optional[float] = None
+    max_h_compress: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Maximum horizontal compression fraction in [0.0, 1.0].",
+    )
 
 
 class LabelAttributes(TextAttributes):
@@ -164,6 +178,13 @@ class PlateSpec(BaseModel):
             currently applied during rendering; the effective value is
             resolved from the label -> job -> default cascade.
         clearance_padding: Padding between adjacent labels in inches.
+        max_h_compress: Optional maximum horizontal compression fraction.
+            Accepted for schema parity with the job/label ``max_h_compress``
+            cascade. NOTE: labels are rendered once and cached before
+            bin-packing (and a single label may span multiple plates), so a
+            per-plate value is not currently applied during rendering; the
+            effective value is resolved from the label -> job -> default
+            cascade.
     """
 
     id: str
@@ -172,6 +193,12 @@ class PlateSpec(BaseModel):
     margin: float = Field(ge=0.0, description="Safety margin in inches (must be >= 0).")
     hole_margin: Optional[float] = Field(
         default=None, ge=0.0, description="Hole margin in inches (must be >= 0)."
+    )
+    max_h_compress: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Maximum horizontal compression fraction in [0.0, 1.0].",
     )
     clearance_padding: float = Field(
         ge=0.0, description="Padding between labels in inches (must be >= 0)."

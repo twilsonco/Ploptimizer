@@ -41,6 +41,8 @@ DEFAULT_MARGIN: float = 0.125
 DEFAULT_CHAR_SPACING: float = 0.05
 DEFAULT_LINE_SPACING: float = 0.1
 DEFAULT_HOLE_MARGIN: float = 0.1875
+# Horizontal compression is opt-in: 0.0 disables it entirely.
+DEFAULT_MAX_H_COMPRESS: float = 0.0
 
 # ---------------------------------------------------------------------------
 # Cutter lookup table and inventory matching
@@ -156,6 +158,12 @@ class ResolvedTextLine:
             kerf compensation and pre-job reporting.
         character_spacing: Extra spacing between characters in inches.
         line_spacing: Extra spacing between text lines in inches.
+        max_h_compress: Maximum horizontal compression fraction in
+            ``[0.0, 1.0]`` (cascaded line -> label -> job, default ``0.0``).
+            When the rendered line is wider than the label's inner content
+            area, the renderer may uniformly compress it horizontally down
+            to ``(1 - max_h_compress)`` of its natural width. ``0.0``
+            disables compression.
     """
 
     text: str
@@ -164,6 +172,7 @@ class ResolvedTextLine:
     cutter_diameter: float
     character_spacing: float
     line_spacing: float
+    max_h_compress: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -284,6 +293,45 @@ def fit_line_spacing_to_margins(
     # (capped at the total spacing available, i.e. a floor of zero).
     factor = max(0.0, (total_spacing - excess) / total_spacing)
     return [s * factor for s in spacings]
+
+
+def compute_horizontal_scale(
+    rendered_width: float,
+    available_width: float,
+    max_h_compress: float,
+) -> float:
+    """Compute the uniform horizontal scale factor for one rendered line.
+
+    Margin precedence for width: when a rendered line is wider than the
+    label's inner content area, the line is compressed horizontally (never
+    stretched, never taller) down to the available width. Compression is
+    bounded by the resolved ``max_h_compress`` fraction, so a line is never
+    squeezed below ``(1 - max_h_compress)`` of its natural width. When the
+    limit cannot fully resolve the overflow, the returned factor still
+    compresses as far as allowed and the caller is responsible for logging
+    the residual overflow.
+
+    Args:
+        rendered_width: Measured rendered line width in inches (must be
+            positive for any scaling to apply).
+        available_width: Inner content width in inches (label width minus
+            both margins).
+        max_h_compress: Maximum compression fraction in ``[0.0, 1.0]``.
+            ``0.0`` disables compression; ``0.5`` allows squeezing to 50%
+            of natural width.
+
+    Returns:
+        A scale factor in ``[1 - max_h_compress, 1.0]``. ``1.0`` means no
+        compression (the line fits or compression is disabled).
+    """
+    limit = min(max(0.0, max_h_compress), 1.0)
+    if limit <= 0.0 or rendered_width <= 0.0:
+        return 1.0
+    if rendered_width <= available_width:
+        return 1.0
+    needed = available_width / rendered_width
+    floor = 1.0 - limit
+    return max(needed, floor)
 
 
 def _fit_content_to_margins(
@@ -416,6 +464,18 @@ def _resolve_content(
             or DEFAULT_LINE_SPACING
         )
 
+        # Resolve horizontal compression limit explicitly so an intentional
+        # ``0.0`` (compression disabled) is honored instead of falling
+        # through to a parent value.
+        if line.max_h_compress is not None:
+            line_max_h_compress: float = line.max_h_compress
+        elif label_input.max_h_compress is not None:
+            line_max_h_compress = label_input.max_h_compress
+        elif job.max_h_compress is not None:
+            line_max_h_compress = job.max_h_compress
+        else:
+            line_max_h_compress = DEFAULT_MAX_H_COMPRESS
+
         resolved_content.append(
             ResolvedTextLine(
                 text=line.text,
@@ -424,6 +484,7 @@ def _resolve_content(
                 cutter_diameter=cutter_dia,
                 character_spacing=char_spacing,
                 line_spacing=line_spacing,
+                max_h_compress=line_max_h_compress,
             )
         )
     return resolved_content
