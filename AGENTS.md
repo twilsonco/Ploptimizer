@@ -65,6 +65,10 @@ JobSpec (job-level defaults)
   point precisely at the left margin; `right` places the right-most point
   precisely at the right margin; `center` centers the line. Accepted on
   plates for schema parity only (not applied at plate level).
+- `min_hole_margin`: Minimum hole margin in inches (`ge=0.0`, default `None`
+  = collision avoidance disabled). When a rendered text line collides with a
+  drill hole, `hole_margin` may be reduced toward this floor to clear it.
+  Cascades label → job (accepted on plates for schema parity only).
 
 **LabelAttributes** (extends TextAttributes, cascades to LabelSpec only):
 - `width`, `height`, `margin`: Label dimensions & safety margins
@@ -117,6 +121,34 @@ parity only). Enum `TextHAlignment` (`left`, `center`, `right`).
   `center` overflows symmetrically while `left`/`right` keep their aligned
   margin edge anchored and spill out the opposite side.
 
+### Text-Hole Collision Avoidance
+
+Rendered text lines are checked against drill holes (circle-vs-AABB via the
+closest-point gap in `geometry.circle_aabb_gap()`; tangency is not a
+collision). Detection runs in the label-local y-up frame, shifted by
+`height / 2` to match export centering; Y-flip is intersection-invariant.
+
+- **Phase 1 (always on, observational):** `_detect_text_hole_collisions()`
+  flags per-(line, hole) penetrations and logs a WARNING with label id, line
+  index, hole location, and measured gap. `RenderedLabel.has_collisions`
+  marks renders that still collide after resolution. `vectorize.py` calls the
+  observational `log_text_hole_collisions()` per label.
+- **Phase 2 (opt-in via `min_hole_margin`):** sweep `hole_margin` toward the
+  floor (analytical — hole positions are pure functions of `hole_margin`);
+  on success re-render from the adjusted label clone and log INFO with
+  before/after margins.
+- **Phase 3 (opt-in via `max_h_compress`):** if margins cannot clear the
+  overlap, sweep a uniform horizontal compression (`collision_compress` on
+  `ResolvedLabel`, applied before margin-driven compression) up to the line
+  budget floor `1 - max_h_compress`. Stacks on top of the Phase 2 floor.
+- **Failure semantics:** `LabelRenderError` (with diagnostics) is raised only
+  when `min_hole_margin` is set and resolution failed. Compression-only
+  failure logs a WARNING and returns the unmodified render with
+  `has_collisions=True` (top/bottom hole collisions are geometrically
+  unfixable by horizontal compression).
+- Adjusted label clones propagate to downstream rendering via
+  `RenderedLabel.source_label` (consumed by `layout.unroll_labels_with_rendered_bounds`).
+
 ### Job Specification Patterns
 
 **Pattern 1: Explicit Labels List**
@@ -142,7 +174,7 @@ job:
 ```
 
 ### Cascading Resolution
-When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset) and `text_h_alignment` (explicit `center` is honored, not treated as unset).
+When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), and `min_hole_margin` (explicit 0.0 is honored; only `None` means unset).
 
 ### Integration Points
 - `parse_yaml(file_path)` returns a `JobSpec` ready for downstream bin-packing and rendering pipelines

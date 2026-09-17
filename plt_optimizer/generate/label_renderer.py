@@ -14,14 +14,15 @@ import logging
 import math
 import re
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 import vpype as vp
 
 from plt_optimizer.generate.ftext_renderer import render_text_line_ftext
+from plt_optimizer.generate.geometry import CollisionResult, circle_aabb_gap
 from plt_optimizer.generate.resolution import (
     ResolvedLabel,
     compute_horizontal_offset,
@@ -40,13 +41,37 @@ LAYER_TEXT: int = 1
 LAYER_BOUNDARY: int = 2
 LAYER_HOLES: int = 3
 
+# Resolution sweep granularity for text-hole collision avoidance. The
+# margin sweep reuses already-rendered text geometry (holes move, text
+# does not), so it is cheap; the compression sweep re-renders text per
+# step, so it stays small.
+_MARGIN_ADJUST_STEPS: int = 32
+_COMPRESSION_RESOLVE_STEPS: int = 16
+
+# A rendered text line's collision-relevant record: ``(line_index,
+# line_text, (x_min, y_min, x_max, y_max))`` in label-local coordinates.
+_LineEntry = Tuple[int, str, Tuple[float, float, float, float]]
+
+
+class LabelRenderError(Exception):
+    """Raised when a text-hole collision cannot be resolved.
+
+    Emitted by :func:`render_label_to_plt` after both collision-avoidance
+    phases (hole-margin reduction and horizontal text compression) have
+    been exhausted without clearing the collision.
+    """
+
 
 @dataclass(frozen=True)
 class RenderedLabel:
     """A label rendered to HPGL format with measured bounds.
 
     Attributes:
-        source_label: The original ResolvedLabel that was rendered.
+        source_label: The original ResolvedLabel that was rendered. When
+            text-hole collision avoidance adjusted the label (reduced
+            ``hole_margin`` and/or applied ``collision_compress``), this is
+            the *adjusted* label so downstream consumers (packing, plate
+            vectorization) stay consistent with the emitted PLT.
         plt_content: Raw HPGL text content (without postprocessing).
         x_min: Minimum x-coordinate in inches.
         y_min: Minimum y-coordinate in inches.
@@ -54,6 +79,10 @@ class RenderedLabel:
         y_max: Maximum y-coordinate in inches.
         width: Actual rendered width in inches (x_max - x_min).
         height: Actual rendered height in inches (y_max - y_min).
+        has_collisions: True when the final rendered output still contains
+            at least one text/hole overlap (collision avoidance disabled or
+            not fully effective). Labels successfully resolved by Phases
+            2/3 report False even though avoidance was triggered.
     """
 
     source_label: ResolvedLabel
@@ -64,6 +93,238 @@ class RenderedLabel:
     y_max: float
     width: float
     height: float
+    has_collisions: bool = False
+
+
+def _detect_text_hole_collisions(
+    label: ResolvedLabel,
+    line_entries: Sequence[_LineEntry],
+) -> List[CollisionResult]:
+    """Find all (text line, drill hole) pairs whose geometry overlaps.
+
+    Collision checks run in label-local, y-up coordinates before plate
+    placement. The rendered line bounds are anchored around y=0 by
+    :func:`_render_text_local_with_bounds`; the export pipeline vertically
+    centers the block at ``height / 2`` (``_center_text_layer_vertically``),
+    so bounds are shifted by that amount before the check. The export's
+    Y-flip mirrors text and holes across the *same* centerline, which
+    preserves circle/AABB intersection relationships exactly, so the check
+    is valid in this pre-flip frame.
+
+    Args:
+        label: The resolved label providing hole positions.
+        line_entries: Per-line ``(line_index, line_text, bounds)`` tuples
+            as returned by :func:`_render_text_local_with_bounds`.
+
+    Returns:
+        One :class:`CollisionResult` per colliding (line, hole) pair.
+        Empty when the label has no holes or no rendered lines.
+    """
+    if not label.holes or not line_entries:
+        return []
+
+    circles = _hole_circles_local(label)
+    shift_y = label.height / 2.0
+    results: List[CollisionResult] = []
+
+    for line_index, line_text, bounds in line_entries:
+        x_min, y_min, x_max, y_max = bounds
+        shifted: Tuple[float, float, float, float] = (
+            x_min,
+            y_min + shift_y,
+            x_max,
+            y_max + shift_y,
+        )
+        for hole_index, (center_x, center_y, radius) in enumerate(circles):
+            gap = circle_aabb_gap(shifted, (center_x, center_y), radius)
+            if gap < 0.0:
+                results.append(
+                    CollisionResult(
+                        line_index=line_index,
+                        line_text=line_text,
+                        hole_index=hole_index,
+                        hole_location=str(label.holes[hole_index].location),
+                        gap=gap,
+                    )
+                )
+    return results
+
+
+def _log_collisions(label_id: str, collisions: Sequence[CollisionResult]) -> None:
+    """Log each detected text-hole collision at WARNING level.
+
+    Args:
+        label_id: Identifier used in log messages.
+        collisions: Collision results from :func:`_detect_text_hole_collisions`.
+    """
+    for collision in collisions:
+        logger.warning(
+            "Label %s: text line %d (%r) collides with %s drill hole "
+            "(index %d); penetration %.4fin.",
+            label_id,
+            collision.line_index,
+            collision.line_text,
+            collision.hole_location,
+            collision.hole_index,
+            -collision.gap,
+        )
+
+
+def _resolve_collision_via_margin_adjustment(
+    label: ResolvedLabel,
+    line_entries: Sequence[_LineEntry],
+) -> Optional[ResolvedLabel]:
+    """Phase 2: shrink ``hole_margin`` toward ``min_hole_margin`` (no re-render).
+
+    Drill-hole positions are pure functions of ``hole_margin``
+    (:func:`_hole_circles_local`), so candidate margins are evaluated
+    analytically against the already-rendered text bounds -- the text
+    geometry never changes in this phase. The sweep walks from the current
+    margin down to the configured floor and returns the first (smallest)
+    reduction that clears every collision.
+
+    Args:
+        label: The label whose collision should be resolved.
+        line_entries: Rendered text bounds from the initial render.
+
+    Returns:
+        A clone of ``label`` with a reduced ``hole_margin`` when one clears
+        all collisions, otherwise ``None`` (no floor configured, no
+        reduction budget, or the floor still collides).
+    """
+    if label.min_hole_margin is None:
+        return None
+    floor = max(0.0, label.min_hole_margin)
+    if label.hole_margin <= floor:
+        return None
+
+    steps = max(1, _MARGIN_ADJUST_STEPS)
+    for i in range(1, steps + 1):
+        candidate = label.hole_margin - (label.hole_margin - floor) * i / steps
+        candidate_label = replace(label, hole_margin=candidate)
+        if not _detect_text_hole_collisions(candidate_label, line_entries):
+            logger.info(
+                "Label %s: adjusted hole_margin from %.4fin to %.4fin to "
+                "avoid text-hole collision (minimum allowed %.4fin).",
+                label.id,
+                label.hole_margin,
+                candidate,
+                floor,
+            )
+            return candidate_label
+    return None
+
+
+def _resolve_collision_via_compression(
+    label: ResolvedLabel,
+    budget: float,
+) -> Optional[ResolvedLabel]:
+    """Phase 3: compress text horizontally until collisions clear.
+
+    Sweeps the label-level ``collision_compress`` scale from ``1.0`` down
+    to ``(1 - budget)`` (the configured ``max_h_compress`` floor),
+    re-rendering the text at each step and re-checking collisions. Returns
+    the first (least destructive) scale that clears every collision.
+
+    Args:
+        label: The label whose collision should be resolved (may already
+            carry a Phase 2 margin reduction).
+        budget: Maximum compression fraction in ``(0.0, 1.0]`` (the
+            label-level ``max_h_compress`` budget, i.e. the minimum across
+            all content lines).
+
+    Returns:
+        A clone of ``label`` with ``collision_compress`` set below ``1.0``
+        when one clears all collisions, otherwise ``None``.
+    """
+    floor = max(0.0, 1.0 - min(budget, 1.0))
+    start = max(label.collision_compress, floor)
+    if start <= floor:
+        return None
+
+    steps = max(1, _COMPRESSION_RESOLVE_STEPS)
+    for i in range(1, steps + 1):
+        scale = start - (start - floor) * i / steps
+        candidate_label = replace(label, collision_compress=scale)
+        _candidate_lc, candidate_entries = _render_text_local_with_bounds(candidate_label)
+        if not _detect_text_hole_collisions(candidate_label, candidate_entries):
+            logger.info(
+                "Label %s: compressed text horizontally to %.1f%% width to "
+                "avoid text-hole collision (max_h_compress budget %.2f).",
+                label.id,
+                scale * 100.0,
+                budget,
+            )
+            return candidate_label
+    return None
+
+
+def _format_unresolvable_collision(
+    label: ResolvedLabel,
+    collisions: Sequence[CollisionResult],
+    attempted_scale: Optional[float] = None,
+) -> str:
+    """Build the diagnostic message for an unresolvable text-hole collision.
+
+    Args:
+        label: The label state after all resolution phases ran (may carry
+            a reduced ``hole_margin``).
+        collisions: The collisions still present after all phases ran.
+        attempted_scale: Most aggressive collision-compression scale tried
+            (Phase 3 floor), or ``None`` when compression was not attempted.
+
+    Returns:
+        A multi-line diagnostic string naming each colliding pair plus the
+        current margin/compression state and actionable recommendations.
+    """
+    worst_gap = min((collision.gap for collision in collisions), default=0.0)
+    budget = min((line.max_h_compress for line in label.content), default=0.0)
+    scale_text = (
+        f"{attempted_scale:.3f}"
+        if attempted_scale is not None
+        else f"{label.collision_compress:.3f}"
+    )
+    details = "; ".join(
+        f"line {collision.line_index} ({collision.line_text!r}) vs "
+        f"{collision.hole_location} hole (penetration {-collision.gap:.4f}in)"
+        for collision in collisions
+    )
+    return (
+        f"Label {label.id}: text-hole collision cannot be resolved.\n"
+        f"- Collisions: {details}\n"
+        f"- Hole margin: {label.hole_margin:.4f}in "
+        f"(min: {label.min_hole_margin if label.min_hole_margin is not None else 'unset'})\n"
+        f"- Compression: max_h_compress={budget:.2f} applied, still insufficient "
+        f"(most aggressive text scale {scale_text})\n"
+        f"- Worst penetration: {-worst_gap:.4f}in\n"
+        "- Recommendations: increase label width, reduce text height, lower "
+        "min_hole_margin, or increase max_h_compress."
+    )
+
+
+def log_text_hole_collisions(label: ResolvedLabel) -> List[CollisionResult]:
+    """Detect and log text-hole collisions for a label (observational only).
+
+    Public entry point for render paths outside :func:`render_label_to_plt`
+    (e.g. the plate visualization in ``vectorize.py``) to surface collision
+    warnings without attempting any fixes. Renders the label's text in
+    local coordinates purely for measurement; no document is mutated and
+    no geometry is adjusted.
+
+    Args:
+        label: The resolved label to inspect.
+
+    Returns:
+        The detected collisions (empty when the label has no holes or the
+        text is clear of all drill holes).
+    """
+    if not label.holes:
+        return []
+    _text_lc, line_entries = _render_text_local_with_bounds(label)
+    collisions = _detect_text_hole_collisions(label, line_entries)
+    if collisions:
+        _log_collisions(label.id, collisions)
+    return collisions
 
 
 def render_label_to_plt(label: ResolvedLabel) -> RenderedLabel:
@@ -73,20 +334,123 @@ def render_label_to_plt(label: ResolvedLabel) -> RenderedLabel:
     Exports to temporary file with postprocessing to ensure coordinates are
     correct and compressed to 1:1000 scale (1 inch = 1000 units).
 
+    Text-hole collision avoidance runs in three phases:
+
+    1. **Detection** (always): rendered text bounds are checked against
+       every drill hole; each collision is logged at WARNING level and
+       recorded on the returned :attr:`RenderedLabel.has_collisions`.
+    2. **Hole-margin reduction** (opt-in via ``min_hole_margin``): holes
+       are moved toward the label edge (margin reduced toward the floor)
+       until the text clears them.
+    3. **Horizontal compression** (opt-in via ``max_h_compress``): text is
+       uniformly compressed horizontally (stacked on top of any Phase 2
+       margin reduction) until the collisions clear.
+
+    The render aborts with :class:`LabelRenderError` only when the
+    dedicated collision-avoidance knob (``min_hole_margin``) is set and no
+    enabled phase could clear the collision. ``max_h_compress`` is a shared
+    margin-fitting knob often set job-wide, so a failed compression sweep
+    alone (without ``min_hole_margin``) degrades to the log-only behaviour
+    instead of aborting -- some collisions (e.g. top/bottom holes) are
+    geometrically unfixable by horizontal compression.
+
     Args:
         label: The ResolvedLabel to render (text, borders, holes).
 
     Returns:
-        RenderedLabel with rendered PLT content and measured bounds.
+        RenderedLabel with rendered PLT content and measured bounds. When
+        collision avoidance adjusted the label, ``source_label`` is the
+        adjusted clone (so packing/vectorization stay consistent with the
+        emitted PLT). ``has_collisions`` is True only when the final
+        render still overlaps a drill hole (avoidance disabled or not
+        fully effective).
 
     Raises:
         ValueError: If bounds cannot be extracted from rendered PLT.
+        LabelRenderError: If a text-hole collision was detected,
+            ``min_hole_margin`` was configured, and no enabled phase
+            could clear it.
+    """
+    rendered, line_entries = _render_label_once(label)
+    collisions = _detect_text_hole_collisions(label, line_entries)
+    if not collisions:
+        return rendered
+
+    # ---- Phase 1: collision detected -- log and attempt resolution ----
+    _log_collisions(label.id, collisions)
+
+    base_label: ResolvedLabel = label
+    resolution_attempted = False
+
+    # ---- Phase 2: reduce hole_margin toward min_hole_margin ----
+    if label.min_hole_margin is not None:
+        resolution_attempted = True
+        margin_label = _resolve_collision_via_margin_adjustment(label, line_entries)
+        if margin_label is not None:
+            resolved_rendered, _ = _render_label_once(margin_label)
+            return resolved_rendered
+        # Margin alone cannot clear the collision; continue from the floor
+        # margin so Phase 3 compression stacks on top of the maximum
+        # allowed margin reduction.
+        floor = max(0.0, label.min_hole_margin)
+        if floor < label.hole_margin:
+            base_label = replace(label, hole_margin=floor)
+            collisions = _detect_text_hole_collisions(base_label, line_entries)
+
+    # ---- Phase 3: compress text horizontally within max_h_compress ----
+    budget = min((line.max_h_compress for line in label.content), default=0.0)
+    attempted_scale: Optional[float] = None
+    if budget > 0.0:
+        resolution_attempted = True
+        compressed_label = _resolve_collision_via_compression(base_label, budget)
+        if compressed_label is not None:
+            resolved_rendered, _ = _render_label_once(compressed_label)
+            return resolved_rendered
+        # Report the state at the most aggressive scale tried, so the
+        # measured penetration matches what the sweep actually evaluated.
+        attempted_scale = max(0.0, 1.0 - min(budget, 1.0))
+        final_label = replace(base_label, collision_compress=attempted_scale)
+        _, final_entries = _render_text_local_with_bounds(final_label)
+        collisions = _detect_text_hole_collisions(final_label, final_entries)
+        base_label = final_label
+
+    if resolution_attempted and label.min_hole_margin is not None:
+        raise LabelRenderError(
+            _format_unresolvable_collision(base_label, collisions, attempted_scale)
+        )
+
+    if resolution_attempted:
+        logger.warning(
+            "Label %s: text-hole collision left unresolved; horizontal "
+            "compression could not clear it. Set min_hole_margin to enable "
+            "hole-margin reduction (required for top/bottom hole collisions).",
+            label.id,
+        )
+    else:
+        logger.warning(
+            "Label %s: text-hole collision left unresolved; collision avoidance "
+            "is disabled (set min_hole_margin and/or max_h_compress to enable).",
+            label.id,
+        )
+    return replace(rendered, has_collisions=True)
+
+
+def _render_label_once(label: ResolvedLabel) -> Tuple[RenderedLabel, List[_LineEntry]]:
+    """Render a single label to PLT without collision resolution.
+
+    Args:
+        label: The ResolvedLabel to render (text, borders, holes).
+
+    Returns:
+        Tuple of the :class:`RenderedLabel` (with ``has_collisions`` left
+        at its default) and the per-line rendered bounds used by
+        :func:`_detect_text_hole_collisions`.
     """
     # Create vpype Document
     doc = vp.Document()
 
     # Render text layer
-    text_lc = _render_text_local(label)
+    text_lc, line_entries = _render_text_local_with_bounds(label)
     if not text_lc.is_empty():
         doc.add(text_lc, LAYER_TEXT)
 
@@ -118,7 +482,7 @@ def render_label_to_plt(label: ResolvedLabel) -> RenderedLabel:
         # Extract bounds from rendered PLT
         x_min, y_min, x_max, y_max = extract_bounds_from_plt(plt_content)
 
-        return RenderedLabel(
+        rendered = RenderedLabel(
             source_label=label,
             plt_content=plt_content,
             x_min=x_min,
@@ -128,6 +492,7 @@ def render_label_to_plt(label: ResolvedLabel) -> RenderedLabel:
             width=x_max - x_min,
             height=y_max - y_min,
         )
+        return rendered, line_entries
     finally:
         temp_path.unlink(missing_ok=True)
 
@@ -1170,8 +1535,56 @@ def compress_line_to_width(
     return compressed
 
 
+def _apply_collision_compress(line_lc: vp.LineCollection, scale: float) -> vp.LineCollection:
+    """Uniformly scale a rendered line horizontally by a collision-avoidance factor.
+
+    Unlike :func:`compress_line_to_width` (which only engages when a line
+    overflows the inner content area), this applies an unconditional uniform
+    X scale produced by the text-hole collision resolution sweep. Y is
+    untouched and the line's left edge is kept fixed; the caller re-aligns
+    the compressed line afterwards.
+
+    Args:
+        line_lc: The rendered LineCollection for a single text line.
+        scale: Uniform horizontal scale in ``(0.0, 1.0]``. ``1.0`` returns
+            the collection unchanged.
+
+    Returns:
+        The original collection when ``scale >= 1.0`` or bounds are
+        unavailable, otherwise a new horizontally scaled collection.
+    """
+    if scale >= 1.0:
+        return line_lc
+    bounds = line_lc.bounds()
+    if bounds is None:  # pragma: no cover - callers check emptiness
+        return line_lc
+    min_x = bounds[0]
+    compressed = vp.LineCollection()
+    for segment in line_lc:
+        compressed.append(min_x + (segment.real - min_x) * scale + 1j * segment.imag)
+    return compressed
+
+
 def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
     """Render text at local coordinates, stacking multi-line content.
+
+    Thin wrapper over :func:`_render_text_local_with_bounds` for callers
+    that do not need per-line bounds.
+
+    Args:
+        label: The resolved label whose ``content`` should be rendered.
+
+    Returns:
+        A LineCollection containing all rendered text lines.
+    """
+    text_lc, _entries = _render_text_local_with_bounds(label)
+    return text_lc
+
+
+def _render_text_local_with_bounds(
+    label: ResolvedLabel,
+) -> Tuple[vp.LineCollection, List[Tuple[int, str, Tuple[float, float, float, float]]]]:
+    """Render text at local coordinates and report per-line bounds.
 
     NOTE: The absolute vertical anchor is irrelevant because the export
     pipeline re-centers the whole text block POST-EXPORT in
@@ -1193,9 +1606,25 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
     right margin, "center" centers it). Text is
     rendered with the single-line Relief CAD font via ftext, replacing vpype's
     built-in Hershey stroke-font engine.
+
+    When ``label.collision_compress`` is below ``1.0`` (set by the text-hole
+    collision resolution sweep), every rendered line is additionally scaled
+    horizontally by that factor before alignment.
+
+    Args:
+        label: The resolved label whose ``content`` should be rendered.
+
+    Returns:
+        A tuple ``(combined_lc, line_entries)`` where ``combined_lc`` holds
+        all rendered lines and ``line_entries`` is a list of
+        ``(line_index, line_text, bounds)`` tuples in label-local
+        coordinates (pre-export anchor, block centered around y=0). The
+        export pipeline vertically centers the block at ``height / 2``;
+        collision detection applies that shift itself.
     """
+    line_entries: List[Tuple[int, str, Tuple[float, float, float, float]]] = []
     if not label.content:
-        return vp.LineCollection()
+        return vp.LineCollection(), line_entries
 
     margin = label.margin
     inner_width = label.width
@@ -1203,11 +1632,13 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
 
     # First pass: render all lines and measure their heights. Keep each
     # line's own line_spacing alongside the rendered geometry so empty or
-    # unrenderable lines don't misalign spacing between real lines.
-    rendered_lines: list[Tuple[vp.LineCollection, float, float, float, str]] = []
+    # unrenderable lines don't misalign spacing between real lines. The
+    # original ``content`` index is preserved so collision reports can name
+    # the offending line even when earlier lines were unrenderable.
+    rendered_lines: list[Tuple[int, vp.LineCollection, float, float, float, str]] = []
     total_rendered_height = 0.0
 
-    for line in label.content:
+    for line_index, line in enumerate(label.content):
         # Render at the toolpath_text_height (cutter-compensated) using the
         # single-line TTF font. ftext returns upright glyphs with baseline at 0.
         filtered_lc = render_text_line_ftext(
@@ -1224,8 +1655,18 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
         _min_x, min_y, _max_x, max_y = bounds
         rendered_height = max_y - min_y
 
+        # Collision-avoidance compression (Phase 3): an unconditional uniform
+        # X scale discovered by the collision sweep, applied before the
+        # regular margin-driven compression below.
+        filtered_lc = _apply_collision_compress(filtered_lc, label.collision_compress)
+        bounds = filtered_lc.bounds()
+        if bounds is None:  # pragma: no cover - measured just above
+            continue
+        rendered_height = bounds[3] - bounds[1]
+
         rendered_lines.append(
             (
+                line_index,
                 filtered_lc,
                 rendered_height,
                 line.line_spacing,
@@ -1236,15 +1677,17 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
         total_rendered_height += rendered_height
 
     if not rendered_lines:
-        return text_lc
+        return text_lc, line_entries
 
     # Add line spacing between lines (not after the last line). Margin
     # precedence: if the measured block (line heights + requested spacing)
     # overflows the inner area, shrink the spacing so margins win.
-    spacings = [line_spacing for _lc, _height, line_spacing, _mhc, _align in rendered_lines[:-1]]
+    spacings = [
+        line_spacing for _idx, _lc, _height, line_spacing, _mhc, _align in rendered_lines[:-1]
+    ]
     available_height = label.height - (2 * margin)
     adjusted_spacings = fit_line_spacing_to_margins(
-        [height for _lc, height, _spacing, _mhc, _align in rendered_lines],
+        [height for _idx, _lc, height, _spacing, _mhc, _align in rendered_lines],
         spacings,
         available_height,
     )
@@ -1257,24 +1700,8 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
             [round(s, 4) for s in adjusted_spacings],
             margin,
         )
-    rendered_lines = [
-        (
-            filtered_lc,
-            rendered_height,
-            adjusted_spacings[i] if i < len(adjusted_spacings) else 0.0,
-            max_h_compress,
-            text_h_alignment,
-        )
-        for i, (
-            filtered_lc,
-            rendered_height,
-            _spacing,
-            max_h_compress,
-            text_h_alignment,
-        ) in enumerate(rendered_lines)
-    ]
     total_rendered_height = sum(
-        height for _lc, height, _spacing, _mhc, _align in rendered_lines
+        height for _idx, _lc, height, _spacing, _mhc, _align in rendered_lines
     ) + sum(adjusted_spacings)
 
     # Anchor the block so its vertical center sits at y = total / 2. The
@@ -1284,9 +1711,10 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
 
     # Second pass: position each line, stacked top-to-bottom (+y up).
     for i, (
+        line_index,
         filtered_lc,
         rendered_height,
-        line_spacing,
+        _line_spacing,
         max_h_compress,
         text_h_alignment,
     ) in enumerate(rendered_lines):
@@ -1317,12 +1745,17 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
         filtered_lc.translate(x_offset, y_offset)
         text_lc.extend(filtered_lc)
 
-        # Move down past this line (plus spacing, except after the last).
-        current_y -= rendered_height
-        if i < len(rendered_lines) - 1:
-            current_y -= line_spacing
+        positioned = filtered_lc.bounds()
+        if positioned is not None:
+            line_entries.append((line_index, label.content[line_index].text, positioned))
 
-    return text_lc
+        # Move down past this line (plus adjusted spacing, except after
+        # the last).
+        current_y -= rendered_height
+        if i < len(adjusted_spacings):
+            current_y -= adjusted_spacings[i]
+
+    return text_lc, line_entries
 
 
 def _render_boundary_local(label: ResolvedLabel) -> vp.LineCollection:

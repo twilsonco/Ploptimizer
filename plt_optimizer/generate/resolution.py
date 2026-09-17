@@ -41,6 +41,10 @@ DEFAULT_MARGIN: float = 0.125
 DEFAULT_CHAR_SPACING: float = 0.05
 DEFAULT_LINE_SPACING: float = 0.1
 DEFAULT_HOLE_MARGIN: float = 0.1875
+# Lower bound for hole-margin shrinkage during text-hole collision
+# avoidance. ``None`` (the default) means collision avoidance may reduce
+# the hole margin all the way to ``0.0`` (hole tangent to the edge).
+DEFAULT_MIN_HOLE_MARGIN: Optional[float] = None
 # Horizontal compression is opt-in: 0.0 disables it entirely.
 DEFAULT_MAX_H_COMPRESS: float = 0.0
 # Horizontal text alignment defaults to centering (existing behaviour).
@@ -201,6 +205,16 @@ class ResolvedLabel:
             value.
         holes: List of resolved hole specifications.
         content: List of resolved text lines.
+        min_hole_margin: Lower bound (in inches) applied to ``hole_margin``
+            during text-hole collision avoidance. ``None`` (the default)
+            allows shrinking the hole margin all the way to ``0.0``; the
+            resolution engine always populates the cascaded value.
+        collision_compress: Extra uniform horizontal scale in ``(0.0, 1.0]``
+            applied to every renderable text line when the collision
+            avoidance system had to compress text away from drill holes.
+            ``1.0`` (the default) means no collision-driven compression was
+            applied. Set by the renderer via ``dataclasses.replace``; never
+            sourced from the YAML schema.
     """
 
     id: str
@@ -211,6 +225,8 @@ class ResolvedLabel:
     hole_margin: float = 0.0
     holes: list[ResolvedHoleSpec] = field(default_factory=list)
     content: list[ResolvedTextLine] = field(default_factory=list)
+    min_hole_margin: Optional[float] = None
+    collision_compress: float = 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -587,6 +603,16 @@ def _resolve_label(
     else:
         label_hole_margin = DEFAULT_HOLE_MARGIN
 
+    # Resolve the collision-avoidance floor for hole margin explicitly so an
+    # intentional ``0.0`` (shrink all the way to tangent) is honored instead
+    # of falling through to the parent value.
+    if label_input.min_hole_margin is not None:
+        label_min_hole_margin: Optional[float] = label_input.min_hole_margin
+    elif job.min_hole_margin is not None:
+        label_min_hole_margin = job.min_hole_margin
+    else:
+        label_min_hole_margin = DEFAULT_MIN_HOLE_MARGIN
+
     # Resolve text lines with cutter compensation
     resolved_content = _resolve_content(label_input, job, available_cutters, tolerance_factor)
 
@@ -620,6 +646,7 @@ def _resolve_label(
         hole_margin=label_hole_margin,
         holes=resolved_holes,
         content=resolved_content,
+        min_hole_margin=label_min_hole_margin,
     )
 
 

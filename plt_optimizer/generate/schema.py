@@ -104,6 +104,13 @@ class TextAttributes(BaseModel):
             centers the line. Cascades line -> label -> job (and is
             accepted on plates for schema parity, where it is not currently
             applied during rendering).
+        min_hole_margin: Optional minimum hole margin in inches; during
+            text-hole collision avoidance, hole margins will not shrink
+            below this value. ``None`` (the default) means collision
+            avoidance may reduce the hole margin all the way to ``0.0``
+            (hole tangent to the label edge). Cascades line -> label ->
+            job (and is accepted on plates for schema parity, where it is
+            not currently applied during rendering).
     """
 
     text_height: Optional[float] = None
@@ -118,6 +125,14 @@ class TextAttributes(BaseModel):
     text_h_alignment: Optional[TextHAlignment] = Field(
         default=None,
         description="Horizontal text alignment: left, center, or right.",
+    )
+    min_hole_margin: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Minimum hole margin in inches; hole margins will not shrink "
+            "below this value during collision avoidance."
+        ),
     )
 
 
@@ -223,6 +238,13 @@ class PlateSpec(BaseModel):
             (and a single label may span multiple plates), so a per-plate
             value is not currently applied during rendering; the effective
             value is resolved from the label -> job -> default cascade.
+        min_hole_margin: Optional minimum hole margin in inches. Accepted
+            for schema parity with the job/label ``min_hole_margin``
+            cascade. NOTE: labels are rendered once and cached before
+            bin-packing (and a single label may span multiple plates), so
+            a per-plate value is not currently applied during rendering;
+            the effective value is resolved from the label -> job ->
+            default cascade.
     """
 
     id: str
@@ -241,6 +263,11 @@ class PlateSpec(BaseModel):
     text_h_alignment: Optional[TextHAlignment] = Field(
         default=None,
         description="Horizontal text alignment (schema parity; not applied at plate level).",
+    )
+    min_hole_margin: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description="Minimum hole margin in inches (schema parity; not applied at plate level).",
     )
     clearance_padding: float = Field(
         ge=0.0, description="Padding between labels in inches (must be >= 0)."

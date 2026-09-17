@@ -167,6 +167,12 @@ def unroll_labels_with_rendered_bounds(
     rectangles: list[tuple[float, float, str, ResolvedLabel, RenderedLabel]] = []
     for label in resolved_labels:
         rendered = rendered_labels[label.id]
+        # Prefer the *rendered* source label: collision avoidance may have
+        # returned an adjusted clone (reduced hole_margin and/or
+        # collision_compress). Propagating it through the packer keeps
+        # plate vectorization and Phase 3 assembly consistent with the
+        # emitted PLT geometry.
+        effective_label = rendered.source_label
         for i in range(label.count):
             # Use rendered dimensions for packing (actual width/height)
             # instead of nominal label dimensions
@@ -175,7 +181,7 @@ def unroll_labels_with_rendered_bounds(
 
             # Unique ID to track instances of the same logical label
             rect_id = f"{label.id}_{i}"
-            rectangles.append((pack_width, pack_height, rect_id, label, rendered))
+            rectangles.append((pack_width, pack_height, rect_id, effective_label, rendered))
 
     return rectangles
 

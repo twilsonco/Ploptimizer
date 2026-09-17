@@ -27,6 +27,7 @@ job:
   line_spacing: 0.3
   margin: 0.15
   hole_margin: 0.1875
+  min_hole_margin: 0.1
 
   # Allow over-wide text lines to be uniformly compressed horizontally by up
   # to 50% of their natural width so they respect the label margins (e.g.

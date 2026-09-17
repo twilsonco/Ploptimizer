@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 
 import pytest
+from pydantic import ValidationError
 
 from plt_optimizer.generate.resolution import (
     DEFAULT_CHAR_SPACING,
@@ -12,6 +13,7 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_LINE_SPACING,
     DEFAULT_MARGIN,
     DEFAULT_MAX_H_COMPRESS,
+    DEFAULT_MIN_HOLE_MARGIN,
     DEFAULT_TEXT_H_ALIGNMENT,
     DEFAULT_TEXT_HEIGHT,
     IDEAL_CUTTER_MAP,
@@ -1194,3 +1196,108 @@ class TestTextHAlignmentCascade:
             line_spacing=0.0,
         )
         assert line.text_h_alignment == "center"
+
+
+class TestMinHoleMarginCascade:
+    """min_hole_margin must cascade label -> job -> default.
+
+    The value is a label-container property (like ``hole_margin``): it is
+    accepted on text lines for schema parity but resolved at label level.
+    """
+
+    def test_default_is_none_when_unset(self) -> None:
+        """Unset min_hole_margin falls back to the global default (None)."""
+        job = JobSpec(
+            job_name="MHM",
+            labels=[
+                LabelSpec(id="lbl", count=1, width=2.0, height=1.0, content=[TextLine(text="X")]),
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert label.min_hole_margin == DEFAULT_MIN_HOLE_MARGIN
+        assert label.min_hole_margin is None
+
+    def test_job_value_used_when_label_omits(self) -> None:
+        """Job-level min_hole_margin applies when the label omits it."""
+        job = JobSpec(
+            job_name="MHM",
+            min_hole_margin=0.05,
+            labels=[
+                LabelSpec(id="lbl", count=1, width=2.0, height=1.0, content=[TextLine(text="X")]),
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.min_hole_margin, 0.05)
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level min_hole_margin takes precedence over the job."""
+        job = JobSpec(
+            job_name="MHM",
+            min_hole_margin=0.05,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    count=1,
+                    width=2.0,
+                    height=1.0,
+                    min_hole_margin=0.1,
+                    content=[TextLine(text="X")],
+                ),
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.min_hole_margin, 0.1)
+
+    def test_explicit_zero_min_hole_margin_is_honored(self) -> None:
+        """An explicit min_hole_margin of 0.0 must not fall through to the job.
+
+        Zero means collision avoidance may shrink the hole margin all the
+        way to tangent, which is a valid intentional configuration.
+        """
+        job = JobSpec(
+            job_name="MHM",
+            min_hole_margin=0.05,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    count=1,
+                    width=2.0,
+                    height=1.0,
+                    min_hole_margin=0.0,
+                    content=[TextLine(text="X")],
+                ),
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert label.min_hole_margin == 0.0
+
+    def test_root_level_job_cascades(self) -> None:
+        """Root-level single-label jobs inherit the job-level value."""
+        job = JobSpec(
+            job_name="MHM",
+            min_hole_margin=0.075,
+            width=2.0,
+            height=1.0,
+            content=[TextLine(text="X")],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.min_hole_margin, 0.075)
+
+    def test_negative_min_hole_margin_rejected(self) -> None:
+        """Negative min_hole_margin values must fail schema validation."""
+        with pytest.raises(ValidationError):
+            JobSpec(
+                job_name="MHM",
+                min_hole_margin=-0.1,
+                labels=[
+                    LabelSpec(
+                        id="lbl", count=1, width=2.0, height=1.0, content=[TextLine(text="X")]
+                    ),
+                ],
+            )
+
+    def test_resolved_label_defaults(self) -> None:
+        """Manually constructed ResolvedLabel defaults for the new fields."""
+        label = ResolvedLabel(id="x", count=1, width=1.0, height=1.0, margin=0.1)
+        assert label.min_hole_margin is None
+        assert label.collision_compress == 1.0

@@ -43,7 +43,11 @@ import numpy as np
 import vpype as vp
 
 from plt_optimizer.generate.ftext_renderer import render_text_line_ftext
-from plt_optimizer.generate.label_renderer import RenderedLabel, compress_line_to_width
+from plt_optimizer.generate.label_renderer import (
+    RenderedLabel,
+    compress_line_to_width,
+    log_text_hole_collisions,
+)
 from plt_optimizer.generate.layout import PackedLabel, PackedPlate
 from plt_optimizer.generate.resolution import (
     ResolvedHoleSpec,
@@ -449,12 +453,21 @@ def _flip_y_coordinates(doc: vp.Document, plate_height: float) -> vp.Document:
 def _render_label_to_doc(packed_label: PackedLabel, doc: vp.Document) -> None:
     """Render a single packed label into the appropriate layers of a document.
 
+    Text-hole collisions are detected and logged (WARNING) for labels with
+    drill holes, mirroring Phase 1 of ``render_label_to_plt``. This path is
+    purely observational: no margin or compression adjustments are applied
+    here -- resolution happens once, upstream, during label rendering.
+
     Args:
         packed_label: The packed label to render.
         doc: The vpype Document to append geometry to.
     """
     source_label = packed_label.source_label
     dx, dy, angle = _get_transform_matrix(packed_label)
+
+    # Phase 1 (observational): warn about text overlapping drill holes.
+    if source_label.holes:
+        log_text_hole_collisions(source_label)
 
     # Layer 1: Text
     text_lc = _render_text(source_label, dx, dy, angle)

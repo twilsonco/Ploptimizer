@@ -1,5 +1,6 @@
 """Unit tests for label rendering engine."""
 
+import logging
 import math
 import re
 
@@ -1145,3 +1146,89 @@ class TestHorizontalTextAlignment:
 
         assert default_bounds[0] == pytest.approx(center_bounds[0], abs=1e-9)
         assert default_bounds[2] == pytest.approx(center_bounds[2], abs=1e-9)
+
+
+def _make_collision_label(
+    text: str = "WIDE LABEL TEXT",
+    holes: list[ResolvedHoleSpec] | None = None,
+    width: float = 3.0,
+    height: float = 1.0,
+    margin: float = 0.1,
+    hole_margin: float = 0.1875,
+    min_hole_margin: float | None = None,
+    max_h_compress: float = 0.0,
+) -> ResolvedLabel:
+    """Build a label whose full-width text overlaps edge drill holes.
+
+    The default geometry (3x1in label, 0.5in text, 0.25in holes at the
+    default 0.1875in hole margin) makes the vertically centered text block
+    span the full inner width, so left/right edge holes sit inside the
+    text bounding box.
+    """
+    if holes is None:
+        holes = [ResolvedHoleSpec(diameter=0.25, location="left")]
+    return ResolvedLabel(
+        id="collision_label",
+        count=1,
+        width=width,
+        height=height,
+        margin=margin,
+        hole_margin=hole_margin,
+        holes=holes,
+        content=[_make_line(text, height=0.5, max_h_compress=max_h_compress)],
+        min_hole_margin=min_hole_margin,
+    )
+
+
+class TestCollisionDetectionPhase1:
+    """Phase 1: collisions are detected, logged, and reported on the result."""
+
+    def test_clean_label_has_no_collisions(self) -> None:
+        """Short centered text must not collide with edge holes."""
+        label = _make_collision_label(text="HI")
+        rendered = render_label_to_plt(label)
+        assert rendered.has_collisions is False
+
+    def test_full_width_text_flags_collision(self) -> None:
+        """A full-width line overlapping a left-edge hole sets the flag."""
+        label = _make_collision_label()
+        rendered = render_label_to_plt(label)
+        assert rendered.has_collisions is True
+
+    def test_collision_logged_with_label_id_and_hole_location(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """WARNING logs must name the label, line index, and hole location."""
+        label = _make_collision_label()
+        with caplog.at_level(logging.WARNING, logger="plt_optimizer.generate.label_renderer"):
+            render_label_to_plt(label)
+
+        messages = [r.message for r in caplog.records if "collides with" in r.message]
+        assert messages, "No collision warning logged"
+        joined = "\n".join(messages)
+        assert "collision_label" in joined
+        assert "text line 0" in joined
+        assert "left drill hole" in joined
+
+    def test_multiple_holes_report_each_collision(self) -> None:
+        """Each colliding (line, hole) pair is reported separately."""
+        holes = [
+            ResolvedHoleSpec(diameter=0.25, location="left"),
+            ResolvedHoleSpec(diameter=0.25, location="right"),
+        ]
+        label = _make_collision_label(holes=holes)
+        rendered = render_label_to_plt(label)
+        assert rendered.has_collisions is True
+
+    def test_no_holes_never_collides(self) -> None:
+        """Labels without holes must never report collisions."""
+        label = _make_collision_label(holes=[])
+        rendered = render_label_to_plt(label)
+        assert rendered.has_collisions is False
+
+    def test_avoidance_disabled_keeps_render_unmodified(self) -> None:
+        """Without min_hole_margin/max_h_compress the render passes through."""
+        label = _make_collision_label()
+        rendered = render_label_to_plt(label)
+        assert rendered.source_label is label
+        assert rendered.has_collisions is True

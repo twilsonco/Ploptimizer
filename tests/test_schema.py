@@ -513,3 +513,54 @@ class TestTextHAlignment:
             text_h_alignment="left",
         )
         assert plate.text_h_alignment is TextHAlignment.LEFT
+
+
+class TestMinHoleMargin:
+    """Tests for the min_hole_margin collision-avoidance floor field."""
+
+    def test_inherited_on_all_levels(self) -> None:
+        """TextLine, LabelSpec and JobSpec expose min_hole_margin."""
+        assert math.isclose(TextLine(text="X", min_hole_margin=0.05).min_hole_margin, 0.05)
+        label = LabelSpec(id="lbl", min_hole_margin=0.1, content=[TextLine(text="X")])
+        assert math.isclose(label.min_hole_margin, 0.1)
+        job = JobSpec(job_name="J", min_hole_margin=0.2, content=[TextLine(text="X")])
+        assert math.isclose(job.min_hole_margin, 0.2)
+
+    def test_default_is_none(self) -> None:
+        """min_hole_margin defaults to None (no floor; inherit from parent)."""
+        assert TextLine(text="X").min_hole_margin is None
+        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).min_hole_margin is None
+        assert JobSpec(job_name="J", content=[TextLine(text="X")]).min_hole_margin is None
+
+    def test_explicit_zero_is_accepted(self) -> None:
+        """min_hole_margin=0.0 (shrink to tangent) is a valid explicit value."""
+        assert math.isclose(TextLine(text="X", min_hole_margin=0.0).min_hole_margin, 0.0)
+
+    def test_negative_rejected(self) -> None:
+        """Negative values must be rejected by the ge=0.0 constraint."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", min_hole_margin=-0.1)
+
+    def test_plate_accepts_min_hole_margin(self) -> None:
+        """PlateSpec should accept min_hole_margin for schema parity."""
+        plate = PlateSpec(
+            id="plate_1",
+            width=24.0,
+            height=12.0,
+            margin=0.25,
+            clearance_padding=0.125,
+            min_hole_margin=0.05,
+        )
+        assert math.isclose(plate.min_hole_margin, 0.05)
+
+    def test_plate_rejects_negative(self) -> None:
+        """PlateSpec must enforce the >= 0.0 range too."""
+        with pytest.raises(ValidationError):
+            PlateSpec(
+                id="plate_1",
+                width=24.0,
+                height=12.0,
+                margin=0.25,
+                clearance_padding=0.125,
+                min_hole_margin=-0.1,
+            )
