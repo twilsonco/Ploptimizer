@@ -43,6 +43,8 @@ DEFAULT_LINE_SPACING: float = 0.1
 DEFAULT_HOLE_MARGIN: float = 0.1875
 # Horizontal compression is opt-in: 0.0 disables it entirely.
 DEFAULT_MAX_H_COMPRESS: float = 0.0
+# Horizontal text alignment defaults to centering (existing behaviour).
+DEFAULT_TEXT_H_ALIGNMENT: str = "center"
 
 # ---------------------------------------------------------------------------
 # Cutter lookup table and inventory matching
@@ -164,6 +166,12 @@ class ResolvedTextLine:
             area, the renderer may uniformly compress it horizontally down
             to ``(1 - max_h_compress)`` of its natural width. ``0.0``
             disables compression.
+        text_h_alignment: Horizontal alignment of the rendered line within
+            the label's inner content area (cascaded line -> label -> job,
+            default ``"center"``). One of ``"left"``, ``"center"`` or
+            ``"right"``. ``"left"`` places the line's left-most point
+            precisely at the left margin; ``"right"`` places the right-most
+            point precisely at the right margin.
     """
 
     text: str
@@ -173,6 +181,7 @@ class ResolvedTextLine:
     character_spacing: float
     line_spacing: float
     max_h_compress: float = 0.0
+    text_h_alignment: str = DEFAULT_TEXT_H_ALIGNMENT
 
 
 @dataclass(frozen=True)
@@ -334,6 +343,48 @@ def compute_horizontal_scale(
     return max(needed, floor)
 
 
+def compute_horizontal_offset(
+    rendered_width: float,
+    available_width: float,
+    margin: float,
+    alignment: str,
+) -> float:
+    """Compute the target left-edge X for a rendered line inside the margin box.
+
+    The label's inner content area spans ``[margin, margin +
+    available_width]``. The alignment anchors the rendered line within
+    that span:
+
+    - ``"left"``: the line's left-most point sits precisely at the left
+      margin (``margin``).
+    - ``"right"``: the line's right-most point sits precisely at the right
+      margin (``margin + available_width``).
+    - ``"center"`` (default): the line is centered within the span.
+
+    When the line is wider than the available width (e.g. compression is
+    disabled), ``"center"`` overflows symmetrically and ``"left"`` /
+    ``"right"`` keep their respective margin edges anchored, spilling out
+    the opposite side.
+
+    Args:
+        rendered_width: Measured rendered line width in inches.
+        available_width: Inner content width in inches (label width minus
+            both margins).
+        margin: Resolved label margin in inches (left inner edge position).
+        alignment: One of ``"left"``, ``"center"`` or ``"right"``. Unknown
+            values fall back to ``"center"``.
+
+    Returns:
+        The X coordinate where the line's left-most point (its ``min_x``)
+        should be translated to.
+    """
+    if alignment == "left":
+        return margin
+    if alignment == "right":
+        return margin + available_width - rendered_width
+    return margin + (available_width - rendered_width) / 2.0
+
+
 def _fit_content_to_margins(
     content: list[ResolvedTextLine],
     label_height: float,
@@ -476,6 +527,16 @@ def _resolve_content(
         else:
             line_max_h_compress = DEFAULT_MAX_H_COMPRESS
 
+        # Resolve horizontal text alignment (line -> label -> job -> default).
+        if line.text_h_alignment is not None:
+            line_text_h_alignment: str = line.text_h_alignment.value
+        elif label_input.text_h_alignment is not None:
+            line_text_h_alignment = label_input.text_h_alignment.value
+        elif job.text_h_alignment is not None:
+            line_text_h_alignment = job.text_h_alignment.value
+        else:
+            line_text_h_alignment = DEFAULT_TEXT_H_ALIGNMENT
+
         resolved_content.append(
             ResolvedTextLine(
                 text=line.text,
@@ -485,6 +546,7 @@ def _resolve_content(
                 character_spacing=char_spacing,
                 line_spacing=line_spacing,
                 max_h_compress=line_max_h_compress,
+                text_h_alignment=line_text_h_alignment,
             )
         )
     return resolved_content

@@ -12,12 +12,14 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_LINE_SPACING,
     DEFAULT_MARGIN,
     DEFAULT_MAX_H_COMPRESS,
+    DEFAULT_TEXT_H_ALIGNMENT,
     DEFAULT_TEXT_HEIGHT,
     IDEAL_CUTTER_MAP,
     ResolvedHoleSpec,
     ResolvedLabel,
     ResolvedTextLine,
     calculate_label_dimensions,
+    compute_horizontal_offset,
     compute_horizontal_scale,
     fit_line_spacing_to_margins,
     get_cutter_diameter,
@@ -27,6 +29,7 @@ from plt_optimizer.generate.schema import (
     HoleSpec,
     JobSpec,
     LabelSpec,
+    TextHAlignment,
     TextLine,
 )
 
@@ -1038,3 +1041,156 @@ class TestMaxHCompressCascade:
         )
         label = resolve_job_spec(job)[0]
         assert math.isclose(label.content[0].max_h_compress, 0.7)
+
+
+class TestComputeHorizontalOffset:
+    """Unit tests for the pure horizontal alignment offset helper."""
+
+    def test_left_anchors_at_margin(self) -> None:
+        """"left" must place the line's left-most point exactly at the margin."""
+        assert compute_horizontal_offset(1.5, 3.0, 0.2, "left") == pytest.approx(0.2)
+
+    def test_right_anchors_right_edge_at_margin(self) -> None:
+        """"right" must place the line's right-most point at the right margin."""
+        # Right inner edge = margin + available_width = 3.2; minus width 1.5.
+        assert compute_horizontal_offset(1.5, 3.0, 0.2, "right") == pytest.approx(1.7)
+
+    def test_center_centers_within_span(self) -> None:
+        """"center" must center the line within the inner content span."""
+        # margin + (available - width) / 2 = 0.2 + (3.0 - 1.5) / 2 = 0.95
+        assert compute_horizontal_offset(1.5, 3.0, 0.2, "center") == pytest.approx(0.95)
+
+    def test_center_matches_legacy_formula(self) -> None:
+        """The center result must equal the legacy centering formula."""
+        width, available, margin = 1.5, 3.0, 0.2
+        legacy = (margin + available / 2) - width / 2
+        assert compute_horizontal_offset(width, available, margin, "center") == pytest.approx(
+            legacy
+        )
+
+    def test_zero_margin_spans_full_width(self) -> None:
+        """With margin 0 the span covers the whole label width."""
+        assert compute_horizontal_offset(2.0, 6.0, 0.0, "left") == pytest.approx(0.0)
+        assert compute_horizontal_offset(2.0, 6.0, 0.0, "right") == pytest.approx(4.0)
+        assert compute_horizontal_offset(2.0, 6.0, 0.0, "center") == pytest.approx(2.0)
+
+    def test_over_wide_line_keeps_margin_edge_anchored(self) -> None:
+        """An over-wide line keeps its aligned edge at the margin (spills out)."""
+        # Line (5.0) wider than the span (3.0): left edge stays at margin.
+        assert compute_horizontal_offset(5.0, 3.0, 0.2, "left") == pytest.approx(0.2)
+        # Right edge stays at the right margin -> negative left offset.
+        assert compute_horizontal_offset(5.0, 3.0, 0.2, "right") == pytest.approx(-1.8)
+
+    def test_unknown_alignment_falls_back_to_center(self) -> None:
+        """Unknown alignment strings must behave like "center"."""
+        assert compute_horizontal_offset(1.5, 3.0, 0.2, "justify") == pytest.approx(0.95)
+
+
+class TestTextHAlignmentCascade:
+    """text_h_alignment must cascade line -> label -> job -> default."""
+
+    def test_default_when_all_omit(self) -> None:
+        """All levels omitting yields the centering default."""
+        job = JobSpec(
+            job_name="J",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert label.content[0].text_h_alignment == DEFAULT_TEXT_H_ALIGNMENT
+
+    def test_job_value_used_when_label_omits(self) -> None:
+        """Job-level value cascades to the line."""
+        job = JobSpec(
+            job_name="J",
+            text_h_alignment="left",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert label.content[0].text_h_alignment == "left"
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level value overrides the job-level value."""
+        job = JobSpec(
+            job_name="J",
+            text_h_alignment="left",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    text_h_alignment="right",
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert label.content[0].text_h_alignment == "right"
+
+    def test_line_overrides_label(self) -> None:
+        """Line-level value overrides the label-level value."""
+        job = JobSpec(
+            job_name="J",
+            text_h_alignment="left",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    text_h_alignment="right",
+                    content=[TextLine(text="X", text_h_alignment=TextHAlignment.CENTER)],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert label.content[0].text_h_alignment == "center"
+
+    def test_per_line_alignment_within_one_label(self) -> None:
+        """Different lines in one label may carry different alignments."""
+        job = JobSpec(
+            job_name="J",
+            text_h_alignment="center",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[
+                        TextLine(text="A", text_h_alignment="left"),
+                        TextLine(text="B"),
+                        TextLine(text="C", text_h_alignment="right"),
+                    ],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert [line.text_h_alignment for line in label.content] == [
+            "left",
+            "center",
+            "right",
+        ]
+
+    def test_resolved_line_default_when_constructed_manually(self) -> None:
+        """Manually constructed ResolvedTextLine defaults to centering."""
+        line = ResolvedTextLine(
+            text="X",
+            nominal_text_height=0.25,
+            toolpath_text_height=0.22,
+            cutter_diameter=0.03,
+            character_spacing=0.0,
+            line_spacing=0.0,
+        )
+        assert line.text_h_alignment == "center"

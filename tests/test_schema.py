@@ -24,6 +24,7 @@ from plt_optimizer.generate.schema import (
     LabelSpec,
     PlateSpec,
     TextAttributes,
+    TextHAlignment,
     TextLine,
     parse_yaml,
 )
@@ -461,3 +462,54 @@ class TestMaxHCompress:
                 clearance_padding=0.125,
                 max_h_compress=1.2,
             )
+
+
+class TestTextHAlignment:
+    """Tests for the text_h_alignment horizontal alignment field."""
+
+    def test_text_line_accepts_all_alignments(self) -> None:
+        """TextLine should accept left/center/right via TextAttributes."""
+        for value in ("left", "center", "right"):
+            line = TextLine(text="HELLO", text_h_alignment=value)
+            assert line.text_h_alignment is TextHAlignment(value)
+
+    def test_accepts_enum_member_directly(self) -> None:
+        """Enum members are accepted as well as raw strings."""
+        line = TextLine(text="HELLO", text_h_alignment=TextHAlignment.RIGHT)
+        assert line.text_h_alignment is TextHAlignment.RIGHT
+
+    def test_default_is_none(self) -> None:
+        """text_h_alignment defaults to None (inherit from parent)."""
+        assert TextLine(text="X").text_h_alignment is None
+        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).text_h_alignment is None
+        assert JobSpec(job_name="J", content=[TextLine(text="X")]).text_h_alignment is None
+
+    def test_invalid_value_rejected(self) -> None:
+        """Values outside the enum must fail validation."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", text_h_alignment="justify")
+
+    def test_inherited_on_all_levels(self) -> None:
+        """LabelSpec and JobSpec expose the field via the attribute mixins."""
+        label = LabelSpec(
+            id="lbl", text_h_alignment="left", content=[TextLine(text="X")]
+        )
+        assert label.text_h_alignment is TextHAlignment.LEFT
+        job = JobSpec(
+            job_name="J",
+            text_h_alignment="right",
+            content=[TextLine(text="X")],
+        )
+        assert job.text_h_alignment is TextHAlignment.RIGHT
+
+    def test_plate_accepts_text_h_alignment(self) -> None:
+        """PlateSpec should accept text_h_alignment for schema parity."""
+        plate = PlateSpec(
+            id="plate_1",
+            width=24.0,
+            height=12.0,
+            margin=0.25,
+            clearance_padding=0.125,
+            text_h_alignment="left",
+        )
+        assert plate.text_h_alignment is TextHAlignment.LEFT

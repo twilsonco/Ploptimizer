@@ -24,6 +24,7 @@ import vpype as vp
 from plt_optimizer.generate.ftext_renderer import render_text_line_ftext
 from plt_optimizer.generate.resolution import (
     ResolvedLabel,
+    compute_horizontal_offset,
     compute_horizontal_scale,
     fit_line_spacing_to_margins,
 )
@@ -1186,7 +1187,10 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
        are stacked without overlap. The later Y-flip in
        ``_flip_y_coordinates_in_plt`` preserves the visual line order.
 
-    Lines are horizontally centered within the label's content area. Text is
+    Lines are horizontally aligned within the label's content area according
+    to each line's ``text_h_alignment`` ("left" anchors the line's left-most
+    point at the left margin, "right" anchors the right-most point at the
+    right margin, "center" centers it). Text is
     rendered with the single-line Relief CAD font via ftext, replacing vpype's
     built-in Hershey stroke-font engine.
     """
@@ -1200,7 +1204,7 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
     # First pass: render all lines and measure their heights. Keep each
     # line's own line_spacing alongside the rendered geometry so empty or
     # unrenderable lines don't misalign spacing between real lines.
-    rendered_lines: list[Tuple[vp.LineCollection, float, float, float]] = []
+    rendered_lines: list[Tuple[vp.LineCollection, float, float, float, str]] = []
     total_rendered_height = 0.0
 
     for line in label.content:
@@ -1221,7 +1225,13 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
         rendered_height = max_y - min_y
 
         rendered_lines.append(
-            (filtered_lc, rendered_height, line.line_spacing, line.max_h_compress)
+            (
+                filtered_lc,
+                rendered_height,
+                line.line_spacing,
+                line.max_h_compress,
+                line.text_h_alignment,
+            )
         )
         total_rendered_height += rendered_height
 
@@ -1231,10 +1241,10 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
     # Add line spacing between lines (not after the last line). Margin
     # precedence: if the measured block (line heights + requested spacing)
     # overflows the inner area, shrink the spacing so margins win.
-    spacings = [line_spacing for _lc, _height, line_spacing, _mhc in rendered_lines[:-1]]
+    spacings = [line_spacing for _lc, _height, line_spacing, _mhc, _align in rendered_lines[:-1]]
     available_height = label.height - (2 * margin)
     adjusted_spacings = fit_line_spacing_to_margins(
-        [height for _lc, height, _spacing, _mhc in rendered_lines],
+        [height for _lc, height, _spacing, _mhc, _align in rendered_lines],
         spacings,
         available_height,
     )
@@ -1253,12 +1263,19 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
             rendered_height,
             adjusted_spacings[i] if i < len(adjusted_spacings) else 0.0,
             max_h_compress,
+            text_h_alignment,
         )
-        for i, (filtered_lc, rendered_height, _spacing, max_h_compress) in enumerate(rendered_lines)
+        for i, (
+            filtered_lc,
+            rendered_height,
+            _spacing,
+            max_h_compress,
+            text_h_alignment,
+        ) in enumerate(rendered_lines)
     ]
-    total_rendered_height = sum(height for _lc, height, _spacing, _mhc in rendered_lines) + sum(
-        adjusted_spacings
-    )
+    total_rendered_height = sum(
+        height for _lc, height, _spacing, _mhc, _align in rendered_lines
+    ) + sum(adjusted_spacings)
 
     # Anchor the block so its vertical center sits at y = total / 2. The
     # absolute anchor is irrelevant (post-export centering fixes it); only
@@ -1266,9 +1283,13 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
     current_y = total_rendered_height / 2.0
 
     # Second pass: position each line, stacked top-to-bottom (+y up).
-    for i, (filtered_lc, rendered_height, line_spacing, max_h_compress) in enumerate(
-        rendered_lines
-    ):
+    for i, (
+        filtered_lc,
+        rendered_height,
+        line_spacing,
+        max_h_compress,
+        text_h_alignment,
+    ) in enumerate(rendered_lines):
         bounds = filtered_lc.bounds()
         if bounds is None:  # pragma: no cover - measured in first pass
             continue
@@ -1283,10 +1304,13 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
         min_x, _min_y, max_x, max_y = bounds
         rendered_width = max_x - min_x
 
-        # Horizontal centering within the available width
-        center_x = margin + available_width / 2
-        # Position text so it's centered horizontally
-        x_offset = center_x - rendered_width / 2 - min_x
+        # Horizontal alignment within the available width: "left" anchors
+        # the line's left-most point at the left margin, "right" anchors
+        # the right-most point at the right margin, "center" centers it.
+        target_left_x = compute_horizontal_offset(
+            rendered_width, available_width, margin, text_h_alignment
+        )
+        x_offset = target_left_x - min_x
 
         # Vertical stacking: top of this line's glyphs at current_y.
         y_offset = current_y - max_y

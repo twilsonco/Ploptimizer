@@ -10,6 +10,8 @@
 #   - hole_margin cascade: job-level default inset plus a label-level override
 #   - Horizontal text compression: over-wide lines are uniformly squeezed
 #     (bounded by max_h_compress) so they respect the label margins
+#   - Horizontal text alignment: per-line left/right anchoring at the label
+#     margins plus label-level inheritance of the alignment default
 #   - High-count volume labels forcing overflow onto the second plate
 #
 # Run with: python run_integration_test.py examples/complex_test_job.yaml
@@ -160,3 +162,33 @@ job:
           location: top
         - diameter: 0.25
           location: bottom
+
+    # 9. Horizontal text alignment: one label, three anchorings. "left"
+    #    places the line's left-most point precisely at the left margin,
+    #    "right" anchors the right-most point at the right margin, and the
+    #    middle line inherits the default "center". Cascades
+    #    text line -> label -> job (default "center").
+    - id: alignment_demo
+      count: 4
+      width: 6.0
+      height: 1.5
+      text_height: 0.3
+      content:
+        - text: "LEFT ALIGNED"
+          text_h_alignment: left
+        - text: "CENTERED (default)"
+        - text: "RIGHT ALIGNED"
+          text_h_alignment: right
+
+    # 10. Label-level alignment inheritance: both lines have no explicit
+    #     value, so they inherit "right" from the label (label -> line
+    #     cascade). A per-line override would win over the label value.
+    - id: right_aligned_tag
+      count: 6
+      width: 4.0
+      height: 1.0
+      text_height: 0.25
+      text_h_alignment: right
+      content:
+        - text: "INHERIT RIGHT"
+        - text: "ALSO RIGHT"

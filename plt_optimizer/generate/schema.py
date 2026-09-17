@@ -58,6 +58,26 @@ class HoleSpec(BaseModel):
     location: HoleLocation
 
 
+class TextHAlignment(str, Enum):
+    """Enumeration of valid horizontal text alignment modes for a text line.
+
+    The alignment anchors the rendered line within the label's inner content
+    area (label width minus both margins). ``left`` places the line's
+    left-most point precisely at the left margin; ``right`` places the
+    line's right-most point precisely at the right margin; ``center``
+    (the default) centers the line horizontally.
+
+    Attributes:
+        LEFT: Left edge of the line sits at the left margin.
+        CENTER: Line is horizontally centered within the inner content area.
+        RIGHT: Right edge of the line sits at the right margin.
+    """
+
+    LEFT = "left"
+    CENTER = "center"
+    RIGHT = "right"
+
+
 class TextAttributes(BaseModel):
     """Attributes that can cascade down to individual text lines.
 
@@ -76,6 +96,14 @@ class TextAttributes(BaseModel):
             squeezing wide lines to 50% of their natural width. Cascades
             line -> label -> job (and is accepted on plates for schema
             parity, where it is not currently applied during rendering).
+        text_h_alignment: Optional horizontal alignment of a rendered text
+            line within the label's inner content area. One of ``left``,
+            ``center`` or ``right``. ``left`` places the line's left-most
+            point precisely at the left margin; ``right`` places the right-
+            most point at the right margin; ``center`` (the default)
+            centers the line. Cascades line -> label -> job (and is
+            accepted on plates for schema parity, where it is not currently
+            applied during rendering).
     """
 
     text_height: Optional[float] = None
@@ -86,6 +114,10 @@ class TextAttributes(BaseModel):
         ge=0.0,
         le=1.0,
         description="Maximum horizontal compression fraction in [0.0, 1.0].",
+    )
+    text_h_alignment: Optional[TextHAlignment] = Field(
+        default=None,
+        description="Horizontal text alignment: left, center, or right.",
     )
 
 
@@ -185,6 +217,12 @@ class PlateSpec(BaseModel):
             per-plate value is not currently applied during rendering; the
             effective value is resolved from the label -> job -> default
             cascade.
+        text_h_alignment: Optional horizontal text alignment. Accepted for
+            schema parity with the job/label ``text_h_alignment`` cascade.
+            NOTE: labels are rendered once and cached before bin-packing
+            (and a single label may span multiple plates), so a per-plate
+            value is not currently applied during rendering; the effective
+            value is resolved from the label -> job -> default cascade.
     """
 
     id: str
@@ -199,6 +237,10 @@ class PlateSpec(BaseModel):
         ge=0.0,
         le=1.0,
         description="Maximum horizontal compression fraction in [0.0, 1.0].",
+    )
+    text_h_alignment: Optional[TextHAlignment] = Field(
+        default=None,
+        description="Horizontal text alignment (schema parity; not applied at plate level).",
     )
     clearance_padding: float = Field(
         ge=0.0, description="Padding between labels in inches (must be >= 0)."

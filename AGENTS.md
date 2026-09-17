@@ -59,6 +59,12 @@ JobSpec (job-level defaults)
   0.0 = disabled). When a rendered line is wider than the label's inner
   content area, it is uniformly compressed horizontally down to at most
   `(1 - max_h_compress)` of its natural width.
+- `text_h_alignment`: Horizontal alignment of a rendered text line within the
+  label's inner content area. Enum `TextHAlignment` with values `left`,
+  `center`, `right` (default `center`). `left` places the line's left-most
+  point precisely at the left margin; `right` places the right-most point
+  precisely at the right margin; `center` centers the line. Accepted on
+  plates for schema parity only (not applied at plate level).
 
 **LabelAttributes** (extends TextAttributes, cascades to LabelSpec only):
 - `width`, `height`, `margin`: Label dimensions & safety margins
@@ -91,6 +97,26 @@ line → label → job (accepted on plates for schema parity only).
 - Lines that already fit are never modified. If compression cannot fully
   resolve the overflow (limit too small), a WARNING is logged.
 
+### Horizontal Text Alignment
+
+Each text line is positioned horizontally within the label's inner content
+area (`[margin, width - margin]`) according to `text_h_alignment`. Values
+cascade line → label → job (default `center`; accepted on plates for schema
+parity only). Enum `TextHAlignment` (`left`, `center`, `right`).
+
+- `left`: the line's left-most point sits **precisely at the left margin**.
+- `right`: the line's right-most point sits **precisely at the right margin**.
+- `center`: the line is centered within the inner content area (existing
+  behaviour; backward compatible default).
+- `compute_horizontal_offset()` (resolution.py): pure offset math returning
+  the target left-edge X for a rendered line; unknown values fall back to
+  `center`.
+- Applied per-line by both render paths (`_render_text_local` and
+  `vectorize._render_text`) after compression, before vertical stacking.
+- When a line is wider than the inner area (e.g. compression disabled),
+  `center` overflows symmetrically while `left`/`right` keep their aligned
+  margin edge anchored and spill out the opposite side.
+
 ### Job Specification Patterns
 
 **Pattern 1: Explicit Labels List**
@@ -116,7 +142,7 @@ job:
 ```
 
 ### Cascading Resolution
-When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset).
+When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset) and `text_h_alignment` (explicit `center` is honored, not treated as unset).
 
 ### Integration Points
 - `parse_yaml(file_path)` returns a `JobSpec` ready for downstream bin-packing and rendering pipelines

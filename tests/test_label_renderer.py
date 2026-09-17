@@ -27,6 +27,7 @@ def _make_line(
     text: str,
     height: float = 0.3,
     max_h_compress: float = 0.0,
+    text_h_alignment: str = "center",
 ) -> ResolvedTextLine:
     """Build a ResolvedTextLine with cutter compensation applied."""
     cutter_dia = 0.03
@@ -38,6 +39,7 @@ def _make_line(
         character_spacing=0.0,
         line_spacing=0.0,
         max_h_compress=max_h_compress,
+        text_h_alignment=text_h_alignment,
     )
 
 
@@ -1041,3 +1043,102 @@ class TestHorizontalCompressionRendering:
         assert max(xs) <= label.width - margin + 0.02, (
             f"Text breaches right margin: {max(xs):.3f}"
         )
+
+
+class TestHorizontalTextAlignment:
+    """text_h_alignment must anchor rendered lines within the margin box."""
+
+    SHORT_TEXT = "AB"
+
+    def _label(self, alignment: str) -> ResolvedLabel:
+        """Build a wide label with a single short line at the given alignment."""
+        return _make_local_label(
+            [_make_line(self.SHORT_TEXT, height=0.3, text_h_alignment=alignment)],
+            width=4.0,
+            height=1.0,
+            margin=0.2,
+        )
+
+    def test_left_aligns_left_edge_at_margin(self) -> None:
+        """A left-aligned line's left-most point sits precisely at the margin."""
+        margin = 0.2
+        lc = _render_text_local(self._label("left"))
+        assert not lc.is_empty()
+
+        min_x, _min_y, _max_x, _max_y = lc.bounds()
+        assert min_x == pytest.approx(margin, abs=0.01)
+
+    def test_right_aligns_right_edge_at_margin(self) -> None:
+        """A right-aligned line's right-most point sits precisely at the margin."""
+        label = self._label("right")
+        lc = _render_text_local(label)
+        assert not lc.is_empty()
+
+        _min_x, _min_y, max_x, _max_y = lc.bounds()
+        assert max_x == pytest.approx(label.width - label.margin, abs=0.01)
+
+    def test_center_stays_centered(self) -> None:
+        """Centered text must remain centered within the inner content area."""
+        label = self._label("center")
+        lc = _render_text_local(label)
+        min_x, _min_y, max_x, _max_y = lc.bounds()
+
+        inner_center = label.margin + (label.width - 2 * label.margin) / 2
+        text_center = (min_x + max_x) / 2
+        assert text_center == pytest.approx(inner_center, abs=0.01)
+
+    def test_alignments_produce_distinct_positions(self) -> None:
+        """The same line must land at three distinct X positions."""
+        left = _render_text_local(self._label("left")).bounds()
+        center = _render_text_local(self._label("center")).bounds()
+        right = _render_text_local(self._label("right")).bounds()
+
+        assert left[0] < center[0] < right[0]
+        # Same line at the same height -> identical widths.
+        assert (left[2] - left[0]) == pytest.approx(right[2] - right[0], abs=1e-6)
+
+    def test_per_line_alignment_in_multi_line_label(self) -> None:
+        """Each line in a label may carry its own horizontal alignment."""
+        margin = 0.2
+        label = _make_local_label(
+            [
+                _make_line("LEFT", height=0.25, text_h_alignment="left"),
+                _make_line("RIGHT", height=0.25, text_h_alignment="right"),
+            ],
+            width=4.0,
+            height=1.2,
+            margin=margin,
+        )
+        lc = _render_text_local(label)
+        assert not lc.is_empty()
+
+        # Separate the two lines by their vertical bands (top line has larger y).
+        _lb_min_x, lb_min_y, _lb_max_x, lb_max_y = lc.bounds()
+        mid_y = (lb_min_y + lb_max_y) / 2
+        top_xs = [
+            p.real for seg in lc for p in seg if p.imag > mid_y
+        ]
+        bottom_xs = [
+            p.real for seg in lc for p in seg if p.imag <= mid_y
+        ]
+        assert top_xs and bottom_xs
+        # Top line ("LEFT") hugs the left margin; bottom ("RIGHT") the right.
+        assert min(top_xs) == pytest.approx(margin, abs=0.01)
+        assert max(bottom_xs) == pytest.approx(4.0 - margin, abs=0.01)
+
+    def test_default_alignment_matches_center(self) -> None:
+        """A line built without alignment (dataclass default) centers as before."""
+        defaulted = ResolvedTextLine(
+            text=self.SHORT_TEXT,
+            nominal_text_height=0.3,
+            toolpath_text_height=0.27,
+            cutter_diameter=0.03,
+            character_spacing=0.0,
+            line_spacing=0.0,
+        )
+        label_default = _make_local_label([defaulted], width=4.0, height=1.0, margin=0.2)
+        default_bounds = _render_text_local(label_default).bounds()
+        center_bounds = _render_text_local(self._label("center")).bounds()
+
+        assert default_bounds[0] == pytest.approx(center_bounds[0], abs=1e-9)
+        assert default_bounds[2] == pytest.approx(center_bounds[2], abs=1e-9)
