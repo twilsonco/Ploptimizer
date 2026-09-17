@@ -140,13 +140,13 @@ class TestMarginAdjustment:
     def test_adjustment_logs_before_and_after_margins(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """A successful adjustment logs INFO with both margin values."""
+        """A successful adjustment logs WARNING with both margin values."""
         label = _label(text="HELLO", holes=BOTTOM_HOLE, min_hole_margin=0.0)
-        with caplog.at_level(logging.INFO, logger=LOGGER_NAME):
+        with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
             rendered = render_label_to_plt(label)
 
         messages = [r.message for r in caplog.records if "adjusted hole_margin" in r.message]
-        assert messages, "No INFO logged for margin adjustment"
+        assert messages, "No WARNING logged for margin adjustment"
         assert "from 0.1875in" in messages[0]
         assert f"to {rendered.source_label.hole_margin:.4f}in" in messages[0]
 

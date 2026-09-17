@@ -203,7 +203,7 @@ def _resolve_collision_via_margin_adjustment(
         candidate = label.hole_margin - (label.hole_margin - floor) * i / steps
         candidate_label = replace(label, hole_margin=candidate)
         if not _detect_text_hole_collisions(candidate_label, line_entries):
-            logger.info(
+            logger.warning(
                 "Label %s: adjusted hole_margin from %.4fin to %.4fin to "
                 "avoid text-hole collision (minimum allowed %.4fin).",
                 label.id,
@@ -248,7 +248,7 @@ def _resolve_collision_via_compression(
         candidate_label = replace(label, collision_compress=scale)
         _candidate_lc, candidate_entries = _render_text_local_with_bounds(candidate_label)
         if not _detect_text_hole_collisions(candidate_label, candidate_entries):
-            logger.info(
+            logger.warning(
                 "Label %s: compressed text horizontally to %.1f%% width to "
                 "avoid text-hole collision (max_h_compress budget %.2f).",
                 label.id,
@@ -1515,7 +1515,7 @@ def compress_line_to_width(
             available_width,
         )
     else:
-        logger.info(
+        logger.warning(
             "Label %s: text line horizontally compressed to fit margin (%.3fin "
             "-> %.3fin, scale %.3f).",
             label_id,

@@ -135,8 +135,9 @@ collision). Detection runs in the label-local y-up frame, shifted by
   observational `log_text_hole_collisions()` per label.
 - **Phase 2 (opt-in via `min_hole_margin`):** sweep `hole_margin` toward the
   floor (analytical — hole positions are pure functions of `hole_margin`);
-  on success re-render from the adjusted label clone and log INFO with
-  before/after margins.
+  on success re-render from the adjusted label clone and log WARNING with
+  before/after margins. (Any geometry-altering avoidance action — margin
+  reduction or collision compression — always logs at WARNING.)
 - **Phase 3 (opt-in via `max_h_compress`):** if margins cannot clear the
   overlap, sweep a uniform horizontal compression (`collision_compress` on
   `ResolvedLabel`, applied before margin-driven compression) up to the line
