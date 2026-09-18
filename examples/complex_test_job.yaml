@@ -12,6 +12,8 @@
 #     (bounded by max_h_compress) so they respect the label margins
 #   - Horizontal text alignment: per-line left/right anchoring at the label
 #     margins plus label-level inheritance of the alignment default
+#   - Replacement text file template (EngraveLab/Vision Pro "badges") mixed
+#     with fully static labels in one job
 #   - High-count volume labels forcing overflow onto the second plate
 #
 # Run with: python run_integration_test.py examples/complex_test_job.yaml
@@ -37,7 +39,7 @@ job:
 
   # ---------------------------------------------------------------------
   # Constrained mode: exactly these two sheets are available. Total label
-  # area (~450 sq in) exceeds plate_1's 384 sq in, forcing multi-plate
+  # area (~475 sq in) exceeds plate_1's 384 sq in, forcing multi-plate
   # allocation across both bins.
   # ---------------------------------------------------------------------
   plates:
@@ -193,3 +195,26 @@ job:
       content:
         - text: "INHERIT RIGHT"
         - text: "ALSO RIGHT"
+
+    # 11. Replacement text file template (EngraveLab/Vision Pro "badge"):
+    #     examples/replacement_text_complex.txt drives the content; its
+    #     line count (3) determines the instance count (badge_0000 ..
+    #     badge_0002), so `count` must not be set alongside it. The
+    #     `content` lines are placeholders declaring per-line attributes;
+    #     the file's semicolon-delimited items replace only `text`. The
+    #     three file lines exercise every merge path:
+    #       - "PUMP P-101;FEED WATER" -> exactly 2 items: both template
+    #         lines render with their placeholder attributes.
+    #       - "VALVE V-201" -> fewer items than template lines: renders a
+    #         single line, block stays vertically centered.
+    #       - "COMPRESSOR C-3;AIR HEADER;MAINTENANCE" -> more items: the
+    #         third line is an extra line inheriting label-level attrs.
+    - id: badge
+      width: 4.0
+      height: 1.9
+      replacement_text_file: replacement_text_complex.txt
+      content:
+        - text: "PLACEHOLDER LINE 1"
+          text_height: 0.45
+        - text: "PLACEHOLDER LINE 2"
+          text_h_alignment: center
