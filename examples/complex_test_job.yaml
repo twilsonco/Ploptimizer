@@ -106,16 +106,16 @@ job:
       width: 2.5
       height: 2.0
       text_height: 0.4
-      hole_margin: 0.35
+      hole_margin: 0.1875
       content:
         - text: "DRILL"
         - text: "PATTERN"
       holes:
         - diameter: 0.125
           location: top-left
-        - diameter: 0.1875
+        - diameter: 0.125
           location: top-right
-        - diameter: 0.25
+        - diameter: 0.125
           location: bottom-right
         - diameter: 0.125
           location: bottom-left
@@ -159,9 +159,9 @@ job:
       content:
         - text: "TOP/BOT DRILL"
       holes:
-        - diameter: 0.25
+        - diameter: 0.125
           location: top
-        - diameter: 0.25
+        - diameter: 0.125
           location: bottom
 
     # 9. Horizontal text alignment: one label, three anchorings. "left"
