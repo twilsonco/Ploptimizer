@@ -80,11 +80,12 @@ JobSpec (job-level defaults)
 | Class | Purpose | Validation Rules |
 |-------|---------|------------------|
 | `JobSpec` | Root job container | Requires either `labels` list OR root-level `content` (mutually exclusive) |
-| `LabelSpec` | Individual label definition | `count >= 1`, `content` (min 1 TextLine) |
+| `LabelSpec` | Individual label definition | `count >= 1`; requires `content` (min 1 TextLine) OR `replacement_text_file` (mutually exclusive with `count`) |
 | `TextLine` | Text content unit | Requires non-empty `text` string |
 | `PlateSpec` | Physical sheet definition | All dimensions `>= 0`, includes `clearance_padding` |
 | `HoleSpec` | Drilled hole definition | Diameter + location (8 enum values: corners + edges) |
 | `parse_yaml()` | Entry point | Returns validated `JobSpec` or raises `ValueError` |
+| `expand_job_spec()` | Replacement expansion (substitution.py) | Called after `parse_yaml()`; flattens replacement-driven labels into static LabelSpecs |
 
 ### Horizontal Text Compression
 
@@ -184,10 +185,62 @@ job:
     - text: "Single repeating label"
 ```
 
+**Pattern 3: Replacement Text File Template** (EngraveLab/Vision Pro style)
+```yaml
+job:
+  job_name: "Batch 02"
+  labels:
+    - id: "badge"                    # expands to badge_0000, badge_0001, ...
+      replacement_text_file: data.txt  # relative to the job YAML directory
+      replacement_text_delimiter: ";"  # optional, default ";"
+      content:                       # optional placeholders (see below)
+        - text: "PLACEHOLDER L1"
+          text_height: 0.45
+```
+
+### Replacement Text Files (Badges / Multiples)
+
+`plt_optimizer/generate/substitution.py` implements EngraveLab/Vision Pro
+"badge" (a.k.a. "multiples") data-driven generation. A `LabelSpec` with
+`replacement_text_file` is a template: **each line of the file produces one
+label copy** (the file's line count determines the count; `count` must not
+be set alongside it). Items within a file line are split on
+`replacement_text_delimiter` (default `;`; must be a single special or
+whitespace character, never newline/alphanumeric).
+
+- **File format:** pure data — every line is a label copy (no comment
+  syntax). CRLF/CR endings are normalized; a single trailing newline does
+  not create a phantom copy; a UTF-8 BOM is stripped; items are used
+  verbatim (no whitespace stripping). Blank lines render blank lines
+  (WARNING logged). Loading failures raise `SubstitutionError` (a
+  `ValueError` subclass).
+- **`content` optional:** when omitted, every rendered line inherits
+  label-level attributes. When present, each `text` value is a
+  placeholder declaring that line's attributes (text_height, alignment,
+  spacing, ...); the replacement item overrides only `text`.
+- **Fewer items than template lines:** the copy renders only as many
+  lines as items present (extra template lines dropped); the rendered
+  block stays vertically centered (existing renderers center regardless
+  of line count).
+- **More items than template lines:** extra lines inherit label-level
+  attributes (same as the no-content case).
+- **Delimiter collisions:** items can never contain the delimiter (data
+  is split on it), so users must choose a delimiter absent from their
+  data — the EngraveLab constraint, enforced by construction.
+- **Expansion:** `expand_job_spec(job, yaml_path)` runs between
+  `parse_yaml()` and `resolve_job_spec()` (wired into `cli/generate.py`
+  and `run_integration_test.py`). Each file line becomes a static
+  `LabelSpec` with `count=1`, id suffix `_{index:04d}`, and replacement
+  fields cleared. Static labels and root-level jobs pass through
+  untouched; jobs without replacement labels return the same object.
+- **Examples:** `examples/replacement_job.yaml` with
+  `examples/replacement_text_sample.txt` / `replacement_text_assets.txt`.
+
 ### Cascading Resolution
 When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), and `min_hole_margin` (explicit 0.0 is honored; only `None` means unset).
 
 ### Integration Points
 - `parse_yaml(file_path)` returns a `JobSpec` ready for downstream bin-packing and rendering pipelines
+- `expand_job_spec(job, yaml_path)` (substitution.py) must run immediately after `parse_yaml()` before `resolve_job_spec()` to flatten replacement-driven labels
 - All numeric fields support Pydantic's `ge` (greater-than-or-equal) validators for safety
 - Use `job.labels` or synthesize from root-level `content` + `count` when processing
