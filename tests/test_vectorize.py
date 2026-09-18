@@ -464,6 +464,49 @@ class TestRenderText:
         assert bounds[3] <= margin + label.height + 0.1
 
 
+class TestRenderTextVerticalCentering:
+    """Variable line counts must stay vertically centered on the label.
+
+    Replacement-driven labels may render a different number of text lines
+    per instance (fewer delimited items than template lines). Every
+    rendered block, regardless of line count, must be vertically centered
+    within the inner content area.
+    """
+
+    @staticmethod
+    def _line(text: str) -> ResolvedTextLine:
+        """Build a minimal resolved line for centering checks."""
+        return ResolvedTextLine(
+            text=text,
+            nominal_text_height=0.25,
+            toolpath_text_height=0.22,
+            cutter_diameter=0.03,
+            character_spacing=0.0,
+            line_spacing=0.1,
+        )
+
+    @pytest.mark.parametrize("line_count", [1, 2, 3, 4])
+    def test_block_centered_regardless_of_line_count(self, line_count: int) -> None:
+        """1-4 line blocks all center at margin + available_height / 2."""
+        margin = 0.1
+        height = 2.0
+        label = _make_label(
+            width=3.0,
+            height=height,
+            margin=margin,
+            content=[self._line(f"LINE {i}") for i in range(line_count)],
+        )
+        lc = _render_text(label, 0.0, 0.0, 0.0)
+        bounds = lc.bounds()
+        assert bounds is not None
+        expected_center = margin + (height - 2 * margin) / 2.0
+        block_center = (bounds[1] + bounds[3]) / 2.0
+        assert math.isclose(block_center, expected_center, abs_tol=0.05), (
+            f"{line_count}-line block center {block_center:.3f} != "
+            f"expected {expected_center:.3f}"
+        )
+
+
 class TestVectorizePlate:
     """Tests for the main vectorization function."""
 
