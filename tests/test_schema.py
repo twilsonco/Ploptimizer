@@ -18,6 +18,7 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from plt_optimizer.generate.schema import (
+    DEFAULT_HOLE_DIAMETER,
     HoleSpec,
     JobSpec,
     LabelAttributes,
@@ -52,7 +53,30 @@ class TestHoleLocationEnum:
     def test_invalid_location_rejected(self) -> None:
         """Invalid location strings should raise ValidationError."""
         with pytest.raises(ValidationError):
-            HoleSpec(diameter=0.125, location="center")  # type: ignore
+            HoleSpec(location="center")  # type: ignore
+
+    def test_location_only_hole_uses_default_diameter(self) -> None:
+        """A hole specifying only ``location`` gets the default diameter."""
+        hole = HoleSpec(location="top-left")
+        assert hole.location.value == "top-left"
+        assert hole.diameter == DEFAULT_HOLE_DIAMETER == 0.125
+
+    def test_explicit_diameter_overrides_default(self) -> None:
+        """An explicit ``diameter`` wins over the default."""
+        hole = HoleSpec(location="left", diameter=0.25)
+        assert hole.diameter == 0.25
+
+    def test_location_is_required(self) -> None:
+        """Omitting ``location`` should raise ValidationError."""
+        with pytest.raises(ValidationError):
+            HoleSpec(diameter=0.125)  # type: ignore
+
+    def test_non_positive_diameter_rejected(self) -> None:
+        """Zero or negative diameters should raise ValidationError."""
+        with pytest.raises(ValidationError):
+            HoleSpec(location="left", diameter=0.0)
+        with pytest.raises(ValidationError):
+            HoleSpec(location="left", diameter=-0.125)
 
 
 class TestTextAttributes:
@@ -305,6 +329,8 @@ class TestParseYaml:
         assert label.count == 5
         assert len(label.content) == 2
         assert label.holes is not None and len(label.holes) == 2
+        # sample_spec.yaml uses location-only holes: default diameter applies.
+        assert all(h.diameter == DEFAULT_HOLE_DIAMETER for h in label.holes)
 
     def test_parse_nonexistent_file_raises(self) -> None:
         """Parsing non-existent file should raise FileNotFoundError."""

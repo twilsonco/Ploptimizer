@@ -28,6 +28,7 @@ from plt_optimizer.generate.resolution import (
     resolve_job_spec,
 )
 from plt_optimizer.generate.schema import (
+    DEFAULT_HOLE_DIAMETER,
     HoleSpec,
     JobSpec,
     LabelSpec,
@@ -366,7 +367,7 @@ class TestHoleResolution:
                     count=1,
                     width=2.0,
                     height=1.0,
-                    holes=[HoleSpec(diameter=0.125, location="left")],
+                    holes=[HoleSpec(location="left")],
                     content=[TextLine(text="X")],
                 ),
             ],
@@ -375,6 +376,26 @@ class TestHoleResolution:
         assert len(labels[0].holes) == 1
         assert labels[0].holes[0].diameter == 0.125
         assert labels[0].holes[0].location == "left"
+
+    def test_location_only_hole_resolves_default_diameter(self) -> None:
+        """A location-only hole resolves with the 0.125in default diameter."""
+        job = JobSpec(
+            job_name="Holes",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    count=1,
+                    width=2.0,
+                    height=1.0,
+                    holes=[HoleSpec(location="bottom-right")],
+                    content=[TextLine(text="X")],
+                ),
+            ],
+        )
+        labels = resolve_job_spec(job)
+        assert len(labels[0].holes) == 1
+        assert labels[0].holes[0].diameter == DEFAULT_HOLE_DIAMETER
+        assert labels[0].holes[0].location == "bottom-right"
 
     def test_job_holes_used_when_label_omits(self) -> None:
         """Job-defined holes should be used when label omits them."""

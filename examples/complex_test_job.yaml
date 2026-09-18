@@ -7,6 +7,9 @@
 #   - Auto-sizing (bounding-box calculation) mixed with fixed dimensions
 #   - Job-level hole inheritance, label-level hole overrides, and holes: []
 #     suppression of inherited holes
+#   - Location-only drill holes: ``location`` alone is a valid hole spec and
+#     implies the default 0.125" diameter; an explicit ``diameter`` overrides
+#     it (see corner_drill)
 #   - hole_margin cascade: job-level default inset plus a label-level override
 #   - Horizontal text compression: over-wide lines are uniformly squeezed
 #     (bounded by max_h_compress) so they respect the label margins
@@ -67,10 +70,8 @@ job:
         - text: "VALVE V-104"
         - text: "OPEN CW"
       holes:
-        - diameter: 0.125
-          location: left
-        - diameter: 0.125
-          location: right
+        - location: left
+        - location: right
 
     # 2. Per-line typography overrides: each line picks its own text_height,
     #    exercising three different cutter selections within one label.
@@ -101,8 +102,10 @@ job:
         - text: "ZERO HARM ZONE"
           text_height: 0.125
 
-    # 4. All four corner hole locations with mixed diameters. The explicit
-    #    hole_margin overrides the job-level default for this label only.
+    # 4. All four corner hole locations: three location-only holes (default
+    #    0.125" diameter) plus one explicit 0.1875" override on top-right.
+    #    The explicit hole_margin overrides the job-level default for this
+    #    label only.
     - id: corner_drill
       count: 8
       width: 2.5
@@ -113,14 +116,11 @@ job:
         - text: "DRILL"
         - text: "PATTERN"
       holes:
-        - diameter: 0.125
-          location: top-left
-        - diameter: 0.125
+        - location: top-left
+        - diameter: 0.1875
           location: top-right
-        - diameter: 0.125
-          location: bottom-right
-        - diameter: 0.125
-          location: bottom-left
+        - location: bottom-right
+        - location: bottom-left
 
     # 5. Oversize single-instance label: 1.5" text maps to the largest
     #    common cutter (0.187"); verifies large glyph vectorization.
@@ -151,7 +151,7 @@ job:
         - text: "SERIAL 0000-0000"
       holes: []
 
-    # 8. Top/bottom edge holes at a larger diameter.
+    # 8. Top/bottom edge holes, location-only (default 0.125" diameter).
     - id: edge_holes
       count: 4
       width: 4.0
@@ -161,10 +161,8 @@ job:
       content:
         - text: "TOP/BOT DRILL"
       holes:
-        - diameter: 0.125
-          location: top
-        - diameter: 0.125
-          location: bottom
+        - location: top
+        - location: bottom
 
     # 9. Horizontal text alignment: one label, three anchorings. "left"
     #    places the line's left-most point precisely at the left margin,

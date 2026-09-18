@@ -34,6 +34,7 @@ from plt_optimizer.generate.resolution import (
     resolve_job_spec,
 )
 from plt_optimizer.generate.schema import (
+    DEFAULT_HOLE_DIAMETER,
     HoleLocation,
     HoleSpec,
     JobSpec,
@@ -68,6 +69,7 @@ from plt_optimizer.generate.vectorize import (
 
 __all__ = [
     "DEFAULT_CHAR_SPACING",
+    "DEFAULT_HOLE_DIAMETER",
     "DEFAULT_LINE_SPACING",
     "DEFAULT_MARGIN",
     "DEFAULT_PLATE_HEIGHT",

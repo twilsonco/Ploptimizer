@@ -46,16 +46,26 @@ class HoleLocation(str, Enum):
     BOTTOM_RIGHT = "bottom-right"
 
 
+# Default drill-hole diameter (inches) used when a hole specification omits
+# ``diameter``. 0.125" is the common drill size across the example jobspecs.
+DEFAULT_HOLE_DIAMETER: float = 0.125
+
+
 class HoleSpec(BaseModel):
     """Specification for a hole to be drilled in a label.
 
+    ``location`` is the primary (and only required) field: the common case
+    is a standard 0.125" drill hole, which can be written as ``location``
+    alone. ``diameter`` is an optional override for non-standard sizes.
+
     Attributes:
-        diameter: The diameter of the hole in inches.
         location: The position of the hole on the label edge.
+        diameter: The diameter of the hole in inches. Defaults to
+            :data:`DEFAULT_HOLE_DIAMETER` (0.125"); must be positive.
     """
 
-    diameter: float
     location: HoleLocation
+    diameter: float = Field(default=DEFAULT_HOLE_DIAMETER, gt=0.0)
 
 
 class TextHAlignment(str, Enum):

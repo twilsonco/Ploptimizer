@@ -63,10 +63,8 @@ job:
       text_height: 0.3
       replacement_text_file: replacement_text_assets.txt
       holes:
-        - diameter: 0.125
-          location: top-left
-        - diameter: 0.125
-          location: top-right
+        - location: top-left
+        - location: top-right
 
     # -----------------------------------------------------------------
     # 3. A fully static label, mixed with the templates in the same
