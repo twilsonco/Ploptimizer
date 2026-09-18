@@ -27,6 +27,7 @@ from plt_optimizer.generate.label_renderer import LabelRenderError
 from plt_optimizer.generate.layout import LayoutFitError
 from plt_optimizer.generate.resolution import resolve_job_spec
 from plt_optimizer.generate.schema import parse_yaml
+from plt_optimizer.generate.substitution import expand_job_spec
 from plt_optimizer.generate.vectorize import export_and_optimize_phase3
 from plt_optimizer.utils.logging import setup_logging
 
@@ -137,7 +138,7 @@ def run(args: argparse.Namespace) -> int:
         text_logger.logger.setLevel(logging.DEBUG)
 
     try:
-        job = parse_yaml(spec_path)
+        job = expand_job_spec(parse_yaml(spec_path), spec_path)
         unique_labels = len(job.labels) if job.labels is not None else 0
         plate_count = len(job.plates) if job.plates is not None else 0
         print(

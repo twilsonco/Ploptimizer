@@ -35,6 +35,7 @@ from plt_optimizer.generate.resolution import (
     resolve_job_spec,
 )
 from plt_optimizer.generate.schema import parse_yaml
+from plt_optimizer.generate.substitution import expand_job_spec
 from plt_optimizer.generate.vectorize import (
     assemble_plt_from_rendered_labels,
 )
@@ -127,7 +128,7 @@ def phase_2_resolution_and_layout(
     # Step 1: Parse JobSpec
     # =========================================================================
     logger.info("Step 1: Parsing JobSpec from YAML...")
-    job = parse_yaml(job_yaml)
+    job = expand_job_spec(parse_yaml(job_yaml), job_yaml)
     logger.info(f"Parsed job: {job.job_name}")
     logger.info(f"Job-level text_height: {job.text_height}")
     logger.info(f"Job-level margin: {job.margin}")

@@ -179,35 +179,112 @@ class LabelSpec(LabelAttributes):
     Inherits optional styling fields (text_height, character_spacing,
     line_spacing, width, height, margin, holes) from LabelAttributes.
 
+    A label may be defined in one of two ways:
+    1. Statically, with a ``content`` list (and optional ``count``).
+    2. As a template driven by an EngraveLab/Vision Pro-style replacement
+       text file (``replacement_text_file``). Each line of the file
+       produces one label instance; delimited items within a line replace
+       the template's text lines. In this mode ``count`` must not be set
+       (the file's line count determines it) and ``content`` is optional:
+       when omitted, every instance's lines inherit the label-level text
+       attributes; when present, its ``text`` values act as placeholders
+       declaring the per-line attributes (text height, alignment, etc.).
+
     Attributes:
         id: Unique identifier for this label specification.
-        count: Number of instances to produce. Defaults to 1.
-        content: List of text lines to render on the label.
+        count: Number of instances to produce. Defaults to 1. Mutually
+            exclusive with ``replacement_text_file``.
+        content: List of text lines to render on the label. Required unless
+            ``replacement_text_file`` is provided.
+        replacement_text_file: Path to a replacement text file (resolved
+            relative to the job YAML file's directory unless absolute).
+            Each line produces one label instance; items within a line are
+            separated by ``replacement_text_delimiter``.
+        replacement_text_delimiter: Single special or whitespace character
+            separating text items within a replacement file line. Defaults
+            to ``";"``. Cannot be a newline or an alphanumeric character.
     """
 
     id: str
     count: int = Field(
         ge=1, default=1, description="Number of instances to produce (must be >= 1)."
     )
-    content: list[TextLine] = Field(min_length=1, description="At least one text line is required.")
+    content: Optional[list[TextLine]] = Field(
+        default=None,
+        description=("Text lines to render. Required unless replacement_text_file is provided."),
+    )
+    replacement_text_file: Optional[str] = Field(
+        default=None,
+        description=(
+            "Path to an EngraveLab/Vision Pro-style replacement text file. "
+            "Each line produces one label instance. Mutually exclusive with count."
+        ),
+    )
+    replacement_text_delimiter: Optional[str] = Field(
+        default=None,
+        description=(
+            "Single-character delimiter separating text items within a "
+            "replacement file line (default ';')."
+        ),
+    )
 
-    @field_validator("content")
+    @field_validator("replacement_text_delimiter")
     @classmethod
-    def _validate_content_non_empty(cls, v: list[TextLine]) -> list[TextLine]:
-        """Ensure the label has at least one text line.
+    def _validate_replacement_delimiter(cls, v: Optional[str]) -> Optional[str]:
+        """Ensure the replacement delimiter is a single non-alphanumeric char.
 
         Args:
-            v: The content list to validate.
+            v: The configured delimiter, or None (unset).
 
         Returns:
-            The validated content list.
+            The validated delimiter.
 
         Raises:
-            ValueError: If the content list is empty.
+            ValueError: If the delimiter is not exactly one character, is a
+                newline, or is alphanumeric.
         """
-        if len(v) == 0:
-            raise ValueError("content must contain at least one TextLine")
+        if v is None:
+            return v
+        if len(v) != 1:
+            raise ValueError("replacement_text_delimiter must be a single character")
+        if v in ("\n", "\r"):
+            raise ValueError("replacement_text_delimiter cannot be a newline character")
+        if v.isalnum():
+            raise ValueError(
+                "replacement_text_delimiter must be a single special or whitespace character"
+            )
         return v
+
+    @model_validator(mode="after")
+    def _validate_content_or_replacement(self) -> LabelSpec:
+        """Enforce the static-content vs replacement-template contract.
+
+        Raises:
+            ValueError: If both ``count`` and ``replacement_text_file`` are
+                set, if neither ``content`` nor ``replacement_text_file`` is
+                set, if ``content`` is an empty list, or if
+                ``replacement_text_delimiter`` is set without a file.
+
+        Returns:
+            Self for method chaining.
+        """
+        if self.replacement_text_file is not None and "count" in self.model_fields_set:
+            raise ValueError(
+                f"label '{self.id}': 'count' cannot be combined with "
+                "'replacement_text_file' (the file's line count determines the count)"
+            )
+        if self.replacement_text_delimiter is not None and self.replacement_text_file is None:
+            raise ValueError(
+                f"label '{self.id}': 'replacement_text_delimiter' requires "
+                "'replacement_text_file' to be set"
+            )
+        if self.content is None and self.replacement_text_file is None:
+            raise ValueError(
+                f"label '{self.id}': must define either 'content' or 'replacement_text_file'"
+            )
+        if self.content is not None and len(self.content) == 0:
+            raise ValueError("content must contain at least one TextLine")
+        return self
 
 
 class PlateSpec(BaseModel):

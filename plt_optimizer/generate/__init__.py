@@ -44,6 +44,13 @@ from plt_optimizer.generate.schema import (
     TextLine,
     parse_yaml,
 )
+from plt_optimizer.generate.substitution import (
+    DEFAULT_REPLACEMENT_DELIMITER,
+    SubstitutionError,
+    expand_job_spec,
+    expand_label_with_replacements,
+    load_replacement_file,
+)
 from plt_optimizer.generate.vectorize import (
     LAYER_BOUNDARY,
     LAYER_HOLES,
@@ -65,6 +72,7 @@ __all__ = [
     "DEFAULT_MARGIN",
     "DEFAULT_PLATE_HEIGHT",
     "DEFAULT_PLATE_WIDTH",
+    "DEFAULT_REPLACEMENT_DELIMITER",
     "DEFAULT_TEXT_HEIGHT",
     "HoleLocation",
     "HoleSpec",
@@ -82,6 +90,7 @@ __all__ = [
     "PackedPlate",
     "PlateSpec",
     "RenderedLabel",
+    "SubstitutionError",
     "ResolvedHoleSpec",
     "ResolvedLabel",
     "ResolvedTextLine",
@@ -91,6 +100,8 @@ __all__ = [
     "assemble_plt_from_rendered_labels",
     "assert_no_collisions",
     "calculate_label_dimensions",
+    "expand_job_spec",
+    "expand_label_with_replacements",
     "export_and_optimize",
     "export_and_optimize_phase3",
     "export_to_plt",
@@ -98,6 +109,7 @@ __all__ = [
     "generate_layout_with_bounds",
     "get_cutter_diameter",
     "initialize_packer",
+    "load_replacement_file",
     "parse_yaml",
     "resolve_job_spec",
     "translate_plt_coordinates",
