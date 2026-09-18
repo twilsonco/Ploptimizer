@@ -35,6 +35,7 @@ from plt_optimizer.generate.resolution import (
 )
 from plt_optimizer.generate.schema import (
     DEFAULT_HOLE_DIAMETER,
+    HOLE_LOCATION_GROUPS,
     HoleLocation,
     HoleSpec,
     JobSpec,
@@ -76,6 +77,7 @@ __all__ = [
     "DEFAULT_PLATE_WIDTH",
     "DEFAULT_REPLACEMENT_DELIMITER",
     "DEFAULT_TEXT_HEIGHT",
+    "HOLE_LOCATION_GROUPS",
     "HoleLocation",
     "HoleSpec",
     "IDEAL_CUTTER_MAP",

@@ -29,6 +29,7 @@ from plt_optimizer.generate.resolution import (
 )
 from plt_optimizer.generate.schema import (
     DEFAULT_HOLE_DIAMETER,
+    HoleLocation,
     HoleSpec,
     JobSpec,
     LabelSpec,
@@ -396,6 +397,36 @@ class TestHoleResolution:
         assert len(labels[0].holes) == 1
         assert labels[0].holes[0].diameter == DEFAULT_HOLE_DIAMETER
         assert labels[0].holes[0].location == "bottom-right"
+
+    def test_group_holes_resolve_to_atomic_locations(self) -> None:
+        """``corners`` / ``sides`` groups resolve into atomic hole locations."""
+        job = JobSpec(
+            job_name="Holes",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    count=1,
+                    width=2.0,
+                    height=1.0,
+                    holes=[
+                        HoleSpec(location="corners", diameter=0.25),
+                        HoleSpec(location="sides"),
+                    ],
+                    content=[TextLine(text="X")],
+                ),
+            ],
+        )
+        labels = resolve_job_spec(job)
+        assert [h.location for h in labels[0].holes] == [
+            HoleLocation.TOP_LEFT.value,
+            HoleLocation.TOP_RIGHT.value,
+            HoleLocation.BOTTOM_LEFT.value,
+            HoleLocation.BOTTOM_RIGHT.value,
+            HoleLocation.LEFT.value,
+            HoleLocation.RIGHT.value,
+        ]
+        assert all(h.diameter == 0.25 for h in labels[0].holes[:4])
+        assert all(h.diameter == DEFAULT_HOLE_DIAMETER for h in labels[0].holes[4:])
 
     def test_job_holes_used_when_label_omits(self) -> None:
         """Job-defined holes should be used when label omits them."""

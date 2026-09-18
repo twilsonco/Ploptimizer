@@ -73,7 +73,11 @@ JobSpec (job-level defaults)
 **LabelAttributes** (extends TextAttributes, cascades to LabelSpec only):
 - `width`, `height`, `margin`: Label dimensions & safety margins
 - `hole_margin`: Distance from hole edge to label edge (cascades: label → plate → job)
-- `holes`: List of `HoleSpec` objects (diameter + location enum)
+- `holes`: List of `HoleSpec` objects (diameter + location enum). Group
+  locations `corners` (all four corners) and `sides` (left + right) are
+  expanded in place into their atomic member holes at validation time
+  (`HOLE_LOCATION_GROUPS`); downstream consumers only see the 8 atomic
+  locations.
 
 ### Key Classes
 
@@ -83,7 +87,7 @@ JobSpec (job-level defaults)
 | `LabelSpec` | Individual label definition | `count >= 1`; requires `content` (min 1 TextLine) OR `replacement_text_file` (mutually exclusive with `count`) |
 | `TextLine` | Text content unit | Requires non-empty `text` string |
 | `PlateSpec` | Physical sheet definition | All dimensions `>= 0`, includes `clearance_padding` |
-| `HoleSpec` | Drilled hole definition | Location (required; 8 enum values: corners + edges) + optional `diameter` (default 0.125", must be > 0) |
+| `HoleSpec` | Drilled hole definition | Location (required; 8 atomic enum values: corners + edges, plus `corners`/`sides` group shorthands expanded at validation) + optional `diameter` (default 0.125", must be > 0) |
 | `parse_yaml()` | Entry point | Returns validated `JobSpec` or raises `ValueError` |
 | `expand_job_spec()` | Replacement expansion (substitution.py) | Called after `parse_yaml()`; flattens replacement-driven labels into static LabelSpecs |
 

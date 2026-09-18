@@ -19,6 +19,7 @@ from pydantic import BaseModel, ValidationError
 
 from plt_optimizer.generate.schema import (
     DEFAULT_HOLE_DIAMETER,
+    HoleLocation,
     HoleSpec,
     JobSpec,
     LabelAttributes,
@@ -77,6 +78,110 @@ class TestHoleLocationEnum:
             HoleSpec(location="left", diameter=0.0)
         with pytest.raises(ValidationError):
             HoleSpec(location="left", diameter=-0.125)
+
+    def test_group_locations_accepted(self) -> None:
+        """The ``corners`` and ``sides`` group shorthands are valid locations."""
+        assert HoleSpec(location="corners").location is HoleLocation.CORNERS
+        assert HoleSpec(location="sides").location is HoleLocation.SIDES
+
+
+class TestHoleLocationGroupExpansion:
+    """Tests for ``corners`` / ``sides`` group hole expansion."""
+
+    def test_expand_atomic_returns_self(self) -> None:
+        """An atomic location expands to exactly itself."""
+        hole = HoleSpec(location="top-left")
+        assert hole.expand() == [hole]
+
+    def test_expand_corners_yields_four_atoms_in_order(self) -> None:
+        """``corners`` expands to the four atomic corner locations."""
+        holes = HoleSpec(location="corners").expand()
+        assert [h.location for h in holes] == [
+            HoleLocation.TOP_LEFT,
+            HoleLocation.TOP_RIGHT,
+            HoleLocation.BOTTOM_LEFT,
+            HoleLocation.BOTTOM_RIGHT,
+        ]
+        assert all(h.diameter == DEFAULT_HOLE_DIAMETER for h in holes)
+
+    def test_expand_sides_yields_left_right(self) -> None:
+        """``sides`` expands to the left and right edge locations."""
+        holes = HoleSpec(location="sides").expand()
+        assert [h.location for h in holes] == [HoleLocation.LEFT, HoleLocation.RIGHT]
+
+    def test_expand_propagates_diameter(self) -> None:
+        """Every expanded member inherits the group spec's diameter."""
+        holes = HoleSpec(location="corners", diameter=0.25).expand()
+        assert len(holes) == 4
+        assert all(h.diameter == 0.25 for h in holes)
+
+    def test_label_holes_expand_in_place(self) -> None:
+        """Group entries are replaced in place, preserving list order."""
+        label = LabelSpec(
+            id="lbl",
+            content=[TextLine(text="X")],
+            holes=[
+                HoleSpec(location="top"),
+                HoleSpec(location="sides"),
+                HoleSpec(location="bottom"),
+            ],
+        )
+        assert label.holes is not None
+        assert [h.location for h in label.holes] == [
+            HoleLocation.TOP,
+            HoleLocation.LEFT,
+            HoleLocation.RIGHT,
+            HoleLocation.BOTTOM,
+        ]
+
+    def test_job_holes_expand_in_place(self) -> None:
+        """Job-level group holes expand like label-level ones."""
+        job = JobSpec(
+            job_name="J",
+            content=[TextLine(text="X")],
+            holes=[HoleSpec(location="corners")],
+        )
+        assert job.holes is not None
+        assert [h.location for h in job.holes] == [
+            HoleLocation.TOP_LEFT,
+            HoleLocation.TOP_RIGHT,
+            HoleLocation.BOTTOM_LEFT,
+            HoleLocation.BOTTOM_RIGHT,
+        ]
+
+    def test_atomic_and_empty_holes_unchanged(self) -> None:
+        """Atomic holes and ``holes: []`` suppression pass through untouched."""
+        label = LabelSpec(
+            id="lbl",
+            content=[TextLine(text="X")],
+            holes=[HoleSpec(location="left")],
+        )
+        assert label.holes is not None and len(label.holes) == 1
+        empty = LabelSpec(id="lbl2", content=[TextLine(text="X")], holes=[])
+        assert empty.holes == []
+
+    def test_complex_yaml_group_holes_expand(self) -> None:
+        """complex_test_job.yaml group holes expand to atomic members on parse."""
+        job = parse_yaml(Path("examples/complex_test_job.yaml"))
+        labels = {label.id: label for label in job.labels or []}
+
+        valve = labels["valve_tag"]
+        assert valve.holes is not None
+        assert [h.location for h in valve.holes] == [HoleLocation.LEFT, HoleLocation.RIGHT]
+
+        group = labels["group_holes"]
+        assert group.holes is not None
+        assert [h.location for h in group.holes] == [
+            HoleLocation.TOP_LEFT,
+            HoleLocation.TOP_RIGHT,
+            HoleLocation.BOTTOM_LEFT,
+            HoleLocation.BOTTOM_RIGHT,
+            HoleLocation.LEFT,
+            HoleLocation.RIGHT,
+        ]
+        # The corners group carries an explicit 0.25in override; sides stays default.
+        assert all(h.diameter == 0.25 for h in group.holes[:4])
+        assert all(h.diameter == DEFAULT_HOLE_DIAMETER for h in group.holes[4:])
 
 
 class TestTextAttributes:

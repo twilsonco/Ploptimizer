@@ -9,8 +9,9 @@
 #     suppression of inherited holes
 #   - Location-only drill holes: ``location`` alone is a valid hole spec and
 #     implies the default 0.125" diameter; an explicit ``diameter`` overrides
-#     it (see corner_drill)
-#   - hole_margin cascade: job-level default inset plus a label-level override
+#     it (see corner_drill)  #   - Group hole-location shorthands: ``corners`` (all four corners) and
+  #     ``sides`` (left + right) expand into their atomic member holes at
+  #     parse time (see valve_tag / group_holes)#   - hole_margin cascade: job-level default inset plus a label-level override
 #   - Horizontal text compression: over-wide lines are uniformly squeezed
 #     (bounded by max_h_compress) so they respect the label margins
 #   - Horizontal text alignment: per-line left/right anchoring at the label
@@ -59,7 +60,8 @@ job:
 
   labels:
     # 1. Volume + edge holes: 60 instances guarantee overflow past plate_1.
-    #    Explicit left/right drill holes override the inherited job hole.
+    #    The ``sides`` group shorthand (left + right) overrides the
+    #    inherited job hole, exercising group expansion at parse time.
     - id: valve_tag
       count: 60
       width: 3.0
@@ -70,8 +72,7 @@ job:
         - text: "VALVE V-104"
         - text: "OPEN CW"
       holes:
-        - location: left
-        - location: right
+        - location: sides
 
     # 2. Per-line typography overrides: each line picks its own text_height,
     #    exercising three different cutter selections within one label.
@@ -194,7 +195,24 @@ job:
         - text: "INHERIT RIGHT"
         - text: "ALSO RIGHT"
 
-    # 11. Replacement text file template (EngraveLab/Vision Pro "badge"):
+    # 11. Group hole-location shorthands: ``corners`` expands to all four
+    #     corner holes and ``sides`` to left + right (same expansion valve_tag
+    #     uses). The 0.25" diameter on the group entry is inherited by every
+    #     expanded corner hole, verifying diameter propagation through
+    #     expansion; the sides group keeps the default 0.125".
+    - id: group_holes
+      count: 4
+      width: 4.0
+      height: 2.0
+      text_height: 0.3
+      content:
+        - text: "GROUP DRILL"
+      holes:
+        - diameter: 0.25
+          location: corners
+        - location: sides
+
+    # 12. Replacement text file template (EngraveLab/Vision Pro "badge"):
     #     examples/replacement_text_complex.txt drives the content; its
     #     line count (3) determines the instance count (badge_0000 ..
     #     badge_0002), so `count` must not be set alongside it. The

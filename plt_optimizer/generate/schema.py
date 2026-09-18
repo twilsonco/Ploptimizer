@@ -25,6 +25,13 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 class HoleLocation(str, Enum):
     """Enumeration of valid hole locations on a label.
 
+    Besides the eight atomic positions (four edges and four corners), two
+    group shorthands are accepted for the most common drilling patterns:
+    ``corners`` (all four corner holes) and ``sides`` (the left and right
+    edge holes). Groups are expanded into their atomic members at schema
+    validation time (see :data:`HOLE_LOCATION_GROUPS`), so downstream
+    consumers only ever see the eight atomic locations.
+
     Attributes:
         left: Hole on the left edge.
         right: Hole on the right edge.
@@ -34,6 +41,8 @@ class HoleLocation(str, Enum):
         top_right: Hole at the top-right corner.
         bottom_left: Hole at the bottom-left corner.
         bottom_right: Hole at the bottom-right corner.
+        corners: Group shorthand for all four corner holes.
+        sides: Group shorthand for the left and right edge holes.
     """
 
     LEFT = "left"
@@ -44,6 +53,22 @@ class HoleLocation(str, Enum):
     TOP_RIGHT = "top-right"
     BOTTOM_LEFT = "bottom-left"
     BOTTOM_RIGHT = "bottom-right"
+    CORNERS = "corners"
+    SIDES = "sides"
+
+
+# Group shorthand locations mapped to the atomic locations they expand to.
+# Expansion preserves the order listed here and replaces the group entry
+# in place within the ``holes`` list (see :meth:`HoleSpec.expand`).
+HOLE_LOCATION_GROUPS: dict[HoleLocation, tuple[HoleLocation, ...]] = {
+    HoleLocation.CORNERS: (
+        HoleLocation.TOP_LEFT,
+        HoleLocation.TOP_RIGHT,
+        HoleLocation.BOTTOM_LEFT,
+        HoleLocation.BOTTOM_RIGHT,
+    ),
+    HoleLocation.SIDES: (HoleLocation.LEFT, HoleLocation.RIGHT),
+}
 
 
 # Default drill-hole diameter (inches) used when a hole specification omits
@@ -58,14 +83,35 @@ class HoleSpec(BaseModel):
     is a standard 0.125" drill hole, which can be written as ``location``
     alone. ``diameter`` is an optional override for non-standard sizes.
 
+    Group locations (``corners`` / ``sides``) are expanded into their
+    atomic member holes at validation time by the ``holes`` field
+    validator on :class:`LabelAttributes`; each expanded member inherits
+    this spec's ``diameter``.
+
     Attributes:
-        location: The position of the hole on the label edge.
+        location: The position of the hole on the label edge. Group
+            shorthands ``corners`` (all four corners) and ``sides``
+            (left + right) are accepted and expanded into their members.
         diameter: The diameter of the hole in inches. Defaults to
             :data:`DEFAULT_HOLE_DIAMETER` (0.125"); must be positive.
     """
 
     location: HoleLocation
     diameter: float = Field(default=DEFAULT_HOLE_DIAMETER, gt=0.0)
+
+    def expand(self) -> list[HoleSpec]:
+        """Expand a group location into its atomic hole specifications.
+
+        Returns:
+            A single-element list containing this spec for atomic
+            locations; for group locations (``corners`` / ``sides``), one
+            clone per member location (in :data:`HOLE_LOCATION_GROUPS`
+            order), each preserving this spec's diameter.
+        """
+        members = HOLE_LOCATION_GROUPS.get(self.location)
+        if members is None:
+            return [self]
+        return [self.model_copy(update={"location": member}) for member in members]
 
 
 class TextHAlignment(str, Enum):
@@ -161,7 +207,9 @@ class LabelAttributes(TextAttributes):
             hole circle to the label edge will be this far from the edge.
             Cascades job -> plate -> label (label overrides plate overrides
             job).
-        holes: Optional list of hole specifications.
+        holes: Optional list of hole specifications. Group locations
+            (``corners`` / ``sides``) are expanded in place into their
+            atomic member holes at validation time.
     """
 
     width: Optional[float] = Field(default=None, ge=0.0)
@@ -169,6 +217,28 @@ class LabelAttributes(TextAttributes):
     margin: Optional[float] = Field(default=None, ge=0.0)
     hole_margin: Optional[float] = Field(default=None, ge=0.0)
     holes: Optional[list[HoleSpec]] = None
+
+    @field_validator("holes", mode="after")
+    @classmethod
+    def _expand_hole_location_groups(
+        cls, value: Optional[list[HoleSpec]]
+    ) -> Optional[list[HoleSpec]]:
+        """Expand group hole locations (``corners`` / ``sides``) into members.
+
+        Applies to every model inheriting the ``holes`` field (LabelSpec,
+        JobSpec). Group entries are replaced in place by their atomic
+        member holes; atomic entries pass through unchanged, so drill
+        geometry and ordering semantics for existing specs are untouched.
+
+        Args:
+            value: The validated hole list, or ``None`` (unset).
+
+        Returns:
+            The expanded hole list (or ``None`` / empty list unchanged).
+        """
+        if not value:
+            return value
+        return [hole for spec in value for hole in spec.expand()]
 
 
 class TextLine(TextAttributes):
