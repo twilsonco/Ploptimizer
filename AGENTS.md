@@ -7,7 +7,8 @@ Prioritize reliability, mathematical precision, and strictly typed code over spe
 
 ## 1. Coding Style & Standards
 We adhere strictly to the **Ruff / Black** formatting standards and modern Python paradigms.
-* **Strict Typing:** Every function, class, and method must have complete PEP 484 type hints. Run type checks (e.g., via `mypy` or `pyright` rules) before finalizing code.
+* **Strict Typing:** Every function, class, and method must have complete PEP 484 type hints. Run type checks via `mypy` before finalizing code.
+* **Pre-commit hook:** Ensure that all code passes the configured pre-commit hooks before committing. This includes linting, formatting, and type checks.
 * **Docstrings:** Use Google-style docstrings for all modules, classes, and public functions.
 * **Immutability & Data Structures:** Prefer `dataclasses` (with `frozen=True` where appropriate) or `pydantic` models for internal state representation. 
 * **Mathematical Precision:** Never use `==` for floating-point coordinate comparisons. Always use `math.isclose()` or `numpy.isclose()` with explicit tolerances.
