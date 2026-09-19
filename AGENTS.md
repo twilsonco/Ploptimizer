@@ -23,6 +23,10 @@ Testing is not an afterthought; it is a primary deliverable.
 * **Conventional Commits:** All commit messages must strictly follow the Conventional Commits specification (e.g., `feat:`, `fix:`, `refactor:`, `test:`, `chore:`).
 * **Commit Frequency:** Commit frequently to establish a granular history.
 * **Working State Only:** You must only commit code that has passed all static type checks and unit tests. Never commit code with syntax errors or broken tests. 
+* **NEVER Rewrite History:** Do not run `git filter-repo`, `git filter-branch`, `git rebase` on pushed branches, `git commit --amend` on pushed commits, or any other command that rewrites commit hashes. Rewriting makes local and remote histories unrelated (zero merge-base), breaks every downstream clone/PR, and invalidates GPG signatures. History rewrites require explicit human approval.
+* **NEVER Touch Remotes:** Do not run `git remote remove/set-url` or delete remote-tracking refs. Note that `git filter-repo` removes all remotes by design — a second reason it is banned. Restoring a lost remote or force-pushing over a branch is a human decision, not an agent default.
+* **No Destructive Operations Without Approval:** `git push --force`/`--force-with-lease`, `git reset --hard` on shared branches, branch/tag deletion, and garbage collection (`git gc --prune=now`) must never be executed autonomously.
+* **Secrets Incident Protocol:** If a secret was accidentally committed, do NOT attempt to scrub history. Report the situation to the user and recommend rotating the credential; removal of committed secrets is a coordinated human decision (it requires a force-push that rewrites all history).
 
 ## 4. Project-Specific Invariants
 * **Package Management:** Use **`uv`** exclusively. Do not use standard `pip`, `poetry`, or `conda`. Update `pyproject.toml` directly for dependency management.
