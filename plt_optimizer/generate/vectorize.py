@@ -1276,12 +1276,16 @@ class PerCutterExport:
             color/combined diagnostics plots.
         output_dir: Absolute base output directory (``plt/`` and ``pdf/``
             live inside it).
+        job_id: File-name prefix used for the written files, so callers
+            can mirror the ``<job_id>_<plate>_*`` naming for any extra
+            artifacts (e.g. color-coded combined plots).
     """
 
     plt_paths: list[Path] = field(default_factory=list)
     pdf_paths: list[Path] = field(default_factory=list)
     combined_by_plate: dict[str, str] = field(default_factory=dict)
     output_dir: Path = field(default_factory=Path)
+    job_id: str = "job"
 
 
 def _format_cutter(cutter_diameter: float) -> str:
@@ -1379,7 +1383,7 @@ def export_per_cutter_plts(
     plt_dir = output_dir / "plt"
     plt_dir.mkdir(parents=True, exist_ok=True)
 
-    result = PerCutterExport(output_dir=output_dir.resolve())
+    result = PerCutterExport(output_dir=output_dir.resolve(), job_id=job_id)
 
     # Phase 3: Assemble each plate in memory, then split by pen group.
     for plate in packed_plates:

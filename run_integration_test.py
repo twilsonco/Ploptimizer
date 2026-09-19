@@ -358,19 +358,15 @@ def phase_4_visualization(export_result: PerCutterExport) -> None:
             document = parser.parse_file(plt_path)
             pdf_path = pdf_dir / f"{plt_path.stem}_default.pdf"
             logger.info(f"Plotting default mode to {pdf_path.name}...")
-            plot_plt_document(
-                document, output_path=pdf_path, show_plot=False, simple_mode=False
-            )
+            plot_plt_document(document, output_path=pdf_path, show_plot=False, simple_mode=False)
             print(f"✓ Generated: {pdf_path.name}")
 
         # Color-coded default plot per combined plate (in-memory content).
         for plate_id, combined in export_result.combined_by_plate.items():
             document = parser.parse_string(combined)
-            pdf_path = pdf_dir / f"{plate_id}_all_default.pdf"
+            pdf_path = pdf_dir / f"{export_result.job_id}_{plate_id}_all_default.pdf"
             logger.info(f"Plotting combined plate {plate_id} to {pdf_path.name}...")
-            plot_plt_document(
-                document, output_path=pdf_path, show_plot=False, simple_mode=False
-            )
+            plot_plt_document(document, output_path=pdf_path, show_plot=False, simple_mode=False)
             print(f"✓ Generated: {pdf_path.name}")
     except Exception as e:
         logger.warning(f"Visualization failed (optional): {e}")
@@ -409,9 +405,7 @@ def main(argv: list[str] | None = None) -> int:
         # plate in memory, and writes plt/ + pdf/ outputs named
         # <job_id>_<plate>_{text|borders-holes}_<cutter>.(plt|pdf).
         if spec_override is not None:
-            phase_3_output_dir = (
-                Path("test_output") / "integration_test" / job_yaml.stem
-            )
+            phase_3_output_dir = Path("test_output") / "integration_test" / job_yaml.stem
         else:
             phase_3_output_dir = None
         export_result = phase_3_vectorization_and_export(
