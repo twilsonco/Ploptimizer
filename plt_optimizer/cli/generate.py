@@ -37,6 +37,7 @@ from plt_optimizer.generate.label_renderer import LabelRenderError
 from plt_optimizer.generate.layout import LayoutFitError
 from plt_optimizer.generate.resolution import resolve_job_spec
 from plt_optimizer.generate.schema import parse_yaml
+from plt_optimizer.generate.substitution import SubstitutionError, expand_job_spec
 from plt_optimizer.generate.vectorize import export_per_cutter_plts
 from plt_optimizer.utils.logging import setup_logging
 
@@ -185,6 +186,9 @@ def run(args: argparse.Namespace) -> int:
 
     try:
         job = parse_yaml(spec_path)
+        # Flatten replacement-driven labels (EngraveLab "badge"/multiples)
+        # into static LabelSpecs before resolution, per the schema contract.
+        job = expand_job_spec(job, spec_path)
         unique_labels = len(job.labels) if job.labels is not None else 0
         plate_count = len(job.plates) if job.plates is not None else 0
         job_id = _sanitize_job_id(job.job_name)
@@ -194,6 +198,9 @@ def run(args: argparse.Namespace) -> int:
             f"{unique_labels} unique labels. "
             f"Output will be written to: {output_dir}"
         )
+    except SubstitutionError as e:
+        print(f"Error expanding replacement text file: {e}", file=sys.stderr)
+        return 1
     except Exception as e:
         print(f"Error parsing specification: {e}", file=sys.stderr)
         return 1

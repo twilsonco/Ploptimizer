@@ -332,6 +332,98 @@ class TestCLIIntegration:
         result = run(MockArgs())
         assert result == 0
 
+    def test_generate_expands_replacement_file(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A replacement_text_file template expands via the generate CLI.
+
+        Per the schema contract, expand_job_spec() must run between
+        parse_yaml() and resolve_job_spec(); a 2-line data file against a
+        single template label must yield 2 static labels (not an
+        unexpanded template reaching the resolver).
+        """
+        from plt_optimizer.cli.generate import run
+
+        (tmp_path / "r.txt").write_text("ALPHA\nBETA\n", encoding="utf-8")
+        spec_file = tmp_path / "repl_spec.yaml"
+        spec_file.write_text(
+            "job:\n"
+            "  job_name: Repl Cli Job\n"
+            "  text_height: 0.3\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 12.0\n"
+            "      margin: 0.25\n"
+            "      clearance_padding: 0.125\n"
+            "  labels:\n"
+            "    - id: tmpl\n"
+            "      width: 2.0\n"
+            "      height: 1.0\n"
+            "      replacement_text_file: r.txt\n"
+            "      content:\n"
+            "        - text: PLACEHOLDER\n"
+            "          height: 0.5\n",
+            encoding="utf-8",
+        )
+
+        out_dir = tmp_path / "out"
+
+        class MockArgs:
+            spec = spec_file
+            output = out_dir
+            verbose = False
+            no_plots = True
+            default_plots = False
+            tools = Path("tools.json")
+
+        assert run(MockArgs()) == 0
+
+        captured = capsys.readouterr()
+        # Post-expansion count: 2 instances (tmpl_0000, tmpl_0001), not 1 template.
+        assert "2 unique labels" in captured.out
+
+        plt_files = list((out_dir / "plt").glob("*.plt"))
+        assert plt_files, "no per-cutter PLT files written"
+
+    def test_generate_missing_replacement_file_fails(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A template pointing at a missing data file aborts with exit code 1."""
+        from plt_optimizer.cli.generate import run
+
+        spec_file = tmp_path / "repl_spec.yaml"
+        spec_file.write_text(
+            "job:\n"
+            "  job_name: Missing Repl Job\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 12.0\n"
+            "      margin: 0.25\n"
+            "      clearance_padding: 0.125\n"
+            "  labels:\n"
+            "    - id: tmpl\n"
+            "      width: 2.0\n"
+            "      height: 1.0\n"
+            "      replacement_text_file: missing.txt\n"
+            "      content:\n"
+            "        - text: PLACEHOLDER\n",
+            encoding="utf-8",
+        )
+
+        class MockArgs:
+            spec = spec_file
+            output = tmp_path / "out"
+            verbose = False
+            no_plots = True
+            default_plots = False
+            tools = Path("tools.json")
+
+        assert run(MockArgs()) == 1
+        captured = capsys.readouterr()
+        assert "replacement text file" in captured.err.lower()
+
 
 class TestHelpDisplay:
     """Tests for help text display."""
