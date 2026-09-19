@@ -72,6 +72,7 @@ from plt_optimizer.generate.vectorize import (
     translate_plt_coordinates,
     vectorize_plate,
     vectorize_plates,
+    write_default_plots,
 )
 
 __all__ = [
@@ -132,4 +133,5 @@ __all__ = [
     "unroll_labels",
     "vectorize_plate",
     "vectorize_plates",
+    "write_default_plots",
 ]

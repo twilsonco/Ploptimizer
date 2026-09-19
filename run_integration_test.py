@@ -27,9 +27,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Opt-in switch for the color-coded *_default.pdf diagnostic plots (rapid
+# travel visualization) in Phase 4. Off by default: the simple-outline
+# previews written by the export step are the standard artifacts, and the
+# color plots are slow to render. Flip to True (or export_per_cutter_plts'
+# default_plots= kwarg / the CLI's --default-plots flag) to produce them.
+GENERATE_DEFAULT_PLOTS = False
+
 # Import pipeline components
-from plt_optimizer.core.parser import PLTParser
-from plt_optimizer.diagnostics.plotter import plot_plt_document
 from plt_optimizer.generate.layout import generate_layout
 from plt_optimizer.generate.resolution import (
     resolve_job_spec,
@@ -39,6 +44,7 @@ from plt_optimizer.generate.substitution import expand_job_spec
 from plt_optimizer.generate.vectorize import (
     PerCutterExport,
     export_per_cutter_plts,
+    write_default_plots,
 )
 
 
@@ -341,32 +347,28 @@ def phase_4_visualization(export_result: PerCutterExport) -> None:
     - one ``<job_id>_<plate>_all_default.pdf`` per plate from the
       in-memory combined content (text + borders + holes together).
 
+    These color-coded plots are strictly opt-in via the module-level
+    :data:`GENERATE_DEFAULT_PLOTS` flag; by default this phase is a no-op.
+    The plotting itself is shared with the export pipeline via
+    :func:`write_default_plots`.
+
     Args:
         export_result: The per-cutter export whose PLTs and combined
             content drive the plots.
     """
     print_separator("PHASE 4: VISUALIZATION (OPTIONAL)")
 
+    if not GENERATE_DEFAULT_PLOTS:
+        print(
+            "ℹ Default (color-coded) plots disabled; set GENERATE_DEFAULT_PLOTS = True to enable."
+        )
+        return
+
     try:
-        parser = PLTParser()
-        pdf_dir = export_result.output_dir / "pdf"
-        pdf_dir.mkdir(parents=True, exist_ok=True)
-
-        # Color-coded default plot per per-cutter PLT file.
-        for plt_path in export_result.plt_paths:
-            logger.info(f"Parsing {plt_path.name}...")
-            document = parser.parse_file(plt_path)
-            pdf_path = pdf_dir / f"{plt_path.stem}_default.pdf"
-            logger.info(f"Plotting default mode to {pdf_path.name}...")
-            plot_plt_document(document, output_path=pdf_path, show_plot=False, simple_mode=False)
-            print(f"✓ Generated: {pdf_path.name}")
-
-        # Color-coded default plot per combined plate (in-memory content).
-        for plate_id, combined in export_result.combined_by_plate.items():
-            document = parser.parse_string(combined)
-            pdf_path = pdf_dir / f"{export_result.job_id}_{plate_id}_all_default.pdf"
-            logger.info(f"Plotting combined plate {plate_id} to {pdf_path.name}...")
-            plot_plt_document(document, output_path=pdf_path, show_plot=False, simple_mode=False)
+        pdf_paths = write_default_plots(
+            export_result.output_dir, export_result.job_id, export_result
+        )
+        for pdf_path in pdf_paths:
             print(f"✓ Generated: {pdf_path.name}")
     except Exception as e:
         logger.warning(f"Visualization failed (optional): {e}")
@@ -428,7 +430,8 @@ def main(argv: list[str] | None = None) -> int:
         print("       *_borders-holes_<cutter>.plt: borders + drill holes together")
         print("   - pdf/: simple-outline previews")
         print("       *_all.pdf: combined text + borders + holes per plate")
-        print("       *_default.pdf: color-coded toolpath with rapid travel")
+        if GENERATE_DEFAULT_PLOTS:
+            print("       *_default.pdf: color-coded toolpath with rapid travel")
         print()
         print("2. Compare the simple-outline PDFs with the reference plots:")
         print("   - Reference test: test_output/test_ref_plot.png")

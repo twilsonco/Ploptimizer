@@ -1279,6 +1279,9 @@ class PerCutterExport:
         job_id: File-name prefix used for the written files, so callers
             can mirror the ``<job_id>_<plate>_*`` naming for any extra
             artifacts (e.g. color-coded combined plots).
+        default_pdf_paths: Color-coded ``*_default.pdf`` diagnostic plots
+            with rapid-travel visualization (written only when
+            ``default_plots`` was requested).
     """
 
     plt_paths: list[Path] = field(default_factory=list)
@@ -1286,6 +1289,7 @@ class PerCutterExport:
     combined_by_plate: dict[str, str] = field(default_factory=dict)
     output_dir: Path = field(default_factory=Path)
     job_id: str = "job"
+    default_pdf_paths: list[Path] = field(default_factory=list)
 
 
 def _format_cutter(cutter_diameter: float) -> str:
@@ -1307,6 +1311,7 @@ def export_per_cutter_plts(
     job_id: str = "job",
     optimize: bool = True,
     plots: bool = True,
+    default_plots: bool = False,
 ) -> PerCutterExport:
     """Export plates as per-cutter PLT files (and optional simple PDFs).
 
@@ -1340,6 +1345,10 @@ def export_per_cutter_plts(
         optimize: If True, run the PLT optimizer on each written file.
         plots: If True, write simple-outline PDF previews for every
             written PLT plus a combined ``*_all.pdf`` per plate.
+        default_plots: If True, additionally write color-coded
+            ``*_default.pdf`` diagnostic plots (rapid-travel view) for
+            every written PLT and a combined ``*_all_default.pdf`` per
+            plate. Opt-in only; independent of ``plots``.
 
     Returns:
         A :class:`PerCutterExport` with written PLT paths, PDF paths, and
@@ -1416,6 +1425,8 @@ def export_per_cutter_plts(
 
     if plots:
         result.pdf_paths = _write_simple_plots(output_dir, job_id, result)
+    if default_plots:
+        result.default_pdf_paths = write_default_plots(output_dir, job_id, result)
 
     return result
 
@@ -1464,6 +1475,56 @@ def _write_simple_plots(
         document = parser.parse_string(combined)
         pdf_path = pdf_dir / f"{job_id}_{plate_id}_all.pdf"
         plot_plt_document(document, output_path=pdf_path, show_plot=False, simple_mode=True)
+        pdf_paths.append(pdf_path)
+
+    return pdf_paths
+
+
+def write_default_plots(
+    output_dir: Path,
+    job_id: str,
+    result: PerCutterExport,
+) -> list[Path]:
+    """Write color-coded ``*_default.pdf`` diagnostic plots for an export.
+
+    Renders the plotter's default (color-coded, rapid-travel) view of
+    every written per-cutter PLT as ``<plt-stem>_default.pdf`` plus one
+    combined ``<job_id>_<plate>_all_default.pdf`` per plate from the
+    in-memory combined content (text + borders + holes together). These
+    diagnostics are strictly opt-in; the simple-outline previews remain
+    the standard output.
+
+    matplotlib is imported lazily through the plotter module so headless
+    optimizer-only environments never pay the import cost.
+
+    Args:
+        output_dir: Base output directory (``pdf/`` is created inside).
+        job_id: Job identifier used in combined PDF names.
+        result: The export result whose ``plt_paths`` and
+            ``combined_by_plate`` drive the plots.
+
+    Returns:
+        List of written PDF paths.
+    """
+    from plt_optimizer.core.parser import PLTParser
+    from plt_optimizer.diagnostics.plotter import plot_plt_document
+
+    pdf_dir = output_dir / "pdf"
+    pdf_dir.mkdir(parents=True, exist_ok=True)
+
+    parser = PLTParser()
+    pdf_paths: list[Path] = []
+
+    for plt_path in result.plt_paths:
+        document = parser.parse_file(plt_path)
+        pdf_path = pdf_dir / f"{plt_path.stem}_default.pdf"
+        plot_plt_document(document, output_path=pdf_path, show_plot=False, simple_mode=False)
+        pdf_paths.append(pdf_path)
+
+    for plate_id, combined in result.combined_by_plate.items():
+        document = parser.parse_string(combined)
+        pdf_path = pdf_dir / f"{job_id}_{plate_id}_all_default.pdf"
+        plot_plt_document(document, output_path=pdf_path, show_plot=False, simple_mode=False)
         pdf_paths.append(pdf_path)
 
     return pdf_paths

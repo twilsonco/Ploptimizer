@@ -74,6 +74,14 @@ def setup_parser(parser: argparse.ArgumentParser) -> None:
         help="Skip generating simple-outline PDF previews (PLT files only).",
     )
     parser.add_argument(
+        "--default-plots",
+        action="store_true",
+        help=(
+            "Also write color-coded *_default.pdf diagnostic plots "
+            "(rapid-travel view). Off by default."
+        ),
+    )
+    parser.add_argument(
         "--tools",
         type=Path,
         default=Path("tools.json"),
@@ -205,6 +213,7 @@ def run(args: argparse.Namespace) -> int:
             job_id=job_id,
             optimize=True,
             plots=not args.no_plots,
+            default_plots=args.default_plots,
         )
         exported_paths = export_result.plt_paths
     except LabelRenderError as e:
@@ -228,5 +237,9 @@ def run(args: argparse.Namespace) -> int:
     if export_result.pdf_paths:
         print(f"Generated {len(export_result.pdf_paths)} PDF preview(s):")
         for path in export_result.pdf_paths:
+            print(f"  {path}")
+    if export_result.default_pdf_paths:
+        print(f"Generated {len(export_result.default_pdf_paths)} default plot(s):")
+        for path in export_result.default_pdf_paths:
             print(f"  {path}")
     return 0

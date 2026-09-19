@@ -168,6 +168,16 @@ class TestGenerateSubcommand:
         assert parser.parse_args(["spec.yaml"]).no_plots is False
         assert parser.parse_args(["spec.yaml", "--no-plots"]).no_plots is True
 
+    def test_generate_default_plots_flag(self) -> None:
+        """--default-plots is an opt-in flag, off by default."""
+        from plt_optimizer.cli.generate import setup_parser
+
+        parser = argparse.ArgumentParser()
+        setup_parser(parser)
+
+        assert parser.parse_args(["spec.yaml"]).default_plots is False
+        assert parser.parse_args(["spec.yaml", "--default-plots"]).default_plots is True
+
     def test_sanitize_job_id(self) -> None:
         """Job names collapse whitespace and strip unsafe characters."""
         from plt_optimizer.cli.generate import _sanitize_job_id
@@ -212,6 +222,7 @@ class TestGenerateSubcommand:
             output = out_dir
             verbose = False
             no_plots = True
+            default_plots = False
             tools = Path("tools.json")
 
         assert run(MockArgs()) == 0
@@ -315,6 +326,7 @@ class TestCLIIntegration:
             output = None
             verbose = False
             no_plots = True
+            default_plots = False
             tools = Path("tools.json")
 
         result = run(MockArgs())

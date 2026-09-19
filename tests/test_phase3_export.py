@@ -85,6 +85,50 @@ class TestExportAndOptimizePhase3:
         written_stems = {p.stem for p in result.plt_paths}
         assert not any(stem.endswith("_all") for stem in written_stems)
 
+    def test_export_per_cutter_no_default_plots_by_default(self, tmp_path: Path) -> None:
+        """Color-coded *_default.pdf plots are opt-in; absent by default."""
+        job = parse_yaml("examples/test123_spec.yaml")
+        resolved_labels = resolve_job_spec(job)
+
+        result = export_per_cutter_plts(
+            resolved_labels,
+            output_dir=tmp_path,
+            job_id="j",
+            optimize=False,
+            plots=True,
+        )
+
+        assert result.default_pdf_paths == []
+        assert not any(p.name.endswith("_default.pdf") for p in result.pdf_paths)
+        pdf_dir = tmp_path / "pdf"
+        assert not pdf_dir.exists() or not any(
+            p.name.endswith("_default.pdf") for p in pdf_dir.iterdir()
+        )
+
+    def test_export_per_cutter_default_plots_opt_in(self, tmp_path: Path) -> None:
+        """default_plots=True writes *_default.pdf per PLT plus *_all_default.pdf."""
+        job = parse_yaml("examples/test123_spec.yaml")
+        resolved_labels = resolve_job_spec(job)
+
+        result = export_per_cutter_plts(
+            resolved_labels,
+            output_dir=tmp_path,
+            job_id="dp",
+            optimize=False,
+            plots=False,
+            default_plots=True,
+        )
+
+        names = sorted(p.name for p in result.default_pdf_paths)
+        # One color plot per written PLT (same stem + _default).
+        for plt_path in result.plt_paths:
+            assert f"{plt_path.stem}_default.pdf" in names
+        # Combined color plot mirrors the job-prefixed simple *_all.pdf name.
+        assert any(name.endswith("_all_default.pdf") for name in names)
+        assert all(p.parent == tmp_path / "pdf" for p in result.default_pdf_paths)
+        # Opt-in plots are tracked separately from the simple previews.
+        assert result.pdf_paths == []
+
     def test_export_per_cutter_skips_empty_groups(self, tmp_path: Path) -> None:
         """A job without holes still gets a borders file; no empty text files."""
         job = parse_yaml("examples/test123_spec.yaml")
