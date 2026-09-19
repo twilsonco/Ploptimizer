@@ -223,8 +223,9 @@ def phase_3_vectorization_and_export(
     assembles the per-label PLT content at packed positions and splits the
     assembly by CUTTER:
 
-    - borders + holes -> one ``*_borders-holes_<cutter>.plt`` per plate
-    - text -> one ``*_text_<cutter>.plt`` per plate and cutter diameter
+    - borders + holes -> one ``bh_<cutter>_<job_id>_<plate>.plt`` per plate
+    - text -> one ``text_<cutter>_<job_id>_<plate>.plt`` per plate and
+      cutter diameter
     - the combined per-plate PLT stays in memory only (returned in
       ``combined_by_plate`` for the Phase 4 color plots)
 
@@ -339,12 +340,12 @@ def phase_4_visualization(export_result: PerCutterExport) -> None:
     """Phase 4: Generate color-coded PDF previews using the plotter.
 
     The simple-outline previews (one per per-cutter PLT plus one combined
-    ``*_all.pdf`` per plate) were already written by the export step into
+    ``all_*.pdf`` per plate) were already written by the export step into
     ``pdf/``. This phase adds the color-coded default plots (with rapid
     travel visualization):
 
     - one ``<plt-stem>_default.pdf`` per per-cutter PLT file, and
-    - one ``<job_id>_<plate>_all_default.pdf`` per plate from the
+    - one ``all_<job_id>_<plate>_default.pdf`` per plate from the
       in-memory combined content (text + borders + holes together).
 
     These color-coded plots are strictly opt-in via the module-level
@@ -405,7 +406,7 @@ def main(argv: list[str] | None = None) -> int:
         # Phase 3: Per-cutter export using the clean bounds-aware pipeline.
         # The export renders labels onto per-cutter pens, assembles each
         # plate in memory, and writes plt/ + pdf/ outputs named
-        # <job_id>_<plate>_{text|borders-holes}_<cutter>.(plt|pdf).
+        # {text|bh}_<cutter>_<job_id>_<plate>.(plt|pdf).
         if spec_override is not None:
             phase_3_output_dir = Path("test_output") / "integration_test" / job_yaml.stem
         else:
@@ -426,10 +427,10 @@ def main(argv: list[str] | None = None) -> int:
         print("Comparison:")
         print("1. Inspect the generated artifacts under the output directory:")
         print("   - plt/: per-cutter toolpath files")
-        print("       *_text_<cutter>.plt: one file per text cutter diameter")
-        print("       *_borders-holes_<cutter>.plt: borders + drill holes together")
+        print("       text_<cutter>_<job>_<plate>.plt: one file per text cutter diameter")
+        print("       bh_<cutter>_<job>_<plate>.plt: borders + drill holes together")
         print("   - pdf/: simple-outline previews")
-        print("       *_all.pdf: combined text + borders + holes per plate")
+        print("       all_<job>_<plate>.pdf: combined text + borders + holes per plate")
         if GENERATE_DEFAULT_PLOTS:
             print("       *_default.pdf: color-coded toolpath with rapid travel")
         print()

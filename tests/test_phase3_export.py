@@ -36,14 +36,16 @@ class TestExportAndOptimizePhase3:
             assert len(content) > 50  # Has actual content
 
         # test123 uses a single 0.5in text height (ideal cutter 0.06in,
-        # no inventory snapping) plus borders.
+        # no inventory snapping) plus borders. Names are
+        # <kind>_<cutter>_<job_id>_<plate number>.plt.
         names = sorted(p.name for p in exported_paths)
-        assert any(name.endswith("_text_0.060.plt") for name in names)
-        assert any(name.endswith("_borders-holes_0.015.plt") for name in names)
+        assert any(name.startswith("text_0.060_") for name in names)
+        assert any(name.startswith("bh_0.015_") for name in names)
         # The combined PLT is never written to disk.
-        assert not any("_all" in name for name in names)
-        # All files carry the job_id prefix.
-        assert all(name.startswith("job123_") for name in names)
+        assert not any(name.startswith("all_") for name in names)
+        # Every file embeds the job id and ends with the plate number.
+        assert all("_job123_" in name for name in names)
+        assert all(name.endswith("_1.plt") for name in names)
 
     def test_export_phase3_no_plots_by_default(self, tmp_path: Path) -> None:
         """Phase 3 export writes no PDFs unless plots=True."""
@@ -59,7 +61,7 @@ class TestExportAndOptimizePhase3:
         assert not (tmp_path / "pdf").exists() or not list((tmp_path / "pdf").iterdir())
 
     def test_export_per_cutter_plots(self, tmp_path: Path) -> None:
-        """plots=True writes simple PDFs mirroring PLT names + *_all.pdf."""
+        """plots=True writes simple PDFs mirroring PLT names + all_*.pdf."""
         job = parse_yaml("examples/test123_spec.yaml")
         resolved_labels = resolve_job_spec(job)
 
@@ -78,12 +80,11 @@ class TestExportAndOptimizePhase3:
         # One PDF per PLT (same stem).
         for plt_path in result.plt_paths:
             assert f"{plt_path.stem}.pdf" in pdf_names
-        # One combined *_all.pdf per plate.
-        assert any(name.endswith("_all.pdf") for name in pdf_names)
+        # One combined all_<job_id>_<plate>.pdf per plate.
+        assert any(name.startswith("all_plotjob_") for name in pdf_names)
         # Combined content is exposed in memory, never written as PLT.
         assert result.combined_by_plate
-        written_stems = {p.stem for p in result.plt_paths}
-        assert not any(stem.endswith("_all") for stem in written_stems)
+        assert not any(p.stem.startswith("all_") for p in result.plt_paths)
 
     def test_export_per_cutter_no_default_plots_by_default(self, tmp_path: Path) -> None:
         """Color-coded *_default.pdf plots are opt-in; absent by default."""
@@ -106,7 +107,7 @@ class TestExportAndOptimizePhase3:
         )
 
     def test_export_per_cutter_default_plots_opt_in(self, tmp_path: Path) -> None:
-        """default_plots=True writes *_default.pdf per PLT plus *_all_default.pdf."""
+        """default_plots=True writes *_default.pdf per PLT plus all_*_default.pdf."""
         job = parse_yaml("examples/test123_spec.yaml")
         resolved_labels = resolve_job_spec(job)
 
@@ -123,8 +124,8 @@ class TestExportAndOptimizePhase3:
         # One color plot per written PLT (same stem + _default).
         for plt_path in result.plt_paths:
             assert f"{plt_path.stem}_default.pdf" in names
-        # Combined color plot mirrors the job-prefixed simple *_all.pdf name.
-        assert any(name.endswith("_all_default.pdf") for name in names)
+        # Combined color plot mirrors the all_<job_id>_<plate>.pdf name.
+        assert any(name.startswith("all_dp_") and name.endswith("_default.pdf") for name in names)
         assert all(p.parent == tmp_path / "pdf" for p in result.default_pdf_paths)
         # Opt-in plots are tracked separately from the simple previews.
         assert result.pdf_paths == []
@@ -142,8 +143,8 @@ class TestExportAndOptimizePhase3:
             plots=False,
         )
 
-        # Borders exist for every label, so the structural file is written.
-        assert any("borders-holes" in p.name for p in result.plt_paths)
+        # Borders exist for every label, so the structural (bh_) file is written.
+        assert any(p.name.startswith("bh_") for p in result.plt_paths)
         # Every written file contains geometry.
         for path in result.plt_paths:
             assert "PD" in path.read_text()
@@ -162,8 +163,9 @@ class TestExportAndOptimizePhase3:
             plots=False,
         )
 
-        text_files = [p.name for p in result.plt_paths if "_text_" in p.name]
-        cutter_tags = {name.rsplit("_", 1)[-1].removesuffix(".plt") for name in text_files}
+        text_files = [p.name for p in result.plt_paths if p.name.startswith("text_")]
+        # Name shape: text_<cutter>_<job_id>_<plate>.plt (job_id has no '_').
+        cutter_tags = {name.split("_")[1] for name in text_files}
         # complex_test_job exercises at least three distinct text cutters.
         assert len(cutter_tags) >= 3
         # Every tag is a 3-decimal inch string.

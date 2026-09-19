@@ -229,9 +229,9 @@ class TestGenerateSubcommand:
 
         plt_files = sorted(p.name for p in (out_dir / "plt").iterdir())
         assert plt_files, "no per-cutter PLT files written"
-        assert all(name.startswith("Cli_Smoke_Job_") for name in plt_files)
-        assert any("_text_" in name for name in plt_files)
-        assert any("borders-holes" in name for name in plt_files)
+        assert all("_Cli_Smoke_Job_" in name for name in plt_files)
+        assert any(name.startswith("text_") for name in plt_files)
+        assert any(name.startswith("bh_") for name in plt_files)
         # --no-plots: no PDF previews.
         assert not (out_dir / "pdf").exists() or not list((out_dir / "pdf").iterdir())
 
