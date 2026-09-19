@@ -22,6 +22,7 @@ from plt_optimizer.generate.resolution import (
     ResolvedHoleSpec,
     ResolvedLabel,
     ResolvedTextLine,
+    build_cutter_pen_map,
     calculate_label_dimensions,
     compute_horizontal_offset,
     compute_horizontal_scale,
@@ -1104,16 +1105,16 @@ class TestComputeHorizontalOffset:
     """Unit tests for the pure horizontal alignment offset helper."""
 
     def test_left_anchors_at_margin(self) -> None:
-        """"left" must place the line's left-most point exactly at the margin."""
+        """ "left" must place the line's left-most point exactly at the margin."""
         assert compute_horizontal_offset(1.5, 3.0, 0.2, "left") == pytest.approx(0.2)
 
     def test_right_anchors_right_edge_at_margin(self) -> None:
-        """"right" must place the line's right-most point at the right margin."""
+        """ "right" must place the line's right-most point at the right margin."""
         # Right inner edge = margin + available_width = 3.2; minus width 1.5.
         assert compute_horizontal_offset(1.5, 3.0, 0.2, "right") == pytest.approx(1.7)
 
     def test_center_centers_within_span(self) -> None:
-        """"center" must center the line within the inner content span."""
+        """ "center" must center the line within the inner content span."""
         # margin + (available - width) / 2 = 0.2 + (3.0 - 1.5) / 2 = 0.95
         assert compute_horizontal_offset(1.5, 3.0, 0.2, "center") == pytest.approx(0.95)
 
@@ -1510,3 +1511,60 @@ class TestSnapBoundaryHoleCutter:
         # No inventory at all: requested value passes through unsnapped.
         label = resolve_job_spec(job, boundary_hole_cutter_size=0.02)[0]
         assert math.isclose(label.hole_cutter_diameter, 0.02)
+
+
+class TestBuildCutterPenMap:
+    """build_cutter_pen_map assigns one pen per distinct text cutter."""
+
+    @staticmethod
+    def _label(label_id: str, cutters: list[float]) -> ResolvedLabel:
+        content = [
+            ResolvedTextLine(
+                text=f"L{i}",
+                nominal_text_height=0.3,
+                toolpath_text_height=0.27,
+                cutter_diameter=cutter,
+                character_spacing=0.0,
+                line_spacing=0.0,
+            )
+            for i, cutter in enumerate(cutters)
+        ]
+        return ResolvedLabel(
+            id=label_id,
+            count=1,
+            width=2.0,
+            height=1.0,
+            margin=0.1,
+            content=content,
+        )
+
+    def test_empty_labels(self) -> None:
+        """No labels (or no content) yields an empty map."""
+        assert build_cutter_pen_map([]) == {}
+        assert build_cutter_pen_map([self._label("a", [])]) == {}
+
+    def test_single_cutter_keeps_pen_one(self) -> None:
+        """A lone cutter keeps the historical text pen 1."""
+        assert build_cutter_pen_map([self._label("a", [0.03])]) == {0.03: 1}
+
+    def test_sorted_ascending_pen_assignment(self) -> None:
+        """Smallest cutter -> SP1, then SP4+ (SP2/SP3 reserved)."""
+        labels = [
+            self._label("a", [0.06]),
+            self._label("b", [0.03]),
+            self._label("c", [0.015, 0.06]),
+        ]
+        assert build_cutter_pen_map(labels) == {0.015: 1, 0.03: 4, 0.06: 5}
+
+    def test_duplicate_cutters_share_pen(self) -> None:
+        """The same diameter across labels/lines maps to a single pen."""
+        labels = [self._label("a", [0.03, 0.03]), self._label("b", [0.03])]
+        assert build_cutter_pen_map(labels) == {0.03: 1}
+
+    def test_many_cutters_skip_reserved_pens(self) -> None:
+        """With 4+ cutters, pens never collide with 2 (borders) or 3 (holes)."""
+        labels = [self._label("a", [0.01, 0.02, 0.03, 0.06, 0.125])]
+        pen_map = build_cutter_pen_map(labels)
+        assert pen_map == {0.01: 1, 0.02: 4, 0.03: 5, 0.06: 6, 0.125: 7}
+        assert 2 not in pen_map.values()
+        assert 3 not in pen_map.values()

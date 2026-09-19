@@ -731,6 +731,46 @@ def _resolve_label(
     )
 
 
+def build_cutter_pen_map(resolved_labels: Sequence[ResolvedLabel]) -> dict[float, int]:
+    """Map each distinct text cutter diameter to an HPGL pen number.
+
+    Per-cutter export assigns one pen (HPGL ``SP`` layer) per distinct
+    text cutter diameter so every cutter ends up in its own PLT file.
+    Pen numbers are reserved for the structural layers:
+
+    - ``SP1``: the smallest text cutter (kept as pen 1 for backward
+      compatibility with single-cutter jobs, where all text lands on the
+      historical text layer).
+    - ``SP2``: label boundaries (reserved, never a text pen).
+    - ``SP3``: drill holes (reserved, never a text pen).
+    - ``SP4+``: remaining text cutters, sorted by ascending diameter.
+
+    A text cutter that happens to equal the boundary/hole cutter still
+    gets its own pen (it is engraved in a separate run).
+
+    Args:
+        resolved_labels: Fully resolved labels whose text lines carry
+            ``cutter_diameter`` values.
+
+    Returns:
+        Mapping of cutter diameter (inches) to pen number. Empty when no
+        label has any text content.
+
+    Example:
+        >>> # cutters 0.03 and 0.06 present -> smallest keeps pen 1
+        >>> build_cutter_pen_map(labels)  # doctest: +SKIP
+        {0.03: 1, 0.06: 4}
+    """
+    cutters = sorted({line.cutter_diameter for label in resolved_labels for line in label.content})
+    pen_map: dict[float, int] = {}
+    for index, cutter in enumerate(cutters):
+        # First (smallest) cutter keeps the historical text pen 1; the
+        # remaining cutters start at SP4 because SP2 (borders) and SP3
+        # (holes) are reserved for the structural layers.
+        pen_map[cutter] = 1 if index == 0 else index + 3
+    return pen_map
+
+
 def resolve_job_spec(
     job: JobSpec,
     available_cutters: Optional[list[float]] = None,
