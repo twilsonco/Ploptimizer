@@ -12,8 +12,9 @@ from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
 from matplotlib.figure import Figure
-from matplotlib.ticker import AutoLocator, MultipleLocator
+from matplotlib.ticker import FormatStrFormatter, MultipleLocator
 
 from plt_optimizer.core.models import (
     ArcSegment,
@@ -81,6 +82,30 @@ def _arc_to_points(arc: ArcSegment, num_segments: int = 32) -> List[Coordinate]:
 
 # Default figure size in inches (16:9 aspect ratio suitable for wide tables)
 DEFAULT_FIGURE_SIZE = (16, 9)
+
+# Tick spacing in inches: major ticks/gridlines every 1 inch, minor ticks
+# every 0.5 inch (minor ticks are unlabeled by default).
+TICK_INTERVAL_INCHES = 1.0
+MINOR_TICK_INTERVAL_INCHES = 0.5
+
+
+def _apply_inch_tick_layout(ax: Axes) -> None:
+    """Configure fixed inch-based tick spacing on both axes.
+
+    Major ticks (and the major gridlines drawn from them) are placed at
+    whole-inch multiples via ``MultipleLocator`` and labeled as integers;
+    minor ticks are placed at half-inch multiples and left unlabeled (the
+    default ``NullFormatter``). This keeps every diagnostic plot on a
+    predictable 1-inch drafting grid regardless of axis range, instead of
+    the auto-scaled fractional intervals ``AutoLocator`` would pick.
+
+    Args:
+        ax: The matplotlib Axes to configure.
+    """
+    for axis in (ax.xaxis, ax.yaxis):
+        axis.set_major_locator(MultipleLocator(TICK_INTERVAL_INCHES))
+        axis.set_major_formatter(FormatStrFormatter("%.0f"))
+        axis.set_minor_locator(MultipleLocator(MINOR_TICK_INTERVAL_INCHES))
 
 
 class PlotterError(Exception):
@@ -318,11 +343,11 @@ def plot_plt_document(
         ax.set_xlabel("X (inches)")
         ax.set_ylabel("Y (inches)")
         ax.set_title(title)
-        # Use AutoLocator for better tick placement when axis ranges vary widely
-        ax.xaxis.set_major_locator(AutoLocator())
-        ax.yaxis.set_major_locator(AutoLocator())
+        # Fixed drafting grid: major ticks/gridlines every inch, minor every 0.5in
+        _apply_inch_tick_layout(ax)
         ax.legend(loc="upper right")
         ax.grid(True, alpha=0.3)
+        ax.grid(which="minor", alpha=0.15)
 
         # Equal aspect ratio for accurate visualization
         ax.set_aspect("equal", adjustable="box")
@@ -512,10 +537,11 @@ def create_path_diagram(
     ax.set_xlabel("X (inches)")
     ax.set_ylabel("Y (inches)")
     ax.set_title(title)
-    ax.xaxis.set_major_locator(MultipleLocator(1))
-    ax.yaxis.set_major_locator(MultipleLocator(1))
+    # Fixed drafting grid: major ticks/gridlines every inch, minor every 0.5in
+    _apply_inch_tick_layout(ax)
     ax.legend()
     ax.grid(True, alpha=0.3)
+    ax.grid(which="minor", alpha=0.15)
     ax.set_aspect("equal", adjustable="box")
 
     plt.tight_layout()

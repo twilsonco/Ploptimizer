@@ -6,6 +6,8 @@ covering plot_plt_document, plot_stroke_path, save_figure, and create_path_diagr
 
 from __future__ import annotations
 
+import math
+import re
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -20,6 +22,8 @@ from plt_optimizer.core.models import (
 )
 from plt_optimizer.diagnostics.plotter import (
     DEFAULT_FIGURE_SIZE,
+    MINOR_TICK_INTERVAL_INCHES,
+    TICK_INTERVAL_INCHES,
     PlotterError,
     _safe_range,
     create_path_diagram,
@@ -1854,4 +1858,88 @@ class TestAxisLimitsSafeRangeIntegration:
         # Magnitude fallback at v=1.0 inch yields range=0.1 -> padding=0.01.
         # Width should be at least the real span (1e-6 inches).
         assert (x_max - x_min) >= 1e-6
+        plt.close(fig)
+
+
+class TestInchTickLayout:
+    """Tests for the fixed 1-inch major / 0.5-inch minor tick layout."""
+
+    def _make_doc(self) -> PLTDocument:
+        """Document spanning 0-12in x 0-8in (12000 x 8000 plotter units)."""
+        seg = StrokeSegment(
+            start=Coordinate(0, 0),
+            end=Coordinate(12000, 8000),
+            is_cutting=True,
+        )
+        return PLTDocument(stroke_paths=[StrokePath(segments=(seg,))])
+
+    def test_constants(self) -> None:
+        """Major tick interval is 1in, minor is 0.5in."""
+        assert TICK_INTERVAL_INCHES == 1.0
+        assert MINOR_TICK_INTERVAL_INCHES == 0.5
+
+    def test_major_ticks_at_one_inch_intervals(self) -> None:
+        """Major tick locations on both axes are multiples of 1 inch."""
+        fig = plot_plt_document(self._make_doc())
+        ax = fig.axes[0]
+        for locs in (ax.xaxis.get_majorticklocs(), ax.yaxis.get_majorticklocs()):
+            assert len(locs) > 0
+            assert all(math.isclose(loc % 1.0, 0.0, abs_tol=1e-9) for loc in locs)
+        plt.close(fig)
+
+    def test_minor_ticks_at_half_inch_intervals(self) -> None:
+        """Minor tick locations on both axes are multiples of 0.5 inch."""
+        fig = plot_plt_document(self._make_doc())
+        ax = fig.axes[0]
+        for locs in (ax.xaxis.get_minorticklocs(), ax.yaxis.get_minorticklocs()):
+            assert len(locs) > 0
+            assert all(math.isclose(loc % 0.5, 0.0, abs_tol=1e-9) for loc in locs)
+        plt.close(fig)
+
+    def test_minor_ticks_are_unlabeled(self) -> None:
+        """Minor ticks carry no labels (default NullFormatter behavior)."""
+        fig = plot_plt_document(self._make_doc())
+        ax = fig.axes[0]
+        fig.canvas.draw()
+        assert all(t.get_label() == "" for t in ax.get_xticklabels(minor=True))
+        assert all(t.get_label() == "" for t in ax.get_yticklabels(minor=True))
+        plt.close(fig)
+
+    def test_major_tick_labels_are_integers(self) -> None:
+        """Major tick labels render without decimal places."""
+        fig = plot_plt_document(self._make_doc())
+        ax = fig.axes[0]
+        fig.canvas.draw()
+        # Draw may blank out some labels for spacing; all remaining ones
+        # (FormatStrFormatter("%.0f")) must render without decimal places.
+        # Accept ASCII or Unicode (U+2212) minus depending on backend.
+        labels = [t.get_text() for t in ax.get_xticklabels(minor=False) if t.get_text()]
+        assert len(labels) > 0
+        assert all(re.fullmatch(r"[\u2212-]?\d+", label) for label in labels)
+        plt.close(fig)
+
+    def test_gridlines_drawn_for_major_and_minor(self) -> None:
+        """Both major and minor gridlines are enabled."""
+        fig = plot_plt_document(self._make_doc())
+        ax = fig.axes[0]
+        fig.canvas.draw()
+        major = ax.xaxis.get_gridlines() + ax.yaxis.get_gridlines()
+        minor = [t.gridline for t in ax.xaxis.minorTicks] + [
+            t.gridline for t in ax.yaxis.minorTicks
+        ]
+        assert len(major) > 0 and len(minor) > 0
+        assert all(g.get_visible() for g in major)
+        assert all(g.get_visible() for g in minor)
+        plt.close(fig)
+
+    def test_create_path_diagram_uses_inch_ticks(self) -> None:
+        """create_path_diagram shares the fixed 1in/0.5in tick layout."""
+        coords = [Coordinate(0, 0), Coordinate(5, 0), Coordinate(5, 3)]
+        fig = create_path_diagram(coords, [True, True])
+        ax = fig.axes[0]
+        assert ax.xaxis.get_majorticklocs().size > 0
+        for locs in (ax.xaxis.get_majorticklocs(), ax.yaxis.get_majorticklocs()):
+            assert all(math.isclose(loc % 1.0, 0.0, abs_tol=1e-9) for loc in locs)
+        for locs in (ax.xaxis.get_minorticklocs(), ax.yaxis.get_minorticklocs()):
+            assert all(math.isclose(loc % 0.5, 0.0, abs_tol=1e-9) for loc in locs)
         plt.close(fig)
