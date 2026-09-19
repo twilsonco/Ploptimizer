@@ -400,7 +400,7 @@ def phase_3_5_validate_coordinates(exported_paths: list[Path]) -> None:
 # PHASE 4: VISUALIZATION (Optional)
 # ============================================================================
 def phase_4_visualization(exported_paths: list[Path]) -> None:
-    """Phase 4: Generate PNG previews using plotter.
+    """Phase 4: Generate PDF previews using plotter.
 
     Generates two plots per PLT file:
     - Default plot (color-coded with rapid travel visualization)
@@ -418,22 +418,22 @@ def phase_4_visualization(exported_paths: list[Path]) -> None:
             document = parser.parse_file(plt_path)
 
             # Generate default plot (color-coded with rapid travel)
-            png_path_default = plt_path.with_stem(plt_path.stem + "_default").with_suffix(".png")
-            logger.info(f"Plotting default mode to {png_path_default.name}...")
+            pdf_path_default = plt_path.with_stem(plt_path.stem + "_default").with_suffix(".pdf")
+            logger.info(f"Plotting default mode to {pdf_path_default.name}...")
             plot_plt_document(
-                document, output_path=png_path_default, show_plot=False, simple_mode=False
+                document, output_path=pdf_path_default, show_plot=False, simple_mode=False
             )
-            print(f"✓ Generated: {png_path_default.relative_to(Path.cwd())}")
+            print(f"✓ Generated: {pdf_path_default.relative_to(Path.cwd())}")
 
             # Generate simple mode plot (black lines only, no rapids)
-            png_path_simple = plt_path.with_stem(plt_path.stem + "_simple_outline").with_suffix(
-                ".png"
+            pdf_path_simple = plt_path.with_stem(plt_path.stem + "_simple_outline").with_suffix(
+                ".pdf"
             )
-            logger.info(f"Plotting simple mode to {png_path_simple.name}...")
+            logger.info(f"Plotting simple mode to {pdf_path_simple.name}...")
             plot_plt_document(
-                document, output_path=png_path_simple, show_plot=False, simple_mode=True
+                document, output_path=pdf_path_simple, show_plot=False, simple_mode=True
             )
-            print(f"✓ Generated: {png_path_simple.relative_to(Path.cwd())}")
+            print(f"✓ Generated: {pdf_path_simple.relative_to(Path.cwd())}")
     except Exception as e:
         logger.warning(f"Visualization failed (optional): {e}")
         print(f"⚠ Visualization skipped: {e}")
@@ -492,11 +492,11 @@ def main(argv: list[str] | None = None) -> int:
         print("✓ Pipeline executed successfully")
         print()
         print("Comparison:")
-        print("1. Inspect the generated PNG previews in test_output/integration_test/")
-        print("   - *_default.png: Color-coded toolpath with rapid travel visualization")
-        print("   - *_simple_outline.png: Black lines only (for comparison with reference)")
+        print("1. Inspect the generated PDF previews in test_output/integration_test/")
+        print("   - *_default.pdf: Color-coded toolpath with rapid travel visualization")
+        print("   - *_simple_outline.pdf: Black lines only (for comparison with reference)")
         print()
-        print("2. Compare *_simple_outline.png with the reference plots:")
+        print("2. Compare *_simple_outline.pdf with the reference plots:")
         print("   - Reference test: test_output/test_ref_plot.png")
         print("   - Reference borders: test_output/test_ref_borders.png")
         print()
