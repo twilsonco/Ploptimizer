@@ -37,15 +37,15 @@ class TestExportAndOptimizePhase3:
 
         # test123 uses a single 0.5in text height (ideal cutter 0.06in,
         # no inventory snapping) plus borders. Names are
-        # <kind>_<cutter>_<job_id>_<plate number>.plt.
+        # <plate number>_<kind>_<cutter>_<job_id>.plt (2-digit plate).
         names = sorted(p.name for p in exported_paths)
-        assert any(name.startswith("text_0.060_") for name in names)
-        assert any(name.startswith("bh_0.015_") for name in names)
+        assert any(name.startswith("01_text_0.060_") for name in names)
+        assert any(name.startswith("01_bh_0.015_") for name in names)
         # The combined PLT is never written to disk.
-        assert not any(name.startswith("all_") for name in names)
-        # Every file embeds the job id and ends with the plate number.
-        assert all("_job123_" in name for name in names)
-        assert all(name.endswith("_1.plt") for name in names)
+        assert not any("_all_" in name for name in names)
+        # Every file leads with the padded plate number and ends with the job id.
+        assert all(name.startswith("01_") for name in names)
+        assert all(name.endswith("_job123.plt") for name in names)
 
     def test_export_phase3_no_plots_by_default(self, tmp_path: Path) -> None:
         """Phase 3 export writes no PDFs unless plots=True."""
@@ -80,11 +80,11 @@ class TestExportAndOptimizePhase3:
         # One PDF per PLT (same stem).
         for plt_path in result.plt_paths:
             assert f"{plt_path.stem}.pdf" in pdf_names
-        # One combined all_<job_id>_<plate>.pdf per plate.
-        assert any(name.startswith("all_plotjob_") for name in pdf_names)
+        # One combined <plate>_all_<job_id>.pdf per plate.
+        assert any(name.endswith("_all_plotjob.pdf") for name in pdf_names)
         # Combined content is exposed in memory, never written as PLT.
         assert result.combined_by_plate
-        assert not any(p.stem.startswith("all_") for p in result.plt_paths)
+        assert not any("_all_" in p.stem for p in result.plt_paths)
 
     def test_export_per_cutter_no_default_plots_by_default(self, tmp_path: Path) -> None:
         """Color-coded *_default.pdf plots are opt-in; absent by default."""
@@ -124,8 +124,8 @@ class TestExportAndOptimizePhase3:
         # One color plot per written PLT (same stem + _default).
         for plt_path in result.plt_paths:
             assert f"{plt_path.stem}_default.pdf" in names
-        # Combined color plot mirrors the all_<job_id>_<plate>.pdf name.
-        assert any(name.startswith("all_dp_") and name.endswith("_default.pdf") for name in names)
+        # Combined color plot mirrors the <plate>_all_<job_id>.pdf name.
+        assert any("_all_dp_" in name and name.endswith("_default.pdf") for name in names)
         assert all(p.parent == tmp_path / "pdf" for p in result.default_pdf_paths)
         # Opt-in plots are tracked separately from the simple previews.
         assert result.pdf_paths == []
@@ -143,8 +143,8 @@ class TestExportAndOptimizePhase3:
             plots=False,
         )
 
-        # Borders exist for every label, so the structural (bh_) file is written.
-        assert any(p.name.startswith("bh_") for p in result.plt_paths)
+        # Borders exist for every label, so the structural (_bh_) file is written.
+        assert any("_bh_" in p.name for p in result.plt_paths)
         # Every written file contains geometry.
         for path in result.plt_paths:
             assert "PD" in path.read_text()
@@ -163,9 +163,9 @@ class TestExportAndOptimizePhase3:
             plots=False,
         )
 
-        text_files = [p.name for p in result.plt_paths if p.name.startswith("text_")]
-        # Name shape: text_<cutter>_<job_id>_<plate>.plt (job_id has no '_').
-        cutter_tags = {name.split("_")[1] for name in text_files}
+        text_files = [p.name for p in result.plt_paths if "_text_" in p.name]
+        # Name shape: <plate>_text_<cutter>_<job_id>.plt (job_id has no '_').
+        cutter_tags = {name.split("_")[2] for name in text_files}
         # complex_test_job exercises at least three distinct text cutters.
         assert len(cutter_tags) >= 3
         # Every tag is a 3-decimal inch string.

@@ -1269,7 +1269,7 @@ class PerCutterExport:
             paths. The combined per-plate PLT is intentionally NOT written
             to disk (it only exists in memory for plotting).
         pdf_paths: Written simple-outline PDF previews. One per written PLT
-            plus one combined ``all_*.pdf`` per plate (when plotting is
+            plus one combined ``*_all_*.pdf`` per plate (when plotting is
             enabled).
         combined_by_plate: In-memory combined PLT content keyed by
             1-based plate number (all pens, unoptimized), for callers
@@ -1277,7 +1277,7 @@ class PerCutterExport:
         output_dir: Absolute base output directory (``plt/`` and ``pdf/``
             live inside it).
         job_id: Job identifier embedded in the written file names
-            (``<kind>_<cutter>_<job_id>_<plate number>``), so callers can
+            (``<plate number>_<kind>_<cutter>_<job_id>``), so callers can
             mirror the naming for any extra artifacts (e.g. color-coded
             combined plots).
         default_pdf_paths: Color-coded ``*_default.pdf`` diagnostic plots
@@ -1305,6 +1305,19 @@ def _format_cutter(cutter_diameter: float) -> str:
     return f"{cutter_diameter:.3f}"
 
 
+def _format_plate_number(plate_number: int) -> str:
+    """Format a plate number for file names (2-digit zero-padded).
+
+    Args:
+        plate_number: 1-based plate index.
+
+    Returns:
+        Zero-padded string, e.g. ``1`` -> ``"01"``, ``12`` -> ``"12"``.
+        Values beyond 99 simply widen (``100`` -> ``"100"``).
+    """
+    return f"{plate_number:02d}"
+
+
 def export_per_cutter_plts(
     resolved_labels: list[ResolvedLabel],
     provided_plates: list[PlateSpec] | None = None,
@@ -1321,17 +1334,17 @@ def export_per_cutter_plts(
     layer:
 
     - **borders + holes** share one file (same tool, engraved together),
-      named ``bh_<cutter>_<job_id>_<plate number>.plt`` where ``<cutter>``
+      named ``<plate number>_bh_<cutter>_<job_id>.plt`` where ``<cutter>``
       is the boundary/hole cutter diameter (``bh`` = borders-holes).
     - **text** gets one file per distinct cutter diameter, named
-      ``text_<cutter>_<job_id>_<plate number>.plt``. A text cutter equal
+      ``<plate number>_text_<cutter>_<job_id>.plt``. A text cutter equal
       to the boundary/hole cutter still gets its own file (separate run).
-      The plate number is the 1-based index of the plate in packing
-      order (a bare number, no ``plate`` prefix).
+      The plate number is the 1-based packing-order index, zero-padded to
+      two digits (``01``, ``02``, ...).
     - The combined per-plate PLT is assembled **in memory only** (never
       written) and exposed via :attr:`PerCutterExport.combined_by_plate`;
       when ``plots`` is enabled it also drives the combined
-      ``all_<job_id>_<plate number>.pdf`` preview.
+      ``<plate number>_all_<job_id>.pdf`` preview.
 
     PLT files are written under ``output_dir/plt/`` and PDFs under
     ``output_dir/pdf/``. Cutter diameters are formatted with 3 decimals
@@ -1347,10 +1360,10 @@ def export_per_cutter_plts(
             filesystem-safe; the CLI sanitizes the job name).
         optimize: If True, run the PLT optimizer on each written file.
         plots: If True, write simple-outline PDF previews for every
-            written PLT plus a combined ``all_*`` PDF per plate.
+            written PLT plus a combined ``*_all_*`` PDF per plate.
         default_plots: If True, additionally write color-coded
             ``*_default.pdf`` diagnostic plots (rapid-travel view) for
-            every written PLT and a combined ``all_*_default.pdf`` per
+            every written PLT and a combined ``*_all_*_default.pdf`` per
             plate. Opt-in only; independent of ``plots``.
 
     Returns:
@@ -1398,16 +1411,17 @@ def export_per_cutter_plts(
     result = PerCutterExport(output_dir=output_dir.resolve(), job_id=job_id)
 
     # Phase 3: Assemble each plate in memory, then split by pen group.
-    # Files are named <kind>_<cutter>_<job_id>_<plate number>, where the
-    # plate number is the 1-based packing-order index (bare number).
+    # Files are named <plate number>_<kind>_<cutter>_<job_id>, where the
+    # plate number is the 1-based packing-order index (2-digit padded).
     for plate_no, plate in enumerate(packed_plates, start=1):
+        plate_str = _format_plate_number(plate_no)
         combined = assemble_plt_from_rendered_labels(plate, rendered_labels_map)
         result.combined_by_plate[plate_no] = combined
 
         # Structural group: borders (SP2) + holes (SP3) share one run.
         structure_content = extract_pens_from_plt_text(combined, [LAYER_BOUNDARY, LAYER_HOLES])
         if plt_has_geometry(structure_content):
-            structure_path = plt_dir / f"bh_{_format_cutter(hole_cutter)}_{job_id}_{plate_no}.plt"
+            structure_path = plt_dir / f"{plate_str}_bh_{_format_cutter(hole_cutter)}_{job_id}.plt"
             structure_path.write_text(structure_content, encoding="utf-8")
             result.plt_paths.append(structure_path)
 
@@ -1417,7 +1431,7 @@ def export_per_cutter_plts(
             if not plt_has_geometry(text_content):
                 continue
             cutter = cutter_by_pen[pen_id]
-            text_path = plt_dir / f"text_{_format_cutter(cutter)}_{job_id}_{plate_no}.plt"
+            text_path = plt_dir / f"{plate_str}_text_{_format_cutter(cutter)}_{job_id}.plt"
             text_path.write_text(text_content, encoding="utf-8")
             result.plt_paths.append(text_path)
 
@@ -1442,7 +1456,7 @@ def _write_simple_plots(
 
     Parses every written PLT and renders a simple-mode (black cutting
     lines only) PDF into ``output_dir/pdf/`` mirroring the PLT file names.
-    Additionally renders one combined ``all_<job_id>_<plate number>.pdf``
+    Additionally renders one combined ``<plate number>_all_<job_id>.pdf``
     per plate from the in-memory combined content (text + borders + holes
     together).
 
@@ -1475,7 +1489,7 @@ def _write_simple_plots(
 
     for plate_no, combined in result.combined_by_plate.items():
         document = parser.parse_string(combined)
-        pdf_path = pdf_dir / f"all_{job_id}_{plate_no}.pdf"
+        pdf_path = pdf_dir / f"{_format_plate_number(plate_no)}_all_{job_id}.pdf"
         plot_plt_document(document, output_path=pdf_path, show_plot=False, simple_mode=True)
         pdf_paths.append(pdf_path)
 
@@ -1491,7 +1505,7 @@ def write_default_plots(
 
     Renders the plotter's default (color-coded, rapid-travel) view of
     every written per-cutter PLT as ``<plt-stem>_default.pdf`` plus one
-    combined ``all_<job_id>_<plate number>_default.pdf`` per plate from
+    combined ``<plate number>_all_<job_id>_default.pdf`` per plate from
     the in-memory combined content (text + borders + holes together). These
     diagnostics are strictly opt-in; the simple-outline previews remain
     the standard output.
@@ -1525,7 +1539,7 @@ def write_default_plots(
 
     for plate_no, combined in result.combined_by_plate.items():
         document = parser.parse_string(combined)
-        pdf_path = pdf_dir / f"all_{job_id}_{plate_no}_default.pdf"
+        pdf_path = pdf_dir / f"{_format_plate_number(plate_no)}_all_{job_id}_default.pdf"
         plot_plt_document(document, output_path=pdf_path, show_plot=False, simple_mode=False)
         pdf_paths.append(pdf_path)
 

@@ -8,10 +8,10 @@ rendering/assembly.
 
 Output layout (under ``-o``, defaulting to the spec's parent directory)::
 
-    <out>/plt/text_0.030_<job_id>_1.plt   # one file per text cutter (plate 1)
-    <out>/plt/bh_0.015_<job_id>_1.plt     # borders + holes together (plate 1)
-    <out>/pdf/text_0.030_<job_id>_1.pdf   # simple-outline previews
-    <out>/pdf/all_<job_id>_1.pdf          # combined preview per plate
+    <out>/plt/01_text_0.030_<job_id>.plt   # one file per text cutter (plate 01)
+    <out>/plt/01_bh_0.015_<job_id>.plt     # borders + holes together (plate 01)
+    <out>/pdf/01_text_0.030_<job_id>.pdf   # simple-outline previews
+    <out>/pdf/01_all_<job_id>.pdf          # combined preview per plate
 
 Text-hole collisions are unacceptable output: when any label's rendered
 text comes closer to a drill hole than the stroke-aware collision
