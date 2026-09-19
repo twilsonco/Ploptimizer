@@ -503,7 +503,7 @@ class TestEndToEndPipeline:
 
     def test_export_replacement_driven_job(self, tmp_path: Path) -> None:
         """A replacement-driven job exports PLT files with per-instance text."""
-        from plt_optimizer.generate.vectorize import export_and_optimize_phase3
+        from plt_optimizer.generate.vectorize import export_per_cutter_plts
 
         _write(tmp_path / "r.txt", "ALPHA;ONE\nBETA;TWO;EXTRA\nGAMMA\n")
         yaml_path = tmp_path / "job.yaml"
@@ -532,13 +532,15 @@ class TestEndToEndPipeline:
 
         output_dir = tmp_path / "out"
         output_dir.mkdir()
-        exported = export_and_optimize_phase3(
+        result = export_per_cutter_plts(
             resolved,
             job.plates,
             output_dir=output_dir,
             optimize=False,
             job_id="e2e",
+            plots=False,
         )
+        exported = result.plt_paths
         # Borders + one text cutter file for the single 0.3in text height.
         assert len(exported) == 2
         assert all(p.parent == output_dir / "plt" for p in exported)

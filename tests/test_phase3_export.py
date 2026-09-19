@@ -6,7 +6,6 @@ from plt_optimizer.generate.resolution import resolve_job_spec
 from plt_optimizer.generate.schema import parse_yaml
 from plt_optimizer.generate.vectorize import (
     PerCutterExport,
-    export_and_optimize_phase3,
     export_per_cutter_plts,
 )
 
@@ -19,12 +18,14 @@ class TestExportAndOptimizePhase3:
         job = parse_yaml("examples/test123_spec.yaml")
         resolved_labels = resolve_job_spec(job)
 
-        exported_paths = export_and_optimize_phase3(
+        result = export_per_cutter_plts(
             resolved_labels,
             output_dir=tmp_path,
             optimize=False,
             job_id="job123",
+            plots=False,
         )
+        exported_paths = result.plt_paths
 
         # Verify output: every text cutter + the borders-holes group.
         assert len(exported_paths) > 0
@@ -52,10 +53,11 @@ class TestExportAndOptimizePhase3:
         job = parse_yaml("examples/test123_spec.yaml")
         resolved_labels = resolve_job_spec(job)
 
-        export_and_optimize_phase3(
+        export_per_cutter_plts(
             resolved_labels,
             output_dir=tmp_path,
             optimize=False,
+            plots=False,
         )
 
         assert not (tmp_path / "pdf").exists() or not list((tmp_path / "pdf").iterdir())
@@ -178,12 +180,14 @@ class TestExportAndOptimizePhase3:
         job = parse_yaml("examples/test123_spec.yaml")
         resolved_labels = resolve_job_spec(job)
 
-        exported_paths = export_and_optimize_phase3(
+        result = export_per_cutter_plts(
             resolved_labels,
             output_dir=tmp_path,
             optimize=False,
             job_id="org",
+            plots=False,
         )
+        exported_paths = result.plt_paths
 
         for path in exported_paths:
             assert path.parent == tmp_path / "plt"

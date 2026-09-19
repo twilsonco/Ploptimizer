@@ -10,7 +10,6 @@ from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
 from plt_optimizer.generate.schema import parse_yaml
 from plt_optimizer.generate.vectorize import (
     assemble_plt_from_rendered_labels,
-    extract_layer_from_plt_text,
     extract_pens_from_plt_text,
     plt_has_geometry,
     translate_plt_coordinates,
@@ -254,12 +253,6 @@ class TestExtractPensFromPltText:
         """Requesting absent pens yields a header/footer-only result."""
         result = extract_pens_from_plt_text(self.SAMPLE, [7])
         assert not plt_has_geometry(result)
-
-    def test_extract_layer_delegates_to_multi_pen(self) -> None:
-        """The single-pen helper matches the multi-pen extractor."""
-        assert extract_layer_from_plt_text(self.SAMPLE, 1) == extract_pens_from_plt_text(
-            self.SAMPLE, [1]
-        )
 
     def test_plt_has_geometry(self) -> None:
         """Geometry detection recognizes PU/PD/PA/AA and rejects headers."""

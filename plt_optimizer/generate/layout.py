@@ -95,27 +95,6 @@ class LayoutFitError(Exception):
 # ---------------------------------------------------------------------------
 # Packer configuration
 # ---------------------------------------------------------------------------
-def initialize_packer() -> rectpack.packer.Packer:
-    """Create a configured ``rectpack`` instance.
-
-    Uses the default candidate pack configuration (see :data:`PACK_CONFIGS`).
-    This is retained as a convenience for callers that only need a single,
-    pre-configured packer and do not require best-fit selection across
-    multiple heuristics.
-
-    Returns:
-        A configured ``rectpack.Packer`` ready to accept rectangles and bins.
-    """
-    algo, sort_algo = PACK_CONFIGS[0]
-    return rectpack.newPacker(
-        mode=rectpack.PackingMode.Offline,
-        bin_algo=rectpack.PackingBin.BFF,
-        pack_algo=algo,
-        sort_algo=sort_algo,
-        rotation=False,  # Disable rotation to preserve label orientation
-    )
-
-
 # Candidate (algorithm, sort) packing configurations tried by the layout engine.
 # Each heuristic has different strengths; no single one dominates on all inputs
 # (e.g. ``MaxRectsBssf`` leaves narrow labels stranded in some orderings while

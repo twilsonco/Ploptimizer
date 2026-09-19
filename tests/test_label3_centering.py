@@ -5,7 +5,7 @@ from pathlib import Path
 
 from plt_optimizer.generate.resolution import resolve_job_spec
 from plt_optimizer.generate.schema import parse_yaml
-from plt_optimizer.generate.vectorize import export_and_optimize_phase3
+from plt_optimizer.generate.vectorize import export_per_cutter_plts
 
 
 def test_phase3_fixes_label3_centering(tmp_path: Path) -> None:
@@ -32,9 +32,10 @@ def test_phase3_fixes_label3_centering(tmp_path: Path) -> None:
 
     # Export using the Phase 3 per-cutter pipeline (text files are split
     # per cutter; borders+holes share the structural file).
-    exported_paths = export_and_optimize_phase3(
-        resolved_labels, output_dir=tmp_path, optimize=False, job_id="label3"
+    result = export_per_cutter_plts(
+        resolved_labels, output_dir=tmp_path, optimize=False, job_id="label3", plots=False
     )
+    exported_paths = result.plt_paths
 
     # Should export at least text and borders files
     assert len(exported_paths) >= 1

@@ -10,8 +10,8 @@ import vpype as vp
 
 from plt_optimizer.generate.label_renderer import (
     _flip_y_coordinates_in_plt,
-    _render_holes_local,
-    _render_text_local,
+    _hole_circles_local,
+    _render_text_local_with_bounds,
     compress_line_to_width,
     extract_bounds_from_plt,
     render_label_to_plt,
@@ -22,6 +22,16 @@ from plt_optimizer.generate.resolution import (
     ResolvedTextLine,
 )
 from plt_optimizer.generate.schema import parse_yaml
+
+
+def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
+    """Test-local view of the live renderer, dropping per-line bounds.
+
+    Production code renders through ``_render_text_local_with_bounds``;
+    these tests only assert on the combined LineCollection.
+    """
+    text_lc, _entries = _render_text_local_with_bounds(label)
+    return text_lc
 
 
 def _make_line(
@@ -538,77 +548,71 @@ def _make_hole_label(
     )
 
 
-class TestRenderHolesLocal:
-    """Regression: drill holes must actually render on the holes layer.
+class TestHoleCircleGeometry:
+    """Regression: every hole location must yield one circle on the holes layer.
 
-    ``_render_holes_local`` used to call ``LineCollection.extend()`` with the
-    flat 1-D ndarray returned by ``vp.circle``. ``extend`` expects an iterable
-    of *lines*, so every circle was silently dropped and the holes layer
-    (pen 3) stayed empty for every spec. Edge locations (left/right/top/
-    bottom) were additionally skipped by the corner-only if/elif chain.
+    ``_hole_circles_local`` feeds both the arc emitter (``_render_holes_hpgl``,
+    pen 3) and collision detection. A past bug dropped circles silently
+    (``LineCollection.extend()`` with a flat ndarray) and edge locations
+    (left/right/top/bottom) were skipped by a corner-only if/elif chain, so
+    circle presence per location is asserted here directly.
     """
 
     def test_no_holes_returns_empty(self) -> None:
-        """A label without holes must produce an empty LineCollection."""
+        """A label without holes must produce no circles."""
         label = _make_hole_label([])
-        assert _render_holes_local(label).is_empty()
+        assert _hole_circles_local(label) == []
 
-    def test_corner_holes_produce_one_closed_circle_each(self) -> None:
-        """Each corner hole must yield exactly one closed circular line."""
+    def test_corner_holes_produce_one_circle_each(self) -> None:
+        """Each corner hole must yield exactly one circle at its corner."""
         holes = [
             ResolvedHoleSpec(diameter=0.125, location="top-left"),
             ResolvedHoleSpec(diameter=0.1875, location="top-right"),
             ResolvedHoleSpec(diameter=0.25, location="bottom-right"),
             ResolvedHoleSpec(diameter=0.125, location="bottom-left"),
         ]
-        lc = _render_holes_local(_make_hole_label(holes))
+        circles = _hole_circles_local(_make_hole_label(holes))
 
-        assert not lc.is_empty()
-        assert len(lc) == len(holes)
-        for line, hole in zip(lc, holes):
-            # Circle is closed: first point equals last point.
-            assert line[0] == pytest.approx(line[-1])
-            radius = hole.diameter / 2.0
-            center_x = {
+        assert len(circles) == len(holes)
+        for (center_x, center_y, radius), hole in zip(circles, holes):
+            assert radius == pytest.approx(hole.diameter / 2.0)
+            expected_x = {
                 "top-left": radius,
                 "top-right": 4.0 - radius,
                 "bottom-right": 4.0 - radius,
                 "bottom-left": radius,
             }[hole.location]
-            center_y = {
+            expected_y = {
                 "top-left": 2.0 - radius,
                 "top-right": 2.0 - radius,
                 "bottom-right": radius,
                 "bottom-left": radius,
             }[hole.location]
-            for point in line:
-                dist = math.hypot(point.real - center_x, point.imag - center_y)
-                assert dist == pytest.approx(radius, abs=1e-9)
+            assert center_x == pytest.approx(expected_x, abs=1e-9)
+            assert center_y == pytest.approx(expected_y, abs=1e-9)
 
-    def test_edge_locations_render_circles(self) -> None:
-        """left/right/top/bottom holes must render, not be silently skipped."""
+    def test_edge_locations_produce_circles(self) -> None:
+        """left/right/top/bottom holes must yield circles, not be skipped."""
         holes = [
             ResolvedHoleSpec(diameter=0.125, location="left"),
             ResolvedHoleSpec(diameter=0.125, location="right"),
             ResolvedHoleSpec(diameter=0.25, location="top"),
             ResolvedHoleSpec(diameter=0.25, location="bottom"),
         ]
-        lc = _render_holes_local(_make_hole_label(holes))
+        circles = _hole_circles_local(_make_hole_label(holes))
 
-        assert not lc.is_empty()
-        assert len(lc) == len(holes)
+        assert len(circles) == len(holes)
         expected_centers = {
             "left": (0.0625, 1.0),
             "right": (4.0 - 0.0625, 1.0),
             "top": (2.0, 2.0 - 0.125),
             "bottom": (2.0, 0.125),
         }
-        for line, hole in zip(lc, holes):
-            center_x, center_y = expected_centers[hole.location]
-            radius = hole.diameter / 2.0
-            for point in line:
-                dist = math.hypot(point.real - center_x, point.imag - center_y)
-                assert dist == pytest.approx(radius, abs=1e-9)
+        for (center_x, center_y, radius), hole in zip(circles, holes):
+            ex, ey = expected_centers[hole.location]
+            assert center_x == pytest.approx(ex, abs=1e-9)
+            assert center_y == pytest.approx(ey, abs=1e-9)
+            assert radius == pytest.approx(hole.diameter / 2.0)
 
     def test_render_label_to_plt_emits_holes_layer(self) -> None:
         """End-to-end: rendered PLT must contain an SP3 section with circles."""
@@ -761,34 +765,32 @@ class TestHoleMarginRendering:
     tangent to the edge, matching the legacy behavior.
     """
 
-    def _assert_center(
-        self, line: "object", center_x: float, center_y: float, radius: float
-    ) -> None:
-        """Assert every point of a circle lies on the given circle."""
-        for point in line:  # type: ignore[union-attr]
-            dist = math.hypot(point.real - center_x, point.imag - center_y)
-            assert dist == pytest.approx(radius, abs=1e-9)
-
     def test_zero_margin_keeps_circle_tangent(self) -> None:
         """hole_margin == 0.0 must keep the circle tangent to the edge."""
         hole = ResolvedHoleSpec(diameter=0.125, location="left")
-        lc = _render_holes_local(_make_hole_label([hole], hole_margin=0.0))
+        circles = _hole_circles_local(_make_hole_label([hole], hole_margin=0.0))
         # Center at (radius, height/2), radius 0.0625.
-        self._assert_center(lc[0], 0.0625, 1.0, 0.0625)
+        assert len(circles) == 1
+        center_x, center_y, radius = circles[0]
+        assert center_x == pytest.approx(0.0625, abs=1e-9)
+        assert center_y == pytest.approx(1.0, abs=1e-9)
+        assert radius == pytest.approx(0.0625, abs=1e-9)
 
     def test_margin_insets_circle_from_edge(self) -> None:
         """With hole_margin, the circle's closest point is hole_margin away."""
         hole = ResolvedHoleSpec(diameter=0.125, location="left")
         hole_margin = 0.1875
         radius = hole.diameter / 2.0
-        lc = _render_holes_local(_make_hole_label([hole], hole_margin=hole_margin))
+        circles = _hole_circles_local(_make_hole_label([hole], hole_margin=hole_margin))
 
         # Center inset by hole_margin + radius; radius unchanged.
-        self._assert_center(lc[0], hole_margin + radius, 1.0, radius)
+        assert len(circles) == 1
+        center_x, center_y, r = circles[0]
+        assert center_x == pytest.approx(hole_margin + radius, abs=1e-9)
+        assert center_y == pytest.approx(1.0, abs=1e-9)
+        assert r == pytest.approx(radius, abs=1e-9)
         # Closest point of the circle to the left edge (x=0) == hole_margin.
-        # Sampled vertices may fall a hair short of the exact extreme.
-        xs = [point.real for point in lc[0]]
-        assert min(xs) == pytest.approx(hole_margin, abs=1e-3)
+        assert center_x - r == pytest.approx(hole_margin, abs=1e-9)
 
     def test_margin_applies_to_all_edge_and_corner_locations(self) -> None:
         """hole_margin must be honored for every supported location."""
@@ -811,7 +813,7 @@ class TestHoleMarginRendering:
         label = _make_hole_label(
             holes, width=width, height=height, hole_margin=hole_margin
         )
-        lc = _render_holes_local(label)
+        circles = _hole_circles_local(label)
 
         expected_centers = {
             "left": (offset, height / 2.0),
@@ -823,10 +825,12 @@ class TestHoleMarginRendering:
             "bottom-left": (offset, offset),
             "bottom-right": (width - offset, offset),
         }
-        assert len(lc) == len(holes)
-        for line, hole in zip(lc, holes):
-            center_x, center_y = expected_centers[hole.location]
-            self._assert_center(line, center_x, center_y, radius)
+        assert len(circles) == len(holes)
+        for (center_x, center_y, r), hole in zip(circles, holes):
+            ex, ey = expected_centers[hole.location]
+            assert center_x == pytest.approx(ex, abs=1e-9)
+            assert center_y == pytest.approx(ey, abs=1e-9)
+            assert r == pytest.approx(radius, abs=1e-9)
 
     def test_rendered_plt_hole_respects_margin(self) -> None:
         """End-to-end: rendered SP3 arcs must honor hole_margin.

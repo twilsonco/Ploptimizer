@@ -38,7 +38,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 DEFAULT_TEXT_HEIGHT: float = 0.25
 DEFAULT_MARGIN: float = 0.125
-DEFAULT_CHAR_SPACING: float = 0.05
 DEFAULT_LINE_SPACING: float = 0.1
 DEFAULT_HOLE_MARGIN: float = 0.1875
 # Lower bound for hole-margin shrinkage during text-hole collision

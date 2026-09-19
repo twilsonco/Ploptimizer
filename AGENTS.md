@@ -110,8 +110,9 @@ line → label → job (accepted on plates for schema parity only).
 - `compute_horizontal_scale()` (resolution.py): pure scale-factor math,
   clamped to `[1 - max_h_compress, 1.0]`.
 - `compress_line_to_width()` (label_renderer.py): applies the scale to a
-  rendered LineCollection; called per-line by both render paths
-  (`_render_text_local` and `vectorize._render_text`) before centering.
+  rendered LineCollection; called per-line by the render path
+  (`_render_positioned_lines`, reached via `_render_text_local_with_bounds`
+  and `_render_text_lines_by_pen`) before centering.
 - Lines that already fit are never modified. If compression cannot fully
   resolve the overflow (limit too small), a WARNING is logged.
 
@@ -129,8 +130,8 @@ parity only). Enum `TextHAlignment` (`left`, `center`, `right`).
 - `compute_horizontal_offset()` (resolution.py): pure offset math returning
   the target left-edge X for a rendered line; unknown values fall back to
   `center`.
-- Applied per-line by both render paths (`_render_text_local` and
-  `vectorize._render_text`) after compression, before vertical stacking.
+- Applied per-line by the render path (`_render_positioned_lines`) after
+  compression, before vertical stacking.
 - When a line is wider than the inner area (e.g. compression disabled),
   `center` overflows symmetrically while `left`/`right` keep their aligned
   margin edge anchored and spill out the opposite side.
@@ -160,8 +161,8 @@ intersection-invariant.
   breakdown (clearance + stroke floor). `RenderedLabel.collision_detected`
   marks any render where a collision was found (even if a later phase fixed
   it) and `RenderedLabel.has_collisions` marks renders that still collide
-  after resolution. `vectorize.py` calls the observational
-  `log_text_hole_collisions()` per label.
+  after resolution. Detection runs inside `render_label_to_plt` (and the
+  collision-avoidance sweeps re-check via `_detect_text_hole_collisions()`).
 - **Phase 2 (opt-in via `min_hole_margin`):** sweep `hole_margin` toward the
   floor (analytical — hole positions are pure functions of `hole_margin`);
   on success re-render from the adjusted label clone and log WARNING with
@@ -178,8 +179,8 @@ intersection-invariant.
   diagnostics (gap shortfalls, margin/compression state, recommendations) at
   ERROR and flags `has_collisions=True`. Either way the render is flagged
   `collision_detected=True`, and the job-level gate `assert_no_collisions()`
-  — wired into `layout.generate_layout_with_bounds` and
-  `vectorize.export_and_optimize` — raises `LabelRenderError` once every
+  — wired into `layout.generate_layout_with_bounds` (covering
+  `vectorize.export_per_cutter_plts`) — raises `LabelRenderError` once every
   label has been rendered (so all per-label ERRORs print first), naming
   every offending label id. Avoidance repairing a collision does **not**
   excuse it: the jobspec must be revised. The `generate` CLI surfaces the

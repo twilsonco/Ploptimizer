@@ -13,7 +13,6 @@ from plt_optimizer.generate.layout import (
     PackedLabel,
     PackedPlate,
     generate_layout,
-    initialize_packer,
     unroll_labels,
 )
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
@@ -43,18 +42,6 @@ def _make_label(
             line_spacing=0.0,
         )],
     )
-
-
-class TestInitializePacker:
-    """Tests for the rectpack initialization."""
-
-    def test_returns_packer(self) -> None:
-        """initialize_packer should return a rectpack.Packer instance."""
-        packer = initialize_packer()
-        assert packer is not None
-        assert hasattr(packer, "add_rect")
-        assert hasattr(packer, "add_bin")
-        assert hasattr(packer, "pack")
 
 
 class TestUnrollLabels:

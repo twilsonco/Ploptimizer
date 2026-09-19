@@ -9,7 +9,6 @@ from pydantic import ValidationError
 
 from plt_optimizer.generate.resolution import (
     DEFAULT_BOUNDARY_HOLE_CUTTER,
-    DEFAULT_CHAR_SPACING,
     DEFAULT_HOLE_MARGIN,
     DEFAULT_HOLE_TEXT_COLLISION_DISTANCE,
     DEFAULT_LINE_SPACING,
@@ -738,11 +737,6 @@ class TestFallbackConstants:
         """DEFAULT_MARGIN should be a positive float."""
         assert isinstance(DEFAULT_MARGIN, float)
         assert DEFAULT_MARGIN > 0
-
-    def test_default_char_spacing(self) -> None:
-        """DEFAULT_CHAR_SPACING should be a non-negative float."""
-        assert isinstance(DEFAULT_CHAR_SPACING, float)
-        assert DEFAULT_CHAR_SPACING >= 0
 
     def test_default_line_spacing(self) -> None:
         """DEFAULT_LINE_SPACING should be a non-negative float."""

@@ -33,7 +33,6 @@ from plt_optimizer.generate.label_renderer import (
     _resolve_collision_via_compression,
     _resolve_collision_via_margin_adjustment,
     assert_no_collisions,
-    log_text_hole_collisions,
     render_label_to_plt,
 )
 from plt_optimizer.generate.resolution import (
@@ -178,11 +177,6 @@ class TestMarginAdjustment:
         label = _label(text="HELLO", holes=BOTTOM_HOLE, hole_margin=0.05, min_hole_margin=0.05)
         rendered = render_label_to_plt(label)
         assert rendered.has_collisions is True
-
-    def test_log_text_hole_collisions_no_holes_returns_empty(self) -> None:
-        """The observational helper short-circuits for hole-free labels."""
-        label = _label(text="HELLO", holes=[])
-        assert log_text_hole_collisions(label) == []
 
 
 class TestCompressionFallback:

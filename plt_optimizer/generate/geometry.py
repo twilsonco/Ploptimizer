@@ -85,36 +85,3 @@ def circle_aabb_gap(
     dy = max(y_min - cy, 0.0, cy - y_max)
 
     return math.hypot(dx, dy) - hole_radius
-
-
-def check_text_hole_collision(
-    text_bounds: TextBounds,
-    hole_center: HoleCenter,
-    hole_radius: float,
-    min_clearance: float = 0.0,
-) -> bool:
-    """Return True when a text box is closer than ``min_clearance`` to a hole.
-
-    Uses the standard circle-vs-axis-aligned-bounding-box test: the closest
-    point on the box to the circle center is computed and the resulting gap
-    compared against ``min_clearance``. With the default ``0.0`` this is
-    the strict overlap predicate (exact tangency, gap == 0, is NOT a
-    collision). A positive ``min_clearance`` additionally flags near misses
-    whose engraved strokes would bleed together; a gap exactly equal to
-    ``min_clearance`` is safe.
-
-    Args:
-        text_bounds: ``(x_min, y_min, x_max, y_max)`` box coordinates in
-            label-local coordinates.
-        hole_center: ``(cx, cy)`` hole center in the same coordinates.
-        hole_radius: Hole radius in the same length units.
-        min_clearance: Required minimum gap in the same length units
-            (>= 0). The stroke-aware collision threshold in
-            ``label_renderer`` combines the stroke floor
-            ``0.5 * (hole_cutter + text_cutter)`` with the configured
-            collision distance into this value.
-
-    Returns:
-        ``True`` if the gap is below ``min_clearance``, ``False`` otherwise.
-    """
-    return circle_aabb_gap(text_bounds, hole_center, hole_radius) < min_clearance
