@@ -131,6 +131,7 @@ PACK_CONFIGS: tuple[tuple[object, object], ...] = (
 
 def _render_labels_cache(
     resolved_labels: list[ResolvedLabel],
+    pen_map: Optional[dict[float, int]] = None,
 ) -> dict[str, RenderedLabel]:
     """Render all unique labels and cache by ID.
 
@@ -139,6 +140,11 @@ def _render_labels_cache(
 
     Args:
         resolved_labels: Flat list of fully resolved labels.
+        pen_map: Optional mapping of text cutter diameter to HPGL pen
+            number (see
+            :func:`plt_optimizer.generate.resolution.build_cutter_pen_map`).
+            Passed through to :func:`render_label_to_plt`; ``None`` keeps
+            all text on the historical single text pen.
 
     Returns:
         Dictionary mapping label ID to RenderedLabel.
@@ -146,7 +152,7 @@ def _render_labels_cache(
     rendered_cache: dict[str, RenderedLabel] = {}
     for label in resolved_labels:
         if label.id not in rendered_cache:
-            rendered_cache[label.id] = render_label_to_plt(label)
+            rendered_cache[label.id] = render_label_to_plt(label, pen_map=pen_map)
     return rendered_cache
 
 
@@ -453,6 +459,7 @@ def generate_layout(
 def generate_layout_with_bounds(
     resolved_labels: list[ResolvedLabel],
     provided_plates: Optional[list[PlateSpec]] = None,
+    pen_map: Optional[dict[float, int]] = None,
 ) -> tuple[list[PackedPlate], dict[str, RenderedLabel]]:
     """Pack resolved labels onto plates using rendered dimensions.
 
@@ -468,6 +475,11 @@ def generate_layout_with_bounds(
             resolution engine.
         provided_plates: Optional list of user-specified plates. If None
             or empty, the engine auto-allocates default 24x16 sheets.
+        pen_map: Optional mapping of text cutter diameter to HPGL pen
+            number (see
+            :func:`plt_optimizer.generate.resolution.build_cutter_pen_map`)
+            used when rendering labels for per-cutter PLT splitting.
+            ``None`` keeps the historical single text pen.
 
     Returns:
         A tuple of:
@@ -485,7 +497,7 @@ def generate_layout_with_bounds(
             their ERROR diagnostics logged before aborting).
     """
     # Phase 2a: Render all unique labels and cache by ID
-    rendered_labels = _render_labels_cache(resolved_labels)
+    rendered_labels = _render_labels_cache(resolved_labels, pen_map=pen_map)
 
     # Job-level gate: unavoidable text-hole collisions are unacceptable.
     # Every label has now been rendered (all per-label ERROR diagnostics

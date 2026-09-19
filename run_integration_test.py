@@ -30,14 +30,15 @@ logger = logging.getLogger(__name__)
 # Import pipeline components
 from plt_optimizer.core.parser import PLTParser
 from plt_optimizer.diagnostics.plotter import plot_plt_document
-from plt_optimizer.generate.layout import generate_layout, generate_layout_with_bounds
+from plt_optimizer.generate.layout import generate_layout
 from plt_optimizer.generate.resolution import (
     resolve_job_spec,
 )
 from plt_optimizer.generate.schema import parse_yaml
 from plt_optimizer.generate.substitution import expand_job_spec
 from plt_optimizer.generate.vectorize import (
-    assemble_plt_from_rendered_labels,
+    PerCutterExport,
+    export_per_cutter_plts,
 )
 
 
@@ -115,7 +116,7 @@ def phase_2_resolution_and_layout(
     job_yaml: Path,
     inventory: list[float],
     boundary_hole_cutter_size: float | None = None,
-) -> tuple[list, list, list | None]:
+) -> tuple[list, list, list | None, str]:
     """Phase 2: Resolution, bin packing, and verification.
 
     Executes:
@@ -131,7 +132,7 @@ def phase_2_resolution_and_layout(
             ``None`` uses the default).
 
     Returns:
-        Tuple of (resolved_labels, packed_plates, provided_plates).
+        Tuple of (resolved_labels, packed_plates, provided_plates, job_id).
     """
     print_separator("PHASE 2: PIPELINE EXECUTION")
 
@@ -190,57 +191,13 @@ def phase_2_resolution_and_layout(
     print_separator("VERIFICATION POINT: Plate Generation")
     print(f"Total plates generated: {len(packed_plates)}")
 
-    return resolved_labels, packed_plates, job.plates
+    # Filesystem-safe job identifier for per-cutter output naming (mirrors
+    # the generate CLI's sanitization).
+    from plt_optimizer.cli.generate import _sanitize_job_id
 
+    job_id = _sanitize_job_id(job.job_name)
 
-def _extract_layer_from_plt_file(plt_file_path: Path, target_pen: int, output_path: Path) -> None:
-    """Extract a single layer from a post-processed PLT file by pen ID.
-
-    Filters the PLT file to only include commands for the target pen,
-    preserving all PA/PU/PD commands and SP selections for that pen.
-
-    Args:
-        plt_file_path: Path to the source PLT file with all layers.
-        target_pen: Pen ID to extract (e.g., 1 for text, 2 for borders).
-        output_path: Path to write the extracted layer.
-    """
-    content = plt_file_path.read_text()
-
-    # Split by SP (Select Pen) commands to identify sections
-    lines = []
-    in_header = True
-    current_pen = None
-
-    # Write header and filter content by pen
-    for line in content.split(";"):
-        line = line.strip()
-        if not line:
-            continue
-
-        # Check for SP command (Select Pen)
-        if line.startswith("SP"):
-            try:
-                pen_id = int(line[2:])
-                current_pen = pen_id
-                # Only include SP commands for our target pen or pen 0 (end)
-                if pen_id == target_pen or pen_id == 0:
-                    lines.append(f"SP{pen_id};")
-            except (ValueError, IndexError):
-                lines.append(f"{line};")
-        elif current_pen == target_pen or in_header:
-            # Include all content for target pen or header content
-            if line.startswith("IN") or line.startswith("DF") or line.startswith("PS"):
-                in_header = True
-                lines.append(f"{line};")
-            elif line and current_pen == target_pen:
-                lines.append(f"{line};")
-
-    # Write extracted layer
-    result = "".join(lines)
-    if result and not result.endswith("%"):
-        result += "%"
-
-    output_path.write_text(result)
+    return resolved_labels, packed_plates, job.plates, job_id
 
 
 # ============================================================================
@@ -250,36 +207,37 @@ def phase_3_vectorization_and_export(
     resolved_labels: list,
     provided_plates: list | None = None,
     output_dir: Path | None = None,
-) -> list[Path]:
-    """Phase 3: Assemble and export PLT files using the clean Phase 3 pipeline.
+    job_id: str = "job",
+) -> PerCutterExport:
+    """Phase 3: Export per-cutter PLT files using the clean Phase 3 pipeline.
 
     Renders each label independently via ``render_label_to_plt`` (which uses
     the matplotlib TTF text renderer with a custom, lossless HPGL writer),
     bin-packs labels onto plates using their rendered dimensions, then
-    assembles the per-label PLT content at packed positions. This avoids
-    vpype's ``write_hpgl`` page-fitting compression that otherwise crushes
-    small glyph geometry into repeated coordinates (unclean text).
+    assembles the per-label PLT content at packed positions and splits the
+    assembly by CUTTER:
 
-    Exports each layer (text, boundaries, holes) as separate PLT files to
-    allow independent tool/speed selection.
+    - borders + holes -> one ``*_borders-holes_<cutter>.plt`` per plate
+    - text -> one ``*_text_<cutter>.plt`` per plate and cutter diameter
+    - the combined per-plate PLT stays in memory only (returned in
+      ``combined_by_plate`` for the Phase 4 color plots)
+
+    PLT files land in ``<output_dir>/plt/`` and simple-outline PDF
+    previews in ``<output_dir>/pdf/``.
 
     Args:
         resolved_labels: List of fully resolved labels from the resolution step.
         provided_plates: Optional list of PlateSpec objects. If None, uses a
-            default 24x16 plate (matching ``generate_layout`` behavior).
+            default A3 plate (matching ``export_per_cutter_plts`` behavior).
         output_dir: Optional output directory. Defaults to
             ``test_output/integration_test``.
+        job_id: Filesystem-safe job identifier used as the file-name prefix.
 
     Returns:
-        List of exported PLT file paths.
+        The :class:`PerCutterExport` with written PLT/PDF paths and the
+        in-memory combined content per plate.
     """
-    print_separator("PHASE 3: VECTORIZATION AND EXPORT")
-
-    # Layer ID to pen ID mapping in PLT files
-    # These correspond to the SP (Select Pen) commands in the raw PLT
-    PEN_TEXT = 1
-    PEN_BORDERS = 2
-    PEN_HOLES = 3
+    print_separator("PHASE 3: VECTORIZATION AND EXPORT (PER-CUTTER)")
 
     workspace = Path(__file__).parent
     if output_dir is None:
@@ -290,50 +248,22 @@ def phase_3_vectorization_and_export(
 
     logger.info(f"Exporting to: {output_dir}")
 
-    # Phase 2 (bounds-aware): render each label and pack using rendered sizes.
-    packed_plates, rendered_labels_map = generate_layout_with_bounds(
-        resolved_labels, provided_plates
+    export_result = export_per_cutter_plts(
+        resolved_labels,
+        provided_plates,
+        output_dir=output_dir,
+        job_id=job_id,
+        optimize=False,
+        plots=True,
     )
 
-    exported_paths: list[Path] = []
-    layer_names = {
-        PEN_TEXT: "text",
-        PEN_BORDERS: "borders",
-        PEN_HOLES: "holes",
-    }
-
-    for plate in packed_plates:
-        logger.info(f"Assembling PLT for plate {plate.plate_id}...")
-        # Assemble complete, lossless PLT from independently rendered labels.
-        plt_content = assemble_plt_from_rendered_labels(plate, rendered_labels_map)
-
-        # Export full document as combined file (for compatibility)
-        combined_path = output_dir / f"{plate.plate_id}_raw.plt"
-        logger.info(f"Exporting combined PLT: {combined_path}")
-        combined_path.write_text(plt_content)
-        exported_paths.append(combined_path)
-
-        # Export each layer separately
-        for pen_id, layer_name in layer_names.items():
-            layer_path = output_dir / f"{plate.plate_id}_{layer_name}.plt"
-            logger.info(f"Extracting {layer_name} layer (pen {pen_id}) to: {layer_path}")
-            try:
-                _extract_layer_from_plt_file(combined_path, pen_id, layer_path)
-                # Only add to exported_paths if file has actual content (not just header)
-                content_text = layer_path.read_text()
-                if len(content_text) > 10:  # More than just header
-                    exported_paths.append(layer_path)
-                else:
-                    logger.info(f"Skipping empty layer: {layer_name}")
-                    layer_path.unlink()  # Delete empty file
-            except Exception as e:
-                logger.warning(f"Failed to extract {layer_name} layer: {e}")
-
     print("\n--- EXPORT RESULTS ---\n")
-    for path in exported_paths:
+    for path in export_result.plt_paths:
         print(f"✓ Exported: {path.relative_to(workspace)}")
+    for path in export_result.pdf_paths:
+        print(f"✓ Plotted:  {path.relative_to(workspace)}")
 
-    return exported_paths
+    return export_result
 
 
 # ============================================================================
@@ -399,41 +329,49 @@ def phase_3_5_validate_coordinates(exported_paths: list[Path]) -> None:
 # ============================================================================
 # PHASE 4: VISUALIZATION (Optional)
 # ============================================================================
-def phase_4_visualization(exported_paths: list[Path]) -> None:
-    """Phase 4: Generate PDF previews using plotter.
+def phase_4_visualization(export_result: PerCutterExport) -> None:
+    """Phase 4: Generate color-coded PDF previews using the plotter.
 
-    Generates two plots per PLT file:
-    - Default plot (color-coded with rapid travel visualization)
-    - Simple mode plot (black lines only, no rapids)
+    The simple-outline previews (one per per-cutter PLT plus one combined
+    ``*_all.pdf`` per plate) were already written by the export step into
+    ``pdf/``. This phase adds the color-coded default plots (with rapid
+    travel visualization):
+
+    - one ``<plt-stem>_default.pdf`` per per-cutter PLT file, and
+    - one ``<job_id>_<plate>_all_default.pdf`` per plate from the
+      in-memory combined content (text + borders + holes together).
 
     Args:
-        exported_paths: List of exported PLT file paths.
+        export_result: The per-cutter export whose PLTs and combined
+            content drive the plots.
     """
     print_separator("PHASE 4: VISUALIZATION (OPTIONAL)")
 
     try:
         parser = PLTParser()
-        for plt_path in exported_paths:
+        pdf_dir = export_result.output_dir / "pdf"
+        pdf_dir.mkdir(parents=True, exist_ok=True)
+
+        # Color-coded default plot per per-cutter PLT file.
+        for plt_path in export_result.plt_paths:
             logger.info(f"Parsing {plt_path.name}...")
             document = parser.parse_file(plt_path)
-
-            # Generate default plot (color-coded with rapid travel)
-            pdf_path_default = plt_path.with_stem(plt_path.stem + "_default").with_suffix(".pdf")
-            logger.info(f"Plotting default mode to {pdf_path_default.name}...")
+            pdf_path = pdf_dir / f"{plt_path.stem}_default.pdf"
+            logger.info(f"Plotting default mode to {pdf_path.name}...")
             plot_plt_document(
-                document, output_path=pdf_path_default, show_plot=False, simple_mode=False
+                document, output_path=pdf_path, show_plot=False, simple_mode=False
             )
-            print(f"✓ Generated: {pdf_path_default.relative_to(Path.cwd())}")
+            print(f"✓ Generated: {pdf_path.name}")
 
-            # Generate simple mode plot (black lines only, no rapids)
-            pdf_path_simple = plt_path.with_stem(plt_path.stem + "_simple_outline").with_suffix(
-                ".pdf"
-            )
-            logger.info(f"Plotting simple mode to {pdf_path_simple.name}...")
+        # Color-coded default plot per combined plate (in-memory content).
+        for plate_id, combined in export_result.combined_by_plate.items():
+            document = parser.parse_string(combined)
+            pdf_path = pdf_dir / f"{plate_id}_all_default.pdf"
+            logger.info(f"Plotting combined plate {plate_id} to {pdf_path.name}...")
             plot_plt_document(
-                document, output_path=pdf_path_simple, show_plot=False, simple_mode=True
+                document, output_path=pdf_path, show_plot=False, simple_mode=False
             )
-            print(f"✓ Generated: {pdf_path_simple.relative_to(Path.cwd())}")
+            print(f"✓ Generated: {pdf_path.name}")
     except Exception as e:
         logger.warning(f"Visualization failed (optional): {e}")
         print(f"⚠ Visualization skipped: {e}")
@@ -462,41 +400,43 @@ def main(argv: list[str] | None = None) -> int:
         job_yaml, tools_json, inventory, boundary_hole_cutter = phase_1_data_prep(spec_override)
 
         # Phase 2: Resolution and Layout (nominal-dimension packing for reporting)
-        resolved_labels, packed_plates, provided_plates = phase_2_resolution_and_layout(
+        resolved_labels, packed_plates, provided_plates, job_id = phase_2_resolution_and_layout(
             job_yaml, inventory, boundary_hole_cutter
         )
 
-        # Phase 3: Vectorization and Export using the clean bounds-aware pipeline.
-        # For the default test123 job, keep the historical default 24x16
-        # auto-allocation so reference artifacts (default_plate_* filenames)
-        # remain stable. Alternative specs honor their own constrained plates.
+        # Phase 3: Per-cutter export using the clean bounds-aware pipeline.
+        # The export renders labels onto per-cutter pens, assembles each
+        # plate in memory, and writes plt/ + pdf/ outputs named
+        # <job_id>_<plate>_{text|borders-holes}_<cutter>.(plt|pdf).
         if spec_override is not None:
             phase_3_output_dir = (
                 Path("test_output") / "integration_test" / job_yaml.stem
             )
-            phase_3_plates = provided_plates
         else:
             phase_3_output_dir = None
-            phase_3_plates = None
-        exported_paths = phase_3_vectorization_and_export(
-            resolved_labels, phase_3_plates, phase_3_output_dir
+        export_result = phase_3_vectorization_and_export(
+            resolved_labels, provided_plates, phase_3_output_dir, job_id
         )
 
-        # Phase 3.5: Coordinate Validation
-        phase_3_5_validate_coordinates(exported_paths)
+        # Phase 3.5: Coordinate Validation (on the written per-cutter PLTs)
+        phase_3_5_validate_coordinates(export_result.plt_paths)
 
         # Phase 4: Visualization (optional)
-        phase_4_visualization(exported_paths)
+        phase_4_visualization(export_result)
 
         print_separator("INTEGRATION TEST COMPLETE")
         print("✓ Pipeline executed successfully")
         print()
         print("Comparison:")
-        print("1. Inspect the generated PDF previews in test_output/integration_test/")
-        print("   - *_default.pdf: Color-coded toolpath with rapid travel visualization")
-        print("   - *_simple_outline.pdf: Black lines only (for comparison with reference)")
+        print("1. Inspect the generated artifacts under the output directory:")
+        print("   - plt/: per-cutter toolpath files")
+        print("       *_text_<cutter>.plt: one file per text cutter diameter")
+        print("       *_borders-holes_<cutter>.plt: borders + drill holes together")
+        print("   - pdf/: simple-outline previews")
+        print("       *_all.pdf: combined text + borders + holes per plate")
+        print("       *_default.pdf: color-coded toolpath with rapid travel")
         print()
-        print("2. Compare *_simple_outline.pdf with the reference plots:")
+        print("2. Compare the simple-outline PDFs with the reference plots:")
         print("   - Reference test: test_output/test_ref_plot.png")
         print("   - Reference borders: test_output/test_ref_borders.png")
         print()

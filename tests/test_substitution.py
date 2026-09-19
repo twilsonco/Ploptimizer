@@ -537,9 +537,11 @@ class TestEndToEndPipeline:
             job.plates,
             output_dir=output_dir,
             optimize=False,
-            separate_layers=False,
+            job_id="e2e",
         )
-        assert len(exported) == 1
+        # Borders + one text cutter file for the single 0.3in text height.
+        assert len(exported) == 2
+        assert all(p.parent == output_dir / "plt" for p in exported)
         content = exported[0].read_text(encoding="utf-8")
         assert content.startswith("IN;") or "IN;" in content[:200]
         # Every instance must contribute geometry (3 badges packed).

@@ -1,13 +1,18 @@
 """Tests for Phase 3 PLT assembly and export functions."""
 
+import re
+
 import pytest
 
 from plt_optimizer.generate.label_renderer import render_label_to_plt
 from plt_optimizer.generate.layout import PackedLabel, PackedPlate
-from plt_optimizer.generate.resolution import ResolvedLabel
+from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
 from plt_optimizer.generate.schema import parse_yaml
 from plt_optimizer.generate.vectorize import (
     assemble_plt_from_rendered_labels,
+    extract_layer_from_plt_text,
+    extract_pens_from_plt_text,
+    plt_has_geometry,
     translate_plt_coordinates,
 )
 
@@ -102,10 +107,7 @@ class TestTranslatePltCoordinates:
         doc = PLTParser().parse_string(assembled)
 
         arcs = [
-            seg
-            for path in doc.stroke_paths
-            for seg in path.segments
-            if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert arcs, "Assembled plate lost the drill-hole arcs"
         # Local center x = hole_margin + radius = 0.25; the device-convention
@@ -214,3 +216,146 @@ class TestAssemblePltFromRenderedLabels:
         assert result.endswith("%")
         # Should have pen-up commands between labels
         assert result.count("PU0,0;") == 2
+
+
+class TestExtractPensFromPltText:
+    """Multi-pen extraction keeps AA arcs and filters by SP sections."""
+
+    SAMPLE = (
+        "IN;DF;PS0;"
+        "SP1;PU100,100;PD200,200;"
+        "SP2;PU0,0;PD3000,0,3000,1000,0,1000,0,0;"
+        "SP3;PU500,500;PD500,500;AA400,500,90;AA400,500,90;AA400,500,90;AA400,500,90;"
+        "SP4;PU900,900;PD950,950;"
+        "SP0;IN;%"
+    )
+
+    def test_single_pen_extraction(self) -> None:
+        """A single-pen request returns only that pen's geometry."""
+        result = extract_pens_from_plt_text(self.SAMPLE, [1])
+        assert "PU100,100" in result
+        assert "PD200,200" in result
+        assert "SP1;" in result
+        assert "PD3000,0" not in result
+        assert "AA400,500" not in result
+        assert result.startswith("IN;DF;PS0;")
+        assert result.endswith("%")
+
+    def test_multi_pen_extraction_keeps_arcs(self) -> None:
+        """Borders+holes extraction preserves native AA arc commands."""
+        result = extract_pens_from_plt_text(self.SAMPLE, [2, 3])
+        assert "PD3000,0" in result  # borders
+        assert "AA400,500,90" in result  # holes survive extraction
+        assert "SP2;" in result and "SP3;" in result
+        assert "PU100,100" not in result  # text pen excluded
+        assert "PU900,900" not in result  # other text pen excluded
+
+    def test_missing_pen_yields_empty_geometry(self) -> None:
+        """Requesting absent pens yields a header/footer-only result."""
+        result = extract_pens_from_plt_text(self.SAMPLE, [7])
+        assert not plt_has_geometry(result)
+
+    def test_extract_layer_delegates_to_multi_pen(self) -> None:
+        """The single-pen helper matches the multi-pen extractor."""
+        assert extract_layer_from_plt_text(self.SAMPLE, 1) == extract_pens_from_plt_text(
+            self.SAMPLE, [1]
+        )
+
+    def test_plt_has_geometry(self) -> None:
+        """Geometry detection recognizes PU/PD/PA/AA and rejects headers."""
+        assert plt_has_geometry("IN;DF;PS0;SP1;PU1,2;SP0;IN;%")
+        assert plt_has_geometry("IN;DF;PS0;SP3;AA1,2,90;SP0;IN;%")
+        assert plt_has_geometry("IN;DF;PS0;SP1;PA1,2;SP0;IN;%")
+        assert plt_has_geometry("IN;DF;PS0;SP1;PD1,2;SP0;IN;%")
+        assert not plt_has_geometry("IN;DF;PS0;SP0;IN;%")
+        assert not plt_has_geometry("")
+
+
+class TestRenderLabelToPltPenMap:
+    """render_label_to_plt pen_map puts text lines on per-cutter pens."""
+
+    @staticmethod
+    def _two_cutter_label() -> ResolvedLabel:
+        return ResolvedLabel(
+            id="two_cutter",
+            count=1,
+            width=4.0,
+            height=2.0,
+            margin=0.1,
+            content=[
+                ResolvedTextLine(
+                    text="BIG",
+                    nominal_text_height=0.6,
+                    toolpath_text_height=0.54,
+                    cutter_diameter=0.06,
+                    character_spacing=0.0,
+                    line_spacing=0.0,
+                ),
+                ResolvedTextLine(
+                    text="small",
+                    nominal_text_height=0.25,
+                    toolpath_text_height=0.22,
+                    cutter_diameter=0.03,
+                    character_spacing=0.0,
+                    line_spacing=0.0,
+                ),
+            ],
+        )
+
+    def test_default_renders_all_text_on_pen_one(self) -> None:
+        """Without a pen_map all text lands on SP1 (back compatible)."""
+        rendered = render_label_to_plt(self._two_cutter_label())
+        content = rendered.plt_content
+        assert "SP1;" in content
+        assert "SP4;" not in content
+        assert "SP5;" not in content
+
+    def test_pen_map_splits_text_across_pens(self) -> None:
+        """With a pen_map each cutter's lines land on its own pen."""
+        pen_map = {0.03: 1, 0.06: 4}
+        rendered = render_label_to_plt(self._two_cutter_label(), pen_map=pen_map)
+        content = rendered.plt_content
+
+        # Both text pens present, plus the boundary pen.
+        assert "SP1;" in content
+        assert "SP4;" in content
+        assert "SP2;" in content
+
+        # Each pen section holds geometry.
+        for pen in (1, 4):
+            match = re.search(rf"SP{pen};(.*?)(?:SP\d;|$)", content, re.DOTALL)
+            assert match is not None, f"Missing SP{pen} section"
+            assert re.search(r"(?:PU|PD)\d", match.group(1)), f"Empty SP{pen} section"
+
+    def test_pen_map_bounds_match_default(self) -> None:
+        """Pen assignment must not change the rendered footprint."""
+        label = self._two_cutter_label()
+        default = render_label_to_plt(label)
+        mapped = render_label_to_plt(label, pen_map={0.03: 1, 0.06: 4})
+        assert mapped.width == pytest.approx(default.width, abs=1e-6)
+        assert mapped.height == pytest.approx(default.height, abs=1e-6)
+
+    def test_multi_pen_text_vertically_centered_together(self) -> None:
+        """All text pens share one vertical centering delta.
+
+        The union of both text pens must be centered within the label's
+        margin box; if each pen were centered independently, the Y ranges
+        would differ from the union-centered result.
+        """
+        label = self._two_cutter_label()
+        rendered = render_label_to_plt(label, pen_map={0.03: 1, 0.06: 4})
+        content = rendered.plt_content
+
+        ys: list[int] = []
+        for pen in (1, 4):
+            match = re.search(rf"SP{pen};(.*?)(?:SP\d;|$)", content, re.DOTALL)
+            assert match is not None
+            for coords in re.findall(r"(?:PA|PU|PD)([\d,\-]+)", match.group(1)):
+                parts = coords.split(",")
+                ys.extend(int(parts[i]) for i in range(1, len(parts), 2))
+
+        # Device convention: y measured from the top. Union center should
+        # sit near the label mid-height (2000 units), within glyph-shape
+        # tolerance (descenders shift the ink box slightly).
+        center = (min(ys) + max(ys)) / 2.0
+        assert center == pytest.approx(1000.0, abs=120.0)

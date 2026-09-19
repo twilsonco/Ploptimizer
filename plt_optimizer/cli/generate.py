@@ -1,9 +1,17 @@
 """Generate subcommand for PLT-Optimizer CLI.
 
-This module provides the 'generate' command which creates PLT files from
-a YAML job specification using the three-phase generation pipeline:
-label resolution (with cutter compensation), bounds-aware bin packing,
-and lossless per-label rendering/assembly.
+This module provides the 'generate' command which creates per-cutter PLT
+files (and simple-outline PDF previews) from a YAML job specification
+using the three-phase generation pipeline: label resolution (with cutter
+compensation), bounds-aware bin packing, and lossless per-label
+rendering/assembly.
+
+Output layout (under ``-o``, defaulting to the spec's parent directory)::
+
+    <out>/plt/<job_id>_<plate>_text_0.030.plt          # one file per text cutter
+    <out>/plt/<job_id>_<plate>_borders-holes_0.015.plt # borders + holes together
+    <out>/pdf/<job_id>_<plate>_text_0.030.pdf          # simple-outline previews
+    <out>/pdf/<job_id>_<plate>_all.pdf                 # combined preview per plate
 
 Text-hole collisions are unacceptable output: when any label's rendered
 text comes closer to a drill hole than the stroke-aware collision
@@ -12,7 +20,7 @@ offending labels are reported at ERROR level and the job aborts with a
 non-zero exit code so the jobspec can be revised.
 
 Usage:
-    plt-optimizer generate spec.yaml -o output.plt
+    plt-optimizer generate spec.yaml -o output_dir --no-plots
 """
 
 from __future__ import annotations
@@ -20,6 +28,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import sys
 from pathlib import Path
 from typing import Optional, Tuple
@@ -28,7 +37,7 @@ from plt_optimizer.generate.label_renderer import LabelRenderError
 from plt_optimizer.generate.layout import LayoutFitError
 from plt_optimizer.generate.resolution import resolve_job_spec
 from plt_optimizer.generate.schema import parse_yaml
-from plt_optimizer.generate.vectorize import export_and_optimize_phase3
+from plt_optimizer.generate.vectorize import export_per_cutter_plts
 from plt_optimizer.utils.logging import setup_logging
 
 
@@ -49,7 +58,8 @@ def setup_parser(parser: argparse.ArgumentParser) -> None:
         type=Path,
         default=None,
         help=(
-            "Output PLT file path. If not specified, uses the spec filename with .plt extension."
+            "Output directory for the plt/ and pdf/ subdirectories. "
+            "If not specified, uses the spec file's parent directory."
         ),
     )
     parser.add_argument(
@@ -57,6 +67,11 @@ def setup_parser(parser: argparse.ArgumentParser) -> None:
         "--verbose",
         action="store_true",
         help="Enable verbose (DEBUG) output.",
+    )
+    parser.add_argument(
+        "--no-plots",
+        action="store_true",
+        help="Skip generating simple-outline PDF previews (PLT files only).",
     )
     parser.add_argument(
         "--tools",
@@ -67,6 +82,24 @@ def setup_parser(parser: argparse.ArgumentParser) -> None:
             "If the file does not exist, ideal cutters are used."
         ),
     )
+
+
+def _sanitize_job_id(job_name: str) -> str:
+    """Derive a filesystem-safe job identifier from a job name.
+
+    Whitespace runs collapse to single underscores and every character
+    outside ``[A-Za-z0-9._-]`` is stripped. The empty result falls back
+    to ``"job"``.
+
+    Args:
+        job_name: The raw ``job_name`` from the YAML specification.
+
+    Returns:
+        A safe identifier for use in output file names.
+    """
+    sanitized = re.sub(r"\s+", "_", job_name.strip())
+    sanitized = re.sub(r"[^A-Za-z0-9._-]", "", sanitized)
+    return sanitized or "job"
 
 
 def _load_cutter_inventory(
@@ -123,11 +156,8 @@ def run(args: argparse.Namespace) -> int:
         )
         return 1
 
-    # Determine output path
-    if args.output is not None:
-        output_path = args.output
-    else:
-        output_path = spec_path.parent / f"{spec_path.stem}.plt"
+    # Determine output directory (default: the spec file's parent).
+    output_dir = args.output if args.output is not None else spec_path.parent
 
     # Dual logging topology (console + file) so collision ERRORs and
     # avoidance WARNINGs are visible on the console and archived.
@@ -149,11 +179,12 @@ def run(args: argparse.Namespace) -> int:
         job = parse_yaml(spec_path)
         unique_labels = len(job.labels) if job.labels is not None else 0
         plate_count = len(job.plates) if job.plates is not None else 0
+        job_id = _sanitize_job_id(job.job_name)
         print(
             f"Loaded {job.job_name}: "
             f"{plate_count} plates, "
             f"{unique_labels} unique labels. "
-            f"Output will be written to: {output_path}"
+            f"Output will be written to: {output_dir}"
         )
     except Exception as e:
         print(f"Error parsing specification: {e}", file=sys.stderr)
@@ -167,13 +198,15 @@ def run(args: argparse.Namespace) -> int:
             available_cutters=inventory,
             boundary_hole_cutter_size=boundary_hole_cutter,
         )
-        exported_paths = export_and_optimize_phase3(
+        export_result = export_per_cutter_plts(
             resolved_labels,
             job.plates,
-            output_dir=output_path.parent if str(output_path.parent) else Path("."),
+            output_dir=output_dir,
+            job_id=job_id,
             optimize=True,
-            separate_layers=False,
+            plots=not args.no_plots,
         )
+        exported_paths = export_result.plt_paths
     except LabelRenderError as e:
         # Unacceptable output: per-label ERROR diagnostics were already
         # logged; surface the job abort and fail with non-zero exit.
@@ -189,16 +222,11 @@ def run(args: argparse.Namespace) -> int:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
-    # Single-plate jobs: move the exported file onto the requested path.
-    if len(exported_paths) == 1 and exported_paths[0] != output_path:
-        try:
-            exported_paths[0].replace(output_path)
-            exported_paths = [output_path]
-        except OSError as e:
-            print(f"Error: Could not write output to {output_path}: {e}", file=sys.stderr)
-            return 1
-
-    print(f"Generated {len(exported_paths)} PLT file(s):")
+    print(f"Generated {len(exported_paths)} per-cutter PLT file(s):")
     for path in exported_paths:
         print(f"  {path}")
+    if export_result.pdf_paths:
+        print(f"Generated {len(export_result.pdf_paths)} PDF preview(s):")
+        for path in export_result.pdf_paths:
+            print(f"  {path}")
     return 0

@@ -145,6 +145,85 @@ class TestGenerateSubcommand:
         args = parser.parse_args(["spec.yaml"])
         assert args.spec == Path("spec.yaml")
 
+    def test_generate_output_is_directory(self) -> None:
+        """-o parses as an output directory (default None -> spec parent)."""
+        from plt_optimizer.cli.generate import setup_parser
+
+        parser = argparse.ArgumentParser()
+        setup_parser(parser)
+
+        args = parser.parse_args(["spec.yaml", "-o", "/tmp/out"])
+        assert args.output == Path("/tmp/out")
+
+        args = parser.parse_args(["spec.yaml"])
+        assert args.output is None
+
+    def test_generate_no_plots_flag(self) -> None:
+        """--no-plots defaults to False (plots on) and flips with the flag."""
+        from plt_optimizer.cli.generate import setup_parser
+
+        parser = argparse.ArgumentParser()
+        setup_parser(parser)
+
+        assert parser.parse_args(["spec.yaml"]).no_plots is False
+        assert parser.parse_args(["spec.yaml", "--no-plots"]).no_plots is True
+
+    def test_sanitize_job_id(self) -> None:
+        """Job names collapse whitespace and strip unsafe characters."""
+        from plt_optimizer.cli.generate import _sanitize_job_id
+
+        assert _sanitize_job_id("Complex Plant Signage - Batch 42") == (
+            "Complex_Plant_Signage_-_Batch_42"
+        )
+        assert _sanitize_job_id("  Hello   World!  ") == "Hello_World"
+        assert _sanitize_job_id("a/b\\c:d*e") == "abcde"
+        assert _sanitize_job_id("keep.dots-and_9") == "keep.dots-and_9"
+        assert _sanitize_job_id("!!!") == "job"
+        assert _sanitize_job_id("") == "job"
+
+    def test_generate_writes_per_cutter_dir_output(self, tmp_path: Path) -> None:
+        """run() writes per-cutter PLTs under <output>/plt with job-id names."""
+        from plt_optimizer.cli.generate import run
+
+        spec_file = tmp_path / "cli_spec.yaml"
+        spec_file.write_text(
+            "job:\n"
+            "  job_name: Cli Smoke Job\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 12.0\n"
+            "      margin: 0.25\n"
+            "      clearance_padding: 0.125\n"
+            "  labels:\n"
+            "    - id: l1\n"
+            "      count: 1\n"
+            "      width: 2.0\n"
+            "      height: 1.0\n"
+            "      content:\n"
+            "        - text: Hello\n"
+            "          height: 0.5\n"
+        )
+
+        out_dir = tmp_path / "out"
+
+        class MockArgs:
+            spec = spec_file
+            output = out_dir
+            verbose = False
+            no_plots = True
+            tools = Path("tools.json")
+
+        assert run(MockArgs()) == 0
+
+        plt_files = sorted(p.name for p in (out_dir / "plt").iterdir())
+        assert plt_files, "no per-cutter PLT files written"
+        assert all(name.startswith("Cli_Smoke_Job_") for name in plt_files)
+        assert any("_text_" in name for name in plt_files)
+        assert any("borders-holes" in name for name in plt_files)
+        # --no-plots: no PDF previews.
+        assert not (out_dir / "pdf").exists() or not list((out_dir / "pdf").iterdir())
+
 
 class TestWatchSubcommand:
     """Tests for the watch subcommand argument parsing."""
@@ -235,6 +314,7 @@ class TestCLIIntegration:
             spec = spec_file
             output = None
             verbose = False
+            no_plots = True
             tools = Path("tools.json")
 
         result = run(MockArgs())

@@ -30,27 +30,23 @@ def test_phase3_fixes_label3_centering(tmp_path: Path) -> None:
         # Labels are named test_1, test_2, test_3 in the YAML
         assert label.id == f"test_{i + 1}", f"Expected label {i + 1} to have id 'test_{i + 1}'"
 
-    # Export using Phase 3 pipeline WITH SEPARATE LAYERS
-    # (combined mode has coordinate scaling issues we're not addressing here)
+    # Export using the Phase 3 per-cutter pipeline (text files are split
+    # per cutter; borders+holes share the structural file).
     exported_paths = export_and_optimize_phase3(
-        resolved_labels, output_dir=tmp_path, optimize=False, separate_layers=True
+        resolved_labels, output_dir=tmp_path, optimize=False, job_id="label3"
     )
 
-    # Should export at least text and borders layers
+    # Should export at least text and borders files
     assert len(exported_paths) >= 1
 
-    # Find the text layer
+    # Find the text file
     text_path = None
     for path in exported_paths:
-        if "_text" in path.name:
+        if "_text_" in path.name:
             text_path = path
             break
 
-    if text_path is None:
-        # If no separate text layer, try combined
-        text_path = exported_paths[0]
-
-    assert text_path is not None, "No text layer exported"
+    assert text_path is not None, "No per-cutter text file exported"
     assert text_path.exists()
 
     # Read the exported text layer PLT

@@ -36,8 +36,9 @@ from __future__ import annotations
 import logging
 import math
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 import vpype as vp
@@ -51,8 +52,10 @@ from plt_optimizer.generate.label_renderer import (
 )
 from plt_optimizer.generate.layout import PackedLabel, PackedPlate
 from plt_optimizer.generate.resolution import (
+    DEFAULT_BOUNDARY_HOLE_CUTTER,
     ResolvedHoleSpec,
     ResolvedLabel,
+    build_cutter_pen_map,
     compute_horizontal_offset,
     fit_line_spacing_to_margins,
 )
@@ -1172,19 +1175,27 @@ def assemble_plt_from_rendered_labels(
     return "".join(plt_lines)
 
 
-def extract_layer_from_plt_text(plt_content: str, layer_pen_id: int) -> str:
-    """Extract a single layer (pen) from PLT text content.
+def extract_pens_from_plt_text(plt_content: str, pen_ids: Sequence[int]) -> str:
+    """Extract one or more pens (layers) from PLT text content.
 
     Parses HPGL PLT text and filters commands to only include those
-    for a specific pen ID (layer).
+    issued while one of the requested pen IDs was selected. Arc (``AA``)
+    commands are preserved, so drill-hole layers (pen 3) survive
+    extraction.
 
     Args:
         plt_content: Raw HPGL PLT text content.
-        layer_pen_id: The pen ID to extract (1=text, 2=borders, 3=holes).
+        pen_ids: The pen IDs to extract (e.g. ``[2, 3]`` for the
+            borders+holes structural layer, or a single text pen).
 
     Returns:
-        PLT text content containing only commands for the specified pen.
+        PLT text content containing only commands for the specified pens
+        (with a fresh header/footer). The result may be empty of geometry
+        when none of the pens appear in ``plt_content``; callers should
+        check :func:`plt_has_geometry` before writing.
     """
+    wanted = {int(pen_id) for pen_id in pen_ids}
+
     lines = []
     lines.append("IN;DF;PS0;")
 
@@ -1200,7 +1211,7 @@ def extract_layer_from_plt_text(plt_content: str, layer_pen_id: int) -> str:
         if cmd.startswith("SP"):
             try:
                 pen_id = int(cmd[2:])
-                in_target_layer = pen_id == layer_pen_id
+                in_target_layer = pen_id in wanted
                 if in_target_layer and pen_id > 0:
                     lines.append(f"SP{pen_id};")
             except (ValueError, IndexError):
@@ -1213,35 +1224,122 @@ def extract_layer_from_plt_text(plt_content: str, layer_pen_id: int) -> str:
     return "".join(lines)
 
 
-def export_and_optimize_phase3(
+def extract_layer_from_plt_text(plt_content: str, layer_pen_id: int) -> str:
+    """Extract a single layer (pen) from PLT text content.
+
+    Convenience single-pen wrapper over :func:`extract_pens_from_plt_text`.
+
+    Args:
+        plt_content: Raw HPGL PLT text content.
+        layer_pen_id: The pen ID to extract (1=text, 2=borders, 3=holes).
+
+    Returns:
+        PLT text content containing only commands for the specified pen.
+    """
+    return extract_pens_from_plt_text(plt_content, [layer_pen_id])
+
+
+# Matches any drawable coordinate command (pen moves, pen-down strokes,
+# absolute moves, or arcs). Header/footer tokens (IN/DF/PS/SP) never match.
+_GEOMETRY_COMMAND_PATTERN = re.compile(r"(?:PU|PD|PA|AA)[\d,\-]+")
+
+
+def plt_has_geometry(plt_content: str) -> bool:
+    """Return True when PLT content contains at least one drawable command.
+
+    Used as the empty-layer check when splitting assembled plates into
+    per-cutter files: a layer with no PU/PD/PA/AA commands carries no
+    toolpath and should not be written.
+
+    Args:
+        plt_content: Raw HPGL PLT text content.
+
+    Returns:
+        True when any PU/PD/PA/AA coordinate command is present.
+    """
+    return _GEOMETRY_COMMAND_PATTERN.search(plt_content) is not None
+
+
+@dataclass
+class PerCutterExport:
+    """Result of a per-cutter PLT/PDF export.
+
+    Attributes:
+        plt_paths: Written (and optionally optimized) per-cutter PLT file
+            paths. The combined per-plate PLT is intentionally NOT written
+            to disk (it only exists in memory for plotting).
+        pdf_paths: Written simple-outline PDF previews. One per written PLT
+            plus one combined ``*_all.pdf`` per plate (when plotting is
+            enabled).
+        combined_by_plate: In-memory combined PLT content per plate ID
+            (all pens, unoptimized), for callers that want to render
+            color/combined diagnostics plots.
+        output_dir: Absolute base output directory (``plt/`` and ``pdf/``
+            live inside it).
+    """
+
+    plt_paths: list[Path] = field(default_factory=list)
+    pdf_paths: list[Path] = field(default_factory=list)
+    combined_by_plate: dict[str, str] = field(default_factory=dict)
+    output_dir: Path = field(default_factory=Path)
+
+
+def _format_cutter(cutter_diameter: float) -> str:
+    """Format a cutter diameter for file names (3-decimal inches).
+
+    Args:
+        cutter_diameter: Cutter diameter in inches.
+
+    Returns:
+        Fixed-precision string, e.g. ``0.03`` -> ``"0.030"``.
+    """
+    return f"{cutter_diameter:.3f}"
+
+
+def export_per_cutter_plts(
     resolved_labels: list[ResolvedLabel],
     provided_plates: list[PlateSpec] | None = None,
     output_dir: str | Path = "output",
+    job_id: str = "job",
     optimize: bool = True,
-    separate_layers: bool = True,
-) -> list[Path]:
-    """Export plates to PLT files using the Phase 3 pipeline (new architecture).
+    plots: bool = True,
+) -> PerCutterExport:
+    """Export plates as per-cutter PLT files (and optional simple PDFs).
 
-    Implements the complete three-phase pipeline:
-    1. Phase 1: Render each label independently with bounds measurement
-    2. Phase 2: Bin-pack labels onto plates using rendered dimensions
-    3. Phase 3: Assemble rendered labels at their packed positions
+    Implements the three-phase pipeline (render -> pack -> assemble) and
+    then splits each assembled plate by CUTTER rather than by logical
+    layer:
 
-    This function fixes label centering issues by rendering each label
-    independently rather than using global postprocessing.
+    - **borders + holes** share one file (same tool, engraved together),
+      named ``<job_id>_<plate>_borders-holes_<cutter>.plt`` where
+      ``<cutter>`` is the boundary/hole cutter diameter.
+    - **text** gets one file per distinct cutter diameter, named
+      ``<job_id>_<plate>_text_<cutter>.plt``. A text cutter equal to the
+      boundary/hole cutter still gets its own file (separate run).
+    - The combined per-plate PLT is assembled **in memory only** (never
+      written) and exposed via :attr:`PerCutterExport.combined_by_plate`;
+      when ``plots`` is enabled it also drives the combined
+      ``<job_id>_<plate>_all.pdf`` preview.
+
+    PLT files are written under ``output_dir/plt/`` and PDFs under
+    ``output_dir/pdf/``. Cutter diameters are formatted with 3 decimals
+    (inches). Empty pen groups are skipped.
 
     Args:
-        resolved_labels: List of resolved labels from Phase 2 resolution step.
+        resolved_labels: List of resolved labels from Phase 2 resolution.
         provided_plates: Optional list of PlateSpec objects. If None, uses
-            standard A3 paper (11"×8.5").
-        output_dir: Directory to write PLT files to.
-        optimize: If True, run the PLT optimizer on each exported file.
-        separate_layers: If True, export each layer (text, boundaries, holes)
-            as separate PLT files with suffixes (_text, _borders, _holes).
-            If False, export all layers in a single file.
+            standard A3 paper (11" x 8.5").
+        output_dir: Base output directory; ``plt/`` and ``pdf/``
+            subdirectories are created inside it.
+        job_id: Job identifier used as the file-name prefix (should be
+            filesystem-safe; the CLI sanitizes the job name).
+        optimize: If True, run the PLT optimizer on each written file.
+        plots: If True, write simple-outline PDF previews for every
+            written PLT plus a combined ``*_all.pdf`` per plate.
 
     Returns:
-        A list of paths to the exported (and optionally optimized) PLT files.
+        A :class:`PerCutterExport` with written PLT paths, PDF paths, and
+        the in-memory combined content per plate.
     """
     from plt_optimizer.generate.layout import generate_layout_with_bounds
 
@@ -1260,43 +1358,157 @@ def export_and_optimize_phase3(
             )
         ]
 
-    # Phase 2: Generate layout with rendered bounds
-    packed_plates, rendered_labels_map = generate_layout_with_bounds(
-        resolved_labels, provided_plates
+    # Pen == cutter: assign one HPGL pen per distinct text cutter so the
+    # assembled plate can be split into per-cutter files after assembly.
+    pen_map = build_cutter_pen_map(resolved_labels)
+    cutter_by_pen = {pen: cutter for cutter, pen in pen_map.items()}
+
+    # Job-level boundary/hole cutter (all labels share the job-resolved
+    # value; fall back to the default for content-less jobs).
+    hole_cutter = max(
+        (label.hole_cutter_diameter for label in resolved_labels),
+        default=DEFAULT_BOUNDARY_HOLE_CUTTER,
     )
 
-    exported_paths: list[Path] = []
+    # Phase 2: Generate layout with rendered bounds (labels rendered onto
+    # their cutter pens).
+    packed_plates, rendered_labels_map = generate_layout_with_bounds(
+        resolved_labels, provided_plates, pen_map=pen_map
+    )
 
-    # Phase 3: Assemble PLT from rendered labels for each plate
+    plt_dir = output_dir / "plt"
+    plt_dir.mkdir(parents=True, exist_ok=True)
+
+    result = PerCutterExport(output_dir=output_dir.resolve())
+
+    # Phase 3: Assemble each plate in memory, then split by pen group.
     for plate in packed_plates:
-        # Assemble complete PLT
-        plt_content = assemble_plt_from_rendered_labels(plate, rendered_labels_map)
+        combined = assemble_plt_from_rendered_labels(plate, rendered_labels_map)
+        result.combined_by_plate[plate.plate_id] = combined
 
-        if separate_layers:
-            # Export each layer separately
-            layer_names = {
-                LAYER_TEXT: "text",
-                LAYER_BOUNDARY: "borders",
-                LAYER_HOLES: "holes",
-            }
-            for layer_id, layer_name in layer_names.items():
-                layer_content = extract_layer_from_plt_text(plt_content, layer_id)
-                # Only write non-empty layers
-                if len(layer_content) > 20:  # More than just header
-                    output_path = output_dir / f"{plate.plate_id}_{layer_name}.plt"
-                    output_path.write_text(layer_content)
-                    exported_paths.append(output_path)
-        else:
-            # Export all layers in a single file
-            output_path = output_dir / f"{plate.plate_id}.plt"
-            output_path.write_text(plt_content)
-            exported_paths.append(output_path)
+        # Structural group: borders (SP2) + holes (SP3) share one run.
+        structure_content = extract_pens_from_plt_text(combined, [LAYER_BOUNDARY, LAYER_HOLES])
+        if plt_has_geometry(structure_content):
+            structure_path = (
+                plt_dir
+                / f"{job_id}_{plate.plate_id}_borders-holes_{_format_cutter(hole_cutter)}.plt"
+            )
+            structure_path.write_text(structure_content, encoding="utf-8")
+            result.plt_paths.append(structure_path)
+
+        # Text group: one file per distinct text cutter pen with content.
+        for pen_id in sorted(cutter_by_pen):
+            text_content = extract_pens_from_plt_text(combined, [pen_id])
+            if not plt_has_geometry(text_content):
+                continue
+            cutter = cutter_by_pen[pen_id]
+            text_path = plt_dir / f"{job_id}_{plate.plate_id}_text_{_format_cutter(cutter)}.plt"
+            text_path.write_text(text_content, encoding="utf-8")
+            result.plt_paths.append(text_path)
 
     if optimize:
         # Run the PLT optimizer on each exported file
-        exported_paths = _run_optimizer(exported_paths)
+        result.plt_paths = _run_optimizer(result.plt_paths)
 
-    return exported_paths
+    if plots:
+        result.pdf_paths = _write_simple_plots(output_dir, job_id, result)
+
+    return result
+
+
+def _write_simple_plots(
+    output_dir: Path,
+    job_id: str,
+    result: PerCutterExport,
+) -> list[Path]:
+    """Write simple-outline PDF previews for a per-cutter export.
+
+    Parses every written PLT and renders a simple-mode (black cutting
+    lines only) PDF into ``output_dir/pdf/`` mirroring the PLT file names.
+    Additionally renders one combined ``<job_id>_<plate>_all.pdf`` per
+    plate from the in-memory combined content (text + borders + holes
+    together).
+
+    matplotlib is imported lazily through the plotter module so headless
+    optimizer-only environments never pay the import cost.
+
+    Args:
+        output_dir: Base output directory (``pdf/`` is created inside).
+        job_id: Job identifier used in combined PDF names.
+        result: The export result whose ``plt_paths`` and
+            ``combined_by_plate`` drive the plots.
+
+    Returns:
+        List of written PDF paths.
+    """
+    from plt_optimizer.core.parser import PLTParser
+    from plt_optimizer.diagnostics.plotter import plot_plt_document
+
+    pdf_dir = output_dir / "pdf"
+    pdf_dir.mkdir(parents=True, exist_ok=True)
+
+    parser = PLTParser()
+    pdf_paths: list[Path] = []
+
+    for plt_path in result.plt_paths:
+        document = parser.parse_file(plt_path)
+        pdf_path = pdf_dir / f"{plt_path.stem}.pdf"
+        plot_plt_document(document, output_path=pdf_path, show_plot=False, simple_mode=True)
+        pdf_paths.append(pdf_path)
+
+    for plate_id, combined in result.combined_by_plate.items():
+        document = parser.parse_string(combined)
+        pdf_path = pdf_dir / f"{job_id}_{plate_id}_all.pdf"
+        plot_plt_document(document, output_path=pdf_path, show_plot=False, simple_mode=True)
+        pdf_paths.append(pdf_path)
+
+    return pdf_paths
+
+
+def export_and_optimize_phase3(
+    resolved_labels: list[ResolvedLabel],
+    provided_plates: list[PlateSpec] | None = None,
+    output_dir: str | Path = "output",
+    optimize: bool = True,
+    job_id: str = "job",
+    plots: bool = False,
+) -> list[Path]:
+    """Export plates to per-cutter PLT files using the Phase 3 pipeline.
+
+    Implements the complete three-phase pipeline:
+    1. Phase 1: Render each label independently with bounds measurement
+       (text lines land on per-cutter HPGL pens).
+    2. Phase 2: Bin-pack labels onto plates using rendered dimensions.
+    3. Phase 3: Assemble rendered labels at their packed positions and
+       split the assembly into per-cutter files (see
+       :func:`export_per_cutter_plts`).
+
+    Files are written under ``output_dir/plt/`` (and PDF previews under
+    ``output_dir/pdf/`` when ``plots`` is True). The combined per-plate
+    PLT is never written to disk.
+
+    Args:
+        resolved_labels: List of resolved labels from Phase 2 resolution step.
+        provided_plates: Optional list of PlateSpec objects. If None, uses
+            standard A3 paper (11"×8.5").
+        output_dir: Base directory for the ``plt/`` (and ``pdf/``) outputs.
+        optimize: If True, run the PLT optimizer on each exported file.
+        job_id: File-name prefix (filesystem-safe job identifier).
+        plots: If True, also write simple-outline PDF previews.
+
+    Returns:
+        A list of paths to the exported (and optionally optimized)
+        per-cutter PLT files.
+    """
+    result = export_per_cutter_plts(
+        resolved_labels,
+        provided_plates=provided_plates,
+        output_dir=output_dir,
+        job_id=job_id,
+        optimize=optimize,
+        plots=plots,
+    )
+    return result.plt_paths
 
 
 def export_and_optimize(

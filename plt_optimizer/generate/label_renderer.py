@@ -460,7 +460,10 @@ def assert_no_collisions(rendered_labels: Iterable[RenderedLabel]) -> None:
     )
 
 
-def render_label_to_plt(label: ResolvedLabel) -> RenderedLabel:
+def render_label_to_plt(
+    label: ResolvedLabel,
+    pen_map: Optional[dict[float, int]] = None,
+) -> RenderedLabel:
     """Render a label independently to HPGL format and extract bounds.
 
     Renders the label at local coordinates (origin at bottom-left, no translation).
@@ -495,6 +498,13 @@ def render_label_to_plt(label: ResolvedLabel) -> RenderedLabel:
 
     Args:
         label: The ResolvedLabel to render (text, borders, holes).
+        pen_map: Optional mapping of text cutter diameter to HPGL pen
+            number (see :func:`plt_optimizer.generate.resolution.build_cutter_pen_map`).
+            Each text line is emitted on the pen of its cutter so
+            per-cutter PLT files can be split out after assembly. ``None``
+            (the default) renders all text on the historical text pen
+            (``SP1``), preserving back-compatible single-pen output.
+            Boundary lines always use ``SP2`` and drill holes ``SP3``.
 
     Returns:
         RenderedLabel with rendered PLT content and measured bounds. When
@@ -508,7 +518,7 @@ def render_label_to_plt(label: ResolvedLabel) -> RenderedLabel:
     Raises:
         ValueError: If bounds cannot be extracted from rendered PLT.
     """
-    rendered, line_entries = _render_label_once(label)
+    rendered, line_entries = _render_label_once(label, pen_map=pen_map)
     collisions = _detect_text_hole_collisions(label, line_entries)
     if not collisions:
         return rendered
@@ -525,7 +535,7 @@ def render_label_to_plt(label: ResolvedLabel) -> RenderedLabel:
             label, line_entries, line_desc=line_desc
         )
         if margin_label is not None:
-            resolved_rendered, _ = _render_label_once(margin_label)
+            resolved_rendered, _ = _render_label_once(margin_label, pen_map=pen_map)
             return replace(resolved_rendered, collision_detected=True)
         # Margin alone cannot clear the collision; continue from the floor
         # margin so Phase 3 compression stacks on top of the maximum
@@ -543,7 +553,7 @@ def render_label_to_plt(label: ResolvedLabel) -> RenderedLabel:
             base_label, budget, line_desc=line_desc
         )
         if compressed_label is not None:
-            resolved_rendered, _ = _render_label_once(compressed_label)
+            resolved_rendered, _ = _render_label_once(compressed_label, pen_map=pen_map)
             return replace(resolved_rendered, collision_detected=True)
         # Report the state at the most aggressive scale tried, so the
         # measured gaps match what the sweep actually evaluated.
@@ -561,11 +571,17 @@ def render_label_to_plt(label: ResolvedLabel) -> RenderedLabel:
     return replace(rendered, has_collisions=True, collision_detected=True)
 
 
-def _render_label_once(label: ResolvedLabel) -> Tuple[RenderedLabel, List[_LineEntry]]:
+def _render_label_once(
+    label: ResolvedLabel,
+    pen_map: Optional[dict[float, int]] = None,
+) -> Tuple[RenderedLabel, List[_LineEntry]]:
     """Render a single label to PLT without collision resolution.
 
     Args:
         label: The ResolvedLabel to render (text, borders, holes).
+        pen_map: Optional cutter-diameter-to-pen mapping for per-cutter
+            text layers (see :func:`render_label_to_plt`). ``None`` puts
+            all text on the historical text pen (``SP1``).
 
     Returns:
         Tuple of the :class:`RenderedLabel` (with ``has_collisions`` left
@@ -575,10 +591,12 @@ def _render_label_once(label: ResolvedLabel) -> Tuple[RenderedLabel, List[_LineE
     # Create vpype Document
     doc = vp.Document()
 
-    # Render text layer
-    text_lc, line_entries = _render_text_local_with_bounds(label)
-    if not text_lc.is_empty():
-        doc.add(text_lc, LAYER_TEXT)
+    # Render text layers, one vpype layer per cutter pen (SP1 only when no
+    # pen_map is supplied, preserving the historical single-pen output).
+    text_pens, line_entries = _render_text_lines_by_pen(label, pen_map)
+    for pen_number, text_lc in sorted(text_pens.items()):
+        if not text_lc.is_empty():
+            doc.add(text_lc, pen_number)
 
     # Render boundary layer
     boundary_lc = _render_boundary_local(label)
@@ -595,7 +613,7 @@ def _render_label_once(label: ResolvedLabel) -> Tuple[RenderedLabel, List[_LineE
         temp_path = Path(f.name)
 
     try:
-        _export_to_plt_with_postprocessing(doc, temp_path, label)
+        _export_to_plt_with_postprocessing(doc, temp_path, label, text_pens=set(text_pens))
         plt_content = temp_path.read_text().strip()
 
         # Ensure proper formatting (ends with %)
@@ -788,7 +806,10 @@ def extract_bounds_from_plt(plt_content: str) -> Tuple[float, float, float, floa
 
 
 def _export_to_plt_with_postprocessing(
-    doc: vp.Document, output_path: Path, label: ResolvedLabel
+    doc: vp.Document,
+    output_path: Path,
+    label: ResolvedLabel,
+    text_pens: Optional[Iterable[int]] = None,
 ) -> None:
     """Export vpype Document to PLT for a single label.
 
@@ -799,7 +820,8 @@ def _export_to_plt_with_postprocessing(
     Process:
     1. Extract coordinates directly from vpype LineCollection (units are inches)
        and convert them losslessly to plotter units at 1:1000 scale.
-    2. Center text layer (pen 1) vertically within label bounds.
+    2. Center the text pen(s) vertically within label bounds (one shared
+       delta across every text pen so multi-cutter text blocks stay aligned).
     3. Invert the Y-axis to device convention for upright display.
 
     No uniform scaling is applied because ``_linecollection_to_hpgl`` already
@@ -809,6 +831,10 @@ def _export_to_plt_with_postprocessing(
         doc: The vpype Document to export.
         output_path: Destination PLT file path.
         label: The label being rendered (used to get expected dimensions).
+        text_pens: Pen numbers carrying text geometry (one per cutter pen
+            when a pen map is in use). Defaults to the historical single
+            text pen (``SP1``). Boundary (``SP2``) and hole (``SP3``) pens
+            are never centered.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -828,8 +854,11 @@ def _export_to_plt_with_postprocessing(
     # ftext glyph descenders extend below y=0, distorting label footprints and
     # causing overlapping borders after bin-packing.
 
-    # Center text layer (pen 1) vertically within label bounds
-    _center_text_layer_vertically(output_path, label)
+    # Center the text pen(s) vertically within label bounds
+    center_pens: frozenset[int] = (
+        frozenset({LAYER_TEXT}) if text_pens is None else frozenset(text_pens)
+    )
+    _center_text_layer_vertically(output_path, label, text_pens=center_pens)
 
     # Invert Y-axis to device convention so rendered labels display upright.
     # ftext emits glyphs in plotter convention (+y up), but the plotting /
@@ -867,9 +896,11 @@ def _linecollection_to_hpgl(doc: vp.Document, holes_hpgl: str = "") -> str:
     has_content = False
     skipped_first_pu0_0 = False  # Track if we've skipped the initial PU0,0
 
-    # Process each pen layer in the document
-    # Pens are numbered 0-7, but we typically use 1 (text), 2 (border), 3 (holes)
-    for pen_num in range(4):
+    # Process each pen layer present in the document, in ascending pen order.
+    # Pen 1 is the default text pen, 2 the boundary, and per-cutter text
+    # pens (see build_cutter_pen_map) occupy 1 plus SP4+; drill holes are
+    # emitted separately as native arcs under SP3.
+    for pen_num in sorted(doc.layers):
         lc = doc.layers.get(pen_num)
         if lc is None or lc.is_empty():
             continue
@@ -1017,43 +1048,66 @@ def _scale_coordinates_unified(file_path: Path, label: ResolvedLabel) -> None:
     file_path.write_text(modified_content, encoding="utf-8")
 
 
-def _center_text_layer_vertically(file_path: Path, label: ResolvedLabel) -> None:
-    """Center text layer (pen 1) vertically within label bounds after scaling.
+def _center_text_layer_vertically(
+    file_path: Path,
+    label: ResolvedLabel,
+    text_pens: Iterable[int] = (LAYER_TEXT,),
+) -> None:
+    """Center the text pen(s) vertically within label bounds after scaling.
 
-    After export and scaling, the text coordinates need to be shifted vertically
-    to center them within the label. This function:
-    1. Extracts Y coordinates from pen 1 (TEXT) only
+    After export and scaling, the text coordinates need to be shifted
+    vertically to center them within the label. This function:
+
+    1. Extracts Y coordinates from every text pen section (union across all
+       pens in ``text_pens``; borders/holes are never moved)
     2. Calculates the expected center position
-    3. Adjusts all text Y coordinates to center the text
+    3. Applies one shared Y adjustment to every text pen section
+
+    A single shared delta (computed from the union of all text-pen
+    coordinates) keeps multi-cutter text blocks vertically aligned with
+    each other -- centering each pen independently would shift lines of
+    different cutters apart.
 
     Args:
         file_path: Path to the PLT file (after scaling).
         label: The label being rendered (for dimensions and margins).
+        text_pens: Pen numbers carrying text geometry. Defaults to the
+            historical single text pen (``SP1``).
     """
+    pens = {int(pen) for pen in text_pens}
     content = file_path.read_text(encoding="utf-8")
 
-    # Extract Y coordinates from pen 1 (TEXT) only
-    pattern = r"SP1;(.*?)(?:SP\d|$)"
-    matches = re.search(pattern, content, re.DOTALL)
-    if not matches:
-        # No text layer found
-        return
+    # Split the HPGL stream into pen sections:
+    # [prefix, "SP1;", body, "SP2;", body, ...]
+    section_pattern = r"(SP\d+;)"
+    parts = re.split(section_pattern, content)
 
-    text_section = matches.group(1)
-    y_coords = []
     coord_pattern = r"(?:PA|PU|PD)([\d,\-]+)"
-    for match in re.finditer(coord_pattern, text_section):
-        coords_str = match.group(1)
-        parts = coords_str.split(",")
-        for i in range(1, len(parts), 2):
-            try:
-                y = int(parts[i])
-                y_coords.append(y)
-            except (ValueError, IndexError):
-                pass
+
+    def _section_y_coords(section: str) -> List[int]:
+        """Collect every Y coordinate in one pen section."""
+        ys: List[int] = []
+        for match in re.finditer(coord_pattern, section):
+            coord_parts = match.group(1).split(",")
+            for i in range(1, len(coord_parts), 2):
+                try:
+                    ys.append(int(coord_parts[i]))
+                except (ValueError, IndexError):
+                    pass
+        return ys
+
+    # Union of Y coordinates across all text pens centers the whole block.
+    y_coords: List[int] = []
+    for i in range(1, len(parts), 2):
+        try:
+            pen_id = int(parts[i][2:-1])
+        except ValueError:  # pragma: no cover - SP token always numeric
+            continue
+        if pen_id in pens:
+            y_coords.extend(_section_y_coords(parts[i + 1]))
 
     if not y_coords:
-        # No coordinates in text layer
+        # No text layer found
         return
 
     # Calculate text bounds (in plotter units, post-scaling)
@@ -1078,57 +1132,41 @@ def _center_text_layer_vertically(file_path: Path, label: ResolvedLabel) -> None
 
     logger.debug(
         f"_center_text_layer_vertically: {file_path.name} - "
+        f"text pens={sorted(pens)} "
         f"text Y=[{text_y_min}, {text_y_max}] (center={current_center_y:.1f}), "
         f"expected center={expected_center_y:.1f}, "
         f"adjustment={y_adjustment:.1f} plotter units"
     )
 
-    def adjust_text_y(match: re.Match[str]) -> str:
-        """Adjust Y coordinates in pen 1 (TEXT) only."""
-        coords_str = match.group(1)
-        parts = coords_str.split(",")
+    def adjust_coords_in_pen(coord_match: re.Match[str]) -> str:
+        """Shift the Y coordinates of one coordinate command."""
+        cmd = coord_match.group(1)
+        coord_parts = coord_match.group(2).split(",")
 
         try:
             adjusted_parts = []
-            for i, part in enumerate(parts):
+            for i, part in enumerate(coord_parts):
                 val = int(part)
                 if i % 2 == 1:  # Y coordinate (odd index)
                     adjusted_val = int(round(val + y_adjustment))
                     adjusted_parts.append(str(adjusted_val))
                 else:  # X coordinate
                     adjusted_parts.append(part)
-            return f"PA{','.join(adjusted_parts)}" if ",".join(adjusted_parts) else ""
+            return f"{cmd}{','.join(adjusted_parts)}"
         except (ValueError, IndexError):
-            return match.group(0)
+            return coord_match.group(0)
 
-    # Find and replace: Extract pen 1 section, adjust Y, replace it
-    def replace_pen1_section(match: re.Match[str]) -> str:
-        sp1_and_content = match.group(0)
-        # Adjust Y coordinates within this section
-        coord_pattern_in_pen = r"(PA|PU|PD)([\d,\-]+)"
+    # Apply the shared adjustment to every text pen section.
+    coord_pattern_in_pen = r"(PA|PU|PD)([\d,\-]+)"
+    for i in range(1, len(parts), 2):
+        try:
+            pen_id = int(parts[i][2:-1])
+        except ValueError:  # pragma: no cover - SP token always numeric
+            continue
+        if pen_id in pens:
+            parts[i + 1] = re.sub(coord_pattern_in_pen, adjust_coords_in_pen, parts[i + 1])
 
-        def adjust_coords_in_pen(coord_match: re.Match[str]) -> str:
-            cmd = coord_match.group(1)
-            coords_str = coord_match.group(2)
-            parts = coords_str.split(",")
-
-            try:
-                adjusted_parts = []
-                for i, part in enumerate(parts):
-                    val = int(part)
-                    if i % 2 == 1:  # Y coordinate (odd index)
-                        adjusted_val = int(round(val + y_adjustment))
-                        adjusted_parts.append(str(adjusted_val))
-                    else:  # X coordinate
-                        adjusted_parts.append(part)
-                return f"{cmd}{','.join(adjusted_parts)}"
-            except (ValueError, IndexError):
-                return coord_match.group(0)
-
-        return re.sub(coord_pattern_in_pen, adjust_coords_in_pen, sp1_and_content)
-
-    # Replace the pen 1 section with adjusted coordinates
-    modified_content = re.sub(pattern, replace_pen1_section, content, flags=re.DOTALL)
+    modified_content = "".join(parts)
 
     file_path.write_text(modified_content, encoding="utf-8")
 
@@ -1713,10 +1751,10 @@ def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
     return text_lc
 
 
-def _render_text_local_with_bounds(
+def _render_positioned_lines(
     label: ResolvedLabel,
-) -> Tuple[vp.LineCollection, List[Tuple[int, str, Tuple[float, float, float, float]]]]:
-    """Render text at local coordinates and report per-line bounds.
+) -> List[Tuple[int, vp.LineCollection, _LineEntry]]:
+    """Render and position every text line of a label (shared core).
 
     NOTE: The absolute vertical anchor is irrelevant because the export
     pipeline re-centers the whole text block POST-EXPORT in
@@ -1747,20 +1785,19 @@ def _render_text_local_with_bounds(
         label: The resolved label whose ``content`` should be rendered.
 
     Returns:
-        A tuple ``(combined_lc, line_entries)`` where ``combined_lc`` holds
-        all rendered lines and ``line_entries`` is a list of
-        ``(line_index, line_text, bounds)`` tuples in label-local
+        One ``(line_index, positioned_lc, entry)`` tuple per renderable
+        line, in content order, where ``positioned_lc`` is the positioned
+        LineCollection and ``entry`` is its
+        ``(line_index, line_text, bounds)`` record in label-local
         coordinates (pre-export anchor, block centered around y=0). The
         export pipeline vertically centers the block at ``height / 2``;
         collision detection applies that shift itself.
     """
-    line_entries: List[Tuple[int, str, Tuple[float, float, float, float]]] = []
     if not label.content:
-        return vp.LineCollection(), line_entries
+        return []
 
     margin = label.margin
     inner_width = label.width
-    text_lc = vp.LineCollection()
 
     # First pass: render all lines and measure their heights. Keep each
     # line's own line_spacing alongside the rendered geometry so empty or
@@ -1809,7 +1846,7 @@ def _render_text_local_with_bounds(
         total_rendered_height += rendered_height
 
     if not rendered_lines:
-        return text_lc, line_entries
+        return []
 
     # Add line spacing between lines (not after the last line). Margin
     # precedence: if the measured block (line heights + requested spacing)
@@ -1842,6 +1879,7 @@ def _render_text_local_with_bounds(
     current_y = total_rendered_height / 2.0
 
     # Second pass: position each line, stacked top-to-bottom (+y up).
+    positioned: List[Tuple[int, vp.LineCollection, _LineEntry]] = []
     for i, (
         line_index,
         filtered_lc,
@@ -1881,11 +1919,16 @@ def _render_text_local_with_bounds(
         # Vertical stacking: top of this line's glyphs at current_y.
         y_offset = current_y - max_y
         filtered_lc.translate(x_offset, y_offset)
-        text_lc.extend(filtered_lc)
 
-        positioned = filtered_lc.bounds()
-        if positioned is not None:
-            line_entries.append((line_index, label.content[line_index].text, positioned))
+        positioned_bounds = filtered_lc.bounds()
+        if positioned_bounds is not None:
+            positioned.append(
+                (
+                    line_index,
+                    filtered_lc,
+                    (line_index, label.content[line_index].text, positioned_bounds),
+                )
+            )
 
         # Move down past this line (plus adjusted spacing, except after
         # the last).
@@ -1893,7 +1936,70 @@ def _render_text_local_with_bounds(
         if i < len(adjusted_spacings):
             current_y -= adjusted_spacings[i]
 
+    return positioned
+
+
+def _render_text_local_with_bounds(
+    label: ResolvedLabel,
+) -> Tuple[vp.LineCollection, List[_LineEntry]]:
+    """Render text at local coordinates and report per-line bounds.
+
+    Thin wrapper over :func:`_render_positioned_lines` returning the
+    combined LineCollection (all lines on one collection) plus the
+    per-line bounds records used for collision detection.
+
+    Args:
+        label: The resolved label whose ``content`` should be rendered.
+
+    Returns:
+        A tuple ``(combined_lc, line_entries)`` where ``combined_lc`` holds
+        all rendered lines and ``line_entries`` is a list of
+        ``(line_index, line_text, bounds)`` tuples in label-local
+        coordinates (pre-export anchor, block centered around y=0). The
+        export pipeline vertically centers the block at ``height / 2``;
+        collision detection applies that shift itself.
+    """
+    text_lc = vp.LineCollection()
+    line_entries: List[_LineEntry] = []
+    for _line_index, positioned_lc, entry in _render_positioned_lines(label):
+        text_lc.extend(positioned_lc)
+        line_entries.append(entry)
     return text_lc, line_entries
+
+
+def _render_text_lines_by_pen(
+    label: ResolvedLabel,
+    pen_map: Optional[dict[float, int]] = None,
+) -> Tuple[dict[int, vp.LineCollection], List[_LineEntry]]:
+    """Render text lines grouped onto per-cutter pen layers.
+
+    Each positioned line's LineCollection is appended to the vpype layer
+    of its cutter's pen (see
+    :func:`plt_optimizer.generate.resolution.build_cutter_pen_map`). Lines
+    whose cutter is absent from ``pen_map`` (or when no map is supplied)
+    fall back to the historical text pen (``SP1``), preserving
+    back-compatible single-pen output.
+
+    Args:
+        label: The resolved label whose ``content`` should be rendered.
+        pen_map: Optional mapping of cutter diameter to pen number.
+
+    Returns:
+        Tuple of ``(pens, line_entries)`` where ``pens`` maps pen number
+        to the LineCollection for that pen (only non-empty pens included),
+        and ``line_entries`` is the same per-line bounds record list
+        returned by :func:`_render_text_local_with_bounds`.
+    """
+    pens: dict[int, vp.LineCollection] = {}
+    line_entries: List[_LineEntry] = []
+    for line_index, positioned_lc, entry in _render_positioned_lines(label):
+        pen = LAYER_TEXT
+        if pen_map is not None and 0 <= line_index < len(label.content):
+            cutter = label.content[line_index].cutter_diameter
+            pen = pen_map.get(cutter, LAYER_TEXT)
+        pens.setdefault(pen, vp.LineCollection()).extend(positioned_lc)
+        line_entries.append(entry)
+    return pens, line_entries
 
 
 def _render_boundary_local(label: ResolvedLabel) -> vp.LineCollection:
