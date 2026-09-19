@@ -622,9 +622,7 @@ class TestTextHAlignment:
 
     def test_inherited_on_all_levels(self) -> None:
         """LabelSpec and JobSpec expose the field via the attribute mixins."""
-        label = LabelSpec(
-            id="lbl", text_h_alignment="left", content=[TextLine(text="X")]
-        )
+        label = LabelSpec(id="lbl", text_h_alignment="left", content=[TextLine(text="X")])
         assert label.text_h_alignment is TextHAlignment.LEFT
         job = JobSpec(
             job_name="J",
@@ -694,4 +692,60 @@ class TestMinHoleMargin:
                 margin=0.25,
                 clearance_padding=0.125,
                 min_hole_margin=-0.1,
+            )
+
+
+class TestHoleTextCollisionDistance:
+    """Tests for the hole_text_collision_distance stroke-clearance field."""
+
+    def test_inherited_on_all_levels(self) -> None:
+        """TextLine, LabelSpec and JobSpec expose the field."""
+        line = TextLine(text="X", hole_text_collision_distance=0.2)
+        assert math.isclose(line.hole_text_collision_distance, 0.2)
+        label = LabelSpec(id="lbl", hole_text_collision_distance=0.3, content=[TextLine(text="X")])
+        assert math.isclose(label.hole_text_collision_distance, 0.3)
+        job = JobSpec(job_name="J", hole_text_collision_distance=0.4, content=[TextLine(text="X")])
+        assert math.isclose(job.hole_text_collision_distance, 0.4)
+
+    def test_default_is_none(self) -> None:
+        """Schema default is None (inherit); resolution applies 0.15."""
+        assert TextLine(text="X").hole_text_collision_distance is None
+        label = LabelSpec(id="lbl", content=[TextLine(text="X")])
+        assert label.hole_text_collision_distance is None
+        job = JobSpec(job_name="J", content=[TextLine(text="X")])
+        assert job.hole_text_collision_distance is None
+
+    def test_explicit_zero_is_accepted(self) -> None:
+        """hole_text_collision_distance=0.0 (strokes may touch) is valid."""
+        assert math.isclose(
+            TextLine(text="X", hole_text_collision_distance=0.0).hole_text_collision_distance, 0.0
+        )
+
+    def test_negative_rejected(self) -> None:
+        """Negative values must be rejected by the ge=0.0 constraint."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", hole_text_collision_distance=-0.1)
+
+    def test_plate_accepts_field_for_parity(self) -> None:
+        """PlateSpec should accept the field for schema parity."""
+        plate = PlateSpec(
+            id="plate_1",
+            width=24.0,
+            height=12.0,
+            margin=0.25,
+            clearance_padding=0.125,
+            hole_text_collision_distance=0.2,
+        )
+        assert math.isclose(plate.hole_text_collision_distance, 0.2)
+
+    def test_plate_rejects_negative(self) -> None:
+        """PlateSpec must enforce the >= 0.0 range too."""
+        with pytest.raises(ValidationError):
+            PlateSpec(
+                id="plate_1",
+                width=24.0,
+                height=12.0,
+                margin=0.25,
+                clearance_padding=0.125,
+                hole_text_collision_distance=-0.1,
             )

@@ -41,14 +41,16 @@ from plt_optimizer.generate.vectorize import (
 )
 
 
-def load_tool_inventory(inventory_path: Path) -> list[float]:
+def load_tool_inventory(inventory_path: Path) -> tuple[list[float], float | None]:
     """Load available cutter diameters from tools.json.
 
     Args:
         inventory_path: Path to tools.json.
 
     Returns:
-        List of available cutter diameters in inches.
+        Tuple of (available cutter diameters in inches, requested
+        boundary/hole cutter size in inches or ``None`` when the key is
+        absent).
 
     Raises:
         FileNotFoundError: If inventory_path does not exist.
@@ -57,8 +59,10 @@ def load_tool_inventory(inventory_path: Path) -> list[float]:
     with open(inventory_path) as f:
         data = json.load(f)
     inventory = data.get("available_cutters", [])
+    boundary_hole_cutter = data.get("boundary_hole_cutter_size")
     logger.info(f"Loaded cutter inventory: {inventory}")
-    return inventory
+    logger.info(f"Loaded boundary/hole cutter size: {boundary_hole_cutter}")
+    return inventory, boundary_hole_cutter
 
 
 def print_separator(title: str) -> None:
@@ -71,7 +75,9 @@ def print_separator(title: str) -> None:
 # ============================================================================
 # PHASE 1: TEST DATA PREPARATION
 # ============================================================================
-def phase_1_data_prep(job_yaml_override: Path | None = None) -> tuple[Path, Path, list[float]]:
+def phase_1_data_prep(
+    job_yaml_override: Path | None = None,
+) -> tuple[Path, Path, list[float], float | None]:
     """Phase 1: Load test data and inventory.
 
     Args:
@@ -79,7 +85,8 @@ def phase_1_data_prep(job_yaml_override: Path | None = None) -> tuple[Path, Path
             If None, defaults to ``examples/test123_spec.yaml``.
 
     Returns:
-        Tuple of (job_yaml_path, tools_json_path, inventory).
+        Tuple of (job_yaml_path, tools_json_path, inventory,
+        boundary_hole_cutter_size).
     """
     print_separator("PHASE 1: TEST DATA PREPARATION")
 
@@ -94,11 +101,11 @@ def phase_1_data_prep(job_yaml_override: Path | None = None) -> tuple[Path, Path
     if not tools_json.exists():
         raise FileNotFoundError(f"Tools inventory not found: {tools_json}")
 
-    inventory = load_tool_inventory(tools_json)
+    inventory, boundary_hole_cutter = load_tool_inventory(tools_json)
     logger.info(f"Loaded job spec from: {job_yaml}")
     logger.info(f"Loaded tool inventory from: {tools_json}")
 
-    return job_yaml, tools_json, inventory
+    return job_yaml, tools_json, inventory, boundary_hole_cutter
 
 
 # ============================================================================
@@ -107,6 +114,7 @@ def phase_1_data_prep(job_yaml_override: Path | None = None) -> tuple[Path, Path
 def phase_2_resolution_and_layout(
     job_yaml: Path,
     inventory: list[float],
+    boundary_hole_cutter_size: float | None = None,
 ) -> tuple[list, list, list | None]:
     """Phase 2: Resolution, bin packing, and verification.
 
@@ -118,6 +126,9 @@ def phase_2_resolution_and_layout(
     Args:
         job_yaml: Path to test job YAML.
         inventory: List of available cutter diameters.
+        boundary_hole_cutter_size: Requested cutter size for label
+            boundaries and drill holes (feeds the collision stroke floor;
+            ``None`` uses the default).
 
     Returns:
         Tuple of (resolved_labels, packed_plates, provided_plates).
@@ -137,7 +148,11 @@ def phase_2_resolution_and_layout(
     # Step 2: Resolve labels with cutter compensation
     # =========================================================================
     logger.info("Step 2: Resolving labels with cutter compensation...")
-    resolved_labels = resolve_job_spec(job, available_cutters=inventory)
+    resolved_labels = resolve_job_spec(
+        job,
+        available_cutters=inventory,
+        boundary_hole_cutter_size=boundary_hole_cutter_size,
+    )
 
     print("\n--- RESOLUTION RESULTS ---\n")
     for label in resolved_labels:
@@ -444,11 +459,11 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         # Phase 1: Data Preparation
-        job_yaml, tools_json, inventory = phase_1_data_prep(spec_override)
+        job_yaml, tools_json, inventory, boundary_hole_cutter = phase_1_data_prep(spec_override)
 
         # Phase 2: Resolution and Layout (nominal-dimension packing for reporting)
         resolved_labels, packed_plates, provided_plates = phase_2_resolution_and_layout(
-            job_yaml, inventory
+            job_yaml, inventory, boundary_hole_cutter
         )
 
         # Phase 3: Vectorization and Export using the clean bounds-aware pipeline.

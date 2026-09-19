@@ -8,8 +8,10 @@ import pytest
 from pydantic import ValidationError
 
 from plt_optimizer.generate.resolution import (
+    DEFAULT_BOUNDARY_HOLE_CUTTER,
     DEFAULT_CHAR_SPACING,
     DEFAULT_HOLE_MARGIN,
+    DEFAULT_HOLE_TEXT_COLLISION_DISTANCE,
     DEFAULT_LINE_SPACING,
     DEFAULT_MARGIN,
     DEFAULT_MAX_H_COMPRESS,
@@ -26,6 +28,7 @@ from plt_optimizer.generate.resolution import (
     fit_line_spacing_to_margins,
     get_cutter_diameter,
     resolve_job_spec,
+    snap_boundary_hole_cutter,
 )
 from plt_optimizer.generate.schema import (
     DEFAULT_HOLE_DIAMETER,
@@ -1353,3 +1356,157 @@ class TestMinHoleMarginCascade:
         label = ResolvedLabel(id="x", count=1, width=1.0, height=1.0, margin=0.1)
         assert label.min_hole_margin is None
         assert label.collision_compress == 1.0
+
+
+class TestHoleTextCollisionDistanceCascade:
+    """hole_text_collision_distance must cascade label -> job -> 0.15.
+
+    Like ``min_hole_margin`` the field is accepted on text lines for
+    schema parity but resolved once at label level.
+    """
+
+    def test_default_is_015_when_unset(self) -> None:
+        """Unset collision distance falls back to the 0.15in default."""
+        job = JobSpec(
+            job_name="HTCD",
+            labels=[
+                LabelSpec(id="lbl", count=1, width=2.0, height=1.0, content=[TextLine(text="X")]),
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.hole_text_collision_distance, 0.15)
+        assert math.isclose(DEFAULT_HOLE_TEXT_COLLISION_DISTANCE, 0.15)
+
+    def test_job_value_used_when_label_omits(self) -> None:
+        """Job-level collision distance applies when the label omits it."""
+        job = JobSpec(
+            job_name="HTCD",
+            hole_text_collision_distance=0.25,
+            labels=[
+                LabelSpec(id="lbl", count=1, width=2.0, height=1.0, content=[TextLine(text="X")]),
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.hole_text_collision_distance, 0.25)
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level collision distance takes precedence over the job."""
+        job = JobSpec(
+            job_name="HTCD",
+            hole_text_collision_distance=0.25,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    count=1,
+                    width=2.0,
+                    height=1.0,
+                    hole_text_collision_distance=0.3,
+                    content=[TextLine(text="X")],
+                ),
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.hole_text_collision_distance, 0.3)
+
+    def test_explicit_zero_is_honored(self) -> None:
+        """An explicit 0.0 (strokes may touch) must not fall through.
+
+        Zero is a valid intentional configuration: the engraved strokes
+        are allowed to touch (stroke floor only, no air gap).
+        """
+        job = JobSpec(
+            job_name="HTCD",
+            hole_text_collision_distance=0.25,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    count=1,
+                    width=2.0,
+                    height=1.0,
+                    hole_text_collision_distance=0.0,
+                    content=[TextLine(text="X")],
+                ),
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert label.hole_text_collision_distance == 0.0
+
+    def test_root_level_job_cascades(self) -> None:
+        """Root-level single-label jobs inherit the job-level value."""
+        job = JobSpec(
+            job_name="HTCD",
+            hole_text_collision_distance=0.2,
+            width=2.0,
+            height=1.0,
+            content=[TextLine(text="X")],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.hole_text_collision_distance, 0.2)
+
+    def test_resolved_label_defaults(self) -> None:
+        """Manually constructed ResolvedLabel defaults for the new fields."""
+        label = ResolvedLabel(id="x", count=1, width=1.0, height=1.0, margin=0.1)
+        assert math.isclose(label.hole_text_collision_distance, 0.15)
+        assert math.isclose(label.hole_cutter_diameter, DEFAULT_BOUNDARY_HOLE_CUTTER)
+        assert math.isclose(DEFAULT_BOUNDARY_HOLE_CUTTER, 0.015)
+
+
+class TestSnapBoundaryHoleCutter:
+    """snap_boundary_hole_cutter prefers exact/next-down, then next-up."""
+
+    INVENTORY = [0.015, 0.02, 0.03, 0.06, 0.125, 0.25]
+
+    def test_exact_match_kept(self) -> None:
+        """A requested size present in the inventory is returned as-is."""
+        assert snap_boundary_hole_cutter(0.03, self.INVENTORY) == 0.03
+
+    def test_next_size_down_preferred(self) -> None:
+        """Between two tools, the next size down wins."""
+        assert snap_boundary_hole_cutter(0.025, self.INVENTORY) == 0.02
+        assert snap_boundary_hole_cutter(0.1, self.INVENTORY) == 0.06
+
+    def test_next_size_up_when_no_smaller(self) -> None:
+        """Below the smallest tool, the smallest available is used."""
+        assert snap_boundary_hole_cutter(0.005, self.INVENTORY) == 0.015
+
+    def test_largest_when_no_wider_needed(self) -> None:
+        """Above the largest tool, the largest available is used."""
+        assert snap_boundary_hole_cutter(0.5, self.INVENTORY) == 0.25
+
+    def test_no_inventory_returns_requested(self) -> None:
+        """Without an inventory the requested size passes through."""
+        assert snap_boundary_hole_cutter(0.017, None) == 0.017
+        assert snap_boundary_hole_cutter(0.017, []) == 0.017
+
+    def test_resolution_threads_and_snaps_boundary_cutter(self) -> None:
+        """resolve_job_spec stores the snapped boundary/hole cutter."""
+        job = JobSpec(
+            job_name="BHC",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    count=1,
+                    width=2.0,
+                    height=1.0,
+                    holes=[HoleSpec(location="top-left")],
+                    content=[TextLine(text="X")],
+                ),
+            ],
+        )
+        inventory = [0.015, 0.02, 0.03]
+        # Requested 0.017 is not in stock: snaps down to 0.015.
+        label = resolve_job_spec(job, available_cutters=inventory, boundary_hole_cutter_size=0.017)[
+            0
+        ]
+        assert math.isclose(label.hole_cutter_diameter, 0.015)
+        # Requested 0.005 has no smaller tool: snaps up to 0.015.
+        label = resolve_job_spec(job, available_cutters=inventory, boundary_hole_cutter_size=0.005)[
+            0
+        ]
+        assert math.isclose(label.hole_cutter_diameter, 0.015)
+        # Omitted: default 0.015 snapped against inventory.
+        label = resolve_job_spec(job, available_cutters=inventory)[0]
+        assert math.isclose(label.hole_cutter_diameter, DEFAULT_BOUNDARY_HOLE_CUTTER)
+        # No inventory at all: requested value passes through unsnapped.
+        label = resolve_job_spec(job, boundary_hole_cutter_size=0.02)[0]
+        assert math.isclose(label.hole_cutter_diameter, 0.02)

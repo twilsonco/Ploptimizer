@@ -82,9 +82,10 @@ class RenderedLabel:
         width: Actual rendered width in inches (x_max - x_min).
         height: Actual rendered height in inches (y_max - y_min).
         has_collisions: True when the final rendered output still contains
-            at least one text/hole overlap (collision avoidance disabled or
-            not fully effective). Labels successfully resolved by Phases
-            2/3 report False even though avoidance was triggered.
+            at least one text/hole pair closer than the stroke-aware
+            collision threshold (collision avoidance disabled or not fully
+            effective). Labels successfully resolved by Phases 2/3 report
+            False even though avoidance was triggered.
         collision_detected: True when any text/hole collision was detected
             during rendering, even if collision avoidance (Phases 2/3)
             successfully resolved it. Collisions are unacceptable output:
@@ -105,11 +106,50 @@ class RenderedLabel:
     collision_detected: bool = False
 
 
+def _collision_threshold(label: ResolvedLabel, line_index: int) -> float:
+    """Compute the stroke-aware collision threshold for one text line.
+
+    Collision checks measure the gap between *toolpath geometry* (text
+    bounding box vs. hole circle), but the machine removes material half a
+    cutter width on each side of every path. Two strokes therefore touch
+    once the geometric gap reaches ``0.5 * (hole_cutter + text_cutter)``
+    (the stroke floor), and stay visibly separated only beyond that floor
+    plus the requested air gap:
+
+    ``threshold = 0.5 * (hole_cutter + text_cutter[line]) +
+    hole_text_collision_distance``
+
+    A gap at or above the threshold is safe (strokes are separated by at
+    least ``hole_text_collision_distance``); below it the engraved strokes
+    bleed into each other.
+
+    Args:
+        label: The resolved label providing cutter diameters and the
+            cascaded collision distance.
+        line_index: Index of the text line within ``label.content``.
+
+    Returns:
+        The minimum safe geometric gap in inches.
+    """
+    if 0 <= line_index < len(label.content):
+        text_cutter = label.content[line_index].cutter_diameter
+    else:  # Defensive: unknown line (should not happen) assumes no stroke.
+        text_cutter = 0.0
+    stroke_floor = 0.5 * (label.hole_cutter_diameter + text_cutter)
+    return stroke_floor + label.hole_text_collision_distance
+
+
 def _detect_text_hole_collisions(
     label: ResolvedLabel,
     line_entries: Sequence[_LineEntry],
 ) -> List[CollisionResult]:
-    """Find all (text line, drill hole) pairs whose geometry overlaps.
+    """Find all (text line, drill hole) pairs closer than the threshold.
+
+    A pair collides when its geometric gap is below the stroke-aware
+    threshold of :func:`_collision_threshold` (stroke floor plus the
+    cascaded ``hole_text_collision_distance``), so near misses that would
+    make the engraved strokes bleed together are reported too. A gap
+    exactly equal to the threshold is safe.
 
     Collision checks run in label-local, y-up coordinates before plate
     placement. The rendered line bounds are anchored around y=0 by
@@ -121,7 +161,8 @@ def _detect_text_hole_collisions(
     is valid in this pre-flip frame.
 
     Args:
-        label: The resolved label providing hole positions.
+        label: The resolved label providing hole positions, cutter
+            diameters and the collision distance.
         line_entries: Per-line ``(line_index, line_text, bounds)`` tuples
             as returned by :func:`_render_text_local_with_bounds`.
 
@@ -137,6 +178,7 @@ def _detect_text_hole_collisions(
     results: List[CollisionResult] = []
 
     for line_index, line_text, bounds in line_entries:
+        threshold = _collision_threshold(label, line_index)
         x_min, y_min, x_max, y_max = bounds
         shifted: Tuple[float, float, float, float] = (
             x_min,
@@ -146,7 +188,7 @@ def _detect_text_hole_collisions(
         )
         for hole_index, (center_x, center_y, radius) in enumerate(circles):
             gap = circle_aabb_gap(shifted, (center_x, center_y), radius)
-            if gap < 0.0:
+            if gap < threshold:
                 results.append(
                     CollisionResult(
                         line_index=line_index,
@@ -159,23 +201,31 @@ def _detect_text_hole_collisions(
     return results
 
 
-def _log_collisions(label_id: str, collisions: Sequence[CollisionResult]) -> None:
+def _log_collisions(label: ResolvedLabel, collisions: Sequence[CollisionResult]) -> None:
     """Log each detected text-hole collision at ERROR level.
 
     Args:
-        label_id: Identifier used in log messages.
+        label: The resolved label being checked (provides the threshold
+            components used in the message breakdown).
         collisions: Collision results from :func:`_detect_text_hole_collisions`.
     """
     for collision in collisions:
+        required = _collision_threshold(label, collision.line_index)
+        clearance = label.hole_text_collision_distance
+        stroke_floor = required - clearance
         logger.error(
             "Label %s: text line %d (%r) collides with %s drill hole "
-            "(index %d); penetration %.4fin.",
-            label_id,
+            "(index %d); gap %.4fin is below the required %.4fin "
+            "(%.4fin clearance + %.4fin stroke floor).",
+            label.id,
             collision.line_index,
             collision.line_text,
             collision.hole_location,
             collision.hole_index,
-            -collision.gap,
+            collision.gap,
+            required,
+            clearance,
+            stroke_floor,
         )
 
 
@@ -313,7 +363,6 @@ def _format_unresolvable_collision(
         A multi-line diagnostic string naming each colliding pair plus the
         current margin/compression state and actionable recommendations.
     """
-    worst_gap = min((collision.gap for collision in collisions), default=0.0)
     budget = min((line.max_h_compress for line in label.content), default=0.0)
     scale_text = (
         f"{attempted_scale:.3f}"
@@ -322,8 +371,13 @@ def _format_unresolvable_collision(
     )
     details = "; ".join(
         f"line {collision.line_index} ({collision.line_text!r}) vs "
-        f"{collision.hole_location} hole (penetration {-collision.gap:.4f}in)"
+        f"{collision.hole_location} hole (gap {collision.gap:.4f}in below "
+        f"required {_collision_threshold(label, collision.line_index):.4f}in)"
         for collision in collisions
+    )
+    worst_shortfall = max(
+        (_collision_threshold(label, c.line_index) - c.gap for c in collisions),
+        default=0.0,
     )
     if label.min_hole_margin is None and budget <= 0.0:
         advice = (
@@ -342,7 +396,7 @@ def _format_unresolvable_collision(
         f"(min: {label.min_hole_margin if label.min_hole_margin is not None else 'unset'})\n"
         f"- Compression: max_h_compress={budget:.2f} applied, still insufficient "
         f"(most aggressive text scale {scale_text})\n"
-        f"- Worst penetration: {-worst_gap:.4f}in\n"
+        f"- Worst clearance shortfall: {worst_shortfall:.4f}in\n"
         f"- Recommendations: {advice}"
     )
 
@@ -368,7 +422,7 @@ def log_text_hole_collisions(label: ResolvedLabel) -> List[CollisionResult]:
     _text_lc, line_entries = _render_text_local_with_bounds(label)
     collisions = _detect_text_hole_collisions(label, line_entries)
     if collisions:
-        _log_collisions(label.id, collisions)
+        _log_collisions(label, collisions)
     return collisions
 
 
@@ -413,7 +467,12 @@ def render_label_to_plt(label: ResolvedLabel) -> RenderedLabel:
     Exports to temporary file with postprocessing to ensure coordinates are
     correct and compressed to 1:1000 scale (1 inch = 1000 units).
 
-    Text-hole collision avoidance runs in three phases:
+    Text-hole collision avoidance runs in three phases. A (line, hole)
+    pair collides when its geometric gap falls below the stroke-aware
+    threshold ``0.5 * (hole_cutter + text_cutter) +
+    hole_text_collision_distance`` (see :func:`_collision_threshold`), so
+    near misses that would make the engraved strokes bleed together are
+    caught too:
 
     1. **Detection** (always): rendered text bounds are checked against
        every drill hole; each collision is logged at ERROR level and
@@ -428,7 +487,7 @@ def render_label_to_plt(label: ResolvedLabel) -> RenderedLabel:
 
     A collision that no enabled phase can clear is additionally logged at
     ERROR with full diagnostics (label id, offending text lines, holes,
-    and penetration) and flagged via ``has_collisions=True``. Collisions
+    and clearance shortfalls) and flagged via ``has_collisions=True``. Collisions
     are unacceptable output regardless of whether avoidance repaired them:
     the job-level gate :func:`assert_no_collisions` aborts the run with
     :class:`LabelRenderError` once every label has been rendered, so all
@@ -455,7 +514,7 @@ def render_label_to_plt(label: ResolvedLabel) -> RenderedLabel:
         return rendered
 
     # ---- Phase 1: collision detected -- log and attempt resolution ----
-    _log_collisions(label.id, collisions)
+    _log_collisions(label, collisions)
 
     base_label: ResolvedLabel = label
     line_desc = _collision_line_desc(collisions)
@@ -487,7 +546,7 @@ def render_label_to_plt(label: ResolvedLabel) -> RenderedLabel:
             resolved_rendered, _ = _render_label_once(compressed_label)
             return replace(resolved_rendered, collision_detected=True)
         # Report the state at the most aggressive scale tried, so the
-        # measured penetration matches what the sweep actually evaluated.
+        # measured gaps match what the sweep actually evaluated.
         attempted_scale = max(0.0, 1.0 - min(budget, 1.0))
         final_label = replace(base_label, collision_compress=attempted_scale)
         _, final_entries = _render_text_local_with_bounds(final_label)

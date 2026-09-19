@@ -38,7 +38,9 @@ class CollisionResult:
         gap: Signed clearance between the text bounding box and the hole
             circle, in inches. Negative values indicate penetration depth
             (the box overlaps the circle by ``abs(gap)`` inches); zero is
-            exact tangency.
+            exact tangency. Note that collision detection may use a
+            stroke-aware threshold, so a reported collision can carry a
+            *positive* gap (a near miss below the required clearance).
     """
 
     line_index: int
@@ -89,21 +91,30 @@ def check_text_hole_collision(
     text_bounds: TextBounds,
     hole_center: HoleCenter,
     hole_radius: float,
+    min_clearance: float = 0.0,
 ) -> bool:
-    """Return True when a text bounding box intersects a drill-hole circle.
+    """Return True when a text box is closer than ``min_clearance`` to a hole.
 
-    Uses the standard circle-vs-axis-aligned-bounding-box intersection test:
-    the closest point on the box to the circle center is computed and its
-    distance compared against the radius. Exact tangency (gap == 0) is NOT
-    considered a collision.
+    Uses the standard circle-vs-axis-aligned-bounding-box test: the closest
+    point on the box to the circle center is computed and the resulting gap
+    compared against ``min_clearance``. With the default ``0.0`` this is
+    the strict overlap predicate (exact tangency, gap == 0, is NOT a
+    collision). A positive ``min_clearance`` additionally flags near misses
+    whose engraved strokes would bleed together; a gap exactly equal to
+    ``min_clearance`` is safe.
 
     Args:
         text_bounds: ``(x_min, y_min, x_max, y_max)`` box coordinates in
             label-local coordinates.
         hole_center: ``(cx, cy)`` hole center in the same coordinates.
         hole_radius: Hole radius in the same length units.
+        min_clearance: Required minimum gap in the same length units
+            (>= 0). The stroke-aware collision threshold in
+            ``label_renderer`` combines the stroke floor
+            ``0.5 * (hole_cutter + text_cutter)`` with the configured
+            collision distance into this value.
 
     Returns:
-        ``True`` if the box and circle overlap, ``False`` otherwise.
+        ``True`` if the gap is below ``min_clearance``, ``False`` otherwise.
     """
-    return circle_aabb_gap(text_bounds, hole_center, hole_radius) < 0.0
+    return circle_aabb_gap(text_bounds, hole_center, hole_radius) < min_clearance

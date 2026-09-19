@@ -167,6 +167,18 @@ class TextAttributes(BaseModel):
             (hole tangent to the label edge). Cascades line -> label ->
             job (and is accepted on plates for schema parity, where it is
             not currently applied during rendering).
+        hole_text_collision_distance: Optional minimum air gap in inches
+            between the *engraved* text stroke and the *engraved* drill
+            hole stroke. A (line, hole) pair collides when the geometric
+            gap between the text bounding box and the hole circle is
+            below ``0.5 * (hole_cutter + text_cutter) +
+            hole_text_collision_distance``: the first term is the stroke
+            floor at which the two cut strokes just touch, and this field
+            adds free air between them. Defaults to ``0.15`` inches; an
+            explicit ``0.0`` is honored (strokes may touch but never
+            overlap). Cascades label -> job (and is accepted on text
+            lines and plates for schema parity, where it is not applied
+            at that level).
     """
 
     text_height: Optional[float] = None
@@ -188,6 +200,15 @@ class TextAttributes(BaseModel):
         description=(
             "Minimum hole margin in inches; hole margins will not shrink "
             "below this value during collision avoidance."
+        ),
+    )
+    hole_text_collision_distance: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Minimum air gap in inches between engraved text and drill "
+            "hole strokes, on top of the stroke floor "
+            "0.5 * (hole_cutter + text_cutter)."
         ),
     )
 
@@ -402,6 +423,13 @@ class PlateSpec(BaseModel):
             a per-plate value is not currently applied during rendering;
             the effective value is resolved from the label -> job ->
             default cascade.
+        hole_text_collision_distance: Optional minimum engraved-stroke
+            air gap in inches. Accepted for schema parity with the
+            job/label ``hole_text_collision_distance`` cascade. NOTE:
+            labels are rendered once and cached before bin-packing, so a
+            per-plate value is not currently applied during rendering;
+            the effective value is resolved from the label -> job ->
+            default cascade.
     """
 
     id: str
@@ -425,6 +453,13 @@ class PlateSpec(BaseModel):
         default=None,
         ge=0.0,
         description="Minimum hole margin in inches (schema parity; not applied at plate level).",
+    )
+    hole_text_collision_distance: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Minimum engraved-stroke air gap in inches (schema parity; not applied at plate level)."
+        ),
     )
     clearance_padding: float = Field(
         ge=0.0, description="Padding between labels in inches (must be >= 0)."

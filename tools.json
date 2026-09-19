@@ -1,11 +1,15 @@
 {
   "available_cutters": [
+    0.01,
     0.015,
     0.02,
     0.03,
+    0.045,
     0.06,
+    0.09,
     0.125,
     0.25
   ],
-  "description": "Mock tool inventory for integration testing. Intentionally missing 0.03 to force the 3x tolerance logic to execute for 0.25 text height."
+  "boundary_hole_cutter_size": 0.015,
+  "description": "Mock tool inventory for integration testing. Intentionally missing 0.03 to force the 3x tolerance logic to execute for 0.25 text height. boundary_hole_cutter_size is the cutter used for label boundaries and drill holes; it feeds the text-hole collision stroke floor (snapped to available_cutters: next size down, else next size up)."
 }

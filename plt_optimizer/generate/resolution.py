@@ -45,6 +45,16 @@ DEFAULT_HOLE_MARGIN: float = 0.1875
 # avoidance. ``None`` (the default) means collision avoidance may reduce
 # the hole margin all the way to ``0.0`` (hole tangent to the edge).
 DEFAULT_MIN_HOLE_MARGIN: Optional[float] = None
+# Air gap (inches) kept between the engraved text stroke and the engraved
+# drill-hole stroke on top of the stroke floor
+# ``0.5 * (hole_cutter + text_cutter)``. At 0.0 the two cut strokes just
+# touch; the default keeps 0.15in of free air between them.
+DEFAULT_HOLE_TEXT_COLLISION_DISTANCE: float = 0.15
+# Default cutter diameter (inches) used to cut label boundaries and drill
+# holes. Collision detection uses this to compute the stroke floor; the
+# effective value is snapped to the shop inventory (next size down, else
+# next size up).
+DEFAULT_BOUNDARY_HOLE_CUTTER: float = 0.015
 # Horizontal compression is opt-in: 0.0 disables it entirely.
 DEFAULT_MAX_H_COMPRESS: float = 0.0
 # Horizontal text alignment defaults to centering (existing behaviour).
@@ -134,6 +144,37 @@ def get_cutter_diameter(
         return closest_narrower
 
 
+def snap_boundary_hole_cutter(
+    requested: float,
+    available_inventory: Optional[list[float]] = None,
+) -> float:
+    """Snap the boundary/hole cutter size to the available tool inventory.
+
+    The boundary/hole cutter (used for label borders and drill holes) is a
+    single fixed tool, so selection is a plain snap rather than the
+    tolerance-based text-cutter choice in :func:`get_cutter_diameter`: an
+    exact (or equal) match is kept; otherwise the next size *down* is
+    preferred, and only when no smaller tool exists the next size *up*.
+
+    Args:
+        requested: The requested cutter diameter in inches (e.g. from
+            ``tools.json`` ``boundary_hole_cutter_size`` or the default).
+        available_inventory: Optional list of cutter diameters available
+            in the shop. If None or empty, ``requested`` is returned
+            unchanged (the ideal tool is assumed available).
+
+    Returns:
+        The snapped cutter diameter in inches.
+    """
+    if not available_inventory:
+        return requested
+
+    narrower = [c for c in available_inventory if c <= requested]
+    if narrower:
+        return max(narrower)  # Exact match or next size down
+    return min(available_inventory)  # No smaller tool: next size up
+
+
 # ---------------------------------------------------------------------------
 # Strictly typed target dataclasses
 # ---------------------------------------------------------------------------
@@ -215,6 +256,17 @@ class ResolvedLabel:
             ``1.0`` (the default) means no collision-driven compression was
             applied. Set by the renderer via ``dataclasses.replace``; never
             sourced from the YAML schema.
+        hole_text_collision_distance: Minimum air gap in inches kept
+            between the engraved text stroke and the engraved drill-hole
+            stroke (cascaded label -> job, default ``0.15``). Combined
+            with the stroke floor ``0.5 * (hole_cutter_diameter +
+            line.cutter_diameter)`` this forms the effective collision
+            threshold used by the renderer.
+        hole_cutter_diameter: Cutter diameter in inches used to cut label
+            boundaries and drill holes (from ``tools.json``
+            ``boundary_hole_cutter_size``, snapped to the inventory;
+            default ``0.015``). Used only to compute the collision stroke
+            floor -- rendering itself emits pure geometry layers.
     """
 
     id: str
@@ -227,6 +279,8 @@ class ResolvedLabel:
     content: list[ResolvedTextLine] = field(default_factory=list)
     min_hole_margin: Optional[float] = None
     collision_compress: float = 1.0
+    hole_text_collision_distance: float = DEFAULT_HOLE_TEXT_COLLISION_DISTANCE
+    hole_cutter_diameter: float = DEFAULT_BOUNDARY_HOLE_CUTTER
 
 
 # ---------------------------------------------------------------------------
@@ -573,6 +627,7 @@ def _resolve_label(
     job: JobSpec,
     available_cutters: Optional[list[float]] = None,
     tolerance_factor: float = 3.0,
+    boundary_hole_cutter_size: Optional[float] = None,
 ) -> ResolvedLabel:
     """Resolve a single label (or root-level job) into a ResolvedLabel.
 
@@ -583,6 +638,11 @@ def _resolve_label(
             the shop.
         tolerance_factor: The multiplier used to decide between narrower and
             wider cutters. See ``get_cutter_diameter`` for details.
+        boundary_hole_cutter_size: Optional requested cutter diameter in
+            inches for label boundaries and drill holes (from
+            ``tools.json``). Snapped to ``available_cutters`` via
+            :func:`snap_boundary_hole_cutter`; ``None`` falls back to
+            ``DEFAULT_BOUNDARY_HOLE_CUTTER``.
 
     Returns:
         A fully resolved label with all dimensions guaranteed non-None.
@@ -612,6 +672,25 @@ def _resolve_label(
         label_min_hole_margin = job.min_hole_margin
     else:
         label_min_hole_margin = DEFAULT_MIN_HOLE_MARGIN
+
+    # Resolve the engraved-stroke air gap explicitly so an intentional
+    # ``0.0`` (strokes may touch but never overlap) is honored instead of
+    # falling through to the 0.15in default.
+    if label_input.hole_text_collision_distance is not None:
+        label_collision_distance: float = label_input.hole_text_collision_distance
+    elif job.hole_text_collision_distance is not None:
+        label_collision_distance = job.hole_text_collision_distance
+    else:
+        label_collision_distance = DEFAULT_HOLE_TEXT_COLLISION_DISTANCE
+
+    # Snap the boundary/hole cutter to the shop inventory (next size down,
+    # else next size up). Used only for the collision stroke floor.
+    requested_hole_cutter = (
+        DEFAULT_BOUNDARY_HOLE_CUTTER
+        if boundary_hole_cutter_size is None
+        else boundary_hole_cutter_size
+    )
+    hole_cutter = snap_boundary_hole_cutter(requested_hole_cutter, available_cutters)
 
     # Resolve text lines with cutter compensation
     resolved_content = _resolve_content(label_input, job, available_cutters, tolerance_factor)
@@ -647,6 +726,8 @@ def _resolve_label(
         holes=resolved_holes,
         content=resolved_content,
         min_hole_margin=label_min_hole_margin,
+        hole_text_collision_distance=label_collision_distance,
+        hole_cutter_diameter=hole_cutter,
     )
 
 
@@ -654,6 +735,7 @@ def resolve_job_spec(
     job: JobSpec,
     available_cutters: Optional[list[float]] = None,
     tolerance_factor: float = 3.0,
+    boundary_hole_cutter_size: Optional[float] = None,
 ) -> list[ResolvedLabel]:
     """Flatten a JobSpec into a list of fully resolved labels.
 
@@ -668,6 +750,12 @@ def resolve_job_spec(
             closest available tool.
         tolerance_factor: The multiplier used to decide between narrower and
             wider cutters. See ``get_cutter_diameter`` for details.
+        boundary_hole_cutter_size: Optional requested cutter diameter in
+            inches for label boundaries and drill holes (from
+            ``tools.json`` ``boundary_hole_cutter_size``). Snapped to
+            ``available_cutters`` (next size down, else next size up);
+            ``None`` falls back to ``DEFAULT_BOUNDARY_HOLE_CUTTER``.
+            Feeds the text-hole collision stroke floor only.
 
     Returns:
         A list of ResolvedLabel objects with all dimensions guaranteed
@@ -695,6 +783,12 @@ def resolve_job_spec(
         labels_to_process = [job]
 
     return [
-        _resolve_label(label_input, job, available_cutters, tolerance_factor)
+        _resolve_label(
+            label_input,
+            job,
+            available_cutters,
+            tolerance_factor,
+            boundary_hole_cutter_size,
+        )
         for label_input in labels_to_process
     ]

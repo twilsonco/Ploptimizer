@@ -6,9 +6,10 @@ label resolution (with cutter compensation), bounds-aware bin packing,
 and lossless per-label rendering/assembly.
 
 Text-hole collisions are unacceptable output: when any label's rendered
-text overlaps a drill hole, the offending labels are reported at ERROR
-level and the job aborts with a non-zero exit code so the jobspec can be
-revised.
+text comes closer to a drill hole than the stroke-aware collision
+threshold (stroke floor plus ``hole_text_collision_distance``), the
+offending labels are reported at ERROR level and the job aborts with a
+non-zero exit code so the jobspec can be revised.
 
 Usage:
     plt-optimizer generate spec.yaml -o output.plt
@@ -21,13 +22,12 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 from plt_optimizer.generate.label_renderer import LabelRenderError
 from plt_optimizer.generate.layout import LayoutFitError
 from plt_optimizer.generate.resolution import resolve_job_spec
 from plt_optimizer.generate.schema import parse_yaml
-from plt_optimizer.generate.substitution import expand_job_spec
 from plt_optimizer.generate.vectorize import export_and_optimize_phase3
 from plt_optimizer.utils.logging import setup_logging
 
@@ -69,27 +69,35 @@ def setup_parser(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _load_cutter_inventory(tools_path: Path) -> Optional[list[float]]:
-    """Load the available cutter diameter inventory from a tools JSON file.
+def _load_cutter_inventory(
+    tools_path: Path,
+) -> Tuple[Optional[list[float]], Optional[float]]:
+    """Load the cutter inventory from a tools JSON file.
 
     Args:
-        tools_path: Path to tools.json (``{"available_cutters": [...]}``).
+        tools_path: Path to tools.json (``{"available_cutters": [...],
+        "boundary_hole_cutter_size": float}``).
 
     Returns:
-        List of cutter diameters in inches, or None when the file is
-        missing or unreadable (ideal cutters are then used).
+        Tuple of (list of cutter diameters in inches or None when the
+        file/list is missing (ideal cutters are then used), requested
+        boundary/hole cutter size in inches or None when the key is
+        absent).
     """
     if not tools_path.is_file():
-        return None
+        return None, None
     try:
         with open(tools_path, encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError):
-        return None
+        return None, None
     inventory = data.get("available_cutters") or None
+    boundary_hole_cutter = data.get("boundary_hole_cutter_size")
     if inventory:
         print(f"Loaded cutter inventory from {tools_path}: {inventory}")
-    return inventory
+    if boundary_hole_cutter is not None:
+        print(f"Loaded boundary/hole cutter size: {boundary_hole_cutter}")
+    return inventory, boundary_hole_cutter
 
 
 def run(args: argparse.Namespace) -> int:
@@ -138,7 +146,7 @@ def run(args: argparse.Namespace) -> int:
         text_logger.logger.setLevel(logging.DEBUG)
 
     try:
-        job = expand_job_spec(parse_yaml(spec_path), spec_path)
+        job = parse_yaml(spec_path)
         unique_labels = len(job.labels) if job.labels is not None else 0
         plate_count = len(job.plates) if job.plates is not None else 0
         print(
@@ -151,10 +159,14 @@ def run(args: argparse.Namespace) -> int:
         print(f"Error parsing specification: {e}", file=sys.stderr)
         return 1
 
-    inventory = _load_cutter_inventory(args.tools)
+    inventory, boundary_hole_cutter = _load_cutter_inventory(args.tools)
 
     try:
-        resolved_labels = resolve_job_spec(job, available_cutters=inventory)
+        resolved_labels = resolve_job_spec(
+            job,
+            available_cutters=inventory,
+            boundary_hole_cutter_size=boundary_hole_cutter,
+        )
         exported_paths = export_and_optimize_phase3(
             resolved_labels,
             job.plates,

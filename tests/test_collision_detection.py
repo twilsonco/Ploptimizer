@@ -92,6 +92,39 @@ class TestCheckTextHoleCollision:
         assert not check_text_hole_collision((0.0, 0.5, 1.0, 0.5), (0.5, 1.0), 0.25)
 
 
+class TestCheckTextHoleCollisionMinClearance:
+    """Tests for the stroke-clearance variant of the collision predicate."""
+
+    # Box (0,0)-(1,1) with center (1.5,0.5), radius 0.25 -> gap exactly 0.25.
+    BOX = (0.0, 0.0, 1.0, 1.0)
+    CENTER = (1.5, 0.5)
+    RADIUS = 0.25
+
+    def test_default_clearance_keeps_strict_semantics(self) -> None:
+        """min_clearance defaults to 0.0 (pure overlap predicate)."""
+        assert not check_text_hole_collision(self.BOX, self.CENTER, self.RADIUS)
+        assert not check_text_hole_collision(self.BOX, self.CENTER, self.RADIUS, min_clearance=0.0)
+
+    def test_near_miss_below_clearance_is_a_collision(self) -> None:
+        """A positive gap under the required clearance must be flagged."""
+        assert check_text_hole_collision(self.BOX, self.CENTER, self.RADIUS, min_clearance=0.3)
+
+    def test_gap_exactly_equal_to_clearance_is_safe(self) -> None:
+        """A gap equal to min_clearance is safe (>= passes)."""
+        assert not check_text_hole_collision(self.BOX, self.CENTER, self.RADIUS, min_clearance=0.25)
+
+    def test_tangency_collides_under_positive_clearance(self) -> None:
+        """Tangent paths (gap 0) collide whenever clearance > 0."""
+        tangent_center = (1.25, 0.5)
+        assert not check_text_hole_collision(self.BOX, tangent_center, 0.25)
+        assert check_text_hole_collision(self.BOX, tangent_center, 0.25, min_clearance=0.01)
+
+    def test_penetration_collides_regardless_of_clearance(self) -> None:
+        """Overlapping geometry collides at any clearance."""
+        assert check_text_hole_collision(self.BOX, (1.1, 0.5), 0.25, min_clearance=0.0)
+        assert check_text_hole_collision(self.BOX, (1.1, 0.5), 0.25, min_clearance=0.5)
+
+
 class TestCollisionResult:
     """Tests for the CollisionResult dataclass contract."""
 

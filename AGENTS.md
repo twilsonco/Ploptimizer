@@ -69,6 +69,11 @@ JobSpec (job-level defaults)
   = collision avoidance disabled). When a rendered text line collides with a
   drill hole, `hole_margin` may be reduced toward this floor to clear it.
   Cascades label → job (accepted on plates for schema parity only).
+- `hole_text_collision_distance`: Minimum air gap in inches (`ge=0.0`,
+  default `None` → resolved to **0.15**) kept between the *engraved* text
+  stroke and the *engraved* drill-hole stroke. Cascades label → job
+  (accepted on text lines and plates for schema parity only); an explicit
+  `0.0` is honored (strokes may touch but never overlap).
 
 **LabelAttributes** (extends TextAttributes, cascades to LabelSpec only):
 - `width`, `height`, `margin`: Label dimensions & safety margins
@@ -128,14 +133,27 @@ parity only). Enum `TextHAlignment` (`left`, `center`, `right`).
 
 ### Text-Hole Collision Avoidance
 
-Rendered text lines are checked against drill holes (circle-vs-AABB via the
-closest-point gap in `geometry.circle_aabb_gap()`; tangency is not a
-collision). Detection runs in the label-local y-up frame, shifted by
-`height / 2` to match export centering; Y-flip is intersection-invariant.
+Rendered text lines are checked against drill holes via the circle-vs-AABB
+closest-point gap in `geometry.circle_aabb_gap()`. The check is
+**stroke-aware**: a (line, hole) pair collides when the geometric gap falls
+below the per-line threshold
+
+`threshold = 0.5 * (hole_cutter + text_cutter) + hole_text_collision_distance`
+
+where `text_cutter` is the line's resolved cutter diameter and
+`hole_cutter` is the boundary/hole cutter from `tools.json`
+(`boundary_hole_cutter_size`, default 0.015, snapped to
+`available_cutters`: next size down, else next size up). The first term is
+the stroke floor at which the two cut strokes just touch, so near misses
+that would make engraved strokes bleed together are collisions too; a gap
+exactly equal to the threshold is safe. Detection runs in the label-local
+y-up frame, shifted by `height / 2` to match export centering; Y-flip is
+intersection-invariant.
 
 - **Phase 1 (always on, observational):** `_detect_text_hole_collisions()`
-  flags per-(line, hole) penetrations and logs an ERROR with label id, line
-  index, hole location, and measured gap. `RenderedLabel.collision_detected`
+  flags per-(line, hole) threshold violations and logs an ERROR with label
+  id, line index, hole location, measured gap, and the required-clearance
+  breakdown (clearance + stroke floor). `RenderedLabel.collision_detected`
   marks any render where a collision was found (even if a later phase fixed
   it) and `RenderedLabel.has_collisions` marks renders that still collide
   after resolution. `vectorize.py` calls the observational
@@ -153,7 +171,7 @@ collision). Detection runs in the label-local y-up frame, shifted by
 - **Failure semantics (collisions are unacceptable):** every detected
   collision logs an ERROR naming the label id, offending text line, and hole.
   When no enabled phase clears a collision, `render_label_to_plt` adds full
-  diagnostics (penetrations, margin/compression state, recommendations) at
+  diagnostics (gap shortfalls, margin/compression state, recommendations) at
   ERROR and flags `has_collisions=True`. Either way the render is flagged
   `collision_detected=True`, and the job-level gate `assert_no_collisions()`
   — wired into `layout.generate_layout_with_bounds` and
@@ -241,7 +259,7 @@ whitespace character, never newline/alphanumeric).
   `examples/replacement_text_sample.txt` / `replacement_text_assets.txt`.
 
 ### Cascading Resolution
-When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), and `min_hole_margin` (explicit 0.0 is honored; only `None` means unset).
+When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), and `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to 0.15).
 
 ### Integration Points
 - `parse_yaml(file_path)` returns a `JobSpec` ready for downstream bin-packing and rendering pipelines

@@ -67,7 +67,7 @@ job:
       width: 3.0
       height: 1.0
       margin: 0.125
-      text_height: 0.3
+      text_height: 0.25
       content:
         - text: "VALVE V-104"
         - text: "OPEN CW"
@@ -118,8 +118,8 @@ job:
         - text: "PATTERN"
       holes:
         - location: top-left
-        - diameter: 0.1875
-          location: top-right
+        - location: top-right
+          diameter: 0.1875
         - location: bottom-right
         - location: bottom-left
 
@@ -157,8 +157,9 @@ job:
       count: 4
       width: 4.0
       height: 1.0
-      text_height: 0.3
-      hole_margin: 0.1825
+      text_height: 0.2
+      hole_margin: 0.1
+      min_hole_margin: 0.05
       content:
         - text: "TOP/BOT DRILL"
       holes:
@@ -208,8 +209,8 @@ job:
       content:
         - text: "GROUP DRILL"
       holes:
-        - diameter: 0.25
-          location: corners
+        - location: corners
+          diameter: 0.25
         - location: sides
 
     # 12. Replacement text file template (EngraveLab/Vision Pro "badge"):
