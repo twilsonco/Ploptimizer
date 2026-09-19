@@ -10,8 +10,11 @@ These tests cover:
 from __future__ import annotations
 
 import argparse
+import csv
+import logging
 import sys
 from pathlib import Path
+from typing import Any, Dict, Iterator, List, Optional
 from unittest.mock import patch
 
 import pytest
@@ -423,6 +426,468 @@ class TestCLIIntegration:
         assert run(MockArgs()) == 1
         captured = capsys.readouterr()
         assert "replacement text file" in captured.err.lower()
+
+
+def _zigzag_path(base_y: int) -> str:
+    """Build a many-facet zigzag stroke (classified as TEXT by the Profiler).
+
+    Args:
+        base_y: Y coordinate of the path's baseline in plot units.
+
+    Returns:
+        HPGL fragment with one PU followed by 40 tiny PD segments.
+    """
+    pts = ";".join(f"PD{x * 20},{base_y + (15 if x % 2 else 0)}" for x in range(1, 41))
+    return f"PU0,{base_y};{pts};"
+
+
+def _write_text_plt(directory: Path, name: str = "text.plt", paths: int = 2) -> Path:
+    """Write a small hand-made text-like PLT (zigzags) into ``directory``.
+
+    Args:
+        directory: Directory to write into (always a tmp_path subtree).
+        name: File name for the PLT.
+        paths: Number of zigzag stroke paths to emit.
+
+    Returns:
+        Path to the written PLT file.
+    """
+    body = "".join(_zigzag_path(i * 100) for i in range(paths))
+    plt_path = directory / name
+    plt_path.write_text(f"IN;SP1;{body}PU0,0;SP;IN;", encoding="utf-8")
+    return plt_path
+
+
+def _write_structural_plt(directory: Path, name: str = "grid.plt") -> Path:
+    """Write a structural PLT (five long single-segment lines) into ``directory``.
+
+    Args:
+        directory: Directory to write into (always a tmp_path subtree).
+        name: File name for the PLT.
+
+    Returns:
+        Path to the written PLT file.
+    """
+    lines = "".join(f"PU0,{y};PD1000,{y};" for y in range(0, 5000, 1000))
+    plt_path = directory / name
+    plt_path.write_text(f"IN;SP1;{lines}PU0,0;SP;IN;", encoding="utf-8")
+    return plt_path
+
+
+def _read_metrics_rows(csv_path: Path) -> List[Dict[str, str]]:
+    """Read job_metrics.csv rows written by the optimize CLI.
+
+    Args:
+        csv_path: Path to the CSV metrics file.
+
+    Returns:
+        List of row dicts (header-keyed), excluding the header row.
+    """
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+class TestOptimizeRun:
+    """End-to-end tests for plt_optimizer.cli.optimize.run().
+
+    Every test passes an explicit ``log_dir`` under tmp_path (or chdirs into
+    tmp_path) so nothing is ever written into ./logs_optimize or the repo.
+    The module-level logger singletons are isolated per test so the CSV
+    metrics assertions read the tmp file created by that test's run().
+    """
+
+    @pytest.fixture(autouse=True)
+    def isolated_logging(self) -> Iterator[None]:
+        """Reset logging singletons/handlers so run() logs into tmp paths only.
+
+        Yields:
+            Nothing; restores logger handlers, level, and module singletons
+            after each test.
+        """
+        import plt_optimizer.utils.logging as logging_module
+
+        logger = logging.getLogger("plt_optimizer")
+        saved_text = logging_module._text_logger
+        saved_csv = logging_module._csv_logger
+        saved_level = logger.level
+        saved_handlers = list(logger.handlers)
+        for handler in saved_handlers:
+            logger.removeHandler(handler)
+        logging_module._text_logger = None
+        logging_module._csv_logger = None
+        try:
+            yield
+        finally:
+            for handler in list(logger.handlers):
+                logger.removeHandler(handler)
+                handler.close()
+            for handler in saved_handlers:
+                logger.addHandler(handler)
+            logger.setLevel(saved_level)
+            logging_module._text_logger = saved_text
+            logging_module._csv_logger = saved_csv
+
+    @staticmethod
+    def _args(
+        input_path: Path,
+        output: Optional[Path] = None,
+        log_dir: Optional[Path] = None,
+        fast_mode: bool = True,
+        verbose: bool = False,
+    ) -> argparse.Namespace:
+        """Build an argparse.Namespace matching optimize's expected attributes.
+
+        Args:
+            input_path: Value for the positional input argument.
+            output: Value for -o/--output (None triggers default derivation).
+            log_dir: Value for --log-dir (None triggers the ./logs_optimize
+                default; tests pairing None with it must chdir to tmp_path).
+            fast_mode: Value for --fast-mode.
+            verbose: Value for -v/--verbose.
+
+        Returns:
+            Namespace consumable by optimize.run().
+        """
+        return argparse.Namespace(
+            input=input_path,
+            output=output,
+            log_dir=log_dir,
+            fast_mode=fast_mode,
+            verbose=verbose,
+        )
+
+    def test_missing_input_file_returns_one(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A nonexistent input path exits 1 with an error on stderr."""
+        from plt_optimizer.cli.optimize import run
+
+        missing = tmp_path / "nope.plt"
+        args = self._args(missing, log_dir=tmp_path / "logs")
+
+        assert run(args) == 1
+        captured = capsys.readouterr()
+        assert "does not exist" in captured.err
+        assert not (tmp_path / "logs").exists()
+
+    def test_directory_input_returns_one(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """An input path that is a directory exits 1 with an error on stderr."""
+        from plt_optimizer.cli.optimize import run
+
+        args = self._args(tmp_path, log_dir=tmp_path / "logs")
+
+        assert run(args) == 1
+        captured = capsys.readouterr()
+        assert "not a file" in captured.err
+
+    def test_log_dir_permission_error_returns_one(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A PermissionError while creating the log dir exits 1 with stderr."""
+        from plt_optimizer.cli.optimize import run
+
+        plt_file = _write_text_plt(tmp_path)
+        args = self._args(plt_file, log_dir=tmp_path / "locked_logs")
+
+        with patch.object(Path, "mkdir", autospec=True, side_effect=PermissionError("denied")):
+            assert run(args) == 1
+        captured = capsys.readouterr()
+        assert "Cannot create log directory" in captured.err
+
+    def test_default_log_dir_created_under_cwd(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With log_dir=None, logs land in ./logs_optimize relative to CWD."""
+        from plt_optimizer.cli.optimize import run
+
+        plt_file = _write_text_plt(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        args = self._args(plt_file, log_dir=None)
+
+        assert run(args) == 0
+        log_dir = tmp_path / "logs_optimize"
+        assert (log_dir / "optimizer.log").is_file()
+        assert (log_dir / "job_metrics.csv").is_file()
+
+    def test_fast_mode_success_default_output_path(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Fast-mode run writes <stem>_optimized.plt next to input and logs success."""
+        from plt_optimizer.cli.optimize import run
+
+        plt_file = _write_text_plt(tmp_path)
+        log_dir = tmp_path / "logs"
+        args = self._args(plt_file, output=None, log_dir=log_dir)
+
+        assert run(args) == 0
+
+        out_file = tmp_path / "text_optimized.plt"
+        assert out_file.is_file()
+        captured = capsys.readouterr()
+        assert "Optimized: text.plt -> text_optimized.plt" in captured.out
+
+        rows = _read_metrics_rows(log_dir / "job_metrics.csv")
+        assert len(rows) == 1
+        assert rows[0]["status"] == "success"
+        assert rows[0]["method"] == "NearestNeighbor + 2-Opt (Fast Mode)"
+        assert float(rows[0]["percent_improvement"].rstrip("%")) == pytest.approx(87.6, abs=0.5)
+
+    def test_explicit_output_verbose_structural_pipeline(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Verbose fast-mode on a structural doc: DEBUG level, no stdout summary."""
+        from plt_optimizer.cli.optimize import run
+
+        plt_file = _write_structural_plt(tmp_path)
+        out_file = tmp_path / "nested" / "out.plt"
+        log_dir = tmp_path / "logs"
+        args = self._args(plt_file, output=out_file, log_dir=log_dir, verbose=True)
+
+        assert run(args) == 0
+        assert out_file.is_file()
+        # verbose=True raises the shared text logger to DEBUG.
+        assert logging.getLogger("plt_optimizer").level == logging.DEBUG
+        # The stdout summary is suppressed in verbose mode.
+        captured = capsys.readouterr()
+        assert "Optimized:" not in captured.out
+
+        rows = _read_metrics_rows(log_dir / "job_metrics.csv")
+        assert len(rows) == 1
+        assert rows[0]["status"] == "success"
+        assert rows[0]["optimized_file"] == "out"
+
+    def test_ensemble_branch_with_none_improvement(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Default (non-fast) mode builds ParallelEnsembleStrategy and logs all benchmarks.
+
+        OptimizerEngine is swapped for a fake returning a hand-built
+        ParallelEnsembleOptimizationResult whose benchmarks mix a None and a
+        non-None improvement_percent, exercising both formatting sub-branches
+        of the benchmark logging and notes building without spawning workers.
+        """
+        from plt_optimizer.cli.optimize import run
+        from plt_optimizer.core.optimizer import (
+            BlockTraverseState,
+            OptimizationResult,
+            ParallelEnsembleOptimizationResult,
+            ParallelEnsembleStrategy,
+            StrategyBenchmarkResult,
+        )
+
+        captured_strategies: List[Any] = []
+
+        def _fake_engine_factory(strategy: Any) -> Any:
+            class _FakeEngine:
+                def __init__(self, strategy: Any) -> None:
+                    captured_strategies.append(strategy)
+
+                def optimize(self, blocks: List[Any]) -> Any:
+                    traverse = tuple(
+                        BlockTraverseState(
+                            block_id=block.block_id,
+                            reversed=False,
+                            entrance=block.entrance.as_tuple(),
+                            exit=block.exit.as_tuple(),
+                        )
+                        for block in blocks
+                    )
+                    inner = OptimizationResult(
+                        traverse_order=traverse,
+                        connections=(),
+                        total_travel_distance=42.0,
+                        initial_position=None,
+                    )
+                    bench_none = StrategyBenchmarkResult(
+                        strategy_name="NoOp (Baseline)",
+                        result=inner,
+                        execution_time_seconds=0.01,
+                        improvement_percent=None,
+                    )
+                    bench_val = StrategyBenchmarkResult(
+                        strategy_name="Genetic Algorithm",
+                        result=inner,
+                        execution_time_seconds=0.02,
+                        improvement_percent=25.0,
+                    )
+                    return ParallelEnsembleOptimizationResult(
+                        result=inner,
+                        winner_name="Genetic Algorithm",
+                        all_benchmarks=(bench_none, bench_val),
+                    )
+
+            return _FakeEngine(strategy)
+
+        monkeypatch.setattr("plt_optimizer.cli.optimize.OptimizerEngine", _fake_engine_factory)
+
+        plt_file = _write_text_plt(tmp_path)
+        log_dir = tmp_path / "logs"
+        args = self._args(plt_file, log_dir=log_dir, fast_mode=False)
+
+        assert run(args) == 0
+        assert (tmp_path / "text_optimized.plt").is_file()
+        assert len(captured_strategies) == 1
+        assert isinstance(captured_strategies[0], ParallelEnsembleStrategy)
+
+        captured = capsys.readouterr()
+        assert "Optimized: text.plt -> text_optimized.plt (saved 94.8%)" in captured.out
+
+        rows = _read_metrics_rows(log_dir / "job_metrics.csv")
+        assert len(rows) == 1
+        assert rows[0]["method"] == "Genetic Algorithm"
+        # Notes join both benchmarks: None renders as N/A, 25.0 as a percent.
+        assert "NoOp (Baseline): 42.000 (improvement=N/A)" in rows[0]["notes"]
+        assert "Genetic Algorithm: 42.000 (improvement=25.00%)" in rows[0]["notes"]
+
+    def test_benchmark_log_includes_no_baseline_line(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A benchmark with None improvement_percent logs 'no baseline comparison'."""
+        from plt_optimizer.cli.optimize import run
+        from plt_optimizer.core.optimizer import (
+            BlockTraverseState,
+            OptimizationResult,
+            ParallelEnsembleOptimizationResult,
+            StrategyBenchmarkResult,
+        )
+
+        def _fake_engine_factory(strategy: Any) -> Any:
+            class _FakeEngine:
+                def __init__(self, strategy: Any) -> None:
+                    pass
+
+                def optimize(self, blocks: List[Any]) -> Any:
+                    traverse = tuple(
+                        BlockTraverseState(
+                            block_id=block.block_id,
+                            reversed=False,
+                            entrance=block.entrance.as_tuple(),
+                            exit=block.exit.as_tuple(),
+                        )
+                        for block in blocks
+                    )
+                    inner = OptimizationResult(
+                        traverse_order=traverse,
+                        connections=(),
+                        total_travel_distance=10.0,
+                        initial_position=None,
+                    )
+                    bench = StrategyBenchmarkResult(
+                        strategy_name="Insertion Heuristic",
+                        result=inner,
+                        execution_time_seconds=0.5,
+                        improvement_percent=None,
+                    )
+                    return ParallelEnsembleOptimizationResult(
+                        result=inner,
+                        winner_name="Insertion Heuristic",
+                        all_benchmarks=(bench,),
+                    )
+
+            return _FakeEngine(strategy)
+
+        monkeypatch.setattr("plt_optimizer.cli.optimize.OptimizerEngine", _fake_engine_factory)
+        caplog.set_level(logging.DEBUG, logger="plt_optimizer")
+
+        plt_file = _write_text_plt(tmp_path)
+        args = self._args(plt_file, log_dir=tmp_path / "logs", fast_mode=False)
+
+        assert run(args) == 0
+        combined = "\n".join(r.getMessage() for r in caplog.records)
+        assert "Strategy benchmark results:" in combined
+        assert "no baseline comparison" in combined
+
+    def test_empty_blocks_returns_one(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When the Chunker yields no blocks, run() warns and exits 1."""
+        from plt_optimizer.cli.optimize import run
+
+        class _EmptyChunker:
+            def __init__(self, config: Any = None) -> None:
+                pass
+
+            def chunk(self, *args: Any, **kwargs: Any) -> List[Any]:
+                return []
+
+        monkeypatch.setattr("plt_optimizer.cli.optimize.Chunker", _EmptyChunker)
+
+        plt_file = _write_text_plt(tmp_path)
+        args = self._args(plt_file, log_dir=tmp_path / "logs")
+
+        assert run(args) == 1
+        assert not (tmp_path / "text_optimized.plt").exists()
+
+    def test_parse_failure_logs_failed_metrics(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A parse-time exception exits 1 and records a 'failed' CSV row."""
+        from plt_optimizer.cli.optimize import run
+
+        class _BoomParser:
+            def parse_file(self, path: Path) -> Any:
+                raise RuntimeError("boom")
+
+        monkeypatch.setattr("plt_optimizer.cli.optimize.PLTParser", _BoomParser)
+
+        plt_file = _write_text_plt(tmp_path)
+        log_dir = tmp_path / "logs"
+        args = self._args(plt_file, log_dir=log_dir)
+
+        assert run(args) == 1
+        rows = _read_metrics_rows(log_dir / "job_metrics.csv")
+        assert len(rows) == 1
+        assert rows[0]["status"] == "failed"
+        assert "boom" in rows[0]["notes"]
+        assert rows[0]["optimized_file"] == ""
+
+    def test_parse_failure_verbose_logs_traceback(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Verbose mode dumps the full traceback when the pipeline raises."""
+        from plt_optimizer.cli.optimize import run
+
+        class _BoomParser:
+            def parse_file(self, path: Path) -> Any:
+                raise RuntimeError("kaboom")
+
+        monkeypatch.setattr("plt_optimizer.cli.optimize.PLTParser", _BoomParser)
+        caplog.set_level(logging.DEBUG, logger="plt_optimizer")
+
+        plt_file = _write_text_plt(tmp_path)
+        args = self._args(plt_file, log_dir=tmp_path / "logs", verbose=True)
+
+        assert run(args) == 1
+        combined = "\n".join(r.getMessage() for r in caplog.records)
+        assert "Optimization failed: kaboom" in combined
+        assert "Traceback (most recent call last)" in combined
+
+    def test_zero_original_distance_reports_zero_improvement(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A single-path doc has zero rapid travel; improvement prints as 0.0%."""
+        from plt_optimizer.cli.optimize import run
+
+        plt_file = _write_text_plt(tmp_path, paths=1)
+        log_dir = tmp_path / "logs"
+        args = self._args(plt_file, log_dir=log_dir)
+
+        assert run(args) == 0
+        captured = capsys.readouterr()
+        assert "saved 0.0%" in captured.out
+
+        rows = _read_metrics_rows(log_dir / "job_metrics.csv")
+        assert len(rows) == 1
+        assert rows[0]["status"] == "success"
+        assert float(rows[0]["percent_improvement"].rstrip("%")) == pytest.approx(0.0)
 
 
 class TestHelpDisplay:
