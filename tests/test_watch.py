@@ -15,9 +15,13 @@ import signal
 import threading
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING, Dict, Optional
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+if TYPE_CHECKING:
+    from plt_optimizer.cli.watch import PLTFileHandler
 
 
 class TestPLTFileHandlerSupportedExtensions:
@@ -4935,5 +4939,372 @@ class TestParseArgsDebounceSeconds:
         # Handler should have been constructed with the custom debounce value
         kwargs = MockHandler.call_args.kwargs
         assert kwargs["debounce_seconds"] == 7.5
+
+
+class TestProcessFileTempCleanupAndArchiveGaps:
+    """Tests for temp-file cleanup and archive/delete edge paths in _process_file.
+
+    Covers: temp unlink failure after a failed write, the "input already
+    deleted or moved" debug branches for both processed-dir and delete
+    modes, and the fallback-copy input-unlink OSError branch.
+    """
+
+    def _make_handler(
+        self,
+        tmp_path: Path,
+        processed_dir: Optional[Path] = None,
+    ) -> PLTFileHandler:
+        """Build a handler with real watch/output directories.
+
+        Args:
+            tmp_path: pytest temporary directory.
+            processed_dir: Optional archive directory for processed files.
+
+        Returns:
+            A configured PLTFileHandler instance.
+        """
+        from plt_optimizer.cli.watch import PLTFileHandler
+
+        watch_dir = tmp_path / "watch"
+        output_dir = tmp_path / "output"
+        watch_dir.mkdir()
+        output_dir.mkdir()
+
+        return PLTFileHandler(
+            watch_dir=watch_dir,
+            output_dir=output_dir,
+            text_logger=MagicMock(),
+            metrics_logger=MagicMock(),
+            processed_dir=processed_dir,
+        )
+
+    def _run_pipeline(
+        self,
+        handler: PLTFileHandler,
+        test_file: Path,
+        write_side_effect: object = None,
+    ) -> bool:
+        """Run _process_file with the optimization pipeline mocked out.
+
+        Args:
+            handler: Handler under test (its _writer is replaced by a mock).
+            test_file: Input PLT file to process.
+            write_side_effect: Optional side_effect for writer.write_file;
+                defaults to a fake write that creates a real temp file.
+
+        Returns:
+            The boolean result of _process_file.
+        """
+        from contextlib import ExitStack
+
+        from plt_optimizer.core.writer import PLTWriter
+
+        mock_doc = MagicMock()
+        mock_doc.stroke_paths = [MagicMock()]
+
+        writer = MagicMock(spec=PLTWriter)
+        writer._ensure_filename_length.side_effect = lambda p: p
+        if write_side_effect is not None:
+            writer.write_file.side_effect = write_side_effect
+        else:
+
+            def _fake_write(_doc: object, path: Path) -> None:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("fake plt content", encoding="utf-8")
+
+            writer.write_file.side_effect = _fake_write
+        handler._writer = writer
+
+        with ExitStack() as stack:
+            mock_parser = stack.enter_context(patch.object(handler, "_parser"))
+            mock_parser.parse_file.return_value = mock_doc
+            mock_profiler = stack.enter_context(
+                patch("plt_optimizer.cli.watch.Profiler")
+            )
+            mock_profiler.return_value.profile.return_value = MagicMock(
+                is_structural=False, baseline_extent=10.0
+            )
+            mock_metrics = stack.enter_context(
+                patch("plt_optimizer.cli.watch.MetricsCalculator")
+            )
+            mock_metrics.return_value.calculate_original_travel_distance.return_value = (
+                1000.0
+            )
+            mock_chunker = stack.enter_context(
+                patch("plt_optimizer.cli.watch.Chunker")
+            )
+            mock_chunker.return_value.chunk.return_value = [MagicMock()]
+            mock_opt = stack.enter_context(
+                patch("plt_optimizer.cli.watch.OptimizerEngine")
+            )
+            mock_opt.return_value.optimize.return_value = MagicMock(
+                total_travel_distance=800.0
+            )
+            mock_reasm = stack.enter_context(
+                patch("plt_optimizer.cli.watch.Reassembler")
+            )
+            mock_reasm.return_value.reassemble.return_value = mock_doc
+            return handler._process_file(test_file)
+
+    def test_write_failure_unlink_error_is_swallowed(self, tmp_path: Path) -> None:
+        """A failed write whose temp-file cleanup also fails must not crash.
+
+        Covers the ``except OSError: pass`` around the temp-file unlink in
+        the write-failure branch, plus the input-unlink OSError branch in
+        the fallback copy path (the patched unlink fails there too).
+        """
+        handler = self._make_handler(tmp_path)
+        test_file = tmp_path / "watch" / "test.plt"
+        test_file.write_text("IN;PD100,100;SP;\n")
+
+        def _write_then_fail(_doc: object, path: Path) -> None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("partial", encoding="utf-8")
+            raise RuntimeError("write failed")
+
+        with patch.object(Path, "unlink", side_effect=OSError("locked")):
+            result = self._run_pipeline(handler, test_file, write_side_effect=_write_then_fail)
+
+        assert result is False
+        # Cleanup failed, so the partial temp file must still be present.
+        assert (handler._temp_dir / "test_optimized.plt").exists()
+        # Fallback copy succeeded but deleting the input raised OSError -> warning.
+        handler._text_logger.warning.assert_called()
+
+    def test_processed_dir_input_already_deleted_logs_debug(self, tmp_path: Path) -> None:
+        """With processed_dir set, a vanished input logs a debug line (no move)."""
+        processed_dir = tmp_path / "processed"
+        processed_dir.mkdir()
+        handler = self._make_handler(tmp_path, processed_dir=processed_dir)
+        test_file = tmp_path / "watch" / "test.plt"
+        test_file.write_text("IN;PD100,100;SP;\n")
+
+        def _write_and_delete_input(_doc: object, path: Path) -> None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("fake plt content", encoding="utf-8")
+            test_file.unlink()
+
+        result = self._run_pipeline(handler, test_file, write_side_effect=_write_and_delete_input)
+
+        assert result is True
+        debug_messages = [call[0][0] for call in handler._text_logger.debug.call_args_list]
+        assert any("already deleted or moved" in msg for msg in debug_messages)
+
+    def test_delete_mode_input_already_deleted_logs_debug(self, tmp_path: Path) -> None:
+        """Without processed_dir, a vanished input logs a debug line (no delete)."""
+        handler = self._make_handler(tmp_path)
+        test_file = tmp_path / "watch" / "test.plt"
+        test_file.write_text("IN;PD100,100;SP;\n")
+
+        def _write_and_delete_input(_doc: object, path: Path) -> None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("fake plt content", encoding="utf-8")
+            test_file.unlink()
+
+        result = self._run_pipeline(handler, test_file, write_side_effect=_write_and_delete_input)
+
+        assert result is True
+        debug_messages = [call[0][0] for call in handler._text_logger.debug.call_args_list]
+        assert any("was already deleted" in msg for msg in debug_messages)
+
+    def test_fallback_copy_input_unlink_error_warns(self, tmp_path: Path) -> None:
+        """Failing to delete the input after the fallback copy logs a warning."""
+        handler = self._make_handler(tmp_path)
+        test_file = tmp_path / "watch" / "test.plt"
+        test_file.write_text("IN;PD100,100;SP;\n")
+
+        with patch.object(handler, "_parser") as mock_parser:
+            mock_parser.parse_file.side_effect = RuntimeError("Parse failed")
+            with patch.object(Path, "unlink", side_effect=OSError("locked")):
+                result = handler._process_file(test_file)
+
+        assert result is False
+        # The unprocessed fallback still lands in the output directory.
+        assert (handler._output_dir / "test_unprocessed.plt").exists()
+        warning_messages = [call[0][0] for call in handler._text_logger.warning.call_args_list]
+        assert any("Failed to remove input file" in msg for msg in warning_messages)
+
+
+class TestRunWatcherFromConfigEnqueueGaps:
+    """Tests for the existing-file scan loop in run_watcher_from_config."""
+
+    def _make_config(self, tmp_path: Path) -> Dict[str, str]:
+        """Create watch/output/log directories and return a matching config dict.
+
+        Args:
+            tmp_path: pytest temporary directory.
+
+        Returns:
+            Configuration dictionary for run_watcher_from_config.
+        """
+        watch_dir = tmp_path / "watch"
+        output_dir = tmp_path / "output"
+        log_dir = tmp_path / "logs"
+        watch_dir.mkdir()
+        output_dir.mkdir()
+        log_dir.mkdir()
+        return {
+            "watch_dir": str(watch_dir),
+            "output_dir": str(output_dir),
+            "log_dir": str(log_dir),
+        }
+
+    def test_enqueue_error_is_logged_and_scan_continues(self, tmp_path: Path) -> None:
+        """An exception while enqueuing one file is logged; the scan continues."""
+        from plt_optimizer.cli.watch import run_watcher_from_config
+
+        config = self._make_config(tmp_path)
+        (tmp_path / "watch" / "a.plt").write_text("IN;SP;\n", encoding="utf-8")
+
+        stop_event = threading.Event()
+
+        with patch("plt_optimizer.utils.logging.setup_logging") as mock_setup:
+            text_logger = MagicMock()
+            mock_setup.return_value = (text_logger, MagicMock())
+
+            with patch("plt_optimizer.cli.watch.PLTFileHandler") as MockHandler:
+                inst = MagicMock()
+                inst._is_plt_file.return_value = True
+                inst._should_process.return_value = True
+                inst._enqueue_file.side_effect = RuntimeError("enqueue boom")
+                MockHandler.return_value = inst
+
+                with patch("signal.pause", side_effect=KeyboardInterrupt, create=True):
+                    result = run_watcher_from_config(config, stop_event)
+
+        assert result == 0
+        error_messages = [call[0][0] for call in text_logger.error.call_args_list]
+        assert any("Error enqueuing" in msg for msg in error_messages)
+
+    def test_iterdir_failure_stops_handler_and_reraises(self, tmp_path: Path) -> None:
+        """A failing watch-dir scan stops the started handler and re-raises."""
+        from plt_optimizer.cli.watch import run_watcher_from_config
+
+        config = self._make_config(tmp_path)
+        stop_event = threading.Event()
+
+        with patch("plt_optimizer.utils.logging.setup_logging") as mock_setup:
+            mock_setup.return_value = (MagicMock(), MagicMock())
+
+            with patch("plt_optimizer.cli.watch.PLTFileHandler") as MockHandler:
+                inst = MagicMock()
+                MockHandler.return_value = inst
+
+                with patch.object(Path, "iterdir", side_effect=PermissionError("denied")):
+                    with pytest.raises(PermissionError):
+                        run_watcher_from_config(config, stop_event)
+
+        inst.stop.assert_called_once()
+
+
+class TestWatchCommandNamespaceInit:
+    """Tests for WatchCommand.__init__ with a pre-parsed argparse.Namespace."""
+
+    def test_namespace_is_used_verbatim_with_default_log_dir_flag(self) -> None:
+        """A Namespace without _log_dir_explicitly_set defaults it to True."""
+        import argparse
+
+        from plt_optimizer.cli.watch import WatchCommand
+
+        ns = argparse.Namespace(
+            watch_dir=Path("/watch"),
+            output_dir=Path("/output"),
+            log_dir=Path("/logs"),
+            processed_dir=None,
+            fast_mode=False,
+            debug_save_files=False,
+            debounce_seconds=2.0,
+        )
+
+        cmd = WatchCommand(args=ns)
+
+        assert cmd._args is ns
+        assert cmd._log_dir_explicitly_set is True
+
+    def test_namespace_explicit_log_dir_flag_is_respected(self) -> None:
+        """A Namespace carrying _log_dir_explicitly_set keeps its value."""
+        import argparse
+
+        from plt_optimizer.cli.watch import WatchCommand
+
+        ns = argparse.Namespace(
+            watch_dir=Path("/watch"),
+            output_dir=Path("/output"),
+            log_dir=Path("/logs"),
+            processed_dir=None,
+            fast_mode=False,
+            debug_save_files=False,
+            debounce_seconds=2.0,
+            _log_dir_explicitly_set=False,
+        )
+
+        cmd = WatchCommand(args=ns)
+
+        assert cmd._args is ns
+        assert cmd._log_dir_explicitly_set is False
+
+
+class TestProcessExistingFilesIterdirFailure:
+    """Tests for _process_existing_files when the watch-dir scan fails."""
+
+    def test_iterdir_failure_stops_handler_and_reraises(self, tmp_path: Path) -> None:
+        """The started handler is stopped (and cleared) before re-raising."""
+        from plt_optimizer.cli.watch import WatchCommand
+
+        watch_dir = tmp_path / "watch"
+        watch_dir.mkdir()
+
+        with patch.object(WatchCommand, "_setup_logging"):
+            cmd = WatchCommand(args=[
+                "--watch-dir", str(watch_dir),
+                "--output-dir", str(tmp_path / "output"),
+                "--log-dir", str(tmp_path / "logs"),
+            ])
+            cmd._text_logger = MagicMock()
+            cmd._metrics_logger = MagicMock()
+
+            with patch("plt_optimizer.cli.watch.PLTFileHandler") as MockHandler:
+                inst = MagicMock()
+                MockHandler.return_value = inst
+
+                with patch.object(Path, "iterdir", side_effect=PermissionError("denied")):
+                    with pytest.raises(PermissionError):
+                        cmd._process_existing_files()
+
+        inst.stop.assert_called_once()
+        assert cmd._existing_handler is None
+
+
+class TestSignalHandlerWithoutLogger:
+    """Tests for _signal_handler before logging is initialized."""
+
+    def test_sets_shutdown_flag_without_text_logger(self) -> None:
+        """A signal received with no logger still requests shutdown."""
+        from plt_optimizer.cli.watch import WatchCommand
+
+        with patch.object(WatchCommand, "_setup_logging"):
+            cmd = WatchCommand(args=["--watch-dir", "/tmp"])
+            cmd._text_logger = None
+            cmd._shutdown_requested = False
+
+            cmd._signal_handler(signal.SIGTERM, None)
+
+            assert cmd._shutdown_requested is True
+
+
+class TestRunFunctionEntry:
+    """Tests for the module-level run() subcommand entry point."""
+
+    def test_run_wraps_watch_command_and_returns_exit_code(self) -> None:
+        """run() builds a WatchCommand from the namespace and returns its code."""
+        from plt_optimizer.cli.watch import WatchCommand, run, setup_parser
+
+        args = setup_parser().parse_args(["--watch-dir", "/tmp"])
+
+        with patch.object(WatchCommand, "run", return_value=0) as mock_run:
+            result = run(args)
+
+        assert result == 0
+        mock_run.assert_called_once()
 
 
