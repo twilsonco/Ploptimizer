@@ -890,6 +890,438 @@ class TestOptimizeRun:
         assert float(rows[0]["percent_improvement"].rstrip("%")) == pytest.approx(0.0)
 
 
+class TestGenerateRun:
+    """End-to-end tests for plt_optimizer.cli.generate.run().
+
+    ``run()`` hardcodes ``./logs_generate`` as its log directory, so every
+    test chdirs into ``tmp_path`` (via monkeypatch) and asserts the repo's
+    ``logs_generate/`` stays untouched. The module-level logging singletons
+    are reset per test (same isolation pattern as :class:`TestOptimizeRun`)
+    so logger handlers never keep file handles open in the repo.
+    """
+
+    @pytest.fixture(autouse=True)
+    def isolated_run_env(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+        """Confine every run() side effect to tmp_path and reset loggers.
+
+        Args:
+            tmp_path: Pytest-provided temporary directory (becomes cwd).
+            monkeypatch: Pytest monkeypatch fixture.
+
+        Yields:
+            Nothing; restores logger handlers, level, and module singletons
+            after each test.
+        """
+        import plt_optimizer.utils.logging as logging_module
+
+        monkeypatch.chdir(tmp_path)
+        logger = logging.getLogger("plt_optimizer")
+        saved_text = logging_module._text_logger
+        saved_csv = logging_module._csv_logger
+        saved_level = logger.level
+        saved_handlers = list(logger.handlers)
+        for handler in saved_handlers:
+            logger.removeHandler(handler)
+        logging_module._text_logger = None
+        logging_module._csv_logger = None
+        try:
+            yield
+        finally:
+            for handler in list(logger.handlers):
+                logger.removeHandler(handler)
+                handler.close()
+            for handler in saved_handlers:
+                logger.addHandler(handler)
+            logger.setLevel(saved_level)
+            logging_module._text_logger = saved_text
+            logging_module._csv_logger = saved_csv
+
+    @staticmethod
+    def _args(
+        spec: Path,
+        output: Optional[Path] = None,
+        verbose: bool = False,
+        no_plots: bool = True,
+        default_plots: bool = False,
+        tools: Optional[Path] = None,
+    ) -> argparse.Namespace:
+        """Build an argparse.Namespace matching generate's expected attributes.
+
+        Args:
+            spec: Value for the positional spec argument.
+            output: Value for -o/--output (None triggers the spec-parent
+                default).
+            verbose: Value for -v/--verbose.
+            no_plots: Value for --no-plots.
+            default_plots: Value for --default-plots.
+            tools: Value for --tools (None selects the tools.json default).
+
+        Returns:
+            Namespace consumable by generate.run().
+        """
+        return argparse.Namespace(
+            spec=spec,
+            output=output,
+            verbose=verbose,
+            no_plots=no_plots,
+            default_plots=default_plots,
+            tools=tools if tools is not None else Path("tools.json"),
+        )
+
+    @staticmethod
+    def _write_spec(directory: Path, name: str = "spec.yaml") -> Path:
+        """Write a minimal valid label-list job spec into ``directory``.
+
+        Args:
+            directory: Directory to write into.
+            name: File name for the YAML spec.
+
+        Returns:
+            Path to the written spec file.
+        """
+        spec_file = directory / name
+        spec_file.write_text(
+            "job:\n"
+            "  job_name: Generate Run Job\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 12.0\n"
+            "      margin: 0.25\n"
+            "      clearance_padding: 0.125\n"
+            "  labels:\n"
+            "    - id: l1\n"
+            "      count: 1\n"
+            "      width: 2.0\n"
+            "      height: 1.0\n"
+            "      content:\n"
+            "        - text: Hello\n"
+            "          height: 0.5\n",
+            encoding="utf-8",
+        )
+        return spec_file
+
+    # ------------------------------------------------------------------
+    # _load_cutter_inventory (pure function)
+    # ------------------------------------------------------------------
+
+    def test_inventory_missing_file_returns_nones(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A missing tools.json short-circuits to ideal cutters silently."""
+        from plt_optimizer.cli.generate import _load_cutter_inventory
+
+        inventory, boundary = _load_cutter_inventory(tmp_path / "nope.json")
+        assert inventory is None
+        assert boundary is None
+        assert capsys.readouterr().out == ""
+
+    def test_inventory_invalid_json_returns_nones(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Malformed JSON is swallowed into (None, None) without printing."""
+        from plt_optimizer.cli.generate import _load_cutter_inventory
+
+        bad = tmp_path / "tools.json"
+        bad.write_text("{not json", encoding="utf-8")
+
+        inventory, boundary = _load_cutter_inventory(bad)
+        assert inventory is None
+        assert boundary is None
+        assert capsys.readouterr().out == ""
+
+    def test_inventory_open_oserror_returns_nones(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An OSError while reading the file also degrades to (None, None)."""
+        import builtins
+
+        from plt_optimizer.cli.generate import _load_cutter_inventory
+
+        tools = tmp_path / "tools.json"
+        tools.write_text('{"available_cutters": [0.03]}', encoding="utf-8")
+
+        def _boom(*args: Any, **kwargs: Any) -> None:
+            raise OSError("permission denied")
+
+        monkeypatch.setattr(builtins, "open", _boom)
+        inventory, boundary = _load_cutter_inventory(tools)
+        assert inventory is None
+        assert boundary is None
+
+    def test_inventory_both_keys_returns_values_and_prints(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A full inventory returns both values and prints both notices."""
+        from plt_optimizer.cli.generate import _load_cutter_inventory
+
+        tools = tmp_path / "tools.json"
+        tools.write_text(
+            '{"available_cutters": [0.03, 0.06], "boundary_hole_cutter_size": 0.015}',
+            encoding="utf-8",
+        )
+
+        inventory, boundary = _load_cutter_inventory(tools)
+        assert inventory is not None
+        assert inventory == pytest.approx([0.03, 0.06])
+        assert boundary == pytest.approx(0.015)
+        captured = capsys.readouterr()
+        assert "Loaded cutter inventory" in captured.out
+        assert "Loaded boundary/hole cutter size: 0.015" in captured.out
+
+    def test_inventory_keys_absent_returns_nones_without_prints(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A JSON file lacking both keys yields (None, None) and stays quiet."""
+        from plt_optimizer.cli.generate import _load_cutter_inventory
+
+        tools = tmp_path / "tools.json"
+        tools.write_text('{"description": "empty shop"}', encoding="utf-8")
+
+        inventory, boundary = _load_cutter_inventory(tools)
+        assert inventory is None
+        assert boundary is None
+        assert capsys.readouterr().out == ""
+
+    # ------------------------------------------------------------------
+    # run(): validation and logging setup
+    # ------------------------------------------------------------------
+
+    def test_missing_spec_returns_one(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+        """A nonexistent spec path aborts with exit code 1 before logging."""
+        from plt_optimizer.cli.generate import run
+
+        args = self._args(tmp_path / "missing.yaml")
+        assert run(args) == 1
+        assert "does not exist" in capsys.readouterr().err
+
+    def test_directory_spec_returns_one(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A directory passed as the spec aborts with exit code 1."""
+        from plt_optimizer.cli.generate import run
+
+        args = self._args(tmp_path)
+        assert run(args) == 1
+        assert "not a file" in capsys.readouterr().err
+
+    def test_log_dir_permission_error_returns_one(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A PermissionError creating ./logs_generate aborts before parsing."""
+        from plt_optimizer.cli.generate import run
+
+        spec_file = self._write_spec(tmp_path)
+        original_mkdir = Path.mkdir
+
+        def _guarded_mkdir(self_path: Path, *args: Any, **kwargs: Any) -> None:
+            if self_path.name == "logs_generate":
+                raise PermissionError("denied")
+            original_mkdir(self_path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "mkdir", _guarded_mkdir)
+        args = self._args(spec_file)
+
+        assert run(args) == 1
+        assert "Cannot create log directory" in capsys.readouterr().err
+
+    def test_verbose_sets_debug_level(self, tmp_path: Path) -> None:
+        """-v raises the shared plt_optimizer logger to DEBUG for the run."""
+        from plt_optimizer.cli.generate import run
+
+        spec_file = self._write_spec(tmp_path)
+        args = self._args(spec_file, verbose=True)
+
+        assert run(args) == 0
+        assert logging.getLogger("plt_optimizer").level == logging.DEBUG
+
+    # ------------------------------------------------------------------
+    # run(): parse-stage error handling
+    # ------------------------------------------------------------------
+
+    def test_invalid_spec_returns_one(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+        """A spec failing Pydantic validation aborts with a parse error."""
+        from plt_optimizer.cli.generate import run
+
+        spec_file = tmp_path / "bad.yaml"
+        spec_file.write_text(
+            "job:\n  job_name: Bad\n  count: -1\n  content:\n    - text: Hi\n",
+            encoding="utf-8",
+        )
+        args = self._args(spec_file)
+
+        assert run(args) == 1
+        assert "Error parsing specification" in capsys.readouterr().err
+
+    def test_root_level_job_without_plates_prints_zero_counts(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Root-level content jobs exercise the labels/plates None branches.
+
+        Pattern 2 (root-level ``content`` + ``count``, no ``labels`` key and
+        no ``plates`` key) must print zero counts and still export onto the
+        default plate.
+        """
+        from plt_optimizer.cli.generate import run
+
+        spec_file = tmp_path / "root.yaml"
+        spec_file.write_text(
+            "job:\n"
+            "  job_name: Root Job\n"
+            "  width: 2.0\n"
+            "  height: 1.0\n"
+            "  count: 2\n"
+            "  content:\n"
+            "    - text: Root\n"
+            "      text_height: 0.4\n",
+            encoding="utf-8",
+        )
+        args = self._args(spec_file, output=tmp_path / "out")
+
+        assert run(args) == 0
+        captured = capsys.readouterr()
+        assert "0 plates" in captured.out
+        assert "0 unique labels" in captured.out
+        assert list((tmp_path / "out" / "plt").glob("*.plt"))
+
+    # ------------------------------------------------------------------
+    # run(): export-stage error handling
+    # ------------------------------------------------------------------
+
+    def test_label_render_error_aborts_job(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A LabelRenderError from export is logged and aborts with exit 1."""
+        from plt_optimizer.cli.generate import run
+        from plt_optimizer.generate.label_renderer import LabelRenderError
+
+        def _boom(*args: Any, **kwargs: Any) -> None:
+            raise LabelRenderError("boom")
+
+        monkeypatch.setattr("plt_optimizer.cli.generate.export_per_cutter_plts", _boom)
+        caplog.set_level(logging.DEBUG, logger="plt_optimizer")
+        spec_file = self._write_spec(tmp_path)
+        args = self._args(spec_file)
+
+        assert run(args) == 1
+        assert "Error: boom" in capsys.readouterr().err
+        assert "Generation aborted: boom" in caplog.text
+
+    def test_layout_fit_error_aborts_job(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A LayoutFitError from export is logged and aborts with exit 1."""
+        from plt_optimizer.cli.generate import run
+        from plt_optimizer.generate.layout import LayoutFitError
+
+        def _boom(*args: Any, **kwargs: Any) -> None:
+            raise LayoutFitError("no room")
+
+        monkeypatch.setattr("plt_optimizer.cli.generate.export_per_cutter_plts", _boom)
+        caplog.set_level(logging.DEBUG, logger="plt_optimizer")
+        spec_file = self._write_spec(tmp_path)
+        args = self._args(spec_file)
+
+        assert run(args) == 1
+        assert "Error: no room" in capsys.readouterr().err
+        assert "Layout failed: no room" in caplog.text
+
+    def test_os_error_during_export_aborts_job(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """An OSError during export (e.g. disk full) aborts with exit 1."""
+        from plt_optimizer.cli.generate import run
+
+        def _boom(*args: Any, **kwargs: Any) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr("plt_optimizer.cli.generate.export_per_cutter_plts", _boom)
+        caplog.set_level(logging.DEBUG, logger="plt_optimizer")
+        spec_file = self._write_spec(tmp_path)
+        args = self._args(spec_file)
+
+        assert run(args) == 1
+        assert "Error: disk full" in capsys.readouterr().err
+        assert "Generation failed: disk full" in caplog.text
+
+    # ------------------------------------------------------------------
+    # run(): success reporting
+    # ------------------------------------------------------------------
+
+    def test_default_output_dir_is_spec_parent(self, tmp_path: Path) -> None:
+        """With -o omitted, PLTs land in plt/ next to the spec file.
+
+        Also asserts the repo's ``logs_generate/`` is untouched: run() must
+        log into ./logs_generate under the (tmp) cwd instead.
+        """
+        from plt_optimizer.cli.generate import run
+
+        repo_log = Path(__file__).resolve().parents[1] / "logs_generate" / "generate.log"
+        repo_before = repo_log.stat().st_mtime_ns if repo_log.exists() else None
+
+        spec_file = self._write_spec(tmp_path)
+        args = self._args(spec_file)
+
+        assert run(args) == 0
+        plt_files = list((tmp_path / "plt").glob("*.plt"))
+        assert plt_files, "no per-cutter PLT files written next to the spec"
+        assert all(p.name.endswith("_Generate_Run_Job.plt") for p in plt_files)
+        # run() logs into ./logs_generate under cwd (tmp_path), never the repo.
+        assert (tmp_path / "logs_generate" / "generate.log").is_file()
+
+        repo_after = repo_log.stat().st_mtime_ns if repo_log.exists() else None
+        assert repo_after == repo_before
+
+    def test_pdf_and_default_plot_paths_are_printed(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Non-empty pdf/default-pdf path lists are echoed to stdout."""
+        from plt_optimizer.cli.generate import run
+        from plt_optimizer.generate.vectorize import PerCutterExport
+
+        plt_path = tmp_path / "plt" / "01_text_0.060_job.plt"
+        pdf_path = tmp_path / "pdf" / "01_text_0.060_job.pdf"
+        default_pdf = tmp_path / "pdf" / "01_all_job_default.pdf"
+
+        def _fake_export(*args: Any, **kwargs: Any) -> PerCutterExport:
+            return PerCutterExport(
+                plt_paths=[plt_path],
+                pdf_paths=[pdf_path],
+                default_pdf_paths=[default_pdf],
+            )
+
+        monkeypatch.setattr("plt_optimizer.cli.generate.export_per_cutter_plts", _fake_export)
+        spec_file = self._write_spec(tmp_path)
+        args = self._args(spec_file)
+
+        assert run(args) == 0
+        captured = capsys.readouterr()
+        assert "Generated 1 per-cutter PLT file(s):" in captured.out
+        assert f"  {plt_path}" in captured.out
+        assert "Generated 1 PDF preview(s):" in captured.out
+        assert f"  {pdf_path}" in captured.out
+        assert "Generated 1 default plot(s):" in captured.out
+        assert f"  {default_pdf}" in captured.out
+
+
 class TestHelpDisplay:
     """Tests for help text display."""
 
