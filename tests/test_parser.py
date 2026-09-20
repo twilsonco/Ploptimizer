@@ -205,8 +205,7 @@ class TestStrokePathParsing:
 
         # Find a cutting segment
         cutting_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if seg.is_cutting
+            seg for path in doc.stroke_paths for seg in path.segments if seg.is_cutting
         ]
         assert len(cutting_segments) >= 1
 
@@ -236,6 +235,7 @@ class TestDistanceCalculation:
         if len(doc.stroke_paths) >= 1:
             path_dist = doc.stroke_paths[0].total_distance
             assert math.isclose(path_dist, 200.0, abs_tol=0.001)
+
 
 class TestParseErrorFormatting:
     """Tests for ParseError message formatting with line_number and token."""
@@ -394,9 +394,7 @@ class TestExtractCoordinatesEdgeCases:
         parser = PLTParser()
 
         # Pass tokens where next token contains coordinate pair after semicolon
-        coords, idx = parser._extract_coordinates(
-            "PD;", 0, ["PD;", "10.5,20.3;"]
-        )
+        coords, idx = parser._extract_coordinates("PD;", 0, ["PD;", "10.5,20.3;"])
 
         assert len(coords) == 1
         assert math.isclose(coords[0].x, 10.5, abs_tol=0.001)
@@ -449,9 +447,7 @@ class TestPenSelectBreaksPath:
 
         # Rect1 has 4 cut segments; rect2 has 4. No diagonal (0,0)->(5000,2000).
         assert len(segments) == 8
-        spurious = [
-            s for s in segments if s[0] < 100 and s[1] < 50 and s[2] > 4000 and s[3] > 1500
-        ]
+        spurious = [s for s in segments if s[0] < 100 and s[1] < 50 and s[2] > 4000 and s[3] > 1500]
         assert not spurious, f"Found spurious cross-shape segment: {spurious}"
 
     def test_sp_footer_still_parsed(self) -> None:
@@ -565,8 +561,7 @@ class TestArcParsing:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 1
 
@@ -578,8 +573,7 @@ class TestArcParsing:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 1
 
@@ -591,8 +585,7 @@ class TestArcParsing:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 1
 
@@ -604,8 +597,7 @@ class TestArcParsing:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 1
 
@@ -624,13 +616,12 @@ class TestArcParsing:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 1
 
         arc = arc_segments[0]
-        expected_radius = math.sqrt(2 * (1016.0 ** 2))
+        expected_radius = math.sqrt(2 * (1016.0**2))
         assert math.isclose(arc.radius, expected_radius, abs_tol=0.001)
 
     def test_arc_segment_has_correct_sweep_angle(self) -> None:
@@ -641,8 +632,7 @@ class TestArcParsing:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 1
 
@@ -657,8 +647,7 @@ class TestArcParsing:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 1
 
@@ -668,18 +657,13 @@ class TestArcParsing:
 
     def test_multiple_arcs_in_sequence(self) -> None:
         """Test parsing multiple arc commands in sequence."""
-        content = (
-            "PU0.000,0.000;"
-            "PDAA1016.000,1016.000,90.000;"
-            "PDAA2032.000,0.000,180.000;"
-        )
+        content = "PU0.000,0.000;PDAA1016.000,1016.000,90.000;PDAA2032.000,0.000,180.000;"
         parser = PLTParser()
 
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 2
 
@@ -700,8 +684,7 @@ class TestParserBranchesAndEdgeCases:
 
         # Arc is skipped since no last_position established
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) == 0
 
@@ -769,19 +752,16 @@ class TestParserBranchesAndEdgeCases:
         # Create content where we have an unknown command with numeric params
         # that could match but actually fail to parse properly
         content = "IN;NOTAREALCMD999,888,777;"
-        doc = parser.parse_string(content)
+        parser.parse_string(content)
 
         # This specific case should not raise ParseError since the cmd is
         # treated as header and NOTAREALCMD with numeric params is valid header
 
     def test_extract_coordinates_non_numeric_second_value(self) -> None:
-
         """Test _extract_coordinates handles non-numeric second coord value."""
         parser = PLTParser()
 
-        coords, idx = parser._extract_coordinates(
-            "PU;", 0, ["PU;", "100.000,nan;"]
-        )
+        coords, idx = parser._extract_coordinates("PU;", 0, ["PU;", "100.000,nan;"])
 
         # Should have raised ParseError
         assert len(coords) == 0
@@ -794,8 +774,7 @@ class TestParserBranchesAndEdgeCases:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 1
 
@@ -808,8 +787,7 @@ class TestParserBranchesAndEdgeCases:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 1
 
@@ -898,8 +876,7 @@ class TestParserBranchesCoverage:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         # Should have both line segment and arc segment in the same path
         assert len(doc.stroke_paths) >= 1
@@ -916,10 +893,7 @@ class TestParserBranchesCoverage:
 
         doc = parser.parse_string(content)
 
-        arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
-        ]
+        [seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)]
         assert len(doc.stroke_paths) >= 1
 
     def test_arc_with_no_coords_and_subsequent_coord_token(self) -> None:
@@ -950,8 +924,7 @@ class TestParserBranchesCoverage:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 1
 
@@ -966,8 +939,7 @@ class TestParserBranchesCoverage:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 1
 
@@ -1036,9 +1008,7 @@ class TestParserBranchesCoverage:
         """
         parser = PLTParser()
 
-        coords, idx = parser._extract_coordinates(
-            "PD;", 0, ["PD;", "VS1.5;"]
-        )
+        coords, idx = parser._extract_coordinates("PD;", 0, ["PD;", "VS1.5;"])
 
         # Should not have consumed coordinates
         assert len(coords) == 0
@@ -1187,10 +1157,7 @@ class TestArcInSameTokenErrorPaths:
 
         doc = parser.parse_string(content)
 
-        arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
-        ]
+        [seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)]
         # Path should exist with arc segment added while pen was DOWN
         assert len(doc.stroke_paths) >= 1
 
@@ -1206,10 +1173,7 @@ class TestArcInSameTokenErrorPaths:
 
         doc = parser.parse_string(content)
 
-        arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
-        ]
+        [seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)]
         assert len(doc.stroke_paths) >= 1
 
     def test_pd_arc_same_token_no_coords_adds_to_path(self) -> None:
@@ -1222,10 +1186,7 @@ class TestArcInSameTokenErrorPaths:
 
         doc = parser.parse_string(content)
 
-        arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
-        ]
+        [seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)]
         # Should have a path with multiple segments including the arc
         assert len(doc.stroke_paths) >= 1
 
@@ -1359,17 +1320,13 @@ class TestEdgeCaseParsing:
 
     def test_multiple_arcs_in_sequence(self) -> None:
         """Test multiple arc commands in sequence."""
-        content = (
-            "PU0.000,0.000;PD100.000,100.000;"
-            "AA500.000,500.000,90;AR600.000,600.000,45;"
-        )
+        content = "PU0.000,0.000;PD100.000,100.000;AA500.000,500.000,90;AR600.000,600.000,45;"
         parser = PLTParser()
 
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 2
 
@@ -1438,8 +1395,7 @@ class TestRemainingCoverageTargets:
 
         assert isinstance(doc, PLTDocument)
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) == 0
 
@@ -1457,8 +1413,7 @@ class TestRemainingCoverageTargets:
         doc = parser.parse_string(content)
 
         arc_segments = [
-            seg for path in doc.stroke_paths
-            for seg in path.segments if isinstance(seg, ArcSegment)
+            seg for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
         ]
         assert len(arc_segments) >= 1
 
@@ -1540,3 +1495,44 @@ class TestRemainingCoverageTargets:
             assert math.isclose(coords[1].x, 300.0, abs_tol=0.001)
         finally:
             PLTParser.COORD_PATTERN = original_pattern
+
+
+class TestSpHeaderParseErrorAndCoordinateRemainder:
+    """Coverage for the SP<n> header error path and cross-token comma remainder."""
+
+    def test_build_document_sp_without_semicolon_raises_parse_error(self) -> None:
+        """Test _build_document re-raises malformed SP tokens as ParseError.
+
+        ``SP100`` matches the ``^SP\\d*$`` pen-select pattern but lacks the
+        trailing semicolon required by :meth:`HeaderCommand.from_token`, so
+        the ``except (ValueError, AttributeError)`` handler in the SP branch
+        must convert the failure into :class:`ParseError` (lines 287-288).
+        The tokenizer never emits semicolon-less tokens, so the method must
+        be called directly.
+        """
+        parser = PLTParser()
+
+        with pytest.raises(ParseError) as exc_info:
+            parser._build_document(["SP100"])
+
+        assert exc_info.value.token == "SP100"
+
+    def test_extract_coordinates_strips_trailing_comma_after_cross_token_coord(
+        self,
+    ) -> None:
+        """Test _extract_coordinates strips a comma left in rest after a match.
+
+        When a cross-token coordinate match consumes the whole pair but the
+        source token carries a trailing comma (``"100,200,"``), the remainder
+        after the match starts with ``,`` and must be stripped (lines 558-559)
+        before the next loop iteration; the coordinate itself is consumed
+        exactly once.
+        """
+        parser = PLTParser()
+
+        coords, idx = parser._extract_coordinates("PD;", 0, ["PD;", "100,200,"])
+
+        assert len(coords) == 1
+        assert math.isclose(coords[0].x, 100.0, abs_tol=0.001)
+        assert math.isclose(coords[0].y, 200.0, abs_tol=0.001)
+        assert idx == 2
