@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import math
 
 import pytest
@@ -12,7 +13,11 @@ from plt_optimizer.generate.layout import (
     LayoutFitError,
     PackedLabel,
     PackedPlate,
+    _extract_packed_plates,
+    _plate_footprint,
+    _render_labels_cache,
     generate_layout,
+    generate_layout_with_bounds,
     unroll_labels,
 )
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
@@ -33,14 +38,16 @@ def _make_label(
         width=width,
         height=height,
         margin=margin,
-        content=[ResolvedTextLine(
-            text="X",
-            nominal_text_height=0.5,
-            toolpath_text_height=0.5 - 0.03,
-            cutter_diameter=0.03,
-            character_spacing=0.0,
-            line_spacing=0.0,
-        )],
+        content=[
+            ResolvedTextLine(
+                text="X",
+                nominal_text_height=0.5,
+                toolpath_text_height=0.5 - 0.03,
+                cutter_diameter=0.03,
+                character_spacing=0.0,
+                line_spacing=0.0,
+            )
+        ],
     )
 
 
@@ -66,7 +73,7 @@ class TestUnrollLabels:
 
     def test_margin_added_to_packing_dimensions(self) -> None:
         """Margin is NOT included in packing dimensions.
-        
+
         Margin is applied during rendering only, not in packing.
         This ensures adjacent labels pack coincident with no gaps.
         """
@@ -157,9 +164,7 @@ class TestGenerateLayoutConstrained:
             _make_label(label_id="a", width=2.0, height=1.0),
             _make_label(label_id="b", width=2.0, height=1.0),
         ]
-        plates = [
-            PlateSpec(id="p1", width=24.0, height=12.0, margin=0.25, clearance_padding=0.125)
-        ]
+        plates = [PlateSpec(id="p1", width=24.0, height=12.0, margin=0.25, clearance_padding=0.125)]
         result = generate_layout(labels, plates)
         assert len(result) == 1
         assert len(result[0].labels) == 2
@@ -179,9 +184,7 @@ class TestGenerateLayoutConstrained:
     def test_fit_error_when_too_small(self) -> None:
         """LayoutFitError should be raised when labels don't fit."""
         labels = [_make_label(width=10.0, height=10.0)]
-        plates = [
-            PlateSpec(id="tiny", width=5.0, height=5.0, margin=0.0, clearance_padding=0.0)
-        ]
+        plates = [PlateSpec(id="tiny", width=5.0, height=5.0, margin=0.0, clearance_padding=0.0)]
         with pytest.raises(LayoutFitError) as exc_info:
             generate_layout(labels, plates)
         assert "Could only fit" in str(exc_info.value)
@@ -221,7 +224,7 @@ class TestPackedLabelCoordinates:
         plates = generate_layout(labels)
         for plate in plates:
             for i, a in enumerate(plate.labels):
-                for b in plate.labels[i + 1:]:
+                for b in plate.labels[i + 1 :]:
                     # Check non-overlap (with small tolerance)
                     overlap_x = a.x < b.x + b.width and b.x < a.x + a.width
                     overlap_y = a.y < b.y + b.height and b.y < a.y + a.height
@@ -267,7 +270,7 @@ class TestPackedPlateDataclass:
         packed = PackedLabel(
             label_id="x_0", x=0.0, y=0.0, width=1.0, height=1.0, rotated=False, source_label=label
         )
-        with pytest.raises(Exception):  # FrozenInstanceError
+        with pytest.raises(dataclasses.FrozenInstanceError):
             packed.x = 1.0  # type: ignore[misc]
 
 
@@ -322,15 +325,15 @@ class TestBestAlgorithmSelection:
         """The selected best-fit layout must never contain overlapping labels."""
         from plt_optimizer.generate.layout import generate_layout_with_bounds
 
-        labels = [
-            _make_label(label_id=f"l{i}", width=3.0, height=1.0) for i in range(4)
-        ] + [_make_label(label_id="wide", width=10.0, height=1.0)]
+        labels = [_make_label(label_id=f"l{i}", width=3.0, height=1.0) for i in range(4)] + [
+            _make_label(label_id="wide", width=10.0, height=1.0)
+        ]
 
         plates, _rendered = generate_layout_with_bounds(labels)
 
         for plate in plates:
             for i, a in enumerate(plate.labels):
-                for b in plate.labels[i + 1:]:
+                for b in plate.labels[i + 1 :]:
                     overlap_x = a.x < b.x + b.width and b.x < a.x + a.width
                     overlap_y = a.y < b.y + b.height and b.y < a.y + a.height
                     assert not (overlap_x and overlap_y), (
@@ -341,7 +344,7 @@ class TestBestAlgorithmSelection:
         """Footprint metric should be smaller for tighter layouts."""
         import rectpack
 
-        from plt_optimizer.generate.layout import _plate_footprint, PACK_CONFIGS
+        from plt_optimizer.generate.layout import PACK_CONFIGS, _plate_footprint
 
         # Build packers with the same 24x16 bin and confirm footprint is
         # positive (non-empty) across all candidate configurations.
@@ -361,3 +364,128 @@ class TestBestAlgorithmSelection:
 
         footprints = [_plate_footprint(build(a, s)) for a, s in PACK_CONFIGS]
         assert all(fp > 0 for fp in footprints)
+
+
+class _FakeRect:
+    """Minimal stand-in for a ``rectpack`` placed rectangle."""
+
+    def __init__(
+        self,
+        x: float,
+        y: float,
+        width: float,
+        height: float,
+        rid: object,
+    ) -> None:
+        """Store the placed rectangle geometry and its rid payload."""
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.rid = rid
+
+
+class _FakeBin:
+    """Minimal stand-in for a ``rectpack`` bin (plate) of placed rects."""
+
+    def __init__(
+        self,
+        bid: str,
+        rects: list[_FakeRect],
+        width: float = 24.0,
+        height: float = 16.0,
+    ) -> None:
+        """Store the bin identity and its placed rectangles."""
+        self.bid = bid
+        self.width = width
+        self.height = height
+        self._rects = rects
+
+    def __len__(self) -> int:
+        """Return the number of rectangles placed in this bin."""
+        return len(self._rects)
+
+    def __iter__(self) -> object:
+        """Iterate the placed rectangles."""
+        return iter(self._rects)
+
+
+class _FakePacker:
+    """Minimal stand-in for a packed ``rectpack`` packer (iterable of bins)."""
+
+    def __init__(self, bins: list[_FakeBin]) -> None:
+        """Store the bins to expose on iteration."""
+        self._bins = bins
+
+    def __iter__(self) -> object:
+        """Iterate the bins."""
+        return iter(self._bins)
+
+
+class TestRenderLabelsCacheDeduplication:
+    """Tests for the ID-based render cache used by rendered-bounds packing."""
+
+    def test_duplicate_ids_rendered_once(self) -> None:
+        """A repeated label ID must be served from the cache, not re-rendered."""
+        first = _make_label(label_id="dup", width=2.0, height=1.0)
+        second = _make_label(label_id="dup", width=2.0, height=1.0)
+
+        cache = _render_labels_cache([first, second])
+
+        assert list(cache) == ["dup"]
+        # The first render wins; the duplicate hit the cache (miss branch).
+        assert cache["dup"].source_label is first
+
+
+class TestEmptyBinHandling:
+    """Tests for discarding empty bins in packer result translation."""
+
+    def test_extract_packed_plates_skips_empty_bins(self) -> None:
+        """Empty auto-allocated bins must not surface as PackedPlates."""
+        label = _make_label(label_id="a", width=2.0, height=1.0)
+        empty = _FakeBin("default_plate_2", [])
+        filled = _FakeBin(
+            "default_plate_1",
+            [_FakeRect(0.0, 0.0, 2.0, 1.0, rid=("a_0", label))],
+        )
+
+        plates = _extract_packed_plates(_FakePacker([empty, filled]))
+
+        assert len(plates) == 1
+        assert plates[0].plate_id == "default_plate_1"
+        assert plates[0].labels[0].label_id == "a_0"
+
+    def test_plate_footprint_ignores_empty_bins(self) -> None:
+        """Empty bins must contribute zero to the footprint metric."""
+        empty = _FakeBin("default_plate_2", [])
+        filled = _FakeBin(
+            "default_plate_1",
+            [
+                _FakeRect(0.0, 0.0, 2.0, 1.0, rid=("a_0", None)),
+                _FakeRect(2.0, 0.0, 3.0, 1.0, rid=("b_0", None)),
+            ],
+        )
+
+        footprint = _plate_footprint(_FakePacker([empty, filled]))
+
+        # Bounding box of placed content: 5in wide x 1in tall.
+        assert footprint == pytest.approx(5.0)
+
+
+class TestGenerateLayoutWithBoundsFitErrors:
+    """LayoutFitError paths of generate_layout_with_bounds (rendered dims)."""
+
+    def test_constrained_overflow_raises(self) -> None:
+        """Constrained plates too small must raise the constrained-fit error."""
+        labels = [_make_label(width=10.0, height=10.0)]
+        plates = [PlateSpec(id="tiny", width=5.0, height=5.0, margin=0.0, clearance_padding=0.0)]
+        with pytest.raises(LayoutFitError) as exc_info:
+            generate_layout_with_bounds(labels, plates)
+        assert "Could only fit" in str(exc_info.value)
+
+    def test_unbounded_label_exceeding_default_plate_raises(self) -> None:
+        """A rendered label larger than 24x16 must raise the size error."""
+        labels = [_make_label(width=25.0, height=17.0)]
+        with pytest.raises(LayoutFitError) as exc_info:
+            generate_layout_with_bounds(labels)
+        assert "exceed the maximum plate size" in str(exc_info.value)

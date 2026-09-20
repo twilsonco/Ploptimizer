@@ -6,12 +6,16 @@ import math
 from pathlib import Path
 
 import numpy as np
+import pytest
 import vpype as vp
+from matplotlib.path import Path as MplPath
 
+from plt_optimizer.generate import ftext_renderer
 from plt_optimizer.generate.ftext_renderer import (
     CHORD_THRESHOLD_INCHES,
     DEFAULT_FONT_PATH,
     _remove_closing_chords,
+    _split_contours,
     render_text_line_ftext,
 )
 
@@ -192,3 +196,89 @@ class TestRemoveClosingChords:
         result = out[0]
         # Unchanged.
         assert np.array_equal(result, line)
+
+    def test_two_point_line_passes_through(self) -> None:
+        """A two-point line is too short for chord analysis and is kept."""
+        line = np.array([0 + 0j, 1 + 1j], dtype=complex)
+        lc_in = vp.LineCollection()
+        lc_in.append(line)
+        out = _remove_closing_chords(lc_in)
+        assert len(out) == 1
+        assert np.array_equal(out[0], line)
+
+
+class _StubPath:
+    """Minimal path stub exposing ``iter_segments`` with canned codes.
+
+    ``matplotlib`` never emits a code outside MOVETO/LINETO/CLOSEPOLY when
+    ``curves=False``, so the defensive fall-through in :func:`_split_contours`
+    (a code that matches none of the handled branches) can only be exercised
+    with a synthetic segment stream.
+    """
+
+    def __init__(self, segments: list[tuple[np.ndarray, int]]) -> None:
+        """Store the canned ``(vertex, code)`` segments to yield."""
+        self._segments = segments
+
+    def iter_segments(self, simplify: bool = False, curves: bool = False) -> object:
+        """Yield the canned segments, ignoring the matplotlib flags."""
+        return iter(self._segments)
+
+
+class TestSplitContours:
+    """Tests for the raw contour grouping in _split_contours()."""
+
+    def test_closepoly_is_geometry_free(self) -> None:
+        """A CLOSEPOLY vertex must not add a point or flush the contour."""
+        stub = _StubPath(
+            [
+                (np.array([0.0, 0.0]), int(MplPath.MOVETO)),
+                (np.array([1.0, 0.0]), int(MplPath.LINETO)),
+                # CLOSEPOLY carries no geometry: its vertex must be ignored.
+                (np.array([0.0, 0.0]), int(MplPath.CLOSEPOLY)),
+            ]
+        )
+        contours = _split_contours(stub)  # type: ignore[arg-type]
+        assert len(contours) == 1
+        assert len(contours[0]) == 2
+
+    def test_unhandled_code_falls_through(self) -> None:
+        """A code matching no branch is skipped without touching geometry."""
+        stub = _StubPath(
+            [
+                (np.array([0.0, 0.0]), int(MplPath.MOVETO)),
+                (np.array([1.0, 0.0]), int(MplPath.LINETO)),
+                # STOP (0) is handled by neither the line nor CLOSEPOLY branch.
+                (np.array([9.0, 9.0]), int(MplPath.STOP)),
+                (np.array([2.0, 0.0]), int(MplPath.LINETO)),
+            ]
+        )
+        contours = _split_contours(stub)  # type: ignore[arg-type]
+        assert len(contours) == 1
+        # The unhandled vertex was skipped: only the 3 handled points remain.
+        assert len(contours[0]) == 3
+        assert np.allclose(np.abs(contours[0]), [0.0, 1.0, 2.0])
+
+
+class TestRenderTextLineFtextDegeneratePaths:
+    """Early-return guards for degenerate glyph paths."""
+
+    def test_no_contours_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A glyph path that splits into zero contours yields empty output."""
+        monkeypatch.setattr(ftext_renderer, "_split_contours", lambda path: [])
+        lc = render_text_line_ftext("X", 1.0, DEFAULT_FONT_PATH)
+        assert isinstance(lc, vp.LineCollection)
+        assert lc.is_empty()
+
+    def test_empty_bounds_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Contours too short to form lines yield an empty LineCollection."""
+        # Single-point contours are dropped by LineCollection.append, leaving
+        # the collection empty (bounds() is None).
+        monkeypatch.setattr(
+            ftext_renderer,
+            "_split_contours",
+            lambda path: [np.array([1 + 2j], dtype=complex)],
+        )
+        lc = render_text_line_ftext("X", 1.0, DEFAULT_FONT_PATH)
+        assert isinstance(lc, vp.LineCollection)
+        assert lc.is_empty()
