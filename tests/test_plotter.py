@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import math
 import re
+import sys
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import matplotlib.pyplot as plt
 import pytest
@@ -1943,3 +1945,99 @@ class TestInchTickLayout:
         for locs in (ax.xaxis.get_minorticklocs(), ax.yaxis.get_minorticklocs()):
             assert all(math.isclose(loc % 0.5, 0.0, abs_tol=1e-9) for loc in locs)
         plt.close(fig)
+
+
+class TestPlotPltDocumentDegenerateCumulativeDistances:
+    """Tests for the max_distance fallback when cumulative distances collapse."""
+
+    def test_empty_cumulative_distances_uses_unit_fallback(self) -> None:
+        """A collapsed cumulative-distance tuple falls back to max_distance=1.0.
+
+        ``plot_plt_document`` guards ``max_distance`` with an explicit
+        ``else`` branch for an empty cumulative-distance tuple. The guard
+        is defensive (real geometry always yields one distance per
+        segment), so the helper is patched to return ``()`` to exercise
+        the branch. The document holds a single rapid (non-cutting)
+        segment so the empty ``norm_distances`` list is never indexed.
+        """
+        rapid = StrokeSegment(
+            start=Coordinate(0, 0),
+            end=Coordinate(1000, 500),
+            is_cutting=False,
+        )
+        doc = PLTDocument(stroke_paths=[StrokePath(segments=(rapid,))])
+        # Patch the function's own globals rather than a dotted path: other
+        # suites evict plt_optimizer.diagnostics.* from sys.modules, which
+        # would make a string target resolve to a freshly re-imported copy
+        # instead of the namespace this function object actually reads.
+        with patch.dict(
+            plot_plt_document.__globals__,
+            {"calculate_cumulative_distances": lambda coord_pairs: ()},
+        ):
+            fig = plot_plt_document(doc)
+        try:
+            assert isinstance(fig, plt.Figure)
+        finally:
+            plt.close(fig)
+
+    def test_all_segments_guard_false_side(self) -> None:
+        """The defensive ``if all_segments:`` guard's false side is reachable.
+
+        ``plot_plt_document`` early-returns for empty documents, so the
+        axis-limits guard below is dead code in practice. The only seam to
+        exercise it is the (patchable) cumulative-distance helper: it runs
+        between the early return and the guard, and can empty the caller's
+        ``all_segments`` list through its frame. With the list drained, the
+        guard takes its false branch and the later start/end marker lookup
+        fails, surfacing as ``PlotterError``.
+        """
+        cut = StrokeSegment(
+            start=Coordinate(0, 0),
+            end=Coordinate(1000, 0),
+            is_cutting=True,
+        )
+        doc = PLTDocument(stroke_paths=[StrokePath(segments=(cut,))])
+
+        def _drain_segments(
+            coord_pairs: list[tuple[Coordinate, Coordinate]],
+        ) -> tuple[float, ...]:
+            """Empty the caller's segment list, then return a valid distance."""
+            frame = sys._getframe(1)
+            frame.f_locals["all_segments"].clear()
+            return (1.0,)
+
+        with patch.dict(
+            plot_plt_document.__globals__,
+            {"calculate_cumulative_distances": _drain_segments},
+        ):
+            with pytest.raises(PlotterError, match="Plotting failed"):
+                plot_plt_document(doc)
+
+
+class TestSaveFigureRootedLookingPaths:
+    """Tests for the rooted-looking relative-path guard in ``save_figure``.
+
+    On Windows, paths like ``/nonexistent/...`` are drive-relative rather
+    than absolute; ``save_figure`` detects that shape up front. The
+    guard's ``is_absolute``/``exists`` checks are forced via patches so
+    the branch behaves the same on every platform.
+    """
+
+    def test_rooted_looking_relative_path_with_missing_parent_raises(self) -> None:
+        """A rooted-looking path with a missing parent raises PlotterError."""
+        fig = MagicMock()
+        with patch.object(Path, "is_absolute", return_value=False), patch.object(
+            Path, "exists", return_value=False
+        ):
+            with pytest.raises(PlotterError, match="does not exist"):
+                save_figure(fig, Path("/nonexistent/figure.png"))
+        fig.savefig.assert_not_called()
+
+    def test_rooted_looking_relative_path_with_existing_parent_saves(self) -> None:
+        """A rooted-looking path whose parent exists saves through normally."""
+        fig = MagicMock()
+        with patch.object(Path, "is_absolute", return_value=False), patch.object(
+            Path, "exists", return_value=True
+        ), patch.object(Path, "mkdir"):
+            save_figure(fig, Path("/looks/rooted/figure.png"))
+        fig.savefig.assert_called_once()

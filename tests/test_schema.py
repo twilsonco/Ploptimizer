@@ -452,6 +452,38 @@ class TestParseYaml:
         assert label.content[0].text_height == 0.5
         assert label.content[1].text_height is None
 
+    def test_empty_yaml_document_raises(self, tmp_path: Path) -> None:
+        """A completely empty YAML document must raise ValueError."""
+        spec_path = tmp_path / "empty.yaml"
+        spec_path.write_text("", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="Empty YAML document"):
+            parse_yaml(spec_path)
+
+    def test_comment_only_yaml_document_raises(self, tmp_path: Path) -> None:
+        """A comment-only document loads as None and must raise the same error."""
+        spec_path = tmp_path / "comments.yaml"
+        spec_path.write_text("# just a comment\n", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="Empty YAML document"):
+            parse_yaml(spec_path)
+
+    def test_missing_job_root_element_raises(self, tmp_path: Path) -> None:
+        """A YAML mapping without a top-level 'job' key must raise ValueError."""
+        spec_path = tmp_path / "no_job.yaml"
+        spec_path.write_text("not_a_job:\n  job_name: 'Oops'\n", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="Missing 'job' root element"):
+            parse_yaml(spec_path)
+
+    def test_null_job_root_element_raises(self, tmp_path: Path) -> None:
+        """An explicit null 'job' value must raise the missing-root error."""
+        spec_path = tmp_path / "null_job.yaml"
+        spec_path.write_text("job:\n", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="Missing 'job' root element"):
+            parse_yaml(spec_path)
+
 
 class TestLabelSpecValidation:
     """Additional LabelSpec validation edge cases."""

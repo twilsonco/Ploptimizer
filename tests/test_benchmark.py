@@ -129,8 +129,7 @@ class TestReportWriter:
             def writer_task(i: int) -> None:
                 writer.write_row(_row(f"f{i}.plt", "nn2opt", "success"))
 
-            threads = [threading.Thread(target=writer_task, args=(i,))
-                       for i in range(total)]
+            threads = [threading.Thread(target=writer_task, args=(i,)) for i in range(total)]
             for t in threads:
                 t.start()
             for t in threads:
@@ -327,13 +326,9 @@ class TestProcessFileOptionalLoggers:
         )
         success_rows = [r for r in rows if r["status"] == "success"]
         assert success_rows, "expected at least one strategy to succeed"
-        assert all(
-            r["_metrics_event"]["status"] == "success" for r in success_rows
-        )
+        assert all(r["_metrics_event"]["status"] == "success" for r in success_rows)
 
-    def test_file_level_failure_still_returns_sentinel(
-        self, sample_output_dir: Path
-    ) -> None:
+    def test_file_level_failure_still_returns_sentinel(self, sample_output_dir: Path) -> None:
         """A missing input file should produce a sentinel row, not raise."""
         rows = process_file(
             input_path=Path("Z:/does/not/exist.plt"),
@@ -357,8 +352,8 @@ class TestProcessFileOptionalLoggers:
         ``process_file``'s setup except block (lines 517-520).
         """
         from plt_optimizer.core.profiler import Profiler
-        with patch.object(Profiler, "profile",
-                          side_effect=ValueError("boom")):
+
+        with patch.object(Profiler, "profile", side_effect=ValueError("boom")):
             rows = process_file(
                 input_path=sample_input_dir / "square.plt",
                 output_dir=sample_output_dir,
@@ -387,8 +382,8 @@ class TestProcessFileWithLoggers:
         # Inject a synthetic parse failure via the parser. Patch where the
         # method actually lives, not the re-imported alias.
         from plt_optimizer.core.parser import ParseError, PLTParser
-        with patch.object(PLTParser, "parse_file",
-                          side_effect=ParseError("synthetic boom")):
+
+        with patch.object(PLTParser, "parse_file", side_effect=ParseError("synthetic boom")):
             rows = process_file(
                 input_path=sample_input_dir / "square.plt",
                 output_dir=sample_output_dir,
@@ -417,8 +412,8 @@ class TestProcessFileWithLoggers:
         metrics_logger = MagicMock()
         # Make the profiler raise to trigger the setup_failed branch.
         from plt_optimizer.core.profiler import Profiler
-        with patch.object(Profiler, "profile",
-                          side_effect=ValueError("synthetic setup boom")):
+
+        with patch.object(Profiler, "profile", side_effect=ValueError("synthetic setup boom")):
             rows = process_file(
                 input_path=sample_input_dir / "square.plt",
                 output_dir=sample_output_dir,
@@ -463,13 +458,11 @@ class TestProcessFileWithLoggers:
         assert "success" in statuses
         failed = [r for r in rows if r["status"] == "failed"]
         assert failed
-        assert any(
-            "genetic" in r["strategy_name"] for r in failed
-        ), "expected genetic strategy failure"
+        assert any("genetic" in r["strategy_name"] for r in failed), (
+            "expected genetic strategy failure"
+        )
         # Strategy failure should have been logged with strategy context.
-        error_calls = [
-            call.args[0] for call in text_logger.error.call_args_list
-        ]
+        error_calls = [call.args[0] for call in text_logger.error.call_args_list]
         assert any("genetic" in msg for msg in error_calls)
         # The metrics logger is NOT called from process_file directly —
         # events are re-emitted by the main process from row["_metrics_event"].
@@ -829,7 +822,6 @@ class TestMain:
         self, sample_input_dir: Path, tmp_path: Path, capsys: Any
     ) -> None:
         """The parallel loop must stream per-strategy rows and the ensemble CSV."""
-        output_dir = tmp_path / "out"
         plt_file = sample_input_dir / "square.plt"
 
         # Build two synthetic per-strategy rows that the worker would return.
@@ -841,20 +833,28 @@ class TestMain:
         rows[0]["total_after_in"] = 8.0
         rows[0]["time_ms"] = 5.0
         rows[0]["_metrics_event"] = {
-            "kind": "strategy", "strategy_name": "nn2opt",
-            "status": "success", "job_id": "j1",
-            "original_file": plt_file, "optimized_file": plt_file,
-            "original_distance": 1000.0, "optimized_distance": 800.0,
+            "kind": "strategy",
+            "strategy_name": "nn2opt",
+            "status": "success",
+            "job_id": "j1",
+            "original_file": plt_file,
+            "optimized_file": plt_file,
+            "original_distance": 1000.0,
+            "optimized_distance": 800.0,
             "notes": "",
         }
         rows[1]["total_improvement_pct"] = 10.0
         rows[1]["total_after_in"] = 9.0
         rows[1]["time_ms"] = 7.0
         rows[1]["_metrics_event"] = {
-            "kind": "strategy", "strategy_name": "sa",
-            "status": "success", "job_id": "j2",
-            "original_file": plt_file, "optimized_file": plt_file,
-            "original_distance": 1000.0, "optimized_distance": 900.0,
+            "kind": "strategy",
+            "strategy_name": "sa",
+            "status": "success",
+            "job_id": "j2",
+            "original_file": plt_file,
+            "optimized_file": plt_file,
+            "original_distance": 1000.0,
+            "optimized_distance": 900.0,
             "notes": "",
         }
 
@@ -901,9 +901,7 @@ class TestMain:
         assert "OK" in out
         assert "BENCHMARK COMPLETE" in out
         # The text logger received the per-file completion event.
-        text_logger.info.assert_any_call(
-            "[1/1] square.plt done in 0.10s (avg 0.10s, ETA 0.0s)"
-        )
+        text_logger.info.assert_any_call("[1/1] square.plt done in 0.10s (avg 0.10s, ETA 0.0s)")
 
     def test_future_exception_is_recorded(
         self, sample_input_dir: Path, tmp_path: Path, capsys: Any
@@ -913,7 +911,10 @@ class TestMain:
         text_logger = MagicMock()
         metrics_logger = MagicMock()
         fake_future = _fake_future(
-            1, plt_file, rows=[], elapsed_s=0.0,
+            1,
+            plt_file,
+            rows=[],
+            elapsed_s=0.0,
             raises=RuntimeError("worker crashed"),
         )
         fake_executor = MagicMock()
@@ -936,13 +937,9 @@ class TestMain:
             rc = main(["--workers", "1", str(sample_input_dir)])
 
         assert rc == 0  # CLI exits 0 even when files fail
-        text_logger.error.assert_any_call(
-            "[1/1] square.plt crashed: RuntimeError: worker crashed"
-        )
+        text_logger.error.assert_any_call("[1/1] square.plt crashed: RuntimeError: worker crashed")
         # The full traceback is also logged.
-        traceback_calls = [
-            call.args[0] for call in text_logger.error.call_args_list
-        ]
+        traceback_calls = [call.args[0] for call in text_logger.error.call_args_list]
         assert any("Traceback" in arg for arg in traceback_calls)
         # metrics re-emission path is skipped for crashes (no rows)
         assert metrics_logger.log_job.call_count == 0
@@ -956,13 +953,16 @@ class TestMain:
         text_logger = MagicMock()
         metrics_logger = MagicMock()
         plt_file = sample_input_dir / "square.plt"
-        rows = [_success_row(plt_file.name, "nn2opt",
-                             improvement=10.0, total_after=9.0)]
+        rows = [_success_row(plt_file.name, "nn2opt", improvement=10.0, total_after=9.0)]
         rows[0]["_metrics_event"] = {
-            "kind": "strategy", "strategy_name": "nn2opt",
-            "status": "success", "job_id": "j1",
-            "original_file": plt_file, "optimized_file": plt_file,
-            "original_distance": 1000.0, "optimized_distance": 800.0,
+            "kind": "strategy",
+            "strategy_name": "nn2opt",
+            "status": "success",
+            "job_id": "j1",
+            "original_file": plt_file,
+            "optimized_file": plt_file,
+            "original_distance": 1000.0,
+            "optimized_distance": 800.0,
             "notes": "",
         }
         fake_future = _fake_future(1, plt_file, rows, elapsed_s=0.0)
@@ -982,9 +982,7 @@ class TestMain:
         ) as proc_exec, patch(
             "plt_optimizer.cli.benchmark.as_completed",
             return_value=iter([fake_future]),
-        ), patch(
-            "plt_optimizer.cli.benchmark.os.cpu_count", return_value=64
-        ):
+        ), patch("plt_optimizer.cli.benchmark.os.cpu_count", return_value=64):
             main([str(sample_input_dir)])
 
         # ProcessPoolExecutor was constructed with a positive max_workers.
@@ -998,13 +996,16 @@ class TestMain:
         text_logger = MagicMock()
         metrics_logger = MagicMock()
         plt_file = sample_input_dir / "square.plt"
-        rows = [_success_row(plt_file.name, "nn2opt",
-                             improvement=10.0, total_after=9.0)]
+        rows = [_success_row(plt_file.name, "nn2opt", improvement=10.0, total_after=9.0)]
         rows[0]["_metrics_event"] = {
-            "kind": "strategy", "strategy_name": "nn2opt",
-            "status": "success", "job_id": "j1",
-            "original_file": plt_file, "optimized_file": plt_file,
-            "original_distance": 1000.0, "optimized_distance": 800.0,
+            "kind": "strategy",
+            "strategy_name": "nn2opt",
+            "status": "success",
+            "job_id": "j1",
+            "original_file": plt_file,
+            "optimized_file": plt_file,
+            "original_distance": 1000.0,
+            "optimized_distance": 800.0,
             "notes": "",
         }
         fake_future = _fake_future(1, plt_file, rows, elapsed_s=0.0)
@@ -1046,13 +1047,16 @@ class TestMain:
         text_logger = MagicMock()
         metrics_logger = MagicMock()
         plt_file = sample_input_dir / "square.plt"
-        rows = [_success_row(plt_file.name, "nn2opt",
-                             improvement=10.0, total_after=9.0)]
+        rows = [_success_row(plt_file.name, "nn2opt", improvement=10.0, total_after=9.0)]
         rows[0]["_metrics_event"] = {
-            "kind": "strategy", "strategy_name": "nn2opt",
-            "status": "success", "job_id": "j1",
-            "original_file": plt_file, "optimized_file": plt_file,
-            "original_distance": 1000.0, "optimized_distance": 800.0,
+            "kind": "strategy",
+            "strategy_name": "nn2opt",
+            "status": "success",
+            "job_id": "j1",
+            "original_file": plt_file,
+            "optimized_file": plt_file,
+            "original_distance": 1000.0,
+            "optimized_distance": 800.0,
             "notes": "",
         }
         fake_future = _fake_future(1, plt_file, rows, elapsed_s=0.0)
@@ -1099,13 +1103,16 @@ class TestMain:
         plt_files = sorted(sample_input_dir.glob("*.plt"))
         futures = []
         for idx, plt_file in enumerate(plt_files, start=1):
-            rows = [_success_row(plt_file.name, "nn2opt",
-                                 improvement=10.0, total_after=9.0)]
+            rows = [_success_row(plt_file.name, "nn2opt", improvement=10.0, total_after=9.0)]
             rows[0]["_metrics_event"] = {
-                "kind": "strategy", "strategy_name": "nn2opt",
-                "status": "success", "job_id": f"j{idx}",
-                "original_file": plt_file, "optimized_file": plt_file,
-                "original_distance": 1000.0, "optimized_distance": 800.0,
+                "kind": "strategy",
+                "strategy_name": "nn2opt",
+                "status": "success",
+                "job_id": f"j{idx}",
+                "original_file": plt_file,
+                "optimized_file": plt_file,
+                "original_distance": 1000.0,
+                "optimized_distance": 800.0,
                 "notes": "",
             }
             futures.append(_fake_future(idx, plt_file, rows, elapsed_s=0.1 * idx))
@@ -1134,6 +1141,54 @@ class TestMain:
         # The summary must report the right number of files.
         assert "Total files:" in out
         assert "12" in out
+
+    def test_completed_file_with_all_failed_strategies_counts_failure(
+        self, sample_input_dir: Path, capsys: Any
+    ) -> None:
+        """A future completing with only failed rows must bump the failure tally.
+
+        ``_record_completion`` short-circuits for crashed futures, so the
+        ``failure_count += 1`` branch of ``_summarize_file_result`` is only
+        reached when a worker *completes* but none of its per-strategy rows
+        succeeded. This drives exactly that path and asserts the final
+        stdout summary reports the file as failed rather than successful.
+        """
+        plt_file = sample_input_dir / "square.plt"
+        text_logger = MagicMock()
+        metrics_logger = MagicMock()
+        rows = [
+            _row(plt_file.name, "nn2opt", "failed", error="sa blew up"),
+            _row(plt_file.name, "sa", "failed", error="nn blew up"),
+        ]
+        fake_future = _fake_future(1, plt_file, rows, elapsed_s=0.5)
+        fake_executor = MagicMock()
+        fake_executor.__enter__.return_value = fake_executor
+        fake_executor.submit.return_value = fake_future
+
+        with patch(
+            "plt_optimizer.cli.benchmark.get_text_logger",
+            return_value=text_logger,
+        ), patch(
+            "plt_optimizer.cli.benchmark.get_metrics_logger",
+            return_value=metrics_logger,
+        ), patch(
+            "plt_optimizer.cli.benchmark.ProcessPoolExecutor",
+            return_value=fake_executor,
+        ), patch(
+            "plt_optimizer.cli.benchmark.as_completed",
+            return_value=iter([fake_future]),
+        ):
+            rc = main(["--workers", "1", str(sample_input_dir)])
+
+        assert rc == 0
+        out = capsys.readouterr().out
+        # The per-file line carries the FAILED summary, and the final
+        # tally counts the file under failed (not successful) files.
+        assert "FAILED: sa blew up" in out
+        assert "Successful files:   0" in out
+        assert "Failed files:       1" in out
+        # No metrics events were stashed on the failed rows.
+        assert metrics_logger.log_job.call_count == 0
 
 
 # ---------------------------------------------------------------------------
@@ -1195,9 +1250,7 @@ class TestProcessFileWorker:
         assert result.elapsed_s >= 0.0
         assert result.rows, "expected at least one row from the worker"
 
-    def test_worker_handles_missing_file(
-        self, sample_output_dir: Path
-    ) -> None:
+    def test_worker_handles_missing_file(self, sample_output_dir: Path) -> None:
         """A missing input should return a parse_failed row, not raise."""
         with ProcessPoolExecutor(max_workers=1) as ex:
             future = ex.submit(
@@ -1212,18 +1265,14 @@ class TestProcessFileWorker:
         assert len(result.rows) == 1
         assert result.rows[0]["status"] == "parse_failed"
 
-    def test_worker_direct_call(
-        self, sample_input_dir: Path, sample_output_dir: Path
-    ) -> None:
+    def test_worker_direct_call(self, sample_input_dir: Path, sample_output_dir: Path) -> None:
         """Calling the worker in-process must also return a FileResult.
 
         This exercises lines 587-598 which subprocess execution doesn't
         cover for in-process coverage tracking.
         """
         plt_file = sample_input_dir / "square.plt"
-        result = _process_file_worker(
-            str(plt_file), str(sample_output_dir), 1.0
-        )
+        result = _process_file_worker(str(plt_file), str(sample_output_dir), 1.0)
         assert isinstance(result, FileResult)
         assert result.input_path == str(plt_file)
         assert result.rows

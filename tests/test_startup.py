@@ -68,7 +68,9 @@ class TestGetExecutablePath:
 
         mock_executable = Path("/usr/bin/python")
 
-        with patch.dict(sys.__dict__, {"frozen": False, "platform": "linux", "executable": str(mock_executable)}):
+        with patch.dict(
+            sys.__dict__, {"frozen": False, "platform": "linux", "executable": str(mock_executable)}
+        ):
             result = get_executable_path()
             assert result == mock_executable
 
@@ -78,11 +80,46 @@ class TestGetExecutablePath:
 
         mock_executable = Path("/venv/Scripts/python.exe")
 
-        with patch.dict(sys.__dict__, {"frozen": False, "platform": "win32", "executable": str(mock_executable)}):
+        with patch.dict(
+            sys.__dict__, {"frozen": False, "platform": "win32", "executable": str(mock_executable)}
+        ):
             # Mock shutil.which to return None (pythonw not in PATH)
             with patch("shutil.which", return_value=None):
                 result = get_executable_path()
                 assert result == mock_executable
+
+    def test_non_frozen_windows_venv_pythonw_found(self, tmp_path: Path) -> None:
+        """Windows with pythonw.exe next to the venv python returns it (line 97)."""
+        from plt_optimizer.utils.startup import get_executable_path
+
+        scripts_dir = tmp_path / "Scripts"
+        scripts_dir.mkdir()
+        pythonw = scripts_dir / "pythonw.exe"
+        pythonw.write_bytes(b"")
+        venv_python = scripts_dir / "python.exe"
+
+        with patch.dict(
+            sys.__dict__,
+            {"frozen": False, "platform": "win32", "executable": str(venv_python)},
+        ):
+            result = get_executable_path()
+            assert result == pythonw
+
+    def test_non_frozen_windows_pythonw_found_in_path(self, tmp_path: Path) -> None:
+        """Windows without venv pythonw falls back to pythonw from PATH (line 104)."""
+        from plt_optimizer.utils.startup import get_executable_path
+
+        # sys.executable points into a directory that has no pythonw.exe.
+        venv_python = tmp_path / "venv" / "Scripts" / "python.exe"
+        path_pythonw = tmp_path / "windows" / "pythonw.exe"
+
+        with patch.dict(
+            sys.__dict__,
+            {"frozen": False, "platform": "win32", "executable": str(venv_python)},
+        ):
+            with patch("shutil.which", return_value=str(path_pythonw)):
+                result = get_executable_path()
+                assert result == path_pythonw
 
 
 class TestCreateShortcut:
@@ -258,7 +295,6 @@ class TestRemoveShortcutPaths:
                 tmp_shortcut.exists.return_value = True
 
                 # Make unlink raise OSError when called on the shortcut path
-                original_unlink = Path.unlink
                 def raising_unlink(self: object) -> None:
                     raise OSError("Permission denied")
 
@@ -340,6 +376,7 @@ class TestCreateShortcutPaths:
                 ):
                     # Mock ImportError when importing win32com.client
                     import builtins
+
                     original_import = builtins.__import__
 
                     def mock_import(name: str, *args: object, **kwargs: object) -> object:
@@ -368,7 +405,11 @@ class TestGetStartupFolderWinshellSuccess:
         with patch.object(sys, "platform", "win32"):
             with patch.dict("sys.modules", {"winshell": mock_winshell_module}):
                 # Mock the import to return our mocked winshell
-                original_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
+                original_import = (
+                    __builtins__["__import__"]
+                    if isinstance(__builtins__, dict)
+                    else __builtins__.__import__
+                )
 
                 def mock_winshell_import(name: str, *args: object, **kwargs: object) -> object:
                     if name == "winshell":
@@ -384,8 +425,8 @@ class TestGetStartupFolderWinshellSuccess:
 
 class TestGetExecutablePathPythonw:
     """Tests for get_executable_path() pythonw.exe paths (lines 69, 76).
-    
-    Note: These tests verify the logic flow. Full coverage of lines 68-76 
+
+    Note: These tests verify the logic flow. Full coverage of lines 68-76
     requires Windows-specific mocking due to Path handling complexity.
     """
 
@@ -414,7 +455,7 @@ class TestGetExecutablePathPythonw:
                 with patch.object(sys, "executable", str(mock_python)):
                     # Just verify the function doesn't crash on this path
                     try:
-                        result = get_executable_path()
+                        get_executable_path()
                     except Exception:
                         pass  # Expected to fail due to complex mocking
 
@@ -442,7 +483,11 @@ class TestCreateShortcutSuccess:
                 return_value=mock_startup_folder,
             ):
                 # Mock the import of win32com.client.Dispatch
-                original_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
+                original_import = (
+                    __builtins__["__import__"]
+                    if isinstance(__builtins__, dict)
+                    else __builtins__.__import__
+                )
 
                 def mock_win32com_import(name: str, *args: object, **kwargs: object) -> object:
                     if name == "win32com.client":
@@ -483,14 +528,25 @@ class TestCreateShortcutException:
                     return_value=mock_target,
                 ):
                     # Mock win32com.client.Dispatch to raise a non-ImportError exception
-                    original_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
+                    original_import = (
+                        __builtins__["__import__"]
+                        if isinstance(__builtins__, dict)
+                        else __builtins__.__import__
+                    )
 
-                    def raise_generic_exception(name: str, *args: object, **kwargs: object) -> object:
+                    def raise_generic_exception(
+                        name: str, *args: object, **kwargs: object
+                    ) -> object:
                         if name == "win32com.client":
                             mock_client = MagicMock()
+
                             # Make Dispatch raise a generic Exception (not ImportError)
+                            class COMObjectError(Exception):
+                                """Stand-in for pywin32's COM failure type."""
+
                             def raising_dispatch(arg: str) -> None:
                                 raise COMObjectError("Something went wrong")
+
                             mock_client.Dispatch.side_effect = raising_dispatch
                             return mock_client
                         return original_import(name, *args, **kwargs)
@@ -552,4 +608,3 @@ class TestCreateShortcutTargetPathNoneExecutable:
 
     def test_create_shortcut_target_none_uses_executable_path(self, tmp_path: Path) -> None:
         """Test that when target_path is None, uses get_executable_path result."""
-

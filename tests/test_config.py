@@ -28,6 +28,27 @@ class TestGetConfigPath:
                 get_config_path()
                 mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)
 
+    def test_windows_branch_uses_appdata_local(self) -> None:
+        """On Windows the config lives under AppData/Local/PLT-Optimizer (line 36)."""
+        with patch("plt_optimizer.utils.config._IS_WINDOWS", True):
+            with patch.object(Path, "mkdir") as mock_mkdir:
+                path = get_config_path()
+
+        mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)
+        assert path.name == "config.json"
+        assert path.parent == Path.home() / "AppData" / "Local" / "PLT-Optimizer"
+        # The POSIX ~/.config layout must not be used on Windows.
+        assert ".config" not in path.parts
+
+    def test_non_windows_branch_uses_xdg_config(self) -> None:
+        """Off Windows the config lives under ~/.config/plt-optimizer (line 38)."""
+        with patch("plt_optimizer.utils.config._IS_WINDOWS", False):
+            with patch.object(Path, "mkdir"):
+                path = get_config_path()
+
+        assert path.name == "config.json"
+        assert path.parent == Path.home() / ".config" / "plt-optimizer"
+
 
 class TestLoadConfig:
     """Tests for load_config function (lines 48-65)."""
@@ -180,7 +201,7 @@ class TestDefaultConfig:
             "fast_mode",
             "debug_save_files",
             "run_at_startup",
-            "first_run"
+            "first_run",
         ]
         for key in required_keys:
             assert key in DEFAULT_CONFIG
@@ -215,7 +236,7 @@ class TestConfigRoundTrip:
                 "plt_optimizer.utils.config.save_config",
                 side_effect=capture_write,
             ):
-                result = update_config({"watch_dir": "/updated"})
+                update_config({"watch_dir": "/updated"})
 
         # The saved config should have the updated value
         assert saved_content["watch_dir"] == "/updated"
