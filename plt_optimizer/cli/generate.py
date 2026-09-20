@@ -221,6 +221,7 @@ def run(args: argparse.Namespace) -> int:
             optimize=True,
             plots=not args.no_plots,
             default_plots=args.default_plots,
+            allow_rotation=job.allow_rotation,
         )
         exported_paths = export_result.plt_paths
     except LabelRenderError as e:

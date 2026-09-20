@@ -122,7 +122,7 @@ def phase_2_resolution_and_layout(
     job_yaml: Path,
     inventory: list[float],
     boundary_hole_cutter_size: float | None = None,
-) -> tuple[list, list, list | None, str]:
+) -> tuple[list, list, list | None, str, bool]:
     """Phase 2: Resolution, bin packing, and verification.
 
     Executes:
@@ -138,7 +138,8 @@ def phase_2_resolution_and_layout(
             ``None`` uses the default).
 
     Returns:
-        Tuple of (resolved_labels, packed_plates, provided_plates, job_id).
+        Tuple of (resolved_labels, packed_plates, provided_plates, job_id,
+        allow_rotation).
     """
     print_separator("PHASE 2: PIPELINE EXECUTION")
 
@@ -180,7 +181,9 @@ def phase_2_resolution_and_layout(
     # Step 3: Bin packing
     # =========================================================================
     logger.info("Step 3: Running bin packing (layout generation)...")
-    packed_plates = generate_layout(resolved_labels, job.plates)
+    packed_plates = generate_layout(
+        resolved_labels, job.plates, allow_rotation=job.allow_rotation
+    )
 
     print("\n--- BIN PACKING RESULTS ---\n")
     print(f"Total plates generated: {len(packed_plates)}")
@@ -203,7 +206,7 @@ def phase_2_resolution_and_layout(
 
     job_id = _sanitize_job_id(job.job_name)
 
-    return resolved_labels, packed_plates, job.plates, job_id
+    return resolved_labels, packed_plates, job.plates, job_id, job.allow_rotation
 
 
 # ============================================================================
@@ -214,6 +217,7 @@ def phase_3_vectorization_and_export(
     provided_plates: list | None = None,
     output_dir: Path | None = None,
     job_id: str = "job",
+    allow_rotation: bool = True,
 ) -> PerCutterExport:
     """Phase 3: Export per-cutter PLT files using the clean Phase 3 pipeline.
 
@@ -239,6 +243,8 @@ def phase_3_vectorization_and_export(
         output_dir: Optional output directory. Defaults to
             ``test_output/integration_test``.
         job_id: Filesystem-safe job identifier used as the file-name prefix.
+        allow_rotation: If True (the default), the bin packer may rotate
+            labels 90 degrees for tighter layouts (job-level flag).
 
     Returns:
         The :class:`PerCutterExport` with written PLT/PDF paths and the
@@ -262,6 +268,7 @@ def phase_3_vectorization_and_export(
         job_id=job_id,
         optimize=False,
         plots=True,
+        allow_rotation=allow_rotation,
     )
 
     print("\n--- EXPORT RESULTS ---\n")
@@ -399,9 +406,13 @@ def main(argv: list[str] | None = None) -> int:
         job_yaml, tools_json, inventory, boundary_hole_cutter = phase_1_data_prep(spec_override)
 
         # Phase 2: Resolution and Layout (nominal-dimension packing for reporting)
-        resolved_labels, packed_plates, provided_plates, job_id = phase_2_resolution_and_layout(
-            job_yaml, inventory, boundary_hole_cutter
-        )
+        (
+            resolved_labels,
+            packed_plates,
+            provided_plates,
+            job_id,
+            allow_rotation,
+        ) = phase_2_resolution_and_layout(job_yaml, inventory, boundary_hole_cutter)
 
         # Phase 3: Per-cutter export using the clean bounds-aware pipeline.
         # The export renders labels onto per-cutter pens, assembles each
@@ -412,7 +423,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             phase_3_output_dir = None
         export_result = phase_3_vectorization_and_export(
-            resolved_labels, provided_plates, phase_3_output_dir, job_id
+            resolved_labels, provided_plates, phase_3_output_dir, job_id, allow_rotation
         )
 
         # Phase 3.5: Coordinate Validation (on the written per-cutter PLTs)

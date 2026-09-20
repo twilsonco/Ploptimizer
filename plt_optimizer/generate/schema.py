@@ -485,6 +485,10 @@ class JobSpec(LabelAttributes):
         labels: Optional list of unique label specifications to produce.
         count: Optional count for root-level single-label jobs.
         content: Optional root-level content for single-label jobs.
+        allow_rotation: Whether the bin packer may rotate label instances
+            90 degrees to improve plate utilization. When a rotated label
+            is assembled onto a plate its whole content (text, border and
+            drill holes) is rotated clockwise. Defaults to True.
     """
 
     job_name: str
@@ -494,6 +498,15 @@ class JobSpec(LabelAttributes):
     labels: Optional[list[LabelSpec]] = None
     count: Optional[int] = Field(default=None, ge=1)
     content: Optional[list[TextLine]] = None
+
+    allow_rotation: bool = Field(
+        default=True,
+        description=(
+            "Allow the bin packer to rotate labels 90 degrees (clockwise at "
+            "assembly) for tighter layouts. Set false to keep every label "
+            "horizontal."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_job_structure(self) -> JobSpec:

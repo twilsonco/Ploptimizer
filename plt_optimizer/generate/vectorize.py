@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
 
-from plt_optimizer.generate.label_renderer import RenderedLabel
+from plt_optimizer.generate.label_renderer import RenderedLabel, extract_bounds_from_plt
 from plt_optimizer.generate.layout import PackedPlate
 from plt_optimizer.generate.resolution import (
     DEFAULT_BOUNDARY_HOLE_CUTTER,
@@ -97,6 +97,77 @@ def translate_plt_coordinates(plt_content: str, dx: float, dy: float) -> str:
     return re.sub(coord_pattern, translate_coordinates, plt_content)
 
 
+def rotate_plt_content_90cw(plt_content: str) -> str:
+    """Rotate all coordinates in PLT content 90 degrees clockwise.
+
+    Used when the bin packer places a label rotated (see
+    ``layout.generate_layout``): the whole rendered content — text,
+    boundary and drill-hole arcs alike — rotates rigidly as one unit.
+
+    The transform is applied in device coordinates (+y downward, the
+    convention of rendered label content) and maps each point to::
+
+        (x, y) -> (y_max - y, x - x_min)
+
+    where ``(x_min, y_min, x_max, y_max)`` are the content bounds. The
+    rotated content therefore spans ``[0, height] x [0, width]`` with its
+    minimum at the origin, so translating it by the packed ``(x, y)``
+    lands it exactly inside the packer's swapped slot with non-negative
+    coordinates.
+
+    Arc (``AA``) centers are mapped like any point. The sweep angle is
+    preserved verbatim: a pure rotation has positive determinant, so the
+    circles' orientation is unchanged (unlike the Y-axis mirror, which
+    negates it). Arc radii are implicit (pen position to center) and a
+    rigid transform preserves that distance.
+
+    Args:
+        plt_content: Raw HPGL PLT text content (plotter units,
+            1 inch = 1000 units).
+
+    Returns:
+        Rotated PLT content. Content without any coordinates is returned
+        unchanged.
+    """
+    try:
+        x_min, _y_min, _x_max, y_max = extract_bounds_from_plt(plt_content)
+    except ValueError:
+        # No coordinates at all: nothing to rotate.
+        return plt_content
+
+    y_max_units = int(round(y_max * 1000.0))
+    x_min_units = int(round(x_min * 1000.0))
+
+    def rotate_coordinates(match: re.Match[str]) -> str:
+        """Rotate coordinates within one PA/PU/PD/AA command."""
+        cmd = match.group(1)
+        parts = match.group(2).split(",")
+
+        try:
+            values = [int(part) for part in parts]
+        except ValueError:
+            return match.group(0)
+
+        if cmd == "AA":
+            if len(values) < 3:
+                return match.group(0)
+            cx, cy, angle = values[0], values[1], values[2]
+            return f"AA{y_max_units - cy},{cx - x_min_units},{angle}"
+
+        if len(values) % 2 != 0:
+            # Malformed coordinate list (pairs expected): leave untouched.
+            return match.group(0)
+
+        rotated_parts: list[str] = []
+        for i in range(0, len(values), 2):
+            x, y = values[i], values[i + 1]
+            rotated_parts.append(str(y_max_units - y))
+            rotated_parts.append(str(x - x_min_units))
+        return f"{cmd}{','.join(rotated_parts)}"
+
+    return re.sub(r"(PA|PU|PD|AA)([\d,\-]+)", rotate_coordinates, plt_content)
+
+
 def assemble_plt_from_rendered_labels(
     plate: PackedPlate,
     rendered_labels_map: dict[str, RenderedLabel],
@@ -134,6 +205,13 @@ def assemble_plt_from_rendered_labels(
         plt_content = plt_content.strip()
         if plt_content.endswith(";"):
             plt_content = plt_content[:-1]
+
+        # Rotate first if the packer placed this label sideways: the whole
+        # content (text, border, holes) turns 90 degrees clockwise and is
+        # normalized to the origin, so the slot translation below lands it
+        # inside the packer's swapped [x, x+H] x [y, y+W] slot.
+        if packed_label.rotated:
+            plt_content = rotate_plt_content_90cw(plt_content)
 
         # Translate coordinates to position on plate
         translated = translate_plt_coordinates(plt_content, packed_label.x, packed_label.y)
@@ -290,6 +368,7 @@ def export_per_cutter_plts(
     optimize: bool = True,
     plots: bool = True,
     default_plots: bool = False,
+    allow_rotation: bool = True,
 ) -> PerCutterExport:
     """Export plates as per-cutter PLT files (and optional simple PDFs).
 
@@ -329,6 +408,10 @@ def export_per_cutter_plts(
             ``*_default.pdf`` diagnostic plots (rapid-travel view) for
             every written PLT and a combined ``*_all_*_default.pdf`` per
             plate. Opt-in only; independent of ``plots``.
+        allow_rotation: If True (the default), the bin packer may rotate
+            label instances 90 degrees for tighter layouts; rotated
+            labels have their whole content (text, border, holes)
+            rotated clockwise during assembly.
 
     Returns:
         A :class:`PerCutterExport` with written PLT paths, PDF paths, and
@@ -366,7 +449,7 @@ def export_per_cutter_plts(
     # Phase 2: Generate layout with rendered bounds (labels rendered onto
     # their cutter pens).
     packed_plates, rendered_labels_map = generate_layout_with_bounds(
-        resolved_labels, provided_plates, pen_map=pen_map
+        resolved_labels, provided_plates, pen_map=pen_map, allow_rotation=allow_rotation
     )
 
     plt_dir = output_dir / "plt"

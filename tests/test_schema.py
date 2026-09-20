@@ -485,6 +485,45 @@ class TestParseYaml:
             parse_yaml(spec_path)
 
 
+class TestAllowRotation:
+    """Tests for the job-level allow_rotation packing flag."""
+
+    def test_defaults_to_true(self) -> None:
+        """Jobs may rotate labels unless explicitly disabled."""
+        job = JobSpec(job_name="Rot", count=1, content=[TextLine(text="X")])
+        assert job.allow_rotation is True
+
+    def test_parsed_from_yaml(self, tmp_path: Path) -> None:
+        """allow_rotation: false must be honored from YAML."""
+        spec_path = tmp_path / "no_rot.yaml"
+        spec_path.write_text(
+            "job:\n"
+            "  job_name: 'No Rotation'\n"
+            "  allow_rotation: false\n"
+            "  count: 1\n"
+            "  content:\n"
+            "    - text: 'X'\n",
+            encoding="utf-8",
+        )
+        job = parse_yaml(spec_path)
+        assert job.allow_rotation is False
+
+    def test_explicit_true_parsed(self, tmp_path: Path) -> None:
+        """An explicit allow_rotation: true parses like the default."""
+        spec_path = tmp_path / "rot.yaml"
+        spec_path.write_text(
+            "job:\n"
+            "  job_name: 'Rotation'\n"
+            "  allow_rotation: true\n"
+            "  count: 1\n"
+            "  content:\n"
+            "    - text: 'X'\n",
+            encoding="utf-8",
+        )
+        job = parse_yaml(spec_path)
+        assert job.allow_rotation is True
+
+
 class TestLabelSpecValidation:
     """Additional LabelSpec validation edge cases."""
 

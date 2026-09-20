@@ -267,6 +267,30 @@ whitespace character, never newline/alphanumeric).
 ### Cascading Resolution
 When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), and `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to 0.15).
 
+### Bin-Packing Rotation (`allow_rotation`)
+`JobSpec.allow_rotation` (bool, default `True`) lets the `rectpack` bin
+packer test both orientations (0°/90°) for every label instance.
+
+- `_pack_best()` (layout.py) evaluates every `PACK_CONFIGS` heuristic twice
+  (rotation off, then on) and ranks candidates by `(footprint, rotated_count)`
+  with a float-tolerant footprint comparison. Labels therefore rotate only
+  when rotation *strictly* improves the used bounding-box area; at equal
+  footprints the all-horizontal layout always wins (backward compatible).
+- Rotation is detected in `_extract_packed_plates()` by comparing
+  `rect.width` against the *packing* width carried in the `rid` payload
+  (rendered bounds in `generate_layout_with_bounds`, nominal otherwise) —
+  never against the nominal `ResolvedLabel.width`, which can differ from
+  what was actually packed.
+- Rotated content is turned 90° **clockwise** at plate assembly:
+  `vectorize.rotate_plt_content_90cw()` maps `(x, y) → (y_max − y, x − x_min)`
+  over `PA`/`PU`/`PD` pairs and `AA` arc centers (sweep angles preserved —
+  a pure rotation has positive determinant), normalizing the rotated bbox to
+  the origin so the existing slot translation lands it in `[x, x+H] × [y, y+W]`
+  with non-negative coordinates. Text, border and drill holes rotate together
+  because they share one `plt_content` string.
+- Unbounded-mode `LayoutFitError` wording is orientation-aware ("in either
+  orientation"): a label that fails 24x16 upright may still fit sideways.
+
 ### Integration Points
 - `parse_yaml(file_path)` returns a `JobSpec` ready for downstream bin-packing and rendering pipelines
 - `expand_job_spec(job, yaml_path)` (substitution.py) must run immediately after `parse_yaml()` before `resolve_job_spec()` to flatten replacement-driven labels

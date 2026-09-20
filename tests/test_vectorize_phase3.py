@@ -15,6 +15,7 @@ from plt_optimizer.generate.vectorize import (
     export_per_cutter_plts,
     extract_pens_from_plt_text,
     plt_has_geometry,
+    rotate_plt_content_90cw,
     translate_plt_coordinates,
 )
 
@@ -129,6 +130,119 @@ class TestTranslatePltCoordinates:
         center_x, center_y = centers.pop()
         assert center_x == pytest.approx(5.25, abs=0.01)
         assert center_y == pytest.approx(3.75, abs=0.01)
+
+
+class TestRotatePltContent90cw:
+    """Tests for the 90-degree clockwise rotation transform."""
+
+    def test_rotate_points_swaps_and_normalizes(self) -> None:
+        """Points map (x, y) -> (y_max - y, x - x_min) into the swapped box."""
+        # Content spanning [1, 3] x [2, 5] inches (plotter units x1000).
+        content = "PU1000,2000;PD3000,2000,3000,5000"
+        result = rotate_plt_content_90cw(content)
+
+        # y_max_units=5000, x_min_units=1000:
+        # (1000,2000) -> (3000, 0); (3000,2000) -> (3000, 2000);
+        # (3000,5000) -> (0, 2000)
+        assert "PU3000,0" in result
+        assert "PD3000,2000,0,2000" in result
+
+    def test_rotate_arc_center_maps_angle_preserved(self) -> None:
+        """AA centers rotate like points; the sweep angle is kept verbatim."""
+        # Full circle: center (2000, 2000), radius 1000 (pen starts at the
+        # rightmost point). Content bounds span [1000, 3000] x [1000, 3000],
+        # so y_max_units=3000 and x_min_units=1000.
+        content = "PU3000,2000;PD3000,2000;AA2000,2000,-90"
+        result = rotate_plt_content_90cw(content)
+
+        # Center (2000,2000) -> (3000-2000, 2000-1000) = (1000, 1000); the
+        # east start point maps south: (3000,2000) -> (1000, 2000). The
+        # sweep sign survives the pure rotation untouched.
+        assert "AA1000,1000,-90" in result
+        assert "PU1000,2000" in result
+
+    def test_rotate_content_without_geometry_unchanged(self) -> None:
+        """Coordinate-free content is returned verbatim."""
+        content = "IN;DF;PS0;SP0;IN;%"
+        assert rotate_plt_content_90cw(content) == content
+
+    def test_rotate_malformed_command_left_untouched(self) -> None:
+        """Unparseable coordinate lists fall back to the original command."""
+        result = rotate_plt_content_90cw("PU1,,2;PD5,5")
+        assert "PU1,,2" in result
+
+    def test_rotate_odd_coordinate_count_untouched(self) -> None:
+        """A PA with an odd number of values cannot be pair-rotated."""
+        result = rotate_plt_content_90cw("PA1,2,3;PD4,4")
+        assert "PA1,2,3" in result
+
+    def test_rotate_truncated_arc_untouched(self) -> None:
+        """An AA without its full center+angle parameters is left verbatim."""
+        result = rotate_plt_content_90cw("PU1000,2000;AA1000,2000")
+        assert "AA1000,2000" in result
+
+    def test_rotated_assembly_lands_in_swapped_slot(self) -> None:
+        """A rotated label's whole content lands inside [x, x+H] x [y, y+W]."""
+        from plt_optimizer.core.models import ArcSegment, StrokeSegment
+        from plt_optimizer.core.parser import PLTParser
+        from plt_optimizer.generate.resolution import ResolvedHoleSpec
+
+        label = ResolvedLabel(
+            id="rot_label",
+            count=1,
+            width=2.0,
+            height=1.0,
+            margin=0.1,
+            hole_margin=0.1875,
+            holes=[ResolvedHoleSpec(diameter=0.125, location="bottom-left")],
+            content=[],
+        )
+        rendered = render_label_to_plt(label)
+
+        plate = PackedPlate(plate_id="p1", width=24.0, height=16.0)
+        plate.labels.append(
+            PackedLabel(
+                label_id="rot_label_0",
+                x=5.0,
+                y=3.0,
+                # The packer's slot for a rotated label swaps the dims.
+                width=rendered.height,
+                height=rendered.width,
+                rotated=True,
+                source_label=label,
+            )
+        )
+
+        assembled = assemble_plt_from_rendered_labels(plate, {label.id: rendered})
+        doc = PLTParser().parse_string(assembled)
+
+        xs: list[float] = []
+        ys: list[float] = []
+        arcs = []
+        for path in doc.stroke_paths:
+            for seg in path.segments:
+                if isinstance(seg, ArcSegment):
+                    arcs.append(seg)
+                    xs.append(seg.center.x / 1000)
+                    ys.append(seg.center.y / 1000)
+                elif isinstance(seg, StrokeSegment):
+                    xs.extend((seg.start.x / 1000, seg.end.x / 1000))
+                    ys.extend((seg.start.y / 1000, seg.end.y / 1000))
+
+        assert arcs, "Rotated assembly lost the drill-hole arcs"
+        # The rotated content occupies exactly the swapped slot:
+        # x in [5, 5 + height], y in [3, 3 + width] (2x1 -> 1x2).
+        assert min(xs) == pytest.approx(5.0, abs=0.01)
+        assert max(xs) == pytest.approx(6.0, abs=0.01)
+        assert min(ys) == pytest.approx(3.0, abs=0.01)
+        assert max(ys) == pytest.approx(5.0, abs=0.01)
+
+        # Clockwise rotation maps the device-convention hole center
+        # (0.25, 0.75) to (0.25, 0.25); the slot offset adds (5, 3).
+        centers = {(round(a.center.x / 1000, 2), round(a.center.y / 1000, 2)) for a in arcs}
+        assert centers == {(5.25, 3.25)}
+        # The rigid transform preserves the drill radius.
+        assert all(a.radius / 1000 == pytest.approx(0.0625, abs=0.001) for a in arcs)
 
 
 class TestAssemblePltFromRenderedLabels:

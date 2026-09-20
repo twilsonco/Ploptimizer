@@ -256,6 +256,127 @@ class TestRotationDetection:
         assert packed.source_label.id == "original"
 
 
+class TestRotationEnabled:
+    """Tests for 90-degree rotation packing (allow_rotation)."""
+
+    def test_rotated_when_only_orientation_fits(self) -> None:
+        """A label taller than the plate must be packed rotated."""
+        labels = [_make_label(label_id="tall", width=1.0, height=3.5)]
+        plates = [PlateSpec(id="wide", width=12.0, height=3.0, margin=0.0, clearance_padding=0.0)]
+        result = generate_layout(labels, plates)
+        assert len(result) == 1
+        packed = result[0].labels[0]
+        assert packed.rotated is True
+        # Rotated slot swaps the packing dimensions.
+        assert math.isclose(packed.width, 3.5)
+        assert math.isclose(packed.height, 1.0)
+
+    def test_allow_rotation_false_never_rotates(self) -> None:
+        """With allow_rotation=False the same label cannot fit at all."""
+        labels = [_make_label(label_id="tall", width=1.0, height=3.5)]
+        plates = [PlateSpec(id="wide", width=12.0, height=3.0, margin=0.0, clearance_padding=0.0)]
+        with pytest.raises(LayoutFitError):
+            generate_layout(labels, plates, allow_rotation=False)
+
+    def test_tie_prefers_unrotated(self) -> None:
+        """Equal footprints must resolve to the all-horizontal layout.
+
+        MaxRects fitness functions can strictly prefer a rotated placement
+        (e.g. short-side tie-breaks); the (footprint, rotations) selection
+        key in _pack_best must still pick the unrotated candidate whenever
+        rotation does not strictly improve the footprint.
+        """
+        labels = [_make_label(width=2.0, height=1.0)]
+        plates = generate_layout(labels)
+        packed = plates[0].labels[0]
+        assert packed.rotated is False
+        assert math.isclose(packed.width, 2.0)
+        assert math.isclose(packed.height, 1.0)
+
+    def test_tie_prefers_unrotated_with_float_noise(self) -> None:
+        """Footprint ties differing only by float noise stay unrotated.
+
+        Three 1.05x2.8 labels on a 12x3 plate: unrotated footprint
+        (3*1.05) * 2.8 and rotated footprint (3*2.8) * 1.05 are
+        mathematically equal but differ in the last float bits, so the
+        selection must compare footprints with a tolerance before falling
+        back to the rotation-count tie-break.
+        """
+        labels = [_make_label(label_id="t", width=1.05, height=2.8, count=3)]
+        plates = [PlateSpec(id="s", width=12.0, height=3.0, margin=0.0, clearance_padding=0.0)]
+        result = generate_layout(labels, plates)
+        assert sum(len(p.labels) for p in result) == 3
+        assert all(not p.rotated for plate in result for p in plate.labels)
+
+    def test_rotation_improves_footprint(self) -> None:
+        """Rotation is used when it strictly improves (here enables) the fit."""
+        # Four 10x6 labels do not fit a 24x10 plate unrotated (2 per row x 2
+        # rows = 12in tall), but rotated 6x10 they fill one exact row.
+        labels = [_make_label(label_id=f"m{i}", width=10.0, height=6.0) for i in range(4)]
+        plates = [PlateSpec(id="p", width=24.0, height=10.0, margin=0.0, clearance_padding=0.0)]
+        result = generate_layout(labels, plates)
+        total_packed = sum(len(p.labels) for p in result)
+        assert total_packed == 4
+        rotated = [pl for p in result for pl in p.labels if pl.rotated]
+        assert len(rotated) == 4
+        for packed in rotated:
+            assert math.isclose(packed.width, 6.0)
+            assert math.isclose(packed.height, 10.0)
+
+    def test_sideways_fit_in_unbounded_mode(self) -> None:
+        """A 15x20 label exceeds 24x16 upright but fits rotated."""
+        labels = [_make_label(label_id="portrait", width=15.0, height=20.0)]
+        plates = generate_layout(labels)
+        packed = plates[0].labels[0]
+        assert packed.rotated is True
+        assert math.isclose(packed.width, 20.0)
+        assert math.isclose(packed.height, 15.0)
+
+    def test_oversized_both_orientations_raises(self) -> None:
+        """A label too large in both orientations raises with new wording."""
+        labels = [_make_label(width=25.0, height=17.0)]
+        with pytest.raises(LayoutFitError) as exc_info:
+            generate_layout(labels)
+        assert "in either orientation" in str(exc_info.value)
+
+    def test_rotation_detection_uses_packing_width(self) -> None:
+        """Rendered dimensions wider than nominal must not fake a rotation.
+
+        Regression test: rotation detection compares rect.width against the
+        *packing* width (rendered bounds), not the nominal ResolvedLabel
+        width. A label whose rendered content overflows its nominal boundary
+        (long text, compression disabled) packs unrotated and must report
+        rotated=False.
+        """
+        from plt_optimizer.generate.layout import generate_layout_with_bounds
+
+        label = ResolvedLabel(
+            id="overflow",
+            count=1,
+            width=1.0,
+            height=1.0,
+            margin=0.1,
+            content=[
+                ResolvedTextLine(
+                    text="W" * 20,
+                    nominal_text_height=0.5,
+                    toolpath_text_height=0.47,
+                    cutter_diameter=0.03,
+                    character_spacing=0.0,
+                    line_spacing=0.0,
+                )
+            ],
+        )
+        plates, rendered_map = generate_layout_with_bounds([label])
+        packed = plates[0].labels[0]
+        rendered = rendered_map[label.id]
+        # The rendered content must actually overflow for this to be a
+        # meaningful regression guard.
+        assert rendered.width > label.width + 0.5
+        assert packed.rotated is False
+        assert math.isclose(packed.width, rendered.width, rel_tol=1e-6)
+
+
 class TestPackedPlateDataclass:
     """Tests for the PackedPlate dataclass."""
 
@@ -446,7 +567,7 @@ class TestEmptyBinHandling:
         empty = _FakeBin("default_plate_2", [])
         filled = _FakeBin(
             "default_plate_1",
-            [_FakeRect(0.0, 0.0, 2.0, 1.0, rid=("a_0", label))],
+            [_FakeRect(0.0, 0.0, 2.0, 1.0, rid=("a_0", label, 2.0))],
         )
 
         plates = _extract_packed_plates(_FakePacker([empty, filled]))
