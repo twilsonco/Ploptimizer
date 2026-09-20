@@ -59,7 +59,7 @@ job:
       width: 2.5
       height: 11.0
       margin: 0.12
-      text_height: 0.3
+      text_height: 0.2
       content:
         - text: "MIX RACK A"
         - text: "BATCH TRACE"
