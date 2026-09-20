@@ -1,0 +1,92 @@
+# Rotation demo job specification for the PLT-Optimizer generate pipeline.
+#
+# Designed to exercise the bin-packing rotation feature (JobSpec.allow_rotation,
+# default true). The mix of label shapes on a deliberately tight 24x10 scrap
+# sheet makes 90-degree rotation the only way to fit everything:
+#
+#   - vertical_banner: 2.5" x 11" banners are TALLER than the 10"-high scrap
+#     sheet, so they can only ever be packed lying down (rotated 90 degrees).
+#     Their text, border and corner drill holes all rotate together at plate
+#     assembly (clockwise; the text reads top-to-bottom).
+#   - machine_card: 10" x 6" cards fill the sheet exactly two-up unrotated --
+#     equal-footprint ties always keep the all-horizontal orientation.
+#   - small_tag: 3" x 1" tags mostly pack horizontally; the packer rotates a
+#     couple of them sideways purely to fill the narrow leftover columns.
+#
+# Without rotation (allow_rotation: false) one label does not fit at all and
+# the job aborts with LayoutFitError, so this file doubles as a regression
+# fixture for the flag.
+#
+# Run with: python run_integration_test.py examples/rotation_demo_job.yaml
+job:
+  job_name: "Rotation Demo - Mix Rack Tags"
+
+  # ---------------------------------------------------------------------
+  # Job-level defaults (cascade down to every label unless overridden).
+  # ---------------------------------------------------------------------
+  text_height: 0.35
+  character_spacing: 0.04
+  margin: 0.15
+  hole_margin: 0.1875
+
+  # Rotation is on by default; set explicitly here so the demo stays
+  # self-documenting. Flip to false to see the LayoutFitError abort.
+  allow_rotation: true
+
+  # ---------------------------------------------------------------------
+  # Constrained mode: a tight 24x10 scrap sheet plus one full 24x16 sheet.
+  # The banners + two cards exactly tile the scrap sheet only when the
+  # banners rotate; the remaining cards overflow onto sheet_2.
+  # ---------------------------------------------------------------------
+  plates:
+    - id: scrap_24x10
+      width: 24.0
+      height: 10.0
+      margin: 0.0
+      clearance_padding: 0.0
+    - id: sheet_2
+      width: 24.0
+      height: 16.0
+      margin: 0.0
+      clearance_padding: 0.0
+
+  labels:
+    # 1. Rotation-required: 11" tall on a 10"-high sheet. The ``corners``
+    #    group shorthand drills all four corners; after rotation the whole
+    #    label (text + border + holes) turns clockwise as one unit.
+    - id: vertical_banner
+      count: 2
+      width: 2.5
+      height: 11.0
+      margin: 0.12
+      text_height: 0.3
+      content:
+        - text: "MIX RACK A"
+        - text: "BATCH TRACE"
+      holes:
+        - location: corners
+
+    # 2. Rotation-refused: two 10x6 cards tile the sheet exactly, so the
+    #    equal-footprint tie-break keeps them horizontal.
+    - id: machine_card
+      count: 4
+      width: 10.0
+      height: 6.0
+      margin: 0.2
+      content:
+        - text: "MACHINE 12"
+          text_height: 0.6
+        - text: "LOCKOUT POINT"
+      holes:
+        - location: sides
+
+    # 3. Opportunistic rotation: mostly horizontal rows; a couple of
+    #    instances turn sideways to fill the leftover 1"-wide column.
+    - id: small_tag
+      count: 8
+      width: 3.0
+      height: 1.0
+      margin: 0.1
+      text_height: 0.25
+      content:
+        - text: "BREAKER 4"

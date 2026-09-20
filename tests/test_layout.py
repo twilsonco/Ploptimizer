@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+from pathlib import Path
 
 import pytest
 
@@ -375,6 +376,42 @@ class TestRotationEnabled:
         assert rendered.width > label.width + 0.5
         assert packed.rotated is False
         assert math.isclose(packed.width, rendered.width, rel_tol=1e-6)
+
+
+class TestRotationDemoExample:
+    """Regression tests for examples/rotation_demo_job.yaml.
+
+    The example is the hand-crafted rotation fixture: its 24x10 scrap sheet
+    only fits every label when the packer rotates, and its equal-footprint
+    regions must stay horizontal.
+    """
+
+    def _load(self) -> tuple[list[ResolvedLabel], object]:
+        """Parse and resolve the rotation demo job."""
+        from plt_optimizer.generate.resolution import resolve_job_spec
+        from plt_optimizer.generate.schema import parse_yaml
+
+        job = parse_yaml(Path("examples/rotation_demo_job.yaml"))
+        return resolve_job_spec(job), job
+
+    def test_example_rotates_to_fit(self) -> None:
+        """All labels fit with rotation; banners and gap-fillers rotate."""
+        labels, job = self._load()
+        assert job.allow_rotation is True
+        plates = generate_layout(labels, job.plates, allow_rotation=job.allow_rotation)
+        packed = [pl for p in plates for pl in p.labels]
+        assert len(packed) == 14
+        rotated = {pl.label_id for pl in packed if pl.rotated}
+        # Both 11"-tall banners can only fit lying down on the 10" sheet.
+        assert {"vertical_banner_0", "vertical_banner_1"} <= rotated
+        # Equal-footprint regions (the 10x6 machine cards) stay horizontal.
+        assert not any(pl.label_id.startswith("machine_card") and pl.rotated for pl in packed)
+
+    def test_example_aborts_without_rotation(self) -> None:
+        """allow_rotation=False cannot fit the job on the provided plates."""
+        labels, job = self._load()
+        with pytest.raises(LayoutFitError, match="Could only fit"):
+            generate_layout(labels, job.plates, allow_rotation=False)
 
 
 class TestPackedPlateDataclass:

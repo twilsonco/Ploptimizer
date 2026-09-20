@@ -290,6 +290,10 @@ packer test both orientations (0°/90°) for every label instance.
   because they share one `plt_content` string.
 - Unbounded-mode `LayoutFitError` wording is orientation-aware ("in either
   orientation"): a label that fails 24x16 upright may still fit sideways.
+- Example fixture: `examples/rotation_demo_job.yaml` (pinned by
+  `tests/test_layout.py::TestRotationDemoExample`) — a tight 24x10 scrap
+  sheet where rotation-required, rotation-refused and opportunistic-rotation
+  labels coexist; it aborts with `LayoutFitError` when rotation is disabled.
 
 ### Integration Points
 - `parse_yaml(file_path)` returns a `JobSpec` ready for downstream bin-packing and rendering pipelines
