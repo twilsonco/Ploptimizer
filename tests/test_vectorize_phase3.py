@@ -1,15 +1,18 @@
 """Tests for Phase 3 PLT assembly and export functions."""
 
 import re
+from pathlib import Path
 
 import pytest
 
-from plt_optimizer.generate.label_renderer import render_label_to_plt
+from plt_optimizer.generate.label_renderer import RenderedLabel, render_label_to_plt
 from plt_optimizer.generate.layout import PackedLabel, PackedPlate
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
 from plt_optimizer.generate.schema import parse_yaml
 from plt_optimizer.generate.vectorize import (
+    _run_optimizer,
     assemble_plt_from_rendered_labels,
+    export_per_cutter_plts,
     extract_pens_from_plt_text,
     plt_has_geometry,
     translate_plt_coordinates,
@@ -70,6 +73,15 @@ class TestTranslatePltCoordinates:
         # Center shifts by (1000, 500); the 90-degree sweep is untouched.
         assert "AA2000,2500,90" in result
         assert "PU2000,500" in result
+
+    def test_translate_malformed_coordinates_left_untouched(self) -> None:
+        """A command with unparseable coordinates is emitted verbatim."""
+        # "PU1,,2" splits into an empty middle token; int("") raises
+        # ValueError and the whole command must fall back unchanged, while
+        # neighbouring well-formed commands still shift.
+        result = translate_plt_coordinates("PU1,,2;PD5,5", 1.0, 0.0)
+        assert "PU1,,2" in result
+        assert "PD1005,5" in result
 
     def test_assembled_arcs_land_at_packed_positions(self) -> None:
         """Holes must follow their label when assembled onto a plate."""
@@ -216,6 +228,43 @@ class TestAssemblePltFromRenderedLabels:
         # Should have pen-up commands between labels
         assert result.count("PU0,0;") == 2
 
+    def test_assemble_skips_label_without_geometry(self) -> None:
+        """A label whose content is header/footer only contributes nothing.
+
+        Stripping the header, footer and leading PU commands leaves an
+        empty string: no trailing semicolon to trim (line 135 false side)
+        and no content to append (line 146 false side). The plate must
+        degrade to a bare header+footer, without any PU0,0 separator.
+        """
+        label = ResolvedLabel(id="blank", count=1, width=1.0, height=1.0, margin=0.1)
+        rendered = RenderedLabel(
+            source_label=label,
+            plt_content="IN;DF;PS0;PU100,200;SP0;IN;%",
+            x_min=0.0,
+            y_min=0.0,
+            x_max=1.0,
+            y_max=1.0,
+            width=1.0,
+            height=1.0,
+        )
+
+        plate = PackedPlate(plate_id="p1", width=24.0, height=16.0)
+        plate.labels.append(
+            PackedLabel(
+                label_id="blank_0",
+                x=0.5,
+                y=0.5,
+                width=1.0,
+                height=1.0,
+                rotated=False,
+                source_label=label,
+            )
+        )
+
+        assembled = assemble_plt_from_rendered_labels(plate, {label.id: rendered})
+        assert assembled == "IN;DF;PS0;SP0;IN;%"
+        assert "PU0,0;" not in assembled
+
 
 class TestExtractPensFromPltText:
     """Multi-pen extraction keeps AA arcs and filters by SP sections."""
@@ -262,6 +311,19 @@ class TestExtractPensFromPltText:
         assert plt_has_geometry("IN;DF;PS0;SP1;PD1,2;SP0;IN;%")
         assert not plt_has_geometry("IN;DF;PS0;SP0;IN;%")
         assert not plt_has_geometry("")
+
+    def test_empty_commands_are_skipped(self) -> None:
+        """Empty command chunks (double semicolons) are ignored."""
+        result = extract_pens_from_plt_text("IN;DF;PS0;SP1;;PU1,2;SP0;IN;%", [1])
+        assert "PU1,2" in result
+        assert ";;" not in result
+
+    def test_malformed_pen_select_is_ignored(self) -> None:
+        """An unparseable SP command leaves the current layer state alone."""
+        result = extract_pens_from_plt_text("IN;DF;PS0;SP1;SPX;PD3,4;SP0;IN;%", [1])
+        # SPX neither parses nor flips the layer: pen 1 geometry survives.
+        assert "PD3,4" in result
+        assert "SPX" not in result
 
 
 class TestRenderLabelToPltPenMap:
@@ -352,3 +414,80 @@ class TestRenderLabelToPltPenMap:
         # tolerance (descenders shift the ink box slightly).
         center = (min(ys) + max(ys)) / 2.0
         assert center == pytest.approx(1000.0, abs=120.0)
+
+
+class TestExportStructuralLayerSkip:
+    """export_per_cutter_plts skips the _bh_ file when no SP2/SP3 exists."""
+
+    def test_export_skips_structural_file_without_geometry(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A plate whose assembly carries no structural pens writes no _bh_.
+
+        The renderer always emits a boundary rectangle, so the only way a
+        plate's combined content can lack SP2/SP3 geometry is an unusual
+        assembly; a stubbed assembler reproduces that shape deterministically
+        so the empty-structural branch (no borders-holes file) is exercised.
+        """
+        import plt_optimizer.generate.vectorize as vectorize
+        from plt_optimizer.generate.resolution import resolve_job_spec
+
+        job = parse_yaml("examples/test123_spec.yaml")
+        resolved_labels = resolve_job_spec(job)
+
+        def fake_assemble(
+            plate: PackedPlate,
+            rendered_labels_map: dict[str, RenderedLabel],
+        ) -> str:
+            """Return a plate containing only pen-1 text geometry."""
+            return "IN;DF;PS0;SP1;PU100,100;PD200,200;SP0;IN;%"
+
+        monkeypatch.setattr(vectorize, "assemble_plt_from_rendered_labels", fake_assemble)
+
+        result = export_per_cutter_plts(
+            resolved_labels,
+            output_dir=tmp_path,
+            job_id="nostruct",
+            optimize=False,
+            plots=False,
+        )
+
+        # The pen-1 text layer is written; the empty structural layer is not.
+        assert result.plt_paths
+        assert not any("_bh_" in p.name for p in result.plt_paths)
+        assert all("_text_" in p.name for p in result.plt_paths)
+        # The in-memory combined content still mirrors the (text-only) plate.
+        assert all("SP1;" in content for content in result.combined_by_plate.values())
+
+
+class TestRunOptimizerEdgePaths:
+    """_run_optimizer keeps original files when optimization cannot run."""
+
+    def test_unreadable_file_is_kept_as_is(self, tmp_path: Path) -> None:
+        """A file the parser cannot read is returned untouched (no raise)."""
+        missing = tmp_path / "missing.plt"
+        result = _run_optimizer([missing])
+        assert result == [missing]
+        assert not missing.exists()
+
+    def test_empty_chunk_result_keeps_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When chunking yields no blocks, the file is kept unmodified."""
+        plt_path = tmp_path / "square.plt"
+        plt_path.write_text(
+            "IN;DF;PS0;SP1;PU0,0;PD1000,0,1000,1000,0,1000,0,0;SP0;IN;%",
+            encoding="utf-8",
+        )
+        original = plt_path.read_text(encoding="utf-8")
+
+        # Force the no-blocks branch: chunk() legitimately refuses to return
+        # empty output, so stub it out to simulate a block-less document.
+        monkeypatch.setattr(
+            "plt_optimizer.core.chunker.Chunker.chunk",
+            lambda self, *args, **kwargs: [],
+        )
+
+        result = _run_optimizer([plt_path])
+        assert result == [plt_path]
+        assert plt_path.read_text(encoding="utf-8") == original
