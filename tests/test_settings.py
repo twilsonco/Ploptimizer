@@ -11,6 +11,9 @@ from tkinter import messagebox
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+# Import the module under test - it will use the mocked tkinter from conftest
+from plt_optimizer.ui.settings import SettingsWindow
+
 # Module-level logger for test assertions
 _logger = logging.getLogger(__name__)
 
@@ -32,8 +35,20 @@ class MockStringVar:
         self._value = value
 
 
-# Import the module under test - it will use the mocked tkinter from conftest
-from plt_optimizer.ui.settings import SettingsWindow
+class MockBooleanVar:
+    """Mock BooleanVar that stores and returns boolean values properly.
+
+    This is a copy of the class in conftest.py for use directly in tests.
+    """
+
+    def __init__(self, initial: bool = False) -> None:
+        self._value = initial
+
+    def get(self) -> bool:
+        return self._value
+
+    def set(self, value: bool) -> None:
+        self._value = value
 
 
 class TestSettingsWindowInit:
@@ -413,7 +428,6 @@ class TestBrowseDirectory:
             window = SettingsWindow(current_config, MagicMock())
 
             var = MockStringVar("")
-            home = str(Path.home())
 
             with patch(
                 "plt_optimizer.ui.settings.filedialog.askdirectory",
@@ -975,14 +989,13 @@ class TestOnCleanup:
 
     def test_on_cleanup_user_declines(self) -> None:
         """Test cleanup does nothing when user clicks No."""
-        current_config: dict[str, Any] = {}
         mock_root = MagicMock()
 
         # When askyesno returns False, the cleanup should return early
         with patch(
             "plt_optimizer.ui.settings.messagebox.askyesno",
             return_value=False,
-        ) as mock_ask:
+        ):
             result = messagebox.askyesno(
                 "Cleanup Files",
                 "This will delete all files in the logs and processed directories.\n\nContinue?",
@@ -1087,7 +1100,6 @@ class TestOnCleanup:
 
             with patch.object(Path, "exists", side_effect=exists_side_effect):
                 log_dir = ""
-                processed_dir = "/test/processed"
                 cleaned_count = 0
 
                 # Clean logs directory (doesn't exist)
@@ -1370,3 +1382,228 @@ class TestDebugAndFastMode:
 
             # Debug mode should already be set from config
             assert window._debug_save_files_var.get() is False
+
+
+class TestWindowsStartupSection:
+    """Tests for the Windows-only Startup section of _setup_ui (lines 161-175).
+
+    ``_IS_WINDOWS`` is a module-level constant resolved at import time, so on
+    macOS it is False and the Startup block never runs. These tests patch the
+    constant to True while a :class:`SettingsWindow` is built, which is the
+    only way to exercise the Windows two-column layout.
+    """
+
+    def test_windows_startup_section_created_and_maintenance_shifted(self) -> None:
+        """Test the Startup section/checkbox are built and Maintenance moves column."""
+        startup_var = MockBooleanVar()
+        sections: dict[str, MagicMock] = {}
+        checkbutton_kwargs: list[dict[str, Any]] = []
+
+        def make_section(*args: Any, **kwargs: Any) -> MagicMock:
+            """Return a distinct mock per LabelFrame so grid() calls stay separable."""
+            section = MagicMock()
+            sections[str(kwargs.get("text", ""))] = section
+            return section
+
+        def make_checkbutton(*args: Any, **kwargs: Any) -> MagicMock:
+            """Record Checkbutton kwargs so the startup checkbox can be inspected."""
+            checkbutton_kwargs.append(kwargs)
+            return MagicMock()
+
+        with patch("plt_optimizer.ui.settings._IS_WINDOWS", True):
+            with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+                with patch(
+                    "plt_optimizer.ui.settings.tk.BooleanVar", return_value=startup_var
+                ) as mock_boolvar:
+                    with patch(
+                        "plt_optimizer.ui.settings.ttk.LabelFrame", side_effect=make_section
+                    ) as mock_labelframe:
+                        with patch(
+                            "plt_optimizer.ui.settings.ttk.Checkbutton",
+                            side_effect=make_checkbutton,
+                        ):
+                            window = SettingsWindow({}, MagicMock())
+
+        # Directories/Optimization vars plus the extra Windows startup var.
+        assert mock_boolvar.call_count == 3
+        assert window._run_at_startup_var is startup_var
+        # Directories, Optimization Options, Startup and Maintenance frames.
+        assert mock_labelframe.call_count == 4
+        sections["Startup"].grid.assert_called_once_with(
+            row=3, column=0, sticky="ew", pady=(10, 10), ipady=5
+        )
+        # On Windows Maintenance sits beside Startup (column 1, no columnspan).
+        sections["Maintenance"].grid.assert_called_once_with(
+            row=3, column=1, sticky="ew", pady=(10, 10), ipady=5, padx=(10, 0)
+        )
+        startup_checks = [
+            kwargs for kwargs in checkbutton_kwargs if kwargs.get("text") == "Run at Windows Startup"
+        ]
+        assert len(startup_checks) == 1
+        assert startup_checks[0]["variable"] is startup_var
+
+    def test_non_windows_layout_has_no_startup_section(self) -> None:
+        """Test the Startup section is absent and Maintenance spans full width elsewhere."""
+        sections: dict[str, MagicMock] = {}
+
+        def make_section(*args: Any, **kwargs: Any) -> MagicMock:
+            """Return a distinct mock per LabelFrame so grid() calls stay separable."""
+            section = MagicMock()
+            sections[str(kwargs.get("text", ""))] = section
+            return section
+
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            with patch(
+                "plt_optimizer.ui.settings.ttk.LabelFrame", side_effect=make_section
+            ) as mock_labelframe:
+                window = SettingsWindow({}, MagicMock())
+
+        assert "Startup" not in sections
+        assert mock_labelframe.call_count == 3
+        assert not hasattr(window, "_run_at_startup_var")
+        sections["Maintenance"].grid.assert_called_once_with(
+            row=3, column=0, columnspan=4, sticky="ew", pady=(10, 10)
+        )
+
+
+class TestLoadCurrentValuesWindows:
+    """Tests for the Windows startup-state reflection in _load_current_values (291-299)."""
+
+    def test_load_uses_system_startup_state(self) -> None:
+        """Test the system registry check wins over the stored config value."""
+        with patch("plt_optimizer.ui.settings._IS_WINDOWS", True):
+            with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+                with patch(
+                    "plt_optimizer.utils.startup.is_startup_enabled", return_value=True
+                ) as mock_is_enabled:
+                    window = SettingsWindow({"run_at_startup": False}, MagicMock())
+
+        mock_is_enabled.assert_called_once()
+        assert window._run_at_startup_var.get() is True
+
+    def test_load_falls_back_to_config_when_startup_check_raises(self) -> None:
+        """Test a failing system check falls back to the stored config value."""
+        with patch("plt_optimizer.ui.settings._IS_WINDOWS", True):
+            with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+                with patch(
+                    "plt_optimizer.utils.startup.is_startup_enabled",
+                    side_effect=RuntimeError("registry unavailable"),
+                ):
+                    window = SettingsWindow({"run_at_startup": True}, MagicMock())
+
+        assert window._run_at_startup_var.get() is True
+
+    def test_load_skips_reflection_when_startup_var_missing(self) -> None:
+        """Test reflection is skipped when the Startup section was never built."""
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            window = SettingsWindow({"run_at_startup": True}, MagicMock())
+
+        # Built on a non-Windows layout, so the attribute does not exist.
+        with patch("plt_optimizer.ui.settings._IS_WINDOWS", True):
+            window._load_current_values()
+
+        assert not hasattr(window, "_run_at_startup_var")
+
+
+class TestOnSaveWindowsStartup:
+    """Tests for the Windows startup-shortcut block in _on_save (lines 373-392)."""
+
+    def _build_window(self, config: dict[str, Any], callback: MagicMock) -> SettingsWindow:
+        """Build a Windows-layout window with valid directory values.
+
+        Args:
+            config: Configuration dictionary handed to the window.
+            callback: Save callback mock to install on the window.
+
+        Returns:
+            A SettingsWindow whose inputs pass validation.
+        """
+        window = SettingsWindow(config, callback)
+        window._watch_dir_var.set("/watch")
+        window._output_dir_var.set("/out")
+        window._log_dir_var.set("/logs")
+        return window
+
+    def test_on_save_enables_startup_shortcut(self) -> None:
+        """Test checking Run at Startup creates the shortcut and stores the flag."""
+        callback = MagicMock()
+
+        with patch("plt_optimizer.ui.settings._IS_WINDOWS", True):
+            with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+                window = self._build_window({}, callback)
+                window._run_at_startup_var.set(True)
+
+                with patch("plt_optimizer.utils.startup.create_shortcut") as mock_create:
+                    with patch("plt_optimizer.utils.startup.remove_shortcut") as mock_remove:
+                        with patch.object(Path, "exists", return_value=True):
+                            window._on_save()
+
+        saved_config = callback.call_args[0][0]
+        assert saved_config["run_at_startup"] is True
+        mock_create.assert_called_once()
+        mock_remove.assert_not_called()
+
+    def test_on_save_disables_startup_shortcut(self) -> None:
+        """Test clearing Run at Startup removes the shortcut and stores the flag."""
+        callback = MagicMock()
+
+        with patch("plt_optimizer.ui.settings._IS_WINDOWS", True):
+            with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+                window = self._build_window({"run_at_startup": True}, callback)
+                # _load_current_values reflects the (mocked) system state: disabled.
+                window._run_at_startup_var.set(False)
+
+                with patch("plt_optimizer.utils.startup.create_shortcut") as mock_create:
+                    with patch("plt_optimizer.utils.startup.remove_shortcut") as mock_remove:
+                        with patch.object(Path, "exists", return_value=True):
+                            window._on_save()
+
+        saved_config = callback.call_args[0][0]
+        assert saved_config["run_at_startup"] is False
+        mock_remove.assert_called_once()
+        mock_create.assert_not_called()
+
+    def test_on_save_survives_startup_update_failure(self) -> None:
+        """Test a shortcut failure is logged but does not abort saving."""
+        callback = MagicMock()
+
+        with patch("plt_optimizer.ui.settings._IS_WINDOWS", True):
+            with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+                window = self._build_window({}, callback)
+                window._run_at_startup_var.set(True)
+
+                with patch(
+                    "plt_optimizer.utils.startup.create_shortcut",
+                    side_effect=OSError("shortcut write failed"),
+                ):
+                    with patch.object(Path, "exists", return_value=True):
+                        with patch(
+                            "plt_optimizer.ui.settings.messagebox.showerror"
+                        ) as mock_showerror:
+                            window._on_save()
+
+        # The startup failure is swallowed, so the save still completes.
+        callback.assert_called_once()
+        saved_config = callback.call_args[0][0]
+        assert saved_config["run_at_startup"] is True
+        mock_showerror.assert_not_called()
+
+    def test_on_save_skips_startup_block_when_startup_var_missing(self) -> None:
+        """Test a non-Windows layout never writes run_at_startup on save."""
+        callback = MagicMock()
+
+        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+            window = self._build_window({"run_at_startup": True}, callback)
+
+        with patch("plt_optimizer.ui.settings._IS_WINDOWS", True):
+            with patch("plt_optimizer.utils.startup.create_shortcut") as mock_create:
+                with patch("plt_optimizer.utils.startup.remove_shortcut") as mock_remove:
+                    with patch.object(Path, "exists", return_value=True):
+                        window._on_save()
+
+        saved_config = callback.call_args[0][0]
+        # The block never ran, so the stored value is untouched (not rewritten
+        # from the non-existent startup variable).
+        assert saved_config["run_at_startup"] is True
+        mock_create.assert_not_called()
+        mock_remove.assert_not_called()
