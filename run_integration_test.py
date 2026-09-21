@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 # previews written by the export step are the standard artifacts, and the
 # color plots are slow to render. Flip to True (or export_per_cutter_plts'
 # default_plots= kwarg / the CLI's --default-plots flag) to produce them.
-GENERATE_DEFAULT_PLOTS = False
+GENERATE_DEFAULT_PLOTS = True
 
 # Import pipeline components
 from plt_optimizer.generate.layout import generate_layout
