@@ -279,7 +279,7 @@ def plot_plt_document(
                 if simple_mode:
                     color: Any = "black"
                     linewidth = 0.5
-                    alpha = 1.0
+                    alpha = 0.3
                 else:
                     color_val = norm_distances[i]
                     cmap = plt.colormaps["plasma"]
