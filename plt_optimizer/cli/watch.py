@@ -61,7 +61,7 @@ from plt_optimizer.core.pipeline import (
     optimize_and_reassemble,
     preprocess_document,
 )
-from plt_optimizer.core.profiler import Profiler
+from plt_optimizer.core.profiler import DEFAULT_STRUCTURAL_RATIO, Profiler
 from plt_optimizer.core.reassembler import MetricsCalculator, Reassembler
 from plt_optimizer.core.writer import PLTWriter
 from plt_optimizer.utils.geometry import fracture_linear_paths, remove_redundant_strokes
@@ -103,6 +103,7 @@ class PLTFileHandler(FileSystemEventHandler):
         temp_dir: Optional[Path] = None,
         debounce_seconds: float = 2.0,
         poll_interval: float = 0.5,
+        structural_ratio: float = DEFAULT_STRUCTURAL_RATIO,
     ) -> None:
         """Initialize the PLT file handler.
 
@@ -120,6 +121,9 @@ class PLTFileHandler(FileSystemEventHandler):
             debounce_seconds: Quiet period (seconds) after the last modification
                 before a file is considered stable and processed.
             poll_interval: How often the debounce thread polls for stable files.
+            structural_ratio: Document-level structural classification gate in
+                (0, 1] passed to the Profiler; a document is structural when
+                the fraction of lines+perfect-circles paths exceeds this value.
         """
         super().__init__()
         self._watch_dir = watch_dir
@@ -135,6 +139,7 @@ class PLTFileHandler(FileSystemEventHandler):
         self._processed_files: set[Path] = set()
         self._debounce_seconds = debounce_seconds
         self._poll_interval = poll_interval
+        self._structural_ratio = structural_ratio
         self._temp_dir = temp_dir if temp_dir is not None else output_dir / ".incomplete"
         self._pending_files: Dict[Path, float] = {}
         self._pending_lock = threading.Lock()
@@ -423,7 +428,7 @@ class PLTFileHandler(FileSystemEventHandler):
             doc = self._parser.parse_file(input_path)
 
             # Profile to determine document type BEFORE any preprocessing
-            profiler = Profiler()
+            profiler = Profiler(structural_ratio=self._structural_ratio)
             profile_result = profiler.profile(doc)
             self._text_logger.debug(
                 f"[{job_id}] Document classified as {'structural' if profile_result.is_structural else 'text'}"
@@ -688,6 +693,7 @@ def run_watcher_from_config(
     fast_mode = bool(config.get("fast_mode", False))
     debug_save_files = bool(config.get("debug_save_files", False))
     debounce_seconds = float(config.get("debounce_seconds", 2.0))
+    structural_ratio = float(config.get("structural_ratio", DEFAULT_STRUCTURAL_RATIO))
 
     text_log_file = log_dir / "optimizer.log"
     csv_metrics_file = log_dir / "job_metrics.csv"
@@ -719,6 +725,7 @@ def run_watcher_from_config(
         f"Strategy: {'NearestNeighbor2Opt (Fast Mode)' if fast_mode else 'ParallelEnsemble'}"
     )
     text_logger.info(f"Debounce window: {debounce_seconds}s")
+    text_logger.info(f"Structural ratio: {structural_ratio}")
     text_logger.info("=" * 60)
 
     # Validate watch directory
@@ -752,6 +759,7 @@ def run_watcher_from_config(
         debug_save_files=debug_save_files,
         log_dir=log_dir if debug_save_files else None,
         debounce_seconds=debounce_seconds,
+        structural_ratio=structural_ratio,
     )
     handler.start()
 
@@ -783,6 +791,7 @@ def run_watcher_from_config(
         debug_save_files=debug_save_files,
         log_dir=log_dir if debug_save_files else None,
         debounce_seconds=debounce_seconds,
+        structural_ratio=structural_ratio,
     )
     event_handler.start()
 

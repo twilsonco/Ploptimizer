@@ -243,6 +243,56 @@ class TestPLTFileHandlerProcessFile:
 
         assert result is False
 
+    def test_process_file_passes_structural_ratio_to_profiler(
+        self, tmp_path: Path
+    ) -> None:
+        """Test the handler forwards its structural_ratio to the Profiler."""
+        from plt_optimizer.cli.watch import PLTFileHandler
+
+        test_file = tmp_path / "holes.plt"
+        test_file.write_text("IN;PD100,100;SP;\n", encoding="utf-8")
+
+        handler = PLTFileHandler(
+            watch_dir=tmp_path,
+            output_dir=Path("/output"),
+            text_logger=MagicMock(),
+            metrics_logger=MagicMock(),
+            structural_ratio=0.5,
+        )
+        assert handler._structural_ratio == 0.5
+
+        mock_doc = MagicMock()
+        mock_doc.stroke_paths = []
+        mock_doc.total_segments = 0
+
+        with patch.object(handler, '_parser') as mock_parser:
+            mock_parser.parse_file.return_value = mock_doc
+
+            with patch('plt_optimizer.cli.watch.Profiler') as MockProfiler:
+                mock_profile_result = MagicMock()
+                mock_profile_result.baseline_extent = 10.0
+                MockProfiler.return_value.profile.return_value = mock_profile_result
+
+                with patch('plt_optimizer.cli.watch.Chunker') as MockChunker:
+                    MockChunker.return_value.chunk.return_value = []
+                    handler._process_file(test_file)
+
+        MockProfiler.assert_called_once_with(structural_ratio=0.5)
+
+    def test_structural_ratio_defaults_to_profiler_default(self) -> None:
+        """Test a handler built without structural_ratio uses the profiler default."""
+        from plt_optimizer.cli.watch import PLTFileHandler
+        from plt_optimizer.core.profiler import DEFAULT_STRUCTURAL_RATIO
+
+        handler = PLTFileHandler(
+            watch_dir=Path("/watch"),
+            output_dir=Path("/output"),
+            text_logger=MagicMock(),
+            metrics_logger=MagicMock(),
+        )
+
+        assert handler._structural_ratio == DEFAULT_STRUCTURAL_RATIO
+
     def test_process_file_uses_fast_mode_strategy(self, tmp_path: Path) -> None:
         """Test that fast mode uses NearestNeighbor2OptStrategy."""
         from unittest.mock import MagicMock, patch
@@ -544,6 +594,61 @@ class TestRunWatcherFromConfig:
 
             result = run_watcher_from_config(config, stop_event)
             assert result == 1
+
+
+class TestRunWatcherStructuralRatio:
+    """Tests for structural_ratio plumbing in run_watcher_from_config."""
+
+    @staticmethod
+    def _dirs(tmp_path: Path) -> Dict[str, str]:
+        """Create watch/output/log directories and return a base config."""
+        watch_dir = tmp_path / "watch"
+        output_dir = tmp_path / "output"
+        log_dir = tmp_path / "logs"
+        for directory in (watch_dir, output_dir, log_dir):
+            directory.mkdir()
+        return {
+            "watch_dir": str(watch_dir),
+            "output_dir": str(output_dir),
+            "log_dir": str(log_dir),
+        }
+
+    def _run(self, tmp_path: Path, extra: Dict[str, object]) -> list:
+        """Run the watcher with mocked handlers/observer, return handler kwargs."""
+        from plt_optimizer.cli.watch import run_watcher_from_config
+
+        config = self._dirs(tmp_path)
+        config.update(extra)  # type: ignore[arg-type]
+
+        stop_event = threading.Event()
+        stop_event.set()  # exit the wait loop immediately
+
+        with patch('plt_optimizer.utils.logging.setup_logging') as mock_setup:
+            mock_setup.return_value = (MagicMock(), MagicMock())
+            with patch('plt_optimizer.cli.watch.PLTFileHandler') as MockHandler:
+                with patch('plt_optimizer.cli.watch.Observer'):
+                    result = run_watcher_from_config(config, stop_event)
+
+        assert result == 0
+        return [call.kwargs for call in MockHandler.call_args_list]
+
+    def test_configured_ratio_reaches_both_handlers(self, tmp_path: Path) -> None:
+        """Test config.structural_ratio is forwarded to existing and event handlers."""
+        kwargs = self._run(tmp_path, {"structural_ratio": 0.5})
+
+        assert len(kwargs) == 2
+        for call_kwargs in kwargs:
+            assert call_kwargs["structural_ratio"] == 0.5
+
+    def test_missing_config_key_falls_back_to_default(self, tmp_path: Path) -> None:
+        """Test handlers get DEFAULT_STRUCTURAL_RATIO when the key is absent."""
+        from plt_optimizer.core.profiler import DEFAULT_STRUCTURAL_RATIO
+
+        kwargs = self._run(tmp_path, {})
+
+        assert len(kwargs) == 2
+        for call_kwargs in kwargs:
+            assert call_kwargs["structural_ratio"] == DEFAULT_STRUCTURAL_RATIO
 
 
 class TestWatchCommandRun:

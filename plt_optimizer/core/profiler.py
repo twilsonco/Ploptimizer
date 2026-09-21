@@ -1,8 +1,17 @@
-"""Profiler module for baseline extent calculation.
+"""Profiler module for baseline extent calculation and structural classification.
 
 This module analyzes parsed PLT documents to establish a baseline character/element
 extent, which is used by the Chunker to determine stroke grouping thresholds.
 The 95th percentile is used instead of maximum to avoid outlier sensitivity.
+
+It also classifies a document as *structural* using a compositional rule: a
+stroke path is structural when it consists exclusively of straight line segments
+and verified perfect circles (e.g. EngraveLab drill holes emitted as four
+consecutive 90-degree arcs sharing one center and radius). A document is
+structural when the fraction of structural paths exceeds ``structural_ratio``
+(default 85%). Text paths fail the perfect-circle verification: EngraveLab
+renders glyph curves as many tiny arcs with per-segment centers/radii, and
+generated text is pure polylines with multi-segment glyph runs.
 """
 
 from __future__ import annotations
@@ -15,33 +24,109 @@ from typing import List, Protocol
 
 from plt_optimizer.core.models import (
     ArcSegment,
+    Segment,
     StrokePath,
     StrokeSegment,
 )
 from plt_optimizer.utils.logging import get_text_logger
 
-# Tolerance for floating-point coordinate comparisons (3 decimal places = 0.001)
-COORD_TOLERANCE = 1e-3
+# Tolerance (plotter units) for verifying that a run of arcs chains into one
+# perfect circle. Covers the parser's 3-decimal Coordinate rounding plus the
+# +/-0.001 center jitter emitted by EngraveLab drill-hole arcs.
+CIRCLE_TOLERANCE = 5e-3
+
+# Angular tolerance (degrees) for accepting an arc group as a full revolution.
+CIRCLE_SWEEP_TOLERANCE_DEG = 5.0
+
+# Default document-level structural gate: a document is classified structural
+# when the fraction of structural paths strictly exceeds this ratio.
+DEFAULT_STRUCTURAL_RATIO = 0.85
 
 
-def _segment_length(seg: StrokeSegment | ArcSegment) -> float:
-    """Get the length of a segment (line or arc).
+def _arc_runs(segments: Sequence[Segment]) -> List[List[ArcSegment]]:
+    """Group path segments into maximal consecutive arc runs.
+
+    Straight segments act as run boundaries; a path with no arcs yields an
+    empty list.
 
     Args:
-        seg: The segment to measure.
+        segments: Ordered segments of a single stroke path.
 
     Returns:
-        Euclidean length of the segment.
+        List of runs, each a non-empty list of consecutive ArcSegments.
     """
-    if isinstance(seg, StrokeSegment):
-        dx = seg.end.x - seg.start.x
-        dy = seg.end.y - seg.start.y
-        return math.sqrt(dx * dx + dy * dy)
-    else:  # ArcSegment
-        # For arcs, use the chord length as approximation
-        dx = seg.end.x - seg.start.x
-        dy = seg.end.y - seg.start.y
-        return math.sqrt(dx * dx + dy * dy)
+    runs: List[List[ArcSegment]] = []
+    current: List[ArcSegment] = []
+    for seg in segments:
+        if isinstance(seg, ArcSegment):
+            current.append(seg)
+        elif current:
+            runs.append(current)
+            current = []
+    if current:
+        runs.append(current)
+    return runs
+
+
+def _is_perfect_circle(run: Sequence[ArcSegment]) -> bool:
+    """Verify that a consecutive arc run forms one perfect circle.
+
+    A run is a perfect circle when:
+
+    1. The signed sweep angles sum to +/-360 degrees (within
+       ``CIRCLE_SWEEP_TOLERANCE_DEG``), so retraced back-and-forth arcs
+       (e.g. +180/-180) are rejected, and
+    2. for multi-arc runs, the arcs chain end-to-start, close back onto the
+       first arc's start, share a single center, and share one radius (all
+       within ``CIRCLE_TOLERANCE``).
+
+    A single arc whose own sweep is a full revolution (e.g. an HPGL ``CI``
+    circle parsed as one 360-degree arc) is a circle by definition.
+
+    Args:
+        run: Maximal consecutive run of arc segments.
+
+    Returns:
+        True if the run is a verified full circle.
+    """
+    if not run:
+        return False
+
+    total_sweep = sum(arc.sweep_angle for arc in run)
+    if not math.isclose(abs(total_sweep), 360.0, abs_tol=CIRCLE_SWEEP_TOLERANCE_DEG):
+        return False
+
+    if len(run) == 1:
+        return True
+
+    first = run[0]
+    if first.radius <= 0.0:
+        return False
+
+    previous = first
+    for arc in run[1:]:
+        if not (
+            math.isclose(previous.end.x, arc.start.x, abs_tol=CIRCLE_TOLERANCE)
+            and math.isclose(previous.end.y, arc.start.y, abs_tol=CIRCLE_TOLERANCE)
+        ):
+            return False
+        previous = arc
+
+    if not (
+        math.isclose(previous.end.x, first.start.x, abs_tol=CIRCLE_TOLERANCE)
+        and math.isclose(previous.end.y, first.start.y, abs_tol=CIRCLE_TOLERANCE)
+    ):
+        return False
+
+    for arc in run[1:]:
+        if not (
+            math.isclose(arc.center.x, first.center.x, abs_tol=CIRCLE_TOLERANCE)
+            and math.isclose(arc.center.y, first.center.y, abs_tol=CIRCLE_TOLERANCE)
+            and math.isclose(arc.radius, first.radius, abs_tol=CIRCLE_TOLERANCE)
+        ):
+            return False
+
+    return True
 
 
 @dataclass(frozen=True)
@@ -88,12 +173,19 @@ class ProfilerError(Exception):
 
 
 class Profiler:
-    """Analyzer for calculating baseline extent from stroke paths.
+    """Analyzer for baseline extent calculation and structural classification.
 
     The profiler examines all cutting (pen-down) strokes in a PLTDocument and
     calculates the 95th percentile bounding box dimension. This value serves as
     the `baseline_extent` used by the Chunker to determine grouping thresholds,
-    making it robust against outliers like underlines or borders.
+    making it robust against outliers like underlines or borders. Only straight
+    line segments contribute to the baseline: drill holes (circles) are excluded
+    by design so hole size never skews the text-grouping threshold.
+
+    A path is classified *structural* when it consists exclusively of straight
+    line segments and verified perfect circles (see :func:`_is_perfect_circle`).
+    The document is structural when the fraction of structural paths strictly
+    exceeds ``structural_ratio``.
 
     Example:
         >>> from plt_optimizer.core.parser import PLTParser
@@ -105,8 +197,16 @@ class Profiler:
         102.345
     """
 
-    def __init__(self) -> None:
-        """Initialize the Profiler."""
+    def __init__(self, structural_ratio: float = DEFAULT_STRUCTURAL_RATIO) -> None:
+        """Initialize the Profiler.
+
+        Args:
+            structural_ratio: Document-level gate in (0, 1]. A document is
+                classified structural when the fraction of structural paths
+                strictly exceeds this value. Defaults to
+                :data:`DEFAULT_STRUCTURAL_RATIO` (0.85).
+        """
+        self._structural_ratio = structural_ratio
         self._logger = get_text_logger()
 
     def profile(self, document: StrokePathsProtocol) -> ProfileResult:
@@ -117,19 +217,15 @@ class Profiler:
 
         Returns:
             A ProfileResult containing the baseline_extent and statistics.
+            For structural documents that contain no straight cutting lines
+            (pure-circle files), the baseline statistics are all zero instead
+            of raising: structural chunking ignores the baseline entirely.
 
         Raises:
-            ProfilerError: If no cutting strokes are found.
+            ProfilerError: If no straight cutting strokes are found and the
+                document is not structural.
         """
         self._logger.info("Starting baseline extent profiling")
-
-        # Collect all extents from cutting segments
-        extents = self._calculate_all_extents(document)
-
-        if not extents:
-            raise ProfilerError(
-                "No cutting strokes found in document. Cannot calculate baseline extent."
-            )
 
         # Calculate polyline density & structural composition
         valid_paths = [p for p in document.stroke_paths if p.segments]
@@ -138,18 +234,15 @@ class Profiler:
 
         avg_segments_per_path = total_segments / total_paths if total_paths > 0 else 0
 
-        # Structural composition: Check if paths match structural fingerprints
+        # Structural composition: a path is structural when it contains only
+        # straight lines and verified perfect circles (drill holes). The high
+        # default ratio gate (85%) keeps mixed files (text + holes) on the
+        # conservative text path, where holes ride along in chronological
+        # blocks instead of being fractured.
         if total_paths > 0:
             structural_path_count = sum(1 for p in valid_paths if self._is_structural_path(p))
             structural_ratio = structural_path_count / total_paths
-
-            # If more than 85% of paths are purely structural features, flag as structural.
-            # This high threshold ensures mixed files or highly faceted curves don't
-            # trigger false positives. Uses geometric characteristic analysis including:
-            # - Closed loop detection (rectangles, boundaries)
-            # - Segment length to bounding box ratio (text has many tiny vectors)
-            # - Arc/line composition (EngraveLab 4-arc drill holes)
-            is_structural = structural_ratio > 0.85
+            is_structural = structural_ratio > self._structural_ratio
         else:
             structural_path_count = 0
             structural_ratio = 0.0
@@ -161,6 +254,36 @@ class Profiler:
             f"avg {avg_segments_per_path:.1f} segments/path, "
             f"structural={structural_path_count}/{total_paths} ({structural_ratio:.1%})"
         )
+
+        # Collect all extents from cutting line segments (holes excluded).
+        extents = self._calculate_all_extents(document)
+
+        if not extents:
+            has_cutting_arcs = any(
+                segment.is_cutting
+                for path in valid_paths
+                for segment in path.segments
+                if isinstance(segment, ArcSegment)
+            )
+            if is_structural and has_cutting_arcs:
+                # Pure-circle structural file: structural chunking bypasses
+                # baseline-based grouping, so a zero baseline is safe.
+                self._logger.info(
+                    f"Profiling complete: is_structural=True "
+                    f"({structural_ratio:.1%} structural), no straight cutting "
+                    f"strokes found; baseline_extent=0.0 (ignored for structural files)"
+                )
+                return ProfileResult(
+                    baseline_extent=0.0,
+                    median_dx=0.0,
+                    median_dy=0.0,
+                    total_strokes=0,
+                    p95_index=0,
+                    is_structural=True,
+                )
+            raise ProfilerError(
+                "No cutting strokes found in document. Cannot calculate baseline extent."
+            )
 
         # Calculate statistics
         dx_values = [e.dx for e in extents]
@@ -189,7 +312,7 @@ class Profiler:
         self._logger.info(
             f"Profiling complete: is_structural={is_structural} "
             f"(avg {avg_segments_per_path:.1f} segments/path, "
-            f"{structural_ratio:.1%} structural), "
+            f"{structural_ratio:.1%} structural, gate {self._structural_ratio:.1%}), "
             f"baseline_extent={baseline_extent:.3f}, "
             f"total_cutting_strokes={result.total_strokes}"
         )
@@ -217,8 +340,9 @@ class Profiler:
                     start = segment.start
                     end = segment.end
                 else:
-                    # For non-StrokeSegment types, skip arc segments initially
-                    # The profiler handles pure linear strokes; arcs are rare in text
+                    # Arc segments (drill holes) are excluded from the baseline
+                    # by design: hole size must never skew the text-grouping
+                    # threshold derived from this statistic.
                     continue
 
                 dx = abs(end.x - start.x)
@@ -230,124 +354,34 @@ class Profiler:
         return extents
 
     def _is_structural_path(self, path: StrokePath) -> bool:
-        """Determine if a single path is a structural feature (score line or drill hole).
+        """Determine if a single path is structural (straight lines + perfect circles).
 
-        A structural path matches one of these patterns:
-        1. Single straight StrokeSegment (simple score/cut line)
-        2. Multi-arc drill hole: 3+ arcs totaling ~360° (within ±5°) + optional plunge
-           This covers EngraveLab 4x 90° arcs and decorative drill patterns
-        3. Closed loop rectangle/boundary with high segment-length-to-extent ratio
-        4. Linear path where average segment length is large relative to bounding box
+        Compositional rule: a path is structural when *every* segment is either
+        a straight line (any length, including zero-length plunge points that
+        open drill-hole paths) or part of a consecutive arc run verified as a
+        perfect circle by :func:`_is_perfect_circle` (e.g. an EngraveLab hole
+        emitted as four chained 90-degree arcs sharing one center and radius).
+
+        This deliberately rejects text: EngraveLab renders glyph curves as many
+        tiny arcs whose centers/radii change every segment and whose sweeps
+        never total a full revolution, while generated text is multi-segment
+        polyline runs. A path mixing a verified circle with arc fragments also
+        fails, because at least one run is not a circle.
 
         Args:
             path: The stroke path to classify.
 
         Returns:
-            True if the path is a structural feature, False otherwise.
+            True if the path consists only of straight lines and perfect circles.
         """
         if not path.segments:
             return False
 
-        # Check 1: Is it a single straight score line?
-        if len(path.segments) == 1 and isinstance(path.segments[0], StrokeSegment):
-            return True
+        for run in _arc_runs(path.segments):
+            if not _is_perfect_circle(run):
+                return False
 
-        # Check 2: Multi-arc drill hole (3+ arcs totaling ~360°)?
-        arcs = [s for s in path.segments if isinstance(s, ArcSegment)]
-        lines = [s for s in path.segments if isinstance(s, StrokeSegment)]
-
-        if len(arcs) >= 3:
-            # Calculate total sweep angle (absolute value to handle orientation)
-            total_sweep = sum(abs(a.sweep_angle) for a in arcs)
-
-            # Check if arcs form a complete or near-complete revolution (±5° tolerance)
-            # This covers 4x 90° arcs (360°) and multi-arc patterns like 5 arcs (358°)
-            if math.isclose(total_sweep, 360.0, abs_tol=5.0):
-                # Verify any straight lines are just zero-length plunge points
-                if all(math.isclose(line.length, 0.0, abs_tol=1e-3) for line in lines):
-                    return True
-
-        # Check 3: Closed loop detection - first segment start matches last segment end
-        first_seg = path.segments[0]
-        last_seg = path.segments[-1]
-
-        if isinstance(first_seg, StrokeSegment) and isinstance(last_seg, StrokeSegment):
-            loop_closed = math.isclose(
-                first_seg.start.x, last_seg.end.x, abs_tol=COORD_TOLERANCE
-            ) and math.isclose(first_seg.start.y, last_seg.end.y, abs_tol=COORD_TOLERANCE)
-
-            if loop_closed:
-                # Check 4: Segment length analysis - structural paths have long segments
-                # relative to their bounding box extent (text has many tiny strokes)
-                avg_segment_length = self._calculate_average_segment_length(path)
-
-                if avg_segment_length > 0:
-                    bbox_extent = self._calculate_bounding_box_extent(path)
-                    if bbox_extent > 0:
-                        length_to_extent_ratio = avg_segment_length / bbox_extent
-                        # If average segment spans more than 15% of the bounding box,
-                        # it's likely a structural feature (rectangle, grid line)
-                        if length_to_extent_ratio >= 0.15:
-                            return True
-
-        # Check 5: Pure linear path with high segment-length-to-extent ratio
-        if not arcs and lines:
-            avg_segment_length = self._calculate_average_segment_length(path)
-
-            if avg_segment_length > 0:
-                bbox_extent = self._calculate_bounding_box_extent(path)
-                if bbox_extent > 0:
-                    length_to_extent_ratio = avg_segment_length / bbox_extent
-                    # Structural linear paths (grid lines, borders) typically have
-                    # long segments relative to bounding box - threshold of 0.25
-                    if length_to_extent_ratio >= 0.25:
-                        return True
-
-        return False
-
-    def _calculate_average_segment_length(self, path: StrokePath) -> float:
-        """Calculate the average segment length for a stroke path.
-
-        Args:
-            path: The stroke path to analyze.
-
-        Returns:
-            Average Euclidean length of all segments.
-        """
-        if not path.segments:
-            return 0.0
-
-        total_length = sum(_segment_length(seg) for seg in path.segments)
-        return total_length / len(path.segments)
-
-    def _calculate_bounding_box_extent(self, path: StrokePath) -> float:
-        """Calculate the maximum dimension of a path's bounding box.
-
-        Args:
-            path: The stroke path to analyze.
-
-        Returns:
-            Maximum of (width, height) of the bounding box.
-        """
-        if not path.segments:
-            return 0.0
-
-        xs = []
-        ys = []
-
-        for seg in path.segments:
-            xs.append(seg.start.x)
-            ys.append(seg.start.y)
-            xs.append(seg.end.x)
-            ys.append(seg.end.y)
-
-        if not xs or not ys:
-            return 0.0
-
-        dx = max(xs) - min(xs)
-        dy = max(ys) - min(ys)
-
-        return max(dx, dy)
+        return True
 
 
 @dataclass(frozen=True)
@@ -359,14 +393,17 @@ class ProfileResult:
             Used as the threshold multiplier base in chunking.
         median_dx: Median width across all strokes.
         median_dy: Median height across all strokes.
-        total_strokes: Number of cutting stroke segments analyzed.
+        total_strokes: Number of cutting stroke segments analyzed (straight
+            lines only; circles are excluded from baseline statistics).
         p95_index: Index into sorted dimensions that corresponds to 95th percentile.
         is_structural: True if the file contains structural features (drill holes,
-            score lines) instead of design geometry. A file is classified as structural
-            when more than 85%% of its paths match structural fingerprints based on:
-            - Single straight StrokeSegment (score/cut line)
-            - EngraveLab drill hole: exactly 4x 90-degree arcs + optional plunge
-            - Multi-arc drill hole: 3+ arcs totaling ~360° (within ±5°) + optional plunge
+            score lines) instead of design geometry. A file is classified as
+            structural when more than ``structural_ratio`` (default 85%) of its
+            paths consist exclusively of:
+            - Straight line segments (any length, including zero-length plunges)
+            - Verified perfect circles: consecutive arc runs that chain end-to-start,
+              share one center and radius, and total ~360° sweep (e.g. EngraveLab
+              4x 90-degree drill holes, 2x 180-degree pairs, or single CI circles)
     """
 
     baseline_extent: float

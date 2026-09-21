@@ -202,6 +202,7 @@ class TestDefaultConfig:
             "debug_save_files",
             "run_at_startup",
             "first_run",
+            "structural_ratio",
         ]
         for key in required_keys:
             assert key in DEFAULT_CONFIG

@@ -1,7 +1,9 @@
 """Tests for plt_optimizer/core/profiler.py module.
 
 This module provides baseline extent calculation using 95th percentile
-of max bounding box dimension across cutting strokes.
+of max bounding box dimension across cutting strokes, plus structural
+classification (paths consisting only of straight lines and verified
+perfect circles).
 """
 
 from __future__ import annotations
@@ -11,14 +13,89 @@ from collections.abc import Sequence
 
 import pytest
 
-from plt_optimizer.core.models import Coordinate, PLTDocument, StrokePath, StrokeSegment
+from plt_optimizer.core.models import (
+    ArcSegment,
+    Coordinate,
+    PLTDocument,
+    StrokePath,
+    StrokeSegment,
+)
 from plt_optimizer.core.profiler import (
+    DEFAULT_STRUCTURAL_RATIO,
     Extent,
     Profiler,
     ProfilerError,
     ProfileResult,
     StrokePathsProtocol,
+    _arc_runs,
+    _is_perfect_circle,
 )
+
+
+def _circle_arcs(
+    cx: float,
+    cy: float,
+    radius: float,
+    sweeps: Sequence[float],
+    start_angle_deg: float = 90.0,
+) -> list[ArcSegment]:
+    """Build a chained arc run sharing one center and radius.
+
+    Mirrors the parser's end-position math so fixtures are geometrically
+    consistent (unlike early fixtures that used chord-midpoint centers).
+
+    Args:
+        cx: Circle center X.
+        cy: Circle center Y.
+        radius: Circle radius.
+        sweeps: Signed sweep angles in degrees, applied consecutively.
+        start_angle_deg: Angle of the first arc's start point.
+
+    Returns:
+        Chained ArcSegments; closes perfectly when sweeps total 360.
+    """
+    arcs: list[ArcSegment] = []
+    theta = math.radians(start_angle_deg)
+    start = Coordinate(cx + radius * math.cos(theta), cy + radius * math.sin(theta))
+    for sweep in sweeps:
+        end_theta = theta + math.radians(sweep)
+        end = Coordinate(cx + radius * math.cos(end_theta), cy + radius * math.sin(end_theta))
+        arcs.append(
+            ArcSegment(
+                start=start,
+                end=end,
+                center=Coordinate(cx, cy),
+                sweep_angle=sweep,
+                is_cutting=True,
+            )
+        )
+        start = end
+        theta = end_theta
+    return arcs
+
+
+def _micro_arc_text_path(x0: float, y0: float, n: int = 20) -> StrokePath:
+    """Build an EngraveLab-style glyph path: many tiny arcs, varying centers.
+
+    EngraveLab renders letter curves as consecutive ~10-degree arcs whose
+    centers and radii change every segment; the sweeps never total a full
+    revolution, so the perfect-circle verifier rejects them.
+    """
+    segments: list[ArcSegment] = []
+    x, y = x0, y0
+    for i in range(n):
+        nx, ny = x + 2.0, y + 1.0
+        segments.append(
+            ArcSegment(
+                start=Coordinate(x, y),
+                end=Coordinate(nx, ny),
+                center=Coordinate((x + nx) / 2, (y + ny) / 2),
+                sweep_angle=10.0 + i * 0.5,
+                is_cutting=True,
+            )
+        )
+        x, y = nx, ny
+    return StrokePath(pen_up_position=None, segments=tuple(segments))
 
 
 class TestExtent:
@@ -295,69 +372,38 @@ class TestIsStructuralPath:
 
     def test_engravelab_drill_hole_is_structural(self) -> None:
         """Test that EngraveLab 4-arc drill hole pattern is structural."""
-        from plt_optimizer.core.models import ArcSegment
-
         profiler = Profiler()
 
-        # Create a mock drill hole: 4 arcs of 90 degrees each
-        arc1 = ArcSegment(
-            start=Coordinate(x=0.0, y=0.0),
-            end=Coordinate(x=10.0, y=0.0),
-            center=Coordinate(x=5.0, y=0.0),
-            sweep_angle=90.0,
-            is_cutting=True,
-        )
-        arc2 = ArcSegment(
-            start=Coordinate(x=10.0, y=0.0),
-            end=Coordinate(x=10.0, y=10.0),
-            center=Coordinate(x=10.0, y=5.0),
-            sweep_angle=90.0,
-            is_cutting=True,
-        )
-        arc3 = ArcSegment(
-            start=Coordinate(x=10.0, y=10.0),
-            end=Coordinate(x=0.0, y=10.0),
-            center=Coordinate(x=5.0, y=10.0),
-            sweep_angle=90.0,
-            is_cutting=True,
-        )
-        arc4 = ArcSegment(
-            start=Coordinate(x=0.0, y=10.0),
-            end=Coordinate(x=0.0, y=0.0),
-            center=Coordinate(x=0.0, y=5.0),
-            sweep_angle=-90.0,
-            is_cutting=True,
-        )
+        # Real drill hole: 4 chained 90-degree arcs sharing center (5, 5), r=5
+        arcs = _circle_arcs(5.0, 5.0, 5.0, [90.0, 90.0, 90.0, 90.0])
 
-        path = StrokePath(pen_up_position=None, segments=(arc1, arc2, arc3, arc4))
+        path = StrokePath(pen_up_position=None, segments=tuple(arcs))
+
+        assert profiler._is_structural_path(path) is True
+
+    def test_drill_hole_with_plunge_is_structural(self) -> None:
+        """Test zero-length plunge + verified circle is structural."""
+        profiler = Profiler()
+
+        arcs = _circle_arcs(5.0, 5.0, 5.0, [90.0, 90.0, 90.0, 90.0])
+        plunge = StrokeSegment(start=arcs[0].start, end=arcs[0].start, is_cutting=True)
+
+        path = StrokePath(pen_up_position=None, segments=(plunge, *arcs))
 
         assert profiler._is_structural_path(path) is True
 
     def test_text_like_path_not_structural(self) -> None:
-        """Test that a path with many small segments (text-like) is NOT structural."""
+        """Test that an EngraveLab micro-arc glyph path is NOT structural."""
         profiler = Profiler()
 
-        # Create text-like path: multiple tiny segments
-        # Simulating character "e" or similar - many short strokes
-        segments = []
-        x, y = 0.0, 0.0
-        for _i in range(20):
-            seg = StrokeSegment(
-                start=Coordinate(x=x, y=y),
-                end=Coordinate(x=x + 2.0, y=y + 1.0),  # tiny segment
-                is_cutting=True,
-            )
-            segments.append(seg)
-            x += 2.0
-            y += 1.0
+        # Real EngraveLab text curves: tiny arcs, per-segment centers/radii,
+        # sweeps that never total a full revolution.
+        path = _micro_arc_text_path(0.0, 0.0)
 
-        path = StrokePath(pen_up_position=None, segments=tuple(segments))
-
-        # Text-like paths should NOT be classified as structural
         assert profiler._is_structural_path(path) is False
 
     def test_open_polygon_not_closed_loop(self) -> None:
-        """Test that an open polygon (not closed) is not a closed loop structural."""
+        """Test that an open polygon (not closed) is still structural (all lines)."""
         profiler = Profiler()
 
         # Open path: (0,0) -> (100,0) -> (100,50) -> (0,50)
@@ -373,47 +419,9 @@ class TestIsStructuralPath:
 
         path = StrokePath(pen_up_position=None, segments=(seg1, seg2, seg3))
 
-        # This should not be classified as closed-loop structural
-        # (Note: it might still pass Check 5 if segment length ratio is high enough)
-        profiler._is_structural_path(path)
-
-    def test_calculate_average_segment_length(self) -> None:
-        """Test average segment length calculation."""
-        seg1 = StrokeSegment(
-            start=Coordinate(x=0.0, y=0.0), end=Coordinate(x=3.0, y=4.0), is_cutting=True
-        )
-        seg2 = StrokeSegment(
-            start=Coordinate(x=3.0, y=4.0), end=Coordinate(x=6.0, y=4.0), is_cutting=True
-        )
-
-        path = StrokePath(pen_up_position=None, segments=(seg1, seg2))
-
-        profiler = Profiler()
-        avg_length = profiler._calculate_average_segment_length(path)
-
-        # First segment length = 5 (3-4-5 triangle)
-        # Second segment length = 3
-        # Average = 4
-        assert math.isclose(avg_length, 4.0)
-
-    def test_calculate_bounding_box_extent(self) -> None:
-        """Test bounding box extent calculation."""
-        seg1 = StrokeSegment(
-            start=Coordinate(x=10.0, y=20.0), end=Coordinate(x=110.0, y=70.0), is_cutting=True
-        )
-        seg2 = StrokeSegment(
-            start=Coordinate(x=110.0, y=70.0), end=Coordinate(x=-30.0, y=50.0), is_cutting=True
-        )
-
-        path = StrokePath(pen_up_position=None, segments=(seg1, seg2))
-
-        profiler = Profiler()
-        extent = profiler._calculate_bounding_box_extent(path)
-
-        # min_x = -30, max_x = 110 -> dx = 140
-        # min_y = 20, max_y = 70 -> dy = 50
-        # extent = max(140, 50) = 140
-        assert math.isclose(extent, 140.0)
+        # Compositional rule: straight lines only -> structural regardless of
+        # closure or segment-length ratios.
+        assert profiler._is_structural_path(path) is True
 
 
 class TestStructuralClassification:
@@ -434,16 +442,8 @@ class TestStructuralClassification:
             )
             paths.append(StrokePath(pen_up_position=None, segments=(segment,)))
 
-        # Add one text-like path with many small segments (not structural)
-        tiny_segments = tuple(
-            StrokeSegment(
-                start=Coordinate(x=j * 2.0, y=200.0),
-                end=Coordinate(x=(j + 1) * 2.0, y=201.0),  # tiny segment
-                is_cutting=True,
-            )
-            for j in range(20)
-        )
-        paths.append(StrokePath(pen_up_position=None, segments=tiny_segments))
+        # Add one micro-arc text path (not structural: per-segment centers/radii)
+        paths.append(_micro_arc_text_path(500.0, 200.0))
 
         doc = PLTDocument(header_commands=[], stroke_paths=paths, footer_commands=[])
 
@@ -466,17 +466,9 @@ class TestStructuralClassification:
             )
             paths.append(StrokePath(pen_up_position=None, segments=(segment,)))
 
-        # Add 5 text-like paths (not structural)
+        # Add 5 micro-arc text paths (not structural)
         for i in range(5):
-            tiny_segments = tuple(
-                StrokeSegment(
-                    start=Coordinate(x=j * 2.0 + 500, y=i * 100.0),
-                    end=Coordinate(x=(j + 1) * 2.0 + 500, y=i * 100.0 + 1.0),
-                    is_cutting=True,
-                )
-                for j in range(20)
-            )
-            paths.append(StrokePath(pen_up_position=None, segments=tiny_segments))
+            paths.append(_micro_arc_text_path(500.0, i * 100.0))
 
         doc = PLTDocument(header_commands=[], stroke_paths=paths, footer_commands=[])
 
@@ -526,22 +518,6 @@ class TestProfilerEdgeCasesCoverage:
         with pytest.raises(ProfilerError):
             profiler.profile(doc)
 
-    def test_calculate_average_segment_length_with_zero_segments(self) -> None:
-        """Test _calculate_average_segment_length returns 0 for empty path."""
-        profiler = Profiler()
-
-        path = StrokePath(pen_up_position=None, segments=())
-        result = profiler._calculate_average_segment_length(path)
-        assert result == 0.0
-
-    def test_calculate_bounding_box_extent_with_zero_segments(self) -> None:
-        """Test _calculate_bounding_box_extent returns 0 for empty path."""
-        profiler = Profiler()
-
-        path = StrokePath(pen_up_position=None, segments=())
-        result = profiler._calculate_bounding_box_extent(path)
-        assert result == 0.0
-
     def test_closed_loop_with_zero_bbox_extent_not_structural(self) -> None:
         """Test closed loop detection when bbox extent is 0 (line ~157 branch)."""
         profiler = Profiler()
@@ -583,13 +559,28 @@ class TestProfilerEdgeCasesCoverage:
 class TestStructuralPathBranches:
     """Test specific branches in _is_structural_path for coverage."""
 
-    def test_drill_hole_with_non_zero_lines_not_structural(self) -> None:
-        """Test EngraveLab drill hole check with non-zero lines (not structural)."""
+    def test_verified_circle_with_non_zero_line_is_structural(self) -> None:
+        """Test a perfect circle plus a real (non-plunge) line is structural.
+
+        Under the compositional rule, straight lines and perfect circles may
+        freely mix within one path (e.g. a circle welded to a tangential cut).
+        """
         profiler = Profiler()
 
-        # 4 arcs of 90 degrees but WITH non-zero line segments - should not be structural
-        from plt_optimizer.core.models import ArcSegment
+        arcs = _circle_arcs(5.0, 5.0, 5.0, [90.0, 90.0, 90.0, 90.0])
+        # Non-zero length line appended after the closed circle
+        line = StrokeSegment(start=arcs[-1].end, end=Coordinate(x=1.0, y=0.0), is_cutting=True)
 
+        path = StrokePath(pen_up_position=None, segments=(*arcs, line))
+
+        result = profiler._is_structural_path(path)
+        assert result is True  # lines + perfect circles -> structural
+
+    def test_unverified_circle_with_line_not_structural(self) -> None:
+        """Test arcs that fail circle verification make the path non-structural."""
+        profiler = Profiler()
+
+        # Fake circle: per-arc centers (not a perfect circle) + a line
         arc1 = ArcSegment(
             start=Coordinate(x=0.0, y=0.0),
             end=Coordinate(x=10.0, y=0.0),
@@ -615,10 +606,9 @@ class TestStructuralPathBranches:
             start=Coordinate(x=0.0, y=10.0),
             end=Coordinate(x=0.0, y=0.0),
             center=Coordinate(x=0.0, y=5.0),
-            sweep_angle=-90.0,
+            sweep_angle=90.0,
             is_cutting=True,
         )
-        # Add a non-zero length line (not a plunge point)
         line = StrokeSegment(
             start=Coordinate(x=0.0, y=0.0), end=Coordinate(x=1.0, y=0.0), is_cutting=True
         )
@@ -626,7 +616,7 @@ class TestStructuralPathBranches:
         path = StrokePath(pen_up_position=None, segments=(arc1, arc2, arc3, arc4, line))
 
         result = profiler._is_structural_path(path)
-        assert result is False  # Should not be classified as drill hole due to non-zero line
+        assert result is False  # arc run fails perfect-circle verification
 
     def test_drill_hole_with_180_degree_arcs_not_structural(self) -> None:
         """Test drill hole detection with wrong arc sweep angles."""
@@ -716,11 +706,11 @@ class TestStructuralPathBranches:
         result = profiler._is_structural_path(path)
         assert result is True
 
-    def test_linear_path_with_low_segment_ratio_not_structural(self) -> None:
-        """Test that linear path with low segment/extent ratio is not structural."""
+    def test_linear_path_with_low_segment_ratio_is_structural(self) -> None:
+        """Test that any pure-linear path is structural regardless of ratios."""
         profiler = Profiler()
 
-        # Many tiny segments in a line - low avg length relative to bbox
+        # Many tiny segments in a line - the old ratio heuristic rejected this
         segments = []
         x = 0.0
         for _i in range(10):
@@ -732,10 +722,9 @@ class TestStructuralPathBranches:
 
         path = StrokePath(pen_up_position=None, segments=tuple(segments))
 
-        # avg_segment_length = 2, bbox_extent = 20 (dx=20, dy=0)
-        # ratio = 2/20 = 0.1 < 0.25 -> not structural
+        # Compositional rule: straight lines only -> structural
         result = profiler._is_structural_path(path)
-        assert result is False
+        assert result is True
 
     def test_closed_loop_check_zero_avg_length(self) -> None:
         """Test closed loop branch when avg_segment_length <= 0."""
@@ -1010,20 +999,15 @@ class TestTotalPathsZero:
 
 
 class TestIsStructuralPathFallsThroughBranches:
-    """Test _is_structural_path when checks fall through without returning True.
+    """Degenerate straight-line paths under the compositional rule.
 
-    These tests cover the exit paths (lines 257->267, 259->267, 263->267,
-    270->279, 272->279) where neither closed loop check nor pure linear
-    Check 5 triggers a return True.
+    Zero-length segments are straight lines, so these degenerate paths are
+    structural under the compositional rule (the old ratio heuristics fell
+    through to False because they divided by segment length / bbox extent).
     """
 
     def test_closed_loop_zero_bbox_extent_falls_through(self) -> None:
-        """Test lines 257-263: closed loop with avg>0 but bbox==0 falls through.
-
-        When a path appears to form a closed loop geometrically (first start
-        matches last end), but the bounding box extent is zero, we skip the
-        ratio check and fall through.
-        """
+        """Test zero-length closed-loop path is structural (all lines)."""
         profiler = Profiler()
 
         # Two segments where first.start == last.end BUT bbox_extent == 0
@@ -1042,14 +1026,10 @@ class TestIsStructuralPathFallsThroughBranches:
         path = StrokePath(pen_up_position=None, segments=(seg1, seg2))
 
         result = profiler._is_structural_path(path)
-        assert result is False
+        assert result is True
 
     def test_closed_loop_zero_avg_length_falls_through(self) -> None:
-        """Test lines 259->267: closed loop with avg_segment_length <= 0.
-
-        When a path forms a closed loop but all segments have zero total
-        length, the ratio check is skipped and we fall through.
-        """
+        """Test zero-length straight loop is structural (ratio math not involved)."""
         profiler = Profiler()
 
         # Path that closes geometrically but has zero-length segments
@@ -1067,17 +1047,13 @@ class TestIsStructuralPathFallsThroughBranches:
         path = StrokePath(pen_up_position=None, segments=(seg1, seg2))
 
         result = profiler._is_structural_path(path)
-        assert result is False
+        assert result is True
 
     def test_pure_linear_zero_bbox_extent_falls_through(self) -> None:
-        """Test lines 270-279: pure linear with arcs==False but bbox==0.
-
-        When a path has only StrokeSegments (no arcs), Check 5 triggers
-        but falls through if bbox_extent <= 0.
-        """
+        """Test multiple zero-length StrokeSegments are structural (all lines)."""
         profiler = Profiler()
 
-        # Multiple zero-length segments at same point - avoids Check 1
+        # Multiple zero-length segments at same point
         seg1 = StrokeSegment(
             start=Coordinate(x=50.0, y=100.0),
             end=Coordinate(x=50.0, y=100.0),  # Zero length
@@ -1092,14 +1068,10 @@ class TestIsStructuralPathFallsThroughBranches:
         path = StrokePath(pen_up_position=None, segments=(seg1, seg2))
 
         result = profiler._is_structural_path(path)
-        assert result is False
+        assert result is True
 
     def test_pure_linear_zero_avg_length_falls_through(self) -> None:
-        """Test lines 272->279: pure linear with avg_segment_length <= 0.
-
-        When a path has only StrokeSegments but all have zero average length,
-        Check 5 falls through without returning True.
-        """
+        """Test degenerate zero-average-length straight path is structural."""
         profiler = Profiler()
 
         # Multiple zero-length segments form a degenerate "line"
@@ -1117,7 +1089,7 @@ class TestIsStructuralPathFallsThroughBranches:
         path = StrokePath(pen_up_position=None, segments=(seg1, seg2))
 
         result = profiler._is_structural_path(path)
-        assert result is False
+        assert result is True
 
     def test_multiple_arcs_not_drill_hole_check_5_triggered(self) -> None:
         """Test that 3 arcs (not drill hole) triggers Check 5 with zero bbox.
@@ -1155,53 +1127,6 @@ class TestIsStructuralPathFallsThroughBranches:
 
         result = profiler._is_structural_path(path)
         assert result is False
-
-
-class TestBBoxExtentEdgeCases:
-    """Test _calculate_bounding_box_extent edge cases."""
-
-    def test_bbox_extent_with_arc_segments(self) -> None:
-        """Test bbox calculation includes arc segment endpoints."""
-        profiler = Profiler()
-        from plt_optimizer.core.models import ArcSegment
-
-        # Path with one line and one arc
-        seg1 = StrokeSegment(
-            start=Coordinate(x=0.0, y=0.0),
-            end=Coordinate(x=100.0, y=0.0),  # Extent in x direction
-            is_cutting=True,
-        )
-        arc1 = ArcSegment(
-            start=Coordinate(x=100.0, y=0.0),
-            end=Coordinate(x=100.0, y=50.0),
-            center=Coordinate(x=100.0, y=25.0),
-            sweep_angle=90.0,
-            is_cutting=True,
-        )
-
-        path = StrokePath(pen_up_position=None, segments=(seg1, arc1))
-
-        extent = profiler._calculate_bounding_box_extent(path)
-
-        # min_x=0, max_x=100 -> dx=100
-        # min_y=0, max_y=50 (arc endpoint)
-        # max(100, 50) = 100
-        assert extent == 100.0
-
-    def test_bbox_extent_single_segment(self) -> None:
-        """Test bbox with a single segment."""
-        profiler = Profiler()
-
-        seg1 = StrokeSegment(
-            start=Coordinate(x=10.0, y=20.0),
-            end=Coordinate(x=60.0, y=120.0),  # dx=50, dy=100
-            is_cutting=True,
-        )
-
-        path = StrokePath(pen_up_position=None, segments=(seg1,))
-
-        extent = profiler._calculate_bounding_box_extent(path)
-        assert extent == 100.0
 
 
 class TestStructuralRatioEdgeCases:
@@ -1250,6 +1175,110 @@ class TestStructuralRatioEdgeCases:
         assert result.total_strokes == 5
 
 
+class TestStructuralRatioGate:
+    """Tests for the configurable document-level structural gate."""
+
+    @staticmethod
+    def _line_path(x0: float) -> StrokePath:
+        """Build a single-segment straight line path."""
+        return StrokePath(
+            pen_up_position=None,
+            segments=(
+                StrokeSegment(
+                    start=Coordinate(x=x0, y=0.0),
+                    end=Coordinate(x=x0 + 100.0, y=50.0),
+                    is_cutting=True,
+                ),
+            ),
+        )
+
+    def test_default_structural_ratio_constant(self) -> None:
+        """Test the module default matches the historical 85% gate."""
+        assert DEFAULT_STRUCTURAL_RATIO == pytest.approx(0.85)
+
+    def test_relaxed_gate_classifies_mixed_document(self) -> None:
+        """Test structural_ratio=0.5 accepts a 2/3 structural document."""
+        profiler = Profiler(structural_ratio=0.5)
+        doc = PLTDocument(
+            header_commands=[],
+            stroke_paths=[
+                self._line_path(0.0),
+                self._line_path(200.0),
+                _micro_arc_text_path(500.0, 0.0),
+            ],
+            footer_commands=[],
+        )
+
+        result = profiler.profile(doc)
+
+        # 2 structural / 3 total = 66.7% > 50%
+        assert result.is_structural is True
+
+    def test_default_gate_rejects_same_mixed_document(self) -> None:
+        """Test the default 85% gate keeps the same 2/3 document on the text path."""
+        profiler = Profiler()
+        doc = PLTDocument(
+            header_commands=[],
+            stroke_paths=[
+                self._line_path(0.0),
+                self._line_path(200.0),
+                _micro_arc_text_path(500.0, 0.0),
+            ],
+            footer_commands=[],
+        )
+
+        result = profiler.profile(doc)
+
+        # 66.7% does not exceed the default 85% gate
+        assert result.is_structural is False
+
+    def test_gate_is_strictly_greater_than(self) -> None:
+        """Test a ratio exactly equal to the gate is not structural (strict >)."""
+        profiler = Profiler(structural_ratio=0.8)
+        doc = PLTDocument(
+            header_commands=[],
+            stroke_paths=[
+                self._line_path(0.0),
+                self._line_path(200.0),
+                self._line_path(400.0),
+                self._line_path(600.0),
+                _micro_arc_text_path(900.0, 0.0),
+            ],
+            footer_commands=[],
+        )
+
+        result = profiler.profile(doc)
+
+        # 4 / 5 = 0.8 exactly; gate requires strictly greater
+        assert result.is_structural is False
+
+
+class TestPureCircleStructuralDocument:
+    """Tests for pure-circle (drill-hole-only) structural documents."""
+
+    def test_profile_returns_zero_baseline_without_raising(self) -> None:
+        """Test a hole-only file profiles with baseline 0.0 instead of raising."""
+        profiler = Profiler()
+        hole = StrokePath(
+            pen_up_position=None,
+            segments=(
+                StrokeSegment(
+                    start=Coordinate(x=5.0, y=0.0),
+                    end=Coordinate(x=5.0, y=0.0),
+                    is_cutting=True,
+                ),
+                *_circle_arcs(5.0, 5.0, 5.0, [90.0, 90.0, 90.0, 90.0]),
+            ),
+        )
+        doc = PLTDocument(header_commands=[], stroke_paths=[hole], footer_commands=[])
+
+        result = profiler.profile(doc)
+
+        assert result.is_structural is True
+        assert result.baseline_extent == pytest.approx(0.0, abs=1e-9)
+        assert result.total_strokes == 0
+
+
 class TestTotalPathsZeroBranch:
     """Test the else branch when total_paths == 0 (lines 135-136)."""
 
@@ -1273,22 +1302,13 @@ class TestTotalPathsZeroBranch:
 
 
 class TestIsStructuralPathFallThrough:
-    """Test _is_structural_path falling through all checks to return False.
-
-    These tests cover branch exits that don't return True (lines 259->267, 263->267,
-    272->279).
-    """
+    """Test _is_structural_path outcomes for mixed and degenerate paths."""
 
     def test_closed_loop_zero_bbox_extent_returns_false(self) -> None:
-        """Test closed loop path with avg_segment_length == 0 falls through.
-
-        This covers the branch where avg_segment_length is not > 0, so we skip
-        to check bbox_extent. For zero-length segments that still form a closed
-        loop geometrically.
-        """
+        """Test zero-length straight loop is structural (compositional rule)."""
         profiler = Profiler()
 
-        # Two zero-length segments at same point - forms loop but no length
+        # Two zero-length segments at same point - all lines -> structural
         seg1 = StrokeSegment(
             start=Coordinate(x=50.0, y=100.0),
             end=Coordinate(x=50.0, y=100.0),  # Zero length
@@ -1303,7 +1323,7 @@ class TestIsStructuralPathFallThrough:
         path = StrokePath(pen_up_position=None, segments=(seg1, seg2))
 
         result = profiler._is_structural_path(path)
-        assert result is False  # Falls through because avg_segment_length == 0
+        assert result is True
 
     def test_closed_loop_check3_returns_false(self) -> None:
         """Test closed loop detection returns False when ratio too low.
@@ -1566,13 +1586,13 @@ class TestPreviouslyUncoveredLines:
     """Tests targeting lines that were missing from coverage."""
 
     def test_profile_else_branch_total_paths_zero(self) -> None:
-        """Test lines 135-136: else branch when total_paths == 0.
+        """Test the else branch when total_paths == 0.
 
-        Uses a mock document where stroke_paths returns cutting-segment data on
-        first access (for _calculate_all_extents) but an empty list on the
-        second access (for valid_paths), so total_paths == 0 while extents
-        remains non-empty.  This exercises the else clause that sets
-        structural_path_count=0 and structural_ratio=0.0.
+        Uses a mock document where stroke_paths returns an empty list on
+        first access (for the valid_paths structural pass) but cutting-segment
+        data on the second access (for _calculate_all_extents), so
+        total_paths == 0 while extents remains non-empty. This exercises the
+        else clause that sets structural_path_count=0 and structural_ratio=0.0.
         """
 
         class _TwoPhaseDoc:
@@ -1589,11 +1609,11 @@ class TestPreviouslyUncoveredLines:
 
             @property
             def stroke_paths(self) -> list[StrokePath]:
-                """Return paths on first access, empty list thereafter."""
+                """Return empty list on first access, paths thereafter."""
                 self._access += 1
                 if self._access == 1:
-                    return [self._path]
-                return []
+                    return []
+                return [self._path]
 
         profiler = Profiler()
         result = profiler.profile(_TwoPhaseDoc())
@@ -1633,47 +1653,12 @@ class TestPreviouslyUncoveredLines:
         # p95_index must be clamped to len - 1 = 0 for a single-element list
         assert result.p95_index == 0
 
-    def test_is_structural_closed_loop_zero_bbox_extent(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Test branches 259->267 and 272->279: closed-loop + Check-5 with zero bbox.
-
-        Patches ``_segment_length`` in the profiler module to return 10.0 for
-        any segment, creating the only scenario where avg_segment_length > 0
-        while bbox_extent == 0 (all coordinates at the origin).
-
-        This forces both the ``if bbox_extent > 0:`` False-branch inside the
-        closed-loop check (259->267) and the same False-branch in Check 5
-        (272->279) to be exercised.
-        """
-        import plt_optimizer.core.profiler as profiler_module
-
-        monkeypatch.setattr(profiler_module, "_segment_length", lambda _seg: 10.0)
-
-        profiler = Profiler()
-        # Two zero-length segments, all coordinates at (0, 0) -> bbox_extent == 0
-        seg1 = StrokeSegment(
-            start=Coordinate(x=0.0, y=0.0),
-            end=Coordinate(x=0.0, y=0.0),
-            is_cutting=True,
-        )
-        seg2 = StrokeSegment(
-            start=Coordinate(x=0.0, y=0.0),
-            end=Coordinate(x=0.0, y=0.0),
-            is_cutting=True,
-        )
-        path = StrokePath(pen_up_position=None, segments=(seg1, seg2))
-
-        result = profiler._is_structural_path(path)
-        # bbox_extent is 0 despite patched non-zero lengths -> not structural
-        assert result is False
-
     def test_is_structural_closed_loop_ratio_below_threshold(self) -> None:
-        """Test branch 263->267: closed loop where length/bbox ratio < 0.15.
+        """Test a densely-sampled closed rectangle is structural (all lines).
 
-        Builds a 100x50 closed rectangle using 150 segments of 2 units each,
-        giving avg_segment_length=2 and bbox_extent=100 -> ratio=0.02 < 0.15.
-        This exercises the False branch of ``if length_to_extent_ratio >= 0.15:``.
+        Builds a 100x50 closed rectangle using 150 segments of 2 units each.
+        The old ratio heuristic rejected this (avg length / bbox = 0.02);
+        the compositional rule accepts it because every segment is a line.
         """
         profiler = Profiler()
 
@@ -1725,9 +1710,9 @@ class TestPreviouslyUncoveredLines:
         assert math.isclose(segments[0].start.y, segments[-1].end.y, abs_tol=1e-9)
 
         path = StrokePath(pen_up_position=None, segments=tuple(segments))
-        # avg_segment_length=2, bbox_extent=100, ratio=0.02 < 0.15 -> not structural
+        # Compositional rule: straight lines only -> structural
         result = profiler._is_structural_path(path)
-        assert result is False
+        assert result is True
 
     def test_stroke_paths_protocol_stub(self) -> None:
         """Test line 361: StrokePathsProtocol.stroke_paths stub is executable.
@@ -1742,20 +1727,18 @@ class TestPreviouslyUncoveredLines:
 
 
 class TestMultiArcDrillHoles:
-    """Test recognition of multi-arc drill holes (3+ arcs totaling ~360°)."""
+    """Test recognition of multi-arc drill holes (verified perfect circles)."""
 
-    def test_five_arc_drill_hole_decorative_pattern(self) -> None:
-        """Test recognition of 5-arc drill hole with non-90° angles.
+    def test_five_arc_rosette_not_structural(self) -> None:
+        """Test the SFA3X611 5-arc rosette is NOT a verified circle.
 
         This pattern appears in SFA3X611sheet1.plt where special drill holes
-        are represented with 5 arcs that total approximately 360°:
-        angles = [67.866, 88.123, 90.938, 88.123, 22.826] ≈ 357.876°
+        are represented with 5 arcs that total approximately 360° but use a
+        DIFFERENT center per arc (angles = [67.866, 88.123, 90.938, 88.123,
+        22.826]). Under the compositional rule these are not perfect circles.
         """
-        from plt_optimizer.core.models import ArcSegment
-
         profiler = Profiler()
 
-        # Create 5 arcs that sum to approximately 360°
         arc1 = ArcSegment(
             start=Coordinate(x=0.0, y=0.0),
             end=Coordinate(x=10.0, y=0.0),
@@ -1791,243 +1774,282 @@ class TestMultiArcDrillHoles:
             sweep_angle=22.826,
             is_cutting=True,
         )
-        # Zero-length plunge point
-        plunge = StrokeSegment(
-            start=Coordinate(x=5.0, y=5.0),
-            end=Coordinate(x=5.0, y=5.0),
-            is_cutting=True,
-        )
 
-        path = StrokePath(pen_up_position=None, segments=(arc1, arc2, arc3, arc4, arc5, plunge))
+        path = StrokePath(pen_up_position=None, segments=(arc1, arc2, arc3, arc4, arc5))
 
         result = profiler._is_structural_path(path)
-        # Total sweep: 67.866 + 88.123 + 90.938 + 88.123 + 22.826 ≈ 357.876
-        # This is within ±5° of 360°, so should be structural
+        # Sweeps total ~357.9° but centers differ per arc -> not a circle
+        assert result is False
+
+    def test_five_arc_verified_circle_is_structural(self) -> None:
+        """Test 5 chained arcs sharing one center/radius and totaling ~360°."""
+        profiler = Profiler()
+
+        arcs = _circle_arcs(5.0, 5.0, 5.0, [67.866, 88.123, 90.938, 88.123, 24.95])
+        plunge = StrokeSegment(start=arcs[0].start, end=arcs[0].start, is_cutting=True)
+
+        path = StrokePath(pen_up_position=None, segments=(plunge, *arcs))
+
+        result = profiler._is_structural_path(path)
+        # Total sweep: 360.0° exactly, shared center (5, 5), radius 5
         assert result is True
 
     def test_three_arc_drill_hole_360_degrees(self) -> None:
-        """Test minimum case: 3 arcs totaling exactly 360°."""
-        from plt_optimizer.core.models import ArcSegment
-
+        """Test minimum case: 3 chained arcs of 120° sharing one center."""
         profiler = Profiler()
 
-        arc1 = ArcSegment(
-            start=Coordinate(x=0.0, y=0.0),
-            end=Coordinate(x=10.0, y=0.0),
-            center=Coordinate(x=5.0, y=0.0),
-            sweep_angle=120.0,
-            is_cutting=True,
-        )
-        arc2 = ArcSegment(
-            start=Coordinate(x=10.0, y=0.0),
-            end=Coordinate(x=5.0, y=10.0),
-            center=Coordinate(x=7.5, y=5.0),
-            sweep_angle=120.0,
-            is_cutting=True,
-        )
-        arc3 = ArcSegment(
-            start=Coordinate(x=5.0, y=10.0),
-            end=Coordinate(x=0.0, y=0.0),
-            center=Coordinate(x=2.5, y=5.0),
-            sweep_angle=120.0,
-            is_cutting=True,
-        )
+        arcs = _circle_arcs(5.0, 5.0, 5.0, [120.0, 120.0, 120.0])
 
-        path = StrokePath(pen_up_position=None, segments=(arc1, arc2, arc3))
+        path = StrokePath(pen_up_position=None, segments=tuple(arcs))
 
         result = profiler._is_structural_path(path)
         # Total sweep: 120 + 120 + 120 = 360°, exactly at threshold
         assert result is True
 
+    def test_two_arc_half_circles_is_structural(self) -> None:
+        """Test 2x 180-degree arcs sharing center/radius form a circle."""
+        profiler = Profiler()
+
+        arcs = _circle_arcs(5.0, 5.0, 5.0, [180.0, 180.0])
+
+        path = StrokePath(pen_up_position=None, segments=tuple(arcs))
+
+        result = profiler._is_structural_path(path)
+        # 2x 180° chained with one center -> perfect circle
+        assert result is True
+
+    def test_single_full_circle_arc_is_structural(self) -> None:
+        """Test a single 360-degree arc (CI circle) is structural."""
+        profiler = Profiler()
+
+        arc = ArcSegment(
+            start=Coordinate(x=10.0, y=5.0),
+            end=Coordinate(x=10.0, y=5.0),  # CI closes on its start
+            center=Coordinate(x=10.0, y=5.0),
+            sweep_angle=360.0,
+            is_cutting=True,
+        )
+
+        path = StrokePath(pen_up_position=None, segments=(arc,))
+
+        result = profiler._is_structural_path(path)
+        assert result is True
+
+    def test_retraced_half_circles_not_structural(self) -> None:
+        """Test +180/-180 retraced arcs (signed sum 0) are not a circle."""
+        profiler = Profiler()
+
+        arcs = _circle_arcs(5.0, 5.0, 5.0, [180.0, -180.0])
+
+        path = StrokePath(pen_up_position=None, segments=tuple(arcs))
+
+        result = profiler._is_structural_path(path)
+        # Signed sweeps cancel: the tool retraced the same half circle
+        assert result is False
+
     def test_multi_arc_outside_tolerance_not_structural(self) -> None:
         """Test that arcs totaling >365° or <355° are not recognized as drill holes."""
-        from plt_optimizer.core.models import ArcSegment
-
         profiler = Profiler()
 
         # Arcs totaling 370° (outside the ±5° tolerance)
-        arc1 = ArcSegment(
-            start=Coordinate(x=0.0, y=0.0),
-            end=Coordinate(x=10.0, y=0.0),
-            center=Coordinate(x=5.0, y=0.0),
-            sweep_angle=125.0,
-            is_cutting=True,
-        )
-        arc2 = ArcSegment(
-            start=Coordinate(x=10.0, y=0.0),
-            end=Coordinate(x=5.0, y=10.0),
-            center=Coordinate(x=7.5, y=5.0),
-            sweep_angle=125.0,
-            is_cutting=True,
-        )
-        arc3 = ArcSegment(
-            start=Coordinate(x=5.0, y=10.0),
-            end=Coordinate(x=0.0, y=0.0),
-            center=Coordinate(x=2.5, y=5.0),
-            sweep_angle=120.0,
-            is_cutting=True,
-        )
+        arcs = _circle_arcs(5.0, 5.0, 5.0, [125.0, 125.0, 120.0])
 
-        path = StrokePath(pen_up_position=None, segments=(arc1, arc2, arc3))
+        path = StrokePath(pen_up_position=None, segments=tuple(arcs))
 
         result = profiler._is_structural_path(path)
         # Total sweep: 125 + 125 + 120 = 370° (outside ±5° tolerance)
         assert result is False
 
-    def test_multi_arc_with_non_zero_lines_not_structural(self) -> None:
-        """Test that multi-arc drill holes with non-zero line segments are not recognized."""
-        from plt_optimizer.core.models import ArcSegment
-
+    def test_multi_arc_with_non_zero_lines_is_structural(self) -> None:
+        """Test verified circles may mix freely with straight lines."""
         profiler = Profiler()
 
-        arc1 = ArcSegment(
-            start=Coordinate(x=0.0, y=0.0),
-            end=Coordinate(x=10.0, y=0.0),
-            center=Coordinate(x=5.0, y=0.0),
-            sweep_angle=120.0,
-            is_cutting=True,
-        )
-        arc2 = ArcSegment(
-            start=Coordinate(x=10.0, y=0.0),
-            end=Coordinate(x=5.0, y=10.0),
-            center=Coordinate(x=7.5, y=5.0),
-            sweep_angle=120.0,
-            is_cutting=True,
-        )
-        arc3 = ArcSegment(
-            start=Coordinate(x=5.0, y=10.0),
-            end=Coordinate(x=0.0, y=0.0),
-            center=Coordinate(x=2.5, y=5.0),
-            sweep_angle=120.0,
-            is_cutting=True,
-        )
+        arcs = _circle_arcs(5.0, 5.0, 5.0, [120.0, 120.0, 120.0])
         # Non-zero line segment (not a plunge point)
         non_plunge = StrokeSegment(
-            start=Coordinate(x=0.0, y=0.0),
-            end=Coordinate(x=1.0, y=0.0),
+            start=arcs[-1].end,
+            end=Coordinate(x=0.0, y=0.0),
             is_cutting=True,
         )
 
-        path = StrokePath(pen_up_position=None, segments=(arc1, arc2, arc3, non_plunge))
+        path = StrokePath(pen_up_position=None, segments=(*arcs, non_plunge))
 
         result = profiler._is_structural_path(path)
-        # Total sweep is 360°, but non-zero line present -> not structural
-        assert result is False
+        # Total sweep is 360° verified; the extra line is also structural
+        assert result is True
 
     def test_four_arc_90_degrees_still_recognized(self) -> None:
         """Verify that classic 4x 90° arcs still work with the new tolerance."""
-        from plt_optimizer.core.models import ArcSegment
-
         profiler = Profiler()
 
-        arc1 = ArcSegment(
-            start=Coordinate(x=0.0, y=0.0),
-            end=Coordinate(x=10.0, y=0.0),
-            center=Coordinate(x=5.0, y=0.0),
-            sweep_angle=90.0,
-            is_cutting=True,
-        )
-        arc2 = ArcSegment(
-            start=Coordinate(x=10.0, y=0.0),
-            end=Coordinate(x=10.0, y=10.0),
-            center=Coordinate(x=10.0, y=5.0),
-            sweep_angle=90.0,
-            is_cutting=True,
-        )
-        arc3 = ArcSegment(
-            start=Coordinate(x=10.0, y=10.0),
-            end=Coordinate(x=0.0, y=10.0),
-            center=Coordinate(x=5.0, y=10.0),
-            sweep_angle=90.0,
-            is_cutting=True,
-        )
-        arc4 = ArcSegment(
-            start=Coordinate(x=0.0, y=10.0),
-            end=Coordinate(x=0.0, y=0.0),
-            center=Coordinate(x=0.0, y=5.0),
-            sweep_angle=90.0,
-            is_cutting=True,
-        )
+        arcs = _circle_arcs(5.0, 5.0, 5.0, [90.0, 90.0, 90.0, 90.0])
 
-        path = StrokePath(pen_up_position=None, segments=(arc1, arc2, arc3, arc4))
+        path = StrokePath(pen_up_position=None, segments=tuple(arcs))
 
         result = profiler._is_structural_path(path)
         # Total sweep: 360° exactly -> structural
         assert result is True
 
+    def test_four_arc_90_degrees_jittered_centers_recognized(self) -> None:
+        """Verify EngraveLab's ±0.001 center jitter still verifies as a circle."""
+        profiler = Profiler()
 
-class TestSegmentLengthArcBranch:
-    """Tests for the ArcSegment (else) branch of the module-level helper."""
+        # Mirrors examples/1x3...holes1.plt: identical AA centers except the
+        # parser rounding produces alternating cx values 15436.057/15436.058.
+        arcs = _circle_arcs(196.088, 507.945, 50.8, [90.0, 90.0, 90.0, 90.0])
+        jittered = [
+            ArcSegment(
+                start=arc.start,
+                end=arc.end,
+                center=Coordinate(arc.center.x + (0.001 if i % 2 else 0.0), arc.center.y),
+                sweep_angle=arc.sweep_angle,
+                is_cutting=True,
+            )
+            for i, arc in enumerate(arcs)
+        ]
 
-    def test_segment_length_arc_uses_chord(self) -> None:
-        """Test _segment_length measures an ArcSegment by its chord length.
+        path = StrokePath(pen_up_position=None, segments=tuple(jittered))
 
-        The helper's else branch (lines 42-44) applies the same Euclidean
-        start->end formula as the line branch; a 3-4-5 triangle arc must
-        therefore measure 5.0 plotter units.
-        """
-        from plt_optimizer.core.models import ArcSegment
-        from plt_optimizer.core.profiler import _segment_length
+        result = profiler._is_structural_path(path)
+        assert result is True
 
-        arc = ArcSegment(
+
+class TestArcRunHelpers:
+    """Unit tests for the module-level circle-verification helpers."""
+
+    def test_arc_runs_splits_on_line_boundaries(self) -> None:
+        """Test _arc_runs groups consecutive arcs and splits on lines."""
+        arcs = _circle_arcs(5.0, 5.0, 5.0, [90.0, 90.0])
+        line = StrokeSegment(
+            start=Coordinate(x=5.0, y=0.0),
+            end=Coordinate(x=50.0, y=0.0),
+            is_cutting=True,
+        )
+
+        # line - arc - arc - line - arc
+        segments = [line, arcs[0], arcs[1], line, arcs[0]]
+        runs = _arc_runs(segments)
+
+        assert [len(run) for run in runs] == [2, 1]
+        assert runs[0][0] is arcs[0]
+        assert runs[1][0] is arcs[0]
+
+    def test_arc_runs_empty_for_lines_only(self) -> None:
+        """Test _arc_runs returns no runs for line-only or empty paths."""
+        line = StrokeSegment(
             start=Coordinate(x=0.0, y=0.0),
-            end=Coordinate(x=3.0, y=4.0),
-            center=Coordinate(x=1.5, y=2.0),
+            end=Coordinate(x=1.0, y=0.0),
+            is_cutting=True,
+        )
+
+        assert _arc_runs([line, line]) == []
+        assert _arc_runs([]) == []
+
+    def test_is_perfect_circle_empty_run(self) -> None:
+        """Test _is_perfect_circle rejects an empty run."""
+        assert _is_perfect_circle([]) is False
+
+    def test_is_perfect_circle_rejects_mismatched_centers(self) -> None:
+        """Test chained arcs with different centers are not a circle."""
+        arc1 = ArcSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=10.0, y=0.0),
+            center=Coordinate(x=5.0, y=0.0),
+            sweep_angle=180.0,
+            is_cutting=True,
+        )
+        arc2 = ArcSegment(
+            start=Coordinate(x=10.0, y=0.0),
+            end=Coordinate(x=0.0, y=0.0),
+            center=Coordinate(x=5.0, y=3.0),  # different center
             sweep_angle=180.0,
             is_cutting=True,
         )
 
-        length = _segment_length(arc)
+        assert _is_perfect_circle([arc1, arc2]) is False
 
-        assert length == pytest.approx(5.0, abs=1e-9)
-
-    def test_segment_length_line_still_euclidean(self) -> None:
-        """Test _segment_length keeps the StrokeSegment branch behaviour."""
-        from plt_optimizer.core.profiler import _segment_length
-
-        segment = StrokeSegment(
-            start=Coordinate(x=1.0, y=1.0),
-            end=Coordinate(x=4.0, y=5.0),
+    def test_is_perfect_circle_rejects_mismatched_radii(self) -> None:
+        """Test chained arcs with equal centers but different radii fail."""
+        arc1 = ArcSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=10.0, y=0.0),
+            center=Coordinate(x=5.0, y=0.0),
+            sweep_angle=180.0,
+            is_cutting=True,
+        )
+        arc2 = ArcSegment(
+            start=Coordinate(x=10.0, y=0.0),
+            end=Coordinate(x=0.0, y=0.0),
+            center=Coordinate(x=5.0, y=0.0),
+            sweep_angle=180.0,
+            is_cutting=True,
+        )
+        # arc2 starts at (10, 0) but its radius is |10-5| = 5 == arc1 radius;
+        # bump arc1's start further out to create a radius mismatch.
+        arc1_bad = ArcSegment(
+            start=Coordinate(x=-1.0, y=0.0),
+            end=Coordinate(x=10.0, y=0.0),
+            center=Coordinate(x=5.0, y=0.0),
+            sweep_angle=180.0,
             is_cutting=True,
         )
 
-        assert _segment_length(segment) == pytest.approx(5.0, abs=1e-9)
+        assert _is_perfect_circle([arc1, arc2]) is True
+        assert _is_perfect_circle([arc1_bad, arc2]) is False
 
+    def test_is_perfect_circle_rejects_broken_chain(self) -> None:
+        """Test arcs whose endpoints do not chain are not a circle."""
+        arc1 = ArcSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=10.0, y=0.0),
+            center=Coordinate(x=5.0, y=0.0),
+            sweep_angle=180.0,
+            is_cutting=True,
+        )
+        arc2 = ArcSegment(
+            start=Coordinate(x=9.0, y=0.0),  # does not chain to arc1.end
+            end=Coordinate(x=0.0, y=0.0),
+            center=Coordinate(x=5.0, y=0.0),
+            sweep_angle=180.0,
+            is_cutting=True,
+        )
 
-class TestBoundingBoxEmptyCoordinatesGuard:
-    """Tests for the empty xs/ys guard in _calculate_bounding_box_extent."""
+        assert _is_perfect_circle([arc1, arc2]) is False
 
-    def test_bbox_extent_empty_but_truthy_segments_returns_zero(self) -> None:
-        """Test the ``if not xs or not ys`` guard (lines 344-345) is reachable.
+    def test_is_perfect_circle_rejects_open_run(self) -> None:
+        """Test a run whose last arc misses the first start is not a circle."""
+        arc1 = ArcSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=10.0, y=0.0),
+            center=Coordinate(x=5.0, y=0.0),
+            sweep_angle=180.0,
+            is_cutting=True,
+        )
+        arc2 = ArcSegment(
+            start=Coordinate(x=10.0, y=0.0),
+            end=Coordinate(x=0.1, y=0.0),  # misses first start by 0.1 > tolerance
+            center=Coordinate(x=5.0, y=0.0),
+            sweep_angle=180.0,
+            is_cutting=True,
+        )
 
-        With a real :class:`StrokePath` the guard is dead code: any truthy
-        ``segments`` tuple yields at least one (x, y) pair per segment, and
-        the earlier ``if not path.segments`` check already handles the empty
-        tuple. A stub whose ``segments`` is truthy yet iterates zero items
-        (possible for any duck-typed sequence, e.g. a lazily-materialising
-        view) is the only way to reach the guard, so it is exercised here
-        against the private method directly.
-        """
+        assert _is_perfect_circle([arc1, arc2]) is False
 
-        from collections.abc import Iterator
+    def test_is_perfect_circle_rejects_zero_radius(self) -> None:
+        """Test a multi-arc run with zero radius is rejected."""
+        arc1 = ArcSegment(
+            start=Coordinate(x=5.0, y=5.0),
+            end=Coordinate(x=5.0, y=5.0),
+            center=Coordinate(x=5.0, y=5.0),
+            sweep_angle=180.0,
+            is_cutting=True,
+        )
+        arc2 = ArcSegment(
+            start=Coordinate(x=5.0, y=5.0),
+            end=Coordinate(x=5.0, y=5.0),
+            center=Coordinate(x=5.0, y=5.0),
+            sweep_angle=180.0,
+            is_cutting=True,
+        )
 
-        class _EmptyButTruthySequence:
-            """Truthy sequence that yields no elements when iterated."""
-
-            def __bool__(self) -> bool:
-                return True
-
-            def __iter__(self) -> Iterator[object]:
-                return iter(())
-
-        class _StubPath:
-            """Minimal duck-typed path exposing an empty-but-truthy segments."""
-
-            def __init__(self) -> None:
-                self.segments = _EmptyButTruthySequence()
-
-        profiler = Profiler()
-
-        extent = profiler._calculate_bounding_box_extent(_StubPath())  # type: ignore[arg-type]
-
-        assert extent == pytest.approx(0.0, abs=1e-9)
+        assert _is_perfect_circle([arc1, arc2]) is False

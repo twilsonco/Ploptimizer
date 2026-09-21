@@ -139,7 +139,13 @@ class Chunker:
             is_structural: If True, bypass chronological chunking and create a 1:1
                 mapping where every path becomes its own MacroBlock. This is used
                 for structural files (drill holes, score lines) where each feature
-                should be treated as an independent TSP node.
+                should be treated as an independent TSP node. Combined with
+                ``preprocess_document(is_structural=True)`` (which fractures linear
+                paths into single-segment paths but preserves arc-bearing paths
+                intact), the resulting optimization nodes are exactly: verified
+                perfect circles (whole holes, never split into arcs) and individual
+                straight segments, letting the TSP/2-Opt router reorder holes and
+                cut lines freely.
 
         Returns:
             List of MacroBlock objects in chronological order.
@@ -153,7 +159,9 @@ class Chunker:
         # Initialize blocks list
         blocks: List[MacroBlock] = []
 
-        # BYPASS: If structural, every path is its own independent block
+        # BYPASS: If structural, every path is its own independent block.
+        # After structural preprocessing, paths are whole circles (drill holes)
+        # or single straight segments -- each is one TSP node.
         if is_structural:
             self._logger.info(
                 f"Structural file detected: Bypassing chunker for 1:1 routing "

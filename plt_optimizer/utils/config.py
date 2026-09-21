@@ -23,6 +23,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "debug_save_files": False,
     "run_at_startup": False,
     "first_run": True,
+    "structural_ratio": 0.85,
 }
 
 
