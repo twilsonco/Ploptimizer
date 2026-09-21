@@ -29,17 +29,16 @@ from pathlib import Path
 # Add project root to path for imports when running as script
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from plt_optimizer.core.chunker import Chunker, ChunkerConfig
 from plt_optimizer.core.optimizer import (
     NearestNeighbor2OptStrategy,
     OptimizerEngine,
 )
 from plt_optimizer.core.parser import PLTParser
+from plt_optimizer.core.pipeline import chunk_document, preprocess_document
 from plt_optimizer.core.profiler import Profiler
 from plt_optimizer.core.reassembler import MetricsCalculator, Reassembler
 from plt_optimizer.core.writer import PLTWriter
 from plt_optimizer.diagnostics.plotter import plot_plt_document
-from plt_optimizer.utils.geometry import remove_redundant_strokes
 from plt_optimizer.utils.logging import (
     get_metrics_logger,
     get_text_logger,
@@ -113,18 +112,21 @@ def run_diagnostics_on_file(
                 "status": "diagnostic_only",
             }
 
-        # Run optimization pipeline
-        # Step 1: Simplify - Remove redundant overlapping strokes
-        doc = remove_redundant_strokes(doc)
-        text_logger.info("Simplified document by removing redundant strokes")
-
-        # Step 2: Profile - Calculate baseline extent
+        # Run optimization pipeline (mirrors plt_optimizer/cli/optimize.py:
+        # profile first, then type-dependent preprocessing, then chunking).
+        # Step 1: Profile - baseline extent + structural/text classification
         profiler = Profiler()
         profile_result = profiler.profile(doc)
 
-        # Step 3: Chunk - Group strokes into MacroBlocks
-        chunker = Chunker(config=ChunkerConfig(threshold_multiplier=2.0))
-        blocks = chunker.chunk(doc.stroke_paths, profile_result.baseline_extent)
+        # Step 2: Preprocess - structural documents are fractured into
+        # independently routable segments and deduplicated; text documents
+        # are left intact so contiguous glyph paths survive.
+        doc = preprocess_document(doc, is_structural=profile_result.is_structural)
+
+        # Step 3: Chunk - group strokes into MacroBlocks. Structural
+        # documents bypass chronological chunking: every path (whole circle
+        # or single straight segment) becomes its own TSP node.
+        blocks = chunk_document(doc, profile_result)
 
         # Step 4: Optimize - Find optimal traversal order
         optimizer = OptimizerEngine(
