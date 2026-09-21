@@ -2,21 +2,35 @@
 
 ```
 PLT-Optimizer/
+├── main.py                 # CLI entry point (plt-optimizer optimize|generate|watch)
 ├── plt_optimizer/           # Main package
 │   ├── cli/                # Command-line interface
 │   │   ├── __init__.py
+│   │   ├── optimize.py     # Single-file optimization subcommand
+│   │   ├── generate.py     # YAML spec -> per-cutter PLT generation subcommand
+│   │   ├── benchmark.py    # Batch strategy benchmarking tool
 │   │   └── watch.py        # Hot-watch daemon for automated processing
 │   ├── core/               # Core optimization pipeline
 │   │   ├── __init__.py
 │   │   ├── models.py       # Data classes for PLT representation
 │   │   ├── parser.py       # HPGL tokenization and parsing
 │   │   ├── writer.py       # PLT file generation
-│   │   ├── profiler.py     # Baseline extent calculation (95th percentile)
+│   │   ├── profiler.py     # Document classification + baseline extent (95th percentile)
 │   │   ├── chunker.py      # Stroke grouping into MacroBlocks
 │   │   ├── optimizer.py    # Block traversal optimization strategies
 │   │   ├── intra_chunk_optimizer.py  # Within-block path optimization
-│   │   └── reassembler.py  # Document reconstruction from optimized blocks
-│   ├── ui/                 # GUI components (system tray)
+│   │   └── reassembler.py  # Document reconstruction + travel-distance metrics
+│   ├── generate/           # Label generation pipeline (YAML -> PLT)
+│   │   ├── __init__.py
+│   │   ├── schema.py       # Pydantic YAML job-spec data contract
+│   │   ├── substitution.py # Replacement text files ("badges"/multiples)
+│   │   ├── resolution.py   # Cascade resolution + cutter compensation
+│   │   ├── layout.py       # Bounds-aware multi-heuristic bin packing
+│   │   ├── label_renderer.py    # Per-label PLT rendering, collision avoidance
+│   │   ├── ftext_renderer.py    # matplotlib TTF glyph vectorization
+│   │   ├── geometry.py     # Circle-vs-AABB collision math
+│   │   └── vectorize.py    # Per-cutter PLT/PDF export (lossless HPGL writer)
+│   ├── ui/                 # GUI components (system tray, Windows-only)
 │   │   ├── __init__.py
 │   │   ├── tray.py         # System tray icon and notification handling
 │   │   └── settings.py     # Tkinter-based configuration window
@@ -30,18 +44,16 @@ PLT-Optimizer/
 │       ├── __init__.py
 │       └── plotter.py      # Matplotlib-based path visualization
 ├── run_tray.py             # GUI entry point (system tray application)
+├── run_integration_test.py # End-to-end generate-pipeline test runner
+├── tools.json              # Cutter inventory + boundary/hole cutter size
 ├── tests/                  # Test suite (pytest)
-│   ├── __init__.py
-│   ├── test_identity.py    # Identity validation tests
-│   ├── test_parser.py      # Parser unit tests
-│   ├── test_writer.py      # Writer unit tests
-│   ├── test_models.py      # Model dataclass tests
-│   ├── test_geometry.py    # Geometry utility tests
-│   ├── test_logging.py     # Logging system tests
-│   ├── test_diagnostics.py # Diagnostics module tests
-│   └── test_plotter.py     # Plotting functionality tests
-├── examples/               # Example scripts
-│   └── run_diagnostics.py  # Full workflow demonstration
+├── examples/               # Example PLT files, job specs, and scripts
+│   ├── run_diagnostics.py  # Full workflow demonstration
+│   ├── test123_spec.yaml   # Default integration-test job spec
+│   └── complex_test_job.yaml  # Feature stress-test job spec
+├── docs/                   # Developer documentation
+│   ├── README_DEV.md
+│   └── INTEGRATION_TESTING.md
 ├── logs/                   # Generated log files
 ├── pyproject.toml          # Project configuration (uv)
 └── README.md
@@ -254,10 +266,16 @@ You can now run the application from anywhere:
 Ploptimizer.exe
 ```
 
-Or use it directly with the watch daemon:
+The executable is the **system tray application** (built from `run_tray.py`) and
+ignores command-line arguments; configure the watch, output, log, and processed
+directories through its settings window (stored in
+`%LOCALAPPDATA%\PLT-Optimizer\config.json`).
+
+For headless CLI use (e.g. the watch daemon with explicit directories), install
+the package with `uv` instead and run:
 
 ```batch
-Ploptimizer.exe watch --watch-dir D:\PlotterFiles\Watch --output-dir D:\PlotterFiles\Optimized --log-dir D:\Logs
+uv run plt-optimizer watch --watch-dir D:\PlotterFiles\Watch --output-dir D:\PlotterFiles\Optimized --log-dir D:\Logs
 ```
 
 ---
@@ -269,9 +287,13 @@ Ploptimizer.exe watch --watch-dir D:\PlotterFiles\Watch --output-dir D:\PlotterF
 uv run plt-optimizer --help
 
 # Expected output:
-# usage: plt-optimizer [-h] [--watch-dir WATCH_DIR] [--output-dir OUTPUT_DIR]
-#                    [--log-dir LOG_DIR] [--processed-dir PROCESSED_DIR]
-#                    [--fast-mode] [--debug-save-files]
+# usage: plt-optimizer [-h] {optimize,generate,watch} ...
+#
+# PLT-Optimizer: HPGL processing and CAM generation suite.
+#
+# positional arguments:
+#   {optimize,generate,watch}
+#                         Available commands
 ```
 
 ## Usage
@@ -309,7 +331,46 @@ fig = plot_plt_document(
 )
 ```
 
-### CLI Watch Daemon
+### CLI Subcommands
+
+The `plt-optimizer` entry point (`main.py`) routes three subcommands: `optimize`, `generate`, and `watch`. Each supports `--help`.
+
+#### `optimize` — Single-File Optimization
+
+```bash
+uv run plt-optimizer optimize input.plt -o output.plt
+uv run plt-optimizer optimize input.plt --fast-mode -v
+```
+
+**Options:**
+- `input` (required): Input PLT/HPGL file
+- `-o`, `--output` (default: `<input>_optimized.plt` beside the input): Output path
+- `--fast-mode`: Use only `NearestNeighbor2OptStrategy` (default: ParallelEnsemble)
+- `-v`, `--verbose`: DEBUG console output
+- `--log-dir` (default: `./logs_optimize`): Where `optimizer.log` + `job_metrics.csv` are written
+
+The pipeline profiles the document first (text vs. structural): structural files are fractured and de-duplicated before optimization; text files skip stroke simplification to preserve contiguous paths.
+
+#### `generate` — YAML Specification to Per-Cutter PLT
+
+```bash
+uv run plt-optimizer generate spec.yaml -o out/ --no-plots
+uv run plt-optimizer generate examples/test123_spec.yaml
+```
+
+**Options:**
+- `spec` (required): Path to the YAML job specification
+- `-o`, `--output` (default: the spec's parent directory): Receives `plt/` and `pdf/` subdirectories
+- `-v`, `--verbose`: DEBUG output
+- `--no-plots`: Skip simple-outline PDF previews (PLT files only)
+- `--default-plots`: Also write color-coded `*_default.pdf` diagnostic plots (off by default; slow)
+- `--tools` (default: `tools.json`): Cutter inventory JSON; ideal cutters are used if the file is missing
+
+Outputs are named `<plate>_<kind>_<cutter>_<job_id>.plt` (`kind` = `text` or `bh` for borders+holes). Text–hole collisions abort the job with a non-zero exit code — see [`INTEGRATION_TESTING.md`](INTEGRATION_TESTING.md).
+
+**Job spec schema:** see the "YAML Job Specification" section of [`AGENTS.md`](../AGENTS.md) and the example specs in `examples/` (`sample_spec.yaml`, `test123_spec.yaml`, `complex_test_job.yaml`, `replacement_job.yaml`, `rotation_demo_job.yaml`).
+
+#### `watch` — Hot-Watch Daemon
 
 The watch daemon monitors a directory for new or modified PLT files and automatically optimizes them:
 
@@ -323,11 +384,17 @@ uv run plt-optimizer watch --watch-dir /input/plt \
 - `--watch-dir` (required): Directory to monitor for PLT files
 - `--output-dir` (default: `./optimized`): Where optimized files are saved
 - `--log-dir` (default: `./logs`): Log file directory
-- `--processed-dir` (optional): Move processed files here after optimization
+- `--processed-dir` (optional): Move processed files here after optimization; without it, originals are **deleted** from the watch directory
 - `--fast-mode`: Use only `NearestNeighbor2OptStrategy` for faster processing
-- `--debug-save-files`: Save intermediate optimization data for diagnostics
+- `--debug-save-files`: Save before/after PLT files and comparison plots to a `debug/` subdirectory of the log directory (only effective with `--log-dir`)
+- `--debounce-seconds` (default: 2.0): Quiet period after the last modification before a file is processed; also waits for OS file locks to release
 
 The daemon processes existing files on startup, then continues watching for new changes. Press Ctrl+C for graceful shutdown.
+
+**Robustness details:**
+- Optimized files are staged in `<output-dir>/.incomplete/` and moved into place atomically (`os.replace`, with a `shutil.move` fallback), so downstream consumers never observe partially-written files.
+- Files that fail optimization are copied to the output directory as `<name>_unprocessed.plt` for manual review, and the original is removed from the watch directory.
+- The original file is deleted (or archived) only after a successful write.
 
 ### System Tray Application (GUI)
 
@@ -555,9 +622,34 @@ uv run pytest --cov=plt_optimizer --cov-report=term-missing tests/
 
 ### Test Categories
 
+The suite mirrors the package layout; highlights:
+
 - **test_identity.py**: Round-trip identity validation ensuring parse→write→parse consistency
-- **test_parser.py**: Parser accuracy and error handling
-- **test_writer.py**: Writer output formatting and file operations
+- **test_parser.py / test_writer.py**: Parser accuracy/error handling and writer output formatting
+- **test_optimizer*.py / test_intra_chunk_optimizer.py / test_chunker.py / test_reassembler.py / test_profiler.py**: Optimization pipeline
+- **test_schema.py / test_resolution.py / test_substitution.py**: YAML contract, cascade/cutter resolution, replacement text files
+- **test_layout.py**: Bin packing, rotation, fit guards
+- **test_label_renderer*.py / test_ftext_renderer.py / test_label3_centering.py**: Label rendering, compression/alignment, glyph vectorization
+- **test_collision_detection.py / test_collision_resolution.py**: Text–hole collision detection and avoidance phases
+- **test_vectorize_phase3.py / test_phase3_export.py**: Per-cutter export and file naming
+- **test_cli.py**: `optimize` / `generate` / `watch` subcommand entry points
+- **test_watch.py**: Watch daemon debounce, locking, archiving, and shutdown seams
+- **test_tray.py / test_settings.py / test_startup.py / test_config.py**: Tray UI and configuration (Windows paths mocked)
+
+### End-to-End Integration Test
+
+`run_integration_test.py` drives the full generate pipeline (YAML → resolution →
+bin packing → per-cutter PLT export → coordinate validation) with intermediate
+dumps:
+
+```bash
+uv run python run_integration_test.py
+uv run python run_integration_test.py examples/complex_test_job.yaml
+```
+
+Artifacts land under `test_output/integration_test/`. See
+[`INTEGRATION_TESTING.md`](INTEGRATION_TESTING.md) for phases, fixtures, and a
+verification checklist.
 
 ## HPGL/PLT Format Reference
 
@@ -568,10 +660,11 @@ The parser handles standard HPGL commands from EngraveLab:
 | `IN;` | Initialize |
 | `VS<n>;` | Velocity Select |
 | `ZO<x>,<y>;` | Zoom |
-| `PA;` | Plot Absolute |
+| `PA;` | Plot Absolute (a single command may carry multiple `x,y` pairs) |
 | `PU<x>,<y>;` | Pen Up (rapid move) |
 | `PD<x>,<y>;` | Pen Down (cutting move) |
-| `SP<n>;` | Select Pen |
+| `AA<x>,<y>,<start>,<sweep>;` | Arc (center + angles; emitted for drill holes) |
+| `SP<n>;` | Select Pen (resets drawing position — a pen change starts a fresh context) |
 
 ### Coordinate System
 
@@ -596,8 +689,8 @@ Standard Python logging with hierarchical levels:
 
 Job-level tracking for optimization analysis:
 ```csv
-timestamp,job_id,original_file,optimized_file,original_total_distance,optimized_total_distance,percent_improvement,status
-2024-01-15T10:30:45,job_001,input.plt,output.plt,18288.500,14200.300,22.35%,success
+timestamp,job_id,original_file,optimized_file,original_total_distance,optimized_total_distance,percent_improvement,status,method,notes
+2024-01-15T10:30:45,job_001,input.plt,output.plt,18288.500,14200.300,22.35%,success,Insertion Heuristic,"..."
 ```
 
 ## Development

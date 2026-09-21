@@ -300,3 +300,56 @@ packer test both orientations (0°/90°) for every label instance.
 - `expand_job_spec(job, yaml_path)` (substitution.py) must run immediately after `parse_yaml()` before `resolve_job_spec()` to flatten replacement-driven labels
 - All numeric fields support Pydantic's `ge` (greater-than-or-equal) validators for safety
 - Use `job.labels` or synthesize from root-level `content` + `count` when processing
+
+## 7. CLI Surface (`optimize` / `generate` / `watch`)
+
+The console script `plt-optimizer` is routed by `main.py` into three
+subcommands (`plt_optimizer/cli/optimize.py`, `generate.py`, `watch.py`).
+`main.py` must stay the single entry point (`[project.scripts]` in
+`pyproject.toml` points at `main:main`).
+
+### `optimize <input.plt>`
+Single-file parse → profile (text vs. structural) → chunk → optimize →
+reassemble → write. Flags: `-o/--output` (default `<stem>_optimized.plt`
+beside the input), `--fast-mode` (NearestNeighbor2Opt only; default is
+ParallelEnsemble with per-strategy benchmark logging), `-v/--verbose`,
+`--log-dir` (default `./logs_optimize/`; writes `optimizer.log` +
+`job_metrics.csv`). Prints one summary line to stdout unless `-v`.
+
+### `generate <spec.yaml>`
+Three-phase pipeline: `parse_yaml` → `expand_job_spec` → `resolve_job_spec` →
+`export_per_cutter_plts` (bounds-aware packing + per-label rendering + split by
+cutter). Flags: `-o/--output` (default: spec's parent dir; receives `plt/` and
+`pdf/`), `-v/--verbose`, `--no-plots` (skip simple-outline PDF previews),
+`--default-plots` (opt-in color-coded `*_default.pdf` rapid-travel plots),
+`--tools` (default `tools.json`; missing file → ideal cutters). File names:
+`<2-digit plate>_{text|bh}_<cutter>_<job_id>.<plt|pdf>` plus combined
+`<plate>_all_<job_id>.pdf`. Logs go to `./logs_generate/generate.log`.
+Collision aborts (`LabelRenderError`) and fit failures (`LayoutFitError`) exit
+non-zero after full ERROR diagnostics.
+
+### `watch --watch-dir <dir>`
+Hot-folder daemon. Flags: `--watch-dir` (required), `--output-dir` (default
+`./optimized`), `--log-dir` (default `./logs`), `--processed-dir` (archive
+originals; without it originals are **deleted**), `--fast-mode`,
+`--debug-save-files` (before/after PLTs + PNG plots under `<log-dir>/debug/`;
+only with an explicit `--log-dir`), `--debounce-seconds` (default 2.0).
+Behavioural invariants:
+- Files are processed only after `debounce_seconds` of quiescence **and** after
+  the OS file lock is released (`_is_file_locked` probe).
+- Outputs are staged in `<output-dir>/.incomplete/` and moved into place with
+  `os.replace` (fallback `shutil.move`) — consumers never see partial files.
+- On failure, the input is copied to the output dir as `<stem>_unprocessed.plt`
+  and removed from the watch dir; the job is logged with `status=failed`.
+- `setup_parser()` is the single source of truth for watch flags (shared by the
+  `main.py` router and `python -m plt_optimizer.cli.watch`); the tray app calls
+  `run_watcher_from_config()` instead of the CLI layer.
+
+### Python 3.8 / Windows 7 import constraint
+Per section 5, `watch` (and the tray's watcher path) must remain importable
+and runnable on Python 3.8 without matplotlib (not installable on 3.8). The
+`generate` pipeline and its modules (`plt_optimizer/generate/*`, which import
+numpy/matplotlib/vpype text rendering) require Python 3.9+; keep heavy
+generation imports out of any code path the watch/optimize commands execute at
+startup (i.e., avoid eager `plt_optimizer.cli.generate`-style imports that
+transitively pull matplotlib into the watch entry point).

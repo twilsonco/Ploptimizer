@@ -20,6 +20,8 @@ Ploptimizer minimizes tool-up travel time, and removes redundant (overlapping) s
 - **Cross-Platform**: Uses `pathlib.Path` throughout; Windows-compatible output
 - **Hot-Watch Daemon**: Automated directory monitoring for batch processing new/modified PLT files
 - **Intra-Chunk Optimization**: Within-block path ordering and direction optimization while preserving fixed entrance/exit points
+- **Label Generation Pipeline**: Create production-ready, per-cutter PLT files (plus PDF previews) from YAML job specifications — cascading typography, cutter compensation, drill holes, and bounds-aware bin packing across plates
+- **Subcommand CLI**: `plt-optimizer optimize | generate | watch` for single-file optimization, spec-driven generation, and the headless hot-watch daemon
 
 ### Optimization Strategies
 
@@ -31,13 +33,53 @@ PLT-Optimizer provides multiple routing algorithms for MacroBlock traversal:
 | Insertion Heuristic | Cheapest Insertion Heuristic for TSP (greedy constructive) |
 | Christofides-Serdyukov | S-T Path TSP with 5/3 approximation guarantee |
 | Simulated Annealing | Probabilistic technique for approximating the global optimum of a given function |
+| Genetic Algorithm | Population-based evolutionary search over block orderings |
 | ParallelEnsembleStrategy | Runs multiple strategies in parallel, selects best result |
 
 For **fast mode** (single strategy), use `--fast-mode` flag.
 
+## Command-Line Interface
+
+The `plt-optimizer` executable (or `uv run plt-optimizer` from source) exposes three subcommands:
+
+### `optimize` — single-file toolpath optimization
+
+```bash
+plt-optimizer optimize input.plt                    # -> input_optimized.plt
+plt-optimizer optimize input.plt -o output.plt --fast-mode
+```
+
+Parses, profiles (text vs. structural), optimizes, and writes one PLT file. Defaults to the ParallelEnsemble strategy (runs multiple strategies, keeps the best) unless `--fast-mode` is given. Logs go to `./logs_optimize/` by default (`--log-dir` to change).
+
+### `generate` — YAML specification to per-cutter PLT files
+
+```bash
+plt-optimizer generate spec.yaml                    # outputs beside the spec
+plt-optimizer generate spec.yaml -o out/ --no-plots
+```
+
+Runs the three-phase generation pipeline (label resolution with cutter compensation → bounds-aware bin packing → per-label rendering/assembly) and writes:
+
+```
+out/plt/01_text_0.030_<job_id>.plt   # one file per text cutter (plate 01)
+out/plt/01_bh_0.015_<job_id>.plt     # borders + drill holes together (plate 01)
+out/pdf/01_text_0.030_<job_id>.pdf   # simple-outline previews (--no-plots skips)
+out/pdf/01_all_<job_id>.pdf          # combined preview per plate
+```
+
+Cutter sizes come from `tools.json` (`--tools` to point elsewhere). Text–hole collisions are treated as unacceptable output: the job aborts with a non-zero exit code so the spec can be revised. See [`docs/INTEGRATION_TESTING.md`](docs/INTEGRATION_TESTING.md) for the full pipeline walkthrough and [`AGENTS.md`](AGENTS.md) (section 6) for the YAML job-spec schema. Example specs live in [`examples/`](examples/).
+
+### `watch` — hot-folder daemon
+
+```bash
+plt-optimizer watch --watch-dir /path/to/watch --output-dir ./optimized
+```
+
+Watches a directory for new/modified `.plt`/`.hpgl` files and optimizes each after it has been quiet for `--debounce-seconds` (default 2.0). Optimized files are written atomically (staged under `<output-dir>/.incomplete/`); originals are moved to `--processed-dir` if given, otherwise deleted. Files that fail optimization are copied to the output directory as `<name>_unprocessed.plt` for manual review. Options: `--fast-mode`, `--debug-save-files`, `--log-dir`. Running the tray application (Windows) uses the same engine in the background.
+
 ## Batch Benchmark Tool
 
-A standalone utility lives in `examples/benchmark.py` for processing every `*.plt`
+A standalone utility lives in `plt_optimizer/cli/benchmark.py` for processing every `*.plt`
 file in a directory and comparing the effectiveness of each strategy across the
 batch. It is intended for diagnosing files that fail in production and for
 benchmarking the optimization strategies on real-world inputs.
