@@ -1264,7 +1264,8 @@ Examples:
         default=None,
         help=(
             "Directory to move processed PLT files to after optimization. "
-            "If not specified, original files remain in the watch directory."
+            "If not specified, original files are deleted from the watch "
+            "directory once optimization succeeds."
         ),
     )
     parser.add_argument(

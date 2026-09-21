@@ -118,6 +118,12 @@ directory, containing:
 
 ### Windows (End Users)
 
+> **Requires Windows 10 or later.** The pre-built `Ploptimizer.exe` (system tray
+> GUI) is not supported on Windows 7. On Windows 7, run the headless CLI watch
+> daemon instead — see [macOS / Linux / Windows 7](#macos--linux--windows-7)
+> below and the setup guide in
+> [`README_DEV.md`](docs/README_DEV.md#windows-7-notes).
+
 1. Download `Ploptimizer.exe` from the [latest release](https://github.com/twilsonco/PLT-Optimizer/releases/latest).
 2. Move the downloaded executable to a desired location. Suggested locations:
    - `C:\Program Files\PLT-Optimizer\` (system-wide install; requires admin)
@@ -138,6 +144,16 @@ Once configured, the program runs silently in the background and will automatica
 If you are on macOS or Linux, or Windows 7, or you prefer to build the executable from source, see [`README_DEV.md`](docs/README_DEV.md) for full installation instructions, including prerequisites, building with PyInstaller, and running the headless watch daemon.
 
 > **Note:** The system tray GUI is Windows-only. On macOS and Linux, only the headless CLI watch daemon is available.
+
+> **Windows 7 is CLI-only.** The system tray GUI and the pre-built
+> `Ploptimizer.exe` installer are **not** supported on Windows 7 (the executable
+> is built with a toolchain that requires Windows 10+, and the tray GUI needs
+> dependencies unavailable on the Python 3.8 runtime Win7 requires). The only
+> supported way to run PLT-Optimizer on Windows 7 is the **headless CLI watch
+> daemon** (`plt-optimizer watch --watch-dir ...`), which runs on Python 3.8
+> without matplotlib. [`README_DEV.md`](docs/README_DEV.md#windows-7-notes)
+> walks through the Python 3.8 setup and running the watch daemon as a
+> **Task Scheduler** task so it starts automatically at boot.
 
 ## License
 

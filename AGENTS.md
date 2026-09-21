@@ -346,10 +346,22 @@ Behavioural invariants:
   `run_watcher_from_config()` instead of the CLI layer.
 
 ### Python 3.8 / Windows 7 import constraint
-Per section 5, `watch` (and the tray's watcher path) must remain importable
-and runnable on Python 3.8 without matplotlib (not installable on 3.8). The
-`generate` pipeline and its modules (`plt_optimizer/generate/*`, which import
-numpy/matplotlib/vpype text rendering) require Python 3.9+; keep heavy
-generation imports out of any code path the watch/optimize commands execute at
-startup (i.e., avoid eager `plt_optimizer.cli.generate`-style imports that
-transitively pull matplotlib into the watch entry point).
+Per section 5, Windows 7 support is **CLI-only**: the pre-built
+`Ploptimizer.exe` installer and the system tray GUI are Windows 10+ only
+(dropped for Win7). On Windows 7 the supported workflow is the headless
+`watch`/`optimize` CLI on Python 3.8 without matplotlib (not installable on
+3.8). Therefore `watch` (and the tray's watcher path) must remain importable
+and runnable on Python 3.8 without matplotlib. The `generate` pipeline and its
+modules (`plt_optimizer/generate/*`, which import numpy/matplotlib/vpype text
+rendering) require Python 3.9+. Keep heavy generation imports out of any code
+path the watch/optimize commands execute at startup:
+- `main.py` builds all three subparsers at startup, so
+  `plt_optimizer/cli/generate.py` stays import-light at module scope: pure
+  Python imports (`schema`, `resolution`, `substitution`) are top-level, while
+  the matplotlib-transitive ones (`layout`, `label_renderer`, `vectorize`) are
+  imported lazily inside `run()`. Tests monkeypatch
+  `plt_optimizer.generate.vectorize.export_per_cutter_plts` (the source module),
+  not the CLI module attribute.
+- Verify with a matplotlib import-blocker that `import main` and
+  `plt-optimizer watch --help` succeed without matplotlib before changing CLI
+  import structure.

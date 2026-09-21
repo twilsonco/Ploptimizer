@@ -33,12 +33,15 @@ import sys
 from pathlib import Path
 from typing import Optional, Tuple
 
-from plt_optimizer.generate.label_renderer import LabelRenderError
-from plt_optimizer.generate.layout import LayoutFitError
+# Light generation imports (pure Python) are safe at module scope. The heavy
+# ones (layout / label_renderer / vectorize transitively pull in
+# numpy + matplotlib + vpype) are imported lazily inside run(): the main CLI
+# router builds every subparser at startup, and `plt-optimizer watch` must
+# remain importable on Python 3.8 / Windows 7 where matplotlib cannot be
+# installed (see AGENTS.md section 7).
 from plt_optimizer.generate.resolution import resolve_job_spec
 from plt_optimizer.generate.schema import parse_yaml
 from plt_optimizer.generate.substitution import SubstitutionError, expand_job_spec
-from plt_optimizer.generate.vectorize import export_per_cutter_plts
 from plt_optimizer.utils.logging import setup_logging
 
 
@@ -206,6 +209,11 @@ def run(args: argparse.Namespace) -> int:
         return 1
 
     inventory, boundary_hole_cutter = _load_cutter_inventory(args.tools)
+
+    # Lazy heavy imports (see module docstring note in the top-level imports).
+    from plt_optimizer.generate.label_renderer import LabelRenderError
+    from plt_optimizer.generate.layout import LayoutFitError
+    from plt_optimizer.generate.vectorize import export_per_cutter_plts
 
     try:
         resolved_labels = resolve_job_spec(

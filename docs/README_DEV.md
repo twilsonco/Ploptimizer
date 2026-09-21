@@ -160,10 +160,21 @@ uv sync --python C:\Python311 --path ./plt-optimizer-portable
 
 **Important:** Python 3.8 and uv < 0.1.40 are required for Windows 7 compatibility.
 
+> **Windows 7 is CLI-only.** The pre-built `Ploptimizer.exe` installer and the
+> system tray GUI are **not supported** on Windows 7 — the CI-built executable
+> requires Windows 10+. The supported way to run PLT-Optimizer on Windows 7 is
+> the headless **CLI watch daemon** (`plt-optimizer watch`), which runs on
+> Python 3.8 without matplotlib. Follow Steps 1–3 below, then
+> [Step 4](#step-4-run-the-watch-daemon-cli) and
+> [Step 5](#step-5-autostart-via-task-scheduler) to run it as a boot task.
+
 Windows 7 cannot use:
 - Python 3.9+ (unsupported by Microsoft)
 - uv >= 0.1.40 (requires `bcryptprimitives.dll` from Windows 10+)
 - matplotlib plotting (requires Python 3.9+)
+- the system tray GUI / pre-built `Ploptimizer.exe` installer (Windows 10+ only)
+- the `generate` subcommand (its text-rendering stack needs matplotlib; `optimize`
+  and `watch` work fine)
 
 ### Step 1: Install uv 0.1.39 manually
 
@@ -213,70 +224,72 @@ uv pip install -e .
 ```
 
 Note: Plotting/diagnostic features (matplotlib) are not available on Windows 7.
+The `optimize` and `watch` commands work fully; the `generate` command requires
+matplotlib and therefore Python 3.9+ (run it on another machine).
 
-### Step 4: Building the Executable for Windows 7
+### Step 4: Run the Watch Daemon (CLI)
 
-**Important:** The CI-built Windows executables are compiled with newer toolchains and will not run on Windows 7. You must build the executable on your Windows 7 machine or use a compatible build environment.
-
-#### Prerequisites
-
-Ensure you have completed Steps 1-3 above, then install PyInstaller:
-
-```batch
-cd C:\path\to\plt-optimizer
-uv pip install pyinstaller==5.13.2
-```
-
-(PyInstaller 5.13.2 is the last version supporting Python 3.8)
-
-#### Build the Executable
-
-```batch
-cd C:\path\to\plt-optimizer
-
-:: Build the standalone executable
-uv run pyinstaller --onefile --noconsole ^
-    --name "Ploptimizer" ^
-    --add-data "assets;assets" ^
-    --icon "assets\icon.ico" ^
-    run_tray.py
-```
-
-The compiled executable will be created at `dist\Ploptimizer.exe`.
-
-#### Install the Built Executable
-
-To make the executable available system-wide, copy it to a directory in your PATH:
-
-```batch
-copy dist\Ploptimizer.exe C:\Windows\System32\
-```
-
-Or keep it in a custom location and add that location to your PATH:
-
-```batch
-setx PATH "%PATH%;C:\path\to\plt-optimizer\dist"
-```
-
-#### Using the Built Executable
-
-You can now run the application from anywhere:
-
-```batch
-Ploptimizer.exe
-```
-
-The executable is the **system tray application** (built from `run_tray.py`) and
-ignores command-line arguments; configure the watch, output, log, and processed
-directories through its settings window (stored in
-`%LOCALAPPDATA%\PLT-Optimizer\config.json`).
-
-For headless CLI use (e.g. the watch daemon with explicit directories), install
-the package with `uv` instead and run:
+The watch daemon is the supported Windows 7 workflow. Verify it runs:
 
 ```batch
 uv run plt-optimizer watch --watch-dir D:\PlotterFiles\Watch --output-dir D:\PlotterFiles\Optimized --log-dir D:\Logs
 ```
+
+This installs a console script at `.venv\Scripts\plt-optimizer.exe` inside the
+project's virtual environment — use that path directly in Step 5 (it does not
+depend on `uv` being on the PATH of the scheduled-task account).
+
+Behaviour reminders (full list: `plt-optimizer watch --help`):
+- Files are processed after they have been quiet for `--debounce-seconds`
+  (default 2.0) and their OS lock has been released.
+- Without `--processed-dir`, successfully optimized originals are **deleted**
+  from the watch directory; with it, they are moved there for archiving.
+- Failed files are copied to the output directory as `<name>_unprocessed.plt`.
+
+### Step 5: Autostart via Task Scheduler
+
+Register a task that starts the daemon at boot (run Command Prompt **as
+Administrator**):
+
+```batch
+schtasks /create /tn "PLT-Optimizer Watch" ^
+    /tr "C:\path\to\plt-optimizer\.venv\Scripts\plt-optimizer.exe watch --watch-dir D:\PlotterFiles\Watch --output-dir D:\PlotterFiles\Optimized --log-dir D:\Logs" ^
+    /sc onstart /ru SYSTEM /rl highest /f
+```
+
+Notes:
+- `/sc onstart` runs the task whether or not a user is logged on; use
+  `/ru "YourUser" /rp` instead of `/ru SYSTEM` if the watch/output directories
+  live on a mapped network drive or need your user's credentials.
+- The watch daemon is long-running: in `taskschd.msc`, uncheck **"Stop the task
+  if it runs longer than"** on the task's Settings tab.
+
+Or use the GUI (`taskschd.msc` → **Create Basic Task**):
+
+1. Name: `PLT-Optimizer Watch`
+2. Trigger: **When the computer starts**
+3. Action → Start a program:
+   - Program: `C:\path\to\plt-optimizer\.venv\Scripts\plt-optimizer.exe`
+   - Arguments: `watch --watch-dir D:\PlotterFiles\Watch --output-dir D:\PlotterFiles\Optimized --log-dir D:\Logs`
+   - Start in: `C:\path\to\plt-optimizer`
+4. Check **Run whether user is logged on or not**, then on the Settings tab
+   uncheck **Stop the task if it runs longer than**.
+
+Verifying:
+
+```batch
+schtasks /run /tn "PLT-Optimizer Watch"
+schtasks /query /tn "PLT-Optimizer Watch" /v /fo LIST
+type D:\Logs\optimizer.log
+```
+
+The daemon writes `optimizer.log` + `job_metrics.csv` to the log directory and
+logs a `Watch daemon stopped.` line on graceful shutdown. Stop it with
+`schtasks /end /tn "PLT-Optimizer Watch"`.
+
+> **Do not build the tray executable on Windows 7.** The PyInstaller build of
+> `run_tray.py` (system tray GUI) is only supported on Windows 10+; see
+> [System Tray Application (GUI)](#system-tray-application-gui).
 
 ---
 
@@ -398,7 +411,10 @@ The daemon processes existing files on startup, then continues watching for new 
 
 ### System Tray Application (GUI)
 
-**Note:** The system tray application is **Windows-only**. It requires `winshell` and `pywin32` which are Windows-specific packages.
+**Note:** The system tray application is **Windows-only** and requires
+**Windows 10+** (the pre-built `Ploptimizer.exe` is not supported on Windows 7 —
+see [Windows 7 Notes](#windows-7-notes) for the CLI-only watch daemon there). It
+also requires `winshell` and `pywin32`, which are Windows-specific packages.
 
 For a graphical interface with system tray icon and notifications:
 
@@ -484,7 +500,7 @@ The application will now start automatically when you log in to Windows, with no
 
 4. The compiled executable will be in `dist/PLT-Optimizer.exe`
 
-##### Method 2: Task Scheduler (Recommended)
+##### Method 3: Task Scheduler (Recommended)
 
 1. Open **Task Scheduler** (`taskschd.msc`)
 
@@ -493,17 +509,27 @@ The application will now start automatically when you log in to Windows, with no
 3. Set Trigger: **When the computer starts**
 
 4. Set Action: **Start a program**
-   - Program: `cmd.exe`
-   - Arguments: `/c cd /d C:\PLT-Optimizer && uv run plt-optimizer watch --watch-dir D:\PlotterFiles\Watch --output-dir D:\PlotterFiles\Optimized --log-dir D:\Logs`
+   - Program: `C:\PLT-Optimizer\.venv\Scripts\plt-optimizer.exe`
+   - Arguments: `watch --watch-dir D:\PlotterFiles\Watch --output-dir D:\PlotterFiles\Optimized --log-dir D:\Logs`
+   - Start in: `C:\PLT-Optimizer`
+
+   (Using the venv console script avoids depending on `uv` being on the PATH of
+   the scheduled-task account. A `cmd.exe /c cd /d C:\PLT-Optimizer && uv run
+   plt-optimizer watch ...` action also works if you prefer `uv run`.)
 
 5. Configure:
    - Check **Run whether user is logged on or not** (requires password)
    - Check **Run with highest privileges** if writing to protected directories
-   - Set **Stop task if it runs longer than:** 1 day (optional)
+   - On the Settings tab, **uncheck "Stop the task if it runs longer than"** —
+     the watch daemon is a long-running process
 
 6. Click **OK** and enter your Windows password when prompted.
 
-##### Method 3: Windows Service (Advanced)
+> On **Windows 7**, use the dedicated
+> [Task Scheduler setup](#step-5-autostart-via-task-scheduler) in the Windows 7
+> Notes (identical approach, `schtasks` one-liner included).
+
+##### Method 4: Windows Service (Advanced)
 
 For a persistent background service that survives user logoff, use NSSM (Non-Sucking Service Manager):
 
@@ -529,7 +555,7 @@ $nssm = "C:\Program Files\nssm\win64\nssm.exe"
 & $nssm status PLT-Optimizer
 ```
 
-##### Method 4: Startup Folder Shortcut
+##### Method 5: Startup Folder Shortcut
 
 For a simple user-level auto-start:
 

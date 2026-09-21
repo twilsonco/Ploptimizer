@@ -1205,7 +1205,7 @@ class TestGenerateRun:
         def _boom(*args: Any, **kwargs: Any) -> None:
             raise LabelRenderError("boom")
 
-        monkeypatch.setattr("plt_optimizer.cli.generate.export_per_cutter_plts", _boom)
+        monkeypatch.setattr("plt_optimizer.generate.vectorize.export_per_cutter_plts", _boom)
         caplog.set_level(logging.DEBUG, logger="plt_optimizer")
         spec_file = self._write_spec(tmp_path)
         args = self._args(spec_file)
@@ -1228,7 +1228,7 @@ class TestGenerateRun:
         def _boom(*args: Any, **kwargs: Any) -> None:
             raise LayoutFitError("no room")
 
-        monkeypatch.setattr("plt_optimizer.cli.generate.export_per_cutter_plts", _boom)
+        monkeypatch.setattr("plt_optimizer.generate.vectorize.export_per_cutter_plts", _boom)
         caplog.set_level(logging.DEBUG, logger="plt_optimizer")
         spec_file = self._write_spec(tmp_path)
         args = self._args(spec_file)
@@ -1250,7 +1250,7 @@ class TestGenerateRun:
         def _boom(*args: Any, **kwargs: Any) -> None:
             raise OSError("disk full")
 
-        monkeypatch.setattr("plt_optimizer.cli.generate.export_per_cutter_plts", _boom)
+        monkeypatch.setattr("plt_optimizer.generate.vectorize.export_per_cutter_plts", _boom)
         caplog.set_level(logging.DEBUG, logger="plt_optimizer")
         spec_file = self._write_spec(tmp_path)
         args = self._args(spec_file)
@@ -1308,7 +1308,7 @@ class TestGenerateRun:
                 default_pdf_paths=[default_pdf],
             )
 
-        monkeypatch.setattr("plt_optimizer.cli.generate.export_per_cutter_plts", _fake_export)
+        monkeypatch.setattr("plt_optimizer.generate.vectorize.export_per_cutter_plts", _fake_export)
         spec_file = self._write_spec(tmp_path)
         args = self._args(spec_file)
 
