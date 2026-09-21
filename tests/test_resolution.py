@@ -1562,3 +1562,47 @@ class TestBuildCutterPenMap:
         assert pen_map == {0.01: 1, 0.02: 4, 0.03: 5, 0.06: 6, 0.125: 7}
         assert 2 not in pen_map.values()
         assert 3 not in pen_map.values()
+
+
+class TestTextChunkModeCascade:
+    """text_chunk_mode must cascade job -> label -> 'line' (job-level field)."""
+
+    def test_default_is_line(self) -> None:
+        """Unset chunk mode resolves to 'line' (backward compatible)."""
+        job = JobSpec(
+            job_name="TCM",
+            labels=[
+                LabelSpec(id="lbl", count=1, width=2.0, height=1.0, content=[TextLine(text="X")]),
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert label.text_chunk_mode == "line"
+
+    def test_job_word_value_cascades(self) -> None:
+        """Job-level 'word' applies to every label."""
+        job = JobSpec(
+            job_name="TCM",
+            text_chunk_mode="word",
+            labels=[
+                LabelSpec(id="lbl", count=1, width=2.0, height=1.0, content=[TextLine(text="X")]),
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert label.text_chunk_mode == "word"
+
+    def test_root_level_job_cascades(self) -> None:
+        """Root-level single-label jobs carry their own chunk mode."""
+        job = JobSpec(
+            job_name="TCM",
+            text_chunk_mode="word",
+            width=2.0,
+            height=1.0,
+            content=[TextLine(text="X")],
+        )
+        label = resolve_job_spec(job)[0]
+        assert label.text_chunk_mode == "word"
+
+    def test_resolved_label_defaults_to_line(self) -> None:
+        """Manually constructed ResolvedLabel defaults to 'line'."""
+        label = ResolvedLabel(id="x", count=1, width=1.0, height=1.0, margin=0.1)
+        assert label.text_chunk_mode == "line"

@@ -94,6 +94,16 @@ def setup_parser(parser: argparse.ArgumentParser) -> None:
             "If the file does not exist, ideal cutters are used."
         ),
     )
+    parser.add_argument(
+        "--fast-mode",
+        action="store_true",
+        help=(
+            "Use NearestNeighbor2OptStrategy exclusively for plate-space "
+            "toolpath optimization. If not specified, uses "
+            "ParallelEnsembleStrategy which runs multiple strategies and "
+            "keeps the best (mirrors the optimize CLI)."
+        ),
+    )
 
 
 def _sanitize_job_id(job_name: str) -> str:
@@ -230,6 +240,8 @@ def run(args: argparse.Namespace) -> int:
             plots=not args.no_plots,
             default_plots=args.default_plots,
             allow_rotation=job.allow_rotation,
+            fast_mode=args.fast_mode,
+            logger=text_logger,
         )
         exported_paths = export_result.plt_paths
     except LabelRenderError as e:

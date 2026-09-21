@@ -18,15 +18,15 @@ from datetime import datetime
 from pathlib import Path
 
 # Local imports
-from plt_optimizer.core.chunker import Chunker, ChunkerConfig
+from plt_optimizer.core.chunker import Chunker
 from plt_optimizer.core.optimizer import (
     NearestNeighbor2OptStrategy,
     OptimizationStrategy,
     OptimizerEngine,
-    ParallelEnsembleOptimizationResult,
     ParallelEnsembleStrategy,
 )
 from plt_optimizer.core.parser import PLTParser
+from plt_optimizer.core.pipeline import chunk_document, optimize_and_reassemble, preprocess_document
 from plt_optimizer.core.profiler import Profiler
 from plt_optimizer.core.reassembler import MetricsCalculator, Reassembler
 from plt_optimizer.core.writer import PLTWriter
@@ -147,24 +147,16 @@ def run(args: argparse.Namespace) -> int:
         original_distance = metrics_calc.calculate_original_travel_distance(doc)
 
         # Bifurcate preprocessing pipeline based on document type
-        if profile_result.is_structural:
-            # STRUCTURAL PIPELINE: Fracture linear paths then remove redundancies
-            doc = fracture_linear_paths(doc)
-            text_logger_obj.debug(
-                f"[{job_id}] Fractured structural document (linear paths -> independent segments)"
-            )
-            doc = remove_redundant_strokes(doc, tol=1e-3)
-            text_logger_obj.debug(f"[{job_id}] Removed redundant strokes from fractured document")
-        else:
-            # TEXT PIPELINE: Skip stroke simplification to preserve contiguous paths
-            text_logger_obj.debug(f"[{job_id}] Skipped stroke simplification for text document")
-
-        chunker = Chunker(config=ChunkerConfig(threshold_multiplier=2.0))
-        blocks = chunker.chunk(
-            doc.stroke_paths,
-            profile_result.baseline_extent,
+        doc = preprocess_document(
+            doc,
             is_structural=profile_result.is_structural,
+            fracture_factory=fracture_linear_paths,
+            dedupe_factory=remove_redundant_strokes,
+            logger=text_logger_obj,
+            log_prefix=f"[{job_id}]",
         )
+
+        blocks = chunk_document(doc, profile_result, chunker_factory=Chunker)
 
         if not blocks:
             text_logger_obj.warning(f"[{job_id}] No blocks generated from file")
@@ -176,55 +168,21 @@ def run(args: argparse.Namespace) -> int:
         else:
             strategy = ParallelEnsembleStrategy(baseline_distance=original_distance)
 
-        # Optimize
-        optimizer = OptimizerEngine(strategy=strategy)
-        optimization_result = optimizer.optimize(blocks)
-
-        # Handle Parallel Ensemble results (contains winner info + all benchmarks)
-        if isinstance(optimization_result, ParallelEnsembleOptimizationResult):
-            ensemble_result = optimization_result
-            method_name = ensemble_result.winner_name
-            optimized_distance = ensemble_result.result.total_travel_distance
-
-            # Log all strategy results at INFO level
-            text_logger_obj.info(f"[{job_id}] Strategy benchmark results:")
-            for bench in ensemble_result.all_benchmarks:
-                imp_str = (
-                    f"{bench.improvement_percent:.2f}% improvement"
-                    if bench.improvement_percent is not None
-                    else "no baseline comparison"
-                )
-                text_logger_obj.info(
-                    f"  {bench.strategy_name}: "
-                    f"distance={bench.result.total_travel_distance:.3f}, "
-                    f"{imp_str} ({bench.execution_time_seconds:.3f}s)"
-                )
-
-            # Build notes from all benchmarks
-            notes_parts = []
-            for bench in ensemble_result.all_benchmarks:
-                imp_str = (
-                    f"{bench.improvement_percent:.2f}%"
-                    if bench.improvement_percent is not None
-                    else "N/A"
-                )
-                notes_parts.append(
-                    f"{bench.strategy_name}: {bench.result.total_travel_distance:.3f} "
-                    f"(improvement={imp_str})"
-                )
-            method_notes = "; ".join(notes_parts)
-        else:
-            method_name = "NearestNeighbor + 2-Opt (Fast Mode)"
-            optimized_distance = optimization_result.total_travel_distance
-            method_notes = f"optimized_distance={optimized_distance:.3f}"
-
-        # Reassemble using the actual result (unwrapped if ensemble)
-        reassembler = Reassembler()
-        if isinstance(optimization_result, ParallelEnsembleOptimizationResult):
-            result_for_reassembly = ensemble_result.result
-        else:
-            result_for_reassembly = optimization_result
-        optimized_doc = reassembler.reassemble(doc, blocks, result_for_reassembly)
+        # Optimize and reassemble (ensemble results unwrapped by the helper,
+        # which also logs the benchmark table and builds method notes).
+        outcome = optimize_and_reassemble(
+            doc,
+            blocks,
+            strategy,
+            engine_factory=OptimizerEngine,
+            reassembler_factory=Reassembler,
+            logger=text_logger_obj,
+            log_prefix=f"[{job_id}]",
+        )
+        optimized_doc = outcome.optimized_doc
+        optimized_distance = outcome.optimized_distance
+        method_name = outcome.method_name
+        method_notes = outcome.method_notes
 
         # Write optimized file
         writer = PLTWriter()

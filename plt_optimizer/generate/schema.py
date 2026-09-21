@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -489,6 +489,11 @@ class JobSpec(LabelAttributes):
             90 degrees to improve plate utilization. When a rotated label
             is assembled onto a plate its whole content (text, border and
             drill holes) is rotated clockwise. Defaults to True.
+        text_chunk_mode: Granularity at which rendered text becomes a
+            plate-space optimization node: ``"line"`` (the default) routes
+            each whole text line as one unit; ``"word"`` splits lines on
+            whitespace for finer rapid-travel routing at the cost of more
+            TSP nodes.
     """
 
     job_name: str
@@ -505,6 +510,14 @@ class JobSpec(LabelAttributes):
             "Allow the bin packer to rotate labels 90 degrees (clockwise at "
             "assembly) for tighter layouts. Set false to keep every label "
             "horizontal."
+        ),
+    )
+    text_chunk_mode: Literal["line", "word"] = Field(
+        default="line",
+        description=(
+            "Plate-space text optimization granularity: 'line' routes each "
+            "text line as one node (default); 'word' routes each "
+            "whitespace-delimited word separately."
         ),
     )
 

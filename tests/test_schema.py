@@ -524,6 +524,45 @@ class TestAllowRotation:
         assert job.allow_rotation is True
 
 
+class TestTextChunkMode:
+    """Tests for the job-level text_chunk_mode optimization flag."""
+
+    def test_defaults_to_line(self) -> None:
+        """Chunk mode defaults to 'line' (fewer optimizer nodes)."""
+        job = JobSpec(job_name="TCM", count=1, content=[TextLine(text="X")])
+        assert job.text_chunk_mode == "line"
+
+    def test_parsed_from_yaml(self, tmp_path: Path) -> None:
+        """text_chunk_mode: word must be honored from YAML."""
+        spec_path = tmp_path / "word.yaml"
+        spec_path.write_text(
+            "job:\n"
+            "  job_name: 'Word Mode'\n"
+            "  text_chunk_mode: word\n"
+            "  count: 1\n"
+            "  content:\n"
+            "    - text: 'X'\n",
+            encoding="utf-8",
+        )
+        job = parse_yaml(spec_path)
+        assert job.text_chunk_mode == "word"
+
+    def test_invalid_mode_rejected(self, tmp_path: Path) -> None:
+        """Only 'line' and 'word' are valid chunk modes."""
+        spec_path = tmp_path / "bad.yaml"
+        spec_path.write_text(
+            "job:\n"
+            "  job_name: 'Bad Mode'\n"
+            "  text_chunk_mode: glyph\n"
+            "  count: 1\n"
+            "  content:\n"
+            "    - text: 'X'\n",
+            encoding="utf-8",
+        )
+        with pytest.raises((ValidationError, ValueError)):
+            parse_yaml(spec_path)
+
+
 class TestLabelSpecValidation:
     """Additional LabelSpec validation edge cases."""
 

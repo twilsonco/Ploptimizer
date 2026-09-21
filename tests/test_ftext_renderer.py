@@ -282,3 +282,100 @@ class TestRenderTextLineFtextDegeneratePaths:
         lc = render_text_line_ftext("X", 1.0, DEFAULT_FONT_PATH)
         assert isinstance(lc, vp.LineCollection)
         assert lc.is_empty()
+
+
+class TestRenderTextLineFtextWithWords:
+    """Tests for render_text_line_ftext_with_words() word partitioning."""
+
+    def test_empty_string_returns_empty_groups(self) -> None:
+        """Empty text yields an empty collection and no word groups."""
+        whole, groups = ftext_renderer.render_text_line_ftext_with_words("", 0.25)
+        assert whole.is_empty()
+        assert groups == []
+
+    def test_single_word_claims_every_contour(self) -> None:
+        """A single-word line assigns all contours to its one group."""
+        whole, groups = ftext_renderer.render_text_line_ftext_with_words(
+            "SINGLE", 0.5, DEFAULT_FONT_PATH
+        )
+        assert not whole.is_empty()
+        assert len(groups) == 1
+        word, indices = groups[0]
+        assert word == "SINGLE"
+        assert sorted(indices) == list(range(len(whole)))
+
+    def test_groups_partition_contours_exactly(self) -> None:
+        """Word groups partition (never duplicate or drop) whole-line contours."""
+        whole, groups = ftext_renderer.render_text_line_ftext_with_words(
+            "AB CD EF", 0.5, DEFAULT_FONT_PATH
+        )
+        assert groups
+        all_indices = [i for _word, indices in groups for i in indices]
+        assert sorted(all_indices) == list(range(len(whole)))
+        assert len(all_indices) == len(set(all_indices))
+
+    def test_groups_follow_text_order(self) -> None:
+        """Group order matches the whitespace split, indices ascend per word."""
+        whole, groups = ftext_renderer.render_text_line_ftext_with_words(
+            "A BC DEF G", 0.45, DEFAULT_FONT_PATH
+        )
+        assert [word for word, _ in groups] == ["A", "BC", "DEF", "G"]
+        for _word, indices in groups:
+            assert indices == sorted(indices)
+
+    def test_word_geometry_is_whole_line_geometry(self) -> None:
+        """Claimed indices cover every whole-line contour exactly once."""
+        whole, groups = ftext_renderer.render_text_line_ftext_with_words(
+            "WIDTH 123 Test", 0.4, DEFAULT_FONT_PATH
+        )
+        whole_contours = [np.asarray(line) for line in whole]
+        for _word, indices in groups:
+            for index in indices:
+                assert len(whole_contours[index]) >= 2
+        # Every contour belongs to exactly one word.
+        seen = {i for _w, idx in groups for i in idx}
+        assert seen == set(range(len(whole_contours)))
+
+    def test_blank_segments_yield_empty_groups(self) -> None:
+        """Runs of spaces keep column alignment with empty index lists."""
+        whole, groups = ftext_renderer.render_text_line_ftext_with_words(
+            "A  B", 0.5, DEFAULT_FONT_PATH
+        )
+        assert [word for word, _ in groups] == ["A", "", "B"]
+        assert groups[1][1] == []
+
+    def test_unmatched_contour_falls_back_to_ungrouped(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An unmatchable word contour disables grouping (whole-line mode)."""
+        original = ftext_renderer._contour_signature
+        probe, _ = ftext_renderer.render_text_line_ftext_with_words("AB CD", 0.5, DEFAULT_FONT_PATH)
+        pool_size = len(probe)
+        calls = {"n": 0}
+
+        def broken_signature(contour: np.ndarray) -> str:
+            calls["n"] += 1
+            # Pool construction (whole-line contours) first; poison lookups.
+            if calls["n"] > pool_size:
+                return "unmatchable"
+            return original(contour)
+
+        monkeypatch.setattr(ftext_renderer, "_contour_signature", broken_signature)
+        whole, groups = ftext_renderer.render_text_line_ftext_with_words(
+            "AB CD", 0.5, DEFAULT_FONT_PATH
+        )
+        assert not whole.is_empty()
+        assert groups == []
+
+    def test_word_render_failure_falls_back(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A word render producing no contours disables grouping."""
+        monkeypatch.setattr(
+            ftext_renderer,
+            "_render_scaled_line",
+            lambda text, font_props, scale: vp.LineCollection(),
+        )
+        whole, groups = ftext_renderer.render_text_line_ftext_with_words(
+            "AB CD", 0.5, DEFAULT_FONT_PATH
+        )
+        assert not whole.is_empty()
+        assert groups == []

@@ -266,6 +266,10 @@ class ResolvedLabel:
             ``boundary_hole_cutter_size``, snapped to the inventory;
             default ``0.015``). Used only to compute the collision stroke
             floor -- rendering itself emits pure geometry layers.
+        text_chunk_mode: Plate-space text optimization granularity
+            (``"line"`` or ``"word"``, cascaded from the job; default
+            ``"line"``). Consumed by the renderer (chunk-record
+            granularity) and the plate-space optimizer.
     """
 
     id: str
@@ -280,6 +284,7 @@ class ResolvedLabel:
     collision_compress: float = 1.0
     hole_text_collision_distance: float = DEFAULT_HOLE_TEXT_COLLISION_DISTANCE
     hole_cutter_diameter: float = DEFAULT_BOUNDARY_HOLE_CUTTER
+    text_chunk_mode: str = "line"
 
 
 # ---------------------------------------------------------------------------
@@ -691,6 +696,12 @@ def _resolve_label(
     )
     hole_cutter = snap_boundary_hole_cutter(requested_hole_cutter, available_cutters)
 
+    # Text chunk mode is job-level only (like allow_rotation); a root-level
+    # job masquerading as a label carries the field itself.
+    label_text_chunk_mode: str = (
+        getattr(label_input, "text_chunk_mode", None) or job.text_chunk_mode
+    )
+
     # Resolve text lines with cutter compensation
     resolved_content = _resolve_content(label_input, job, available_cutters, tolerance_factor)
 
@@ -727,6 +738,7 @@ def _resolve_label(
         min_hole_margin=label_min_hole_margin,
         hole_text_collision_distance=label_collision_distance,
         hole_cutter_diameter=hole_cutter,
+        text_chunk_mode=label_text_chunk_mode,
     )
 
 

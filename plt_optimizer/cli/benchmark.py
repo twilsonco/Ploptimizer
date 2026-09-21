@@ -57,7 +57,7 @@ from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 # Add project root to path for imports when running as script
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from plt_optimizer.core.chunker import Chunker, ChunkerConfig
+from plt_optimizer.core.chunker import Chunker
 from plt_optimizer.core.optimizer import (
     ChristofidesStrategy,
     GeneticAlgorithmStrategy,
@@ -67,6 +67,7 @@ from plt_optimizer.core.optimizer import (
     SimulatedAnnealingStrategy,
 )
 from plt_optimizer.core.parser import ParseError, PLTParser
+from plt_optimizer.core.pipeline import chunk_document
 from plt_optimizer.core.profiler import Profiler
 from plt_optimizer.core.reassembler import Reassembler
 from plt_optimizer.core.writer import PLTWriter
@@ -483,12 +484,7 @@ def process_file(
         profiler = Profiler()
         profile_result = profiler.profile(simplified_doc)
 
-        chunker = Chunker(config=ChunkerConfig(threshold_multiplier=2.0))
-        blocks = chunker.chunk(
-            simplified_doc.stroke_paths,
-            profile_result.baseline_extent,
-            is_structural=profile_result.is_structural,
-        )
+        blocks = chunk_document(simplified_doc, profile_result, chunker_factory=Chunker)
         blocks_created = len(blocks)
     except Exception as setup_err:  # noqa: BLE001 - any failure here is fatal for the file
         row = _empty_row(input_path.name)

@@ -2,6 +2,7 @@
 
 import re
 from pathlib import Path
+from typing import Optional
 
 import pytest
 
@@ -10,7 +11,6 @@ from plt_optimizer.generate.layout import PackedLabel, PackedPlate
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
 from plt_optimizer.generate.schema import parse_yaml
 from plt_optimizer.generate.vectorize import (
-    _run_optimizer,
     assemble_plt_from_rendered_labels,
     export_per_cutter_plts,
     extract_pens_from_plt_text,
@@ -574,34 +574,201 @@ class TestExportStructuralLayerSkip:
         assert all("SP1;" in content for content in result.combined_by_plate.values())
 
 
-class TestRunOptimizerEdgePaths:
-    """_run_optimizer keeps original files when optimization cannot run."""
+def _cutting_segments(content: str) -> list[tuple[str, object]]:
+    """Extract a multiset of cutting geometry from HPGL content.
 
-    def test_unreadable_file_is_kept_as_is(self, tmp_path: Path) -> None:
-        """A file the parser cannot read is returned untouched (no raise)."""
-        missing = tmp_path / "missing.plt"
-        result = _run_optimizer([missing])
-        assert result == [missing]
-        assert not missing.exists()
+    Pen-down line segments are normalized to unordered endpoint pairs (so
+    reversals compare equal) and arcs to ``(center, sweep)`` tuples. Used to
+    assert the plate-space optimizer preserves geometry exactly.
 
-    def test_empty_chunk_result_keeps_file(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """When chunking yields no blocks, the file is kept unmodified."""
-        plt_path = tmp_path / "square.plt"
-        plt_path.write_text(
-            "IN;DF;PS0;SP1;PU0,0;PD1000,0,1000,1000,0,1000,0,0;SP0;IN;%",
-            encoding="utf-8",
+    Args:
+        content: Raw HPGL text.
+
+    Returns:
+        Sorted list of ``("L", (p, q))`` / ``("A", center, sweep)`` entries.
+    """
+    segments: list[tuple[str, object]] = []
+    current: Optional[tuple[int, int]] = None
+    for token in content.split(";"):
+        token = token.strip()
+        if token.startswith("SP"):
+            current = None
+            continue
+        match = re.match(r"^(PU|PD)(-?[\d,\-]+)$", token)
+        if match:
+            values = [int(v) for v in match.group(2).split(",")]
+            for x, y in zip(values[0::2], values[1::2]):
+                if match.group(1) == "PD" and current is not None:
+                    segments.append(("L", tuple(sorted([current, (x, y)]))))
+                current = (x, y)
+            continue
+        arc = re.match(r"^AA(-?\d+),(-?\d+),(-?\d+)$", token)
+        if arc:
+            segments.append(("A", (arc.group(1), arc.group(2)), arc.group(3)))
+    return sorted(segments, key=repr)
+
+
+class TestPlateSpaceExport:
+    """Plate-space optimization preserves geometry and pen structure."""
+
+    def _spec(self, tmp_path: Path) -> Path:
+        spec_file = tmp_path / "spec.yaml"
+        spec_file.write_text(
+            "job:\n"
+            "  job_name: Plate Space Job\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 12.0\n"
+            "      margin: 0.25\n"
+            "      clearance_padding: 0.125\n"
+            "  labels:\n"
+            "    - id: l1\n"
+            "      count: 3\n"
+            "      width: 3.0\n"
+            "      height: 1.5\n"
+            "      margin: 0.1\n"
+            "      holes:\n"
+            "        - location: top-left\n"
+            "        - location: bottom-right\n"
+            "      content:\n"
+            "        - text: Hello World\n"
+            "          height: 0.5\n"
+            "        - text: Second line here\n"
+            "          height: 0.35\n"
         )
-        original = plt_path.read_text(encoding="utf-8")
+        return spec_file
 
-        # Force the no-blocks branch: chunk() legitimately refuses to return
-        # empty output, so stub it out to simulate a block-less document.
-        monkeypatch.setattr(
-            "plt_optimizer.core.chunker.Chunker.chunk",
-            lambda self, *args, **kwargs: [],
+    def _export_pair(
+        self, tmp_path: Path, **job_overrides: object
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        """Export the same job unoptimized and plate-space optimized."""
+        from plt_optimizer.generate.resolution import resolve_job_spec
+
+        job = parse_yaml(self._spec(tmp_path))
+        for key, value in job_overrides.items():
+            setattr(job, key, value)
+        labels = resolve_job_spec(job)
+        raw = export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path / "raw",
+            job_id="j",
+            optimize=False,
+            plots=False,
+        )
+        opt = export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path / "opt",
+            job_id="j",
+            optimize=True,
+            plots=False,
+            fast_mode=True,
+        )
+        return (
+            {p.name: p.read_text(encoding="utf-8") for p in raw.plt_paths},
+            {p.name: p.read_text(encoding="utf-8") for p in opt.plt_paths},
         )
 
-        result = _run_optimizer([plt_path])
-        assert result == [plt_path]
-        assert plt_path.read_text(encoding="utf-8") == original
+    def test_same_files_written(self, tmp_path: Path) -> None:
+        """Optimization writes exactly the same per-cutter file set."""
+        raw, opt = self._export_pair(tmp_path)
+        assert set(raw) == set(opt)
+        assert any("_text_" in name for name in opt)
+        assert any("_bh_" in name for name in opt)
+
+    def test_text_geometry_is_vertex_exact(self, tmp_path: Path) -> None:
+        """Text layers keep every cutting stroke at its exact coordinates."""
+        raw, opt = self._export_pair(tmp_path)
+        checked = 0
+        for name, raw_content in raw.items():
+            if "_text_" not in name:
+                continue
+            assert _cutting_segments(opt[name]) == _cutting_segments(raw_content), name
+            checked += 1
+        assert checked > 0
+
+    def test_structural_geometry_is_subset_after_dedupe(self, tmp_path: Path) -> None:
+        """Borders/holes only lose coincident strokes (dedupe), never new ones."""
+        raw, opt = self._export_pair(tmp_path)
+        checked = 0
+        for name, raw_content in raw.items():
+            if "_bh_" not in name:
+                continue
+            raw_segments = _cutting_segments(raw_content)
+            opt_segments = _cutting_segments(opt[name])
+            extra = [s for s in opt_segments if s not in raw_segments]
+            assert not extra, f"{name}: optimizer invented {len(extra)} stroke(s)"
+            checked += 1
+        assert checked > 0
+
+    def test_pen_selection_survives_optimization(self, tmp_path: Path) -> None:
+        """Optimized files keep SP selects around geometry (never hoisted)."""
+        raw, opt = self._export_pair(tmp_path)
+        for name, content in opt.items():
+            assert content.startswith("IN;DF;PS0;")
+            assert content.endswith("%")
+            # Geometry must follow a pen select, not precede every SP token.
+            first_sp = content.find("SP")
+            first_pd = content.find("PD")
+            assert 0 <= first_sp < first_pd, name
+            pens = set(re.findall(r"SP(\d+);", content.replace("SP0;IN;%", "")))
+            if "_bh_" in name:
+                assert pens and pens <= {"2", "3"}
+            else:
+                assert pens and "2" not in pens and "3" not in pens
+
+    def test_word_mode_matches_line_mode_geometry(self, tmp_path: Path) -> None:
+        """Chunk granularity changes routing nodes, never emitted geometry."""
+        from plt_optimizer.generate.resolution import resolve_job_spec
+
+        spec_text = self._spec(tmp_path).read_text(encoding="utf-8")
+        contents = {}
+        for mode in ("line", "word"):
+            spec_file = tmp_path / f"spec_{mode}.yaml"
+            spec_file.write_text(
+                spec_text.replace(
+                    "job_name: Plate Space Job",
+                    f"job_name: Plate Space Job\n  text_chunk_mode: {mode}",
+                ),
+                encoding="utf-8",
+            )
+            job = parse_yaml(spec_file)
+            mode_labels = resolve_job_spec(job)
+            result = export_per_cutter_plts(
+                mode_labels,
+                job.plates,
+                output_dir=tmp_path / mode,
+                job_id="j",
+                optimize=True,
+                plots=False,
+                fast_mode=True,
+            )
+            contents[mode] = {p.name: p.read_text(encoding="utf-8") for p in result.plt_paths}
+        assert set(contents["line"]) == set(contents["word"])
+        for name, line_content in contents["line"].items():
+            assert _cutting_segments(contents["word"][name]) == _cutting_segments(line_content), (
+                name
+            )
+
+    def test_optimize_false_is_unchanged_by_fast_mode(self, tmp_path: Path) -> None:
+        """``optimize=False`` ignores fast_mode and emits raw pen layers."""
+        from plt_optimizer.generate.resolution import resolve_job_spec
+
+        job = parse_yaml(self._spec(tmp_path))
+        labels = resolve_job_spec(job)
+        result = export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path / "raw",
+            job_id="j",
+            optimize=False,
+            plots=False,
+            fast_mode=True,
+        )
+        assert result.plt_paths
+        for path in result.plt_paths:
+            content = path.read_text(encoding="utf-8")
+            assert content.startswith("IN;DF;PS0;")
+            assert content.endswith("%")

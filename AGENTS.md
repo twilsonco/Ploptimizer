@@ -264,6 +264,41 @@ whitespace character, never newline/alphanumeric).
 - **Examples:** `examples/replacement_job.yaml` with
   `examples/replacement_text_sample.txt` / `replacement_text_assets.txt`.
 
+### Plate-Space Toolpath Optimization
+Generated toolpaths are optimized in the **plate frame** (post-rectpack device
+coordinates) before any PLT is written, one routing problem per plate **and per
+cutter** (`plt_optimizer/generate/plate_optimizer.py`). Because the generator
+already knows each toolpath's kind, the `Profiler` is skipped entirely.
+
+- **Text layers**: one TSP node per `TextChunkRecord` carried out of label
+  rendering (label-local inches, +y up). The chunker is bypassed — the records
+  *are* the nodes. `text_chunk_mode` (job-level, `"line"` default / `"word"`)
+  sets granularity: `line` routes each whole line; `word` splits on whitespace
+  (exact stroke membership via `ftext_renderer.render_text_line_ftext_with_words`,
+  which partitions the whole-line render's contours by translation-invariant
+  signature — bit-exact, no advance math).
+- **Structural layers** (borders SP2 + holes SP3): the extracted HPGL is parsed
+  and pushed through the shared core pipeline (`core.pipeline`
+  `preprocess_document` → `chunk_document` → `optimize_and_reassemble`) with a
+  hand-built `ProfileResult(is_structural=True)`; the structural chunker branch
+  maps every path 1:1 to a block.
+- **Re-emission**: `emit_layer_document` writes integer-unit HPGL
+  (`PU`/`PD`/`AA`) re-selecting `SP` on every pen change. The generic
+  `PLTWriter` cannot be used here — it hoists all headers (including pen
+  selects) ahead of the geometry, which would leave generated content
+  pen-unselected.
+- **Transform chain** (verified against emitted files, plotter units): center
+  text block to `height/2` → Y-mirror by the rendered bounds sum → rotate 90° CW
+  if the packer placed the label sideways → translate by the packed slot. Text
+  geometry is emitted vertex-exact; only coincident structural strokes are
+  deduplicated.
+- **Strategy**: `ParallelEnsembleStrategy` by default, `NearestNeighbor2Opt`
+  under `--fast-mode` (mirrors the `optimize` CLI). `export_per_cutter_plts`
+  takes `fast_mode` and `logger`; each layer logs baseline→optimized rapid
+  travel at INFO.
+- The post-write `_run_optimizer` (parse each file → profile → optimize) is
+  **removed**; optimization now happens pre-write in plate space.
+
 ### Cascading Resolution
 When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), and `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to 0.15).
 
@@ -318,11 +353,13 @@ ParallelEnsemble with per-strategy benchmark logging), `-v/--verbose`,
 
 ### `generate <spec.yaml>`
 Three-phase pipeline: `parse_yaml` → `expand_job_spec` → `resolve_job_spec` →
-`export_per_cutter_plts` (bounds-aware packing + per-label rendering + split by
-cutter). Flags: `-o/--output` (default: spec's parent dir; receives `plt/` and
-`pdf/`), `-v/--verbose`, `--no-plots` (skip simple-outline PDF previews),
-`--default-plots` (opt-in color-coded `*_default.pdf` rapid-travel plots),
-`--tools` (default `tools.json`; missing file → ideal cutters). File names:
+`export_per_cutter_plts` (bounds-aware packing + per-label rendering + plate-space
+per-cutter optimization + split by cutter). Flags: `-o/--output` (default: spec's
+parent dir; receives `plt/` and `pdf/`), `-v/--verbose`, `--no-plots` (skip
+simple-outline PDF previews), `--default-plots` (opt-in color-coded `*_default.pdf`
+rapid-travel plots), `--tools` (default `tools.json`; missing file → ideal
+cutters), `--fast-mode` (plate-space routing via `NearestNeighbor2Opt` instead of
+the default `ParallelEnsemble`). File names:
 `<2-digit plate>_{text|bh}_<cutter>_<job_id>.<plt|pdf>` plus combined
 `<plate>_all_<job_id>.pdf`. Logs go to `./logs_generate/generate.log`.
 Collision aborts (`LabelRenderError`) and fit failures (`LayoutFitError`) exit

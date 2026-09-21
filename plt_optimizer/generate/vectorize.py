@@ -27,16 +27,24 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Sequence
+from typing import Optional, Sequence
 
+from plt_optimizer.core.optimizer import OptimizationStrategy
 from plt_optimizer.generate.label_renderer import RenderedLabel, extract_bounds_from_plt
 from plt_optimizer.generate.layout import PackedPlate
+from plt_optimizer.generate.plate_optimizer import (
+    PlateOptimization,
+    StrategyFactory,
+    optimize_structural_layer,
+    optimize_text_layer,
+)
 from plt_optimizer.generate.resolution import (
     DEFAULT_BOUNDARY_HOLE_CUTTER,
     ResolvedLabel,
     build_cutter_pen_map,
 )
 from plt_optimizer.generate.schema import PlateSpec
+from plt_optimizer.utils.logging import TextLogger
 
 # ---------------------------------------------------------------------------
 # Layer assignments (structural pens of the assembled plate)
@@ -369,6 +377,8 @@ def export_per_cutter_plts(
     plots: bool = True,
     default_plots: bool = False,
     allow_rotation: bool = True,
+    fast_mode: bool = False,
+    logger: Optional[TextLogger] = None,
 ) -> PerCutterExport:
     """Export plates as per-cutter PLT files (and optional simple PDFs).
 
@@ -412,6 +422,13 @@ def export_per_cutter_plts(
             label instances 90 degrees for tighter layouts; rotated
             labels have their whole content (text, border, holes)
             rotated clockwise during assembly.
+        fast_mode: When optimizing, route with
+            :class:`~plt_optimizer.core.optimizer.NearestNeighbor2OptStrategy`
+            exclusively instead of the default
+            :class:`~plt_optimizer.core.optimizer.ParallelEnsembleStrategy`
+            (mirrors the ``optimize`` CLI's ``--fast-mode``).
+        logger: Optional text logger receiving per-layer optimization
+            reports (method, baseline/optimized rapid travel).
 
     Returns:
         A :class:`PerCutterExport` with written PLT paths, PDF paths, and
@@ -457,6 +474,39 @@ def export_per_cutter_plts(
 
     result = PerCutterExport(output_dir=output_dir.resolve(), job_id=job_id)
 
+    # Plate-space optimization strategy (only built when optimizing):
+    # ParallelEnsemble by default, NN2Opt under fast_mode -- mirroring the
+    # optimize CLI. The factory receives each layer's unoptimized rapid
+    # travel so ensemble strategies can report improvement percentages.
+    strategy_factory: Optional[StrategyFactory] = None
+    if optimize:
+        from plt_optimizer.core.optimizer import (
+            NearestNeighbor2OptStrategy,
+            ParallelEnsembleStrategy,
+        )
+
+        if fast_mode:
+
+            def strategy_factory(baseline_distance: float) -> OptimizationStrategy:
+                return NearestNeighbor2OptStrategy()
+
+        else:
+
+            def strategy_factory(baseline_distance: float) -> OptimizationStrategy:
+                return ParallelEnsembleStrategy(baseline_distance=baseline_distance)
+
+    def _report(layer: str, optimization: PlateOptimization) -> None:
+        """Log one layer's optimization outcome (dual-logging topology)."""
+        if logger is None:
+            return
+        outcome = optimization.outcome
+        logger.info(
+            f"Plate {layer}: optimized {optimization.node_count} node(s) via "
+            f"{outcome.method_name} -- rapid travel "
+            f"{optimization.baseline_distance:.3f} -> "
+            f"{outcome.optimized_distance:.3f} plotter units"
+        )
+
     # Phase 3: Assemble each plate in memory, then split by pen group.
     # Files are named <plate number>_<kind>_<cutter>_<job_id>, where the
     # plate number is the 1-based packing-order index (2-digit padded).
@@ -468,23 +518,48 @@ def export_per_cutter_plts(
         # Structural group: borders (SP2) + holes (SP3) share one run.
         structure_content = extract_pens_from_plt_text(combined, [LAYER_BOUNDARY, LAYER_HOLES])
         if plt_has_geometry(structure_content):
+            bh_content = structure_content
+            if optimize and strategy_factory is not None:
+                optimization = optimize_structural_layer(
+                    structure_content,
+                    strategy_factory,
+                    logger=logger,
+                    log_prefix=f"[plate {plate_str} bh]",
+                )
+                if optimization is not None:
+                    bh_content = optimization.content
+                    _report(f"{plate_str} bh", optimization)
             structure_path = plt_dir / f"{plate_str}_bh_{_format_cutter(hole_cutter)}_{job_id}.plt"
-            structure_path.write_text(structure_content, encoding="utf-8")
+            structure_path.write_text(bh_content, encoding="utf-8")
             result.plt_paths.append(structure_path)
 
         # Text group: one file per distinct text cutter pen with content.
+        # With optimization enabled the layer is routed directly from the
+        # rendered chunk records in plate space (parser/profiler skipped);
+        # otherwise the pen layer is extracted from the assembly as-is.
         for pen_id in sorted(cutter_by_pen):
-            text_content = extract_pens_from_plt_text(combined, [pen_id])
-            if not plt_has_geometry(text_content):
-                continue
             cutter = cutter_by_pen[pen_id]
+            written_content: Optional[str] = None
+            if optimize and strategy_factory is not None:
+                optimization = optimize_text_layer(
+                    plate.labels,
+                    rendered_labels_map,
+                    pen_id,
+                    strategy_factory,
+                    logger=logger,
+                    log_prefix=f"[plate {plate_str} text {_format_cutter(cutter)}]",
+                )
+                if optimization is not None:
+                    written_content = optimization.content
+                    _report(f"{plate_str} text {_format_cutter(cutter)}", optimization)
+            if written_content is None:
+                text_content = extract_pens_from_plt_text(combined, [pen_id])
+                if not plt_has_geometry(text_content):
+                    continue
+                written_content = text_content
             text_path = plt_dir / f"{plate_str}_text_{_format_cutter(cutter)}_{job_id}.plt"
-            text_path.write_text(text_content, encoding="utf-8")
+            text_path.write_text(written_content, encoding="utf-8")
             result.plt_paths.append(text_path)
-
-    if optimize:
-        # Run the PLT optimizer on each exported file
-        result.plt_paths = _run_optimizer(result.plt_paths)
 
     if plots:
         result.pdf_paths = _write_simple_plots(output_dir, job_id, result)
@@ -591,72 +666,3 @@ def write_default_plots(
         pdf_paths.append(pdf_path)
 
     return pdf_paths
-
-
-def _run_optimizer(plt_paths: list[Path]) -> list[Path]:
-    """Run the PLT optimizer on a list of PLT files.
-
-    Uses the existing PLT parser, profiler, chunker, optimizer, reassembler,
-    and writer to deduplicate overlapping score lines and minimize tool-up
-    travel distance.
-
-    Args:
-        plt_paths: List of paths to PLT files to optimize.
-
-    Returns:
-        A list of paths to the optimized PLT files (overwrites originals).
-    """
-    # Import here to avoid circular imports
-    from plt_optimizer.core.chunker import Chunker, ChunkerConfig
-    from plt_optimizer.core.optimizer import (
-        NearestNeighbor2OptStrategy,
-        OptimizerEngine,
-    )
-    from plt_optimizer.core.parser import PLTParser
-    from plt_optimizer.core.profiler import Profiler
-    from plt_optimizer.core.reassembler import Reassembler
-    from plt_optimizer.core.writer import PLTWriter
-
-    optimized_paths: list[Path] = []
-
-    for plt_path in plt_paths:
-        try:
-            # Parse the exported PLT file
-            parser = PLTParser()
-            doc = parser.parse_file(plt_path)
-
-            # Profile to determine document type
-            profiler = Profiler()
-            profile_result = profiler.profile(doc)
-
-            # Chunk into MacroBlocks
-            chunker = Chunker(config=ChunkerConfig(threshold_multiplier=2.0))
-            blocks = chunker.chunk(
-                doc.stroke_paths,
-                profile_result.baseline_extent,
-                is_structural=profile_result.is_structural,
-            )
-
-            if not blocks:
-                # No blocks to optimize; keep the file as-is
-                optimized_paths.append(plt_path)
-                continue
-
-            # Run the optimizer (use fast mode for generated files)
-            strategy = NearestNeighbor2OptStrategy()
-            optimizer = OptimizerEngine(strategy=strategy)
-            optimization_result = optimizer.optimize(blocks)
-
-            # Reassemble the optimized document
-            reassembler = Reassembler()
-            optimized_doc = reassembler.reassemble(doc, blocks, optimization_result)
-
-            # Write the optimized result back
-            writer = PLTWriter()
-            writer.write_file(optimized_doc, plt_path)
-            optimized_paths.append(plt_path)
-        except Exception:
-            # If optimization fails for any reason, keep the original file
-            optimized_paths.append(plt_path)
-
-    return optimized_paths

@@ -173,8 +173,13 @@ class TestRenderLabelOnceLayerGuards:
         def fake_by_pen(
             label: ResolvedLabel,
             pen_map: Optional[dict[float, int]] = None,
-        ) -> tuple[dict[int, vp.LineCollection], list[label_renderer._LineEntry]]:
-            return {9: vp.LineCollection()}, []
+            chunk_mode: label_renderer.TextChunkMode = label_renderer.TextChunkMode.LINE,
+        ) -> tuple[
+            dict[int, vp.LineCollection],
+            list[label_renderer._LineEntry],
+            list[label_renderer.TextChunkRecord],
+        ]:
+            return {9: vp.LineCollection()}, [], []
 
         monkeypatch.setattr(label_renderer, "_render_text_lines_by_pen", fake_by_pen)
         rendered = render_label_to_plt(_label())

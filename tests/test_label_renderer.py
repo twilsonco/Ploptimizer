@@ -810,9 +810,7 @@ class TestHoleMarginRendering:
             ResolvedHoleSpec(diameter=diameter, location="bottom-left"),
             ResolvedHoleSpec(diameter=diameter, location="bottom-right"),
         ]
-        label = _make_hole_label(
-            holes, width=width, height=height, hole_margin=hole_margin
-        )
+        label = _make_hole_label(holes, width=width, height=height, hole_margin=hole_margin)
         circles = _hole_circles_local(label)
 
         expected_centers = {
@@ -941,9 +939,7 @@ class TestHorizontalCompressionRendering:
         min_x, _min_y, max_x, _max_y = lc.bounds()
         available = label.width - (2 * margin)
         assert min_x >= margin - 0.01, f"Text breaches left margin: {min_x:.3f}"
-        assert max_x <= label.width - margin + 0.01, (
-            f"Text breaches right margin: {max_x:.3f}"
-        )
+        assert max_x <= label.width - margin + 0.01, f"Text breaches right margin: {max_x:.3f}"
         assert (max_x - min_x) <= available + 0.02
 
     def test_disabled_compression_leaves_line_over_wide(self) -> None:
@@ -1048,9 +1044,7 @@ class TestHorizontalCompressionRendering:
         assert xs, "No text coordinates found"
 
         assert min(xs) >= margin - 0.02, f"Text breaches left margin: {min(xs):.3f}"
-        assert max(xs) <= label.width - margin + 0.02, (
-            f"Text breaches right margin: {max(xs):.3f}"
-        )
+        assert max(xs) <= label.width - margin + 0.02, f"Text breaches right margin: {max(xs):.3f}"
 
 
 class TestHorizontalTextAlignment:
@@ -1123,12 +1117,8 @@ class TestHorizontalTextAlignment:
         # Separate the two lines by their vertical bands (top line has larger y).
         _lb_min_x, lb_min_y, _lb_max_x, lb_max_y = lc.bounds()
         mid_y = (lb_min_y + lb_max_y) / 2
-        top_xs = [
-            p.real for seg in lc for p in seg if p.imag > mid_y
-        ]
-        bottom_xs = [
-            p.real for seg in lc for p in seg if p.imag <= mid_y
-        ]
+        top_xs = [p.real for seg in lc for p in seg if p.imag > mid_y]
+        bottom_xs = [p.real for seg in lc for p in seg if p.imag <= mid_y]
         assert top_xs and bottom_xs
         # Top line ("LEFT") hugs the left margin; bottom ("RIGHT") the right.
         assert min(top_xs) == pytest.approx(margin, abs=0.01)
@@ -1239,3 +1229,114 @@ class TestCollisionDetectionPhase1:
         rendered = render_label_to_plt(label)
         assert rendered.source_label is label
         assert rendered.has_collisions is True
+
+
+class TestTextChunkRecords:
+    """Rendered labels carry per-chunk text geometry for plate-space routing."""
+
+    @staticmethod
+    def _label(content: list[ResolvedTextLine], **kwargs: object) -> ResolvedLabel:
+        """Build a text-only label carrying an optional chunk mode."""
+        return ResolvedLabel(
+            id="chunks",
+            count=1,
+            width=4.0,
+            height=2.0,
+            margin=0.1,
+            holes=[],
+            content=content,
+            **kwargs,  # type: ignore[arg-type]
+        )
+
+    def test_line_mode_one_record_per_line(self) -> None:
+        """Default mode yields one whole-line record per content line."""
+        label = self._label(
+            [
+                _make_line("HELLO WORLD", height=0.4),
+                _make_line("SECOND LINE", height=0.3),
+            ]
+        )
+        rendered = render_label_to_plt(label)
+        assert len(rendered.text_chunks) == 2
+        for index, record in enumerate(rendered.text_chunks):
+            assert record.line_index == index
+            assert record.word_index is None
+            assert record.word_text == ""
+            assert record.contours
+            x_min, y_min, x_max, y_max = record.bounds
+            xs = [z.real for contour in record.contours for z in contour]
+            ys = [z.imag for contour in record.contours for z in contour]
+            assert math.isclose(x_min, min(xs))
+            assert math.isclose(y_min, min(ys))
+            assert math.isclose(x_max, max(xs))
+            assert math.isclose(y_max, max(ys))
+
+    def test_word_mode_splits_by_whitespace(self) -> None:
+        """WORD mode emits one record per word, in line/word order."""
+        label = self._label([_make_line("AB CD EF", height=0.4)], text_chunk_mode="word")
+        rendered = render_label_to_plt(label)
+        assert [r.word_text for r in rendered.text_chunks] == ["AB", "CD", "EF"]
+        assert [r.word_index for r in rendered.text_chunks] == [0, 1, 2]
+        assert all(r.line_index == 0 for r in rendered.text_chunks)
+
+    def test_word_records_partition_line_contours(self) -> None:
+        """Word records together cover exactly the line-mode contours."""
+        content = [_make_line("WIDTH 123 Test", height=0.4)]
+        line_rendered = render_label_to_plt(self._label(content))
+        word_rendered = render_label_to_plt(self._label(content, text_chunk_mode="word"))
+
+        def signature(rendered: object) -> list:
+            return sorted(
+                (
+                    round(float(z.real), 6),
+                    round(float(z.imag), 6),
+                )
+                for record in rendered.text_chunks  # type: ignore[attr-defined]
+                for contour in record.contours
+                for z in contour
+            )
+
+        assert signature(word_rendered) == signature(line_rendered)
+
+    def test_records_carry_pen_from_pen_map(self) -> None:
+        """Each record's pen matches its line's cutter pen."""
+        from plt_optimizer.generate.resolution import build_cutter_pen_map
+
+        label = self._label(
+            [
+                _make_line("AAA", height=0.4),
+                ResolvedTextLine(
+                    text="BBB",
+                    nominal_text_height=0.5,
+                    toolpath_text_height=0.47,
+                    cutter_diameter=0.06,
+                    character_spacing=0.0,
+                    line_spacing=0.0,
+                ),
+            ]
+        )
+        pen_map = build_cutter_pen_map([label])
+        rendered = render_label_to_plt(label, pen_map=pen_map)
+        assert len(rendered.text_chunks) == 2
+        assert rendered.text_chunks[0].pen == pen_map[0.03]
+        assert rendered.text_chunks[1].pen == pen_map[0.06]
+        assert rendered.text_chunks[0].pen != rendered.text_chunks[1].pen
+
+    def test_blank_word_produces_no_record(self) -> None:
+        """Whitespace-only runs carry no strokes, so no routing node."""
+        label = self._label([_make_line("A  B", height=0.4)], text_chunk_mode="word")
+        rendered = render_label_to_plt(label)
+        assert [r.word_text for r in rendered.text_chunks] == ["A", "B"]
+
+    def test_empty_content_has_no_records(self) -> None:
+        """A label without text renders no chunk records."""
+        label = self._label([])
+        rendered = render_label_to_plt(label)
+        assert rendered.text_chunks == ()
+
+    def test_unknown_chunk_mode_falls_back_to_line(self) -> None:
+        """An out-of-enum value resolves to whole-line records."""
+        label = self._label([_make_line("AB CD", height=0.4)], text_chunk_mode="glyph")
+        rendered = render_label_to_plt(label)
+        assert len(rendered.text_chunks) == 1
+        assert rendered.text_chunks[0].word_index is None

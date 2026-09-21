@@ -227,6 +227,7 @@ class TestGenerateSubcommand:
             no_plots = True
             default_plots = False
             tools = Path("tools.json")
+            fast_mode = False
 
         assert run(MockArgs()) == 0
 
@@ -331,6 +332,7 @@ class TestCLIIntegration:
             no_plots = True
             default_plots = False
             tools = Path("tools.json")
+            fast_mode = False
 
         result = run(MockArgs())
         assert result == 0
@@ -379,6 +381,7 @@ class TestCLIIntegration:
             no_plots = True
             default_plots = False
             tools = Path("tools.json")
+            fast_mode = False
 
         assert run(MockArgs()) == 0
 
@@ -422,6 +425,7 @@ class TestCLIIntegration:
             no_plots = True
             default_plots = False
             tools = Path("tools.json")
+            fast_mode = False
 
         assert run(MockArgs()) == 1
         captured = capsys.readouterr()
@@ -944,6 +948,7 @@ class TestGenerateRun:
         no_plots: bool = True,
         default_plots: bool = False,
         tools: Optional[Path] = None,
+        fast_mode: bool = False,
     ) -> argparse.Namespace:
         """Build an argparse.Namespace matching generate's expected attributes.
 
@@ -955,6 +960,7 @@ class TestGenerateRun:
             no_plots: Value for --no-plots.
             default_plots: Value for --default-plots.
             tools: Value for --tools (None selects the tools.json default).
+            fast_mode: Value for --fast-mode.
 
         Returns:
             Namespace consumable by generate.run().
@@ -966,6 +972,7 @@ class TestGenerateRun:
             no_plots=no_plots,
             default_plots=default_plots,
             tools=tools if tools is not None else Path("tools.json"),
+            fast_mode=fast_mode,
         )
 
     @staticmethod

@@ -15,13 +15,17 @@ import math
 import re
 import tempfile
 from dataclasses import dataclass, replace
+from enum import Enum
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 import vpype as vp
 
-from plt_optimizer.generate.ftext_renderer import render_text_line_ftext
+from plt_optimizer.generate.ftext_renderer import (
+    render_text_line_ftext,
+    render_text_line_ftext_with_words,
+)
 from plt_optimizer.generate.geometry import CollisionResult, circle_aabb_gap
 from plt_optimizer.generate.resolution import (
     ResolvedLabel,
@@ -47,6 +51,49 @@ _COMPRESSION_RESOLVE_STEPS: int = 16
 # A rendered text line's collision-relevant record: ``(line_index,
 # line_text, (x_min, y_min, x_max, y_max))`` in label-local coordinates.
 _LineEntry = Tuple[int, str, Tuple[float, float, float, float]]
+
+
+class TextChunkMode(str, Enum):
+    """Granularity at which rendered text becomes an optimization node.
+
+    Attributes:
+        LINE: One chunk per rendered text line (default). Fewer optimizer
+            nodes; the whole line's strokes travel together.
+        WORD: One chunk per whitespace-delimited word. Exact stroke
+            membership per word and tighter rapid-travel routing.
+    """
+
+    LINE = "line"
+    WORD = "word"
+
+
+@dataclass(frozen=True)
+class TextChunkRecord:
+    """One optimizable chunk of rendered text, in label-local coordinates.
+
+    A chunk is a whole text line (``word_index`` is ``None``) or a single
+    whitespace-delimited word within a line. Records carry the chunk's exact
+    stroke geometry so the plate-space optimizer can build one routing node
+    per chunk without re-parsing emitted HPGL or classifying geometry.
+
+    Attributes:
+        line_index: Index of the chunk's text line in ``ResolvedLabel.content``.
+        word_index: Index of the word within the line's whitespace split, or
+            ``None`` for a whole-line chunk.
+        word_text: The word's text (empty string for whole-line chunks).
+        pen: HPGL pen number the chunk is emitted on (its cutter's pen).
+        contours: Vertex arrays of the chunk's strokes, label-local inches
+            with ``+y`` up (pre-export frame; transformed to the device
+            frame by the plate-space export pipeline).
+        bounds: ``(x_min, y_min, x_max, y_max)`` of :attr:`contours`.
+    """
+
+    line_index: int
+    word_index: Optional[int]
+    word_text: str
+    pen: int
+    contours: Tuple[np.ndarray, ...]
+    bounds: Tuple[float, float, float, float]
 
 
 class LabelRenderError(Exception):
@@ -88,6 +135,12 @@ class RenderedLabel:
             the jobspec must be revised, so the job-level gate
             :func:`assert_no_collisions` aborts on this flag rather than
             :attr:`has_collisions`.
+        text_chunks: Per-chunk rendered text geometry (line- or word-level,
+            per the label's chunk mode) in label-local inches with ``+y`` up.
+            Consumed by the plate-space optimizer, which transforms these
+            into device coordinates and builds one routing node per chunk
+            (skipping the parser/profiler entirely). Empty for labels with no
+            rendered text.
     """
 
     source_label: ResolvedLabel
@@ -100,6 +153,7 @@ class RenderedLabel:
     height: float
     has_collisions: bool = False
     collision_detected: bool = False
+    text_chunks: Tuple[TextChunkRecord, ...] = ()
 
 
 def _collision_threshold(label: ResolvedLabel, line_index: int) -> float:
@@ -542,6 +596,25 @@ def render_label_to_plt(
     return replace(rendered, has_collisions=True, collision_detected=True)
 
 
+def _chunk_mode_of(label: ResolvedLabel) -> TextChunkMode:
+    """Resolve the label's text chunk mode, tolerating unknown values.
+
+    Args:
+        label: The resolved label carrying ``text_chunk_mode`` (a
+            :class:`~plt_optimizer.generate.schema.TextChunkMode` value or
+            its string form).
+
+    Returns:
+        The matching :class:`TextChunkMode`; unknown values fall back to
+        ``LINE`` (the backward-compatible default).
+    """
+    raw = getattr(label, "text_chunk_mode", None) or TextChunkMode.LINE.value
+    try:
+        return TextChunkMode(str(raw))
+    except ValueError:  # pragma: no cover - schema validates the enum
+        return TextChunkMode.LINE
+
+
 def _render_label_once(
     label: ResolvedLabel,
     pen_map: Optional[dict[float, int]] = None,
@@ -564,7 +637,9 @@ def _render_label_once(
 
     # Render text layers, one vpype layer per cutter pen (SP1 only when no
     # pen_map is supplied, preserving the historical single-pen output).
-    text_pens, line_entries = _render_text_lines_by_pen(label, pen_map)
+    text_pens, line_entries, chunk_records = _render_text_lines_by_pen(
+        label, pen_map, chunk_mode=_chunk_mode_of(label)
+    )
     for pen_number, text_lc in sorted(text_pens.items()):
         if not text_lc.is_empty():
             doc.add(text_lc, pen_number)
@@ -606,6 +681,7 @@ def _render_label_once(
             y_max=y_max,
             width=x_max - x_min,
             height=y_max - y_min,
+            text_chunks=tuple(chunk_records),
         )
         return rendered, line_entries
     finally:
@@ -1218,7 +1294,8 @@ def _apply_collision_compress(line_lc: vp.LineCollection, scale: float) -> vp.Li
 
 def _render_positioned_lines(
     label: ResolvedLabel,
-) -> List[Tuple[int, vp.LineCollection, _LineEntry]]:
+    chunk_mode: TextChunkMode = TextChunkMode.LINE,
+) -> List[Tuple[int, vp.LineCollection, _LineEntry, Optional[List[Tuple[str, List[int]]]]]]:
     """Render and position every text line of a label (shared core).
 
     NOTE: The absolute vertical anchor is irrelevant because the export
@@ -1248,15 +1325,21 @@ def _render_positioned_lines(
 
     Args:
         label: The resolved label whose ``content`` should be rendered.
+        chunk_mode: When ``WORD``, each line is additionally partitioned into
+            whitespace-delimited word groups (contour indices into the
+            rendered line, exact by construction). ``LINE`` (the default)
+            reports no word groups.
 
     Returns:
-        One ``(line_index, positioned_lc, entry)`` tuple per renderable
-        line, in content order, where ``positioned_lc`` is the positioned
-        LineCollection and ``entry`` is its
-        ``(line_index, line_text, bounds)`` record in label-local
-        coordinates (pre-export anchor, block centered around y=0). The
-        export pipeline vertically centers the block at ``height / 2``;
-        collision detection applies that shift itself.
+        One ``(line_index, positioned_lc, entry, word_groups)`` tuple per
+        renderable line, in content order, where ``positioned_lc`` is the
+        positioned LineCollection, ``entry`` is its ``(line_index,
+        line_text, bounds)`` record in label-local coordinates (pre-export
+        anchor, block centered around y=0), and ``word_groups`` is ``None``
+        in line mode or a list of ``(word_text, contour_indices)`` pairs
+        indexing ``positioned_lc`` contours in word order. The export
+        pipeline vertically centers the block at ``height / 2``; collision
+        detection applies that shift itself.
     """
     if not label.content:
         return []
@@ -1269,16 +1352,36 @@ def _render_positioned_lines(
     # unrenderable lines don't misalign spacing between real lines. The
     # original ``content`` index is preserved so collision reports can name
     # the offending line even when earlier lines were unrenderable.
-    rendered_lines: list[Tuple[int, vp.LineCollection, float, float, float, str]] = []
+    rendered_lines: list[
+        Tuple[
+            int,
+            vp.LineCollection,
+            float,
+            float,
+            float,
+            str,
+            Optional[List[Tuple[str, List[int]]]],
+        ]
+    ] = []
     total_rendered_height = 0.0
 
     for line_index, line in enumerate(label.content):
         # Render at the toolpath_text_height (cutter-compensated) using the
         # single-line TTF font. ftext returns upright glyphs with baseline at 0.
-        filtered_lc = render_text_line_ftext(
-            line.text,
-            target_height_inches=line.toolpath_text_height,
-        )
+        word_groups: Optional[List[Tuple[str, List[int]]]] = None
+        if chunk_mode is TextChunkMode.WORD:
+            filtered_lc, groups = render_text_line_ftext_with_words(
+                line.text,
+                target_height_inches=line.toolpath_text_height,
+            )
+            # An empty group list means grouping was unavailable for this
+            # line; fall back to whole-line chunking for it.
+            word_groups = groups or None
+        else:
+            filtered_lc = render_text_line_ftext(
+                line.text,
+                target_height_inches=line.toolpath_text_height,
+            )
 
         if filtered_lc.is_empty():
             continue
@@ -1306,6 +1409,7 @@ def _render_positioned_lines(
                 line.line_spacing,
                 line.max_h_compress,
                 line.text_h_alignment,
+                word_groups,
             )
         )
         total_rendered_height += rendered_height
@@ -1317,11 +1421,11 @@ def _render_positioned_lines(
     # precedence: if the measured block (line heights + requested spacing)
     # overflows the inner area, shrink the spacing so margins win.
     spacings = [
-        line_spacing for _idx, _lc, _height, line_spacing, _mhc, _align in rendered_lines[:-1]
+        line_spacing for _idx, _lc, _height, line_spacing, _mhc, _align, _wg in rendered_lines[:-1]
     ]
     available_height = label.height - (2 * margin)
     adjusted_spacings = fit_line_spacing_to_margins(
-        [height for _idx, _lc, height, _spacing, _mhc, _align in rendered_lines],
+        [height for _idx, _lc, height, _spacing, _mhc, _align, _wg in rendered_lines],
         spacings,
         available_height,
     )
@@ -1335,7 +1439,7 @@ def _render_positioned_lines(
             margin,
         )
     total_rendered_height = sum(
-        height for _idx, _lc, height, _spacing, _mhc, _align in rendered_lines
+        height for _idx, _lc, height, _spacing, _mhc, _align, _wg in rendered_lines
     ) + sum(adjusted_spacings)
 
     # Anchor the block so its vertical center sits at y = total / 2. The
@@ -1344,7 +1448,9 @@ def _render_positioned_lines(
     current_y = total_rendered_height / 2.0
 
     # Second pass: position each line, stacked top-to-bottom (+y up).
-    positioned: List[Tuple[int, vp.LineCollection, _LineEntry]] = []
+    positioned: List[
+        Tuple[int, vp.LineCollection, _LineEntry, Optional[List[Tuple[str, List[int]]]]]
+    ] = []
     for i, (
         line_index,
         filtered_lc,
@@ -1352,6 +1458,7 @@ def _render_positioned_lines(
         _line_spacing,
         max_h_compress,
         text_h_alignment,
+        word_groups,
     ) in enumerate(rendered_lines):
         bounds = filtered_lc.bounds()
         if bounds is None:  # pragma: no cover - measured in first pass
@@ -1392,6 +1499,7 @@ def _render_positioned_lines(
                     line_index,
                     filtered_lc,
                     (line_index, label.content[line_index].text, positioned_bounds),
+                    word_groups,
                 )
             )
 
@@ -1426,7 +1534,7 @@ def _render_text_local_with_bounds(
     """
     text_lc = vp.LineCollection()
     line_entries: List[_LineEntry] = []
-    for _line_index, positioned_lc, entry in _render_positioned_lines(label):
+    for _line_index, positioned_lc, entry, _wg in _render_positioned_lines(label):
         text_lc.extend(positioned_lc)
         line_entries.append(entry)
     return text_lc, line_entries
@@ -1435,7 +1543,8 @@ def _render_text_local_with_bounds(
 def _render_text_lines_by_pen(
     label: ResolvedLabel,
     pen_map: Optional[dict[float, int]] = None,
-) -> Tuple[dict[int, vp.LineCollection], List[_LineEntry]]:
+    chunk_mode: TextChunkMode = TextChunkMode.LINE,
+) -> Tuple[dict[int, vp.LineCollection], List[_LineEntry], List[TextChunkRecord]]:
     """Render text lines grouped onto per-cutter pen layers.
 
     Each positioned line's LineCollection is appended to the vpype layer
@@ -1448,23 +1557,81 @@ def _render_text_lines_by_pen(
     Args:
         label: The resolved label whose ``content`` should be rendered.
         pen_map: Optional mapping of cutter diameter to pen number.
+        chunk_mode: Granularity of the returned chunk records (see
+            :func:`_render_positioned_lines`).
 
     Returns:
-        Tuple of ``(pens, line_entries)`` where ``pens`` maps pen number
-        to the LineCollection for that pen (only non-empty pens included),
-        and ``line_entries`` is the same per-line bounds record list
-        returned by :func:`_render_text_local_with_bounds`.
+        Tuple of ``(pens, line_entries, chunk_records)`` where ``pens`` maps
+        pen number to the LineCollection for that pen (only non-empty pens
+        included), ``line_entries`` is the same per-line bounds record list
+        returned by :func:`_render_text_local_with_bounds`, and
+        ``chunk_records`` holds one :class:`TextChunkRecord` per chunk (per
+        line in ``LINE`` mode; per word plus any ungrouped line in ``WORD``
+        mode) in label-local coordinates for plate-space optimization.
     """
     pens: dict[int, vp.LineCollection] = {}
     line_entries: List[_LineEntry] = []
-    for line_index, positioned_lc, entry in _render_positioned_lines(label):
+    chunk_records: List[TextChunkRecord] = []
+    for line_index, positioned_lc, entry, word_groups in _render_positioned_lines(
+        label, chunk_mode=chunk_mode
+    ):
         pen = LAYER_TEXT
         if pen_map is not None and 0 <= line_index < len(label.content):
             cutter = label.content[line_index].cutter_diameter
             pen = pen_map.get(cutter, LAYER_TEXT)
         pens.setdefault(pen, vp.LineCollection()).extend(positioned_lc)
         line_entries.append(entry)
-    return pens, line_entries
+
+        contours = tuple(np.asarray(line) for line in positioned_lc)
+        if word_groups is not None:
+            for word_index, (word_text, indices) in enumerate(word_groups):
+                if not indices:
+                    continue  # blank segment: no strokes to route
+                word_contours = tuple(contours[i] for i in indices)
+                chunk_records.append(
+                    TextChunkRecord(
+                        line_index=line_index,
+                        word_index=word_index,
+                        word_text=word_text,
+                        pen=pen,
+                        contours=word_contours,
+                        bounds=_contours_bounds(word_contours),
+                    )
+                )
+        else:
+            chunk_records.append(
+                TextChunkRecord(
+                    line_index=line_index,
+                    word_index=None,
+                    word_text="",
+                    pen=pen,
+                    contours=contours,
+                    bounds=entry[2],
+                )
+            )
+    return pens, line_entries, chunk_records
+
+
+def _contours_bounds(contours: Sequence[np.ndarray]) -> Tuple[float, float, float, float]:
+    """Return the ``(x_min, y_min, x_max, y_max)`` bounds of vertex arrays.
+
+    Args:
+        contours: Complex vertex arrays (one per contour).
+
+    Returns:
+        Bounds tuple in the contours' coordinate units. Degenerate/empty
+        input yields an all-zero tuple.
+    """
+    xs: List[float] = []
+    ys: List[float] = []
+    for contour in contours:
+        if len(contour) == 0:
+            continue
+        xs.extend(contour.real.tolist())
+        ys.extend(contour.imag.tolist())
+    if not xs or not ys:
+        return (0.0, 0.0, 0.0, 0.0)
+    return (min(xs), min(ys), max(xs), max(ys))
 
 
 def _render_boundary_local(label: ResolvedLabel) -> vp.LineCollection:

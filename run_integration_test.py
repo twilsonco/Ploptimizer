@@ -266,7 +266,7 @@ def phase_3_vectorization_and_export(
         provided_plates,
         output_dir=output_dir,
         job_id=job_id,
-        optimize=False,
+        optimize=True,
         plots=True,
         allow_rotation=allow_rotation,
     )
