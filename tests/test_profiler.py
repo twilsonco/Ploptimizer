@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from pathlib import Path
 
 import pytest
 
@@ -1729,57 +1730,61 @@ class TestPreviouslyUncoveredLines:
 class TestMultiArcDrillHoles:
     """Test recognition of multi-arc drill holes (verified perfect circles)."""
 
-    def test_five_arc_rosette_not_structural(self) -> None:
-        """Test the SFA3X611 5-arc rosette is NOT a verified circle.
+    def test_five_arc_best_fit_rosette_is_structural(self) -> None:
+        """Test the SFA3X611 5-arc best-fit drill hole verifies as a circle.
 
-        This pattern appears in SFA3X611sheet1.plt where special drill holes
-        are represented with 5 arcs that total approximately 360° but use a
-        DIFFERENT center per arc (angles = [67.866, 88.123, 90.938, 88.123,
-        22.826]). Under the compositional rule these are not perfect circles.
+        This pattern appears in SFA3X611sheet1.plt where drill holes are
+        emitted with 5 chained arcs totaling ~357.9° whose per-arc centers
+        wobble a few percent around one fitted circle (angles =
+        [67.866, 88.123, 90.938, 88.123, 22.826]). The fit-based verifier
+        accepts them; glyph outline loops (center scatter 60%+ of radius)
+        do not pass the same check.
         """
         profiler = Profiler()
 
-        arc1 = ArcSegment(
-            start=Coordinate(x=0.0, y=0.0),
-            end=Coordinate(x=10.0, y=0.0),
-            center=Coordinate(x=5.0, y=0.0),
-            sweep_angle=67.866,
-            is_cutting=True,
-        )
-        arc2 = ArcSegment(
-            start=Coordinate(x=10.0, y=0.0),
-            end=Coordinate(x=10.0, y=10.0),
-            center=Coordinate(x=10.0, y=5.0),
-            sweep_angle=88.123,
-            is_cutting=True,
-        )
-        arc3 = ArcSegment(
-            start=Coordinate(x=10.0, y=10.0),
-            end=Coordinate(x=0.0, y=10.0),
-            center=Coordinate(x=5.0, y=10.0),
-            sweep_angle=90.938,
-            is_cutting=True,
-        )
-        arc4 = ArcSegment(
-            start=Coordinate(x=0.0, y=10.0),
-            end=Coordinate(x=0.0, y=0.0),
-            center=Coordinate(x=0.0, y=5.0),
-            sweep_angle=88.123,
-            is_cutting=True,
-        )
-        arc5 = ArcSegment(
-            start=Coordinate(x=0.0, y=0.0),
-            end=Coordinate(x=5.0, y=5.0),
-            center=Coordinate(x=2.5, y=2.5),
-            sweep_angle=22.826,
-            is_cutting=True,
-        )
+        # Geometric fixture mirroring the measured real-file spreads:
+        # 5 chained arcs around one center (totaling 360.0°) with per-arc
+        # center jitter of ~4% of the radius (real file: center 4.1%,
+        # radius 2.7%), like the rosette hole at (254, 253) r~62.
+        ring = _circle_arcs(0.0, 0.0, 62.0, [67.866, 88.123, 90.938, 88.123, 24.95])
+        jittered = [
+            ArcSegment(
+                start=arc.start,
+                end=arc.end,
+                center=Coordinate(
+                    arc.center.x + (2.5 if i % 2 else -2.5),
+                    arc.center.y + (1.5 if i % 3 == 0 else -1.5),
+                ),
+                sweep_angle=arc.sweep_angle,
+                is_cutting=True,
+            )
+            for i, arc in enumerate(ring)
+        ]
 
-        path = StrokePath(pen_up_position=None, segments=(arc1, arc2, arc3, arc4, arc5))
+        path = StrokePath(pen_up_position=None, segments=tuple(jittered))
 
         result = profiler._is_structural_path(path)
-        # Sweeps total ~357.9° but centers differ per arc -> not a circle
-        assert result is False
+        # Sweeps total 360.0°; centers/radii wobble ~4% around the fitted
+        # circle -> within CIRCLE_FIT_REL_TOLERANCE -> verified circle.
+        assert result is True
+
+    def test_sfa3x611_example_classifies_structural(self) -> None:
+        """Pin SFA3X611sheet1.plt (mixed exact + best-fit holes) as structural.
+
+        The sheet holds 60 exact 4-arc holes plus 20 five-arc best-fit
+        rosette holes and straight score lines; every path is structural,
+        so the document must classify structural at the default 85% gate.
+        """
+        from plt_optimizer.core.parser import PLTParser
+
+        example_path = Path(__file__).parent.parent / "examples" / "SFA3X611sheet1.plt"
+        if not example_path.exists():
+            pytest.skip(f"Example file not found: {example_path}")
+
+        doc = PLTParser().parse_file(example_path)
+        result = Profiler().profile(doc)
+
+        assert result.is_structural is True
 
     def test_five_arc_verified_circle_is_structural(self) -> None:
         """Test 5 chained arcs sharing one center/radius and totaling ~360°."""

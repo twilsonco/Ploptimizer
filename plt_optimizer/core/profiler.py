@@ -5,12 +5,13 @@ extent, which is used by the Chunker to determine stroke grouping thresholds.
 The 95th percentile is used instead of maximum to avoid outlier sensitivity.
 
 It also classifies a document as *structural* using a compositional rule: a
-stroke path is structural when it consists exclusively of straight line segments
-and verified perfect circles (e.g. EngraveLab drill holes emitted as four
-consecutive 90-degree arcs sharing one center and radius). A document is
-structural when the fraction of structural paths exceeds ``structural_ratio``
-(default 85%). Text paths fail the perfect-circle verification: EngraveLab
-renders glyph curves as many tiny arcs with per-segment centers/radii, and
+stroke path is structural when it consists exclusively of straight line
+segments and verified circles (e.g. EngraveLab drill holes emitted as four
+consecutive 90-degree arcs, or as 5-arc best-fit rings whose per-arc centers
+wobble a few percent around one fitted circle). A document is structural when
+the fraction of structural paths exceeds ``structural_ratio`` (default 85%).
+Text paths fail the circle verification: EngraveLab renders glyph curves as
+many tiny arcs whose centers scatter far beyond the fit tolerance, and
 generated text is pure polylines with multi-segment glyph runs.
 """
 
@@ -31,12 +32,19 @@ from plt_optimizer.core.models import (
 from plt_optimizer.utils.logging import get_text_logger
 
 # Tolerance (plotter units) for verifying that a run of arcs chains into one
-# perfect circle. Covers the parser's 3-decimal Coordinate rounding plus the
-# +/-0.001 center jitter emitted by EngraveLab drill-hole arcs.
+# circle. Covers the parser's 3-decimal Coordinate rounding plus the +/-0.001
+# center jitter emitted by EngraveLab drill-hole arcs.
 CIRCLE_TOLERANCE = 5e-3
 
 # Angular tolerance (degrees) for accepting an arc group as a full revolution.
 CIRCLE_SWEEP_TOLERANCE_DEG = 5.0
+
+# Relative tolerance (fraction of the fitted radius) for accepting a run of
+# jittered best-fit arcs as one circle. EngraveLab emits drill holes both as
+# exact 4x90-degree arcs and as 5-arc best-fit rings whose per-arc centers
+# wobble a few percent around the true circle (measured <=5% on shipped
+# files); glyph outline loops deviate 20%+ and stay rejected.
+CIRCLE_FIT_REL_TOLERANCE = 0.10
 
 # Default document-level structural gate: a document is classified structural
 # when the fraction of structural paths strictly exceeds this ratio.
@@ -69,16 +77,23 @@ def _arc_runs(segments: Sequence[Segment]) -> List[List[ArcSegment]]:
 
 
 def _is_perfect_circle(run: Sequence[ArcSegment]) -> bool:
-    """Verify that a consecutive arc run forms one perfect circle.
+    """Verify that a consecutive arc run forms one circle.
 
-    A run is a perfect circle when:
+    A run is a verified circle when:
 
     1. The signed sweep angles sum to +/-360 degrees (within
        ``CIRCLE_SWEEP_TOLERANCE_DEG``), so retraced back-and-forth arcs
        (e.g. +180/-180) are rejected, and
-    2. for multi-arc runs, the arcs chain end-to-start, close back onto the
-       first arc's start, share a single center, and share one radius (all
-       within ``CIRCLE_TOLERANCE``).
+    2. for multi-arc runs, the arcs chain end-to-start and close back onto
+       the first arc's start (within ``CIRCLE_TOLERANCE``), and
+    3. the run *fits* one circle: every arc center lies within
+       ``CIRCLE_FIT_REL_TOLERANCE`` of the mean arc center and every
+       endpoint lies within that fraction of the fitted radius (mean
+       distance from the mean center to the endpoints). Exact rings (all
+       arcs sharing one center/radius) trivially pass; EngraveLab's
+       best-fit-arc drill holes pass with a few percent of jitter, while
+       glyph outline loops (centers scattered over ~60%+ of the radius)
+       do not.
 
     A single arc whose own sweep is a full revolution (e.g. an HPGL ``CI``
     circle parsed as one 360-degree arc) is a circle by definition.
@@ -100,8 +115,6 @@ def _is_perfect_circle(run: Sequence[ArcSegment]) -> bool:
         return True
 
     first = run[0]
-    if first.radius <= 0.0:
-        return False
 
     previous = first
     for arc in run[1:]:
@@ -118,12 +131,21 @@ def _is_perfect_circle(run: Sequence[ArcSegment]) -> bool:
     ):
         return False
 
-    for arc in run[1:]:
-        if not (
-            math.isclose(arc.center.x, first.center.x, abs_tol=CIRCLE_TOLERANCE)
-            and math.isclose(arc.center.y, first.center.y, abs_tol=CIRCLE_TOLERANCE)
-            and math.isclose(arc.radius, first.radius, abs_tol=CIRCLE_TOLERANCE)
-        ):
+    # Fit one circle to the run: mean arc center, mean endpoint radius.
+    center_x = sum(arc.center.x for arc in run) / len(run)
+    center_y = sum(arc.center.y for arc in run) / len(run)
+    endpoints = [arc.start for arc in run] + [arc.end for arc in run]
+    radii = [math.hypot(point.x - center_x, point.y - center_y) for point in endpoints]
+    fit_radius = sum(radii) / len(radii)
+    if fit_radius <= 0.0:
+        return False
+
+    tolerance = CIRCLE_FIT_REL_TOLERANCE * fit_radius
+    for arc in run:
+        if abs(arc.center.x - center_x) > tolerance or abs(arc.center.y - center_y) > tolerance:
+            return False
+    for radius in radii:
+        if abs(radius - fit_radius) > tolerance:
             return False
 
     return True
