@@ -278,7 +278,7 @@ def plot_plt_document(
             if seg.is_cutting:  # Cutting
                 if simple_mode:
                     color: Any = "black"
-                    linewidth = 0.5
+                    linewidth = 2.0
                     alpha = 0.3
                 else:
                     color_val = norm_distances[i]
