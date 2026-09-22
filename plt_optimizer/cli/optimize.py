@@ -29,8 +29,9 @@ from plt_optimizer.core.parser import PLTParser
 from plt_optimizer.core.pipeline import chunk_document, optimize_and_reassemble, preprocess_document
 from plt_optimizer.core.profiler import Profiler
 from plt_optimizer.core.reassembler import MetricsCalculator, Reassembler
+from plt_optimizer.core.stroke_simplifier import simplify_overlapping_strokes
 from plt_optimizer.core.writer import PLTWriter
-from plt_optimizer.utils.geometry import fracture_linear_paths, remove_redundant_strokes
+from plt_optimizer.utils.geometry import fracture_linear_paths
 from plt_optimizer.utils.logging import setup_logging
 
 
@@ -151,7 +152,7 @@ def run(args: argparse.Namespace) -> int:
             doc,
             is_structural=profile_result.is_structural,
             fracture_factory=fracture_linear_paths,
-            dedupe_factory=remove_redundant_strokes,
+            dedupe_factory=simplify_overlapping_strokes,
             logger=text_logger_obj,
             log_prefix=f"[{job_id}]",
         )

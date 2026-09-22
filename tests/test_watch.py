@@ -1689,7 +1689,7 @@ class TestStructuralVsTextPipeline:
                     )
                     MockMetricsCalc.return_value = mock_metrics_calc
 
-                    # Patch fracture_linear_paths and remove_redundant_strokes
+                    # Patch fracture_linear_paths and simplify_overlapping_strokes
                     with patch(
                         'plt_optimizer.cli.watch.fracture_linear_paths'
                     ) as mock_fracture:
@@ -1697,7 +1697,7 @@ class TestStructuralVsTextPipeline:
                         mock_fracture.return_value = mock_fractured_doc
 
                         with patch(
-                            'plt_optimizer.cli.watch.remove_redundant_strokes'
+                            'plt_optimizer.cli.watch.simplify_overlapping_strokes'
                         ) as mock_remove:
                             mock_remove.return_value = mock_fractured_doc
 
@@ -1767,7 +1767,7 @@ class TestStructuralVsTextPipeline:
                         'plt_optimizer.cli.watch.fracture_linear_paths'
                     ) as mock_fracture:
                         with patch(
-                            'plt_optimizer.cli.watch.remove_redundant_strokes'
+                            'plt_optimizer.cli.watch.simplify_overlapping_strokes'
                         ) as mock_remove:
                             with patch('plt_optimizer.cli.watch.Chunker') as MockChunker:
                                 MockChunker.return_value.chunk.return_value = [

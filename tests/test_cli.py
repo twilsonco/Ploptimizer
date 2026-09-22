@@ -1371,3 +1371,49 @@ class TestHelpDisplay:
         captured = capsys.readouterr()
         # Should show watch-specific options
         assert "--watch-dir" in captured.out
+
+
+class TestNoMatplotlibImportPath:
+    """Python 3.8 / Windows 7 guard (AGENTS.md section 7).
+
+    The watch/optimize CLI path must stay importable without matplotlib.
+    These tests run in a subprocess with a ``sys.meta_path`` blocker that
+    raises on any matplotlib import, simulating the Win7 environment where
+    matplotlib cannot be installed.
+    """
+
+    _BLOCKER_CODE = """
+import sys
+
+class MatplotlibBlocker:
+    def find_module(self, fullname, path=None):
+        if "matplotlib" in fullname:
+            raise ImportError("Simulated unavailability")
+        return None
+
+sys.meta_path.insert(0, MatplotlibBlocker())
+
+import main  # noqa: F401
+sys.argv = ["plt-optimizer", "watch", "--help"]
+try:
+    main.main()
+except SystemExit as exc:
+    sys.exit(exc.code if exc.code is not None else 0)
+"""
+
+    def test_import_main_and_watch_help_without_matplotlib(self) -> None:
+        """``import main`` + ``watch --help`` succeed with matplotlib blocked."""
+        import subprocess
+
+        project_root = str(Path(__file__).resolve().parent.parent)
+        result = subprocess.run(
+            [sys.executable, "-c", self._BLOCKER_CODE],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, (
+            f"watch path pulled in matplotlib or failed: rc={result.returncode} "
+            f"stderr={result.stderr}"
+        )
+        assert "--watch-dir" in result.stdout

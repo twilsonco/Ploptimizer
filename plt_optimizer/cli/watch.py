@@ -63,8 +63,9 @@ from plt_optimizer.core.pipeline import (
 )
 from plt_optimizer.core.profiler import DEFAULT_STRUCTURAL_RATIO, Profiler
 from plt_optimizer.core.reassembler import MetricsCalculator, Reassembler
+from plt_optimizer.core.stroke_simplifier import simplify_overlapping_strokes
 from plt_optimizer.core.writer import PLTWriter
-from plt_optimizer.utils.geometry import fracture_linear_paths, remove_redundant_strokes
+from plt_optimizer.utils.geometry import fracture_linear_paths
 from plt_optimizer.utils.logging import CSVMetricsLogger, TextLogger
 
 # File extensions to watch for
@@ -444,7 +445,7 @@ class PLTFileHandler(FileSystemEventHandler):
                 doc,
                 is_structural=profile_result.is_structural,
                 fracture_factory=fracture_linear_paths,
-                dedupe_factory=remove_redundant_strokes,
+                dedupe_factory=simplify_overlapping_strokes,
                 logger=self._text_logger,
                 log_prefix=f"[{job_id}]",
             )

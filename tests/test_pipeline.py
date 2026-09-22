@@ -141,7 +141,7 @@ class TestPreprocessDocument:
             )
         combined = "\n".join(r.getMessage() for r in caplog.records)
         assert "[job2] Fractured structural document" in combined
-        assert "[job2] Removed redundant strokes from fractured document" in combined
+        assert "[job2] Simplified overlapping strokes" in combined
 
 
 class TestChunkDocument:

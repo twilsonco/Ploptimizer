@@ -1,0 +1,456 @@
+"""Tests for the symmetric interval-splitting stroke simplifier.
+
+Covers :mod:`plt_optimizer.core.stroke_simplifier`:
+
+* :func:`split_and_deduplicate_intervals` -- pure 1D interval algebra.
+* :func:`simplify_overlapping_strokes` -- document-level deduplication used
+  as the structural-pipeline ``dedupe_factory``.
+"""
+
+from __future__ import annotations
+
+from plt_optimizer.core.models import (
+    ArcSegment,
+    Coordinate,
+    FooterCommand,
+    HeaderCommand,
+    PLTDocument,
+    StrokePath,
+    StrokeSegment,
+)
+from plt_optimizer.core.stroke_simplifier import (
+    _axis_aligned_interval,
+    simplify_overlapping_strokes,
+    split_and_deduplicate_intervals,
+)
+
+
+def _h(y: float, x1: float, x2: float, cutting: bool = True) -> StrokeSegment:
+    """Horizontal cutting segment from (x1, y) to (x2, y)."""
+    return StrokeSegment(
+        start=Coordinate(x=x1, y=y),
+        end=Coordinate(x=x2, y=y),
+        is_cutting=cutting,
+    )
+
+
+def _v(x: float, y1: float, y2: float, cutting: bool = True) -> StrokeSegment:
+    """Vertical cutting segment from (x, y1) to (x, y2)."""
+    return StrokeSegment(
+        start=Coordinate(x=x, y=y1),
+        end=Coordinate(x=x, y=y2),
+        is_cutting=cutting,
+    )
+
+
+def _single_path_doc(*segments: StrokeSegment) -> PLTDocument:
+    """Document with one single-segment path per segment (post-fracture shape)."""
+    return PLTDocument(
+        header_commands=["IN;"],
+        stroke_paths=[StrokePath(pen_up_position=seg.start, segments=(seg,)) for seg in segments],
+        footer_commands=["SP;"],
+    )
+
+
+def _spans(doc: PLTDocument) -> set:
+    """Set of undirected (x1, y1, x2, y2) spans across all cutting segments."""
+    result = set()
+    for path in doc.stroke_paths:
+        for seg in path.segments:
+            if isinstance(seg, ArcSegment) or not seg.is_cutting:
+                continue
+            a = (round(seg.start.x, 5), round(seg.start.y, 5))
+            b = (round(seg.end.x, 5), round(seg.end.y, 5))
+            result.add((a, b) if a <= b else (b, a))
+    return result
+
+
+def _all_segments(doc: PLTDocument) -> list:
+    """Flat list of every segment in document order."""
+    return [seg for path in doc.stroke_paths for seg in path.segments]
+
+
+class TestSplitAndDeduplicateIntervals:
+    """Tests for the pure 1D splitter."""
+
+    def test_empty_input(self) -> None:
+        assert split_and_deduplicate_intervals([]) == []
+
+    def test_single_interval_unchanged(self) -> None:
+        result = split_and_deduplicate_intervals([(0.0, 10.0, 0)])
+        assert result == [(0.0, 10.0, 0)]
+
+    def test_disjoint_intervals_both_kept(self) -> None:
+        result = split_and_deduplicate_intervals([(0.0, 4.0, 0), (6.0, 10.0, 1)])
+        assert result == [(0.0, 4.0, 0), (6.0, 10.0, 1)]
+
+    def test_touching_endpoints_both_kept(self) -> None:
+        result = split_and_deduplicate_intervals([(0.0, 5.0, 0), (5.0, 10.0, 1)])
+        assert result == [(0.0, 5.0, 0), (5.0, 10.0, 1)]
+
+    def test_exact_duplicate_first_wins(self) -> None:
+        result = split_and_deduplicate_intervals([(0.0, 10.0, 0), (0.0, 10.0, 1)])
+        assert result == [(0.0, 10.0, 0)]
+
+    def test_brick_work_partial_overlap(self) -> None:
+        # The canonical staggered case: [0,10] + [4,14] -> [0,4], [4,10], [10,14].
+        result = split_and_deduplicate_intervals([(0.0, 10.0, 0), (4.0, 14.0, 1)])
+        assert result == [(0.0, 4.0, 0), (4.0, 10.0, 0), (10.0, 14.0, 1)]
+
+    def test_containment_splits_into_three(self) -> None:
+        # [0,10] + [2,5] -> [0,2], [2,5], [5,10]. The long interval is
+        # collected first, so it claims the shared middle piece.
+        result = split_and_deduplicate_intervals([(0.0, 10.0, 0), (2.0, 5.0, 1)])
+        assert result == [(0.0, 2.0, 0), (2.0, 5.0, 0), (5.0, 10.0, 0)]
+
+    def test_both_endpoints_inside_longer(self) -> None:
+        # [0,10] + [3,7]: the short interval loses both slices to the long one.
+        result = split_and_deduplicate_intervals([(0.0, 10.0, 0), (3.0, 7.0, 1)])
+        assert result == [(0.0, 3.0, 0), (3.0, 7.0, 0), (7.0, 10.0, 0)]
+
+    def test_zero_length_interval_dropped(self) -> None:
+        # The degenerate interval still contributes its break point (5.0),
+        # slicing the long interval; the zero-width piece itself is dropped.
+        result = split_and_deduplicate_intervals([(5.0, 5.0, 0), (0.0, 10.0, 1)])
+        assert result == [(0.0, 5.0, 1), (5.0, 10.0, 1)]
+
+    def test_sub_tolerance_sliver_dropped(self) -> None:
+        # With tol=0.01, the 0.005-wide sliver [9.995, 10] created by slicing
+        # falls below tolerance and is dropped from both claimants.
+        result = split_and_deduplicate_intervals(
+            [(0.0, 10.0, 0), (9.995, 20.0, 1)],
+            tol=0.01,
+        )
+        assert result == [(0.0, 9.995, 0), (10.0, 20.0, 1)]
+
+    def test_multi_interval_chain_splits_at_every_break(self) -> None:
+        # Three intervals with staggered ends split at all four interior breaks.
+        result = split_and_deduplicate_intervals([(0.0, 10.0, 0), (5.0, 15.0, 1), (12.0, 20.0, 2)])
+        assert result == [
+            (0.0, 5.0, 0),
+            (5.0, 10.0, 0),
+            (10.0, 12.0, 1),
+            (12.0, 15.0, 1),
+            (15.0, 20.0, 2),
+        ]
+
+    def test_deterministic_first_come_first_served(self) -> None:
+        # Swapping input order flips which payload wins the shared region.
+        forward = split_and_deduplicate_intervals([(0.0, 10.0, 0), (4.0, 14.0, 1)])
+        reverse = split_and_deduplicate_intervals([(4.0, 14.0, 1), (0.0, 10.0, 0)])
+        assert [p for _, _, p in forward] == [0, 0, 1]
+        assert [p for _, _, p in reverse] == [1, 1, 0]
+
+    def test_payload_carried_through(self) -> None:
+        result = split_and_deduplicate_intervals([(0.0, 10.0, 42)])
+        assert result[0][2] == 42
+
+
+class TestAxisAlignedInterval:
+    """Tests for the segment classification helper."""
+
+    def test_horizontal(self) -> None:
+        result = _axis_aligned_interval(_h(5.0, 0.0, 10.0), tol=1e-5)
+        assert result == ("H", 5.0, 0.0, 10.0)
+
+    def test_vertical(self) -> None:
+        result = _axis_aligned_interval(_v(3.0, 1.0, 9.0), tol=1e-5)
+        assert result == ("V", 3.0, 1.0, 9.0)
+
+    def test_diagonal_returns_none(self) -> None:
+        seg = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=10.0, y=10.0),
+            is_cutting=True,
+        )
+        assert _axis_aligned_interval(seg, tol=1e-5) is None
+
+    def test_degenerate_point_returns_none(self) -> None:
+        assert _axis_aligned_interval(_h(2.0, 4.0, 4.0), tol=1e-5) is None
+
+
+class TestSimplifyOverlappingStrokes:
+    """Document-level behaviour of the dedupe factory."""
+
+    def test_empty_document(self) -> None:
+        doc = PLTDocument(header_commands=[], stroke_paths=[], footer_commands=[])
+        result = simplify_overlapping_strokes(doc)
+        assert result.stroke_paths == []
+
+    def test_no_overlap_document_unchanged(self) -> None:
+        doc = _single_path_doc(_h(0.0, 0.0, 100.0), _h(50.0, 50.0, 150.0))
+        result = simplify_overlapping_strokes(doc)
+        assert len(result.stroke_paths) == 2
+        assert len(_all_segments(result)) == 2
+
+    def test_identical_duplicates_collapse(self) -> None:
+        doc = _single_path_doc(_h(0.0, 0.0, 100.0), _h(0.0, 0.0, 100.0))
+        result = simplify_overlapping_strokes(doc)
+        assert len(_all_segments(result)) == 1
+
+    def test_reversed_duplicate_collapses(self) -> None:
+        doc = _single_path_doc(_h(0.0, 0.0, 100.0), _h(0.0, 100.0, 0.0))
+        result = simplify_overlapping_strokes(doc)
+        assert len(_all_segments(result)) == 1
+
+    def test_brick_work_shared_region_split(self) -> None:
+        # Label A top edge X in [0,10] @ Y=5; label B bottom edge X in [4,14].
+        doc = _single_path_doc(_h(5.0, 0.0, 10.0), _h(5.0, 4.0, 14.0))
+        result = simplify_overlapping_strokes(doc)
+        assert _spans(result) == {
+            ((0.0, 5.0), (4.0, 5.0)),
+            ((4.0, 5.0), (10.0, 5.0)),
+            ((10.0, 5.0), (14.0, 5.0)),
+        }
+
+    def test_shared_rectangle_edges_grid(self) -> None:
+        # Two unit squares sharing edge x=1: 7 unique segments (8 - 1 shared).
+        left = [
+            _v(0.0, 0.0, 1.0),
+            _h(1.0, 0.0, 1.0),
+            _v(1.0, 1.0, 0.0),
+            _h(0.0, 1.0, 0.0),
+        ]
+        right = [
+            _v(1.0, 0.0, 1.0),
+            _h(1.0, 1.0, 2.0),
+            _v(2.0, 1.0, 0.0),
+            _h(0.0, 2.0, 1.0),
+        ]
+        doc = _single_path_doc(*(left + right))
+        result = simplify_overlapping_strokes(doc)
+        assert len(_all_segments(result)) == 7
+
+    def test_vertical_brick_work(self) -> None:
+        doc = _single_path_doc(_v(7.0, 0.0, 10.0), _v(7.0, 4.0, 14.0))
+        result = simplify_overlapping_strokes(doc)
+        assert _spans(result) == {
+            ((7.0, 0.0), (7.0, 4.0)),
+            ((7.0, 4.0), (7.0, 10.0)),
+            ((7.0, 10.0), (7.0, 14.0)),
+        }
+
+    def test_parallel_lines_never_merge(self) -> None:
+        # Same span, different supporting lines: both kept.
+        doc = _single_path_doc(_h(0.0, 0.0, 10.0), _h(1.0, 0.0, 10.0))
+        result = simplify_overlapping_strokes(doc)
+        assert len(_all_segments(result)) == 2
+
+    def test_rapid_segments_untouched(self) -> None:
+        doc = _single_path_doc(_h(0.0, 0.0, 10.0, cutting=False), _h(0.0, 0.0, 10.0))
+        result = simplify_overlapping_strokes(doc)
+        segs = _all_segments(result)
+        assert len(segs) == 2
+        assert segs[0].is_cutting is False
+        assert segs[1].is_cutting is True
+
+    def test_diagonal_segments_pass_through(self) -> None:
+        diag1 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=10.0, y=10.0),
+            is_cutting=True,
+        )
+        diag2 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=5.0, y=5.0),
+            is_cutting=True,
+        )
+        doc = _single_path_doc(diag1, diag2)
+        result = simplify_overlapping_strokes(doc)
+        assert len(_all_segments(result)) == 2
+
+    def test_arc_paths_pass_through_whole(self) -> None:
+        arc = ArcSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=10.0, y=10.0),
+            center=Coordinate(x=5.0, y=0.0),
+            sweep_angle=90.0,
+            is_cutting=True,
+        )
+        arc_path = StrokePath(pen_up_position=None, segments=(arc,))
+        doc = PLTDocument(
+            header_commands=[],
+            stroke_paths=[arc_path],
+            footer_commands=[],
+        )
+        result = simplify_overlapping_strokes(doc)
+        assert result.stroke_paths == [arc_path]
+
+    def test_arc_bearing_mixed_path_passes_through(self) -> None:
+        # A path mixing an arc with a line that duplicates a standalone line:
+        # the arc path is untouchable, so both survive.
+        arc = ArcSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=10.0, y=10.0),
+            center=Coordinate(x=5.0, y=0.0),
+            sweep_angle=90.0,
+            is_cutting=True,
+        )
+        line = _h(0.0, 0.0, 100.0)
+        mixed = StrokePath(pen_up_position=None, segments=(arc, line))
+        dup = _h(0.0, 0.0, 100.0)
+        doc = PLTDocument(
+            header_commands=[],
+            stroke_paths=[mixed, StrokePath(pen_up_position=dup.start, segments=(dup,))],
+            footer_commands=[],
+        )
+        result = simplify_overlapping_strokes(doc)
+        assert len(_all_segments(result)) == 3
+
+    def test_header_footer_preserved_as_objects(self) -> None:
+        header = HeaderCommand(instruction="IN")
+        footer = FooterCommand(instruction="SP")
+        doc = PLTDocument(
+            header_commands=[header],
+            stroke_paths=[StrokePath(pen_up_position=None, segments=(_h(0.0, 0.0, 1.0),))],
+            footer_commands=[footer],
+        )
+        result = simplify_overlapping_strokes(doc)
+        assert list(result.header_commands) == [header]
+        assert list(result.footer_commands) == [footer]
+
+    def test_fully_superseded_segment_removed(self) -> None:
+        # Short stroke fully inside a longer one: the short one vanishes and
+        # the long one survives, sliced at the short one's break points.
+        long_seg = _h(0.0, 0.0, 100.0)
+        short_seg = _h(0.0, 20.0, 30.0)
+        doc = _single_path_doc(long_seg, short_seg)
+        result = simplify_overlapping_strokes(doc)
+        assert len(result.stroke_paths) == 1
+        assert _spans(result) == {
+            ((0.0, 0.0), (20.0, 0.0)),
+            ((20.0, 0.0), (30.0, 0.0)),
+            ((30.0, 0.0), (100.0, 0.0)),
+        }
+
+    def test_multi_segment_path_splits_when_edge_superseded(self) -> None:
+        # One path holds two edges of a rectangle; the shared bottom edge is
+        # claimed by an earlier path -> this path splits into a lone top edge.
+        top = _h(10.0, 0.0, 10.0)
+        bottom = _h(0.0, 0.0, 10.0)
+        path = StrokePath(pen_up_position=Coordinate(x=0.0, y=10.0), segments=(top, bottom))
+        dup_bottom = _h(0.0, 0.0, 10.0)
+        doc = PLTDocument(
+            header_commands=[],
+            stroke_paths=[
+                # Winner collected first so `bottom` loses the shared edge.
+                StrokePath(pen_up_position=dup_bottom.start, segments=(dup_bottom,)),
+                path,
+            ],
+            footer_commands=[],
+        )
+        result = simplify_overlapping_strokes(doc)
+        assert len(result.stroke_paths) == 2
+        assert _spans(result) == {
+            ((0.0, 10.0), (10.0, 10.0)),
+            ((0.0, 0.0), (10.0, 0.0)),
+        }
+
+    def test_partial_replacement_keeps_chain_contiguous(self) -> None:
+        # A 2-segment path where the first segment wins two atomic pieces:
+        # both pieces stay in the same path, chain-connected.
+        long_seg = _h(0.0, 0.0, 10.0)
+        tail = _h(0.0, 10.0, 20.0)
+        path = StrokePath(pen_up_position=Coordinate(x=0.0, y=0.0), segments=(long_seg, tail))
+        overlap = _h(0.0, 4.0, 14.0)
+        doc = PLTDocument(
+            header_commands=[],
+            stroke_paths=[
+                path,
+                StrokePath(pen_up_position=overlap.start, segments=(overlap,)),
+            ],
+            footer_commands=[],
+        )
+        result = simplify_overlapping_strokes(doc)
+        # Expected spans: [0,4], [4,10] (from long_seg), [10,14], [14,20]
+        # (from tail); the overlap loses both of its slices.
+        assert _spans(result) == {
+            ((0.0, 0.0), (4.0, 0.0)),
+            ((4.0, 0.0), (10.0, 0.0)),
+            ((10.0, 0.0), (14.0, 0.0)),
+            ((14.0, 0.0), (20.0, 0.0)),
+        }
+        # All four pieces stay in the single source path, chain-connected and
+        # running low -> high like the originals (no spurious pen lifts).
+        assert len(result.stroke_paths) == 1
+        segs = result.stroke_paths[0].segments
+        assert len(segs) == 4
+        for previous, following in zip(segs, segs[1:]):
+            assert previous.end == following.start
+        assert all(seg.start.x < seg.end.x for seg in segs)
+
+    def test_reversed_winner_keeps_original_direction(self) -> None:
+        # Winner ran high -> low; won pieces must also run high -> low.
+        rev = _h(0.0, 10.0, 0.0)
+        overlap = _h(0.0, 4.0, -4.0)
+        doc = _single_path_doc(rev, overlap)
+        result = simplify_overlapping_strokes(doc)
+        winners = [
+            seg
+            for seg in _all_segments(result)
+            if round(seg.start.x, 5) == 10.0 or round(seg.start.x, 5) == 4.0
+        ]
+        assert winners
+        for seg in winners:
+            assert seg.start.x > seg.end.x
+
+    def test_pen_up_reanchored_when_first_segment_removed(self) -> None:
+        # Path whose first segment is fully superseded: the split-off path's
+        # pen_up_position must re-anchor to the first surviving segment.
+        dup1 = _h(0.0, 0.0, 10.0)
+        keeper = _h(0.0, 30.0, 40.0)
+        path = StrokePath(pen_up_position=Coordinate(x=0.0, y=0.0), segments=(dup1, keeper))
+        master = _h(0.0, 0.0, 10.0)
+        doc = PLTDocument(
+            header_commands=[],
+            stroke_paths=[
+                # Winner collected first so `dup1` loses the shared span.
+                StrokePath(pen_up_position=master.start, segments=(master,)),
+                path,
+            ],
+            footer_commands=[],
+        )
+        result = simplify_overlapping_strokes(doc)
+        keeper_paths = [
+            p for p in result.stroke_paths if p.segments and round(p.segments[0].start.x, 5) == 30.0
+        ]
+        assert len(keeper_paths) == 1
+        assert keeper_paths[0].pen_up_position == Coordinate(x=30.0, y=0.0)
+
+    def test_path_fully_superseded_dropped(self) -> None:
+        # Both segments of a path lose everything -> path disappears.
+        s1 = _h(0.0, 0.0, 10.0)
+        s2 = _v(0.0, 0.0, 10.0)
+        path = StrokePath(pen_up_position=Coordinate(x=0.0, y=0.0), segments=(s1, s2))
+        doc = _single_path_doc(_h(0.0, 0.0, 10.0), _v(0.0, 0.0, 10.0))
+        doc.stroke_paths.append(path)  # Collected last: loses both edges.
+        result = simplify_overlapping_strokes(doc)
+        assert len(result.stroke_paths) == 2
+        assert len(_all_segments(result)) == 2
+
+    def test_empty_path_passthrough(self) -> None:
+        empty = StrokePath(pen_up_position=None, segments=())
+        doc = PLTDocument(
+            header_commands=[],
+            stroke_paths=[empty],
+            footer_commands=[],
+        )
+        result = simplify_overlapping_strokes(doc)
+        assert result.stroke_paths == []
+
+    def test_zero_length_segment_kept_in_place(self) -> None:
+        point = _h(3.0, 5.0, 5.0)
+        doc = _single_path_doc(point)
+        result = simplify_overlapping_strokes(doc)
+        assert len(_all_segments(result)) == 1
+
+    def test_tolerance_scales_with_argument(self) -> None:
+        # A 0.01 "slope" counts as horizontal with tol=0.05.
+        seg = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=10.0, y=0.004),
+            is_cutting=True,
+        )
+        doc = _single_path_doc(seg, _h(0.0, 4.0, 14.0))
+        result = simplify_overlapping_strokes(doc, tol=0.05)
+        assert len(_all_segments(result)) == 3

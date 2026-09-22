@@ -67,12 +67,11 @@ from plt_optimizer.core.optimizer import (
     SimulatedAnnealingStrategy,
 )
 from plt_optimizer.core.parser import ParseError, PLTParser
-from plt_optimizer.core.pipeline import chunk_document
+from plt_optimizer.core.pipeline import chunk_document, preprocess_document
 from plt_optimizer.core.profiler import Profiler
 from plt_optimizer.core.reassembler import Reassembler
 from plt_optimizer.core.writer import PLTWriter
 from plt_optimizer.diagnostics.plotter import plot_plt_document
-from plt_optimizer.utils.geometry import remove_redundant_strokes
 from plt_optimizer.utils.logging import get_metrics_logger, get_text_logger
 
 # Registry of strategies to benchmark, in execution order.
@@ -479,10 +478,16 @@ def process_file(
     )
 
     try:
-        simplified_doc = remove_redundant_strokes(original_doc)
-
+        # Mirror production preprocessing: classify first, then fracture +
+        # split overlapping strokes for structural documents only (text
+        # documents pass through untouched to preserve glyph paths).
         profiler = Profiler()
-        profile_result = profiler.profile(simplified_doc)
+        profile_result = profiler.profile(original_doc)
+        simplified_doc = preprocess_document(
+            original_doc,
+            is_structural=profile_result.is_structural,
+            logger=text_logger,
+        )
 
         blocks = chunk_document(simplified_doc, profile_result, chunker_factory=Chunker)
         blocks_created = len(blocks)

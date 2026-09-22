@@ -40,7 +40,8 @@ from plt_optimizer.core.optimizer import (
 )
 from plt_optimizer.core.profiler import ProfileResult
 from plt_optimizer.core.reassembler import Reassembler
-from plt_optimizer.utils.geometry import fracture_linear_paths, remove_redundant_strokes
+from plt_optimizer.core.stroke_simplifier import simplify_overlapping_strokes
+from plt_optimizer.utils.geometry import fracture_linear_paths
 from plt_optimizer.utils.logging import TextLogger
 
 # Production chunking threshold used by every entry point (optimize, watch,
@@ -100,7 +101,7 @@ def preprocess_document(
             :func:`plt_optimizer.utils.geometry.fracture_linear_paths`
             (test seam; defaults to the production implementation).
         dedupe_factory: Optional replacement for
-            :func:`plt_optimizer.utils.geometry.remove_redundant_strokes`
+            :func:`plt_optimizer.core.stroke_simplifier.simplify_overlapping_strokes`
             (test seam; defaults to the production implementation).
         logger: Optional text logger for DEBUG diagnostics.
         log_prefix: Prefix prepended to log messages (e.g. ``"[job123]"``).
@@ -111,11 +112,12 @@ def preprocess_document(
     """
     prefix = f"{log_prefix} " if log_prefix else ""
     fracture = fracture_factory or fracture_linear_paths
-    dedupe = dedupe_factory or remove_redundant_strokes
+    dedupe = dedupe_factory or simplify_overlapping_strokes
 
     if is_structural:
         # STRUCTURAL PIPELINE: fracture linear paths into independent
-        # segments, then cull overlapping coincident lines.
+        # segments, then split overlapping collinear strokes at each other's
+        # endpoints and cull the duplicated atomic pieces.
         fractured = fracture(document)
         if logger is not None:
             logger.debug(
@@ -123,7 +125,10 @@ def preprocess_document(
             )
         deduplicated = dedupe(fractured, tol=_REDUNDANCY_TOL)
         if logger is not None:
-            logger.debug(f"{prefix}Removed redundant strokes from fractured document")
+            logger.debug(
+                f"{prefix}Simplified overlapping strokes "
+                f"({fractured.total_segments} -> {deduplicated.total_segments} segments)"
+            )
         return deduplicated
 
     # TEXT PIPELINE: skip stroke simplification to preserve contiguous paths.
