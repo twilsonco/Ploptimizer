@@ -76,6 +76,7 @@ class _Candidate(NamedTuple):
 def split_and_deduplicate_intervals(
     intervals: Sequence[Tuple[float, float, int]],
     tol: float = 1e-5,
+    extra_breaks: Optional[Set[float]] = None,
 ) -> List[Tuple[float, float, int]]:
     """Split 1D intervals on one line into atomic, disjoint, non-duplicated pieces.
 
@@ -95,6 +96,13 @@ def split_and_deduplicate_intervals(
             axis with ``start <= end``.
         tol: Atomic sub-intervals shorter than ``tol`` are dropped as
             floating-point slivers (default 1e-5).
+        extra_breaks: Optional additional break-point coordinates (already
+            rounded to :data:`_BREAK_POINT_PRECISION`) merged into the break
+            set before slicing. Used to inject *cross-axis* junction
+            coordinates -- the positions where perpendicular strokes touch or
+            cross this line -- so a long stroke is fractured at every T-junction
+            and intersection even when no collinear endpoint lands there.
+            Break points outside every interval are naturally ignored.
 
     Returns:
         List of ``(start, end, payload)`` atomic sub-intervals in deterministic
@@ -104,8 +112,11 @@ def split_and_deduplicate_intervals(
     if not intervals:
         return []
 
-    # Step 1: collect every unique endpoint coordinate (break points).
+    # Step 1: collect every unique endpoint coordinate (break points), plus any
+    # caller-supplied cross-axis junction coordinates.
     break_points: Set[float] = set()
+    if extra_breaks:
+        break_points.update(extra_breaks)
     for start, end, _payload in intervals:
         break_points.add(round(start, _BREAK_POINT_PRECISION))
         break_points.add(round(end, _BREAK_POINT_PRECISION))
@@ -227,12 +238,23 @@ def simplify_overlapping_strokes(
       segment; empty paths are filtered out.
     * Header/footer command lists are copied verbatim.
 
-    Complexity is O(N log N) per supporting line (sort + linear slicing),
-    a strict improvement over the previous O(N²) pairwise scan.
+    Cutting segments are additionally fractured at *cross-axis junctions*:
+    wherever a perpendicular cutting segment touches or crosses a supporting
+    line, its coordinate is injected as an extra break point, so a long
+    stroke never passes through a T-junction or crossing unbroken. This
+    aligns shared-region boundaries in the interval algebra (catching
+    duplicates whose collinear endpoints differ) and hands the TSP router
+    junction-aligned, highly modular segments.
+
+    Complexity is O(N log N) per supporting line (sort + linear slicing)
+    plus an O(H x V) sweep over perpendicular candidates to collect the
+    cross-axis junctions, a strict improvement over the previous O(N²)
+    pairwise scan.
 
     Args:
         doc: The input PLTDocument.
-        tol: Tolerance for axis alignment and sliver removal (default 1e-5).
+        tol: Tolerance for axis alignment, sliver removal, and cross-axis
+            junction detection (default 1e-5).
 
     Returns:
         New PLTDocument with atomic, non-duplicated cutting segments.
@@ -267,10 +289,27 @@ def simplify_overlapping_strokes(
             candidate_of[(path_idx, seg_idx)] = cand_idx
             groups.setdefault((orient, round(fixed, _BREAK_POINT_PRECISION)), []).append(cand_idx)
 
+    # Perpendicular candidates by orientation, for cross-axis junction checks.
+    horizontal_cands: List[_Candidate] = [cand for cand in candidates if cand.orient == _HORIZONTAL]
+    vertical_cands: List[_Candidate] = [cand for cand in candidates if cand.orient == _VERTICAL]
+
     # Split + deduplicate per supporting line; collect won segments per
     # candidate (empty list == the candidate was fully superseded).
     won: Dict[int, List[Segment]] = {idx: [] for idx in range(len(candidates))}
-    for cand_indices in groups.values():
+    for (orient, fixed), cand_indices in groups.items():
+        # Inject the crossing coordinates of every perpendicular segment that
+        # touches or crosses this supporting line, so strokes fracture at
+        # T-junctions and crossings even without a collinear endpoint there.
+        extra_breaks: Set[float] = set()
+        if orient == _HORIZONTAL:
+            for vc in vertical_cands:
+                if vc.var_start - tol <= fixed <= vc.var_end + tol:
+                    extra_breaks.add(round(vc.fixed, _BREAK_POINT_PRECISION))
+        else:
+            for hc in horizontal_cands:
+                if hc.var_start - tol <= fixed <= hc.var_end + tol:
+                    extra_breaks.add(round(hc.fixed, _BREAK_POINT_PRECISION))
+
         intervals = [
             (
                 candidates[idx].var_start,
@@ -279,7 +318,9 @@ def simplify_overlapping_strokes(
             )
             for idx in cand_indices
         ]
-        for sub_start, sub_end, cand_idx in split_and_deduplicate_intervals(intervals, tol=tol):
+        for sub_start, sub_end, cand_idx in split_and_deduplicate_intervals(
+            intervals, tol=tol, extra_breaks=extra_breaks
+        ):
             won[cand_idx].append(_rebuild_segment(candidates[cand_idx], sub_start, sub_end))
 
     # Re-emit paths: arc paths pass through whole; every other path is

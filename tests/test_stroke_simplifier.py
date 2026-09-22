@@ -145,6 +145,29 @@ class TestSplitAndDeduplicateIntervals:
         result = split_and_deduplicate_intervals([(0.0, 10.0, 42)])
         assert result[0][2] == 42
 
+    def test_extra_breaks_slice_intervals(self) -> None:
+        # A caller-injected break point (e.g. a perpendicular junction) slices
+        # intervals even though no interval endpoint lands there.
+        result = split_and_deduplicate_intervals([(0.0, 10.0, 0)], extra_breaks={5.0})
+        assert result == [(0.0, 5.0, 0), (5.0, 10.0, 0)]
+
+    def test_extra_breaks_outside_intervals_ignored(self) -> None:
+        result = split_and_deduplicate_intervals([(0.0, 10.0, 0)], extra_breaks={20.0})
+        assert result == [(0.0, 10.0, 0)]
+
+    def test_extra_breaks_align_offsets_for_dedup(self) -> None:
+        # Staggered pair plus an injected junction at 9: every piece boundary
+        # aligns, so the shared region still collapses to one winner.
+        result = split_and_deduplicate_intervals(
+            [(0.0, 10.0, 0), (4.0, 14.0, 1)], extra_breaks={9.0}
+        )
+        assert result == [
+            (0.0, 4.0, 0),
+            (4.0, 9.0, 0),
+            (9.0, 10.0, 0),
+            (10.0, 14.0, 1),
+        ]
+
 
 class TestAxisAlignedInterval:
     """Tests for the segment classification helper."""
@@ -454,3 +477,92 @@ class TestSimplifyOverlappingStrokes:
         doc = _single_path_doc(seg, _h(0.0, 4.0, 14.0))
         result = simplify_overlapping_strokes(doc, tol=0.05)
         assert len(_all_segments(result)) == 3
+
+
+class TestCrossAxisBreakPoints:
+    """T-junction / crossing fracturing from perpendicular segments."""
+
+    def test_horizontal_fractured_at_vertical_t_junction(self) -> None:
+        # A vertical border touching a long horizontal border mid-span
+        # (endpoint touch) must fracture the horizontal stroke.
+        doc = _single_path_doc(_h(0.0, 0.0, 10.0), _v(5.0, 0.0, 5.0))
+        result = simplify_overlapping_strokes(doc)
+        assert _spans(result) == {
+            ((0.0, 0.0), (5.0, 0.0)),
+            ((5.0, 0.0), (10.0, 0.0)),
+            ((5.0, 0.0), (5.0, 5.0)),
+        }
+
+    def test_crossing_fractures_both_axes(self) -> None:
+        # A vertical crossing through the line splits the horizontal, and the
+        # horizontal's supporting line symmetrically splits the vertical.
+        doc = _single_path_doc(_h(0.0, 0.0, 10.0), _v(5.0, -5.0, 5.0))
+        result = simplify_overlapping_strokes(doc)
+        assert _spans(result) == {
+            ((0.0, 0.0), (5.0, 0.0)),
+            ((5.0, 0.0), (10.0, 0.0)),
+            ((5.0, -5.0), (5.0, 0.0)),
+            ((5.0, 0.0), (5.0, 5.0)),
+        }
+
+    def test_vertical_fractured_at_horizontal_junction(self) -> None:
+        # Symmetric case: a horizontal stub touching a long vertical border.
+        doc = _single_path_doc(_v(0.0, 0.0, 10.0), _h(5.0, 0.0, 5.0))
+        result = simplify_overlapping_strokes(doc)
+        assert _spans(result) == {
+            ((0.0, 0.0), (0.0, 5.0)),
+            ((0.0, 5.0), (0.0, 10.0)),
+            ((0.0, 5.0), (5.0, 5.0)),
+        }
+
+    def test_brick_work_shared_region_fractured_at_junction(self) -> None:
+        # Staggered labels sharing y=0: edges [0,10] and [4,14] plus a
+        # vertical border at x=7 touching the line. The shared region is
+        # deduplicated AND every piece boundary aligns at x=7.
+        doc = _single_path_doc(_h(0.0, 0.0, 10.0), _h(0.0, 4.0, 14.0), _v(7.0, 0.0, 5.0))
+        result = simplify_overlapping_strokes(doc)
+        assert _spans(result) == {
+            ((0.0, 0.0), (4.0, 0.0)),
+            ((4.0, 0.0), (7.0, 0.0)),
+            ((7.0, 0.0), (10.0, 0.0)),
+            ((10.0, 0.0), (14.0, 0.0)),
+            ((7.0, 0.0), (7.0, 5.0)),
+        }
+
+    def test_perpendicular_segment_far_away_injects_nothing(self) -> None:
+        # A vertical that never touches the horizontal's supporting line must
+        # not split it.
+        doc = _single_path_doc(_h(0.0, 0.0, 10.0), _v(20.0, 10.0, 20.0))
+        result = simplify_overlapping_strokes(doc)
+        assert _spans(result) == {
+            ((0.0, 0.0), (10.0, 0.0)),
+            ((20.0, 10.0), (20.0, 20.0)),
+        }
+
+    def test_touch_at_far_endpoint_injects_boundary_only(self) -> None:
+        # Vertical touching exactly at the horizontal's start endpoint: the
+        # junction is a boundary, so no extra piece is created.
+        doc = _single_path_doc(_h(0.0, 0.0, 10.0), _v(0.0, 0.0, 5.0))
+        result = simplify_overlapping_strokes(doc)
+        assert _spans(result) == {
+            ((0.0, 0.0), (10.0, 0.0)),
+            ((0.0, 0.0), (0.0, 5.0)),
+        }
+
+    def test_rapid_perpendicular_injects_nothing(self) -> None:
+        # Rapid (non-cutting) verticals are not candidates and must not
+        # fracture cutting horizontals.
+        doc = _single_path_doc(_h(0.0, 0.0, 10.0), _v(5.0, 0.0, 5.0, cutting=False))
+        result = simplify_overlapping_strokes(doc)
+        # _spans() only counts cutting segments, so only the intact
+        # horizontal appears; the rapid move survives untouched.
+        assert _spans(result) == {((0.0, 0.0), (10.0, 0.0))}
+        assert len(_all_segments(result)) == 2
+
+    def test_closed_rectangle_unchanged(self) -> None:
+        # A lone rectangle: every junction lands on an existing endpoint, so
+        # cross-axis breaks create no new pieces.
+        rect = [_h(0.0, 0.0, 10.0), _v(10.0, 0.0, 5.0), _h(5.0, 10.0, 0.0), _v(0.0, 5.0, 0.0)]
+        doc = _single_path_doc(*rect)
+        result = simplify_overlapping_strokes(doc)
+        assert len(_all_segments(result)) == 4
