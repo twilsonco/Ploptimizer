@@ -58,8 +58,12 @@ def split_and_deduplicate_intervals(
         end_k = _round(end)
         current = start
         for point in sorted_breaks:
-            # Require point to sit strictly inside the interval beyond tolerance
-            if start_k + tol < point < end_k - tol:
+            # Slice at every break strictly inside the interval. Breaks within
+            # tol of an endpoint are applied too: the resulting sub-tol sliver
+            # is dropped below, which keeps piece boundaries (and therefore
+            # dedup keys) aligned instead of letting a piece extend past a
+            # neighbour's endpoint by up to tol.
+            if start_k < point < end_k:
                 atomic.append((current, point, payload))
                 current = point
         atomic.append((current, end, payload))
@@ -226,7 +230,12 @@ def simplify_overlapping_strokes(
                 continue
 
             for out_seg in outputs:
-                if not current_segments and current_pen_up is None:
+                if not current_segments:
+                    # Re-anchor unconditionally: when the first segment of
+                    # this path lost its head piece to another stroke, the
+                    # surviving piece starts at an interior point and the
+                    # stale pen_up_position would make the emitter cut a
+                    # phantom stroke from the old pen-up location.
                     current_pen_up = out_seg.start
                 current_segments.append(out_seg)
 

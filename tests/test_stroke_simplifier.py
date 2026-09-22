@@ -440,6 +440,44 @@ class TestSimplifyOverlappingStrokes:
         assert len(keeper_paths) == 1
         assert keeper_paths[0].pen_up_position == Coordinate(x=30.0, y=0.0)
 
+    def test_pen_up_reanchored_when_first_segment_loses_head(self) -> None:
+        # Partial loss is just as dangerous as full removal: the surviving
+        # piece starts at an interior point, and a stale pen_up_position
+        # makes the emitter cut a phantom stroke from the old pen-up spot.
+        master = _h(0.0, 10.0, 0.0)
+        path = StrokePath(
+            pen_up_position=Coordinate(x=6.0, y=0.0),
+            segments=(_h(0.0, 6.0, 12.0),),
+        )
+        doc = PLTDocument(
+            header_commands=[],
+            stroke_paths=[
+                # Winner collected first: claims [0,10], leaving [10,12].
+                StrokePath(pen_up_position=master.start, segments=(master,)),
+                path,
+            ],
+            footer_commands=[],
+        )
+        result = simplify_overlapping_strokes(doc)
+        survivor = next(
+            p for p in result.stroke_paths if p.segments and round(p.segments[0].end.x, 5) == 12.0
+        )
+        assert survivor.pen_up_position == Coordinate(x=10.0, y=0.0)
+
+    def test_pen_up_matches_first_segment_after_simplify(self) -> None:
+        # Emitter invariant: PU lands exactly on the first cut's start, so
+        # the pen never drags a phantom stroke from a stale position.
+        doc = _single_path_doc(
+            _h(0.0, 10.0, 0.0),
+            _h(0.0, 6.0, 12.0),
+            _h(5.0, 0.0, 10.0),
+            _v(5.0, 5.0, 0.0),
+        )
+        result = simplify_overlapping_strokes(doc)
+        for path in result.stroke_paths:
+            if path.pen_up_position is not None and path.segments:
+                assert path.pen_up_position == path.segments[0].start
+
     def test_path_fully_superseded_dropped(self) -> None:
         # Both segments of a path lose everything -> path disappears.
         s1 = _h(0.0, 0.0, 10.0)
