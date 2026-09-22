@@ -3,8 +3,9 @@
 This script demonstrates how to use the PLT-Optimizer tools to:
 1. Load PLT files from disk
 2. Generate diagnostic plots with before/after comparison
-3. Generate simple mode plots (clean black outline, no rapids)
-4. Run full optimization pipeline for each file
+3. Run full optimization pipeline for each file
+4. Generate simple mode plots (clean black outline, no rapids) of the
+   *optimized* toolpath
 5. Log actions using the dual logging topology (text + CSV metrics)
 
 Usage:
@@ -53,6 +54,9 @@ def run_diagnostics_on_file(
 ) -> dict[str, str | float] | None:
     """Process a single PLT file and generate before/optimized/simple mode plots.
 
+    The simple-mode outline plot reflects the *optimized* toolpath and is
+    only generated when ``optimize`` is enabled.
+
     Args:
         input_path: Path to the PLT/HPGL file.
         output_dir: Directory to save output plots.
@@ -90,17 +94,6 @@ def run_diagnostics_on_file(
         import matplotlib.pyplot as plt
         plt.close(fig_before)
         text_logger.info(f"Generated before plot: {before_plot_path.name}")
-
-        # Generate SIMPLE MODE plot (black outline, no rapids - before state only)
-        simple_plot_path = output_dir / f"{output_stem}_02_simple_outline.png"
-        fig_simple = plot_plt_document(
-            original_doc,
-            output_path=simple_plot_path,
-            title=f"Simple Outline (Before): {input_path.name}",
-            simple_mode=True,
-        )
-        plt.close(fig_simple)
-        text_logger.info(f"Generated simple mode plot: {simple_plot_path.name}")
 
         if not optimize:
             # Return stats without optimization
@@ -162,6 +155,19 @@ def run_diagnostics_on_file(
         )
         plt.close(fig_after)
         text_logger.info(f"Generated after plot: {after_plot_path.name}")
+
+        # Generate SIMPLE MODE plot (black outline, no rapids) of the
+        # *optimized* toolpath (cutting geometry is invariant to reordering,
+        # so this shows the final toolpath cleanly).
+        simple_plot_path = output_dir / f"{output_stem}_02_simple_outline.png"
+        fig_simple = plot_plt_document(
+            optimized_doc,
+            output_path=simple_plot_path,
+            title=f"Simple Outline (Optimized): {input_path.name}",
+            simple_mode=True,
+        )
+        plt.close(fig_simple)
+        text_logger.info(f"Generated simple mode plot: {simple_plot_path.name}")
 
         # Write optimized PLT file
         writer = PLTWriter()
