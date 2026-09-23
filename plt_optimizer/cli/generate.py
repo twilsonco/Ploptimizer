@@ -13,11 +13,12 @@ Output layout (under ``-o``, defaulting to the spec's parent directory)::
     <out>/pdf/01_text_0.030_<job_id>.pdf   # simple-outline previews
     <out>/pdf/01_all_<job_id>.pdf          # combined preview per plate
 
-Text-hole collisions are unacceptable output: when any label's rendered
-text comes closer to a drill hole than the stroke-aware collision
-threshold (stroke floor plus ``hole_text_collision_distance``), the
-offending labels are reported at ERROR level and the job aborts with a
-non-zero exit code so the jobspec can be revised.
+Text-hole collisions are reported per label: collisions that collision
+avoidance resolves (hole-margin reduction and/or horizontal compression)
+log WARNINGs and the job proceeds. Only collisions that survive every
+enabled avoidance phase are unacceptable output: the offending labels are
+reported at ERROR level and the job aborts with a non-zero exit code so
+the jobspec can be revised.
 
 Usage:
     plt-optimizer generate spec.yaml -o output_dir --no-plots

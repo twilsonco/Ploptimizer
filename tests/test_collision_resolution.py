@@ -298,17 +298,31 @@ class TestJobLevelAbort:
         assert "resolve_label" in str(exc_info.value)
         assert "jobspec must be revised" in str(exc_info.value)
 
-    def test_avoidance_repaired_collision_still_aborts(self) -> None:
-        """A collision repaired by avoidance is still unacceptable output."""
+    def test_avoidance_repaired_collision_proceeds(self) -> None:
+        """A collision repaired by avoidance does not abort the job."""
         label = _label(text="HELLO", holes=BOTTOM_HOLE, min_hole_margin=0.0)
         rendered = render_label_to_plt(label)
-        # Avoidance succeeded (final render is clean) but the collision was
-        # detected, so the jobspec must still be revised.
+        # Avoidance succeeded (final render is clean): the collision is
+        # recorded observationally but the job proceeds.
         assert rendered.has_collisions is False
         assert rendered.collision_detected is True
-        with pytest.raises(LabelRenderError) as exc_info:
-            assert_no_collisions([rendered])
-        assert "resolve_label" in str(exc_info.value)
+        assert_no_collisions([rendered])
+
+    def test_repaired_collision_logs_warning_not_error(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Avoidance-resolved collisions log WARNING, never ERROR."""
+        label = _label(text="HELLO", holes=BOTTOM_HOLE, min_hole_margin=0.0)
+        with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
+            rendered = render_label_to_plt(label)
+
+        assert rendered.has_collisions is False
+        collision_records = [
+            r for r in caplog.records if "collides with" in r.getMessage()
+        ]
+        assert collision_records, "No collision detection logged"
+        assert all(r.levelno == logging.WARNING for r in collision_records)
+        assert not any(r.levelno >= logging.ERROR for r in caplog.records)
 
     def test_abort_names_each_offending_label_once(self) -> None:
         """Duplicate renders of the same label are reported once."""
@@ -444,6 +458,21 @@ class TestStrokeAwareThreshold:
         # And the resolved geometry genuinely clears the threshold.
         _lc3, aware_entries = _render_text_local_with_bounds(aware_resolved)
         assert _detect_text_hole_collisions(aware_resolved, aware_entries) == []
+
+    def test_unresolved_collision_logs_error(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Collisions that survive every phase keep ERROR severity."""
+        label = _label()  # side holes, no avoidance knobs -> unresolvable
+        with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
+            rendered = render_label_to_plt(label)
+
+        assert rendered.has_collisions is True
+        collision_records = [
+            r for r in caplog.records if "collides with" in r.getMessage()
+        ]
+        assert collision_records
+        assert all(r.levelno >= logging.ERROR for r in collision_records)
 
     def test_error_log_reports_threshold_breakdown(self, caplog: pytest.LogCaptureFixture) -> None:
         """Collision ERRORs break the threshold into clearance + floor."""

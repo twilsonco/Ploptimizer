@@ -101,9 +101,10 @@ class LabelRenderError(Exception):
 
     Emitted by :func:`assert_no_collisions` once every label in the job has
     been rendered (so all per-label ERROR diagnostics were logged first)
-    and at least one label still overlaps a drill hole. Collisions are
-    unacceptable output; the job specification must be revised to avoid
-    them.
+    and at least one label still overlaps a drill hole. Collisions that
+    collision avoidance repaired are tolerated (logged as WARNING at render
+    time); only collisions that survive every enabled avoidance phase are
+    unacceptable output requiring a jobspec revision.
     """
 
 
@@ -128,13 +129,15 @@ class RenderedLabel:
             at least one text/hole pair closer than the stroke-aware
             collision threshold (collision avoidance disabled or not fully
             effective). Labels successfully resolved by Phases 2/3 report
-            False even though avoidance was triggered.
+            False even though avoidance was triggered, and their jobs
+            proceed. This is the flag the job-level gate aborts on.
         collision_detected: True when any text/hole collision was detected
             during rendering, even if collision avoidance (Phases 2/3)
-            successfully resolved it. Collisions are unacceptable output:
-            the jobspec must be revised, so the job-level gate
-            :func:`assert_no_collisions` aborts on this flag rather than
-            :attr:`has_collisions`.
+            successfully resolved it. This is an observational flag: a
+            repaired collision logs a WARNING and the job proceeds, so the
+            job-level gate :func:`assert_no_collisions` aborts on
+            :attr:`has_collisions` (unresolved collisions) rather than on
+            this flag.
         text_chunks: Per-chunk rendered text geometry (line- or word-level,
             per the label's chunk mode) in label-local inches with ``+y`` up.
             Consumed by the plate-space optimizer, which transforms these
@@ -251,19 +254,26 @@ def _detect_text_hole_collisions(
     return results
 
 
-def _log_collisions(label: ResolvedLabel, collisions: Sequence[CollisionResult]) -> None:
-    """Log each detected text-hole collision at ERROR level.
+def _log_collisions(
+    label: ResolvedLabel,
+    collisions: Sequence[CollisionResult],
+    level: int = logging.ERROR,
+) -> None:
+    """Log each detected text-hole collision at the given severity.
 
     Args:
         label: The resolved label being checked (provides the threshold
             components used in the message breakdown).
         collisions: Collision results from :func:`_detect_text_hole_collisions`.
+        level: Logging severity. WARNING when collision avoidance resolved
+            the collisions, ERROR when they remain unresolved.
     """
     for collision in collisions:
         required = _collision_threshold(label, collision.line_index)
         clearance = label.hole_text_collision_distance
         stroke_floor = required - clearance
-        logger.error(
+        logger.log(
+            level,
             "Label %s: text line %d (%r) collides with %s drill hole "
             "(index %d); gap %.4fin is below the required %.4fin "
             "(%.4fin clearance + %.4fin stroke floor).",
@@ -452,12 +462,12 @@ def _format_unresolvable_collision(
 
 
 def assert_no_collisions(rendered_labels: Iterable[RenderedLabel]) -> None:
-    """Abort a job when any rendered label had a text-hole collision.
+    """Abort a job when any rendered label still has a text-hole collision.
 
-    Text-hole collisions are unacceptable output: the job specification
-    must be revised to avoid them, even when the avoidance system managed
-    to repair a collision by shrinking hole margins or compressing text.
-    Each offending label already received its per-label ERROR diagnostics
+    Only *unresolved* collisions are unacceptable output: a collision that
+    avoidance repaired (by shrinking hole margins or compressing text) logs
+    a WARNING during :func:`render_label_to_plt` and the job proceeds.
+    Each unresolved label already received its per-label ERROR diagnostics
     during :func:`render_label_to_plt`; this gate runs once *after* every
     label in the job has been rendered (so all errors were printed) and
     raises a single job-level error.
@@ -468,12 +478,13 @@ def assert_no_collisions(rendered_labels: Iterable[RenderedLabel]) -> None:
 
     Raises:
         LabelRenderError: If at least one rendered label reports
-            :attr:`RenderedLabel.collision_detected`.
+            :attr:`RenderedLabel.has_collisions` (a collision that no
+            enabled avoidance phase could resolve).
     """
     offending: List[str] = []
     for rendered in rendered_labels:
         label_id = rendered.source_label.id
-        if rendered.collision_detected and label_id not in offending:
+        if rendered.has_collisions and label_id not in offending:
             offending.append(label_id)
     if not offending:
         return
@@ -503,9 +514,9 @@ def render_label_to_plt(
     caught too:
 
     1. **Detection** (always): rendered text bounds are checked against
-       every drill hole; each collision is logged at ERROR level and
-       recorded on the returned :attr:`RenderedLabel.collision_detected`
-       (and :attr:`RenderedLabel.has_collisions` when unresolved).
+       every drill hole; each collision is recorded on the returned
+       :attr:`RenderedLabel.collision_detected` (and
+       :attr:`RenderedLabel.has_collisions` when unresolved).
     2. **Hole-margin reduction** (opt-in via ``min_hole_margin``): holes
        are moved toward the label edge (margin reduced toward the floor)
        until the text clears them.
@@ -513,11 +524,14 @@ def render_label_to_plt(
        uniformly compressed horizontally (stacked on top of any Phase 2
        margin reduction) until the collisions clear.
 
-    A collision that no enabled phase can clear is additionally logged at
-    ERROR with full diagnostics (label id, offending text lines, holes,
-    and clearance shortfalls) and flagged via ``has_collisions=True``. Collisions
-    are unacceptable output regardless of whether avoidance repaired them:
-    the job-level gate :func:`assert_no_collisions` aborts the run with
+    Severity follows the outcome. A collision that an enabled phase
+    resolves logs its detections at WARNING and the render proceeds
+    (``collision_detected=True``, ``has_collisions=False``). A collision
+    that no enabled phase can clear logs its detections plus full
+    diagnostics (label id, offending text lines, holes, and clearance
+    shortfalls) at ERROR and flags ``has_collisions=True``: only
+    unresolved collisions are unacceptable output, and the job-level gate
+    :func:`assert_no_collisions` aborts the run with
     :class:`LabelRenderError` once every label has been rendered, so all
     offending labels report before the job stops.
 
@@ -548,9 +562,11 @@ def render_label_to_plt(
     if not collisions:
         return rendered
 
-    # ---- Phase 1: collision detected -- log and attempt resolution ----
-    _log_collisions(label, collisions)
-
+    # ---- Phase 1: collision detected -- attempt resolution ----
+    # Per-collision logging is deferred until the outcome is known:
+    # WARNING when an avoidance phase resolves the collisions, ERROR when
+    # they remain unresolved (only unresolved collisions are unacceptable).
+    detected_collisions = collisions
     base_label: ResolvedLabel = label
     line_desc = _collision_line_desc(collisions)
 
@@ -560,6 +576,7 @@ def render_label_to_plt(
             label, line_entries, line_desc=line_desc
         )
         if margin_label is not None:
+            _log_collisions(label, detected_collisions, level=logging.WARNING)
             resolved_rendered, _ = _render_label_once(margin_label, pen_map=pen_map)
             return replace(resolved_rendered, collision_detected=True)
         # Margin alone cannot clear the collision; continue from the floor
@@ -578,6 +595,7 @@ def render_label_to_plt(
             base_label, budget, line_desc=line_desc
         )
         if compressed_label is not None:
+            _log_collisions(label, detected_collisions, level=logging.WARNING)
             resolved_rendered, _ = _render_label_once(compressed_label, pen_map=pen_map)
             return replace(resolved_rendered, collision_detected=True)
         # Report the state at the most aggressive scale tried, so the
@@ -589,9 +607,10 @@ def render_label_to_plt(
         base_label = final_label
 
     # ---- Unresolvable: collisions are unacceptable output ----
-    # Log the full diagnostics at ERROR level and flag the render. The
-    # job-level gate (assert_no_collisions) aborts the run once every
-    # label has been rendered, so all offending labels report first.
+    # Log the detections plus full diagnostics at ERROR level and flag the
+    # render. The job-level gate (assert_no_collisions) aborts the run once
+    # every label has been rendered, so all offending labels report first.
+    _log_collisions(label, detected_collisions, level=logging.ERROR)
     logger.error("%s", _format_unresolvable_collision(base_label, collisions, attempted_scale))
     return replace(rendered, has_collisions=True, collision_detected=True)
 

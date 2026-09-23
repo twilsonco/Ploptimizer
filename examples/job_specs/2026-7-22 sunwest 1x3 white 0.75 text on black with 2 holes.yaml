@@ -8,7 +8,9 @@ job:
   width: 3.0
   height: 1.0
   text_height: 0.75
-  max_h_compress: 0.3
+  # 0.45 is the measured minimum for the longest lines (e.g. "B29ABe"); 0.5
+  # leaves headroom so collision compression clears the side drill holes.
+  max_h_compress: 0.5
   holes:
     - location: sides
 

@@ -181,9 +181,12 @@ Uses the production export path, `export_per_cutter_plts()`:
   - text → one `<plate>_text_<cutter>_<job_id>.plt` per plate and cutter diameter
 - The combined per-plate PLT stays in memory only (used for the combined PDF
   preview and optional color plots).
-- Text–hole collisions are **unacceptable output**: the job-level gate
-  (`assert_no_collisions()`, wired into `generate_layout_with_bounds`) logs an
-  ERROR per offending label and aborts with `LabelRenderError` (exit 1).
+- Text–hole collisions that avoidance resolves (hole-margin reduction
+  and/or horizontal compression) log WARNINGs and the job proceeds. Only
+  collisions that survive every enabled avoidance phase are unacceptable
+  output: the job-level gate (`assert_no_collisions()`, wired into
+  `generate_layout_with_bounds`) logs an ERROR per offending label and
+  aborts with `LabelRenderError` (exit 1).
 
 Outputs land in `test_output/integration_test/`:
 

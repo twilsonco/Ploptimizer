@@ -537,12 +537,14 @@ def generate_layout_with_bounds(
             in unbounded mode.
         LabelRenderError: If any rendered label still overlaps a drill
             hole after collision avoidance (all labels are rendered and
-            their ERROR diagnostics logged before aborting).
+            their ERROR diagnostics logged before aborting). Labels whose
+            collisions avoidance repaired proceed with a WARNING.
     """
     # Phase 2a: Render all unique labels and cache by ID
     rendered_labels = _render_labels_cache(resolved_labels, pen_map=pen_map)
 
     # Job-level gate: unavoidable text-hole collisions are unacceptable.
+    # Repaired collisions only log WARNING at render time and proceed.
     # Every label has now been rendered (all per-label ERROR diagnostics
     # printed), so abort before wasting time on packing.
     assert_no_collisions(rendered_labels.values())
