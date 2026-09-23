@@ -25,6 +25,10 @@ from plt_optimizer.core.models import (
 from plt_optimizer.diagnostics.plotter import (
     DEFAULT_FIGURE_SIZE,
     MINOR_TICK_INTERVAL_INCHES,
+    SIMPLE_ALPHA,
+    SIMPLE_LINEWIDTH,
+    SIMPLE_STRUCTURAL_ALPHA,
+    SIMPLE_STRUCTURAL_LINEWIDTH,
     TICK_INTERVAL_INCHES,
     PlotterError,
     _safe_range,
@@ -324,6 +328,50 @@ class TestPlotPltDocumentWithSegments:
 
         # Simple mode figure should have fewer or equal axes
         assert len(fig_simple.axes) <= len(fig_normal.axes)
+
+    def test_simple_mode_structural_uses_thick_translucent_strokes(self) -> None:
+        """Test is_structural=True renders simple strokes at 2.0 lw / 0.3 alpha."""
+        seg = self._make_segment(0, 0, 10, 10, is_cutting=True)
+        path = self._make_path([seg])
+        doc = PLTDocument(stroke_paths=[path])
+
+        fig = plot_plt_document(doc, simple_mode=True, is_structural=True)
+        lines = fig.axes[0].get_lines()
+        assert lines
+        for line in lines:
+            assert line.get_linewidth() == pytest.approx(SIMPLE_STRUCTURAL_LINEWIDTH)
+            assert line.get_alpha() == pytest.approx(SIMPLE_STRUCTURAL_ALPHA)
+
+    def test_simple_mode_default_uses_thin_opaque_strokes(self) -> None:
+        """Test is_structural=False (default) renders simple strokes at 1.0/1.0."""
+        seg = self._make_segment(0, 0, 10, 10, is_cutting=True)
+        path = self._make_path([seg])
+        doc = PLTDocument(stroke_paths=[path])
+
+        fig_default = plot_plt_document(doc, simple_mode=True)
+        fig_explicit = plot_plt_document(doc, simple_mode=True, is_structural=False)
+
+        for fig in (fig_default, fig_explicit):
+            lines = fig.axes[0].get_lines()
+            assert lines
+            for line in lines:
+                assert line.get_linewidth() == pytest.approx(SIMPLE_LINEWIDTH)
+                assert line.get_alpha() == pytest.approx(SIMPLE_ALPHA)
+
+    def test_is_structural_has_no_effect_outside_simple_mode(self) -> None:
+        """Test is_structural only changes simple-mode styling (color mode untouched)."""
+        seg = self._make_segment(0, 0, 10, 10, is_cutting=True)
+        path = self._make_path([seg])
+        doc = PLTDocument(stroke_paths=[path])
+
+        fig = plot_plt_document(doc, simple_mode=False, is_structural=True)
+        # Color mode keeps its own thin cutting strokes (linewidth 0.3) plus
+        # start/end markers; none of them adopt the simple-mode width.
+        lines = fig.axes[0].get_lines()
+        assert lines
+        for line in lines:
+            assert not math.isclose(line.get_linewidth(), SIMPLE_STRUCTURAL_LINEWIDTH, abs_tol=1e-9)
+            assert line.get_alpha() != SIMPLE_STRUCTURAL_ALPHA
 
     def test_plotting_raises_on_exception(self) -> None:
         """Test plot raises PlotterError on failure."""

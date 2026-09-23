@@ -132,6 +132,39 @@ class TestExportAndOptimizePhase3:
         # Opt-in plots are tracked separately from the simple previews.
         assert result.pdf_paths == []
 
+    def test_export_simple_plots_structural_styling_wiring(self, tmp_path: Path) -> None:
+        """Simple plots: bh files render structural, text/all plots do not."""
+        from unittest.mock import patch
+
+        job = parse_yaml("tests_deps/test123_spec.yaml")
+        resolved_labels = resolve_job_spec(job)
+
+        captured: list[tuple[str, bool]] = []
+
+        def _fake_plot(document, output_path=None, show_plot=False, simple_mode=False, **kwargs):
+            assert simple_mode is True
+            captured.append((Path(output_path).name, bool(kwargs.get("is_structural", False))))
+
+        with patch("plt_optimizer.diagnostics.plotter.plot_plt_document", side_effect=_fake_plot):
+            result = export_per_cutter_plts(
+                resolved_labels,
+                output_dir=tmp_path,
+                job_id="style",
+                optimize=False,
+                plots=True,
+            )
+
+        assert captured
+        by_name = dict(captured)
+        # Borders+holes files are structural; text files are not.
+        assert any("_bh_" in name and flag for name, flag in by_name.items())
+        assert any("_text_" in name and not flag for name, flag in by_name.items())
+        # Combined per-plate plots mix layers and stay non-structural.
+        all_plots = [flag for name, flag in by_name.items() if "_all_" in name]
+        assert all_plots and not any(all_plots)
+        # The fake never saves; PDFs are tracked as usual.
+        assert result.pdf_paths
+
     def test_export_per_cutter_skips_empty_groups(self, tmp_path: Path) -> None:
         """A job without holes still gets a borders file; no empty text files."""
         job = parse_yaml("tests_deps/test123_spec.yaml")

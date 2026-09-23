@@ -582,6 +582,11 @@ def _write_simple_plots(
     per plate from the in-memory combined content (text + borders + holes
     together).
 
+    Stroke styling follows the toolpath kind: purely structural files
+    (``bh`` = borders + holes) plot thick and semi-transparent, while text
+    files and the mixed combined plots render thin and fully opaque (see
+    :func:`~plt_optimizer.diagnostics.plotter.plot_plt_document`).
+
     matplotlib is imported lazily through the plotter module so headless
     optimizer-only environments never pay the import cost.
 
@@ -606,12 +611,22 @@ def _write_simple_plots(
     for plt_path in result.plt_paths:
         document = parser.parse_file(plt_path)
         pdf_path = pdf_dir / f"{plt_path.stem}.pdf"
-        plot_plt_document(document, output_path=pdf_path, show_plot=False, simple_mode=True)
+        # File-name shape: <plate number>_<kind>_<cutter>_<job_id>; the bh
+        # (borders + holes) kind is purely structural, text is not.
+        is_structural = plt_path.stem.split("_")[1:2] == ["bh"]
+        plot_plt_document(
+            document,
+            output_path=pdf_path,
+            show_plot=False,
+            simple_mode=True,
+            is_structural=is_structural,
+        )
         pdf_paths.append(pdf_path)
 
     for plate_no, combined in result.combined_by_plate.items():
         document = parser.parse_string(combined)
         pdf_path = pdf_dir / f"{_format_plate_number(plate_no)}_all_{job_id}.pdf"
+        # Combined plots mix text + borders + holes: thin opaque strokes.
         plot_plt_document(document, output_path=pdf_path, show_plot=False, simple_mode=True)
         pdf_paths.append(pdf_path)
 

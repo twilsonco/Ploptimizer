@@ -88,6 +88,15 @@ DEFAULT_FIGURE_SIZE = (16, 9)
 TICK_INTERVAL_INCHES = 1.0
 MINOR_TICK_INTERVAL_INCHES = 0.5
 
+# Simple-mode stroke styling per toolpath kind. Purely structural toolpaths
+# (borders + drill holes) keep the original thick, semi-transparent black
+# strokes; text-only or mixed (text + borders + holes) toolpaths render
+# thin, fully opaque strokes.
+SIMPLE_STRUCTURAL_LINEWIDTH = 2.0
+SIMPLE_STRUCTURAL_ALPHA = 0.3
+SIMPLE_LINEWIDTH = 1.0
+SIMPLE_ALPHA = 1.0
+
 
 def _apply_inch_tick_layout(ax: Axes) -> None:
     """Configure fixed inch-based tick spacing on both axes.
@@ -129,6 +138,7 @@ def plot_plt_document(
     figure_size: Tuple[float, float] = DEFAULT_FIGURE_SIZE,
     rapid_travel_inches: Optional[float] = None,
     simple_mode: bool = False,
+    is_structural: bool = False,
 ) -> Figure:
     """Plot a complete PLT document with color-coded path segments.
 
@@ -152,6 +162,13 @@ def plot_plt_document(
         simple_mode: If True, render only tool-down segments in thick black lines,
             omitting all rapid travel (tool-up) visualization. Useful for clean
             outlines of the actual cutting toolpath.
+        is_structural: If True, the document carries a purely structural
+            toolpath (borders + drill holes); simple-mode strokes render thick
+            and semi-transparent (``linewidth=2.0``, ``alpha=0.3``). If False
+            (the default), simple-mode strokes render thin and fully opaque
+            (``linewidth=1.0``, ``alpha=1.0``). Text-only and mixed
+            (text + borders + holes) documents use the default. Has no effect
+            outside simple mode.
 
     Returns:
         The matplotlib Figure object.
@@ -278,8 +295,12 @@ def plot_plt_document(
             if seg.is_cutting:  # Cutting
                 if simple_mode:
                     color: Any = "black"
-                    linewidth = 2.0
-                    alpha = 0.3
+                    if is_structural:
+                        linewidth = SIMPLE_STRUCTURAL_LINEWIDTH
+                        alpha = SIMPLE_STRUCTURAL_ALPHA
+                    else:
+                        linewidth = SIMPLE_LINEWIDTH
+                        alpha = SIMPLE_ALPHA
                 else:
                     color_val = norm_distances[i]
                     cmap = plt.colormaps["plasma"]

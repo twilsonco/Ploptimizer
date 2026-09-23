@@ -364,7 +364,10 @@ rapid-travel plots), `--tools` (default `tools.json`; missing file → ideal
 cutters), `--fast-mode` (plate-space routing via `NearestNeighbor2Opt` instead of
 the default `ParallelEnsemble`). File names:
 `<2-digit plate>_{text|bh}_<cutter>_<job_id>.<plt|pdf>` plus combined
-`<plate>_all_<job_id>.pdf`. Logs go to `./logs_generate/generate.log`.
+`<plate>_all_<job_id>.pdf`. Simple-outline PDFs style strokes by toolpath kind:
+purely structural (`bh`) plots use `linewidth=2.0`/`alpha=0.3`; text and mixed
+combined (`all`) plots use `linewidth=1.0`/`alpha=1.0` (via
+`plot_plt_document(..., is_structural=...)`). Logs go to `./logs_generate/generate.log`.
 Collision aborts (`LabelRenderError`) and fit failures (`LayoutFitError`) exit
 non-zero after full ERROR diagnostics.
 

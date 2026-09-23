@@ -165,6 +165,7 @@ def run_diagnostics_on_file(
             output_path=simple_plot_path,
             title=f"Simple Outline (Optimized): {input_path.name}",
             simple_mode=True,
+            is_structural=profile_result.is_structural,
         )
         plt.close(fig_simple)
         text_logger.info(f"Generated simple mode plot: {simple_plot_path.name}")
