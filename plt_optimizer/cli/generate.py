@@ -242,7 +242,6 @@ def run(args: argparse.Namespace) -> int:
             default_plots=args.default_plots,
             allow_rotation=job.allow_rotation,
             fast_mode=args.fast_mode,
-            layout=job.layout,
             logger=text_logger,
         )
         exported_paths = export_result.plt_paths

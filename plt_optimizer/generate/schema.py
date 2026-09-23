@@ -134,34 +134,6 @@ class TextHAlignment(str, Enum):
     RIGHT = "right"
 
 
-class LayoutMode(str, Enum):
-    """Enumeration of valid plate fill-order modes for bin-packing.
-
-    The mode determines the orientation in which the packer walks the
-    plate when placing identically-sized labels:
-
-    - ``columns`` (the default): fill the plate's **height** first, then
-      advance to the next column. Subsequent labels appear top-to-bottom
-      (the plotter frame renders the packer's origin row at the top of
-      the plate preview).
-    - ``rows``: fill the plate's **width** first, then advance to the
-      next row. Subsequent labels appear left-to-right (the historical
-      behaviour of this pipeline).
-
-    Attributes:
-        COLUMNS: Column-major fill order (height first). Default.
-        ROWS: Row-major fill order (width first).
-    """
-
-    COLUMNS = "columns"
-    ROWS = "rows"
-
-
-# Default plate fill order used when neither a plate nor the job sets
-# ``layout``: column-major (fill plate height, then next column).
-DEFAULT_LAYOUT_MODE: LayoutMode = LayoutMode.COLUMNS
-
-
 class TextAttributes(BaseModel):
     """Attributes that can cascade down to individual text lines.
 
@@ -458,12 +430,6 @@ class PlateSpec(BaseModel):
             per-plate value is not currently applied during rendering;
             the effective value is resolved from the label -> job ->
             default cascade.
-        layout: Optional plate fill-order mode (``columns`` or ``rows``).
-            Unlike the parity-only fields above, this value IS applied at
-            plate level: it determines the orientation in which the
-            packer fills this plate (``columns`` fills the plate height
-            first, then advances to the next column; ``rows`` fills the
-            width first). Cascades plate -> job -> default (``columns``).
     """
 
     id: str
@@ -493,14 +459,6 @@ class PlateSpec(BaseModel):
         ge=0.0,
         description=(
             "Minimum engraved-stroke air gap in inches (schema parity; not applied at plate level)."
-        ),
-    )
-    layout: Optional[LayoutMode] = Field(
-        default=None,
-        description=(
-            "Plate fill-order mode: 'columns' (fill height first, then next "
-            "column) or 'rows' (fill width first, then next row). Inherits "
-            "the job-level layout when unset."
         ),
     )
     clearance_padding: float = Field(
@@ -536,12 +494,6 @@ class JobSpec(LabelAttributes):
             each whole text line as one unit; ``"word"`` splits lines on
             whitespace for finer rapid-travel routing at the cost of more
             TSP nodes.
-        layout: Default plate fill-order mode for the whole job
-            (``columns`` or ``rows``). ``columns`` (the default) fills
-            each plate's height before advancing to the next column; the
-            historical row-major order is available via ``rows``.
-            Individual plates may override this with ``PlateSpec.layout``
-            (cascade: plate -> job -> default ``columns``).
     """
 
     job_name: str
@@ -566,15 +518,6 @@ class JobSpec(LabelAttributes):
             "Plate-space text optimization granularity: 'line' routes each "
             "text line as one node (default); 'word' routes each "
             "whitespace-delimited word separately."
-        ),
-    )
-    layout: LayoutMode = Field(
-        default=DEFAULT_LAYOUT_MODE,
-        description=(
-            "Default plate fill-order mode: 'columns' fills each plate's "
-            "height before advancing to the next column (default); 'rows' "
-            "fills the width first (historical behaviour). Overridable "
-            "per-plate via PlateSpec.layout."
         ),
     )
 

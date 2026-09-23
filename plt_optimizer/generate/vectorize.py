@@ -43,7 +43,7 @@ from plt_optimizer.generate.resolution import (
     ResolvedLabel,
     build_cutter_pen_map,
 )
-from plt_optimizer.generate.schema import DEFAULT_LAYOUT_MODE, LayoutMode, PlateSpec
+from plt_optimizer.generate.schema import PlateSpec
 from plt_optimizer.utils.logging import TextLogger
 
 # ---------------------------------------------------------------------------
@@ -378,7 +378,6 @@ def export_per_cutter_plts(
     default_plots: bool = False,
     allow_rotation: bool = True,
     fast_mode: bool = False,
-    layout: LayoutMode = DEFAULT_LAYOUT_MODE,
     logger: Optional[TextLogger] = None,
 ) -> PerCutterExport:
     """Export plates as per-cutter PLT files (and optional simple PDFs).
@@ -428,10 +427,6 @@ def export_per_cutter_plts(
             exclusively instead of the default
             :class:`~plt_optimizer.core.optimizer.ParallelEnsembleStrategy`
             (mirrors the ``optimize`` CLI's ``--fast-mode``).
-        layout: Default plate fill-order mode (``COLUMNS`` fills each
-            plate's height before advancing to the next column; ``ROWS``
-            fills the width first). Individual plates may override it via
-            ``PlateSpec.layout``; the value cascades plate -> job -> default.
         logger: Optional text logger receiving per-layer optimization
             reports (method, baseline/optimized rapid travel).
 
@@ -471,11 +466,7 @@ def export_per_cutter_plts(
     # Phase 2: Generate layout with rendered bounds (labels rendered onto
     # their cutter pens).
     packed_plates, rendered_labels_map = generate_layout_with_bounds(
-        resolved_labels,
-        provided_plates,
-        pen_map=pen_map,
-        allow_rotation=allow_rotation,
-        layout=layout,
+        resolved_labels, provided_plates, pen_map=pen_map, allow_rotation=allow_rotation
     )
 
     plt_dir = output_dir / "plt"

@@ -976,14 +976,12 @@ class TestGenerateRun:
         )
 
     @staticmethod
-    def _write_spec(directory: Path, name: str = "spec.yaml", job_extra: str = "") -> Path:
+    def _write_spec(directory: Path, name: str = "spec.yaml") -> Path:
         """Write a minimal valid label-list job spec into ``directory``.
 
         Args:
             directory: Directory to write into.
             name: File name for the YAML spec.
-            job_extra: Extra YAML lines (two-space indent) inserted at the
-                job level, e.g. ``"  layout: rows\n"``.
 
         Returns:
             Path to the written spec file.
@@ -992,7 +990,6 @@ class TestGenerateRun:
         spec_file.write_text(
             "job:\n"
             "  job_name: Generate Run Job\n"
-            f"{job_extra}"
             "  plates:\n"
             "    - id: p1\n"
             "      width: 24.0\n"
@@ -1330,35 +1327,6 @@ class TestGenerateRun:
         assert f"  {pdf_path}" in captured.out
         assert "Generated 1 default plot(s):" in captured.out
         assert f"  {default_pdf}" in captured.out
-
-    def test_layout_is_forwarded_to_export(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """The parsed job-level ``layout`` reaches export_per_cutter_plts.
-
-        Both the implicit default (columns) and an explicit YAML override
-        (rows) must be forwarded verbatim as the ``layout`` keyword.
-        """
-        from plt_optimizer.cli.generate import run
-        from plt_optimizer.generate.schema import LayoutMode
-        from plt_optimizer.generate.vectorize import PerCutterExport
-
-        seen: list[object] = []
-
-        def _fake_export(*args: Any, **kwargs: Any) -> PerCutterExport:
-            seen.append(kwargs["layout"])
-            return PerCutterExport(plt_paths=[], pdf_paths=[], default_pdf_paths=[])
-
-        monkeypatch.setattr("plt_optimizer.generate.vectorize.export_per_cutter_plts", _fake_export)
-
-        default_spec = self._write_spec(tmp_path, name="default.yaml")
-        assert run(self._args(default_spec)) == 0
-        rows_spec = self._write_spec(tmp_path, name="rows.yaml", job_extra="  layout: rows\n")
-        assert run(self._args(rows_spec)) == 0
-
-        assert seen == [LayoutMode.COLUMNS, LayoutMode.ROWS]
 
 
 class TestHelpDisplay:

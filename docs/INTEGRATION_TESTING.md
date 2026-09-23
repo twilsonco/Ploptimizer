@@ -9,8 +9,7 @@ intermediate state dumps for manual verification. The framework covers:
 - **Hierarchical resolution** and the inheritance cascade (TextLine → LabelSpec → JobSpec)
 - **Cutter compensation**, inventory snapping, and the 3x tolerance logic
 - **Replacement text file** ("badge"/multiples) expansion via `expand_job_spec()`
-- **Bounds-aware bin packing**, multi-plate allocation, 90° rotation (`allow_rotation`),
-  and plate fill order (`layout`: `columns` default / `rows`)
+- **Bounds-aware bin packing**, multi-plate allocation, and 90° rotation (`allow_rotation`)
 - **Text–hole collision detection** (stroke-aware; collisions abort the job)
 - **Vectorization** and lossless per-cutter PLT export (matplotlib TTF renderer + custom HPGL writer)
 - **Coordinate validation** (all exported coordinates non-negative)
@@ -162,10 +161,8 @@ Executes the first half of the generate pipeline:
    margin, and per-line nominal height / cutter diameter / toolpath height.
 3. **Bin pack**: `generate_layout()` packs every label instance onto physical
    plates (constrained when the spec defines `plates:`, otherwise unbounded
-   auto-allocation of 24" × 16" sheets), honouring `allow_rotation` and the
-   `layout` fill order (`columns` = height first, sequence reads
-   top-to-bottom; `rows` = the historical width-first order; plates may
-   override per plate). Positions and `rotated` flags are printed per plate.
+   auto-allocation of 24" × 16" sheets), honouring `allow_rotation`.
+   Positions and `rotated` flags are printed per plate.
 
 The job name is sanitized into a filesystem-safe `job_id` (same
 `_sanitize_job_id()` used by the `generate` CLI: whitespace → `_`, everything
@@ -281,8 +278,7 @@ orientation-aware ("in either orientation") — a label that fails 24×16 uprigh
 may still fit sideways when `allow_rotation` is on (the default).
 **Solution:** Reduce counts / dimensions, add plates, or keep rotation enabled.
 `tests_deps/rotation_demo_job.yaml` intentionally aborts this way when rotation
-is disabled *and* `layout: rows` (in the default `columns` frame its banners
-fit upright on the 16" sheet, so the same job packs without rotation).
+is disabled.
 
 ### Issue: `LabelRenderError` (collision abort)
 **Cause:** Rendered text comes closer to a drill hole than the stroke-aware

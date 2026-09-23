@@ -94,10 +94,10 @@ JobSpec (job-level defaults)
 
 | Class | Purpose | Validation Rules |
 |-------|---------|------------------|
-| `JobSpec` | Root job container | Requires either `labels` list OR root-level `content` (mutually exclusive); `layout` enum (`columns` default / `rows`) |
+| `JobSpec` | Root job container | Requires either `labels` list OR root-level `content` (mutually exclusive) |
 | `LabelSpec` | Individual label definition | `count >= 1`; requires `content` (min 1 TextLine) OR `replacement_text_file` (mutually exclusive with `count`) |
 | `TextLine` | Text content unit | Requires non-empty `text` string |
-| `PlateSpec` | Physical sheet definition | All dimensions `>= 0`, includes `clearance_padding`; optional `layout` override (`None` = inherit job) |
+| `PlateSpec` | Physical sheet definition | All dimensions `>= 0`, includes `clearance_padding` |
 | `HoleSpec` | Drilled hole definition | Location (required; 8 atomic enum values: corners + edges, plus `corners`/`sides` group shorthands expanded at validation) + optional `diameter` (default 0.125", must be > 0) |
 | `parse_yaml()` | Entry point | Returns validated `JobSpec` or raises `ValueError` |
 | `expand_job_spec()` | Replacement expansion (substitution.py) | Called after `parse_yaml()`; flattens replacement-driven labels into static LabelSpecs |
@@ -303,7 +303,7 @@ already knows each toolpath's kind, the `Profiler` is skipped entirely.
   **removed**; optimization now happens pre-write in plate space.
 
 ### Cascading Resolution
-When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), and `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to 0.15). `layout` cascades plate → job → `DEFAULT_LAYOUT_MODE` (`columns`): a `PlateSpec.layout` of `None` inherits `JobSpec.layout`.
+When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), and `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to 0.15).
 
 ### Bin-Packing Rotation (`allow_rotation`)
 `JobSpec.allow_rotation` (bool, default `True`) lets the `rectpack` bin
@@ -331,45 +331,7 @@ packer test both orientations (0°/90°) for every label instance.
 - Example fixture: `tests_deps/rotation_demo_job.yaml` (pinned by
   `tests/test_layout.py::TestRotationDemoExample`) — a tight 24x10 scrap
   sheet where rotation-required, rotation-refused and opportunistic-rotation
-  labels coexist; it aborts with `LayoutFitError` when rotation is disabled
-  *and* `layout=rows` (the property is rows-specific — the column-major
-  frame fits the same job without rotation, also pinned).
-
-### Plate Fill Order (`layout`)
-`JobSpec.layout` (enum `LayoutMode`, default `columns`) decides whether
-label instances fill the plate **height first** (column-major, sequence
-reads top-to-bottom then advances rightward) or the plate **width first**
-(row-major, the historical behaviour). `PlateSpec.layout` overrides per
-plate (`None` = inherit the job). `LayoutMode` is a `str`-Enum: compare
-with `==`/`!=`, never `is`/`is not` (raw YAML strings must compare
-correctly).
-
-- **Mechanism (columns):** `_pack_best()` packs into a *transposed* frame
-  (rects `(h, w)`, bins `(H, W)`; `_transpose_entries` rebuilds the `rid`
-  payload with the packer-space width so rotation detection is unchanged)
-  and `_extract_packed_plates(transpose=True)` maps placements back
-  verbatim. `_plate_footprint` is transpose-invariant, so the ensemble
-  ranking is unaffected. Transpose alone does NOT flip the fill order of a
-  uniform grid (rectpack's emergent order is shape-dependent), so
-  `_reorder_labels_by_scan()` additionally permutes label identities among
-  *identical* `(width, height, rotated)` slots: the packer's slot set,
-  footprint and plate count are untouched, instances are handed to
-  scan-sorted slots in declaration order, and `plate.labels` is re-sorted
-  `(x, y)` so emission order reads top-to-bottom. `rows` keeps rectpack's
-  placement order verbatim (bit-identical to the historical layouts).
-- **Mixed modes:** `_resolve_plate_layouts()` splits provided plates into
-  maximal runs of *consecutive* same-mode plates (`_PlateGroup`s) and
-  `_pack_labels()` packs the groups sequentially in declaration order —
-  each group receives only the leftovers of the previous groups, and
-  plates stay in declaration order (file-name numbering). Unbounded jobs
-  are always a single group. Fill order is authoritative over tightness:
-  each group optimizes only within its own plates.
-- **Plumbing:** `layout` is a keyword on `generate_layout()`,
-  `generate_layout_with_bounds()`, and `export_per_cutter_plts()` (all
-  default `DEFAULT_LAYOUT_MODE`); `cli/generate.py` forwards `job.layout`.
-- Pinned by `tests/test_layout.py::TestColumnMajorLayout` (fill order,
-  rows backward-compat, slot-set/footprint invariance, mixed-mode
-  cascade) and `tests/test_cli.py::TestGenerateRun::test_layout_is_forwarded_to_export`.
+  labels coexist; it aborts with `LayoutFitError` when rotation is disabled.
 
 ### Integration Points
 - `parse_yaml(file_path)` returns a `JobSpec` ready for downstream bin-packing and rendering pipelines
