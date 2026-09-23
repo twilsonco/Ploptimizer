@@ -24,8 +24,8 @@ Example:
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass, field, replace
+from typing import Optional, Sequence
 
 import rectpack
 
@@ -35,7 +35,7 @@ from plt_optimizer.generate.label_renderer import (
     render_label_to_plt,
 )
 from plt_optimizer.generate.resolution import ResolvedLabel
-from plt_optimizer.generate.schema import PlateSpec
+from plt_optimizer.generate.schema import DEFAULT_LAYOUT_MODE, LayoutMode, PlateSpec
 
 # ---------------------------------------------------------------------------
 # Default plate dimensions for unbounded mode
@@ -214,11 +214,16 @@ def unroll_labels(
 # ---------------------------------------------------------------------------
 def _extract_packed_plates(
     packer: rectpack.packer.Packer,
+    *,
+    transpose: bool = False,
 ) -> list[PackedPlate]:
     """Translate ``rectpack`` results into typed ``PackedPlate`` objects.
 
     Args:
         packer: A ``rectpack.Packer`` that has already executed ``pack()``.
+        transpose: When True, the packer ran in the transposed column-major
+            frame (see :func:`_is_transposed`) and every placement is mapped
+            back into real plate space via ``(x, y, w, h) -> (y, x, h, w)``.
 
     Returns:
         A list of ``PackedPlate`` objects with all labels positioned.
@@ -231,32 +236,58 @@ def _extract_packed_plates(
             # Ignore empty auto-allocated bins
             continue
 
-        plate = PackedPlate(
-            plate_id=bin_obj.bid,
-            width=bin_obj.width,
-            height=bin_obj.height,
-        )
+        if transpose:
+            # The packer's bin was offered as (height, width); report the
+            # real plate dimensions.
+            plate = PackedPlate(
+                plate_id=bin_obj.bid,
+                width=bin_obj.height,
+                height=bin_obj.width,
+            )
+        else:
+            plate = PackedPlate(
+                plate_id=bin_obj.bid,
+                width=bin_obj.width,
+                height=bin_obj.height,
+            )
 
         for rect in bin_obj:
             # Unpack the custom ID tuple we passed in. The third element is
             # the *packing* width the rectangle was added with (rendered
-            # dimensions in the bounds path, nominal otherwise) — the only
+            # dimensions in the bounds path, nominal otherwise; in the
+            # transposed frame this is the packer-space width) -- the only
             # reliable baseline for rotation detection, since the nominal
             # ResolvedLabel width may differ from what was actually packed.
             rect_id, source_label, pack_width = rect.rid
 
-            # Detect rotation: rect.width/height reflect post-rotation dims.
+            # Detect rotation: rect.width/height reflect post-rotation dims
+            # in the *packer* frame. In the transposed frame a packer-space
+            # rotation is exactly a real-space rotation (a 90-degree swap
+            # composed with the transpose is again a 90-degree swap), so
+            # comparing against the packer-space width stays correct.
             was_rotated = not math.isclose(rect.width, pack_width, rel_tol=1e-9)
 
-            packed_label = PackedLabel(
-                label_id=rect_id,
-                x=rect.x,
-                y=rect.y,
-                width=rect.width,
-                height=rect.height,
-                rotated=was_rotated,
-                source_label=source_label,
-            )
+            if transpose:
+                # Map the placement back out of the transposed frame.
+                packed_label = PackedLabel(
+                    label_id=rect_id,
+                    x=rect.y,
+                    y=rect.x,
+                    width=rect.height,
+                    height=rect.width,
+                    rotated=was_rotated,
+                    source_label=source_label,
+                )
+            else:
+                packed_label = PackedLabel(
+                    label_id=rect_id,
+                    x=rect.x,
+                    y=rect.y,
+                    width=rect.width,
+                    height=rect.height,
+                    rotated=was_rotated,
+                    source_label=source_label,
+                )
             plate.labels.append(packed_label)
 
         final_plates.append(plate)
@@ -264,10 +295,267 @@ def _extract_packed_plates(
     return final_plates
 
 
+# The ``rid`` payload carried with every rectangle: the instance id, the
+# source label, and the *packing* width the rectangle was offered to the
+# packer with (the baseline rotation detection compares against).
+_RidPayload = tuple[str, ResolvedLabel, float]
+
 # A rectangle entry as passed to the packer: (width, height, rid-payload).
-# The ``rid`` payload is an opaque tuple that rectpack preserves verbatim and
-# which :func:`_extract_packed_plates` later unpacks.
-_RectEntry = tuple[float, float, object]
+# The ``rid`` payload is preserved verbatim by rectpack and recovered by
+# :func:`_extract_packed_plates`.
+_RectEntry = tuple[float, float, _RidPayload]
+
+
+def _is_transposed(layout: LayoutMode) -> bool:
+    """Whether a fill-order mode requires transposed (column-major) packing.
+
+    ``rectpack`` offers no sort option able to enforce a fill order (for
+    identical rectangles every sort algorithm produces identical order, and
+    the emergent fill order is purely a property of the placement
+    heuristics' tie-breaking), so column-major packing is realized by
+    transposing the problem: rectangles ``(w, h)`` and bins ``(W, H)`` are
+    swapped, the packer then fills the transposed width -- the real
+    height -- first, and every placement is mapped back verbatim.
+
+    Args:
+        layout: The resolved plate fill-order mode.
+
+    Returns:
+        True when packing must run in the transposed frame.
+    """
+    # Equality (not identity): LayoutMode is a str-Enum, so raw YAML/CLI
+    # strings compare correctly against the members.
+    return layout != LayoutMode.ROWS
+
+
+def _transpose_entries(entries: list[_RectEntry], transpose: bool) -> list[_RectEntry]:
+    """Swap rectangle dimensions into the transposed packing frame.
+
+    The ``rid`` payload is rebuilt carrying the *packer-space* width, so
+    rotation detection in :func:`_extract_packed_plates` keeps comparing
+    against the dimensions actually offered to the packer.
+
+    Args:
+        entries: Real-space ``(pack_width, pack_height, rid)`` tuples.
+        transpose: When False, entries are returned unchanged.
+
+    Returns:
+        Packer-space ``(pack_width, pack_height, rid)`` tuples.
+    """
+    if not transpose:
+        return entries
+    return [
+        (height, width, (rect_id, source_label, height))
+        for width, height, (rect_id, source_label, _pack_width) in entries
+    ]
+
+
+@dataclass(frozen=True)
+class _PlateGroup:
+    """One packing pass: bins sharing a fill-order mode, in declaration order.
+
+    Attributes:
+        bins: ``(bid, width, height)`` plate definitions in real space.
+        layout: The fill-order mode shared by every plate in the group.
+    """
+
+    bins: tuple[tuple[str, float, float], ...]
+    layout: LayoutMode
+
+
+def _resolve_plate_layouts(
+    provided_plates: Optional[list[PlateSpec]],
+    job_layout: LayoutMode,
+    max_default_plates: int,
+) -> list[_PlateGroup]:
+    """Group plates into sequential same-mode packing passes.
+
+    Consecutive plates resolving to the same mode share one packing pass,
+    so single-mode jobs -- including every unbounded job -- pack in exactly
+    one pass, identically to the historical behaviour. When plates mix
+    modes, each maximal run of same-mode plates becomes its own group and
+    the groups pack sequentially in declaration order: a group receives
+    only the label instances left over from the previous groups.
+
+    Args:
+        provided_plates: User-specified plates (constrained mode), or
+            ``None`` / empty for unbounded auto-allocation of default
+            24x16 plates.
+        job_layout: The job-level fill-order mode, used as the fallback for
+            plates that do not set ``layout`` and for unbounded mode.
+        max_default_plates: Number of default plates to offer in unbounded
+            mode (theoretical maximum: one per label instance).
+
+    Returns:
+        Declaration-ordered groups of same-mode bins.
+    """
+    if not provided_plates:
+        return [
+            _PlateGroup(
+                bins=tuple(
+                    (f"default_plate_{i + 1}", DEFAULT_PLATE_WIDTH, DEFAULT_PLATE_HEIGHT)
+                    for i in range(max_default_plates)
+                ),
+                layout=job_layout,
+            )
+        ]
+
+    groups: list[_PlateGroup] = []
+    for plate in provided_plates:
+        mode = plate.layout if plate.layout is not None else job_layout
+        entry = (plate.id, plate.width, plate.height)
+        if groups and groups[-1].layout == mode:
+            groups[-1] = _PlateGroup(bins=groups[-1].bins + (entry,), layout=mode)
+        else:
+            groups.append(_PlateGroup(bins=(entry,), layout=mode))
+    return groups
+
+
+def _scan_key(label: PackedLabel) -> tuple[float, float]:
+    """Sort key placing labels in column-major (reading) order.
+
+    Labels read top-to-bottom then advance rightward: primary key ``x``,
+    secondary ``y``.
+
+    Args:
+        label: The packed label to key.
+
+    Returns:
+        An ``(x, y)`` coordinate key.
+    """
+    return (label.x, label.y)
+
+
+def _reorder_labels_by_scan(
+    plates: list[PackedPlate],
+    declaration_order: dict[str, int],
+) -> None:
+    """Reassign label instances so their sequence reads column-major.
+
+    ``rectpack``'s placement order is emergent and shape-dependent (no
+    algorithm, sort or coordinate frame reliably yields a chosen fill
+    order -- in particular a uniform grid of identical labels tiles the
+    same way in the transposed frame), so the packer's *slot set* is kept
+    exactly as packed and only the label-to-slot assignment is permuted.
+    Slots are grouped by footprint signature ``(width, height, rotated)``
+    and within each group the instances -- in declaration order (see
+    :paramref:`declaration_order`) -- are handed to the slots in scan
+    order. Every label therefore lands on a slot of its exact own
+    dimensions, leaving geometry, footprint, plate count and collision
+    results untouched while making the emitted sequence read top-to-bottom
+    before advancing rightward.
+
+    ``plate.labels`` is additionally re-sorted into scan order, because its
+    order drives assembly emission order and the plate-space optimizer's
+    baseline tour.
+
+    Only called for ``COLUMNS``; ``ROWS`` keeps ``rectpack``'s placement
+    order verbatim so the historical layout stays bit-identical.
+
+    Args:
+        plates: Packed plates to reorder in place.
+        declaration_order: Maps each instance id to its position in the
+            input rectangle list (label declaration order, then instance
+            index), used to hand instances to slots in that order.
+    """
+    for plate in plates:
+        groups: dict[tuple[float, float, bool], list[PackedLabel]] = {}
+        for label in plate.labels:
+            signature = (
+                round(label.width, 9),
+                round(label.height, 9),
+                label.rotated,
+            )
+            groups.setdefault(signature, []).append(label)
+
+        reordered: list[PackedLabel] = []
+        for members in groups.values():
+            slots = sorted(members, key=_scan_key)
+            instances = sorted(members, key=lambda label: declaration_order[label.label_id])
+            # Slot geometry stays; identity moves to the scan-order slot.
+            reordered.extend(
+                replace(slot, label_id=inst.label_id, source_label=inst.source_label)
+                for slot, inst in zip(slots, instances)
+            )
+
+        reordered.sort(key=_scan_key)
+        plate.labels = reordered
+
+
+def _pack_labels(
+    rectangles_with_rid: list[_RectEntry],
+    groups: Sequence[_PlateGroup],
+    *,
+    allow_rotation: bool,
+    is_constrained: bool,
+) -> list[PackedPlate]:
+    """Pack labels through sequential same-mode plate groups.
+
+    Each group runs :func:`_pack_best` against its own plates in its own
+    fill-order frame, consuming only the instances left over from previous
+    groups; groups whose plates are already full receive nothing. Because
+    groups are maximal runs of *consecutive* same-mode plates, the returned
+    plates stay in the caller's plate declaration order, which keeps the
+    ``<2-digit plate>`` numbering in exported file names intuitive.
+
+    Args:
+        rectangles_with_rid: Real-space ``(w, h, rid)`` tuples (the ``rid``
+            payload carries the real packing width; each group transposes
+            it into packer space as needed).
+        groups: Packing passes in declaration order (see
+            :func:`_resolve_plate_layouts`).
+        allow_rotation: Forwarded to :func:`_pack_best`.
+        is_constrained: Whether user-provided plates are in use (selects
+            the :class:`LayoutFitError` wording).
+
+    Returns:
+        Packed plates in declaration order; empty auto-allocated bins are
+        discarded.
+
+    Raises:
+        LayoutFitError: If any label instance could not be placed.
+    """
+    remaining = list(rectangles_with_rid)
+    plates: list[PackedPlate] = []
+    # Instance id -> position in the input list (label declaration order,
+    # then instance index). Drives column-major scan reassignment so the
+    # emitted sequence follows declaration order regardless of id format.
+    declaration_order = {entry[2][0]: index for index, entry in enumerate(rectangles_with_rid)}
+
+    for group in groups:
+        if not remaining:
+            break
+        packer = _pack_best(
+            remaining,
+            [(width, height, bid) for bid, width, height in group.bins],
+            allow_rotation=allow_rotation,
+            layout=group.layout,
+        )
+        packed = _extract_packed_plates(packer, transpose=_is_transposed(group.layout))
+        if _is_transposed(group.layout):
+            _reorder_labels_by_scan(packed, declaration_order)
+        placed = {label.label_id for plate in packed for label in plate.labels}
+        remaining = [entry for entry in remaining if entry[2][0] not in placed]
+        plates.extend(plate for plate in packed if plate.labels)
+
+    if remaining:
+        unfitted = len(rectangles_with_rid) - len(remaining)
+        if is_constrained:
+            raise LayoutFitError(
+                f"Could only fit {unfitted} of {len(rectangles_with_rid)} labels "
+                "on the provided plates. Please specify larger or "
+                "additional plates."
+            )
+        else:
+            # This should only trigger if a single label is larger than
+            # 24x16 in both orientations (rotation-aware packing).
+            raise LayoutFitError(
+                "A label's dimensions exceed the maximum plate size of "
+                f"{DEFAULT_PLATE_WIDTH}x{DEFAULT_PLATE_HEIGHT} in either "
+                "orientation."
+            )
+
+    return plates
 
 
 def _count_rotated(packer: rectpack.packer.Packer) -> int:
@@ -296,6 +584,7 @@ def _pack_best(
     rectangles_with_rid: list[_RectEntry],
     bin_specs: list[tuple[float, float, str]],
     allow_rotation: bool = True,
+    layout: LayoutMode = DEFAULT_LAYOUT_MODE,
 ) -> rectpack.packer.Packer:
     """Run several packing heuristics and return the packer with the best fit.
 
@@ -321,6 +610,12 @@ def _pack_best(
             are considered. Rotated labels have their whole content rotated
             clockwise during plate assembly (see
             ``vectorize.assemble_plt_from_rendered_labels``).
+        layout: Plate fill-order mode. ``COLUMNS`` (the default) runs the
+            whole candidate sweep in the transposed frame -- rectangles and
+            bins swapped -- so the packer's native width-first fill becomes
+            a height-first fill in real space. The used-area footprint
+            metric is transpose-invariant (``max_x * max_y``), so candidate
+            ranking is unaffected. ``ROWS`` packs directly.
 
     Returns:
         The best-performing configured ``rectpack.Packer`` that successfully
@@ -328,6 +623,11 @@ def _pack_best(
         the first packer (its partial result is surfaced to callers for error
         reporting).
     """
+    transpose = _is_transposed(layout)
+    packer_rects = _transpose_entries(rectangles_with_rid, transpose)
+    if transpose:
+        bin_specs = [(height, width, bid) for width, height, bid in bin_specs]
+
     # Rotation variants to evaluate per packing configuration. With rotation
     # disabled the behaviour is exactly the historical single-variant sweep.
     orientations: tuple[bool, ...] = (False, True) if allow_rotation else (False,)
@@ -346,7 +646,7 @@ def _pack_best(
                 rotation=rotation,
             )
 
-            for w, h, rid in rectangles_with_rid:
+            for w, h, rid in packer_rects:
                 packer.add_rect(w, h, rid=rid)
 
             for width, height, bid in bin_specs:
@@ -355,7 +655,7 @@ def _pack_best(
             packer.pack()
 
             total_packed = sum(len(b) for b in packer)
-            if total_packed < len(rectangles_with_rid):
+            if total_packed < len(packer_rects):
                 # This candidate could not fit everything; keep it as a
                 # fallback only if we have nothing better yet.
                 if best_packer is None:
@@ -414,6 +714,7 @@ def generate_layout(
     resolved_labels: list[ResolvedLabel],
     provided_plates: Optional[list[PlateSpec]] = None,
     allow_rotation: bool = True,
+    layout: LayoutMode = DEFAULT_LAYOUT_MODE,
 ) -> list[PackedPlate]:
     """Pack resolved labels onto physical plates.
 
@@ -429,6 +730,11 @@ def generate_layout(
             label instances 90 degrees when it improves the fit. Rotated
             labels are flagged ``PackedLabel.rotated`` so plate assembly
             can rotate their content clockwise accordingly.
+        layout: Default plate fill-order mode (``COLUMNS`` fills each
+            plate's height before advancing to the next column; ``ROWS``
+            fills the width first). Individual plates may override it via
+            ``PlateSpec.layout``; mixed-mode plates pack in sequential
+            declaration-ordered groups (see :func:`_resolve_plate_layouts`).
 
     Returns:
         A list of ``PackedPlate`` objects containing all successfully
@@ -454,44 +760,14 @@ def generate_layout(
     ]
 
     is_constrained = provided_plates is not None and len(provided_plates) > 0
+    groups = _resolve_plate_layouts(provided_plates, layout, len(rectangles))
 
-    if is_constrained:
-        # Constrained mode: use exactly what the user provided.
-        assert provided_plates is not None  # narrowed by is_constrained
-        bin_specs = [
-            (plate.width, plate.height, plate.id)
-            for plate in provided_plates
-            if plate.id is not None
-        ]
-    else:
-        # Unbounded mode: provide enough default plates to guarantee a fit.
-        # Theoretical maximum is 1 plate per label instance.
-        bin_specs = [
-            (DEFAULT_PLATE_WIDTH, DEFAULT_PLATE_HEIGHT, f"default_plate_{i + 1}")
-            for i in range(len(rectangles))
-        ]
-
-    packer = _pack_best(rect_with_rid, bin_specs, allow_rotation=allow_rotation)
-
-    # Verify all labels were packed.
-    total_packed = sum(len(b) for b in packer)
-    if total_packed < len(rectangles):
-        if is_constrained:
-            raise LayoutFitError(
-                f"Could only fit {total_packed} of {len(rectangles)} labels "
-                "on the provided plates. Please specify larger or "
-                "additional plates."
-            )
-        else:
-            # This should only trigger if a single label is larger than 24x16
-            # in both orientations (rotation-aware packing).
-            raise LayoutFitError(
-                "A label's dimensions exceed the maximum plate size of "
-                f"{DEFAULT_PLATE_WIDTH}x{DEFAULT_PLATE_HEIGHT} in either "
-                "orientation."
-            )
-
-    return _extract_packed_plates(packer)
+    return _pack_labels(
+        rect_with_rid,
+        groups,
+        allow_rotation=allow_rotation,
+        is_constrained=is_constrained,
+    )
 
 
 def generate_layout_with_bounds(
@@ -499,6 +775,7 @@ def generate_layout_with_bounds(
     provided_plates: Optional[list[PlateSpec]] = None,
     pen_map: Optional[dict[float, int]] = None,
     allow_rotation: bool = True,
+    layout: LayoutMode = DEFAULT_LAYOUT_MODE,
 ) -> tuple[list[PackedPlate], dict[str, RenderedLabel]]:
     """Pack resolved labels onto plates using rendered dimensions.
 
@@ -523,6 +800,11 @@ def generate_layout_with_bounds(
             label instances 90 degrees when it improves the fit. Rotated
             labels are flagged ``PackedLabel.rotated`` so plate assembly
             can rotate their content clockwise accordingly.
+        layout: Default plate fill-order mode (``COLUMNS`` fills each
+            plate's height before advancing to the next column; ``ROWS``
+            fills the width first). Individual plates may override it via
+            ``PlateSpec.layout``; mixed-mode plates pack in sequential
+            declaration-ordered groups (see :func:`_resolve_plate_layouts`).
 
     Returns:
         A tuple of:
@@ -558,44 +840,14 @@ def generate_layout_with_bounds(
     ]
 
     is_constrained = provided_plates is not None and len(provided_plates) > 0
+    groups = _resolve_plate_layouts(provided_plates, layout, len(rectangles))
 
-    if is_constrained:
-        # Constrained mode: use exactly what the user provided.
-        assert provided_plates is not None  # narrowed by is_constrained
-        bin_specs = [
-            (plate.width, plate.height, plate.id)
-            for plate in provided_plates
-            if plate.id is not None
-        ]
-    else:
-        # Unbounded mode: provide enough default plates to guarantee a fit.
-        # Theoretical maximum is 1 plate per label instance.
-        bin_specs = [
-            (DEFAULT_PLATE_WIDTH, DEFAULT_PLATE_HEIGHT, f"default_plate_{i + 1}")
-            for i in range(len(rectangles))
-        ]
-
-    packer = _pack_best(rect_with_rid, bin_specs, allow_rotation=allow_rotation)
-
-    # Verify all labels were packed.
-    total_packed = sum(len(b) for b in packer)
-    if total_packed < len(rectangles):
-        if is_constrained:
-            raise LayoutFitError(
-                f"Could only fit {total_packed} of {len(rectangles)} labels "
-                "on the provided plates. Please specify larger or "
-                "additional plates."
-            )
-        else:
-            # This should only trigger if a single rendered label is larger
-            # than 24x16 in both orientations (rotation-aware packing).
-            raise LayoutFitError(
-                "A rendered label's dimensions exceed the maximum plate size of "
-                f"{DEFAULT_PLATE_WIDTH}x{DEFAULT_PLATE_HEIGHT} in either "
-                "orientation."
-            )
-
-    plates = _extract_packed_plates(packer)
+    plates = _pack_labels(
+        rect_with_rid,
+        groups,
+        allow_rotation=allow_rotation,
+        is_constrained=is_constrained,
+    )
 
     # Return both the plates and the rendered labels cache for Phase 3
     return plates, rendered_labels

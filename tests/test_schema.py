@@ -19,11 +19,13 @@ from pydantic import BaseModel, ValidationError
 
 from plt_optimizer.generate.schema import (
     DEFAULT_HOLE_DIAMETER,
+    DEFAULT_LAYOUT_MODE,
     HoleLocation,
     HoleSpec,
     JobSpec,
     LabelAttributes,
     LabelSpec,
+    LayoutMode,
     PlateSpec,
     TextAttributes,
     TextHAlignment,
@@ -561,6 +563,109 @@ class TestTextChunkMode:
         )
         with pytest.raises((ValidationError, ValueError)):
             parse_yaml(spec_path)
+
+
+class TestLayoutMode:
+    """Tests for the plate fill-order mode (``layout``) cascade."""
+
+    def test_job_defaults_to_columns(self) -> None:
+        """Jobs fill plate height first unless ``layout`` says otherwise."""
+        job = JobSpec(job_name="Layout", count=1, content=[TextLine(text="X")])
+        assert job.layout is LayoutMode.COLUMNS
+        assert DEFAULT_LAYOUT_MODE is LayoutMode.COLUMNS
+
+    def test_rows_parsed_from_yaml(self, tmp_path: Path) -> None:
+        """``layout: rows`` must be honored from YAML."""
+        spec_path = tmp_path / "rows.yaml"
+        spec_path.write_text(
+            "job:\n"
+            "  job_name: 'Row Major'\n"
+            "  layout: rows\n"
+            "  count: 1\n"
+            "  content:\n"
+            "    - text: 'X'\n",
+            encoding="utf-8",
+        )
+        job = parse_yaml(spec_path)
+        assert job.layout is LayoutMode.ROWS
+
+    def test_columns_parsed_from_yaml(self, tmp_path: Path) -> None:
+        """An explicit ``layout: columns`` parses like the default."""
+        spec_path = tmp_path / "cols.yaml"
+        spec_path.write_text(
+            "job:\n"
+            "  job_name: 'Column Major'\n"
+            "  layout: columns\n"
+            "  count: 1\n"
+            "  content:\n"
+            "    - text: 'X'\n",
+            encoding="utf-8",
+        )
+        job = parse_yaml(spec_path)
+        assert job.layout is LayoutMode.COLUMNS
+
+    def test_invalid_mode_rejected(self, tmp_path: Path) -> None:
+        """Only 'columns' and 'rows' are valid fill-order modes."""
+        spec_path = tmp_path / "bad_layout.yaml"
+        spec_path.write_text(
+            "job:\n"
+            "  job_name: 'Bad Layout'\n"
+            "  layout: diagonal\n"
+            "  count: 1\n"
+            "  content:\n"
+            "    - text: 'X'\n",
+            encoding="utf-8",
+        )
+        with pytest.raises((ValidationError, ValueError)):
+            parse_yaml(spec_path)
+
+    def test_plate_defaults_to_none_for_inheritance(self) -> None:
+        """An unset plate layout inherits the job value (None = inherit)."""
+        plate = PlateSpec(id="p1", width=24.0, height=16.0, margin=0.0, clearance_padding=0.0)
+        assert plate.layout is None
+
+    def test_plate_override_parsed_from_yaml(self, tmp_path: Path) -> None:
+        """A plate may override the job-level fill order."""
+        spec_path = tmp_path / "plate_layout.yaml"
+        spec_path.write_text(
+            "job:\n"
+            "  job_name: 'Mixed'\n"
+            "  layout: columns\n"
+            "  plates:\n"
+            "    - id: 'a'\n"
+            "      width: 24\n"
+            "      height: 16\n"
+            "      margin: 0\n"
+            "      clearance_padding: 0\n"
+            "      layout: rows\n"
+            "    - id: 'b'\n"
+            "      width: 24\n"
+            "      height: 16\n"
+            "      margin: 0\n"
+            "      clearance_padding: 0\n"
+            "  count: 1\n"
+            "  content:\n"
+            "    - text: 'X'\n",
+            encoding="utf-8",
+        )
+        job = parse_yaml(spec_path)
+        assert job.layout is LayoutMode.COLUMNS
+        assert job.plates is not None
+        assert job.plates[0].layout is LayoutMode.ROWS
+        # Unset plates fall through to the job-level default.
+        assert job.plates[1].layout is None
+
+    def test_invalid_plate_mode_rejected(self) -> None:
+        """Plate-level values go through the same enum validation."""
+        with pytest.raises((ValidationError, ValueError)):
+            PlateSpec(
+                id="p1",
+                width=24.0,
+                height=16.0,
+                margin=0.0,
+                clearance_padding=0.0,
+                layout="spiral",
+            )
 
 
 class TestLabelSpecValidation:
