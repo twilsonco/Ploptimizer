@@ -707,7 +707,7 @@ class TestCrossAxisBreakPoints:
         )
 
         example_path = (
-            Path(__file__).parent.parent / "examples" / "2026-07-10 SW0914 1230sheet0.plt"
+            Path(__file__).parent.parent / "tests_deps" / "2026-07-10 SW0914 1230sheet0.plt"
         )
         if not example_path.exists():
             pytest.skip(f"Example file not found: {example_path}")

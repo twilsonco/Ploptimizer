@@ -18,9 +18,9 @@
 #     vertically centered). More items -> extra lines inherit label attrs.
 #
 # Run with:
-#   uv run plt-optimizer generate examples/replacement_job.yaml -o out.plt
+#   uv run plt-optimizer generate examples/job_specs/replacement_job.yaml -o out.plt
 # or:
-#   uv run python run_integration_test.py examples/replacement_job.yaml
+#   uv run python run_integration_test.py examples/job_specs/replacement_job.yaml
 job:
   job_name: "Replacement Text Demo - Field Tags"
 
@@ -32,7 +32,7 @@ job:
   # -------------------------------------------------------------------
   # 1. Template WITH placeholder content: the two `content` lines
   #    declare per-line attributes (sizes, alignment). Each line of
-  #    examples/replacement_text_sample.txt replaces them in order.
+  #    examples/job_specs/replacement_text_sample.txt replaces them in order.
   #    The file has 5 lines -> 5 label copies (badge_0000 .. badge_0004).
   #    Every file line carries 3 items, so each copy renders 3 lines:
   #    the first two use the placeholder attributes, the third is an
@@ -52,7 +52,7 @@ job:
 
     # -----------------------------------------------------------------
     # 2. Template WITHOUT content: every rendered line inherits the
-    #    label-level attributes. examples/replacement_text_assets.txt
+    #    label-level attributes. examples/job_specs/replacement_text_assets.txt
     #    has 4 lines; the first three carry two items (two rendered
     #    lines), the last carries one item (one rendered line, still
     #    vertically centered).

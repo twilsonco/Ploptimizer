@@ -379,7 +379,7 @@ class TestRotationEnabled:
 
 
 class TestRotationDemoExample:
-    """Regression tests for examples/rotation_demo_job.yaml.
+    """Regression tests for tests_deps/rotation_demo_job.yaml.
 
     The example is the hand-crafted rotation fixture: its 24x10 scrap sheet
     only fits every label when the packer rotates, and its equal-footprint
@@ -391,7 +391,7 @@ class TestRotationDemoExample:
         from plt_optimizer.generate.resolution import resolve_job_spec
         from plt_optimizer.generate.schema import parse_yaml
 
-        job = parse_yaml(Path("examples/rotation_demo_job.yaml"))
+        job = parse_yaml(Path("tests_deps/rotation_demo_job.yaml"))
         return resolve_job_spec(job), job
 
     def test_example_rotates_to_fit(self) -> None:

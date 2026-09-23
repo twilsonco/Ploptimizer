@@ -162,7 +162,7 @@ class TestHoleLocationGroupExpansion:
 
     def test_complex_yaml_group_holes_expand(self) -> None:
         """complex_test_job.yaml group holes expand to atomic members on parse."""
-        job = parse_yaml(Path("examples/complex_test_job.yaml"))
+        job = parse_yaml(Path("tests_deps/complex_test_job.yaml"))
         labels = {label.id: label for label in job.labels or []}
 
         valve = labels["valve_tag"]
@@ -405,7 +405,7 @@ class TestParseYaml:
 
     def test_parse_sample_spec_success(self) -> None:
         """The sample specification should parse successfully."""
-        spec_path = Path("examples/sample_spec.yaml")
+        spec_path = Path("tests_deps/sample_spec.yaml")
         job = parse_yaml(spec_path)
 
         assert job.job_name == "Control Panel Tags - Batch 01"
@@ -414,7 +414,7 @@ class TestParseYaml:
 
     def test_parse_plate_properties(self) -> None:
         """Plate properties should be correctly parsed."""
-        spec_path = Path("examples/sample_spec.yaml")
+        spec_path = Path("tests_deps/sample_spec.yaml")
         job = parse_yaml(spec_path)
 
         plate = job.plates[0]
@@ -426,7 +426,7 @@ class TestParseYaml:
 
     def test_parse_label_with_holes(self) -> None:
         """Label with holes should parse correctly."""
-        spec_path = Path("examples/sample_spec.yaml")
+        spec_path = Path("tests_deps/sample_spec.yaml")
         job = parse_yaml(spec_path)
 
         label = job.labels[0]
@@ -444,7 +444,7 @@ class TestParseYaml:
 
     def test_text_height_parsed_from_sample_spec(self) -> None:
         """Text lines in sample spec should expose text_height."""
-        spec_path = Path("examples/sample_spec.yaml")
+        spec_path = Path("tests_deps/sample_spec.yaml")
         job = parse_yaml(spec_path)
 
         label = job.labels[0]

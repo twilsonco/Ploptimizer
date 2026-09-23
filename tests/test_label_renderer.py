@@ -174,7 +174,7 @@ class TestBoundaryClosure:
 
     def test_boundary_is_closed_loop(self) -> None:
         """Boundary rectangle should close back to its starting vertex."""
-        job = parse_yaml("examples/test123_spec.yaml")
+        job = parse_yaml("tests_deps/test123_spec.yaml")
         from plt_optimizer.generate.resolution import resolve_job_spec
 
         labels = resolve_job_spec(job)
@@ -192,7 +192,7 @@ class TestBoundaryClosure:
 
     def test_boundary_spans_nominal_dimensions(self) -> None:
         """Boundary should span exactly the label's nominal width and height."""
-        job = parse_yaml("examples/test123_spec.yaml")
+        job = parse_yaml("tests_deps/test123_spec.yaml")
         from plt_optimizer.generate.resolution import resolve_job_spec
 
         labels = resolve_job_spec(job)
@@ -214,7 +214,7 @@ class TestRenderLabelToPlt:
 
     def test_render_simple_label(self) -> None:
         """Test rendering a simple single-label job."""
-        job = parse_yaml("examples/test123_spec.yaml")
+        job = parse_yaml("tests_deps/test123_spec.yaml")
         from plt_optimizer.generate.resolution import resolve_job_spec
 
         labels = resolve_job_spec(job)
@@ -230,7 +230,7 @@ class TestRenderLabelToPlt:
 
     def test_render_label_bounds_are_positive(self) -> None:
         """Test that rendered bounds are non-negative (after postprocessing)."""
-        job = parse_yaml("examples/test123_spec.yaml")
+        job = parse_yaml("tests_deps/test123_spec.yaml")
         from plt_optimizer.generate.resolution import resolve_job_spec
 
         labels = resolve_job_spec(job)
@@ -245,7 +245,7 @@ class TestRenderLabelToPlt:
 
     def test_render_label_bounds_reasonable(self) -> None:
         """Test that rendered bounds are reasonable (within label dimensions)."""
-        job = parse_yaml("examples/test123_spec.yaml")
+        job = parse_yaml("tests_deps/test123_spec.yaml")
         from plt_optimizer.generate.resolution import resolve_job_spec
 
         labels = resolve_job_spec(job)
@@ -260,7 +260,7 @@ class TestRenderLabelToPlt:
 
     def test_render_all_test123_labels(self) -> None:
         """Test rendering the three original test123 labels."""
-        job = parse_yaml("examples/test123_spec.yaml")
+        job = parse_yaml("tests_deps/test123_spec.yaml")
         from plt_optimizer.generate.resolution import resolve_job_spec
 
         labels = resolve_job_spec(job)

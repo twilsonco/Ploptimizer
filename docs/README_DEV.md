@@ -47,10 +47,13 @@ PLT-Optimizer/
 ├── run_integration_test.py # End-to-end generate-pipeline test runner
 ├── tools.json              # Cutter inventory + boundary/hole cutter size
 ├── tests/                  # Test suite (pytest)
+├── tests_deps/             # Frozen fixtures used by unit tests (do not move/edit)
+│   ├── test123_spec.yaml   # Default integration-test job spec
+│   ├── complex_test_job.yaml  # Feature stress-test job spec
+│   └── *.plt               # Identity/profiler/simplifier example PLTs
 ├── examples/               # Example PLT files, job specs, and scripts
 │   ├── run_diagnostics.py  # Full workflow demonstration
-│   ├── test123_spec.yaml   # Default integration-test job spec
-│   └── complex_test_job.yaml  # Feature stress-test job spec
+│   └── job_specs/          # User-facing sample specs + replacement text data files
 ├── docs/                   # Developer documentation
 │   ├── README_DEV.md
 │   └── INTEGRATION_TESTING.md
@@ -368,7 +371,7 @@ The pipeline profiles the document first (text vs. structural): structural files
 
 ```bash
 uv run plt-optimizer generate spec.yaml -o out/ --no-plots
-uv run plt-optimizer generate examples/test123_spec.yaml
+uv run plt-optimizer generate tests_deps/test123_spec.yaml
 ```
 
 **Options:**
@@ -381,7 +384,7 @@ uv run plt-optimizer generate examples/test123_spec.yaml
 
 Outputs are named `<plate>_<kind>_<cutter>_<job_id>.plt` (`kind` = `text` or `bh` for borders+holes). Text–hole collisions abort the job with a non-zero exit code — see [`INTEGRATION_TESTING.md`](INTEGRATION_TESTING.md).
 
-**Job spec schema:** see the "YAML Job Specification" section of [`AGENTS.md`](../AGENTS.md) and the example specs in `examples/` (`sample_spec.yaml`, `test123_spec.yaml`, `complex_test_job.yaml`, `replacement_job.yaml`, `rotation_demo_job.yaml`).
+**Job spec schema:** see the "YAML Job Specification" section of [`AGENTS.md`](../AGENTS.md) and the example specs in `examples/job_specs/` (`sample_spec`-style jobs, `replacement_job.yaml`) plus the frozen unit-test fixtures in `tests_deps/` (`test123_spec.yaml`, `complex_test_job.yaml`, `sample_spec.yaml`, `rotation_demo_job.yaml`).
 
 #### `watch` — Hot-Watch Daemon
 
@@ -670,7 +673,7 @@ dumps:
 
 ```bash
 uv run python run_integration_test.py
-uv run python run_integration_test.py examples/complex_test_job.yaml
+uv run python run_integration_test.py tests_deps/complex_test_job.yaml
 ```
 
 Artifacts land under `test_output/integration_test/`. See

@@ -31,7 +31,7 @@ def extract_text_layer(plt_content: str) -> str:
 def visualize_text_only() -> None:
     """Render each label and create text-only plots."""
     # Parse job
-    job = parse_yaml("examples/test123_spec.yaml")
+    job = parse_yaml("tests_deps/test123_spec.yaml")
     labels = resolve_job_spec(job)
 
     print("\n" + "=" * 80)

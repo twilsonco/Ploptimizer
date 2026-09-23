@@ -20,7 +20,7 @@
 #     with fully static labels in one job
 #   - High-count volume labels forcing overflow onto the second plate
 #
-# Run with: python run_integration_test.py examples/complex_test_job.yaml
+# Run with: python run_integration_test.py tests_deps/complex_test_job.yaml
 job:
   job_name: "Complex Plant Signage - Batch 42"
 
@@ -214,7 +214,7 @@ job:
         - location: sides
 
     # 12. Replacement text file template (EngraveLab/Vision Pro "badge"):
-    #     examples/replacement_text_complex.txt drives the content; its
+    #     tests_deps/replacement_text_complex.txt drives the content; its
     #     line count (3) determines the instance count (badge_0000 ..
     #     badge_0002), so `count` must not be set alongside it. The
     #     `content` lines are placeholders declaring per-line attributes;

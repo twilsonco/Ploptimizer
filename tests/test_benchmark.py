@@ -50,9 +50,9 @@ def sample_input_dir(tmp_path: Path) -> Path:
     """Create a temporary directory with one small PLT file inside."""
     input_dir = tmp_path / "cad"
     input_dir.mkdir()
-    # Copy the smallest sample PLT from the examples folder so tests are
+    # Copy the smallest sample PLT from the tests_deps folder so tests are
     # hermetic and don't depend on a particular cwd at runtime.
-    src = Path(__file__).resolve().parents[1] / "examples" / "1-inch-square.plt"
+    src = Path(__file__).resolve().parents[1] / "tests_deps" / "1-inch-square.plt"
     (input_dir / "square.plt").write_bytes(src.read_bytes())
     return input_dir
 

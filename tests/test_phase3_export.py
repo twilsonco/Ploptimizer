@@ -15,7 +15,7 @@ class TestExportAndOptimizePhase3:
 
     def test_export_phase3_per_cutter_files(self, tmp_path: Path) -> None:
         """Phase 3 export writes per-cutter PLT files under plt/."""
-        job = parse_yaml("examples/test123_spec.yaml")
+        job = parse_yaml("tests_deps/test123_spec.yaml")
         resolved_labels = resolve_job_spec(job)
 
         result = export_per_cutter_plts(
@@ -50,7 +50,7 @@ class TestExportAndOptimizePhase3:
 
     def test_export_phase3_no_plots_by_default(self, tmp_path: Path) -> None:
         """Phase 3 export writes no PDFs unless plots=True."""
-        job = parse_yaml("examples/test123_spec.yaml")
+        job = parse_yaml("tests_deps/test123_spec.yaml")
         resolved_labels = resolve_job_spec(job)
 
         export_per_cutter_plts(
@@ -64,7 +64,7 @@ class TestExportAndOptimizePhase3:
 
     def test_export_per_cutter_plots(self, tmp_path: Path) -> None:
         """plots=True writes simple PDFs mirroring PLT names + all_*.pdf."""
-        job = parse_yaml("examples/test123_spec.yaml")
+        job = parse_yaml("tests_deps/test123_spec.yaml")
         resolved_labels = resolve_job_spec(job)
 
         result = export_per_cutter_plts(
@@ -90,7 +90,7 @@ class TestExportAndOptimizePhase3:
 
     def test_export_per_cutter_no_default_plots_by_default(self, tmp_path: Path) -> None:
         """Color-coded *_default.pdf plots are opt-in; absent by default."""
-        job = parse_yaml("examples/test123_spec.yaml")
+        job = parse_yaml("tests_deps/test123_spec.yaml")
         resolved_labels = resolve_job_spec(job)
 
         result = export_per_cutter_plts(
@@ -110,7 +110,7 @@ class TestExportAndOptimizePhase3:
 
     def test_export_per_cutter_default_plots_opt_in(self, tmp_path: Path) -> None:
         """default_plots=True writes *_default.pdf per PLT plus all_*_default.pdf."""
-        job = parse_yaml("examples/test123_spec.yaml")
+        job = parse_yaml("tests_deps/test123_spec.yaml")
         resolved_labels = resolve_job_spec(job)
 
         result = export_per_cutter_plts(
@@ -134,7 +134,7 @@ class TestExportAndOptimizePhase3:
 
     def test_export_per_cutter_skips_empty_groups(self, tmp_path: Path) -> None:
         """A job without holes still gets a borders file; no empty text files."""
-        job = parse_yaml("examples/test123_spec.yaml")
+        job = parse_yaml("tests_deps/test123_spec.yaml")
         resolved_labels = resolve_job_spec(job)
 
         result = export_per_cutter_plts(
@@ -153,7 +153,7 @@ class TestExportAndOptimizePhase3:
 
     def test_export_per_cutter_multi_cutter_naming(self, tmp_path: Path) -> None:
         """Distinct text cutters produce one text file per cutter diameter."""
-        job = parse_yaml("examples/complex_test_job.yaml")
+        job = parse_yaml("tests_deps/complex_test_job.yaml")
         resolved_labels = resolve_job_spec(job)
 
         result = export_per_cutter_plts(
@@ -177,7 +177,7 @@ class TestExportAndOptimizePhase3:
 
     def test_export_phase3_file_organization(self, tmp_path: Path) -> None:
         """All Phase 3 output files live under <output_dir>/plt/."""
-        job = parse_yaml("examples/test123_spec.yaml")
+        job = parse_yaml("tests_deps/test123_spec.yaml")
         resolved_labels = resolve_job_spec(job)
 
         result = export_per_cutter_plts(

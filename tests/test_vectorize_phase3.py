@@ -253,7 +253,7 @@ class TestAssemblePltFromRenderedLabels:
         from plt_optimizer.generate.resolution import resolve_job_spec
 
         # Get test label
-        job = parse_yaml("examples/test123_spec.yaml")
+        job = parse_yaml("tests_deps/test123_spec.yaml")
         labels = resolve_job_spec(job)
         label = labels[0]
 
@@ -295,7 +295,7 @@ class TestAssemblePltFromRenderedLabels:
         from plt_optimizer.generate.resolution import resolve_job_spec
 
         # Get test labels
-        job = parse_yaml("examples/test123_spec.yaml")
+        job = parse_yaml("tests_deps/test123_spec.yaml")
         labels = resolve_job_spec(job)
 
         # Render all labels
@@ -546,7 +546,7 @@ class TestExportStructuralLayerSkip:
         import plt_optimizer.generate.vectorize as vectorize
         from plt_optimizer.generate.resolution import resolve_job_spec
 
-        job = parse_yaml("examples/test123_spec.yaml")
+        job = parse_yaml("tests_deps/test123_spec.yaml")
         resolved_labels = resolve_job_spec(job)
 
         def fake_assemble(

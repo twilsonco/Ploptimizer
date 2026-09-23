@@ -7,7 +7,7 @@ job specifications used by the generate pipeline. It handles:
 - Root-level single-label jobs (no explicit `labels` list required)
 
 Example:
-    >>> job = parse_yaml("examples/sample_spec.yaml")
+    >>> job = parse_yaml("tests_deps/sample_spec.yaml")
     >>> print(job.job_name)
     'Control Panel Tags - Batch 01'
 """
@@ -557,7 +557,7 @@ def parse_yaml(file_path: str | Path) -> JobSpec:
         yaml.YAMLError: For malformed YAML syntax.
 
     Example:
-        >>> job = parse_yaml("examples/sample_spec.yaml")
+        >>> job = parse_yaml("tests_deps/sample_spec.yaml")
         >>> print(f"Loaded {job.job_name}")
     """
     path = Path(file_path)

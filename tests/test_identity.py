@@ -276,7 +276,7 @@ class TestMetadataPreservation:
         parser = PLTParser()
         writer = PLTWriter()
 
-        example_path = Path(__file__).parent.parent / "examples" / "test_rect_grid13sheet0.plt"
+        example_path = Path(__file__).parent.parent / "tests_deps" / "test_rect_grid13sheet0.plt"
 
         doc1 = parser.parse_file(example_path)
         output = writer.write_string(doc1)
@@ -311,8 +311,8 @@ class TestMetadataPreservation:
         parser = PLTParser()
         writer = PLTWriter()
 
-        examples_dir = Path(__file__).parent.parent / "examples"
-        original_path = examples_dir / "test_rect_grid13sheet0.plt"
+        deps_dir = Path(__file__).parent.parent / "tests_deps"
+        original_path = deps_dir / "test_rect_grid13sheet0.plt"
 
         doc_original = parser.parse_file(original_path)
 
@@ -383,8 +383,8 @@ class TestMetadataPreservation:
         writer = PLTWriter()
 
         # Load the 1-inch-square.plt example file
-        examples_dir = Path(__file__).parent.parent / "examples"
-        original_path = examples_dir / "1-inch-square.plt"
+        deps_dir = Path(__file__).parent.parent / "tests_deps"
+        original_path = deps_dir / "1-inch-square.plt"
 
         if not original_path.exists():
             pytest.skip(f"Example file not found: {original_path}")
@@ -567,8 +567,8 @@ class TestMetadataPreservation:
         writer = PLTWriter()
 
         # Load the 1x3 half inch letters holes1.plt example file
-        examples_dir = Path(__file__).parent.parent / "examples"
-        original_path = examples_dir / "1x3 half inch letters holes1.plt"
+        deps_dir = Path(__file__).parent.parent / "tests_deps"
+        original_path = deps_dir / "1x3 half inch letters holes1.plt"
 
         if not original_path.exists():
             pytest.skip(f"Example file not found: {original_path}")

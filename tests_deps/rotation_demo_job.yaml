@@ -17,7 +17,7 @@
 # the job aborts with LayoutFitError, so this file doubles as a regression
 # fixture for the flag.
 #
-# Run with: python run_integration_test.py examples/rotation_demo_job.yaml
+# Run with: python run_integration_test.py tests_deps/rotation_demo_job.yaml
 job:
   job_name: "Rotation Demo - Mix Rack Tags"
 

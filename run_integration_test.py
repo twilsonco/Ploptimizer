@@ -10,6 +10,9 @@ with intermediate state dumps for verification. Validates:
 - Vectorization and PLT export
 
 Run with: python run_integration_test.py
+Or target a specific spec / every spec in a directory:
+    python run_integration_test.py tests_deps/complex_test_job.yaml
+    python run_integration_test.py tests_deps
 """
 
 from __future__ import annotations
@@ -89,7 +92,7 @@ def phase_1_data_prep(
 
     Args:
         job_yaml_override: Optional path to an alternative job spec YAML.
-            If None, defaults to ``examples/test123_spec.yaml``.
+            If None, defaults to ``tests_deps/test123_spec.yaml``.
 
     Returns:
         Tuple of (job_yaml_path, tools_json_path, inventory,
@@ -98,7 +101,7 @@ def phase_1_data_prep(
     print_separator("PHASE 1: TEST DATA PREPARATION")
 
     workspace = Path(__file__).parent
-    job_yaml = job_yaml_override or workspace / "examples" / "test123_spec.yaml"
+    job_yaml = job_yaml_override or workspace / "tests_deps" / "test123_spec.yaml"
     if not job_yaml.is_absolute():
         job_yaml = workspace / job_yaml
     tools_json = workspace / "tools.json"
@@ -386,21 +389,17 @@ def phase_4_visualization(export_result: PerCutterExport) -> None:
 # ============================================================================
 # MAIN EXECUTION
 # ============================================================================
-def main(argv: list[str] | None = None) -> int:
-    """Execute the full end-to-end integration test pipeline.
+def _run_single_spec(spec_override: Path | None) -> int:
+    """Execute the full end-to-end integration test pipeline for one spec.
 
     Args:
-        argv: Optional CLI arguments. An optional positional argument
-            selects an alternative job spec YAML (e.g.
-            ``examples/complex_test_job.yaml``). Defaults to
-            ``examples/test123_spec.yaml``.
+        spec_override: Optional path to an alternative job spec YAML (e.g.
+            ``tests_deps/complex_test_job.yaml``). If None, defaults to
+            ``tests_deps/test123_spec.yaml``.
 
     Returns:
         Exit code (0 for success, 1 for failure).
     """
-    argv = list(sys.argv[1:] if argv is None else argv)
-    spec_override = Path(argv[0]) if argv else None
-
     try:
         # Phase 1: Data Preparation
         job_yaml, tools_json, inventory, boundary_hole_cutter = phase_1_data_prep(spec_override)
@@ -459,6 +458,79 @@ def main(argv: list[str] | None = None) -> int:
         print_separator("INTEGRATION TEST FAILED")
         print(f"✗ Error: {e}")
         return 1
+
+
+def _collect_spec_paths(spec_dir: Path) -> list[Path]:
+    """Expand a job-spec directory into the YAML files to run.
+
+    Args:
+        spec_dir: Directory containing job spec YAML files (scanned
+            non-recursively).
+
+    Returns:
+        Sorted list of ``*.yaml`` / ``*.yml`` files inside the directory.
+
+    Raises:
+        FileNotFoundError: If the directory contains no YAML job specs.
+    """
+    spec_paths = sorted(
+        path
+        for path in spec_dir.iterdir()
+        if path.is_file() and path.suffix.lower() in (".yaml", ".yml")
+    )
+    if not spec_paths:
+        raise FileNotFoundError(f"No YAML job specs found in directory: {spec_dir}")
+    return spec_paths
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Execute the full end-to-end integration test pipeline.
+
+    Args:
+        argv: Optional CLI arguments. An optional positional argument
+            selects an alternative job spec YAML (e.g.
+            ``tests_deps/complex_test_job.yaml``) or a directory of job spec
+            YAML files (e.g. ``tests_deps``); a directory runs every
+            ``*.yaml`` / ``*.yml`` file it contains, in sorted order, and
+            prints a PASS/FAIL summary at the end. Defaults to
+            ``tests_deps/test123_spec.yaml``.
+
+    Returns:
+        Exit code (0 for success, 1 if any spec failed).
+    """
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if not argv:
+        return _run_single_spec(None)
+
+    spec_override = Path(argv[0])
+    if not spec_override.is_absolute():
+        spec_override = Path(__file__).parent / spec_override
+
+    if not spec_override.is_dir():
+        return _run_single_spec(spec_override)
+
+    try:
+        spec_paths = _collect_spec_paths(spec_override)
+    except FileNotFoundError as e:
+        logger.error(f"Directory mode failed: {e}")
+        print_separator("INTEGRATION TEST FAILED")
+        print(f"✗ Error: {e}")
+        return 1
+
+    print_separator(f"DIRECTORY MODE: {len(spec_paths)} YAML job specs in {spec_override}")
+
+    results: list[tuple[Path, int]] = []
+    for index, spec_path in enumerate(spec_paths, start=1):
+        print_separator(f"RUN {index}/{len(spec_paths)}: {spec_path.name}")
+        results.append((spec_path, _run_single_spec(spec_path)))
+
+    print_separator("DIRECTORY RUN SUMMARY")
+    exit_code = 0
+    for spec_path, code in results:
+        status = "PASS" if code == 0 else "FAIL"
+        print(f"  [{status}] {spec_path.name}")
+        exit_code = max(exit_code, code)
+    return exit_code
 
 
 if __name__ == "__main__":

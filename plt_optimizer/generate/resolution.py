@@ -15,7 +15,7 @@ Resolution order for any given parameter:
 Example:
     >>> from plt_optimizer.generate.schema import parse_yaml
     >>> from plt_optimizer.generate.resolution import resolve_job_spec
-    >>> job = parse_yaml("examples/sample_spec.yaml")
+    >>> job = parse_yaml("tests_deps/sample_spec.yaml")
     >>> labels = resolve_job_spec(job)
     >>> print(labels[0].width)
     3.0

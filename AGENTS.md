@@ -18,6 +18,7 @@ Testing is not an afterthought; it is a primary deliverable.
 * **Test-Driven Operations:** Every time a new function or logical block is written and confirmed working, you must write the corresponding unit test immediately.
 * **Full Coverage Requirement:** Maintain 100% test coverage for all core parsing, writing, and optimization logic. Use `pytest` and `pytest-cov`.
 * **Identity Testing:** Any changes to the `parser.py` or `writer.py` must pass the identity validation suite (ensuring `input.plt -> parse -> write -> output.plt` results in semantic equivalence).
+* **Fixture Location (`tests_deps/`):** Any file read by a unit test must live in `tests_deps/` (adjacent to `tests/`), never in `examples/` or its subdirectories. `tests_deps/` is frozen: never move, rename, or edit its contents unless you are deliberately updating the fixtures together with the tests that pin them. `examples/` remains user-facing sample material that is safe to tweak.
 * **Execution:** Run the test suite autonomously after modifying the codebase. Do not commit failing code.
 
 ## 3. Git Workflow & Commits
@@ -261,8 +262,8 @@ whitespace character, never newline/alphanumeric).
   `LabelSpec` with `count=1`, id suffix `_{index:04d}`, and replacement
   fields cleared. Static labels and root-level jobs pass through
   untouched; jobs without replacement labels return the same object.
-- **Examples:** `examples/replacement_job.yaml` with
-  `examples/replacement_text_sample.txt` / `replacement_text_assets.txt`.
+- **Examples:** `examples/job_specs/replacement_job.yaml` with
+  `examples/job_specs/replacement_text_sample.txt` / `replacement_text_assets.txt`.
 
 ### Plate-Space Toolpath Optimization
 Generated toolpaths are optimized in the **plate frame** (post-rectpack device
@@ -325,7 +326,7 @@ packer test both orientations (0°/90°) for every label instance.
   because they share one `plt_content` string.
 - Unbounded-mode `LayoutFitError` wording is orientation-aware ("in either
   orientation"): a label that fails 24x16 upright may still fit sideways.
-- Example fixture: `examples/rotation_demo_job.yaml` (pinned by
+- Example fixture: `tests_deps/rotation_demo_job.yaml` (pinned by
   `tests/test_layout.py::TestRotationDemoExample`) — a tight 24x10 scrap
   sheet where rotation-required, rotation-refused and opportunistic-rotation
   labels coexist; it aborts with `LayoutFitError` when rotation is disabled.

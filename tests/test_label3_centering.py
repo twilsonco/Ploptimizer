@@ -17,7 +17,7 @@ def test_phase3_fixes_label3_centering(tmp_path: Path) -> None:
     each label independently, eliminating this edge case.
     """
     # Parse and resolve test job
-    job = parse_yaml("examples/test123_spec.yaml")
+    job = parse_yaml("tests_deps/test123_spec.yaml")
     resolved_labels = resolve_job_spec(job)
 
     # The spec also defines alpha/digit reference labels; this regression

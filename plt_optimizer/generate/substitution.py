@@ -35,8 +35,8 @@ Example:
     >>> from pathlib import Path
     >>> from plt_optimizer.generate.schema import parse_yaml
     >>> from plt_optimizer.generate.substitution import expand_job_spec
-    >>> job = parse_yaml("examples/replacement_job.yaml")
-    >>> job = expand_job_spec(job, Path("examples/replacement_job.yaml"))
+    >>> job = parse_yaml("examples/job_specs/replacement_job.yaml")
+    >>> job = expand_job_spec(job, Path("examples/job_specs/replacement_job.yaml"))
 """
 
 from __future__ import annotations

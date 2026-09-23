@@ -1777,7 +1777,7 @@ class TestMultiArcDrillHoles:
         """
         from plt_optimizer.core.parser import PLTParser
 
-        example_path = Path(__file__).parent.parent / "examples" / "SFA3X611sheet1.plt"
+        example_path = Path(__file__).parent.parent / "tests_deps" / "SFA3X611sheet1.plt"
         if not example_path.exists():
             pytest.skip(f"Example file not found: {example_path}")
 
@@ -1899,7 +1899,7 @@ class TestMultiArcDrillHoles:
         """Verify EngraveLab's ±0.001 center jitter still verifies as a circle."""
         profiler = Profiler()
 
-        # Mirrors examples/1x3...holes1.plt: identical AA centers except the
+        # Mirrors tests_deps/1x3...holes1.plt: identical AA centers except the
         # parser rounding produces alternating cx values 15436.057/15436.058.
         arcs = _circle_arcs(196.088, 507.945, 50.8, [90.0, 90.0, 90.0, 90.0])
         jittered = [

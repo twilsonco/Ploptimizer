@@ -15,7 +15,7 @@ rectangles so the bin packer can place every physical instance.
 Example:
     >>> from plt_optimizer.generate.resolution import resolve_job_spec
     >>> from plt_optimizer.generate.layout import generate_layout
-    >>> job = parse_yaml("examples/sample_spec.yaml")
+    >>> job = parse_yaml("tests_deps/sample_spec.yaml")
     >>> labels = resolve_job_spec(job)
     >>> plates = generate_layout(labels, job.plates)
     >>> print(plates[0].labels[0].x, plates[0].labels[0].y)

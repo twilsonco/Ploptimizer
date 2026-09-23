@@ -54,7 +54,7 @@ _REDUNDANCY_TOL: float = 1e-3
 # Supporting-line merge tolerance for the structural dedupe pass, in plotter
 # units. CAD exports (EngraveLab) emit the same physical line multiple times
 # at small perpendicular offsets -- observed up to 6 units (0.006") in
-# examples/2026-07-10 SW0914 1230sheet0.plt -- which the strict 1e-3 segment
+# tests_deps/2026-07-10 SW0914 1230sheet0.plt -- which the strict 1e-3 segment
 # tolerance cannot pair. 10 units (0.0098") absorbs that jitter while staying
 # far below the smallest genuine parallel-line spacing in the corpus (>=196
 # units / 0.19"), so distinct design lines never merge.

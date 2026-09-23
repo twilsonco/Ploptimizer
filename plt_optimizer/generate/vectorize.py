@@ -17,7 +17,7 @@ Example:
     >>> from plt_optimizer.generate.resolution import resolve_job_spec
     >>> from plt_optimizer.generate.schema import parse_yaml
     >>> from plt_optimizer.generate.vectorize import export_per_cutter_plts
-    >>> job = parse_yaml("examples/sample_spec.yaml")
+    >>> job = parse_yaml("tests_deps/sample_spec.yaml")
     >>> labels = resolve_job_spec(job)
     >>> result = export_per_cutter_plts(labels, job.plates, output_dir="output")
 """
