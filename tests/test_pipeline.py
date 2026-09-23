@@ -81,7 +81,9 @@ class TestPreprocessDocument:
             calls.append("fracture")
             return d
 
-        def fake_dedupe(d: PLTDocument, tol: float) -> PLTDocument:  # noqa: ARG001
+        def fake_dedupe(  # noqa: ARG001
+            d: PLTDocument, tol: float, line_tol: float
+        ) -> PLTDocument:
             calls.append("dedupe")
             return d
 
@@ -95,12 +97,14 @@ class TestPreprocessDocument:
         assert result is doc
 
     def test_structural_dedupe_receives_production_tolerance(self) -> None:
-        """The dedupe factory is called with tol=1e-3 (production value)."""
+        """The dedupe factory gets tol=1e-3 and line_tol=10.0 (production)."""
         doc = _make_doc()
         seen_tol: List[float] = []
+        seen_line_tol: List[float] = []
 
-        def fake_dedupe(d: PLTDocument, tol: float) -> PLTDocument:
+        def fake_dedupe(d: PLTDocument, tol: float, line_tol: float) -> PLTDocument:
             seen_tol.append(tol)
+            seen_line_tol.append(line_tol)
             return d
 
         preprocess_document(
@@ -110,6 +114,7 @@ class TestPreprocessDocument:
             dedupe_factory=fake_dedupe,
         )
         assert seen_tol == [1e-3]
+        assert seen_line_tol == [10.0]
 
     def test_logging_emits_debug_messages(self, caplog: pytest.LogCaptureFixture) -> None:
         """A provided logger receives DEBUG bifurcation messages with the prefix."""
@@ -137,7 +142,7 @@ class TestPreprocessDocument:
                 logger=logger,
                 log_prefix="[job2]",
                 fracture_factory=lambda d: d,
-                dedupe_factory=lambda d, tol=0.0: d,
+                dedupe_factory=lambda d, tol=0.0, line_tol=0.0: d,
             )
         combined = "\n".join(r.getMessage() for r in caplog.records)
         assert "[job2] Fractured structural document" in combined

@@ -168,6 +168,55 @@ class TestSplitAndDeduplicateIntervals:
             (10.0, 14.0, 1),
         ]
 
+    def test_line_tol_snaps_jittered_endpoints(self) -> None:
+        # CAD export jitter: [0,10] vs [0.002,10.002] would leave two sub-tol
+        # slivers plus a near-duplicate middle; snapping onto the lower
+        # cluster member collapses the shared region to one winner.
+        result = split_and_deduplicate_intervals(
+            [(0.0, 10.0, 0), (0.002, 10.002, 1)],
+            tol=1e-3,
+            line_tol=0.01,
+        )
+        assert result == [(0.0, 10.0, 0)]
+
+    def test_line_tol_closes_jittered_gap(self) -> None:
+        # Two collinear neighbours whose facing endpoints differ by less than
+        # line_tol join at the snapped break: no sliver, no gap.
+        result = split_and_deduplicate_intervals(
+            [(0.0, 10.0, 0), (10.002, 20.0, 1)],
+            tol=1e-3,
+            line_tol=0.01,
+        )
+        assert result == [(0.0, 10.0, 0), (10.0, 20.0, 1)]
+
+    def test_line_tol_beyond_tolerance_does_not_snap(self) -> None:
+        # Breaks farther apart than line_tol keep their own boundaries.
+        result = split_and_deduplicate_intervals(
+            [(0.0, 10.0, 0), (30.0, 40.0, 1)],
+            tol=1e-3,
+            line_tol=0.01,
+        )
+        assert result == [(0.0, 10.0, 0), (30.0, 40.0, 1)]
+
+    def test_line_tol_none_keeps_exact_breaks(self) -> None:
+        # Default (line_tol=None): jittered endpoints stay distinct, so the
+        # 0.002 sliver survives and the near-duplicate middle is NOT deduped.
+        result = split_and_deduplicate_intervals(
+            [(0.0, 10.0, 0), (0.002, 10.002, 1)],
+            tol=1e-3,
+        )
+        assert result == [(0.0, 0.002, 0), (0.002, 10.0, 0), (10.0, 10.002, 1)]
+
+    def test_line_tol_preserves_short_strokes(self) -> None:
+        # A stroke shorter than line_tol must not be collapsed away by
+        # endpoint snapping: its unsnapped span survives intact.
+        result = split_and_deduplicate_intervals(
+            [(0.0, 5.0, 0), (5.0, 20.0, 1)],
+            tol=1e-3,
+            line_tol=10.0,
+        )
+        assert result == [(0.0, 5.0, 0), (5.0, 20.0, 1)]
+
 
 class TestAxisAlignedInterval:
     """Tests for the segment classification helper."""
@@ -516,6 +565,36 @@ class TestSimplifyOverlappingStrokes:
         result = simplify_overlapping_strokes(doc, tol=0.05)
         assert len(_all_segments(result)) == 3
 
+    def test_line_tol_merges_jittered_supporting_lines(self) -> None:
+        # EngraveLab duplicate at a 6-unit perpendicular offset (the
+        # 2026-07-10 sheet's x=8122 vs x=8128 case): with line_tol the two
+        # supporting lines merge and the inner stroke is fully superseded;
+        # without it both whole strokes survive on separate lines.
+        doc = _single_path_doc(_v(8122.0, 142.788, 4696.788), _v(8128.0, 142.8, 4206.8))
+        merged = simplify_overlapping_strokes(doc, tol=1e-3, line_tol=10.0)
+        assert _spans(merged) == {
+            ((8122.0, 142.788), (8122.0, 4206.8)),
+            ((8122.0, 4206.8), (8122.0, 4696.788)),
+        }
+        unmerged = simplify_overlapping_strokes(doc, tol=1e-3)
+        assert len(_all_segments(unmerged)) == 2
+
+    def test_line_tol_brickwork_jitter_dedupes(self) -> None:
+        # Brick-work stagger with 0.002 line jitter: merging the supporting
+        # lines collapses the shared region at the snapped boundary.
+        doc = _single_path_doc(_v(0.0, 0.0, 10.0), _v(0.002, 5.0, 15.0))
+        result = simplify_overlapping_strokes(doc, tol=1e-3, line_tol=0.01)
+        assert len(_all_segments(result)) == 3
+        unmerged = simplify_overlapping_strokes(doc, tol=1e-3)
+        assert len(_all_segments(unmerged)) == 2
+
+    def test_line_tol_keeps_genuinely_distinct_lines(self) -> None:
+        # Parallel lines 196 units apart (real design spacing) never merge,
+        # even with a generous line_tol.
+        doc = _single_path_doc(_v(0.0, 0.0, 100.0), _v(196.0, 0.0, 100.0))
+        result = simplify_overlapping_strokes(doc, tol=1e-3, line_tol=10.0)
+        assert len(_all_segments(result)) == 2
+
 
 class TestCrossAxisBreakPoints:
     """T-junction / crossing fracturing from perpendicular segments."""
@@ -604,3 +683,87 @@ class TestCrossAxisBreakPoints:
         doc = _single_path_doc(*rect)
         result = simplify_overlapping_strokes(doc)
         assert len(_all_segments(result)) == 4
+
+    def test_sw0914_example_duplicates_resolved(self) -> None:
+        """Pin the 2026-07-10 sheet: near-coincident strokes must fully dedupe.
+
+        The sheet's two label rectangles are emitted with 0.002-unit line
+        jitter and a 6-unit (0.006") offset duplicate (x=8122 vs x=8128),
+        which the strict 1e-3 supporting-line tolerance used to miss. After
+        production preprocessing no two output strokes within ``line_tol``
+        may overlap along a supporting line, and no cut coverage may be lost.
+        Merging jittered lines may *bridge* sub-line_tol gaps between
+        rectangles (intended), so only coverage loss is bounded.
+        """
+        from pathlib import Path
+
+        import pytest
+
+        from plt_optimizer.core.parser import PLTParser
+        from plt_optimizer.core.pipeline import (
+            _REDUNDANCY_LINE_TOL,
+            _REDUNDANCY_TOL,
+            preprocess_document,
+        )
+
+        example_path = (
+            Path(__file__).parent.parent / "examples" / "2026-07-10 SW0914 1230sheet0.plt"
+        )
+        if not example_path.exists():
+            pytest.skip(f"Example file not found: {example_path}")
+
+        doc = PLTParser().parse_file(example_path)
+        result = preprocess_document(doc, is_structural=True)
+
+        def _linear_cutting(document: PLTDocument) -> list:
+            out = []
+            for path in document.stroke_paths:
+                for seg in path.segments:
+                    if isinstance(seg, ArcSegment) or not seg.is_cutting:
+                        continue
+                    dx = abs(seg.end.x - seg.start.x)
+                    dy = abs(seg.end.y - seg.start.y)
+                    if dx < _REDUNDANCY_TOL:
+                        lo, hi = sorted((seg.start.y, seg.end.y))
+                        out.append(("V", seg.start.x, lo, hi))
+                    elif dy < _REDUNDANCY_TOL:
+                        lo, hi = sorted((seg.start.x, seg.end.x))
+                        out.append(("H", seg.start.y, lo, hi))
+            return out
+
+        def _cluster(lines: list) -> list:
+            groups: list = []
+            for orient, fixed, lo, hi in lines:
+                for group in groups:
+                    if group[0] == orient and abs(group[1] - fixed) <= _REDUNDANCY_LINE_TOL:
+                        group[2].append((lo, hi))
+                        break
+                else:
+                    groups.append([orient, fixed, [(lo, hi)]])
+            return groups
+
+        def _union(spans: list) -> float:
+            total = 0.0
+            cur_lo, cur_hi = sorted(spans)[0]
+            for lo, hi in sorted(spans)[1:]:
+                if lo <= cur_hi + 1e-6:
+                    cur_hi = max(cur_hi, hi)
+                else:
+                    total += cur_hi - cur_lo
+                    cur_lo, cur_hi = lo, hi
+            return total + cur_hi - cur_lo
+
+        out_lines = _linear_cutting(result)
+        assert out_lines
+
+        # No two output strokes on a merged supporting line may overlap.
+        for orient, fixed, spans in _cluster(out_lines):
+            for i in range(len(spans)):
+                for j in range(i + 1, len(spans)):
+                    overlap = min(spans[i][1], spans[j][1]) - max(spans[i][0], spans[j][0])
+                    assert overlap <= 1e-6, f"{orient}@{fixed}: {spans[i]} vs {spans[j]}"
+
+        # No cut coverage lost (merging may bridge jittered gaps).
+        in_total = sum(_union(g[2]) for g in _cluster(_linear_cutting(doc)))
+        out_total = sum(_union(g[2]) for g in _cluster(out_lines))
+        assert out_total >= in_total - 1.0
