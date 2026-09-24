@@ -42,7 +42,7 @@ from typing import Optional, Tuple
 # installed (see AGENTS.md section 7).
 from plt_optimizer.generate.job_config import JobConfig, load_job_config
 from plt_optimizer.generate.resolution import resolve_job_spec
-from plt_optimizer.generate.schema import parse_yaml
+from plt_optimizer.generate.schema import JobSpec, parse_yaml
 from plt_optimizer.generate.substitution import SubstitutionError, expand_job_spec
 from plt_optimizer.utils.logging import setup_logging
 
@@ -186,22 +186,22 @@ def _default_plate_size(job_config: Optional[JobConfig]) -> Optional[Tuple[float
     return (defaults.plate_width, defaults.plate_height)
 
 
-def _default_plate_clearance(job_config: Optional[JobConfig]) -> Optional[Tuple[float, float]]:
-    """Extract the ``(left, top)`` default plate clearance from a job config.
+def _default_plate_clearance(job: JobSpec) -> Optional[Tuple[float, float]]:
+    """Extract the ``(left, top)`` default plate clearance from a job spec.
+
+    Reads the job-level ``left_clearance`` / ``top_clearance`` (which
+    already include ``job-config.json`` injection via ``parse_yaml``).
 
     Args:
-        job_config: The loaded job config, or ``None``.
+        job: The parsed job specification.
 
     Returns:
-        The configured ``(left_clearance, top_clearance)`` when at least
+        The job-level ``(left_clearance, top_clearance)`` when at least
         one is non-zero, otherwise ``None`` (no shift on auto-allocated
         plates; the fields default to ``0.0``).
     """
-    if job_config is None:
-        return None
-    defaults = job_config.defaults
-    left = defaults.left_clearance or 0.0
-    top = defaults.top_clearance or 0.0
+    left = job.left_clearance or 0.0
+    top = job.top_clearance or 0.0
     if not left and not top:
         return None
     return (left, top)
@@ -298,7 +298,7 @@ def run(args: argparse.Namespace) -> int:
             logger=text_logger,
             layout=job.layout,
             default_plate_size=default_plate_size,
-            default_plate_clearance=_default_plate_clearance(job_config),
+            default_plate_clearance=_default_plate_clearance(job),
         )
         exported_paths = export_result.plt_paths
     except LabelRenderError as e:

@@ -1399,21 +1399,17 @@ class TestGenerateRun:
     def test_default_plate_clearance_helper(self) -> None:
         """_default_plate_clearance emits a pair when either clearance is set."""
         from plt_optimizer.cli.generate import _default_plate_clearance
-        from plt_optimizer.generate.job_config import JobConfig, JobDefaults
+        from plt_optimizer.generate.schema import JobSpec, TextLine
 
-        assert _default_plate_clearance(None) is None
-        assert (
-            _default_plate_clearance(JobConfig(path=Path("j.json"), defaults=JobDefaults()))
-            is None
-        )
-        zero = JobDefaults(left_clearance=0.0, top_clearance=0.0)
-        assert _default_plate_clearance(JobConfig(path=Path("j.json"), defaults=zero)) is None
-        left_only = JobDefaults(left_clearance=1.5)
-        assert _default_plate_clearance(
-            JobConfig(path=Path("j.json"), defaults=left_only)
-        ) == (1.5, 0.0)
-        both = JobDefaults(left_clearance=1.0, top_clearance=2.0)
-        assert _default_plate_clearance(JobConfig(path=Path("j.json"), defaults=both)) == (
+        def _job(**clearances: float) -> JobSpec:
+            return JobSpec(  # type: ignore[arg-type]
+                job_name="J", content=[TextLine(text="X")], **clearances
+            )
+
+        assert _default_plate_clearance(_job()) is None
+        assert _default_plate_clearance(_job(left_clearance=0.0, top_clearance=0.0)) is None
+        assert _default_plate_clearance(_job(left_clearance=1.5)) == (1.5, 0.0)
+        assert _default_plate_clearance(_job(left_clearance=1.0, top_clearance=2.0)) == (
             1.0,
             2.0,
         )

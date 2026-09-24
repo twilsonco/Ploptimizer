@@ -167,16 +167,10 @@ def phase_2_resolution_and_layout(
 
     job_config: JobConfig | None = load_job_config(job_config_path)
     default_plate_size: tuple[float, float] | None = None
-    default_plate_clearance: tuple[float, float] | None = None
     if job_config is not None:
         defaults = job_config.defaults
         if defaults.plate_width is not None and defaults.plate_height is not None:
             default_plate_size = (defaults.plate_width, defaults.plate_height)
-        if defaults.left_clearance or defaults.top_clearance:
-            default_plate_clearance = (
-                defaults.left_clearance or 0.0,
-                defaults.top_clearance or 0.0,
-            )
 
     # =========================================================================
     # Step 1: Parse JobSpec
@@ -186,6 +180,12 @@ def phase_2_resolution_and_layout(
     logger.info(f"Parsed job: {job.job_name}")
     logger.info(f"Job-level text_height: {job.text_height}")
     logger.info(f"Job-level margin: {job.margin}")
+
+    # Job-level edge clearances (job spec or job-config.json injection)
+    # also shift the unbounded auto-allocated bins.
+    from plt_optimizer.cli.generate import _default_plate_clearance
+
+    default_plate_clearance = _default_plate_clearance(job)
 
     # =========================================================================
     # Step 2: Resolve labels with cutter compensation

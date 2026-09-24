@@ -16,11 +16,12 @@ Semantics:
   plate entries that omit ``width`` / ``height`` and drive the unbounded
   (auto-allocated) bin size. They deliberately never fill the job-level
   label ``width`` / ``height`` (that would defeat label auto-sizing).
-- ``left_clearance`` / ``top_clearance`` fill plate entries that omit the
-  matching clearance, and shift placements on the unbounded auto-allocated
-  bins. A job spec may omit ``plates:`` entirely: packing then runs in
-  unbounded mode on config-sized default sheets, overflowing onto as many
-  as needed.
+- ``left_clearance`` / ``top_clearance`` are injected at the **job layer**
+  (like the other cascading fields): the ``JobSpec`` cascade then applies
+  them to plate entries that omit the matching clearance, and the
+  unbounded (auto-allocated) bins shift by the same pair. A job spec may
+  omit ``plates:`` entirely: packing then runs in unbounded mode on
+  config-sized default sheets, overflowing onto as many as needed.
 - **Required-when-unconfigured:** the fields in
   :data:`REQUIRED_WHEN_UNCONFIGURED` must be provided either by this config
   or by the job spec (job level, or every label individually). When a
@@ -110,8 +111,10 @@ class JobDefaults(BaseModel):
         layout: Default plate fill order.
         plate_width: Default usable plate width in inches (plate layer).
         plate_height: Default usable plate height in inches (plate layer).
-        left_clearance: Default plate left-edge clearance in inches.
-        top_clearance: Default plate top-edge clearance in inches.
+        left_clearance: Default plate left-edge clearance in inches
+            (injected at the job layer; cascades onto plates that omit it).
+        top_clearance: Default plate top-edge clearance in inches
+            (injected at the job layer; cascades onto plates that omit it).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -154,9 +157,10 @@ class JobConfig:
 
 
 # Job-layer cascade fields mapped from config field -> job-spec key.
-# ``plate_width``/``plate_height``/``left_clearance``/``top_clearance`` are
-# plate-layer only (see module docstring) and ``hole_diameter`` is applied
-# by hole-entry surgery, so none of them appear here.
+# ``plate_width``/``plate_height`` are plate-layer only (see module
+# docstring) and ``hole_diameter`` is applied by hole-entry surgery, so
+# neither appears here. ``left_clearance``/``top_clearance`` land at the
+# job layer and cascade onto plates via ``JobSpec``.
 _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "text_height",
     "character_spacing",
@@ -170,6 +174,8 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "allow_rotation",
     "text_chunk_mode",
     "layout",
+    "left_clearance",
+    "top_clearance",
 )
 
 
@@ -311,8 +317,6 @@ def apply_job_config_defaults(
         plate_defaults = {
             "width": defaults.plate_width,
             "height": defaults.plate_height,
-            "left_clearance": defaults.left_clearance,
-            "top_clearance": defaults.top_clearance,
         }
         filled_plates: list[Any] = []
         for plate in plates:

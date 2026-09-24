@@ -737,6 +737,119 @@ class TestPlateSpec:
         assert math.isclose(plate.top_clearance, 0.0)
 
 
+class TestJobLevelClearances:
+    """Job-level left_clearance/top_clearance cascade onto plates."""
+
+    @staticmethod
+    def _job(plates: list[PlateSpec], **kwargs: object) -> JobSpec:
+        """Build a minimal job with the given plates and job-level overrides."""
+        return JobSpec(
+            job_name="Clearance Job",
+            plates=plates,
+            labels=[LabelSpec(id="l1", content=[TextLine(text="X")])],
+            **kwargs,  # type: ignore[arg-type]
+        )
+
+    def test_job_fields_default_to_none(self) -> None:
+        """Job-level clearances default to None (no job-level default)."""
+        job = JobSpec(job_name="J", content=[TextLine(text="X")])
+        assert job.left_clearance is None
+        assert job.top_clearance is None
+
+    def test_negative_rejected(self) -> None:
+        """Both job-level clearance fields enforce ge=0.0."""
+        with pytest.raises(ValidationError):
+            JobSpec(job_name="J", content=[TextLine(text="X")], left_clearance=-0.1)
+        with pytest.raises(ValidationError):
+            JobSpec(job_name="J", content=[TextLine(text="X")], top_clearance=-0.1)
+
+    def test_job_value_cascades_to_plates_omitting_them(self) -> None:
+        """Plates without explicit clearances inherit the job-level pair."""
+        job = self._job(
+            [PlateSpec(id="p1", width=24.0, height=16.0)],
+            left_clearance=1.0,
+            top_clearance=2.0,
+        )
+        assert job.plates is not None
+        assert math.isclose(job.plates[0].left_clearance, 1.0)
+        assert math.isclose(job.plates[0].top_clearance, 2.0)
+
+    def test_explicit_plate_value_wins(self) -> None:
+        """An explicit plate clearance always beats the job-level value."""
+        job = self._job(
+            [PlateSpec(id="p1", width=24.0, height=16.0, left_clearance=0.25)],
+            left_clearance=1.0,
+            top_clearance=2.0,
+        )
+        assert job.plates is not None
+        assert math.isclose(job.plates[0].left_clearance, 0.25)
+        assert math.isclose(job.plates[0].top_clearance, 2.0)
+
+    def test_explicit_plate_zero_wins(self) -> None:
+        """An explicit plate ``0.0`` is a value, not unset (job 1.0 refused)."""
+        job = self._job(
+            [PlateSpec(id="p1", width=24.0, height=16.0, left_clearance=0.0)],
+            left_clearance=1.0,
+        )
+        assert job.plates is not None
+        assert math.isclose(job.plates[0].left_clearance, 0.0)
+
+    def test_plate_null_inherits_job_value(self) -> None:
+        """An explicit plate ``null`` clearance is unset semantics: inherit."""
+        job = JobSpec(
+            job_name="J",
+            left_clearance=1.5,
+            plates=[{"id": "p1", "width": 24.0, "height": 16.0, "left_clearance": None}],
+            labels=[LabelSpec(id="l1", content=[TextLine(text="X")])],
+        )
+        assert job.plates is not None
+        assert math.isclose(job.plates[0].left_clearance, 1.5)
+        assert math.isclose(job.plates[0].top_clearance, 0.0)
+
+    def test_no_job_value_keeps_plate_default(self) -> None:
+        """Without a job-level value, plates keep their own 0.0 default."""
+        job = self._job([PlateSpec(id="p1", width=24.0, height=16.0)])
+        assert job.plates is not None
+        assert math.isclose(job.plates[0].left_clearance, 0.0)
+        assert math.isclose(job.plates[0].top_clearance, 0.0)
+
+    def test_input_plate_objects_not_mutated(self) -> None:
+        """The cascade clones plates instead of mutating the caller's objects."""
+        plate = PlateSpec(id="p1", width=24.0, height=16.0)
+        self._job([plate], left_clearance=1.0)
+        assert math.isclose(plate.left_clearance, 0.0)
+
+    def test_parse_yaml_cascades_job_level_clearance(self, tmp_path: Path) -> None:
+        """A YAML job-level clearance reaches clearance-less plates."""
+        spec_path = tmp_path / "spec.yaml"
+        spec_path.write_text(
+            "job:\n"
+            "  job_name: Cascade Job\n"
+            "  left_clearance: 0.75\n"
+            "  top_clearance: 0.5\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 16.0\n"
+            "    - id: p2\n"
+            "      width: 24.0\n"
+            "      height: 16.0\n"
+            "      left_clearance: 0.1\n"
+            "  labels:\n"
+            "    - id: l1\n"
+            "      content:\n"
+            "        - text: Hi\n",
+            encoding="utf-8",
+        )
+        job = parse_yaml(spec_path)
+        assert job.plates is not None
+        assert math.isclose(job.plates[0].left_clearance, 0.75)
+        assert math.isclose(job.plates[0].top_clearance, 0.5)
+        # p2 declares its own left clearance; the job value fills only top.
+        assert math.isclose(job.plates[1].left_clearance, 0.1)
+        assert math.isclose(job.plates[1].top_clearance, 0.5)
+
+
 class TestMixinHierarchy:
     """Tests verifying the two-tier inheritance hierarchy."""
 

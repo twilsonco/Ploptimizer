@@ -209,7 +209,12 @@ class TestApplyJobConfigDefaults:
         assert "hole_margin" not in job
 
     def test_plate_defaults_fill_entries(self, tmp_path: Path) -> None:
-        """Plate width/height/clearances fill plate entries that omit them."""
+        """Plate width/height fill plate entries that omit them.
+
+        Clearances are no longer plate-entry injections: they land at the
+        job layer (see :meth:`TestJobLayerClearanceInjection`) and cascade
+        onto plates via ``JobSpec``.
+        """
         config = load_job_config(_write_config(tmp_path, _FULL_CONFIG))
         job = _minimal_job(plates=[{"id": "p1"}, {"id": "p2", "width": 12.0}])
         filled = apply_job_config_defaults(job, config)
@@ -217,12 +222,12 @@ class TestApplyJobConfigDefaults:
             "id": "p1",
             "width": 24.0,
             "height": 16.0,
-            "left_clearance": 0.0,
-            "top_clearance": 0.0,
         }
         # Explicit plate width survives; the rest still gets filled.
         assert filled["plates"][1]["width"] == 12.0
         assert filled["plates"][1]["height"] == 16.0
+        assert "left_clearance" not in filled["plates"][1]
+        assert "top_clearance" not in filled["plates"][1]
 
     def test_plate_defaults_do_not_touch_job_dims(self, tmp_path: Path) -> None:
         """plate_width/height never fill the job-level label width/height."""
@@ -230,6 +235,34 @@ class TestApplyJobConfigDefaults:
         filled = apply_job_config_defaults(_minimal_job(), config)
         assert "width" not in filled
         assert "height" not in filled
+
+    def test_clearances_inject_at_job_layer(self, tmp_path: Path) -> None:
+        """Config clearances land as job-level values, never on plates."""
+        config_data = dict(_FULL_CONFIG)
+        config_data["left_clearance"] = 0.5
+        config_data["top_clearance"] = 0.75
+        config = load_job_config(_write_config(tmp_path, config_data))
+        filled = apply_job_config_defaults(_minimal_job(plates=[{"id": "p1"}]), config)
+        assert filled["left_clearance"] == 0.5
+        assert filled["top_clearance"] == 0.75
+        assert "left_clearance" not in filled["plates"][0]
+        assert "top_clearance" not in filled["plates"][0]
+
+    def test_job_level_clearance_wins_over_config(self, tmp_path: Path) -> None:
+        """A job-spec clearance is never overridden by the config."""
+        config_data = dict(_FULL_CONFIG)
+        config_data["left_clearance"] = 0.5
+        config = load_job_config(_write_config(tmp_path, config_data))
+        filled = apply_job_config_defaults(_minimal_job(left_clearance=1.25), config)
+        assert filled["left_clearance"] == 1.25
+
+    def test_null_job_clearance_filled_by_config(self, tmp_path: Path) -> None:
+        """An explicit ``null`` job clearance is unset semantics: config fills."""
+        config_data = dict(_FULL_CONFIG)
+        config_data["top_clearance"] = 0.75
+        config = load_job_config(_write_config(tmp_path, config_data))
+        filled = apply_job_config_defaults(_minimal_job(top_clearance=None), config)
+        assert filled["top_clearance"] == 0.75
 
     def test_non_dict_plate_passthrough(self, tmp_path: Path) -> None:
         """Non-mapping plate entries are left untouched (validation errors
@@ -433,9 +466,9 @@ class TestParseYamlWithJobConfig:
     def test_repo_config_fills_job_layer(self) -> None:
         """The shipped job-config.json supplies the required defaults."""
         job = parse_yaml("tests_deps/test123_spec.yaml", job_config_path=Path("job-config.json"))
-        assert job.hole_margin == 0.0625
+        assert job.hole_margin == 0.125
         assert job.max_h_compress == 0.5
-        assert job.min_hole_margin == 0.05
+        assert job.min_hole_margin == 0.1
         assert job.hole_text_collision_distance == 0.1
 
     def test_yaml_overrides_config(self) -> None:

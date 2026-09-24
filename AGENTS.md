@@ -392,6 +392,16 @@ that does not start at the sheet's left/top edge:
 - `top_clearance` (default `0.0`): unused material along the plate's
   **top** edge; shifts the pack area downward.
 
+Both fields also exist at the **job level** (`JobSpec`, default `None` =
+unset) and cascade job -> plate like `layout`: `JobSpec._apply_job_level_clearances`
+fills every plate that omits the field, while an explicit plate value
+(including an explicit `0.0`) always wins; an explicit plate `null` counts
+as unset (a `PlateSpec` before-validator drops the key). The job-level
+value additionally drives unbounded mode: the CLI / integration runner
+read it off the parsed `JobSpec` (`_default_plate_clearance(job)`, after
+job-config injection) and thread it into the export/layout calls as
+`default_plate_clearance`, so auto-allocated bins shift identically.
+
 Bottom and right clearances need no fields: in the emitted plate frame
 (origin at the material's top-left, +y downward — the HPGL device
 convention) the usable area spans `[left_clearance, left_clearance + width]`
@@ -431,13 +441,18 @@ top-most layer:
   explicit YAML `null` counts as unset; `holes: []` suppression is a value).
   `hole_diameter` additionally fills the `diameter` of any hole entry (config-
   or spec-declared) that omits it.
-- `plate_width` / `plate_height` / `left_clearance` / `top_clearance` fill
-  missing keys of each `plates` entry and the unbounded auto-allocated bins:
-  the CLI threads `default_plate_size=(plate_width, plate_height)` and
-  `default_plate_clearance=(left_clearance, top_clearance)` into
+- `plate_width` / `plate_height` fill missing keys of each `plates` entry
+  and the unbounded auto-allocated bins:
+  the CLI threads `default_plate_size=(plate_width, plate_height)` into
   `vectorize.export_per_cutter_plts` / `layout.generate_layout*`. They never
   fill the job-level label `width`/`height` (that would defeat label
   auto-sizing).
+- `left_clearance` / `top_clearance` are injected at the **job layer**
+  (like the cascading attributes): the `JobSpec` job -> plate cascade then
+  applies them to clearance-less plates, and the CLI derives
+  `default_plate_clearance=(job.left_clearance, job.top_clearance)` from
+  the parsed spec for the unbounded auto-allocated bins. YAML job/plate
+  values always win.
 - **Optional plate specification:** a job spec without `plates:` (or with
   an empty list) never synthesizes a single fallback plate. `provided_plates`
   stays `None` through `export_per_cutter_plts` into the layout engine's

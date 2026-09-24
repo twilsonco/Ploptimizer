@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -520,6 +520,29 @@ class PlateSpec(BaseModel):
         description="Per-plate fill-order override (None = inherit the job layout).",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_null_clearances(cls, data: Any) -> Any:
+        """Treat an explicit ``null`` clearance as unset (inherit semantics).
+
+        Mirrors the job-config convention that an explicit YAML ``null``
+        counts as unset: dropping the key lets the plate fall through to
+        the job-level ``left_clearance`` / ``top_clearance`` cascade (see
+        :meth:`JobSpec._apply_job_level_clearances`) or its own ``0.0``
+        default.
+
+        Args:
+            data: Raw input mapping (or any other input, passed through).
+
+        Returns:
+            The mapping with null clearance keys removed.
+        """
+        if isinstance(data, dict):
+            for key in ("left_clearance", "top_clearance"):
+                if data.get(key) is None:
+                    data = {k: v for k, v in data.items() if k != key}
+        return data
+
 
 class JobSpec(LabelAttributes):
     """Top-level specification for a batch label generation job.
@@ -554,6 +577,15 @@ class JobSpec(LabelAttributes):
             rightward; ``rows`` fills width before extending downward (the
             historical behaviour). Cascades job -> plate: a plate may
             override it via ``PlateSpec.layout``.
+        left_clearance: Job-level default for the plate left-edge
+            clearance in inches. Cascades job -> plate: plates that omit
+            ``left_clearance`` inherit this value; an explicit plate
+            value (including ``0.0``) always wins. Unbounded
+            auto-allocated sheets use it too (threaded through the export
+            call). ``None`` (the default) means no job-level default;
+            plates then fall back to their own ``0.0`` default.
+        top_clearance: Job-level default for the plate top-edge clearance
+            in inches (same cascade as ``left_clearance``).
     """
 
     job_name: str
@@ -588,6 +620,50 @@ class JobSpec(LabelAttributes):
             "before extending downward."
         ),
     )
+    left_clearance: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Job-level default plate left-edge clearance in inches "
+            "(cascades job -> plate; an explicit plate value, including "
+            "0.0, wins)."
+        ),
+    )
+    top_clearance: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Job-level default plate top-edge clearance in inches "
+            "(cascades job -> plate; an explicit plate value, including "
+            "0.0, wins)."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _apply_job_level_clearances(self) -> JobSpec:
+        """Cascade job-level edge clearances onto plates that omit them.
+
+        Mirrors the ``layout`` job -> plate cascade: an explicit plate
+        value (including an explicit ``0.0``) always wins; plates that
+        omit a clearance inherit the job-level value when set. Without a
+        job-level value, plates keep their own default (``0.0``), so
+        existing specs are unaffected.
+
+        Returns:
+            Self for method chaining.
+        """
+        if self.plates is None:
+            return self
+        updated_plates: list[PlateSpec] = []
+        for plate in self.plates:
+            fill: dict[str, float] = {}
+            if self.left_clearance is not None and "left_clearance" not in plate.model_fields_set:
+                fill["left_clearance"] = self.left_clearance
+            if self.top_clearance is not None and "top_clearance" not in plate.model_fields_set:
+                fill["top_clearance"] = self.top_clearance
+            updated_plates.append(plate.model_copy(update=fill) if fill else plate)
+        self.plates = updated_plates
+        return self
 
     @model_validator(mode="after")
     def validate_job_structure(self) -> JobSpec:
