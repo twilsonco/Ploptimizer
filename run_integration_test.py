@@ -197,6 +197,7 @@ def phase_2_resolution_and_layout(
     for plate in packed_plates:
         print(f"\nPlate {plate.plate_id}:")
         print(f'  Dimensions: {plate.width}" x {plate.height}"')
+        print(f'  Clearances: left={plate.left_clearance}", top={plate.top_clearance}"')
         print(f"  Labels packed: {len(plate.labels)}")
         for packed_label in plate.labels:
             print(f"    - {packed_label.label_id}")

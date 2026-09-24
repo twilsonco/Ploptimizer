@@ -260,7 +260,8 @@ class TestJobSpec:
                     id="p1",
                     width=24.0,
                     height=12.0,
-                    margin=0.25,
+                    left_clearance=0.25,
+                    top_clearance=0.25,
                     clearance_padding=0.125,
                 ),
             ],
@@ -375,7 +376,8 @@ class TestJobSpec:
                     id="p1",
                     width=24.0,
                     height=12.0,
-                    margin=0.25,
+                    left_clearance=0.25,
+                    top_clearance=0.25,
                     clearance_padding=0.125,
                 ),
             ],
@@ -423,7 +425,8 @@ class TestParseYaml:
         assert plate.id == "plate_1"
         assert plate.width == 24.0
         assert plate.height == 12.0
-        assert plate.margin == 0.25
+        assert math.isclose(plate.left_clearance, 0.25)
+        assert math.isclose(plate.top_clearance, 0.25)
         assert plate.clearance_padding == 0.125
 
     def test_parse_label_with_holes(self) -> None:
@@ -621,7 +624,7 @@ class TestLayoutMode:
 
     def test_plate_layout_defaults_to_none(self) -> None:
         """A plate without an explicit layout inherits the job value."""
-        plate = PlateSpec(id="p1", width=24.0, height=16.0, margin=0.0, clearance_padding=0.0)
+        plate = PlateSpec(id="p1", width=24.0, height=16.0, clearance_padding=0.0)
         assert plate.layout is None
 
     def test_plate_layout_override_parsed(self, tmp_path: Path) -> None:
@@ -635,7 +638,6 @@ class TestLayoutMode:
             "    - id: p1\n"
             "      width: 24.0\n"
             "      height: 16.0\n"
-            "      margin: 0.0\n"
             "      clearance_padding: 0.0\n"
             "      layout: rows\n"
             "  count: 1\n"
@@ -695,7 +697,8 @@ class TestPlateSpec:
             id="plate_1",
             width=24.0,
             height=12.0,
-            margin=0.25,
+            left_clearance=0.25,
+            top_clearance=0.25,
             clearance_padding=0.125,
         )
         assert plate.id == "plate_1"
@@ -708,9 +711,60 @@ class TestPlateSpec:
                 id="invalid_plate",
                 width=-10.0,
                 height=12.0,
-                margin=0.25,
+                left_clearance=0.25,
+                top_clearance=0.25,
                 clearance_padding=0.125,
             )
+
+    def test_clearances_default_to_zero(self) -> None:
+        """left_clearance/top_clearance default to 0.0 (flush packing)."""
+        plate = PlateSpec(id="p1", width=24.0, height=16.0, clearance_padding=0.0)
+        assert math.isclose(plate.left_clearance, 0.0)
+        assert math.isclose(plate.top_clearance, 0.0)
+
+    def test_clearances_are_independent(self) -> None:
+        """The two clearances are set independently of each other."""
+        plate = PlateSpec(
+            id="p1",
+            width=24.0,
+            height=16.0,
+            left_clearance=0.75,
+            clearance_padding=0.0,
+        )
+        assert math.isclose(plate.left_clearance, 0.75)
+        assert math.isclose(plate.top_clearance, 0.0)
+
+    def test_negative_clearances_rejected(self) -> None:
+        """Both clearance fields enforce ge=0.0."""
+        with pytest.raises(ValidationError):
+            PlateSpec(id="p1", width=24.0, height=16.0, left_clearance=-0.1)
+        with pytest.raises(ValidationError):
+            PlateSpec(id="p1", width=24.0, height=16.0, top_clearance=-0.1)
+
+    def test_removed_margin_rejected_with_hint(self) -> None:
+        """The legacy plate ``margin`` key must fail with a migration hint."""
+        with pytest.raises(ValidationError, match="left_clearance"):
+            PlateSpec(id="p1", width=24.0, height=16.0, margin=0.25)
+
+    def test_removed_margin_rejected_from_yaml(self, tmp_path: Path) -> None:
+        """A YAML spec still carrying plate ``margin`` aborts on parse."""
+        spec_path = tmp_path / "old_margin.yaml"
+        spec_path.write_text(
+            "job:\n"
+            "  job_name: 'Old'\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 16.0\n"
+            "      margin: 0.25\n"
+            "      clearance_padding: 0.0\n"
+            "  count: 1\n"
+            "  content:\n"
+            "    - text: 'X'\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="top_clearance"):
+            parse_yaml(spec_path)
 
 
 class TestMixinHierarchy:
@@ -772,7 +826,8 @@ class TestMaxHCompress:
             id="plate_1",
             width=24.0,
             height=12.0,
-            margin=0.25,
+            left_clearance=0.25,
+            top_clearance=0.25,
             clearance_padding=0.125,
             max_h_compress=0.6,
         )
@@ -785,7 +840,8 @@ class TestMaxHCompress:
                 id="plate_1",
                 width=24.0,
                 height=12.0,
-                margin=0.25,
+                left_clearance=0.25,
+                top_clearance=0.25,
                 clearance_padding=0.125,
                 max_h_compress=1.2,
             )
@@ -833,7 +889,8 @@ class TestTextHAlignment:
             id="plate_1",
             width=24.0,
             height=12.0,
-            margin=0.25,
+            left_clearance=0.25,
+            top_clearance=0.25,
             clearance_padding=0.125,
             text_h_alignment="left",
         )
@@ -872,7 +929,8 @@ class TestMinHoleMargin:
             id="plate_1",
             width=24.0,
             height=12.0,
-            margin=0.25,
+            left_clearance=0.25,
+            top_clearance=0.25,
             clearance_padding=0.125,
             min_hole_margin=0.05,
         )
@@ -885,7 +943,8 @@ class TestMinHoleMargin:
                 id="plate_1",
                 width=24.0,
                 height=12.0,
-                margin=0.25,
+                left_clearance=0.25,
+                top_clearance=0.25,
                 clearance_padding=0.125,
                 min_hole_margin=-0.1,
             )
@@ -928,7 +987,8 @@ class TestHoleTextCollisionDistance:
             id="plate_1",
             width=24.0,
             height=12.0,
-            margin=0.25,
+            left_clearance=0.25,
+            top_clearance=0.25,
             clearance_padding=0.125,
             hole_text_collision_distance=0.2,
         )
@@ -941,7 +1001,8 @@ class TestHoleTextCollisionDistance:
                 id="plate_1",
                 width=24.0,
                 height=12.0,
-                margin=0.25,
+                left_clearance=0.25,
+                top_clearance=0.25,
                 clearance_padding=0.125,
                 hole_text_collision_distance=-0.1,
             )

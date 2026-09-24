@@ -97,7 +97,7 @@ JobSpec (job-level defaults)
 | `JobSpec` | Root job container | Requires either `labels` list OR root-level `content` (mutually exclusive) |
 | `LabelSpec` | Individual label definition | `count >= 1`; requires `content` (min 1 TextLine) OR `replacement_text_file` (mutually exclusive with `count`) |
 | `TextLine` | Text content unit | Requires non-empty `text` string |
-| `PlateSpec` | Physical sheet definition | All dimensions `>= 0`, includes `clearance_padding` |
+| `PlateSpec` | Physical sheet definition | All dimensions `>= 0`, includes `clearance_padding`; `width`/`height` are the usable pack area, offset from the material's top-left by `left_clearance`/`top_clearance` (both default `0.0`; the legacy `margin` field is rejected with a migration hint) |
 | `HoleSpec` | Drilled hole definition | Location (required; 8 atomic enum values: corners + edges, plus `corners`/`sides` group shorthands expanded at validation) + optional `diameter` (default 0.125", must be > 0) |
 | `parse_yaml()` | Entry point | Returns validated `JobSpec` or raises `ValueError` |
 | `expand_job_spec()` | Replacement expansion (substitution.py) | Called after `parse_yaml()`; flattens replacement-driven labels into static LabelSpecs |
@@ -379,6 +379,34 @@ it is a global packing concern and never enters `ResolvedLabel`.
 - Example fixture: `tests_deps/columns_demo_job.yaml` (pinned by
   `tests/test_layout.py::TestColumnsDemoExample`) — 16 3x1 labels on a 24x16
   sheet pack into one full-height column (bounding box 3x16).
+
+### Plate Edge Clearances (`left_clearance` / `top_clearance`)
+
+`PlateSpec.width`/`height` describe the **usable** pack area. Two optional
+fields shift that area within the physical material to account for scrap
+that does not start at the sheet's left/top edge:
+
+- `left_clearance` (default `0.0`): unused material along the plate's
+  **left** edge; shifts the pack area rightward.
+- `top_clearance` (default `0.0`): unused material along the plate's
+  **top** edge; shifts the pack area downward.
+
+Bottom and right clearances need no fields: in the emitted plate frame
+(origin at the material's top-left, +y downward — the HPGL device
+convention) the usable area spans `[left_clearance, left_clearance + width]`
+horizontally and `[top_clearance, top_clearance + height]` vertically, so
+the material's right edge always sits at `left_clearance + width` and its
+bottom edge at `top_clearance + height`.
+
+The legacy `margin` field is **removed**: `PlateSpec` rejects any input
+carrying a `margin` key with a migration hint (Pydantic would otherwise
+silently drop it). Packing is unchanged — the packer still receives the
+usable `width × height` bin — and `_extract_packed_plates` adds
+`(left_clearance, top_clearance)` to every placement (in real plate space,
+after any transpose mapping). Zero-clearance output is therefore
+bit-identical to the historical behaviour. `_plate_clearances` builds the
+per-bin-id `(left, top)` map (omitting all-zero plates) that
+`_pack_groups` → `_pack_group` → `_extract_packed_plates` threads through.
 
 ### Integration Points
 - `parse_yaml(file_path)` returns a `JobSpec` ready for downstream bin-packing and rendering pipelines

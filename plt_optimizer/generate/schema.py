@@ -418,9 +418,20 @@ class PlateSpec(BaseModel):
 
     Attributes:
         id: Unique identifier for this plate specification.
-        width: Total width of the plate in inches.
-        height: Total height of the plate in inches.
-        margin: Safety margin around plate edges in inches.
+        width: Usable width of the plate in inches (the area available to
+            the packer). The material's right edge sits at
+            ``left_clearance + width``.
+        height: Usable height of the plate in inches (the area available to
+            the packer). The material's bottom edge sits at
+            ``top_clearance + height``.
+        left_clearance: Unused material width along the plate's left edge
+            in inches; shifts the usable area rightward. Defaults to 0.0.
+            Bottom and right clearances need no fields: the material always
+            extends to ``left_clearance + width`` on the right and
+            ``top_clearance + height`` at the bottom.
+        top_clearance: Unused material height along the plate's top edge in
+            inches; shifts the usable area downward (labels stay flush with
+            the bottom edge). Defaults to 0.0.
         hole_margin: Optional hole margin in inches. Accepted for schema
             parity with the job/label ``hole_margin`` cascade. NOTE: labels
             are rendered once and cached before bin-packing (and a single
@@ -462,9 +473,24 @@ class PlateSpec(BaseModel):
             cascade to the next group in declaration order."""
 
     id: str
-    width: float = Field(ge=0.0, description="Plate width in inches (must be >= 0).")
-    height: float = Field(ge=0.0, description="Plate height in inches (must be >= 0).")
-    margin: float = Field(ge=0.0, description="Safety margin in inches (must be >= 0).")
+    width: float = Field(ge=0.0, description="Usable plate width in inches (must be >= 0).")
+    height: float = Field(ge=0.0, description="Usable plate height in inches (must be >= 0).")
+    left_clearance: float = Field(
+        default=0.0,
+        ge=0.0,
+        description=(
+            "Unused material width along the plate's left edge in inches "
+            "(shifts the usable area rightward; must be >= 0)."
+        ),
+    )
+    top_clearance: float = Field(
+        default=0.0,
+        ge=0.0,
+        description=(
+            "Unused material height along the plate's top edge in inches "
+            "(shifts the usable area downward; must be >= 0)."
+        ),
+    )
     hole_margin: Optional[float] = Field(
         default=None, ge=0.0, description="Hole margin in inches (must be >= 0)."
     )
@@ -497,6 +523,32 @@ class PlateSpec(BaseModel):
     clearance_padding: float = Field(
         ge=0.0, description="Padding between labels in inches (must be >= 0)."
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_removed_margin(cls, data: object) -> object:
+        """Reject the pre-clearance ``margin`` field with a migration hint.
+
+        Pydantic ignores unknown keys by default, which would silently drop
+        ``margin`` from older job specs; plate placements would then pack
+        flush to the plate origin instead of the declared safety ring.
+
+        Args:
+            data: Raw (pre-validation) input data for the model.
+
+        Returns:
+            The input data, unchanged.
+
+        Raises:
+            ValueError: Always, when the input carries a ``margin`` key.
+        """
+        if isinstance(data, dict) and "margin" in data:
+            raise ValueError(
+                "plate 'margin' was replaced by 'left_clearance' and "
+                "'top_clearance' (both default to 0.0); set the desired "
+                "edge clearances explicitly"
+            )
+        return data
 
 
 class JobSpec(LabelAttributes):

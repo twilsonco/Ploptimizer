@@ -6,7 +6,8 @@ job:
     - id: plate_1
       width: 24.0
       height: 12.0
-      margin: 0.25
+      left_clearance: 0.25
+      top_clearance: 0.25
       clearance_padding: 0.125
   labels:
     - id: pump_warn_01

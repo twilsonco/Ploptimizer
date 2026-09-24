@@ -516,7 +516,6 @@ class TestEndToEndPipeline:
             "    - id: p1\n"
             "      width: 24.0\n"
             "      height: 16.0\n"
-            "      margin: 0.2\n"
             "      clearance_padding: 0.125\n"
             "  labels:\n"
             "    - id: badge\n"

@@ -456,7 +456,6 @@ def export_per_cutter_plts(
                 id="default",
                 width=11.0,
                 height=8.5,
-                margin=0.5,
                 clearance_padding=0.0,
             )
         ]

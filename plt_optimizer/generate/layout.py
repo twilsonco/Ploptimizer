@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Mapping, Optional
 
 import rectpack
 
@@ -81,16 +81,33 @@ class PackedLabel:
 class PackedPlate:
     """A physical plate containing zero or more packed labels.
 
+    ``width``/``height`` describe the *usable* area (what the packer
+    received); ``left_clearance``/``top_clearance`` are the unused material
+    strips along the plate's left and top edges that shift the packed
+    placement within the material. In the emitted plate frame (origin at
+    the material's top-left, +y downward -- the HPGL device convention),
+    the usable area spans ``[left_clearance, left_clearance + width]``
+    horizontally and ``[top_clearance, top_clearance + height]``
+    vertically, so the material's right edge always sits at
+    ``left_clearance + width`` and its bottom edge at
+    ``top_clearance + height``.
+
     Attributes:
         plate_id: Unique identifier for this plate.
-        width: Plate width in inches.
-        height: Plate height in inches.
+        width: Usable plate width in inches.
+        height: Usable plate height in inches.
+        left_clearance: Unused material width along the left edge in
+            inches (see :attr:`PlateSpec.left_clearance`). Defaults to 0.0.
+        top_clearance: Unused material height along the top edge in
+            inches (see :attr:`PlateSpec.top_clearance`). Defaults to 0.0.
         labels: List of labels placed on this plate.
     """
 
     plate_id: str
     width: float
     height: float
+    left_clearance: float = 0.0
+    top_clearance: float = 0.0
     labels: list[PackedLabel] = field(default_factory=list)
 
 
@@ -236,6 +253,7 @@ def _extract_packed_plates(
     packer: rectpack.packer.Packer,
     *,
     transpose: bool = False,
+    clearances: Optional[Mapping[str, tuple[float, float]]] = None,
 ) -> list[PackedPlate]:
     """Translate ``rectpack`` results into typed ``PackedPlate`` objects.
 
@@ -245,11 +263,20 @@ def _extract_packed_plates(
             frame (see :func:`_transpose_entries`) and every placement is
             mapped back into real plate space via
             ``(x, y, w, h) -> (y, x, h, w)``.
+        clearances: Optional mapping of bin id to ``(left_clearance,
+            top_clearance)`` in inches (see
+            :attr:`PlateSpec.left_clearance`). Packer coordinates are
+            offsets from the usable area's top-left corner, which sits at
+            ``(left_clearance, top_clearance)`` inside the material, so
+            every placement is shifted by that pair (in real plate space,
+            after any transpose mapping). Bins missing from the mapping
+            get zero clearance.
 
     Returns:
         A list of ``PackedPlate`` objects with all labels positioned.
         Empty bins (from auto-allocation) are discarded.
     """
+    clearance_map: Mapping[str, tuple[float, float]] = clearances or {}
     final_plates: list[PackedPlate] = []
 
     for bin_obj in packer:
@@ -257,6 +284,7 @@ def _extract_packed_plates(
             # Ignore empty auto-allocated bins
             continue
 
+        left_clearance, top_clearance = clearance_map.get(bin_obj.bid, (0.0, 0.0))
         if transpose:
             # The packer's bin was offered as (height, width); report the
             # real plate dimensions.
@@ -264,12 +292,16 @@ def _extract_packed_plates(
                 plate_id=bin_obj.bid,
                 width=bin_obj.height,
                 height=bin_obj.width,
+                left_clearance=left_clearance,
+                top_clearance=top_clearance,
             )
         else:
             plate = PackedPlate(
                 plate_id=bin_obj.bid,
                 width=bin_obj.width,
                 height=bin_obj.height,
+                left_clearance=left_clearance,
+                top_clearance=top_clearance,
             )
 
         for rect in bin_obj:
@@ -287,12 +319,20 @@ def _extract_packed_plates(
             # comparing against the packer-space width stays correct.
             was_rotated = not math.isclose(rect.width, pack_width, rel_tol=1e-9)
 
+            # Packer coordinates are offsets from the usable area's
+            # top-left corner; the emitted plate frame is y-down (the
+            # HPGL device convention, see rotate_plt_content_90cw), so
+            # the usable area's top-left sits at (left_clearance,
+            # top_clearance) inside the material and every placement
+            # simply gains those offsets. Zero-clearance output therefore
+            # stays bit-identical to the historical behaviour.
             if transpose:
-                # Map the placement back out of the transposed frame.
+                # Map the placement back out of the transposed frame,
+                # then apply the clearance shift in real plate space.
                 packed_label = PackedLabel(
                     label_id=rect_id,
-                    x=rect.y,
-                    y=rect.x,
+                    x=rect.y + left_clearance,
+                    y=rect.x + top_clearance,
                     width=rect.height,
                     height=rect.width,
                     rotated=was_rotated,
@@ -301,8 +341,8 @@ def _extract_packed_plates(
             else:
                 packed_label = PackedLabel(
                     label_id=rect_id,
-                    x=rect.x,
-                    y=rect.y,
+                    x=rect.x + left_clearance,
+                    y=rect.y + top_clearance,
                     width=rect.width,
                     height=rect.height,
                     rotated=was_rotated,
@@ -493,6 +533,7 @@ def _pack_group(
     bin_specs: list[tuple[float, float, str]],
     allow_rotation: bool,
     layout: LayoutMode,
+    clearances: Optional[Mapping[str, tuple[float, float]]] = None,
 ) -> list[PackedPlate]:
     """Pack rectangles onto one group of same-mode plates and extract plates.
 
@@ -506,6 +547,9 @@ def _pack_group(
         bin_specs: ``(width, height, bid)`` plates sharing one fill mode.
         allow_rotation: Whether rotated candidates are considered.
         layout: The group's fill-order mode.
+        clearances: Optional bin-id to ``(left_clearance, top_clearance)``
+            mapping applied to placements (see
+            :func:`_extract_packed_plates`).
 
     Returns:
         The non-empty ``PackedPlate`` objects produced by this packing pass.
@@ -516,7 +560,11 @@ def _pack_group(
         allow_rotation=allow_rotation,
         layout=layout,
     )
-    return _extract_packed_plates(packer, transpose=layout == LayoutMode.COLUMNS)
+    return _extract_packed_plates(
+        packer,
+        transpose=layout == LayoutMode.COLUMNS,
+        clearances=clearances,
+    )
 
 
 def _resolve_plate_groups(
@@ -563,6 +611,27 @@ def _resolve_plate_groups(
     return groups
 
 
+def _plate_clearances(
+    provided_plates: Optional[list[PlateSpec]],
+) -> dict[str, tuple[float, float]]:
+    """Collect per-plate edge clearances keyed by bin id.
+
+    Args:
+        provided_plates: User-specified plates, or ``None`` / empty for
+            unbounded mode (no clearances).
+
+    Returns:
+        Mapping of plate id to ``(left_clearance, top_clearance)`` in
+        inches. Plates with both clearances zero are omitted, keeping the
+        mapping (and downstream shifting) a no-op for the common case.
+    """
+    clearances: dict[str, tuple[float, float]] = {}
+    for plate in provided_plates or []:
+        if plate.left_clearance or plate.top_clearance:
+            clearances[plate.id] = (plate.left_clearance, plate.top_clearance)
+    return clearances
+
+
 def _plate_footprint(packer: rectpack.packer.Packer) -> float:
     """Compute the total used material area across a packed result.
 
@@ -596,6 +665,7 @@ def _pack_groups(
     rectangles_with_rid: list[_RectEntry],
     groups: list[tuple[list[tuple[float, float, str]], LayoutMode]],
     allow_rotation: bool,
+    clearances: Optional[Mapping[str, tuple[float, float]]] = None,
 ) -> tuple[list[PackedPlate], list[_RectEntry]]:
     """Pack rectangles through sequential same-mode plate groups.
 
@@ -610,6 +680,8 @@ def _pack_groups(
         groups: Declaration-ordered ``(bin_specs, layout)`` groups from
             :func:`_resolve_plate_groups`.
         allow_rotation: Whether rotated candidates are considered.
+        clearances: Optional bin-id to ``(left_clearance, top_clearance)``
+            mapping (see :func:`_plate_clearances`).
 
     Returns:
         A tuple of ``(packed_plates, leftover_rectangles)`` where
@@ -622,7 +694,7 @@ def _pack_groups(
     for bin_specs, group_layout in groups:
         if not remaining or not bin_specs:
             continue
-        plates = _pack_group(remaining, bin_specs, allow_rotation, group_layout)
+        plates = _pack_group(remaining, bin_specs, allow_rotation, group_layout, clearances)
         if not plates:
             continue
         placed_ids = {packed.label_id for plate in plates for packed in plate.labels}
@@ -684,7 +756,10 @@ def generate_layout(
     is_constrained = provided_plates is not None and len(provided_plates) > 0
 
     groups = _resolve_plate_groups(provided_plates, layout, len(rectangles))
-    packed_plates, leftover = _pack_groups(rect_with_rid, groups, allow_rotation=allow_rotation)
+    clearances = _plate_clearances(provided_plates)
+    packed_plates, leftover = _pack_groups(
+        rect_with_rid, groups, allow_rotation=allow_rotation, clearances=clearances
+    )
 
     # Verify all labels were packed.
     if leftover:
@@ -778,7 +853,10 @@ def generate_layout_with_bounds(
     is_constrained = provided_plates is not None and len(provided_plates) > 0
 
     groups = _resolve_plate_groups(provided_plates, layout, len(rectangles))
-    packed_plates, leftover = _pack_groups(rect_with_rid, groups, allow_rotation=allow_rotation)
+    clearances = _plate_clearances(provided_plates)
+    packed_plates, leftover = _pack_groups(
+        rect_with_rid, groups, allow_rotation=allow_rotation, clearances=clearances
+    )
 
     # Verify all labels were packed.
     if leftover:
