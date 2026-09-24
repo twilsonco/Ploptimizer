@@ -610,24 +610,43 @@ class JobSpec(LabelAttributes):
         return self
 
 
-def parse_yaml(file_path: str | Path) -> JobSpec:
+def parse_yaml(
+    file_path: str | Path,
+    job_config_path: str | Path | None = None,
+) -> JobSpec:
     """Parse and validate a YAML job specification file.
 
     Args:
         file_path: Path to the YAML specification file.
+        job_config_path: Optional path to a ``job-config.json`` file (see
+            :mod:`plt_optimizer.generate.job_config`). When provided (and
+            the file exists), its defaults are injected at the top-most
+            (job/plate) layer before validation, and the
+            required-when-unconfigured fields are enforced. ``None``
+            (the default) keeps the historical all-optional contract.
 
     Returns:
         A validated JobSpec instance with all nested models populated.
 
     Raises:
         FileNotFoundError: If the specified file does not exist.
-        ValueError: If the YAML content is invalid or fails validation.
+        ValueError: If the YAML content is invalid or fails validation, or
+            if a required field is missing from both the job config and
+            the spec (``JobConfigError``, a ``ValueError`` subclass).
         yaml.YAMLError: For malformed YAML syntax.
 
     Example:
         >>> job = parse_yaml("tests_deps/sample_spec.yaml")
         >>> print(f"Loaded {job.job_name}")
     """
+    # Imported lazily: job_config imports schema, so a module-level import
+    # would be circular.
+    from plt_optimizer.generate.job_config import (
+        apply_job_config_defaults,
+        assert_required_fields,
+        load_job_config,
+    )
+
     path = Path(file_path)
 
     if not path.exists():
@@ -643,5 +662,9 @@ def parse_yaml(file_path: str | Path) -> JobSpec:
     job_data = raw_data.get("job")
     if job_data is None:
         raise ValueError("Missing 'job' root element")
+
+    config = load_job_config(Path(job_config_path) if job_config_path is not None else None)
+    job_data = apply_job_config_defaults(job_data, config)
+    assert_required_fields(job_data, config)
 
     return JobSpec(**job_data)

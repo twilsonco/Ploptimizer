@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 GENERATE_DEFAULT_PLOTS = True
 
 # Import pipeline components
+from plt_optimizer.generate.job_config import JobConfig, load_job_config
 from plt_optimizer.generate.layout import generate_layout
 from plt_optimizer.generate.resolution import (
     resolve_job_spec,
@@ -87,7 +88,7 @@ def print_separator(title: str) -> None:
 # ============================================================================
 def phase_1_data_prep(
     job_yaml_override: Path | None = None,
-) -> tuple[Path, Path, list[float], float | None]:
+) -> tuple[Path, Path, list[float], float | None, Path]:
     """Phase 1: Load test data and inventory.
 
     Args:
@@ -96,7 +97,7 @@ def phase_1_data_prep(
 
     Returns:
         Tuple of (job_yaml_path, tools_json_path, inventory,
-        boundary_hole_cutter_size).
+        boundary_hole_cutter_size, job_config_path).
     """
     print_separator("PHASE 1: TEST DATA PREPARATION")
 
@@ -105,6 +106,7 @@ def phase_1_data_prep(
     if not job_yaml.is_absolute():
         job_yaml = workspace / job_yaml
     tools_json = workspace / "tools.json"
+    job_config_json = workspace / "job-config.json"
 
     if not job_yaml.exists():
         raise FileNotFoundError(f"Test job YAML not found: {job_yaml}")
@@ -112,10 +114,14 @@ def phase_1_data_prep(
         raise FileNotFoundError(f"Tools inventory not found: {tools_json}")
 
     inventory, boundary_hole_cutter = load_tool_inventory(tools_json)
+    if job_config_json.exists():
+        logger.info(f"Loaded job defaults from: {job_config_json}")
+    else:
+        logger.info("No job-config.json found; job spec must declare required fields.")
     logger.info(f"Loaded job spec from: {job_yaml}")
     logger.info(f"Loaded tool inventory from: {tools_json}")
 
-    return job_yaml, tools_json, inventory, boundary_hole_cutter
+    return job_yaml, tools_json, inventory, boundary_hole_cutter, job_config_json
 
 
 # ============================================================================
@@ -125,7 +131,8 @@ def phase_2_resolution_and_layout(
     job_yaml: Path,
     inventory: list[float],
     boundary_hole_cutter_size: float | None = None,
-) -> tuple[list, list, list | None, str, bool, LayoutMode]:
+    job_config_path: Path | None = None,
+) -> tuple[list, list, list | None, str, bool, LayoutMode, tuple[float, float] | None]:
     """Phase 2: Resolution, bin packing, and verification.
 
     Executes:
@@ -139,18 +146,28 @@ def phase_2_resolution_and_layout(
         boundary_hole_cutter_size: Requested cutter size for label
             boundaries and drill holes (feeds the collision stroke floor;
             ``None`` uses the default).
+        job_config_path: Optional path to ``job-config.json`` supplying
+            top-layer defaults (and the default plate size for unbounded
+            packing). ``None`` keeps the all-optional contract.
 
     Returns:
         Tuple of (resolved_labels, packed_plates, provided_plates, job_id,
-        allow_rotation, layout).
+        allow_rotation, layout, default_plate_size).
     """
     print_separator("PHASE 2: PIPELINE EXECUTION")
+
+    job_config: JobConfig | None = load_job_config(job_config_path)
+    default_plate_size: tuple[float, float] | None = None
+    if job_config is not None:
+        defaults = job_config.defaults
+        if defaults.plate_width is not None and defaults.plate_height is not None:
+            default_plate_size = (defaults.plate_width, defaults.plate_height)
 
     # =========================================================================
     # Step 1: Parse JobSpec
     # =========================================================================
     logger.info("Step 1: Parsing JobSpec from YAML...")
-    job = expand_job_spec(parse_yaml(job_yaml), job_yaml)
+    job = expand_job_spec(parse_yaml(job_yaml, job_config_path=job_config_path), job_yaml)
     logger.info(f"Parsed job: {job.job_name}")
     logger.info(f"Job-level text_height: {job.text_height}")
     logger.info(f"Job-level margin: {job.margin}")
@@ -189,6 +206,7 @@ def phase_2_resolution_and_layout(
         job.plates,
         allow_rotation=job.allow_rotation,
         layout=job.layout,
+        default_plate_size=default_plate_size,
     )
 
     print("\n--- BIN PACKING RESULTS ---\n")
@@ -221,6 +239,7 @@ def phase_2_resolution_and_layout(
         job_id,
         job.allow_rotation,
         job.layout,
+        default_plate_size,
     )
 
 
@@ -234,6 +253,7 @@ def phase_3_vectorization_and_export(
     job_id: str = "job",
     allow_rotation: bool = True,
     layout: LayoutMode = DEFAULT_LAYOUT_MODE,
+    default_plate_size: tuple[float, float] | None = None,
 ) -> PerCutterExport:
     """Phase 3: Export per-cutter PLT files using the clean Phase 3 pipeline.
 
@@ -263,6 +283,8 @@ def phase_3_vectorization_and_export(
             labels 90 degrees for tighter layouts (job-level flag).
         layout: Preferential plate fill order (job-level value; a plate may
             override it via ``PlateSpec.layout``).
+        default_plate_size: ``(width, height)`` override for auto-allocated
+            unbounded bins (from ``job-config.json``).
 
     Returns:
         The :class:`PerCutterExport` with written PLT/PDF paths and the
@@ -288,6 +310,7 @@ def phase_3_vectorization_and_export(
         plots=True,
         allow_rotation=allow_rotation,
         layout=layout,
+        default_plate_size=default_plate_size,
     )
 
     print("\n--- EXPORT RESULTS ---\n")
@@ -418,7 +441,9 @@ def _run_single_spec(spec_override: Path | None) -> int:
     """
     try:
         # Phase 1: Data Preparation
-        job_yaml, tools_json, inventory, boundary_hole_cutter = phase_1_data_prep(spec_override)
+        job_yaml, tools_json, inventory, boundary_hole_cutter, job_config_json = (
+            phase_1_data_prep(spec_override)
+        )
 
         # Phase 2: Resolution and Layout (nominal-dimension packing for reporting)
         (
@@ -428,7 +453,10 @@ def _run_single_spec(spec_override: Path | None) -> int:
             job_id,
             allow_rotation,
             layout,
-        ) = phase_2_resolution_and_layout(job_yaml, inventory, boundary_hole_cutter)
+            default_plate_size,
+        ) = phase_2_resolution_and_layout(
+            job_yaml, inventory, boundary_hole_cutter, job_config_json
+        )
 
         # Phase 3: Per-cutter export using the clean bounds-aware pipeline.
         # The export renders labels onto per-cutter pens, assembles each
@@ -445,6 +473,7 @@ def _run_single_spec(spec_override: Path | None) -> int:
             job_id,
             allow_rotation,
             layout,
+            default_plate_size,
         )
 
         # Phase 3.5: Coordinate Validation (on the written per-cutter PLTs)

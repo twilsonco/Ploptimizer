@@ -1,0 +1,13 @@
+{
+  "description": "Shop-level job defaults for the generate pipeline (companion to tools.json). Values here supply the top-most (job/plate) layer of the cascade: labels may still override them per label or per text line. plate_width/plate_height are the default plate size (plate layer + unbounded auto-allocation); left_clearance/top_clearance are the default plate edge clearances. Fields configured nowhere (missing here AND missing from the job spec) are required: max_h_compress, hole_margin, min_hole_margin, hole_text_collision_distance, plate_width, plate_height. Maintain one file per engraver/toolset and select it with 'plt-optimizer generate --job-config <path>'.",
+  "max_h_compress": 0.5,
+  "hole_margin": 0.0625,
+  "min_hole_margin": 0.05,
+  "hole_text_collision_distance": 0.1,
+  "plate_width": 24.0,
+  "plate_height": 16.0,
+  "left_clearance": 0.0,
+  "top_clearance": 0.0,
+  "hole_diameter": 0.125,
+  "layout": "columns"
+}

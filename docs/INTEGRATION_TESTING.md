@@ -7,6 +7,8 @@ from YAML job-specification ingestion through per-cutter PLT export, with
 intermediate state dumps for manual verification. The framework covers:
 
 - **Hierarchical resolution** and the inheritance cascade (TextLine → LabelSpec → JobSpec)
+- **Job-config defaults** (`job-config.json`): top-layer default injection and the
+  required-when-unconfigured gate (`--job-config` on the `generate` CLI)
 - **Cutter compensation**, inventory snapping, and the 3x tolerance logic
 - **Replacement text file** ("badge"/multiples) expansion via `expand_job_spec()`
 - **Bounds-aware bin packing**, multi-plate allocation, 90° rotation (`allow_rotation`),
@@ -88,6 +90,7 @@ two plates.
 | File | Purpose |
 |------|---------|
 | `tools.json` | Mock shop tool inventory + boundary/hole cutter size |
+| `job-config.json` | Shop-level job defaults (top-layer cascade + default plate size); drives the required-when-unconfigured gate |
 | `tests_deps/test123_spec.yaml` | Default job spec (reproduces `examples/test123.plt`) |
 | `tests_deps/complex_test_job.yaml` | Stress-test spec exercising every pipeline feature |
 | `tests_deps/sample_spec.yaml` | Minimal canonical spec used in docstring examples |
@@ -141,8 +144,10 @@ Designed to exercise every layer of the pipeline in a single run:
 
 ### Phase 1 — Test Data Preparation
 
-Loads `tools.json` (cutter inventory + boundary/hole cutter size) and resolves
-the job spec path (default `tests_deps/test123_spec.yaml`, or the CLI override).
+Loads `tools.json` (cutter inventory + boundary/hole cutter size), locates
+`job-config.json` (job defaults; the runner always passes it to `parse_yaml`, so
+the required-when-unconfigured gate is active), and resolves the job spec path
+(default `tests_deps/test123_spec.yaml`, or the CLI override).
 
 ```
 Loaded cutter inventory: [0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.09, 0.125, 0.25]
@@ -153,7 +158,8 @@ Loaded boundary/hole cutter size: 0.015
 
 Executes the first half of the generate pipeline:
 
-1. **Parse**: `parse_yaml()` → validated `JobSpec`, then
+1. **Parse**: `parse_yaml()` → validated `JobSpec` (with `job-config.json`
+   defaults injected at the job/plate layer), then
    `expand_job_spec()` flattens replacement-driven labels into static
    `LabelSpec`s (must run between parsing and resolution).
 2. **Resolve**: `resolve_job_spec()` flattens the cascade into `ResolvedLabel`
@@ -275,6 +281,16 @@ After a run:
 - [ ] Unavailable ideal cutters snap per the 3x tolerance rule (narrower
       preferred when `narrower_gap ≤ 3 × wider_gap`)
 
+### Job-Config Defaults
+- [ ] Labels that omit `hole_margin` / `max_h_compress` / `min_hole_margin` /
+      `hole_text_collision_distance` resolve to the `job-config.json` values
+      (0.0625 / 0.5 / 0.05 / 0.1 in the shipped config), not the in-code
+      fallbacks
+- [ ] Spec-declared values still win over the config (e.g. `test123_spec.yaml`
+      keeps its `margin: 0.1`)
+- [ ] Removing a required default from the config (and not declaring it in the
+      spec) aborts with `JobConfigError`
+
 ## Troubleshooting
 
 ### Issue: `LayoutFitError`
@@ -288,8 +304,8 @@ is disabled.
 ### Issue: `LabelRenderError` (collision abort)
 **Cause:** Rendered text comes closer to a drill hole than the stroke-aware
 threshold `0.5 × (hole_cutter + text_cutter) + hole_text_collision_distance`
-(default 0.15"). Per-label ERRORs name the label id, offending text line, hole,
-and measured gap.
+(0.1" with the shipped `job-config.json`; the in-code fallback is 0.15").
+Per-label ERRORs name the label id, offending text line, hole, and measured gap.
 **Solution:** Revise the jobspec — e.g. increase `hole_margin` /
 `min_hole_margin`, reduce `hole_text_collision_distance`, move holes, or enable
 `max_h_compress`. Avoidance (margin sweeps / collision compression) repairing
@@ -300,6 +316,15 @@ a collision does **not** excuse it; the job still aborts.
 invalid (must be a single non-alphanumeric, non-newline character).
 **Solution:** Fix the file path (relative to the job YAML's directory) or pick
 a delimiter absent from the data.
+
+### Issue: `JobConfigError` (job defaults)
+**Cause:** The job spec omits a required field that `job-config.json` also fails
+to define (`max_h_compress`, `hole_margin`, `min_hole_margin`,
+`hole_text_collision_distance`, or — for plate-less jobs — `plate_width` /
+`plate_height`), or the config JSON is malformed / contains unknown keys.
+**Solution:** Declare the field in the job spec, add the default to
+`job-config.json`, or fix the config syntax (typos in key names are rejected on
+purpose).
 
 ### Issue: Cutter selection differs from expectations
 **Cause:** `tools.json` inventory mismatch.
@@ -329,6 +354,7 @@ uv run plt-optimizer optimize out/plt/01_text_0.060_Test_123_-_Single_Column.plt
 | Component | What the runner proves |
 |-----------|------------------------|
 | `schema.parse_yaml()` | Pydantic validation, mutual-exclusion rules, group-hole expansion |
+| `job_config.load_job_config()` / `apply_job_config_defaults()` | Top-layer default injection, plate-size defaults, required-when-unconfigured gate |
 | `substitution.expand_job_spec()` | Badge/multiples flattening before resolution |
 | `resolution.resolve_job_spec()` | Cascade, cutter compensation/snapping, compression & alignment resolution |
 | `layout.generate_layout[_with_bounds]()` | Multi-heuristic packing, constrained/unbounded modes, rotation, collision gate |

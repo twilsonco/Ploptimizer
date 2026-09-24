@@ -572,6 +572,7 @@ def _resolve_plate_groups(
     provided_plates: Optional[list[PlateSpec]],
     job_layout: LayoutMode,
     n_rectangles: int,
+    default_plate_size: Optional[tuple[float, float]] = None,
 ) -> list[tuple[list[tuple[float, float, str]], LayoutMode]]:
     """Group plates into sequential same-mode packing passes.
 
@@ -591,14 +592,21 @@ def _resolve_plate_groups(
         n_rectangles: Number of label instances; caps the number of default
             plates offered in unbounded mode (theoretical maximum: one per
             instance).
+        default_plate_size: ``(width, height)`` override for the
+            auto-allocated unbounded bins (from ``job-config.json``
+            ``plate_width`` / ``plate_height``). ``None`` uses
+            :data:`DEFAULT_PLATE_WIDTH` x :data:`DEFAULT_PLATE_HEIGHT`.
 
     Returns:
         Declaration-ordered ``(bin_specs, layout)`` groups.
     """
     if not provided_plates:
+        default_width, default_height = default_plate_size or (
+            DEFAULT_PLATE_WIDTH,
+            DEFAULT_PLATE_HEIGHT,
+        )
         default_bins = [
-            (DEFAULT_PLATE_WIDTH, DEFAULT_PLATE_HEIGHT, f"default_plate_{i + 1}")
-            for i in range(n_rectangles)
+            (default_width, default_height, f"default_plate_{i + 1}") for i in range(n_rectangles)
         ]
         return [(default_bins, job_layout)]
 
@@ -710,6 +718,7 @@ def generate_layout(
     provided_plates: Optional[list[PlateSpec]] = None,
     allow_rotation: bool = True,
     layout: LayoutMode = DEFAULT_LAYOUT_MODE,
+    default_plate_size: Optional[tuple[float, float]] = None,
 ) -> list[PackedPlate]:
     """Pack resolved labels onto physical plates.
 
@@ -730,6 +739,9 @@ def generate_layout(
             width before extending downward (the historical behaviour).
             A plate may override the job value via ``PlateSpec.layout``;
             mixed modes pack in sequential declaration-ordered passes.
+        default_plate_size: ``(width, height)`` override (inches) for the
+            auto-allocated unbounded bins (from ``job-config.json``); the
+            module defaults apply when ``None``.
 
     Returns:
         A list of ``PackedPlate`` objects containing all successfully
@@ -756,7 +768,9 @@ def generate_layout(
 
     is_constrained = provided_plates is not None and len(provided_plates) > 0
 
-    groups = _resolve_plate_groups(provided_plates, layout, len(rectangles))
+    groups = _resolve_plate_groups(
+        provided_plates, layout, len(rectangles), default_plate_size=default_plate_size
+    )
     clearances = _plate_clearances(provided_plates)
     packed_plates, leftover = _pack_groups(
         rect_with_rid, groups, allow_rotation=allow_rotation, clearances=clearances
@@ -771,11 +785,15 @@ def generate_layout(
                 "specify larger or additional plates."
             )
         else:
-            # This should only trigger if a single label is larger than 24x16
-            # in both orientations (rotation-aware packing).
+            # This should only trigger if a single label is larger than the
+            # default plate in both orientations (rotation-aware packing).
+            max_width, max_height = default_plate_size or (
+                DEFAULT_PLATE_WIDTH,
+                DEFAULT_PLATE_HEIGHT,
+            )
             raise LayoutFitError(
                 "A label's dimensions exceed the maximum plate size of "
-                f"{DEFAULT_PLATE_WIDTH}x{DEFAULT_PLATE_HEIGHT} in either "
+                f"{max_width}x{max_height} in either "
                 "orientation."
             )
 
@@ -788,6 +806,7 @@ def generate_layout_with_bounds(
     pen_map: Optional[dict[float, int]] = None,
     allow_rotation: bool = True,
     layout: LayoutMode = DEFAULT_LAYOUT_MODE,
+    default_plate_size: Optional[tuple[float, float]] = None,
 ) -> tuple[list[PackedPlate], dict[str, RenderedLabel]]:
     """Pack resolved labels onto plates using rendered dimensions.
 
@@ -817,6 +836,9 @@ def generate_layout_with_bounds(
             width before extending downward (the historical behaviour). A
             plate may override the job value via ``PlateSpec.layout``;
             mixed modes pack in sequential declaration-ordered passes.
+        default_plate_size: ``(width, height)`` override (inches) for the
+            auto-allocated unbounded bins (from ``job-config.json``); the
+            module defaults apply when ``None``.
 
     Returns:
         A tuple of:
@@ -853,7 +875,9 @@ def generate_layout_with_bounds(
 
     is_constrained = provided_plates is not None and len(provided_plates) > 0
 
-    groups = _resolve_plate_groups(provided_plates, layout, len(rectangles))
+    groups = _resolve_plate_groups(
+        provided_plates, layout, len(rectangles), default_plate_size=default_plate_size
+    )
     clearances = _plate_clearances(provided_plates)
     packed_plates, leftover = _pack_groups(
         rect_with_rid, groups, allow_rotation=allow_rotation, clearances=clearances
@@ -869,10 +893,14 @@ def generate_layout_with_bounds(
             )
         else:
             # This should only trigger if a single rendered label is larger
-            # than 24x16 in both orientations (rotation-aware packing).
+            # than the default plate in both orientations (rotation-aware).
+            max_width, max_height = default_plate_size or (
+                DEFAULT_PLATE_WIDTH,
+                DEFAULT_PLATE_HEIGHT,
+            )
             raise LayoutFitError(
                 "A rendered label's dimensions exceed the maximum plate size of "
-                f"{DEFAULT_PLATE_WIDTH}x{DEFAULT_PLATE_HEIGHT} in either "
+                f"{max_width}x{max_height} in either "
                 "orientation."
             )
 

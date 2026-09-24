@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import logging
 import sys
 from pathlib import Path
@@ -227,6 +228,7 @@ class TestGenerateSubcommand:
             no_plots = True
             default_plots = False
             tools = Path("tools.json")
+            job_config = None
             fast_mode = False
 
         assert run(MockArgs()) == 0
@@ -332,6 +334,7 @@ class TestCLIIntegration:
             no_plots = True
             default_plots = False
             tools = Path("tools.json")
+            job_config = None
             fast_mode = False
 
         result = run(MockArgs())
@@ -381,6 +384,7 @@ class TestCLIIntegration:
             no_plots = True
             default_plots = False
             tools = Path("tools.json")
+            job_config = None
             fast_mode = False
 
         assert run(MockArgs()) == 0
@@ -425,6 +429,7 @@ class TestCLIIntegration:
             no_plots = True
             default_plots = False
             tools = Path("tools.json")
+            job_config = None
             fast_mode = False
 
         assert run(MockArgs()) == 1
@@ -948,6 +953,7 @@ class TestGenerateRun:
         no_plots: bool = True,
         default_plots: bool = False,
         tools: Optional[Path] = None,
+        job_config: Optional[Path] = None,
         fast_mode: bool = False,
     ) -> argparse.Namespace:
         """Build an argparse.Namespace matching generate's expected attributes.
@@ -960,6 +966,8 @@ class TestGenerateRun:
             no_plots: Value for --no-plots.
             default_plots: Value for --default-plots.
             tools: Value for --tools (None selects the tools.json default).
+            job_config: Value for --job-config (None opts out of the job
+                defaults layer).
             fast_mode: Value for --fast-mode.
 
         Returns:
@@ -972,6 +980,7 @@ class TestGenerateRun:
             no_plots=no_plots,
             default_plots=default_plots,
             tools=tools if tools is not None else Path("tools.json"),
+            job_config=job_config,
             fast_mode=fast_mode,
         )
 
@@ -1358,6 +1367,123 @@ class TestGenerateRun:
 
         assert run(self._args(spec_file)) == 0
         assert captured_kwargs["layout"] is LayoutMode.ROWS
+
+    # ------------------------------------------------------------------
+    # run(): --job-config layer
+    # ------------------------------------------------------------------
+
+    def test_job_config_flag_default_and_override(self) -> None:
+        """--job-config defaults to job-config.json and accepts overrides."""
+        from plt_optimizer.cli.generate import setup_parser
+
+        parser = argparse.ArgumentParser()
+        setup_parser(parser)
+
+        assert parser.parse_args(["spec.yaml"]).job_config == Path("job-config.json")
+        assert parser.parse_args(["spec.yaml", "--job-config", "j.json"]).job_config == Path(
+            "j.json"
+        )
+
+    def test_default_plate_size_helper(self) -> None:
+        """_default_plate_size needs both dimensions to produce a tuple."""
+        from plt_optimizer.cli.generate import _default_plate_size
+        from plt_optimizer.generate.job_config import JobConfig, JobDefaults
+
+        assert _default_plate_size(None) is None
+        assert _default_plate_size(JobConfig(path=Path("j.json"), defaults=JobDefaults())) is None
+        half = JobDefaults(plate_width=24.0)
+        assert _default_plate_size(JobConfig(path=Path("j.json"), defaults=half)) is None
+        full = JobDefaults(plate_width=24.0, plate_height=16.0)
+        assert _default_plate_size(JobConfig(path=Path("j.json"), defaults=full)) == (24.0, 16.0)
+
+    def test_job_config_supplies_required_fields(self, tmp_path: Path) -> None:
+        """A complete config lets a spec omit the required fields entirely."""
+        from plt_optimizer.cli.generate import run
+
+        spec_file = tmp_path / "bare.yaml"
+        spec_file.write_text(
+            "job:\n"
+            "  job_name: Bare Cli Job\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 12.0\n"
+            "  labels:\n"
+            "    - id: l1\n"
+            "      width: 2.0\n"
+            "      height: 1.0\n"
+            "      content:\n"
+            "        - text: Hi\n",
+            encoding="utf-8",
+        )
+        config_file = tmp_path / "job-config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "max_h_compress": 0.5,
+                    "hole_margin": 0.0625,
+                    "min_hole_margin": 0.05,
+                    "hole_text_collision_distance": 0.1,
+                    "plate_width": 24.0,
+                    "plate_height": 16.0,
+                }
+            ),
+            encoding="utf-8",
+        )
+        args = self._args(spec_file, output=tmp_path / "out", job_config=config_file)
+
+        assert run(args) == 0
+        assert list((tmp_path / "out" / "plt").glob("*.plt"))
+
+    def test_missing_required_fields_abort(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """An empty config plus a bare spec aborts with the required-field error."""
+        from plt_optimizer.cli.generate import run
+
+        spec_file = self._write_spec(tmp_path)
+        config_file = tmp_path / "job-config.json"
+        config_file.write_text("{}", encoding="utf-8")
+        args = self._args(spec_file, job_config=config_file)
+
+        assert run(args) == 1
+        assert "required field" in capsys.readouterr().err
+
+    def test_default_plate_size_forwarded_to_export(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The configured plate size reaches export_per_cutter_plts."""
+        from plt_optimizer.cli.generate import run
+        from plt_optimizer.generate.vectorize import PerCutterExport
+
+        captured_kwargs: dict[str, Any] = {}
+
+        def _capture_export(*args: Any, **kwargs: Any) -> PerCutterExport:
+            captured_kwargs.update(kwargs)
+            return PerCutterExport(plt_paths=[], pdf_paths=[], default_pdf_paths=[])
+
+        monkeypatch.setattr(
+            "plt_optimizer.generate.vectorize.export_per_cutter_plts", _capture_export
+        )
+        config_file = tmp_path / "job-config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "max_h_compress": 0.5,
+                    "hole_margin": 0.0625,
+                    "min_hole_margin": 0.05,
+                    "hole_text_collision_distance": 0.1,
+                    "plate_width": 30.0,
+                    "plate_height": 20.0,
+                }
+            ),
+            encoding="utf-8",
+        )
+        spec_file = self._write_spec(tmp_path)
+        args = self._args(spec_file, job_config=config_file)
+
+        assert run(args) == 0
+        assert captured_kwargs["default_plate_size"] == (30.0, 20.0)
 
 
 class TestHelpDisplay:

@@ -40,6 +40,7 @@ from typing import Optional, Tuple
 # router builds every subparser at startup, and `plt-optimizer watch` must
 # remain importable on Python 3.8 / Windows 7 where matplotlib cannot be
 # installed (see AGENTS.md section 7).
+from plt_optimizer.generate.job_config import JobConfig, load_job_config
 from plt_optimizer.generate.resolution import resolve_job_spec
 from plt_optimizer.generate.schema import parse_yaml
 from plt_optimizer.generate.substitution import SubstitutionError, expand_job_spec
@@ -93,6 +94,17 @@ def setup_parser(parser: argparse.ArgumentParser) -> None:
         help=(
             "Path to the cutter inventory JSON (available_cutters list). "
             "If the file does not exist, ideal cutters are used."
+        ),
+    )
+    parser.add_argument(
+        "--job-config",
+        type=Path,
+        default=Path("job-config.json"),
+        help=(
+            "Path to the job defaults JSON (job-config.json). Its values "
+            "supply the top-most (job/plate) layer defaults for fields the "
+            "spec omits; fields configured nowhere become required. "
+            "Pair different tools/job-config files per engraver or toolset."
         ),
     )
     parser.add_argument(
@@ -156,6 +168,24 @@ def _load_cutter_inventory(
     return inventory, boundary_hole_cutter
 
 
+def _default_plate_size(job_config: Optional[JobConfig]) -> Optional[Tuple[float, float]]:
+    """Extract the ``(width, height)`` default plate size from a job config.
+
+    Args:
+        job_config: The loaded job config, or ``None``.
+
+    Returns:
+        The configured ``(plate_width, plate_height)`` when both are set,
+        otherwise ``None`` (callers keep their historical defaults).
+    """
+    if job_config is None:
+        return None
+    defaults = job_config.defaults
+    if defaults.plate_width is None or defaults.plate_height is None:
+        return None
+    return (defaults.plate_width, defaults.plate_height)
+
+
 def run(args: argparse.Namespace) -> int:
     """Execute the generate command.
 
@@ -199,7 +229,8 @@ def run(args: argparse.Namespace) -> int:
         text_logger.logger.setLevel(logging.DEBUG)
 
     try:
-        job = parse_yaml(spec_path)
+        job_config = load_job_config(args.job_config)
+        job = parse_yaml(spec_path, job_config_path=args.job_config)
         # Flatten replacement-driven labels (EngraveLab "badge"/multiples)
         # into static LabelSpecs before resolution, per the schema contract.
         job = expand_job_spec(job, spec_path)
@@ -232,6 +263,7 @@ def run(args: argparse.Namespace) -> int:
             available_cutters=inventory,
             boundary_hole_cutter_size=boundary_hole_cutter,
         )
+        default_plate_size = _default_plate_size(job_config)
         export_result = export_per_cutter_plts(
             resolved_labels,
             job.plates,
@@ -244,6 +276,7 @@ def run(args: argparse.Namespace) -> int:
             fast_mode=args.fast_mode,
             logger=text_logger,
             layout=job.layout,
+            default_plate_size=default_plate_size,
         )
         exported_paths = export_result.plt_paths
     except LabelRenderError as e:

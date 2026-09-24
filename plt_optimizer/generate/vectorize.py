@@ -384,6 +384,7 @@ def export_per_cutter_plts(
     fast_mode: bool = False,
     logger: Optional[TextLogger] = None,
     layout: LayoutMode = DEFAULT_LAYOUT_MODE,
+    default_plate_size: Optional[tuple[float, float]] = None,
 ) -> PerCutterExport:
     """Export plates as per-cutter PLT files (and optional simple PDFs).
 
@@ -439,6 +440,10 @@ def export_per_cutter_plts(
             extending rightward; ``rows`` fills width before extending
             downward (the historical behaviour). Individual plates may
             override it via ``PlateSpec.layout``.
+        default_plate_size: ``(width, height)`` override (inches) for the
+            auto-allocated unbounded bins (from ``job-config.json``
+            ``plate_width`` / ``plate_height``); the historical 11x8.5
+            default applies when ``None``.
 
     Returns:
         A :class:`PerCutterExport` with written PLT paths, PDF paths, and
@@ -449,9 +454,11 @@ def export_per_cutter_plts(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Use default plates if not provided
+    # Use default plates if not provided (the configured plate size wins
+    # over the historical 11x8.5 fallback when job-config supplies one).
     if provided_plates is None:
-        provided_plates = [PlateSpec(id="default", width=11.0, height=8.5)]
+        default_width, default_height = default_plate_size or (11.0, 8.5)
+        provided_plates = [PlateSpec(id="default", width=default_width, height=default_height)]
 
     # Pen == cutter: assign one HPGL pen per distinct text cutter so the
     # assembled plate can be split into per-cutter files after assembly.
@@ -473,6 +480,7 @@ def export_per_cutter_plts(
         pen_map=pen_map,
         allow_rotation=allow_rotation,
         layout=layout,
+        default_plate_size=default_plate_size,
     )
 
     plt_dir = output_dir / "plt"

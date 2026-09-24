@@ -76,7 +76,8 @@ JobSpec (job-level defaults)
   drill hole, `hole_margin` may be reduced toward this floor to clear it.
   Cascades label → job (accepted on plates for schema parity only).
 - `hole_text_collision_distance`: Minimum air gap in inches (`ge=0.0`,
-  default `None` → resolved to **0.15**) kept between the *engraved* text
+  default `None` → resolved to **0.15**, or the `job-config.json` value when a
+  config is in play — currently **0.1**) kept between the *engraved* text
   stroke and the *engraved* drill-hole stroke. Cascades label → job
   (accepted on text lines and plates for schema parity only); an explicit
   `0.0` is honored (strokes may touch but never overlap).
@@ -303,7 +304,7 @@ already knows each toolpath's kind, the `Profiler` is skipped entirely.
   **removed**; optimization now happens pre-write in plate space.
 
 ### Cascading Resolution
-When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), and `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to 0.15).
+When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), and `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.15).
 
 ### Bin-Packing Rotation (`allow_rotation`)
 `JobSpec.allow_rotation` (bool, default `True`) lets the `rectpack` bin
@@ -413,6 +414,43 @@ behaviour. `_plate_clearances` builds the per-bin-id `(left, top)` map
 - All numeric fields support Pydantic's `ge` (greater-than-or-equal) validators for safety
 - Use `job.labels` or synthesize from root-level `content` + `count` when processing
 
+### Job Defaults Config (`job-config.json`)
+
+`plt_optimizer/generate/job_config.py` defines a shop-level JSON companion to
+`tools.json` (default path `job-config.json`, selected via the `generate` CLI's
+`--job-config` flag) so a shop can maintain one defaults file per engraver /
+toolset. `parse_yaml(spec, job_config_path=...)` loads it and injects its
+values into the raw job mapping **before** `JobSpec` validation, always at the
+top-most layer:
+
+- Cascading attributes (`text_height`, `character_spacing`, `line_spacing`,
+  `margin`, `hole_margin`, `min_hole_margin`, `hole_text_collision_distance`,
+  `max_h_compress`, `text_h_alignment`, `holes`, `allow_rotation`,
+  `text_chunk_mode`, `layout`) fill missing **job-level** keys; the existing
+  label -> job cascade then works unchanged and YAML values always win (an
+  explicit YAML `null` counts as unset; `holes: []` suppression is a value).
+  `hole_diameter` additionally fills the `diameter` of any hole entry (config-
+  or spec-declared) that omits it.
+- `plate_width` / `plate_height` / `left_clearance` / `top_clearance` fill
+  missing keys of each `plates` entry and (for the plate size) the unbounded
+  auto-allocated bins: the CLI threads `default_plate_size=(plate_width,
+  plate_height)` into `vectorize.export_per_cutter_plts` /
+  `layout.generate_layout*`. They never fill the job-level label
+  `width`/`height` (that would defeat label auto-sizing).
+- **Required-when-unconfigured:** `max_h_compress`, `hole_margin`,
+  `min_hole_margin`, and `hole_text_collision_distance` must come from the
+  config or the spec (job level, or declared on every label); without plates,
+  `plate_width`/`plate_height` must come from the config. A field missing
+  from the JSON, set to `null`, or whose file is absent (while a config path
+  is in play) makes the field required: `assert_required_fields()` raises
+  `JobConfigError` (a `ValueError` subclass) listing the offenders.
+  Enforcement only runs when a config path is supplied, so direct API /
+  test callers of `JobSpec(...)` / bare `parse_yaml()` keep the historical
+  all-optional contract (resolution's hardcoded fallbacks remain as the
+  no-config safety net).
+- Malformed JSON or unknown config keys fail loudly (`JobConfigError`);
+  `description` is an accepted free-form key (mirrors `tools.json`).
+
 ## 7. CLI Surface (`optimize` / `generate` / `watch`)
 
 The console script `plt-optimizer` is routed by `main.py` into three
@@ -435,8 +473,9 @@ per-cutter optimization + split by cutter). Flags: `-o/--output` (default: spec'
 parent dir; receives `plt/` and `pdf/`), `-v/--verbose`, `--no-plots` (skip
 simple-outline PDF previews), `--default-plots` (opt-in color-coded `*_default.pdf`
 rapid-travel plots), `--tools` (default `tools.json`; missing file → ideal
-cutters), `--fast-mode` (plate-space routing via `NearestNeighbor2Opt` instead of
-the default `ParallelEnsemble`). File names:
+cutters), `--job-config` (default `job-config.json`; top-layer job defaults and
+the required-when-unconfigured gate, see section 6), `--fast-mode` (plate-space
+routing via `NearestNeighbor2Opt` instead of the default `ParallelEnsemble`). File names:
 `<2-digit plate>_{text|bh}_<cutter>_<job_id>.<plt|pdf>` plus combined
 `<plate>_all_<job_id>.pdf`. Simple-outline PDFs style strokes by toolpath kind:
 purely structural (`bh`) plots use `linewidth=2.0`/`alpha=0.3`; text and mixed
