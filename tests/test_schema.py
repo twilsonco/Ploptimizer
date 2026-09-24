@@ -729,59 +729,12 @@ class TestPlateSpec:
         with pytest.raises(ValidationError):
             PlateSpec(id="p1", width=24.0, height=16.0, top_clearance=-0.1)
 
-    def test_removed_margin_rejected_with_hint(self) -> None:
-        """The legacy plate ``margin`` key must fail with a migration hint."""
-        with pytest.raises(ValidationError, match="left_clearance"):
-            PlateSpec(id="p1", width=24.0, height=16.0, margin=0.25)
-
-    def test_removed_margin_rejected_from_yaml(self, tmp_path: Path) -> None:
-        """A YAML spec still carrying plate ``margin`` aborts on parse."""
-        spec_path = tmp_path / "old_margin.yaml"
-        spec_path.write_text(
-            "job:\n"
-            "  job_name: 'Old'\n"
-            "  plates:\n"
-            "    - id: p1\n"
-            "      width: 24.0\n"
-            "      height: 16.0\n"
-            "      margin: 0.25\n"
-            "  count: 1\n"
-            "  content:\n"
-            "    - text: 'X'\n",
-            encoding="utf-8",
-        )
-        with pytest.raises(ValueError, match="top_clearance"):
-            parse_yaml(spec_path)
-
-    def test_removed_clearance_padding_rejected_with_hint(self) -> None:
-        """The never-applied ``clearance_padding`` key must fail with a hint."""
-        with pytest.raises(ValidationError, match="never"):
-            PlateSpec(id="p1", width=24.0, height=16.0, clearance_padding=0.125)
-
-    def test_removed_clearance_padding_rejected_from_yaml(self, tmp_path: Path) -> None:
-        """A YAML spec still carrying ``clearance_padding`` aborts on parse."""
-        spec_path = tmp_path / "old_padding.yaml"
-        spec_path.write_text(
-            "job:\n"
-            "  job_name: 'Old'\n"
-            "  plates:\n"
-            "    - id: p1\n"
-            "      width: 24.0\n"
-            "      height: 16.0\n"
-            "      clearance_padding: 0.125\n"
-            "  count: 1\n"
-            "  content:\n"
-            "    - text: 'X'\n",
-            encoding="utf-8",
-        )
-        with pytest.raises(ValueError, match="clearance_padding"):
-            parse_yaml(spec_path)
-
     def test_plate_without_optional_fields_parses(self) -> None:
-        """``clearance_padding`` is gone: id/width/height alone are valid."""
+        """A plate needs nothing beyond id, width and height."""
         plate = PlateSpec(id="p1", width=24.0, height=16.0)
         assert plate.id == "p1"
-        assert "clearance_padding" not in type(plate).model_fields
+        assert math.isclose(plate.left_clearance, 0.0)
+        assert math.isclose(plate.top_clearance, 0.0)
 
 
 class TestMixinHierarchy:

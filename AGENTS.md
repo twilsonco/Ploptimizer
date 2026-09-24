@@ -97,7 +97,7 @@ JobSpec (job-level defaults)
 | `JobSpec` | Root job container | Requires either `labels` list OR root-level `content` (mutually exclusive) |
 | `LabelSpec` | Individual label definition | `count >= 1`; requires `content` (min 1 TextLine) OR `replacement_text_file` (mutually exclusive with `count`) |
 | `TextLine` | Text content unit | Requires non-empty `text` string |
-| `PlateSpec` | Physical sheet definition | All dimensions `>= 0`; `width`/`height` are the usable pack area, offset from the material's top-left by `left_clearance`/`top_clearance` (both default `0.0`; the legacy `margin` and never-applied `clearance_padding` fields are rejected with migration hints) |
+| `PlateSpec` | Physical sheet definition | All dimensions `>= 0`; `width`/`height` are the usable pack area, offset from the material's top-left by `left_clearance`/`top_clearance` (both default `0.0`) |
 | `HoleSpec` | Drilled hole definition | Location (required; 8 atomic enum values: corners + edges, plus `corners`/`sides` group shorthands expanded at validation) + optional `diameter` (default 0.125", must be > 0) |
 | `parse_yaml()` | Entry point | Returns validated `JobSpec` or raises `ValueError` |
 | `expand_job_spec()` | Replacement expansion (substitution.py) | Called after `parse_yaml()`; flattens replacement-driven labels into static LabelSpecs |
@@ -398,12 +398,7 @@ horizontally and `[top_clearance, top_clearance + height]` vertically, so
 the material's right edge always sits at `left_clearance + width` and its
 bottom edge at `top_clearance + height`.
 
-The legacy `margin` field is **removed**: `PlateSpec` rejects any input
-carrying a `margin` key with a migration hint (Pydantic would otherwise
-silently drop it). The legacy `clearance_padding` field is **removed** too:
-it was never applied by the layout engine (labels always pack coincident —
-inter-label spacing comes from each label's own `margin`), and it is
-rejected with a migration hint as well. Packing is unchanged — the packer
+Packing is unchanged — the packer
 still receives the usable `width × height` bin — and
 `_extract_packed_plates` adds `(left_clearance, top_clearance)` to every
 placement (in real plate space, after any transpose mapping).

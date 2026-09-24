@@ -520,47 +520,6 @@ class PlateSpec(BaseModel):
         description="Per-plate fill-order override (None = inherit the job layout).",
     )
 
-    @model_validator(mode="before")
-    @classmethod
-    def _reject_removed_fields(cls, data: object) -> object:
-        """Reject removed plate fields with migration hints.
-
-        Pydantic ignores unknown keys by default, which would silently drop
-        these fields from older job specs and hide the user's (unsupported)
-        intent:
-
-        - ``margin``: replaced by the ``left_clearance``/``top_clearance``
-          pair; specs carrying it would pack flush to the plate origin
-          instead of the declared safety ring.
-        - ``clearance_padding``: never applied by the layout engine (labels
-          always pack coincident); inter-label spacing comes from each
-          label's own ``margin``.
-
-        Args:
-            data: Raw (pre-validation) input data for the model.
-
-        Returns:
-            The input data, unchanged.
-
-        Raises:
-            ValueError: When the input carries a ``margin`` or
-                ``clearance_padding`` key.
-        """
-        if isinstance(data, dict):
-            if "margin" in data:
-                raise ValueError(
-                    "plate 'margin' was replaced by 'left_clearance' and "
-                    "'top_clearance' (both default to 0.0); set the desired "
-                    "edge clearances explicitly"
-                )
-            if "clearance_padding" in data:
-                raise ValueError(
-                    "plate 'clearance_padding' was removed: it was never "
-                    "applied by the layout engine (labels pack edge-to-edge); "
-                    "use each label's 'margin' for spacing"
-                )
-        return data
-
 
 class JobSpec(LabelAttributes):
     """Top-level specification for a batch label generation job.
