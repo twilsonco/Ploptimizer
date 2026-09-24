@@ -14,6 +14,7 @@ from plt_optimizer.generate.layout import (
     LayoutFitError,
     PackedLabel,
     PackedPlate,
+    _default_clearance_map,
     _extract_packed_plates,
     _plate_clearances,
     _plate_footprint,
@@ -1144,3 +1145,110 @@ class TestPlateEdgeClearances:
         assert math.isclose(plates[0].left_clearance, 0.0)
         assert math.isclose(plates[0].top_clearance, 0.0)
         assert math.isclose(plates[0].labels[0].x, 0.0)
+
+
+class TestDefaultClearanceMap:
+    """Tests for the ``_default_clearance_map`` helper (unbounded bins)."""
+
+    def test_none_clearance_returns_empty(self) -> None:
+        """No configured clearance keeps the map empty (no-op shifting)."""
+        groups = [([(24.0, 16.0, "default_plate_1")], LayoutMode.COLUMNS)]
+
+        assert _default_clearance_map(groups, None) == {}
+
+    def test_zero_clearance_returns_empty(self) -> None:
+        """An all-zero clearance pair is a no-op and stays out of the map."""
+        groups = [([(24.0, 16.0, "default_plate_1")], LayoutMode.COLUMNS)]
+
+        assert _default_clearance_map(groups, (0.0, 0.0)) == {}
+
+    def test_maps_every_auto_bin(self) -> None:
+        """Every auto-allocated bin across all groups gets the clearance."""
+        groups = [
+            (
+                [
+                    (24.0, 16.0, "default_plate_1"),
+                    (24.0, 16.0, "default_plate_2"),
+                ],
+                LayoutMode.COLUMNS,
+            ),
+            ([(12.0, 8.0, "default_plate_3")], LayoutMode.ROWS),
+        ]
+
+        assert _default_clearance_map(groups, (1.0, 2.0)) == {
+            "default_plate_1": (1.0, 2.0),
+            "default_plate_2": (1.0, 2.0),
+            "default_plate_3": (1.0, 2.0),
+        }
+
+
+class TestUnboundedDefaultClearance:
+    """``default_plate_clearance`` shifts auto-allocated unbounded plates."""
+
+    def test_default_clearance_shifts_placements(self) -> None:
+        """Unbounded placements shift right/down by the configured pair."""
+        labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=8)]
+        plates = generate_layout(
+            labels,
+            layout=LayoutMode.ROWS,
+            default_plate_clearance=(1.5, 0.75),
+        )
+
+        assert len(plates) == 1
+        plate = plates[0]
+        assert math.isclose(plate.left_clearance, 1.5)
+        assert math.isclose(plate.top_clearance, 0.75)
+        for packed in plate.labels:
+            assert packed.x >= 1.5 - 1e-9
+            assert packed.y >= 0.75 - 1e-9
+        # The usable area's corner is occupied: some label sits flush.
+        assert math.isclose(min(p.x for p in plate.labels), 1.5)
+        assert math.isclose(min(p.y for p in plate.labels), 0.75)
+
+    def test_default_clearance_applies_to_every_auto_plate(self) -> None:
+        """Overflowed sheets all carry the configured clearance."""
+        labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=40)]
+        plates = generate_layout(
+            labels,
+            allow_rotation=False,
+            layout=LayoutMode.ROWS,
+            default_plate_size=(12.0, 8.0),
+            default_plate_clearance=(1.0, 2.0),
+        )
+
+        assert len(plates) >= 2
+        for plate in plates:
+            assert math.isclose(plate.left_clearance, 1.0)
+            assert math.isclose(plate.top_clearance, 2.0)
+            for packed in plate.labels:
+                assert packed.x >= 1.0 - 1e-9
+                assert packed.y >= 2.0 - 1e-9
+
+    def test_zero_clearance_matches_unspecified(self) -> None:
+        """An explicit zero clearance reproduces the flush-origin layout."""
+        labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=20)]
+        baseline = generate_layout(
+            labels, allow_rotation=False, layout=LayoutMode.ROWS
+        )
+        explicit = generate_layout(
+            labels,
+            allow_rotation=False,
+            layout=LayoutMode.ROWS,
+            default_plate_clearance=(0.0, 0.0),
+        )
+
+        before = sorted((p.label_id, p.x, p.y) for p in baseline[0].labels)
+        after = sorted((p.label_id, p.x, p.y) for p in explicit[0].labels)
+        assert before == after
+
+    def test_bounds_path_applies_default_clearance(self) -> None:
+        """``generate_layout_with_bounds`` honours the default clearance too."""
+        labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=4)]
+        plates, _rendered = generate_layout_with_bounds(
+            labels, default_plate_clearance=(1.0, 0.5)
+        )
+
+        assert len(plates) == 1
+        for packed in plates[0].labels:
+            assert packed.x >= 1.0 - 1e-9
+            assert packed.y >= 0.5 - 1e-9

@@ -385,6 +385,7 @@ def export_per_cutter_plts(
     logger: Optional[TextLogger] = None,
     layout: LayoutMode = DEFAULT_LAYOUT_MODE,
     default_plate_size: Optional[tuple[float, float]] = None,
+    default_plate_clearance: Optional[tuple[float, float]] = None,
 ) -> PerCutterExport:
     """Export plates as per-cutter PLT files (and optional simple PDFs).
 
@@ -411,8 +412,10 @@ def export_per_cutter_plts(
 
     Args:
         resolved_labels: List of resolved labels from Phase 2 resolution.
-        provided_plates: Optional list of PlateSpec objects. If None, uses
-            standard A3 paper (11" x 8.5").
+        provided_plates: Optional list of PlateSpec objects. ``None`` (or
+            empty) selects unbounded mode: the layout engine auto-allocates
+            default sheets sized by ``default_plate_size`` (falling back to
+            24" x 16"), overflowing onto as many sheets as the labels need.
         output_dir: Base output directory; ``plt/`` and ``pdf/``
             subdirectories are created inside it.
         job_id: Job identifier used as the file-name prefix (should be
@@ -442,8 +445,12 @@ def export_per_cutter_plts(
             override it via ``PlateSpec.layout``.
         default_plate_size: ``(width, height)`` override (inches) for the
             auto-allocated unbounded bins (from ``job-config.json``
-            ``plate_width`` / ``plate_height``); the historical 11x8.5
-            default applies when ``None``.
+            ``plate_width`` / ``plate_height``); the module default
+            (24 x 16) applies when ``None``. Ignored when plates are given.
+        default_plate_clearance: ``(left, top)`` edge clearance (inches)
+            applied to every auto-allocated unbounded bin (from
+            ``job-config.json`` ``left_clearance`` / ``top_clearance``).
+            Ignored when plates are given (their own clearances apply).
 
     Returns:
         A :class:`PerCutterExport` with written PLT paths, PDF paths, and
@@ -454,11 +461,13 @@ def export_per_cutter_plts(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Use default plates if not provided (the configured plate size wins
-    # over the historical 11x8.5 fallback when job-config supplies one).
-    if provided_plates is None:
-        default_width, default_height = default_plate_size or (11.0, 8.5)
-        provided_plates = [PlateSpec(id="default", width=default_width, height=default_height)]
+    # No plates means unbounded mode: the layout engine auto-allocates
+    # default sheets sized by ``default_plate_size`` (from job-config.json)
+    # and overflows onto as many as the labels need. Passing ``None``
+    # through (rather than synthesizing a single plate) keeps this path
+    # identical to ``generate_layout``'s own unbounded behaviour.
+    if provided_plates is not None and len(provided_plates) == 0:
+        provided_plates = None
 
     # Pen == cutter: assign one HPGL pen per distinct text cutter so the
     # assembled plate can be split into per-cutter files after assembly.
@@ -481,6 +490,7 @@ def export_per_cutter_plts(
         allow_rotation=allow_rotation,
         layout=layout,
         default_plate_size=default_plate_size,
+        default_plate_clearance=default_plate_clearance,
     )
 
     plt_dir = output_dir / "plt"

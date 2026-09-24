@@ -132,7 +132,16 @@ def phase_2_resolution_and_layout(
     inventory: list[float],
     boundary_hole_cutter_size: float | None = None,
     job_config_path: Path | None = None,
-) -> tuple[list, list, list | None, str, bool, LayoutMode, tuple[float, float] | None]:
+) -> tuple[
+    list,
+    list,
+    list | None,
+    str,
+    bool,
+    LayoutMode,
+    tuple[float, float] | None,
+    tuple[float, float] | None,
+]:
     """Phase 2: Resolution, bin packing, and verification.
 
     Executes:
@@ -152,16 +161,22 @@ def phase_2_resolution_and_layout(
 
     Returns:
         Tuple of (resolved_labels, packed_plates, provided_plates, job_id,
-        allow_rotation, layout, default_plate_size).
+        allow_rotation, layout, default_plate_size, default_plate_clearance).
     """
     print_separator("PHASE 2: PIPELINE EXECUTION")
 
     job_config: JobConfig | None = load_job_config(job_config_path)
     default_plate_size: tuple[float, float] | None = None
+    default_plate_clearance: tuple[float, float] | None = None
     if job_config is not None:
         defaults = job_config.defaults
         if defaults.plate_width is not None and defaults.plate_height is not None:
             default_plate_size = (defaults.plate_width, defaults.plate_height)
+        if defaults.left_clearance or defaults.top_clearance:
+            default_plate_clearance = (
+                defaults.left_clearance or 0.0,
+                defaults.top_clearance or 0.0,
+            )
 
     # =========================================================================
     # Step 1: Parse JobSpec
@@ -207,6 +222,7 @@ def phase_2_resolution_and_layout(
         allow_rotation=job.allow_rotation,
         layout=job.layout,
         default_plate_size=default_plate_size,
+        default_plate_clearance=default_plate_clearance,
     )
 
     print("\n--- BIN PACKING RESULTS ---\n")
@@ -240,6 +256,7 @@ def phase_2_resolution_and_layout(
         job.allow_rotation,
         job.layout,
         default_plate_size,
+        default_plate_clearance,
     )
 
 
@@ -254,6 +271,7 @@ def phase_3_vectorization_and_export(
     allow_rotation: bool = True,
     layout: LayoutMode = DEFAULT_LAYOUT_MODE,
     default_plate_size: tuple[float, float] | None = None,
+    default_plate_clearance: tuple[float, float] | None = None,
 ) -> PerCutterExport:
     """Phase 3: Export per-cutter PLT files using the clean Phase 3 pipeline.
 
@@ -274,8 +292,10 @@ def phase_3_vectorization_and_export(
 
     Args:
         resolved_labels: List of fully resolved labels from the resolution step.
-        provided_plates: Optional list of PlateSpec objects. If None, uses a
-            default A3 plate (matching ``export_per_cutter_plts`` behavior).
+        provided_plates: Optional list of PlateSpec objects. If None,
+            unbounded mode auto-allocates default plates sized by
+            ``default_plate_size`` (matching ``export_per_cutter_plts``
+            behavior), overflowing onto as many plates as needed.
         output_dir: Optional output directory. Defaults to
             ``test_output/integration_test``.
         job_id: Filesystem-safe job identifier used as the file-name prefix.
@@ -285,6 +305,8 @@ def phase_3_vectorization_and_export(
             override it via ``PlateSpec.layout``).
         default_plate_size: ``(width, height)`` override for auto-allocated
             unbounded bins (from ``job-config.json``).
+        default_plate_clearance: ``(left, top)`` edge clearance applied to
+            every auto-allocated unbounded bin (from ``job-config.json``).
 
     Returns:
         The :class:`PerCutterExport` with written PLT/PDF paths and the
@@ -311,6 +333,7 @@ def phase_3_vectorization_and_export(
         allow_rotation=allow_rotation,
         layout=layout,
         default_plate_size=default_plate_size,
+        default_plate_clearance=default_plate_clearance,
     )
 
     print("\n--- EXPORT RESULTS ---\n")
@@ -454,6 +477,7 @@ def _run_single_spec(spec_override: Path | None) -> int:
             allow_rotation,
             layout,
             default_plate_size,
+            default_plate_clearance,
         ) = phase_2_resolution_and_layout(
             job_yaml, inventory, boundary_hole_cutter, job_config_json
         )
@@ -474,6 +498,7 @@ def _run_single_spec(spec_override: Path | None) -> int:
             allow_rotation,
             layout,
             default_plate_size,
+            default_plate_clearance,
         )
 
         # Phase 3.5: Coordinate Validation (on the written per-cutter PLTs)

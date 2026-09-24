@@ -17,7 +17,10 @@ Semantics:
   (auto-allocated) bin size. They deliberately never fill the job-level
   label ``width`` / ``height`` (that would defeat label auto-sizing).
 - ``left_clearance`` / ``top_clearance`` fill plate entries that omit the
-  matching clearance.
+  matching clearance, and shift placements on the unbounded auto-allocated
+  bins. A job spec may omit ``plates:`` entirely: packing then runs in
+  unbounded mode on config-sized default sheets, overflowing onto as many
+  as needed.
 - **Required-when-unconfigured:** the fields in
   :data:`REQUIRED_WHEN_UNCONFIGURED` must be provided either by this config
   or by the job spec (job level, or every label individually). When a

@@ -1,7 +1,10 @@
 """Tests for the per-cutter Phase 3 export pipeline."""
 
+import re
 from pathlib import Path
 
+from plt_optimizer.generate.layout import LayoutMode
+from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
 from plt_optimizer.generate.resolution import resolve_job_spec
 from plt_optimizer.generate.schema import parse_yaml
 from plt_optimizer.generate.vectorize import (
@@ -225,3 +228,145 @@ class TestExportAndOptimizePhase3:
         for path in exported_paths:
             assert path.parent == tmp_path / "plt"
             assert path.name.endswith(".plt")
+
+
+def _label(
+    label_id: str = "lbl",
+    width: float = 3.0,
+    height: float = 1.0,
+    count: int = 1,
+) -> ResolvedLabel:
+    """Build a minimal ``ResolvedLabel`` for export tests."""
+    return ResolvedLabel(
+        id=label_id,
+        count=count,
+        width=width,
+        height=height,
+        margin=0.0,
+        content=[
+            ResolvedTextLine(
+                text="X",
+                nominal_text_height=0.5,
+                toolpath_text_height=0.47,
+                cutter_diameter=0.03,
+                character_spacing=0.0,
+                line_spacing=0.0,
+            )
+        ],
+    )
+
+
+def _first_cutting_x(path: Path) -> int:
+    """Return the smallest X coordinate among the cutting moves of a PLT."""
+    xs: list[int] = []
+    for token in path.read_text(encoding="utf-8").split(";"):
+        match = re.match(r"^PD(-?\d+),(-?\d+)", token.strip())
+        if match:
+            xs.append(int(match.group(1)))
+    assert xs, f"No cutting coordinates found in {path}"
+    return min(xs)
+
+
+class TestExportWithoutPlates:
+    """A job spec with no ``plates:`` uses the configured default plate."""
+
+    def test_no_plates_writes_output(self, tmp_path: Path) -> None:
+        """Omitting plates still exports (unbounded default plates)."""
+        result = export_per_cutter_plts(
+            [_label(count=3)],
+            provided_plates=None,
+            output_dir=tmp_path,
+            job_id="noplate",
+            optimize=False,
+            plots=False,
+        )
+
+        assert result.plt_paths
+        assert all(path.parent == tmp_path / "plt" for path in result.plt_paths)
+
+    def test_no_plates_overflows_onto_several_default_plates(self, tmp_path: Path) -> None:
+        """Labels beyond one default sheet spill onto additional plates."""
+        # 40 labels of 3x1 do not fit a single 12x8 default sheet.
+        result = export_per_cutter_plts(
+            [_label(count=40)],
+            provided_plates=None,
+            output_dir=tmp_path,
+            job_id="overflow",
+            optimize=False,
+            plots=False,
+            layout=LayoutMode.ROWS,
+            default_plate_size=(12.0, 8.0),
+        )
+
+        plate_numbers = {path.name.split("_")[0] for path in result.plt_paths}
+        assert len(plate_numbers) >= 2
+        # Names stay index-based (01, 02, ...) rather than bin-id based.
+        assert "01" in plate_numbers
+
+    def test_default_plate_size_reaches_the_packer(self, tmp_path: Path) -> None:
+        """A larger configured default plate packs everything on one sheet."""
+        small = export_per_cutter_plts(
+            [_label(width=10.0, height=6.0, count=3)],
+            output_dir=tmp_path / "small",
+            job_id="size",
+            optimize=False,
+            plots=False,
+            layout=LayoutMode.ROWS,
+            allow_rotation=False,
+            default_plate_size=(12.0, 8.0),
+        )
+        large = export_per_cutter_plts(
+            [_label(width=10.0, height=6.0, count=3)],
+            output_dir=tmp_path / "large",
+            job_id="size",
+            optimize=False,
+            plots=False,
+            layout=LayoutMode.ROWS,
+            allow_rotation=False,
+            default_plate_size=(48.0, 40.0),
+        )
+
+        small_plates = {p.name.split("_")[0] for p in small.plt_paths}
+        large_plates = {p.name.split("_")[0] for p in large.plt_paths}
+        assert len(small_plates) > 1
+        assert len(large_plates) == 1
+
+    def test_default_plate_clearance_shifts_content(self, tmp_path: Path) -> None:
+        """The configured clearance offsets content on auto-allocated plates."""
+        baseline = export_per_cutter_plts(
+            [_label(count=2)],
+            output_dir=tmp_path / "flush",
+            job_id="clr",
+            optimize=False,
+            plots=False,
+            layout=LayoutMode.ROWS,
+            allow_rotation=False,
+        )
+        shifted = export_per_cutter_plts(
+            [_label(count=2)],
+            output_dir=tmp_path / "shifted",
+            job_id="clr",
+            optimize=False,
+            plots=False,
+            layout=LayoutMode.ROWS,
+            allow_rotation=False,
+            default_plate_clearance=(1.0, 2.0),
+        )
+
+        # 1 inch == 1000 plotter units; the left-most cut moves right by 1".
+        before = min(_first_cutting_x(p) for p in baseline.plt_paths if "_bh_" in p.name)
+        after = min(_first_cutting_x(p) for p in shifted.plt_paths if "_bh_" in p.name)
+        assert after - before == 1000
+
+    def test_empty_plate_list_is_unbounded(self, tmp_path: Path) -> None:
+        """An explicit empty plate list behaves like omitting plates."""
+        result = export_per_cutter_plts(
+            [_label(count=2)],
+            provided_plates=[],
+            output_dir=tmp_path,
+            job_id="empty",
+            optimize=False,
+            plots=False,
+        )
+
+        assert result.plt_paths

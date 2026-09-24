@@ -1396,6 +1396,28 @@ class TestGenerateRun:
         full = JobDefaults(plate_width=24.0, plate_height=16.0)
         assert _default_plate_size(JobConfig(path=Path("j.json"), defaults=full)) == (24.0, 16.0)
 
+    def test_default_plate_clearance_helper(self) -> None:
+        """_default_plate_clearance emits a pair when either clearance is set."""
+        from plt_optimizer.cli.generate import _default_plate_clearance
+        from plt_optimizer.generate.job_config import JobConfig, JobDefaults
+
+        assert _default_plate_clearance(None) is None
+        assert (
+            _default_plate_clearance(JobConfig(path=Path("j.json"), defaults=JobDefaults()))
+            is None
+        )
+        zero = JobDefaults(left_clearance=0.0, top_clearance=0.0)
+        assert _default_plate_clearance(JobConfig(path=Path("j.json"), defaults=zero)) is None
+        left_only = JobDefaults(left_clearance=1.5)
+        assert _default_plate_clearance(
+            JobConfig(path=Path("j.json"), defaults=left_only)
+        ) == (1.5, 0.0)
+        both = JobDefaults(left_clearance=1.0, top_clearance=2.0)
+        assert _default_plate_clearance(JobConfig(path=Path("j.json"), defaults=both)) == (
+            1.0,
+            2.0,
+        )
+
     def test_job_config_supplies_required_fields(self, tmp_path: Path) -> None:
         """A complete config lets a spec omit the required fields entirely."""
         from plt_optimizer.cli.generate import run
@@ -1452,7 +1474,7 @@ class TestGenerateRun:
     def test_default_plate_size_forwarded_to_export(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The configured plate size reaches export_per_cutter_plts."""
+        """The configured plate size and clearance reach export_per_cutter_plts."""
         from plt_optimizer.cli.generate import run
         from plt_optimizer.generate.vectorize import PerCutterExport
 
@@ -1475,6 +1497,8 @@ class TestGenerateRun:
                     "hole_text_collision_distance": 0.1,
                     "plate_width": 30.0,
                     "plate_height": 20.0,
+                    "left_clearance": 1.5,
+                    "top_clearance": 0.75,
                 }
             ),
             encoding="utf-8",
@@ -1484,6 +1508,51 @@ class TestGenerateRun:
 
         assert run(args) == 0
         assert captured_kwargs["default_plate_size"] == (30.0, 20.0)
+        assert captured_kwargs["default_plate_clearance"] == (1.5, 0.75)
+
+    def test_no_plate_spec_runs_on_config_default_plates(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A spec without ``plates:`` exports onto the config-sized defaults."""
+        from plt_optimizer.cli.generate import run
+
+        spec_file = tmp_path / "no_plate.yaml"
+        spec_file.write_text(
+            "job:\n"
+            "  job_name: Default Plate Job\n"
+            "  layout: rows\n"
+            "  labels:\n"
+            "    - id: l1\n"
+            "      count: 30\n"
+            "      width: 6.0\n"
+            "      height: 4.0\n"
+            "      content:\n"
+            "        - text: Hello\n",
+            encoding="utf-8",
+        )
+        config_file = tmp_path / "job-config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "max_h_compress": 0.5,
+                    "hole_margin": 0.0625,
+                    "min_hole_margin": 0.05,
+                    "hole_text_collision_distance": 0.1,
+                    "plate_width": 24.0,
+                    "plate_height": 16.0,
+                }
+            ),
+            encoding="utf-8",
+        )
+        args = self._args(spec_file, output=tmp_path / "out", job_config=config_file)
+
+        # 30 labels of 6x4 need more than one 24x16 sheet: the unbounded
+        # default plates must overflow rather than abort.
+        assert run(args) == 0
+        assert "0 plates" in capsys.readouterr().out
+        exported = sorted(p.name for p in (tmp_path / "out" / "plt").glob("*.plt"))
+        plate_numbers = {name.split("_")[0] for name in exported}
+        assert len(plate_numbers) >= 2
 
 
 class TestHelpDisplay:

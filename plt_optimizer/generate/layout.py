@@ -627,7 +627,8 @@ def _plate_clearances(
 
     Args:
         provided_plates: User-specified plates, or ``None`` / empty for
-            unbounded mode (no clearances).
+            unbounded mode (auto-allocated bins take their clearance from
+            :func:`_default_clearance_map` instead).
 
     Returns:
         Mapping of plate id to ``(left_clearance, top_clearance)`` in
@@ -639,6 +640,39 @@ def _plate_clearances(
         if plate.left_clearance or plate.top_clearance:
             clearances[plate.id] = (plate.left_clearance, plate.top_clearance)
     return clearances
+
+
+def _default_clearance_map(
+    groups: list[tuple[list[tuple[float, float, str]], LayoutMode]],
+    default_plate_clearance: Optional[tuple[float, float]],
+) -> dict[str, tuple[float, float]]:
+    """Map every auto-allocated bin to the configured default clearance.
+
+    Unbounded mode has no ``PlateSpec`` objects to carry edge clearances, so
+    the ``job-config.json`` ``left_clearance`` / ``top_clearance`` values are
+    applied uniformly to all auto-allocated bins (mirroring how a plate list
+    of identical clearance sheets would behave).
+
+    Args:
+        groups: Declaration-ordered ``(bin_specs, layout)`` groups from
+            :func:`_resolve_plate_groups`.
+        default_plate_clearance: ``(left, top)`` clearance in inches, or
+            ``None`` / all-zero for no shift.
+
+    Returns:
+        Mapping of auto-allocated bin id to its clearance pair. Empty when
+        no clearance is configured (keeping downstream shifting a no-op).
+    """
+    if not default_plate_clearance:
+        return {}
+    left, top = default_plate_clearance
+    if not left and not top:
+        return {}
+    return {
+        bin_id: (left, top)
+        for bin_specs, _layout in groups
+        for (_width, _height, bin_id) in bin_specs
+    }
 
 
 def _plate_footprint(packer: rectpack.packer.Packer) -> float:
@@ -719,6 +753,7 @@ def generate_layout(
     allow_rotation: bool = True,
     layout: LayoutMode = DEFAULT_LAYOUT_MODE,
     default_plate_size: Optional[tuple[float, float]] = None,
+    default_plate_clearance: Optional[tuple[float, float]] = None,
 ) -> list[PackedPlate]:
     """Pack resolved labels onto physical plates.
 
@@ -742,6 +777,9 @@ def generate_layout(
         default_plate_size: ``(width, height)`` override (inches) for the
             auto-allocated unbounded bins (from ``job-config.json``); the
             module defaults apply when ``None``.
+        default_plate_clearance: ``(left, top)`` edge clearance (inches)
+            applied to every auto-allocated unbounded bin (from
+            ``job-config.json``); ignored when plates are provided.
 
     Returns:
         A list of ``PackedPlate`` objects containing all successfully
@@ -772,6 +810,8 @@ def generate_layout(
         provided_plates, layout, len(rectangles), default_plate_size=default_plate_size
     )
     clearances = _plate_clearances(provided_plates)
+    if not is_constrained:
+        clearances = _default_clearance_map(groups, default_plate_clearance)
     packed_plates, leftover = _pack_groups(
         rect_with_rid, groups, allow_rotation=allow_rotation, clearances=clearances
     )
@@ -807,6 +847,7 @@ def generate_layout_with_bounds(
     allow_rotation: bool = True,
     layout: LayoutMode = DEFAULT_LAYOUT_MODE,
     default_plate_size: Optional[tuple[float, float]] = None,
+    default_plate_clearance: Optional[tuple[float, float]] = None,
 ) -> tuple[list[PackedPlate], dict[str, RenderedLabel]]:
     """Pack resolved labels onto plates using rendered dimensions.
 
@@ -839,6 +880,9 @@ def generate_layout_with_bounds(
         default_plate_size: ``(width, height)`` override (inches) for the
             auto-allocated unbounded bins (from ``job-config.json``); the
             module defaults apply when ``None``.
+        default_plate_clearance: ``(left, top)`` edge clearance (inches)
+            applied to every auto-allocated unbounded bin (from
+            ``job-config.json``); ignored when plates are provided.
 
     Returns:
         A tuple of:
@@ -879,6 +923,8 @@ def generate_layout_with_bounds(
         provided_plates, layout, len(rectangles), default_plate_size=default_plate_size
     )
     clearances = _plate_clearances(provided_plates)
+    if not is_constrained:
+        clearances = _default_clearance_map(groups, default_plate_clearance)
     packed_plates, leftover = _pack_groups(
         rect_with_rid, groups, allow_rotation=allow_rotation, clearances=clearances
     )

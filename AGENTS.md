@@ -432,11 +432,21 @@ top-most layer:
   `hole_diameter` additionally fills the `diameter` of any hole entry (config-
   or spec-declared) that omits it.
 - `plate_width` / `plate_height` / `left_clearance` / `top_clearance` fill
-  missing keys of each `plates` entry and (for the plate size) the unbounded
-  auto-allocated bins: the CLI threads `default_plate_size=(plate_width,
-  plate_height)` into `vectorize.export_per_cutter_plts` /
-  `layout.generate_layout*`. They never fill the job-level label
-  `width`/`height` (that would defeat label auto-sizing).
+  missing keys of each `plates` entry and the unbounded auto-allocated bins:
+  the CLI threads `default_plate_size=(plate_width, plate_height)` and
+  `default_plate_clearance=(left_clearance, top_clearance)` into
+  `vectorize.export_per_cutter_plts` / `layout.generate_layout*`. They never
+  fill the job-level label `width`/`height` (that would defeat label
+  auto-sizing).
+- **Optional plate specification:** a job spec without `plates:` (or with
+  an empty list) never synthesizes a single fallback plate. `provided_plates`
+  stays `None` through `export_per_cutter_plts` into the layout engine's
+  unbounded mode, which auto-allocates `default_plate_{i}` bins sized by
+  `default_plate_size` (module default 24x16; the config values win) and
+  overflows onto as many sheets as the labels need. A non-zero
+  `default_plate_clearance` shifts placements on every auto-allocated bin
+  (see `_default_clearance_map`), mirroring a plate list of identical
+  clearance sheets.
 - **Required-when-unconfigured:** `max_h_compress`, `hole_margin`,
   `min_hole_margin`, and `hole_text_collision_distance` must come from the
   config or the spec (job level, or declared on every label); without plates,

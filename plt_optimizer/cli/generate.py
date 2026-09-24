@@ -186,6 +186,27 @@ def _default_plate_size(job_config: Optional[JobConfig]) -> Optional[Tuple[float
     return (defaults.plate_width, defaults.plate_height)
 
 
+def _default_plate_clearance(job_config: Optional[JobConfig]) -> Optional[Tuple[float, float]]:
+    """Extract the ``(left, top)`` default plate clearance from a job config.
+
+    Args:
+        job_config: The loaded job config, or ``None``.
+
+    Returns:
+        The configured ``(left_clearance, top_clearance)`` when at least
+        one is non-zero, otherwise ``None`` (no shift on auto-allocated
+        plates; the fields default to ``0.0``).
+    """
+    if job_config is None:
+        return None
+    defaults = job_config.defaults
+    left = defaults.left_clearance or 0.0
+    top = defaults.top_clearance or 0.0
+    if not left and not top:
+        return None
+    return (left, top)
+
+
 def run(args: argparse.Namespace) -> int:
     """Execute the generate command.
 
@@ -277,6 +298,7 @@ def run(args: argparse.Namespace) -> int:
             logger=text_logger,
             layout=job.layout,
             default_plate_size=default_plate_size,
+            default_plate_clearance=_default_plate_clearance(job_config),
         )
         exported_paths = export_result.plt_paths
     except LabelRenderError as e:
