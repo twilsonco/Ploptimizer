@@ -28,7 +28,6 @@ job:
     - id: scrap_24x16
       width: 24.0
       height: 16.0
-      clearance_padding: 0.0
 
   labels:
     - id: breaker

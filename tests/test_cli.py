@@ -208,7 +208,6 @@ class TestGenerateSubcommand:
             "      height: 12.0\n"
             "      left_clearance: 0.25\n"
             "      top_clearance: 0.25\n"
-            "      clearance_padding: 0.125\n"
             "  labels:\n"
             "    - id: l1\n"
             "      count: 1\n"
@@ -316,7 +315,6 @@ class TestCLIIntegration:
             "      height: 12.0\n"
             "      left_clearance: 0.25\n"
             "      top_clearance: 0.25\n"
-            "      clearance_padding: 0.125\n"
             "  labels:\n"
             "    - id: l1\n"
             "      count: 1\n"
@@ -363,7 +361,6 @@ class TestCLIIntegration:
             "      height: 12.0\n"
             "      left_clearance: 0.25\n"
             "      top_clearance: 0.25\n"
-            "      clearance_padding: 0.125\n"
             "  labels:\n"
             "    - id: tmpl\n"
             "      width: 2.0\n"
@@ -411,7 +408,6 @@ class TestCLIIntegration:
             "      height: 12.0\n"
             "      left_clearance: 0.25\n"
             "      top_clearance: 0.25\n"
-            "      clearance_padding: 0.125\n"
             "  labels:\n"
             "    - id: tmpl\n"
             "      width: 2.0\n"
@@ -1000,7 +996,6 @@ class TestGenerateRun:
             "      height: 12.0\n"
             "      left_clearance: 0.25\n"
             "      top_clearance: 0.25\n"
-            "      clearance_padding: 0.125\n"
             "  labels:\n"
             "    - id: l1\n"
             "      count: 1\n"
@@ -1349,7 +1344,9 @@ class TestGenerateRun:
             captured_kwargs.update(kwargs)
             return PerCutterExport(plt_paths=[], pdf_paths=[], default_pdf_paths=[])
 
-        monkeypatch.setattr("plt_optimizer.generate.vectorize.export_per_cutter_plts", _capture_export)
+        monkeypatch.setattr(
+            "plt_optimizer.generate.vectorize.export_per_cutter_plts", _capture_export
+        )
         spec_file = self._write_spec(tmp_path, name="rows_spec.yaml")
         spec_file.write_text(
             spec_file.read_text(encoding="utf-8").replace(

@@ -50,11 +50,9 @@ job:
     - id: scrap_24x10
       width: 24.0
       height: 10.0
-      clearance_padding: 0.0
     - id: sheet_2
       width: 24.0
       height: 16.0
-      clearance_padding: 0.0
 
   labels:
     # 1. Rotation-required: 11" tall on a 10"-high sheet. The ``corners``

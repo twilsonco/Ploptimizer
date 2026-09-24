@@ -622,7 +622,6 @@ class TestPlateSpaceExport:
             "      height: 12.0\n"
             "      left_clearance: 0.25\n"
             "      top_clearance: 0.25\n"
-            "      clearance_padding: 0.125\n"
             "  labels:\n"
             "    - id: l1\n"
             "      count: 3\n"

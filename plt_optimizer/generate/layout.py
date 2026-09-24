@@ -234,7 +234,8 @@ def unroll_labels(
     rectangles: list[tuple[float, float, str, ResolvedLabel]] = []
     for label in resolved_labels:
         for i in range(label.count):
-            # Pack at nominal dimensions (no margin padding)
+            # Pack at nominal dimensions (labels pack coincident;
+            # inter-label spacing comes from each label's own margin)
             # Margin is applied during rendering only
             pack_width = label.width
             pack_height = label.height

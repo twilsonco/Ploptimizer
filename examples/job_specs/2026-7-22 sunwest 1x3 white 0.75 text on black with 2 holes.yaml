@@ -18,8 +18,8 @@ job:
     - id: plate_1
       width: 24.0
       height: 16.0
-      # Labels sit edge-to-edge in the reference file, so no padding between them.
-      clearance_padding: 0.0
+      # Labels sit edge-to-edge in the reference file (they always pack
+      # coincident; spacing comes from each label's own margin).
 
   labels:
     - id: labels

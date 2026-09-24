@@ -438,7 +438,6 @@ class PlateSpec(BaseModel):
             label may span multiple plates), so a per-plate value is not
             currently applied during rendering; the effective value is
             resolved from the label -> job -> default cascade.
-        clearance_padding: Padding between adjacent labels in inches.
         max_h_compress: Optional maximum horizontal compression fraction.
             Accepted for schema parity with the job/label ``max_h_compress``
             cascade. NOTE: labels are rendered once and cached before
@@ -520,18 +519,22 @@ class PlateSpec(BaseModel):
         default=None,
         description="Per-plate fill-order override (None = inherit the job layout).",
     )
-    clearance_padding: float = Field(
-        ge=0.0, description="Padding between labels in inches (must be >= 0)."
-    )
 
     @model_validator(mode="before")
     @classmethod
-    def _reject_removed_margin(cls, data: object) -> object:
-        """Reject the pre-clearance ``margin`` field with a migration hint.
+    def _reject_removed_fields(cls, data: object) -> object:
+        """Reject removed plate fields with migration hints.
 
         Pydantic ignores unknown keys by default, which would silently drop
-        ``margin`` from older job specs; plate placements would then pack
-        flush to the plate origin instead of the declared safety ring.
+        these fields from older job specs and hide the user's (unsupported)
+        intent:
+
+        - ``margin``: replaced by the ``left_clearance``/``top_clearance``
+          pair; specs carrying it would pack flush to the plate origin
+          instead of the declared safety ring.
+        - ``clearance_padding``: never applied by the layout engine (labels
+          always pack coincident); inter-label spacing comes from each
+          label's own ``margin``.
 
         Args:
             data: Raw (pre-validation) input data for the model.
@@ -540,14 +543,22 @@ class PlateSpec(BaseModel):
             The input data, unchanged.
 
         Raises:
-            ValueError: Always, when the input carries a ``margin`` key.
+            ValueError: When the input carries a ``margin`` or
+                ``clearance_padding`` key.
         """
-        if isinstance(data, dict) and "margin" in data:
-            raise ValueError(
-                "plate 'margin' was replaced by 'left_clearance' and "
-                "'top_clearance' (both default to 0.0); set the desired "
-                "edge clearances explicitly"
-            )
+        if isinstance(data, dict):
+            if "margin" in data:
+                raise ValueError(
+                    "plate 'margin' was replaced by 'left_clearance' and "
+                    "'top_clearance' (both default to 0.0); set the desired "
+                    "edge clearances explicitly"
+                )
+            if "clearance_padding" in data:
+                raise ValueError(
+                    "plate 'clearance_padding' was removed: it was never "
+                    "applied by the layout engine (labels pack edge-to-edge); "
+                    "use each label's 'margin' for spacing"
+                )
         return data
 
 

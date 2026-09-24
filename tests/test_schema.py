@@ -262,7 +262,6 @@ class TestJobSpec:
                     height=12.0,
                     left_clearance=0.25,
                     top_clearance=0.25,
-                    clearance_padding=0.125,
                 ),
             ],
             labels=[
@@ -378,7 +377,6 @@ class TestJobSpec:
                     height=12.0,
                     left_clearance=0.25,
                     top_clearance=0.25,
-                    clearance_padding=0.125,
                 ),
             ],
             labels=[
@@ -427,7 +425,6 @@ class TestParseYaml:
         assert plate.height == 12.0
         assert math.isclose(plate.left_clearance, 0.25)
         assert math.isclose(plate.top_clearance, 0.25)
-        assert plate.clearance_padding == 0.125
 
     def test_parse_label_with_holes(self) -> None:
         """Label with holes should parse correctly."""
@@ -581,12 +578,7 @@ class TestLayoutMode:
         """layout: rows must be honored from YAML."""
         spec_path = tmp_path / "rows.yaml"
         spec_path.write_text(
-            "job:\n"
-            "  job_name: 'Rows'\n"
-            "  layout: rows\n"
-            "  count: 1\n"
-            "  content:\n"
-            "    - text: 'X'\n",
+            "job:\n  job_name: 'Rows'\n  layout: rows\n  count: 1\n  content:\n    - text: 'X'\n",
             encoding="utf-8",
         )
         job = parse_yaml(spec_path)
@@ -624,7 +616,7 @@ class TestLayoutMode:
 
     def test_plate_layout_defaults_to_none(self) -> None:
         """A plate without an explicit layout inherits the job value."""
-        plate = PlateSpec(id="p1", width=24.0, height=16.0, clearance_padding=0.0)
+        plate = PlateSpec(id="p1", width=24.0, height=16.0)
         assert plate.layout is None
 
     def test_plate_layout_override_parsed(self, tmp_path: Path) -> None:
@@ -638,7 +630,6 @@ class TestLayoutMode:
             "    - id: p1\n"
             "      width: 24.0\n"
             "      height: 16.0\n"
-            "      clearance_padding: 0.0\n"
             "      layout: rows\n"
             "  count: 1\n"
             "  content:\n"
@@ -699,7 +690,6 @@ class TestPlateSpec:
             height=12.0,
             left_clearance=0.25,
             top_clearance=0.25,
-            clearance_padding=0.125,
         )
         assert plate.id == "plate_1"
         assert math.isclose(plate.width, 24.0)
@@ -713,12 +703,11 @@ class TestPlateSpec:
                 height=12.0,
                 left_clearance=0.25,
                 top_clearance=0.25,
-                clearance_padding=0.125,
             )
 
     def test_clearances_default_to_zero(self) -> None:
         """left_clearance/top_clearance default to 0.0 (flush packing)."""
-        plate = PlateSpec(id="p1", width=24.0, height=16.0, clearance_padding=0.0)
+        plate = PlateSpec(id="p1", width=24.0, height=16.0)
         assert math.isclose(plate.left_clearance, 0.0)
         assert math.isclose(plate.top_clearance, 0.0)
 
@@ -729,7 +718,6 @@ class TestPlateSpec:
             width=24.0,
             height=16.0,
             left_clearance=0.75,
-            clearance_padding=0.0,
         )
         assert math.isclose(plate.left_clearance, 0.75)
         assert math.isclose(plate.top_clearance, 0.0)
@@ -757,7 +745,6 @@ class TestPlateSpec:
             "      width: 24.0\n"
             "      height: 16.0\n"
             "      margin: 0.25\n"
-            "      clearance_padding: 0.0\n"
             "  count: 1\n"
             "  content:\n"
             "    - text: 'X'\n",
@@ -765,6 +752,36 @@ class TestPlateSpec:
         )
         with pytest.raises(ValueError, match="top_clearance"):
             parse_yaml(spec_path)
+
+    def test_removed_clearance_padding_rejected_with_hint(self) -> None:
+        """The never-applied ``clearance_padding`` key must fail with a hint."""
+        with pytest.raises(ValidationError, match="never"):
+            PlateSpec(id="p1", width=24.0, height=16.0, clearance_padding=0.125)
+
+    def test_removed_clearance_padding_rejected_from_yaml(self, tmp_path: Path) -> None:
+        """A YAML spec still carrying ``clearance_padding`` aborts on parse."""
+        spec_path = tmp_path / "old_padding.yaml"
+        spec_path.write_text(
+            "job:\n"
+            "  job_name: 'Old'\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 16.0\n"
+            "      clearance_padding: 0.125\n"
+            "  count: 1\n"
+            "  content:\n"
+            "    - text: 'X'\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="clearance_padding"):
+            parse_yaml(spec_path)
+
+    def test_plate_without_optional_fields_parses(self) -> None:
+        """``clearance_padding`` is gone: id/width/height alone are valid."""
+        plate = PlateSpec(id="p1", width=24.0, height=16.0)
+        assert plate.id == "p1"
+        assert "clearance_padding" not in type(plate).model_fields
 
 
 class TestMixinHierarchy:
@@ -828,7 +845,6 @@ class TestMaxHCompress:
             height=12.0,
             left_clearance=0.25,
             top_clearance=0.25,
-            clearance_padding=0.125,
             max_h_compress=0.6,
         )
         assert math.isclose(plate.max_h_compress, 0.6)
@@ -842,7 +858,6 @@ class TestMaxHCompress:
                 height=12.0,
                 left_clearance=0.25,
                 top_clearance=0.25,
-                clearance_padding=0.125,
                 max_h_compress=1.2,
             )
 
@@ -891,7 +906,6 @@ class TestTextHAlignment:
             height=12.0,
             left_clearance=0.25,
             top_clearance=0.25,
-            clearance_padding=0.125,
             text_h_alignment="left",
         )
         assert plate.text_h_alignment is TextHAlignment.LEFT
@@ -931,7 +945,6 @@ class TestMinHoleMargin:
             height=12.0,
             left_clearance=0.25,
             top_clearance=0.25,
-            clearance_padding=0.125,
             min_hole_margin=0.05,
         )
         assert math.isclose(plate.min_hole_margin, 0.05)
@@ -945,7 +958,6 @@ class TestMinHoleMargin:
                 height=12.0,
                 left_clearance=0.25,
                 top_clearance=0.25,
-                clearance_padding=0.125,
                 min_hole_margin=-0.1,
             )
 
@@ -989,7 +1001,6 @@ class TestHoleTextCollisionDistance:
             height=12.0,
             left_clearance=0.25,
             top_clearance=0.25,
-            clearance_padding=0.125,
             hole_text_collision_distance=0.2,
         )
         assert math.isclose(plate.hole_text_collision_distance, 0.2)
@@ -1003,6 +1014,5 @@ class TestHoleTextCollisionDistance:
                 height=12.0,
                 left_clearance=0.25,
                 top_clearance=0.25,
-                clearance_padding=0.125,
                 hole_text_collision_distance=-0.1,
             )

@@ -151,9 +151,7 @@ class TestGenerateLayoutConstrained:
     def test_uses_provided_plate_id(self) -> None:
         """Constrained mode should use the user's plate ID."""
         labels = [_make_label(width=2.0, height=1.0)]
-        plates = [
-            PlateSpec(id="my_plate", width=24.0, height=12.0, clearance_padding=0.125)
-        ]
+        plates = [PlateSpec(id="my_plate", width=24.0, height=12.0)]
         result = generate_layout(labels, plates)
         assert len(result) == 1
         assert result[0].plate_id == "my_plate"
@@ -166,7 +164,7 @@ class TestGenerateLayoutConstrained:
             _make_label(label_id="a", width=2.0, height=1.0),
             _make_label(label_id="b", width=2.0, height=1.0),
         ]
-        plates = [PlateSpec(id="p1", width=24.0, height=12.0, clearance_padding=0.125)]
+        plates = [PlateSpec(id="p1", width=24.0, height=12.0)]
         result = generate_layout(labels, plates)
         assert len(result) == 1
         assert len(result[0].labels) == 2
@@ -176,8 +174,8 @@ class TestGenerateLayoutConstrained:
         # 24x12 plate can hold 12x 2x1 labels (margin 0)
         labels = [_make_label(label_id=f"l{i}", width=2.0, height=1.0) for i in range(20)]
         plates = [
-            PlateSpec(id="p1", width=24.0, height=12.0, clearance_padding=0.0),
-            PlateSpec(id="p2", width=24.0, height=12.0, clearance_padding=0.0),
+            PlateSpec(id="p1", width=24.0, height=12.0),
+            PlateSpec(id="p2", width=24.0, height=12.0),
         ]
         result = generate_layout(labels, plates)
         total_packed = sum(len(p.labels) for p in result)
@@ -186,7 +184,7 @@ class TestGenerateLayoutConstrained:
     def test_fit_error_when_too_small(self) -> None:
         """LayoutFitError should be raised when labels don't fit."""
         labels = [_make_label(width=10.0, height=10.0)]
-        plates = [PlateSpec(id="tiny", width=5.0, height=5.0, clearance_padding=0.0)]
+        plates = [PlateSpec(id="tiny", width=5.0, height=5.0)]
         with pytest.raises(LayoutFitError) as exc_info:
             generate_layout(labels, plates)
         assert "Could only fit" in str(exc_info.value)
@@ -264,7 +262,7 @@ class TestRotationEnabled:
     def test_rotated_when_only_orientation_fits(self) -> None:
         """A label taller than the plate must be packed rotated."""
         labels = [_make_label(label_id="tall", width=1.0, height=3.5)]
-        plates = [PlateSpec(id="wide", width=12.0, height=3.0, clearance_padding=0.0)]
+        plates = [PlateSpec(id="wide", width=12.0, height=3.0)]
         result = generate_layout(labels, plates)
         assert len(result) == 1
         packed = result[0].labels[0]
@@ -276,7 +274,7 @@ class TestRotationEnabled:
     def test_allow_rotation_false_never_rotates(self) -> None:
         """With allow_rotation=False the same label cannot fit at all."""
         labels = [_make_label(label_id="tall", width=1.0, height=3.5)]
-        plates = [PlateSpec(id="wide", width=12.0, height=3.0, clearance_padding=0.0)]
+        plates = [PlateSpec(id="wide", width=12.0, height=3.0)]
         with pytest.raises(LayoutFitError):
             generate_layout(labels, plates, allow_rotation=False)
 
@@ -305,7 +303,7 @@ class TestRotationEnabled:
         back to the rotation-count tie-break.
         """
         labels = [_make_label(label_id="t", width=1.05, height=2.8, count=3)]
-        plates = [PlateSpec(id="s", width=12.0, height=3.0, clearance_padding=0.0)]
+        plates = [PlateSpec(id="s", width=12.0, height=3.0)]
         result = generate_layout(labels, plates)
         assert sum(len(p.labels) for p in result) == 3
         assert all(not p.rotated for plate in result for p in plate.labels)
@@ -315,7 +313,7 @@ class TestRotationEnabled:
         # Four 10x6 labels do not fit a 24x10 plate unrotated (2 per row x 2
         # rows = 12in tall), but rotated 6x10 they fill one exact row.
         labels = [_make_label(label_id=f"m{i}", width=10.0, height=6.0) for i in range(4)]
-        plates = [PlateSpec(id="p", width=24.0, height=10.0, clearance_padding=0.0)]
+        plates = [PlateSpec(id="p", width=24.0, height=10.0)]
         result = generate_layout(labels, plates)
         total_packed = sum(len(p.labels) for p in result)
         assert total_packed == 4
@@ -685,7 +683,7 @@ class TestGenerateLayoutWithBoundsFitErrors:
     def test_constrained_overflow_raises(self) -> None:
         """Constrained plates too small must raise the constrained-fit error."""
         labels = [_make_label(width=10.0, height=10.0)]
-        plates = [PlateSpec(id="tiny", width=5.0, height=5.0, clearance_padding=0.0)]
+        plates = [PlateSpec(id="tiny", width=5.0, height=5.0)]
         with pytest.raises(LayoutFitError) as exc_info:
             generate_layout_with_bounds(labels, plates)
         assert "Could only fit" in str(exc_info.value)
@@ -719,8 +717,6 @@ class TestLayoutFillOrder:
                 id="scrap",
                 width=width,
                 height=height,
-                clearance_padding=
-                0.0,
             )
         ]
 
@@ -785,9 +781,7 @@ class TestLayoutFillOrder:
         and never overlap.
         """
         labels = [_make_label(label_id="r", width=2.0, height=5.0, count=4)]
-        plates = generate_layout(
-            labels, self._scrap(width=4.0, height=10.0), allow_rotation=True
-        )
+        plates = generate_layout(labels, self._scrap(width=4.0, height=10.0), allow_rotation=True)
 
         assert len(plates) == 1
         plate = plates[0]
@@ -808,9 +802,7 @@ class TestLayoutFillOrder:
         be set and the un-transposed dims swapped.
         """
         labels = [_make_label(label_id="tall", width=1.0, height=4.0, count=3)]
-        plates = generate_layout(
-            labels, self._scrap(width=4.0, height=3.0), allow_rotation=True
-        )
+        plates = generate_layout(labels, self._scrap(width=4.0, height=3.0), allow_rotation=True)
 
         assert len(plates) == 1
         packed = plates[0].labels
@@ -825,13 +817,9 @@ class TestLayoutFillOrder:
             id="rowster",
             width=24.0,
             height=16.0,
-            clearance_padding=
-            0.0,
             layout=LayoutMode.ROWS,
         )
-        plates = generate_layout(
-            labels, [plate], allow_rotation=False, layout=LayoutMode.COLUMNS
-        )
+        plates = generate_layout(labels, [plate], allow_rotation=False, layout=LayoutMode.COLUMNS)
 
         assert len(plates) == 1
         bbox_w, bbox_h = _plate_bbox(plates[0])
@@ -847,19 +835,15 @@ class TestLayoutFillOrder:
         """
         labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=12)]
         plates_spec = [
-            PlateSpec(id="rows1", width=24.0, height=1.0, clearance_padding=0.0),
+            PlateSpec(id="rows1", width=24.0, height=1.0),
             PlateSpec(
                 id="cols1",
                 width=24.0,
                 height=16.0,
-                clearance_padding=
-                0.0,
                 layout=LayoutMode.COLUMNS,
             ),
         ]
-        plates = generate_layout(
-            labels, plates_spec, allow_rotation=False, layout=LayoutMode.ROWS
-        )
+        plates = generate_layout(labels, plates_spec, allow_rotation=False, layout=LayoutMode.ROWS)
 
         assert [p.plate_id for p in plates] == ["rows1", "cols1"]
         assert len(plates[0].labels) == 8
@@ -872,20 +856,16 @@ class TestLayoutFillOrder:
         """Leftovers after the last mixed-mode group abort with the fit error."""
         labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=12)]
         plates_spec = [
-            PlateSpec(id="rows1", width=24.0, height=1.0, clearance_padding=0.0),
+            PlateSpec(id="rows1", width=24.0, height=1.0),
             PlateSpec(
                 id="cols1",
                 width=3.0,
                 height=3.0,
-                clearance_padding=
-                0.0,
                 layout=LayoutMode.COLUMNS,
             ),
         ]
         with pytest.raises(LayoutFitError, match="Could only fit 11 of 12"):
-            generate_layout(
-                labels, plates_spec, allow_rotation=False, layout=LayoutMode.ROWS
-            )
+            generate_layout(labels, plates_spec, allow_rotation=False, layout=LayoutMode.ROWS)
 
     def test_columns_unbounded_uses_job_layout(self) -> None:
         """Unbounded mode honours the job-level layout (columns default)."""
@@ -920,9 +900,7 @@ class TestLayoutFillOrder:
     def test_bounds_path_fills_height_first(self) -> None:
         """generate_layout_with_bounds honours the columns default too."""
         labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=16)]
-        plates, _rendered = generate_layout_with_bounds(
-            labels, self._scrap(), allow_rotation=False
-        )
+        plates, _rendered = generate_layout_with_bounds(labels, self._scrap(), allow_rotation=False)
 
         assert len(plates) == 1
         bbox_w, bbox_h = _plate_bbox(plates[0])
@@ -970,9 +948,7 @@ class TestLayoutFillOrder:
             [_FakeRect(0.0, 0.0, 3.0, 1.0, rid=("a_0", label, 3.0))],
         )
 
-        plates = _extract_packed_plates(
-            _FakePacker([fake_bin]), clearances={"p1": (0.5, 1.25)}
-        )
+        plates = _extract_packed_plates(_FakePacker([fake_bin]), clearances={"p1": (0.5, 1.25)})
 
         assert math.isclose(plates[0].left_clearance, 0.5)
         assert math.isclose(plates[0].top_clearance, 1.25)
@@ -1006,9 +982,7 @@ class TestLayoutFillOrder:
             [_FakeRect(0.0, 0.0, 3.0, 1.0, rid=("a_0", label, 3.0))],
         )
 
-        plates = _extract_packed_plates(
-            _FakePacker([fake_bin]), clearances={"other": (9.0, 9.0)}
-        )
+        plates = _extract_packed_plates(_FakePacker([fake_bin]), clearances={"other": (9.0, 9.0)})
 
         assert math.isclose(plates[0].left_clearance, 0.0)
         assert math.isclose(plates[0].top_clearance, 0.0)
@@ -1021,20 +995,19 @@ class TestPlateClearances:
 
     def test_zero_clearance_plates_omitted(self) -> None:
         """All-zero plates stay out of the map (no-op shifting)."""
-        plates = [PlateSpec(id="p1", width=24.0, height=16.0, clearance_padding=0.0)]
+        plates = [PlateSpec(id="p1", width=24.0, height=16.0)]
 
         assert _plate_clearances(plates) == {}
 
     def test_nonzero_plates_collected(self) -> None:
         """Plates with any clearance map to their (left, top) pair."""
         plates = [
-            PlateSpec(id="p1", width=24.0, height=16.0, clearance_padding=0.0),
+            PlateSpec(id="p1", width=24.0, height=16.0),
             PlateSpec(
                 id="p2",
                 width=24.0,
                 height=16.0,
                 left_clearance=0.5,
-                clearance_padding=0.0,
             ),
         ]
 
@@ -1064,7 +1037,6 @@ class TestPlateEdgeClearances:
                 height=height,
                 left_clearance=left,
                 top_clearance=top,
-                clearance_padding=0.0,
                 layout=layout,
             )
         ]
@@ -1145,9 +1117,7 @@ class TestPlateEdgeClearances:
         """Packing is unchanged: shifting preserves relative positions."""
         labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=20)]
         plain = generate_layout(labels, self._plate(), allow_rotation=False)
-        shifted = generate_layout(
-            labels, self._plate(left=1.25, top=0.5), allow_rotation=False
-        )
+        shifted = generate_layout(labels, self._plate(left=1.25, top=0.5), allow_rotation=False)
 
         base = {(p.label_id): (p.x, p.y) for p in plain[0].labels}
         moved = {(p.label_id): (p.x, p.y) for p in shifted[0].labels}
@@ -1159,9 +1129,7 @@ class TestPlateEdgeClearances:
     def test_bounds_path_applies_clearances(self) -> None:
         """``generate_layout_with_bounds`` honours the clearance pair too."""
         labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=4)]
-        plates, _rendered = generate_layout_with_bounds(
-            labels, self._plate(left=1.0, top=0.5)
-        )
+        plates, _rendered = generate_layout_with_bounds(labels, self._plate(left=1.0, top=0.5))
 
         assert len(plates) == 1
         for packed in plates[0].labels:

@@ -52,13 +52,11 @@ job:
       height: 16.0
       left_clearance: 0.2
       top_clearance: 0.2
-      clearance_padding: 0.125
     - id: plate_2_scrap
       width: 24.0
       height: 12.0
       left_clearance: 0.5
       top_clearance: 0.5
-      clearance_padding: 0.25
 
   labels:
     # 1. Volume + edge holes: 60 instances guarantee overflow past plate_1.

@@ -451,14 +451,7 @@ def export_per_cutter_plts(
 
     # Use default plates if not provided
     if provided_plates is None:
-        provided_plates = [
-            PlateSpec(
-                id="default",
-                width=11.0,
-                height=8.5,
-                clearance_padding=0.0,
-            )
-        ]
+        provided_plates = [PlateSpec(id="default", width=11.0, height=8.5)]
 
     # Pen == cutter: assign one HPGL pen per distinct text cutter so the
     # assembled plate can be split into per-cutter files after assembly.
