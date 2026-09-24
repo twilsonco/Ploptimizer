@@ -675,6 +675,187 @@ def _default_clearance_map(
     }
 
 
+def _split_pinned_entries(
+    entries: list[_RectEntry],
+) -> dict[str, list[_RectEntry]]:
+    """Group rectangle entries by their label's pinned plate id.
+
+    A label pins itself to a plate via ``ResolvedLabel.plate_id`` (set by
+    plate-level ``replacement_text_file`` expansion or declared directly
+    on a ``LabelSpec``). Pinned labels must pack exclusively onto the
+    declaring plate, which then accepts no other labels.
+
+    Args:
+        entries: Real-space ``(pack_width, pack_height, rid)`` tuples.
+
+    Returns:
+        Mapping of plate id to the entries pinned to it (empty when
+        nothing is pinned).
+    """
+    pinned: dict[str, list[_RectEntry]] = {}
+    for entry in entries:
+        plate_id = entry[2][1].plate_id
+        if plate_id is not None:
+            pinned.setdefault(plate_id, []).append(entry)
+    return pinned
+
+
+def _pack_pinned_entries(
+    pinned: Mapping[str, list[_RectEntry]],
+    provided_plates: Optional[list[PlateSpec]],
+    allow_rotation: bool,
+    layout: LayoutMode,
+    clearances: Mapping[str, tuple[float, float]],
+) -> list[PackedPlate]:
+    """Pack plate-pinned entries, one exclusive single-plate pass each.
+
+    Each pinned plate receives exactly its pinned entries and nothing
+    else; the pass uses the plate's own fill-order override and edge
+    clearances. Packed plates are returned in plate declaration order.
+
+    Args:
+        pinned: Mapping of plate id to its pinned entries (from
+            :func:`_split_pinned_entries`).
+        provided_plates: Constrained-mode plates (pinned ids must be
+            declared there).
+        allow_rotation: Whether rotated candidates are considered.
+        layout: Job-level fill-order fallback for plates without an
+            explicit ``layout``.
+        clearances: Bin-id to ``(left, top)`` clearance mapping.
+
+    Returns:
+        The packed pinned plates (declaration order).
+
+    Raises:
+        LayoutFitError: If a pinned plate id is not declared, or a pinned
+            label does not fit on its plate.
+    """
+    if not pinned:
+        return []
+    if not provided_plates:
+        raise LayoutFitError(
+            "Labels are pinned to specific plates but the job declares no "
+            "plates; pinned labels require an explicit plate list."
+        )
+
+    plate_by_id = {plate.id: plate for plate in provided_plates}
+    unknown = sorted(set(pinned) - set(plate_by_id))
+    if unknown:
+        raise LayoutFitError(
+            "Labels are pinned to undeclared plate(s): "
+            f"{', '.join(unknown)}. Declare these plates or remove the pinning."
+        )
+
+    packed_plates: list[PackedPlate] = []
+    for plate in provided_plates:
+        entries = pinned.get(plate.id)
+        if not entries:
+            continue
+        plates = _pack_group(
+            entries,
+            [(plate.width, plate.height, plate.id)],
+            allow_rotation,
+            plate.layout or layout,
+            clearances,
+        )
+        placed_ids = {packed.label_id for packed_plate in plates for packed in packed_plate.labels}
+        leftover = [entry for entry in entries if entry[2][0] not in placed_ids]
+        if leftover:
+            raise LayoutFitError(
+                f"Could only fit {len(entries) - len(leftover)} of "
+                f"{len(entries)} label(s) pinned to plate '{plate.id}'. "
+                "Pinned labels never overflow onto other plates: specify a "
+                "larger plate or remove the pinning."
+            )
+        packed_plates.extend(plates)
+    return packed_plates
+
+
+def _pack_entries_with_pinners(
+    rect_with_rid: list[_RectEntry],
+    provided_plates: Optional[list[PlateSpec]],
+    allow_rotation: bool,
+    layout: LayoutMode,
+    default_plate_size: Optional[tuple[float, float]],
+    default_plate_clearance: Optional[tuple[float, float]],
+) -> tuple[list[PackedPlate], list[_RectEntry]]:
+    """Pack entries honoring plate pinning, then normal packing.
+
+    Pinned entries (see :func:`_split_pinned_entries`) pack first,
+    exclusively onto their declaring plates; those plates are then
+    removed from the pool so unpinned labels never share them. The
+    unpinned remainder packs exactly like the historical one-pass
+    behaviour (constrained groups or unbounded auto-allocation).
+
+    Args:
+        rect_with_rid: All ``(pack_width, pack_height, rid)`` tuples.
+        provided_plates: User-specified plates, or ``None`` / empty for
+            unbounded mode.
+        allow_rotation: Whether rotated candidates are considered.
+        layout: Job-level fill-order mode.
+        default_plate_size: Auto-allocated bin size override (unbounded).
+        default_plate_clearance: Auto-allocated bin clearance (unbounded).
+
+    Returns:
+        ``(packed_plates, leftover)`` where packed plates are pinned
+        plates first (declaration order) followed by the normal packing
+        result, and leftover holds only unpinned entries no plate could
+        place. Pinned-fit failures raise directly.
+
+    Raises:
+        LayoutFitError: If pinning is impossible (undeclared/absent
+            plates) or pinned labels do not fit their plates.
+    """
+    pinned = _split_pinned_entries(rect_with_rid)
+    is_constrained = provided_plates is not None and len(provided_plates) > 0
+
+    groups = _resolve_plate_groups(
+        provided_plates, layout, len(rect_with_rid), default_plate_size=default_plate_size
+    )
+    clearances = _plate_clearances(provided_plates)
+    if not is_constrained:
+        clearances = _default_clearance_map(groups, default_plate_clearance)
+
+    pinned_plates = _pack_pinned_entries(
+        pinned, provided_plates, allow_rotation, layout, clearances
+    )
+
+    unpinned_entries = (
+        rect_with_rid
+        if not pinned
+        else [entry for entry in rect_with_rid if entry[2][1].plate_id is None]
+    )
+    unpinned_plates: list[PackedPlate] = []
+    leftover: list[_RectEntry] = []
+    if unpinned_entries:
+        if provided_plates is not None and is_constrained:
+            unpinned_provided: Optional[list[PlateSpec]] = [
+                plate for plate in provided_plates if plate.id not in pinned
+            ]
+            if not unpinned_provided:
+                raise LayoutFitError(
+                    "Every declared plate is pinned to replacement-generated "
+                    f"label(s) but {len(unpinned_entries)} unpinned label(s) "
+                    "remain: declare an additional (unpinned) plate."
+                )
+        else:
+            unpinned_provided = provided_plates
+        unpinned_groups = _resolve_plate_groups(
+            unpinned_provided,
+            layout,
+            len(unpinned_entries),
+            default_plate_size=default_plate_size,
+        )
+        unpinned_plates, leftover = _pack_groups(
+            unpinned_entries,
+            unpinned_groups,
+            allow_rotation=allow_rotation,
+            clearances=clearances,
+        )
+
+    return pinned_plates + unpinned_plates, leftover
+
+
 def _plate_footprint(packer: rectpack.packer.Packer) -> float:
     """Compute the total used material area across a packed result.
 
@@ -783,12 +964,17 @@ def generate_layout(
 
     Returns:
         A list of ``PackedPlate`` objects containing all successfully
-        packed labels.
+        packed labels. Labels pinned via ``ResolvedLabel.plate_id`` pack
+        exclusively onto their declaring plate (pinned plates first, in
+        declaration order).
 
     Raises:
         LayoutFitError: If constrained plates cannot fit all labels, or
             if a single label exceeds the default 24x16 plate size (in
-            either orientation) in unbounded mode.
+            either orientation) in unbounded mode, or plate pinning
+            cannot be honored (undeclared plate, pinned labels that do
+            not fit their plate, or unpinned labels with no unpinned
+            plate left).
 
     Example:
         >>> plates = generate_layout(resolved_labels)
@@ -806,14 +992,13 @@ def generate_layout(
 
     is_constrained = provided_plates is not None and len(provided_plates) > 0
 
-    groups = _resolve_plate_groups(
-        provided_plates, layout, len(rectangles), default_plate_size=default_plate_size
-    )
-    clearances = _plate_clearances(provided_plates)
-    if not is_constrained:
-        clearances = _default_clearance_map(groups, default_plate_clearance)
-    packed_plates, leftover = _pack_groups(
-        rect_with_rid, groups, allow_rotation=allow_rotation, clearances=clearances
+    packed_plates, leftover = _pack_entries_with_pinners(
+        rect_with_rid,
+        provided_plates,
+        allow_rotation=allow_rotation,
+        layout=layout,
+        default_plate_size=default_plate_size,
+        default_plate_clearance=default_plate_clearance,
     )
 
     # Verify all labels were packed.
@@ -919,14 +1104,13 @@ def generate_layout_with_bounds(
 
     is_constrained = provided_plates is not None and len(provided_plates) > 0
 
-    groups = _resolve_plate_groups(
-        provided_plates, layout, len(rectangles), default_plate_size=default_plate_size
-    )
-    clearances = _plate_clearances(provided_plates)
-    if not is_constrained:
-        clearances = _default_clearance_map(groups, default_plate_clearance)
-    packed_plates, leftover = _pack_groups(
-        rect_with_rid, groups, allow_rotation=allow_rotation, clearances=clearances
+    packed_plates, leftover = _pack_entries_with_pinners(
+        rect_with_rid,
+        provided_plates,
+        allow_rotation=allow_rotation,
+        layout=layout,
+        default_plate_size=default_plate_size,
+        default_plate_clearance=default_plate_clearance,
     )
 
     # Verify all labels were packed.

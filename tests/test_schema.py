@@ -336,10 +336,10 @@ class TestJobSpec:
         assert job.labels is not None and len(job.labels) == 1
 
     def test_neither_labels_nor_content_fails(self) -> None:
-        """Job must define either labels or root-level content."""
+        """Job must define labels, root-level content, or a replacement file."""
         with pytest.raises(ValidationError) as exc_info:
             JobSpec(job_name="Empty Job")
-        assert "Job must define either 'labels' or root-level 'content'" in str(exc_info.value)
+        assert "must define 'labels', root-level 'content', or a" in str(exc_info.value)
 
     def test_both_labels_and_content_fails(self) -> None:
         """Job cannot define both labels and root-level content."""
@@ -355,7 +355,7 @@ class TestJobSpec:
                 ],
                 content=[TextLine(text="Y")],
             )
-        assert "Job cannot define both 'labels' and root-level 'content'" in str(exc_info.value)
+        assert "cannot define more than one of" in str(exc_info.value)
 
     def test_empty_labels_and_content_fails(self) -> None:
         """Empty labels and empty content should fail."""
@@ -1081,4 +1081,192 @@ class TestHoleTextCollisionDistance:
                 left_clearance=0.25,
                 top_clearance=0.25,
                 hole_text_collision_distance=-0.1,
+            )
+
+
+class TestJobLevelReplacementFile:
+    """Job-level ``replacement_text_file`` (labels section optional)."""
+
+    @staticmethod
+    def _job(**kwargs: object) -> JobSpec:
+        """Build a job-level replacement job with the given overrides."""
+        base: dict[str, object] = {
+            "job_name": "Job Repl",
+            "width": 3.0,
+            "height": 1.0,
+            "text_height": 0.75,
+            "replacement_text_file": "data.txt",
+        }
+        base.update(kwargs)
+        return JobSpec(**base)  # type: ignore[arg-type]
+
+    def test_job_level_file_without_labels_is_valid(self) -> None:
+        """A job-level file with job dimensions needs no ``labels``."""
+        job = self._job()
+        assert job.labels is None
+        assert job.replacement_text_file == "data.txt"
+
+    def test_labels_section_rejected(self) -> None:
+        """A job-level file is mutually exclusive with a ``labels`` list."""
+        with pytest.raises(ValidationError, match="cannot define more than one"):
+            self._job(labels=[LabelSpec(id="l1", content=[TextLine(text="X")])])
+
+    def test_count_rejected(self) -> None:
+        """Explicit ``count`` conflicts with the file's line count."""
+        with pytest.raises(ValidationError, match="count.*cannot be combined"):
+            self._job(count=5)
+
+    def test_missing_width_rejected(self) -> None:
+        """Job-level ``width`` is required to synthesize labels."""
+        with pytest.raises(ValidationError, match="job-level width must be defined"):
+            self._job(width=None)
+
+    def test_missing_height_and_text_height_listed(self) -> None:
+        """All missing required attributes are named in the error."""
+        with pytest.raises(ValidationError) as exc_info:
+            self._job(height=None, text_height=None)
+        message = str(exc_info.value)
+        assert "height, text_height must be defined" in message
+
+    def test_content_is_attribute_template_not_conflict(self) -> None:
+        """Root-level ``content`` alongside a job file is a template, not a
+        second label source."""
+        job = self._job(content=[TextLine(text="PLACEHOLDER", text_height=0.5)])
+        assert job.content is not None
+        assert len(job.content) == 1
+
+    def test_delimiter_requires_file(self) -> None:
+        """A job-level delimiter without a file is rejected."""
+        with pytest.raises(ValidationError, match="requires 'replacement_text_file'"):
+            JobSpec(
+                job_name="J",
+                width=3.0,
+                height=1.0,
+                text_height=0.5,
+                content=[TextLine(text="X")],
+                replacement_text_delimiter=",",
+            )
+
+    def test_invalid_delimiter_rejected(self) -> None:
+        """The shared single-special-char delimiter rule applies."""
+        with pytest.raises(ValidationError):
+            self._job(replacement_text_delimiter="ab")
+
+    def test_valid_delimiter_accepted(self) -> None:
+        """A valid delimiter is stored verbatim."""
+        job = self._job(replacement_text_delimiter=",")
+        assert job.replacement_text_delimiter == ","
+
+    def test_parse_yaml_end_to_end(self, tmp_path: Path) -> None:
+        """A YAML job with only a job-level file parses successfully."""
+        spec = tmp_path / "job.yaml"
+        spec.write_text(
+            "job:\n"
+            "  job_name: J\n"
+            "  width: 3.0\n"
+            "  height: 1.0\n"
+            "  text_height: 0.75\n"
+            "  replacement_text_file: data.txt\n",
+            encoding="utf-8",
+        )
+        job = parse_yaml(spec)
+        assert job.replacement_text_file == "data.txt"
+        assert job.labels is None
+
+
+class TestPlateLevelReplacementFile:
+    """Plate-level ``replacement_text_file`` (labels pinned to the plate)."""
+
+    @staticmethod
+    def _job(plates: list[PlateSpec], **kwargs: object) -> JobSpec:
+        """Build a job with the given plates and job-level overrides."""
+        base: dict[str, object] = {
+            "job_name": "Plate Repl",
+            "width": 3.0,
+            "height": 1.0,
+            "text_height": 0.75,
+            "content": [TextLine(text="X")],
+            "plates": plates,
+        }
+        base.update(kwargs)
+        return JobSpec(**base)  # type: ignore[arg-type]
+
+    def test_plate_file_accepted(self) -> None:
+        """A plate may declare a replacement file."""
+        plate = PlateSpec(id="p1", width=24.0, height=16.0, replacement_text_file="d.txt")
+        assert plate.replacement_text_file == "d.txt"
+        assert plate.replacement_text_delimiter is None
+
+    def test_delimiter_requires_file(self) -> None:
+        """A plate delimiter without a file is rejected."""
+        with pytest.raises(ValidationError, match="requires 'replacement_text_file'"):
+            PlateSpec(id="p1", width=24.0, height=16.0, replacement_text_delimiter=",")
+
+    def test_invalid_delimiter_rejected(self) -> None:
+        """The shared delimiter rule applies at plate level too."""
+        with pytest.raises(ValidationError):
+            PlateSpec(
+                id="p1",
+                width=24.0,
+                height=16.0,
+                replacement_text_file="d.txt",
+                replacement_text_delimiter="a",
+            )
+
+    def test_missing_job_dimensions_rejected(self) -> None:
+        """Plate files synthesize labels from job-level attributes."""
+        with pytest.raises(ValidationError, match="plate-level 'replacement_text_file'"):
+            self._job(
+                [PlateSpec(id="p1", width=24.0, height=16.0, replacement_text_file="d.txt")],
+                width=None,
+            )
+
+    def test_job_level_and_plate_files_conflict(self) -> None:
+        """Job- and plate-level files cannot be combined."""
+        with pytest.raises(ValidationError, match="cannot be combined with"):
+            JobSpec(
+                job_name="Both",
+                width=3.0,
+                height=1.0,
+                text_height=0.75,
+                replacement_text_file="job.txt",
+                plates=[PlateSpec(id="p1", width=24.0, height=16.0, replacement_text_file="d.txt")],
+            )
+
+    def test_plate_file_with_job_dimensions_valid(self) -> None:
+        """With job dimensions present, plate files validate cleanly."""
+        plate = PlateSpec(id="p1", width=24.0, height=16.0, replacement_text_file="d.txt")
+        job = self._job([plate])
+        assert job.plates is not None
+        assert job.plates[0].replacement_text_file == "d.txt"
+
+
+class TestLabelPlateIdReference:
+    """``LabelSpec.plate_id`` must reference a declared plate."""
+
+    def test_valid_reference_accepted(self) -> None:
+        """A label pinned to a declared plate parses."""
+        job = JobSpec(
+            job_name="J",
+            plates=[PlateSpec(id="p1", width=24.0, height=16.0)],
+            labels=[LabelSpec(id="l1", content=[TextLine(text="X")], plate_id="p1")],
+        )
+        assert job.labels is not None
+        assert job.labels[0].plate_id == "p1"
+
+    def test_unknown_reference_rejected(self) -> None:
+        """Pinning to an undeclared plate fails validation."""
+        with pytest.raises(ValidationError, match="does not reference a declared plate"):
+            JobSpec(
+                job_name="J",
+                plates=[PlateSpec(id="p1", width=24.0, height=16.0)],
+                labels=[LabelSpec(id="l1", content=[TextLine(text="X")], plate_id="nope")],
+            )
+
+    def test_reference_without_plates_rejected(self) -> None:
+        """Pinning is impossible when no plates are declared."""
+        with pytest.raises(ValidationError, match="does not reference a declared plate"):
+            JobSpec(
+                job_name="J",
+                labels=[LabelSpec(id="l1", content=[TextLine(text="X")], plate_id="p1")],
             )

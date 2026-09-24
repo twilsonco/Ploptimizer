@@ -546,3 +546,223 @@ class TestEndToEndPipeline:
         assert content.startswith("IN;") or "IN;" in content[:200]
         # Every instance must contribute geometry (3 badges packed).
         assert "PU" in content and "PD" in content
+
+
+class TestJobLevelReplacementExpansion:
+    """Job-level replacement files synthesize the whole label list."""
+
+    def _job_yaml(self, tmp_path: Path, extra: str = "") -> Path:
+        """Write a plate-less job YAML using the job-level file form."""
+        _write(tmp_path / "data.txt", "ALPHA\nBRAVO;CHARLIE\n")
+        yaml_path = tmp_path / "job.yaml"
+        yaml_path.write_text(
+            "job:\n"
+            "  job_name: Job Repl\n"
+            "  width: 3.0\n"
+            "  height: 1.0\n"
+            "  text_height: 0.75\n"
+            "  replacement_text_file: data.txt\n"
+            f"{extra}",
+            encoding="utf-8",
+        )
+        return yaml_path
+
+    def test_expands_into_label_list(self, tmp_path: Path) -> None:
+        """Each file line becomes one static label; job fields clear."""
+        yaml_path = self._job_yaml(tmp_path)
+        job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
+        assert job.labels is not None
+        assert [lbl.id for lbl in job.labels] == ["label_0000", "label_0001"]
+        assert all(lbl.count == 1 for lbl in job.labels)
+        assert job.replacement_text_file is None
+        assert job.replacement_text_delimiter is None
+        assert job.content is None
+
+    def test_synthesized_content_per_line(self, tmp_path: Path) -> None:
+        """Delimited items become one text line each on the instance."""
+        yaml_path = self._job_yaml(tmp_path)
+        job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
+        assert job.labels is not None
+        assert [line.text for line in job.labels[0].content or []] == ["ALPHA"]
+        assert [line.text for line in job.labels[1].content or []] == ["BRAVO", "CHARLIE"]
+
+    def test_resolution_uses_job_dimensions(self, tmp_path: Path) -> None:
+        """Resolved labels inherit job width/height/text_height."""
+        yaml_path = self._job_yaml(tmp_path)
+        job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
+        resolved = resolve_job_spec(job)
+        assert len(resolved) == 2
+        assert all(lbl.width == 3.0 for lbl in resolved)
+        assert all(lbl.height == 1.0 for lbl in resolved)
+        assert all(line.nominal_text_height == 0.75 for lbl in resolved for line in lbl.content)
+
+    def test_content_template_attributes_apply(self, tmp_path: Path) -> None:
+        """Job-level content acts as the per-line attribute template."""
+        yaml_path = self._job_yaml(
+            tmp_path,
+            "  content:\n    - text: T1\n      text_height: 0.5\n",
+        )
+        job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
+        assert job.labels is not None
+        first_line = job.labels[0].content[0] if job.labels[0].content else None
+        assert first_line is not None
+        assert first_line.text == "ALPHA"
+        assert first_line.text_height == 0.5
+
+    def test_custom_delimiter(self, tmp_path: Path) -> None:
+        """A job-level delimiter splits file lines."""
+        _write(tmp_path / "data.txt", "A,B\n")
+        yaml_path = tmp_path / "job.yaml"
+        yaml_path.write_text(
+            "job:\n"
+            "  job_name: J\n"
+            "  width: 3.0\n"
+            "  height: 1.0\n"
+            "  text_height: 0.5\n"
+            "  replacement_text_file: data.txt\n"
+            "  replacement_text_delimiter: ','\n",
+            encoding="utf-8",
+        )
+        job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
+        assert job.labels is not None
+        assert [line.text for line in job.labels[0].content or []] == ["A", "B"]
+
+    def test_missing_file_raises(self, tmp_path: Path) -> None:
+        """A missing job-level file aborts expansion."""
+        yaml_path = tmp_path / "job.yaml"
+        yaml_path.write_text(
+            "job:\n"
+            "  job_name: J\n"
+            "  width: 3.0\n"
+            "  height: 1.0\n"
+            "  text_height: 0.5\n"
+            "  replacement_text_file: missing.txt\n",
+            encoding="utf-8",
+        )
+        job = parse_yaml(yaml_path)
+        with pytest.raises(SubstitutionError, match="not found"):
+            expand_job_spec(job, yaml_path)
+
+
+class TestPlateLevelReplacementExpansion:
+    """Plate-level replacement files pin generated labels to their plate."""
+
+    def _job_yaml(self, tmp_path: Path) -> Path:
+        """Write a two-plate job: p1 has a file, p2 is plain."""
+        _write(tmp_path / "p1.txt", "AAA\nBBB\n")
+        yaml_path = tmp_path / "job.yaml"
+        yaml_path.write_text(
+            "job:\n"
+            "  job_name: Plate Repl\n"
+            "  width: 3.0\n"
+            "  height: 1.0\n"
+            "  text_height: 0.75\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 16.0\n"
+            "      replacement_text_file: p1.txt\n"
+            "    - id: p2\n"
+            "      width: 24.0\n"
+            "      height: 16.0\n"
+            "  labels:\n"
+            "    - id: static\n"
+            "      content:\n"
+            "        - text: HELLO\n",
+            encoding="utf-8",
+        )
+        return yaml_path
+
+    def test_generates_pinned_labels(self, tmp_path: Path) -> None:
+        """Plate file lines become labels carrying the plate id."""
+        yaml_path = self._job_yaml(tmp_path)
+        job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
+        assert job.labels is not None
+        assert [lbl.id for lbl in job.labels] == ["static", "p1_0000", "p1_0001"]
+        assert job.labels[0].plate_id is None
+        assert job.labels[1].plate_id == "p1"
+        assert job.labels[2].plate_id == "p1"
+
+    def test_plate_fields_cleared(self, tmp_path: Path) -> None:
+        """Expansion consumes the plate-level replacement fields."""
+        yaml_path = self._job_yaml(tmp_path)
+        job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
+        assert job.plates is not None
+        assert all(plate.replacement_text_file is None for plate in job.plates)
+
+    def test_input_job_not_mutated(self, tmp_path: Path) -> None:
+        """Expansion returns a copy; the parsed job keeps its fields."""
+        yaml_path = self._job_yaml(tmp_path)
+        job = parse_yaml(yaml_path)
+        expand_job_spec(job, yaml_path)
+        assert job.plates is not None
+        assert job.plates[0].replacement_text_file == "p1.txt"
+        assert job.labels is not None and len(job.labels) == 1
+
+    def test_resolution_carries_plate_id(self, tmp_path: Path) -> None:
+        """Resolved labels keep the plate pin for the layout engine."""
+        yaml_path = self._job_yaml(tmp_path)
+        job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
+        resolved = resolve_job_spec(job)
+        by_id = {lbl.id: lbl for lbl in resolved}
+        assert by_id["static"].plate_id is None
+        assert by_id["p1_0000"].plate_id == "p1"
+        assert by_id["p1_0001"].plate_id == "p1"
+
+    def test_root_content_is_template_not_label(self, tmp_path: Path) -> None:
+        """Root-level content templates plate labels instead of adding one."""
+        _write(tmp_path / "p1.txt", "AAA\n")
+        yaml_path = tmp_path / "job.yaml"
+        yaml_path.write_text(
+            "job:\n"
+            "  job_name: J\n"
+            "  width: 3.0\n"
+            "  height: 1.0\n"
+            "  text_height: 0.75\n"
+            "  content:\n"
+            "    - text: T1\n"
+            "      text_height: 0.5\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 16.0\n"
+            "      replacement_text_file: p1.txt\n",
+            encoding="utf-8",
+        )
+        job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
+        assert job.labels is not None
+        assert [lbl.id for lbl in job.labels] == ["p1_0000"]
+        line = job.labels[0].content[0] if job.labels[0].content else None
+        assert line is not None
+        assert line.text == "AAA"
+        assert line.text_height == 0.5
+
+    def test_multiple_plates_each_get_their_own(self, tmp_path: Path) -> None:
+        """Every plate-level file pins to its own declaring plate."""
+        _write(tmp_path / "a.txt", "A1\n")
+        _write(tmp_path / "b.txt", "B1\nB2\n")
+        yaml_path = tmp_path / "job.yaml"
+        yaml_path.write_text(
+            "job:\n"
+            "  job_name: J\n"
+            "  width: 3.0\n"
+            "  height: 1.0\n"
+            "  text_height: 0.5\n"
+            "  plates:\n"
+            "    - id: pa\n"
+            "      width: 24.0\n"
+            "      height: 16.0\n"
+            "      replacement_text_file: a.txt\n"
+            "    - id: pb\n"
+            "      width: 24.0\n"
+            "      height: 16.0\n"
+            "      replacement_text_file: b.txt\n",
+            encoding="utf-8",
+        )
+        job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
+        assert job.labels is not None
+        assert [(lbl.id, lbl.plate_id) for lbl in job.labels] == [
+            ("pa_0000", "pa"),
+            ("pb_0000", "pb"),
+            ("pb_0001", "pb"),
+        ]

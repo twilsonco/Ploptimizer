@@ -1227,9 +1227,7 @@ class TestUnboundedDefaultClearance:
     def test_zero_clearance_matches_unspecified(self) -> None:
         """An explicit zero clearance reproduces the flush-origin layout."""
         labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=20)]
-        baseline = generate_layout(
-            labels, allow_rotation=False, layout=LayoutMode.ROWS
-        )
+        baseline = generate_layout(labels, allow_rotation=False, layout=LayoutMode.ROWS)
         explicit = generate_layout(
             labels,
             allow_rotation=False,
@@ -1244,11 +1242,138 @@ class TestUnboundedDefaultClearance:
     def test_bounds_path_applies_default_clearance(self) -> None:
         """``generate_layout_with_bounds`` honours the default clearance too."""
         labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=4)]
-        plates, _rendered = generate_layout_with_bounds(
-            labels, default_plate_clearance=(1.0, 0.5)
-        )
+        plates, _rendered = generate_layout_with_bounds(labels, default_plate_clearance=(1.0, 0.5))
 
         assert len(plates) == 1
         for packed in plates[0].labels:
             assert packed.x >= 1.0 - 1e-9
             assert packed.y >= 0.5 - 1e-9
+
+
+def _make_pinned_label(
+    plate_id: str,
+    label_id: str = "lbl",
+    width: float = 2.0,
+    height: float = 1.0,
+    count: int = 1,
+) -> ResolvedLabel:
+    """Helper to create a plate-pinned ResolvedLabel."""
+    label = _make_label(label_id=label_id, width=width, height=height, count=count)
+    return dataclasses.replace(label, plate_id=plate_id)
+
+
+class TestPinnedPlatePacking:
+    """Labels pinned via ``ResolvedLabel.plate_id`` pack exclusively."""
+
+    def test_pinned_labels_stay_on_their_plate(self) -> None:
+        """Pinned labels pack only onto the declaring plate."""
+        labels = [
+            _make_pinned_label(label_id="pa", plate_id="p1", width=3.0, height=1.0, count=4),
+            _make_label(label_id="free", width=3.0, height=1.0, count=2),
+        ]
+        plates_spec = [
+            PlateSpec(id="p1", width=6.0, height=4.0),
+            PlateSpec(id="p2", width=24.0, height=16.0),
+        ]
+        plates = generate_layout(labels, plates_spec, allow_rotation=False)
+
+        by_id = {p.plate_id: p for p in plates}
+        assert set(by_id) == {"p1", "p2"}
+        assert all(lab.source_label.plate_id == "p1" for lab in by_id["p1"].labels)
+        assert len(by_id["p1"].labels) == 4
+        assert all(lab.source_label.plate_id is None for lab in by_id["p2"].labels)
+        assert len(by_id["p2"].labels) == 2
+
+    def test_pinned_plate_rejects_unpinned_labels(self) -> None:
+        """Unpinned labels never share a pinned plate, even when it has room."""
+        labels = [
+            _make_pinned_label(label_id="pa", plate_id="p1", width=3.0, height=1.0),
+            _make_label(label_id="free", width=3.0, height=1.0),
+        ]
+        plates_spec = [PlateSpec(id="p1", width=24.0, height=16.0)]
+        with pytest.raises(LayoutFitError, match="declare an additional"):
+            generate_layout(labels, plates_spec, allow_rotation=False)
+
+    def test_pinned_labels_overflowing_their_plate_raise(self) -> None:
+        """Pinned labels never spill onto other plates: the job aborts."""
+        # A 6x4 plate holds eight 3x1 labels (no rotation); nine cannot fit.
+        labels = [_make_pinned_label(label_id="pa", plate_id="p1", width=3.0, height=1.0, count=9)]
+        plates_spec = [
+            PlateSpec(id="p1", width=6.0, height=4.0),  # holds 4
+            PlateSpec(id="p2", width=24.0, height=16.0),
+        ]
+        with pytest.raises(LayoutFitError, match="pinned to plate 'p1'"):
+            generate_layout(labels, plates_spec, allow_rotation=False)
+
+    def test_undeclared_pinned_plate_raises(self) -> None:
+        """Pinning to a plate the job does not declare aborts packing."""
+        labels = [_make_pinned_label(label_id="pa", plate_id="ghost")]
+        plates_spec = [PlateSpec(id="p1", width=24.0, height=16.0)]
+        with pytest.raises(LayoutFitError, match="undeclared plate"):
+            generate_layout(labels, plates_spec, allow_rotation=False)
+
+    def test_pinning_without_plates_raises(self) -> None:
+        """Unbounded mode cannot honor pinning."""
+        labels = [_make_pinned_label(label_id="pa", plate_id="p1")]
+        with pytest.raises(LayoutFitError, match="require an explicit plate list"):
+            generate_layout(labels)
+
+    def test_pinned_plates_come_first_in_declaration_order(self) -> None:
+        """Pinned plates are emitted before the normal packing result."""
+        labels = [
+            _make_label(label_id="free", width=3.0, height=1.0),
+            _make_pinned_label(label_id="pb", plate_id="pz", width=3.0, height=1.0),
+        ]
+        plates_spec = [
+            PlateSpec(id="p1", width=24.0, height=16.0),
+            PlateSpec(id="pz", width=24.0, height=16.0),
+        ]
+        plates = generate_layout(labels, plates_spec, allow_rotation=False)
+        assert [p.plate_id for p in plates] == ["pz", "p1"]
+
+    def test_all_plates_pinned_with_unpinned_labels_raises(self) -> None:
+        """When every plate is pinned, leftover unpinned labels abort clearly."""
+        labels = [
+            _make_pinned_label(label_id="pa", plate_id="p1"),
+            _make_label(label_id="free"),
+        ]
+        plates_spec = [PlateSpec(id="p1", width=24.0, height=16.0)]
+        with pytest.raises(LayoutFitError, match="unpinned label"):
+            generate_layout(labels, plates_spec, allow_rotation=False)
+
+    def test_bounds_path_honours_pinning(self) -> None:
+        """``generate_layout_with_bounds`` respects plate pinning too."""
+        labels = [
+            _make_pinned_label(label_id="pa", plate_id="p1", width=3.0, height=1.0, count=2),
+            _make_label(label_id="free", width=3.0, height=1.0),
+        ]
+        plates_spec = [
+            PlateSpec(id="p1", width=24.0, height=16.0),
+            PlateSpec(id="p2", width=24.0, height=16.0),
+        ]
+        plates, _rendered = generate_layout_with_bounds(labels, plates_spec, allow_rotation=False)
+        by_id = {p.plate_id: p for p in plates}
+        assert len(by_id["p1"].labels) == 2
+        assert len(by_id["p2"].labels) == 1
+
+    def test_pinned_plate_clearances_apply(self) -> None:
+        """Pinned placements shift by the plate's edge clearances."""
+        labels = [_make_pinned_label(label_id="pa", plate_id="p1", width=3.0, height=1.0)]
+        plates_spec = [
+            PlateSpec(id="p1", width=24.0, height=16.0, left_clearance=1.0, top_clearance=0.5)
+        ]
+        plates = generate_layout(labels, plates_spec, allow_rotation=False)
+        assert len(plates) == 1
+        packed = plates[0].labels[0]
+        assert math.isclose(packed.x, 1.0)
+        assert math.isclose(packed.y, 0.5)
+
+    def test_no_pinned_labels_is_bit_identical_to_plain(self) -> None:
+        """Jobs without pinning pack exactly like before the feature."""
+        labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=6)]
+        plates_spec = [PlateSpec(id="p1", width=24.0, height=16.0)]
+        a = generate_layout(labels, plates_spec, allow_rotation=False)
+        b = generate_layout(labels, plates_spec, allow_rotation=False)
+        pos_a = [(p.plate_id, lab.label_id, lab.x, lab.y) for p in a for lab in p.labels]
+        pos_b = [(p.plate_id, lab.label_id, lab.x, lab.y) for p in b for lab in p.labels]
+        assert pos_a == pos_b

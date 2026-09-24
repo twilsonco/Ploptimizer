@@ -1,24 +1,18 @@
-# Job specification reproducing examples/test123.plt (see test123_before.png):
-# three 3in x 1in labels, each with one line of 0.5in text ("Test 1", "Test 2",
-# "Test 3"), stacked in a single column on a 24in x 16in plate.
+# Job specification: one 3in x 1in label per line of the replacement text
+# file, each with 0.75in text and two side drill holes, packed onto
+# auto-allocated default sheets.
+#
+# The replacement text file is declared at the job level: `labels` is
+# optional because width/height/text_height/holes define the label and each
+# data-file line provides its text content.
 job:
   job_name: Sunwest SW0008
 
-  # Shared label dimensions and typography (cascade down to every label).
+  # Shared label dimensions and typography (defines the generated labels).
   width: 3.0
   height: 1.0
   text_height: 0.75
-  # 0.45 is the measured minimum for the longest lines (e.g. "B29ABe"); 0.5
-  # leaves headroom so collision compression clears the side drill holes.
-  max_h_compress: 0.5
   holes:
     - location: sides
 
-  plates:
-    - id: plate_1
-      width: 24.0
-      height: 16.0
-
-  labels:
-    - id: labels
-      replacement_text_file: 2026-7-22 sunwest 1x3 white 0.75 text on black with 2 holes.txt
+  replacement_text_file: 2026-7-22 sunwest 1x3 white 0.75 text on black with 2 holes.txt

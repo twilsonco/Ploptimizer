@@ -299,6 +299,32 @@ class TextLine(TextAttributes):
     text: str
 
 
+def _validate_replacement_delimiter_value(v: Optional[str]) -> Optional[str]:
+    """Validate a replacement-text delimiter (shared by all levels).
+
+    Args:
+        v: The configured delimiter, or None (unset).
+
+    Returns:
+        The validated delimiter.
+
+    Raises:
+        ValueError: If the delimiter is not exactly one character, is a
+            newline, or is alphanumeric.
+    """
+    if v is None:
+        return v
+    if len(v) != 1:
+        raise ValueError("replacement_text_delimiter must be a single character")
+    if v in ("\n", "\r"):
+        raise ValueError("replacement_text_delimiter cannot be a newline character")
+    if v.isalnum():
+        raise ValueError(
+            "replacement_text_delimiter must be a single special or whitespace character"
+        )
+    return v
+
+
 class LabelSpec(LabelAttributes):
     """Specification for a label to be generated.
 
@@ -329,6 +355,13 @@ class LabelSpec(LabelAttributes):
         replacement_text_delimiter: Single special or whitespace character
             separating text items within a replacement file line. Defaults
             to ``";"``. Cannot be a newline or an alphanumeric character.
+        plate_id: Optional id of the plate this label is pinned to. Pinned
+            labels pack exclusively onto that plate, and the plate then
+            accepts no other labels. Normally set by plate-level
+            ``replacement_text_file`` expansion (see
+            :func:`plt_optimizer.generate.substitution.expand_job_spec`);
+            it may also be declared directly to pin a static label to a
+            specific sheet.
     """
 
     id: str
@@ -353,11 +386,18 @@ class LabelSpec(LabelAttributes):
             "replacement file line (default ';')."
         ),
     )
+    plate_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "Id of the plate this label is pinned to (packs exclusively "
+            "onto that plate). Set by plate-level replacement expansion."
+        ),
+    )
 
     @field_validator("replacement_text_delimiter")
     @classmethod
     def _validate_replacement_delimiter(cls, v: Optional[str]) -> Optional[str]:
-        """Ensure the replacement delimiter is a single non-alphanumeric char.
+        """Validate the delimiter (shared rule with job/plate-level fields).
 
         Args:
             v: The configured delimiter, or None (unset).
@@ -369,17 +409,7 @@ class LabelSpec(LabelAttributes):
             ValueError: If the delimiter is not exactly one character, is a
                 newline, or is alphanumeric.
         """
-        if v is None:
-            return v
-        if len(v) != 1:
-            raise ValueError("replacement_text_delimiter must be a single character")
-        if v in ("\n", "\r"):
-            raise ValueError("replacement_text_delimiter cannot be a newline character")
-        if v.isalnum():
-            raise ValueError(
-                "replacement_text_delimiter must be a single special or whitespace character"
-            )
-        return v
+        return _validate_replacement_delimiter_value(v)
 
     @model_validator(mode="after")
     def _validate_content_or_replacement(self) -> LabelSpec:
@@ -469,7 +499,19 @@ class PlateSpec(BaseModel):
             ``layout``. Unlike the other cascading fields, this one IS
             applied at packing time: when plates declare different modes,
             same-mode plates pack in one sequential pass and leftovers
-            cascade to the next group in declaration order."""
+            cascade to the next group in declaration order.
+        replacement_text_file: Optional path to an EngraveLab/Vision
+            Pro-style replacement text file (resolved relative to the job
+            YAML directory unless absolute) whose lines each produce one
+            label generated *onto this plate only*. Label dimensions and
+            typography (``width`` / ``height`` / ``text_height`` / ...) are
+            NOT plate fields: they come from the job-level cascade. The
+            plate's usable ``width``/``height`` still describe the pack
+            area.
+        replacement_text_delimiter: Single special or whitespace character
+            separating text items within a replacement file line. Defaults
+            to ``";"``. Requires ``replacement_text_file``.
+    """
 
     id: str
     width: float = Field(ge=0.0, description="Usable plate width in inches (must be >= 0).")
@@ -519,6 +561,55 @@ class PlateSpec(BaseModel):
         default=None,
         description="Per-plate fill-order override (None = inherit the job layout).",
     )
+    replacement_text_file: Optional[str] = Field(
+        default=None,
+        description=(
+            "Path to an EngraveLab/Vision Pro-style replacement text file. "
+            "Each line produces one label packed onto this plate only."
+        ),
+    )
+    replacement_text_delimiter: Optional[str] = Field(
+        default=None,
+        description=(
+            "Single-character delimiter separating text items within a "
+            "replacement file line (default ';')."
+        ),
+    )
+
+    @field_validator("replacement_text_delimiter")
+    @classmethod
+    def _validate_replacement_delimiter(cls, v: Optional[str]) -> Optional[str]:
+        """Validate the delimiter (shared rule with label/job-level fields).
+
+        Args:
+            v: The configured delimiter, or None (unset).
+
+        Returns:
+            The validated delimiter.
+
+        Raises:
+            ValueError: If the delimiter is not exactly one character, is a
+                newline, or is alphanumeric.
+        """
+        return _validate_replacement_delimiter_value(v)
+
+    @model_validator(mode="after")
+    def _validate_replacement_fields(self) -> PlateSpec:
+        """Enforce the plate-level replacement-file contract.
+
+        Raises:
+            ValueError: If ``replacement_text_delimiter`` is set without a
+                file.
+
+        Returns:
+            Self for method chaining.
+        """
+        if self.replacement_text_delimiter is not None and self.replacement_text_file is None:
+            raise ValueError(
+                f"plate '{self.id}': 'replacement_text_delimiter' requires "
+                "'replacement_text_file' to be set"
+            )
+        return self
 
     @model_validator(mode="before")
     @classmethod
@@ -550,11 +641,18 @@ class JobSpec(LabelAttributes):
     Inherits optional styling fields from LabelAttributes so they can be
     set at the Job level and inherited down to Label and TextLine levels.
 
-    A job may be specified in one of two equivalent forms:
+    A job may be specified in one of three forms:
     1. A list of explicit labels (`labels`).
     2. A single root-level label definition (`content` + optional `count`).
+    3. A job-level EngraveLab/Vision Pro-style replacement text file
+       (``replacement_text_file``): each line of the file produces one
+       label, generated from the job-level label attributes (``width``,
+       ``height`` and ``text_height`` are required at the job level;
+       ``content`` is an optional per-line attribute template, exactly
+       like on :class:`LabelSpec`). This form is mutually exclusive with
+       ``labels`` and ``count``.
 
-    The two forms are mutually exclusive; exactly one must be provided.
+    The forms are mutually exclusive; exactly one must be provided.
 
     Attributes:
         job_name: Human-readable name for this job.
@@ -562,7 +660,17 @@ class JobSpec(LabelAttributes):
             generation pipeline auto-allocates default 24x16 sheets.
         labels: Optional list of unique label specifications to produce.
         count: Optional count for root-level single-label jobs.
-        content: Optional root-level content for single-label jobs.
+        content: Optional root-level content for single-label jobs (or the
+            per-line attribute template for a job-level replacement file).
+        replacement_text_file: Job-level replacement text file (resolved
+            relative to the job YAML directory unless absolute). Each line
+            produces one label; items within a line are separated by
+            ``replacement_text_delimiter``. Requires job-level ``width``,
+            ``height`` and ``text_height``; mutually exclusive with
+            ``labels``, ``count`` and plate-level replacement files.
+        replacement_text_delimiter: Single special or whitespace character
+            separating text items within a replacement file line. Defaults
+            to ``";"``. Requires ``replacement_text_file``.
         allow_rotation: Whether the bin packer may rotate label instances
             90 degrees to improve plate utilization. When a rotated label
             is assembled onto a plate its whole content (text, border and
@@ -595,6 +703,21 @@ class JobSpec(LabelAttributes):
     labels: Optional[list[LabelSpec]] = None
     count: Optional[int] = Field(default=None, ge=1)
     content: Optional[list[TextLine]] = None
+    replacement_text_file: Optional[str] = Field(
+        default=None,
+        description=(
+            "Job-level EngraveLab/Vision Pro-style replacement text file. "
+            "Each line produces one label built from the job-level label "
+            "attributes. Mutually exclusive with labels and count."
+        ),
+    )
+    replacement_text_delimiter: Optional[str] = Field(
+        default=None,
+        description=(
+            "Single-character delimiter separating text items within a "
+            "replacement file line (default ';')."
+        ),
+    )
 
     allow_rotation: bool = Field(
         default=True,
@@ -639,6 +762,23 @@ class JobSpec(LabelAttributes):
         ),
     )
 
+    @field_validator("replacement_text_delimiter")
+    @classmethod
+    def _validate_replacement_delimiter(cls, v: Optional[str]) -> Optional[str]:
+        """Validate the delimiter (shared rule with label/plate-level fields).
+
+        Args:
+            v: The configured delimiter, or None (unset).
+
+        Returns:
+            The validated delimiter.
+
+        Raises:
+            ValueError: If the delimiter is not exactly one character, is a
+                newline, or is alphanumeric.
+        """
+        return _validate_replacement_delimiter_value(v)
+
     @model_validator(mode="after")
     def _apply_job_level_clearances(self) -> JobSpec:
         """Cascade job-level edge clearances onto plates that omit them.
@@ -667,22 +807,134 @@ class JobSpec(LabelAttributes):
 
     @model_validator(mode="after")
     def validate_job_structure(self) -> JobSpec:
-        """Ensure exactly one of `labels` or root-level `content` is provided.
+        """Ensure exactly one label source form is provided.
+
+        The label-source forms are ``labels``, root-level ``content``, a
+        job-level ``replacement_text_file``, and plate-level replacement
+        files (which synthesize their own labels). With a job-level
+        replacement file, ``content`` is an optional per-line attribute
+        template (not a second label source), mirroring :class:`LabelSpec`;
+        the same holds for a plate-level file.
 
         Raises:
-            ValueError: If neither or both forms are specified.
+            ValueError: If no label source is defined, or an explicit
+                ``labels``/``content`` list is combined with a job-level
+                replacement file.
 
         Returns:
             Self for method chaining.
         """
         has_labels = self.labels is not None and len(self.labels) > 0
-        has_content = self.content is not None and len(self.content) > 0
+        has_replacement = self.replacement_text_file is not None
+        has_plate_files = any(
+            plate.replacement_text_file is not None for plate in self.plates or []
+        )
+        # Root-level content counts as a label source only when it is not
+        # serving as a replacement-file attribute template (job- or
+        # plate-level).
+        is_template = has_replacement or (has_plate_files and self.labels is None)
+        has_content = (not is_template) and self.content is not None and len(self.content) > 0
 
-        if not has_labels and not has_content:
-            raise ValueError("Job must define either 'labels' or root-level 'content'.")
-        if has_labels and has_content:
-            raise ValueError("Job cannot define both 'labels' and root-level 'content'.")
+        forms = sum(
+            1 for present in (has_labels, has_content, has_replacement, has_plate_files) if present
+        )
+        if forms == 0:
+            raise ValueError(
+                "Job must define 'labels', root-level 'content', or a "
+                "'replacement_text_file' (job- or plate-level)."
+            )
+        if has_labels and (has_replacement or has_content):
+            raise ValueError(
+                "Job cannot define more than one of 'labels', root-level 'content' "
+                "and 'replacement_text_file'."
+            )
 
+        return self
+
+    @model_validator(mode="after")
+    def _validate_replacement_structure(self) -> JobSpec:
+        """Enforce the job-level and plate-level replacement-file contracts.
+
+        A job-level replacement file synthesizes its labels from the
+        job-level attributes, so it requires job-level ``width``, ``height``
+        and ``text_height`` (and no ``count``). Plate-level replacement
+        files pin their generated labels to the declaring plate; the
+        synthesized labels likewise carry no label-level dimensions, so the
+        same job-level attributes are required.
+
+        Raises:
+            ValueError: If a delimiter is set without a file, ``count`` is
+                combined with a job-level file (or with plate-level files
+                in root-content mode), a job-level file is combined with
+                plate-level files, or a replacement file (job- or
+                plate-level) is declared without the required job-level
+                label attributes.
+
+        Returns:
+            Self for method chaining.
+        """
+        if self.replacement_text_delimiter is not None and self.replacement_text_file is None:
+            raise ValueError(
+                "'replacement_text_delimiter' requires 'replacement_text_file' to be set"
+            )
+        if self.replacement_text_file is not None and "count" in self.model_fields_set:
+            raise ValueError(
+                "'count' cannot be combined with 'replacement_text_file' "
+                "(the file's line count determines the label count)"
+            )
+
+        plate_replacement_ids = [
+            plate.id for plate in self.plates or [] if plate.replacement_text_file is not None
+        ]
+        if self.replacement_text_file is not None and plate_replacement_ids:
+            raise ValueError(
+                "job-level 'replacement_text_file' cannot be combined with "
+                f"plate-level replacement files (plate(s): {', '.join(plate_replacement_ids)})"
+            )
+        if plate_replacement_ids and "count" in self.model_fields_set and self.labels is None:
+            raise ValueError(
+                "'count' cannot be combined with plate-level 'replacement_text_file' "
+                "(the file's line count determines each plate's label count)"
+            )
+
+        if self.replacement_text_file is not None or plate_replacement_ids:
+            missing = [
+                name for name in ("width", "height", "text_height") if getattr(self, name) is None
+            ]
+            if missing:
+                scope = (
+                    "job-level 'replacement_text_file'"
+                    if self.replacement_text_file is not None
+                    else "plate-level 'replacement_text_file' "
+                    f"(plate(s): {', '.join(plate_replacement_ids)})"
+                )
+                raise ValueError(
+                    f"{scope} synthesizes labels from the job-level attributes; "
+                    f"job-level {', '.join(missing)} must be defined"
+                )
+
+        return self
+
+    @model_validator(mode="after")
+    def _validate_label_plate_references(self) -> JobSpec:
+        """Validate ``LabelSpec.plate_id`` references against the plate list.
+
+        Raises:
+            ValueError: If a label pins itself to a plate id that is not
+                declared (or no plates are declared at all).
+
+        Returns:
+            Self for method chaining.
+        """
+        if not self.labels:
+            return self
+        known_ids = {plate.id for plate in self.plates or []}
+        for label in self.labels:
+            if label.plate_id is not None and label.plate_id not in known_ids:
+                raise ValueError(
+                    f"label '{label.id}': plate_id '{label.plate_id}' does not "
+                    "reference a declared plate"
+                )
         return self
 
 

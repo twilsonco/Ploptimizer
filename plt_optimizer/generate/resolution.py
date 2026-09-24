@@ -270,6 +270,11 @@ class ResolvedLabel:
             (``"line"`` or ``"word"``, cascaded from the job; default
             ``"line"``). Consumed by the renderer (chunk-record
             granularity) and the plate-space optimizer.
+        plate_id: Optional id of the plate this label is pinned to (from
+            ``LabelSpec.plate_id``; set by plate-level replacement
+            expansion). Pinned labels pack exclusively onto that plate,
+            which then accepts no other labels. ``None`` (the default)
+            packs normally across all plates.
     """
 
     id: str
@@ -285,6 +290,7 @@ class ResolvedLabel:
     hole_text_collision_distance: float = DEFAULT_HOLE_TEXT_COLLISION_DISTANCE
     hole_cutter_diameter: float = DEFAULT_BOUNDARY_HOLE_CUTTER
     text_chunk_mode: str = "line"
+    plate_id: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -702,6 +708,10 @@ def _resolve_label(
         getattr(label_input, "text_chunk_mode", None) or job.text_chunk_mode
     )
 
+    # Plate pinning (plate-level replacement expansion / explicit
+    # LabelSpec.plate_id); a root-level job has no plate_id attribute.
+    label_plate_id: Optional[str] = getattr(label_input, "plate_id", None)
+
     # Resolve text lines with cutter compensation
     resolved_content = _resolve_content(label_input, job, available_cutters, tolerance_factor)
 
@@ -739,6 +749,7 @@ def _resolve_label(
         hole_text_collision_distance=label_collision_distance,
         hole_cutter_diameter=hole_cutter,
         text_chunk_mode=label_text_chunk_mode,
+        plate_id=label_plate_id,
     )
 
 

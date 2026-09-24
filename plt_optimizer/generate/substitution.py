@@ -25,6 +25,19 @@ replacement-driven label is flattened into one fully-static
 :class:`~plt_optimizer.generate.schema.LabelSpec` per file line with
 ``count=1`` and a unique ``id`` suffix (``base_0000``, ``base_0001``, ...).
 
+Replacement files are also accepted at the **job** and **plate** levels:
+
+- A job-level ``replacement_text_file`` replaces the ``labels`` section
+  entirely: each file line synthesizes one label from the job-level label
+  attributes (``width`` / ``height`` / ``text_height`` are required at the
+  job level; job-level ``content`` acts as the per-line attribute
+  template). Synthesized ids are ``label_0000``, ``label_0001``, ...
+- A plate-level ``replacement_text_file`` synthesizes labels pinned to
+  that plate (``LabelSpec.plate_id``): they pack exclusively onto the
+  declaring plate, which accepts no other labels. Label attributes again
+  come from the job-level cascade. Synthesized ids are
+  ``<plate_id>_0000``, ...
+
 Because items are produced by splitting on the delimiter, a replacement
 item can never contain the delimiter itself: data that contains the
 delimiter is *always* treated as separate items, so users must pick a
@@ -45,7 +58,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from plt_optimizer.generate.schema import JobSpec, LabelSpec, TextLine
+from plt_optimizer.generate.schema import JobSpec, LabelSpec, PlateSpec, TextLine
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +67,10 @@ DEFAULT_REPLACEMENT_DELIMITER: str = ";"
 
 # Width of the zero-padded numeric suffix appended to expanded label ids.
 _INSTANCE_SUFFIX_WIDTH: int = 4
+
+# Base id for labels synthesized by a job-level replacement text file
+# (instances become ``label_0000``, ``label_0001``, ...).
+JOB_LEVEL_LABEL_BASE_ID: str = "label"
 
 
 class SubstitutionError(ValueError):
@@ -226,13 +243,133 @@ def expand_label_with_replacements(label: LabelSpec, base_dir: Path) -> list[Lab
     return expanded
 
 
+def _expand_job_level_replacements(job: JobSpec, base_dir: Path) -> JobSpec:
+    """Expand a job-level replacement text file into the label list.
+
+    The job-level file replaces the ``labels`` section: every file line
+    synthesizes one label from the job-level attributes (the schema
+    guarantees job-level ``width`` / ``height`` / ``text_height`` exist).
+    The job-level ``content``, when present, acts as the per-line
+    attribute template exactly like ``LabelSpec.content``.
+
+    Args:
+        job: The parsed job with ``replacement_text_file`` set.
+        base_dir: Directory anchoring relative file references.
+
+    Returns:
+        A copy whose ``labels`` list holds one static label per file line
+        and whose job-level replacement fields (and consumed ``content``)
+        are cleared.
+
+    Raises:
+        SubstitutionError: If the replacement file fails to load (see
+            :func:`expand_label_with_replacements`).
+    """
+    template = LabelSpec(
+        id=JOB_LEVEL_LABEL_BASE_ID,
+        content=job.content,
+        replacement_text_file=job.replacement_text_file,
+        replacement_text_delimiter=job.replacement_text_delimiter,
+    )
+    instances = expand_label_with_replacements(template, base_dir)
+    logger.info(
+        "Job '%s': job-level replacement file produced %d label(s).",
+        job.job_name,
+        len(instances),
+    )
+    return job.model_copy(
+        update={
+            "labels": instances,
+            "content": None,
+            "replacement_text_file": None,
+            "replacement_text_delimiter": None,
+        }
+    )
+
+
+def _expand_plate_level_replacements(job: JobSpec, base_dir: Path) -> JobSpec:
+    """Expand plate-level replacement files into plate-pinned labels.
+
+    Each plate declaring ``replacement_text_file`` produces one label per
+    file line with ``plate_id`` set to the declaring plate (they pack
+    exclusively onto it). Existing ``labels`` entries pass through
+    label-level expansion unchanged and pack normally onto the unpinned
+    plates. A root-level ``content`` acts as the per-line attribute
+    template for the generated labels (mirroring the job-level
+    replacement file), so it is consumed rather than materialized as a
+    separate label. The plate replacement fields are cleared on the
+    returned copy.
+
+    Args:
+        job: The parsed job with at least one plate-level file.
+        base_dir: Directory anchoring relative file references.
+
+    Returns:
+        A copy whose ``labels`` list contains the base labels plus every
+        plate-generated label, with replacement fields cleared.
+
+    Raises:
+        SubstitutionError: If any plate's replacement file fails to load
+            (see :func:`expand_label_with_replacements`).
+    """
+    # With a labels list, content is absent (mutually exclusive); with the
+    # root-level form, content is the shared attribute template.
+    template_content = job.content if job.labels is None else None
+    base_labels: list[LabelSpec] = list(job.labels) if job.labels else []
+
+    # Label-level templates still expand (no-op for static labels).
+    expanded_labels: list[LabelSpec] = []
+    for label in base_labels:
+        expanded_labels.extend(expand_label_with_replacements(label, base_dir))
+
+    generated: list[LabelSpec] = []
+    updated_plates: list[PlateSpec] = []
+    for plate in job.plates or []:
+        if plate.replacement_text_file is None:
+            updated_plates.append(plate)
+            continue
+        # The job-level content acts as the attribute template only for a
+        # job that has no explicit labels list (root-level form); with a
+        # labels list, content is absent anyway.
+        template = LabelSpec(
+            id=plate.id,
+            content=template_content,
+            replacement_text_file=plate.replacement_text_file,
+            replacement_text_delimiter=plate.replacement_text_delimiter,
+        )
+        instances = expand_label_with_replacements(template, base_dir)
+        generated.extend(
+            instance.model_copy(update={"plate_id": plate.id}) for instance in instances
+        )
+        logger.info(
+            "Plate '%s': replacement file produced %d pinned label(s).",
+            plate.id,
+            len(instances),
+        )
+        updated_plates.append(
+            plate.model_copy(
+                update={
+                    "replacement_text_file": None,
+                    "replacement_text_delimiter": None,
+                }
+            )
+        )
+
+    return job.model_copy(
+        update={
+            "labels": expanded_labels + generated,
+            "plates": updated_plates,
+            "content": None,
+            "count": None,
+        }
+    )
+
+
 def expand_job_spec(job: JobSpec, yaml_path: Path) -> JobSpec:
     """Expand all replacement-driven labels in a parsed job specification.
 
+    Handles replacement files at all three levels (job, plate, label).
     Labels without ``replacement_text_file`` pass through untouched.
-    Root-level single-label jobs (``content`` + ``count`` without a
-    ``labels`` list) do not support replacement files and are returned
-    unchanged.
 
     Args:
         job: The parsed :class:`~plt_optimizer.generate.schema.JobSpec`.
@@ -241,20 +378,29 @@ def expand_job_spec(job: JobSpec, yaml_path: Path) -> JobSpec:
 
     Returns:
         A new :class:`JobSpec` whose ``labels`` list contains one static
-        label per replacement file line for every template label. When no
-        label uses replacements, the original ``job`` is returned as-is.
+        label per replacement file line for every template (job-, plate-
+        or label-level). When nothing uses replacements, the original
+        ``job`` is returned as-is.
 
     Raises:
-        SubstitutionError: If any label's replacement file fails to load
-            or apply (see :func:`expand_label_with_replacements`).
+        SubstitutionError: If any replacement file fails to load or apply
+            (see :func:`expand_label_with_replacements`).
     """
+    base_dir = Path(yaml_path).resolve().parent
+
+    if job.replacement_text_file is not None:
+        return _expand_job_level_replacements(job, base_dir)
+
+    has_plate_files = any(plate.replacement_text_file is not None for plate in job.plates or [])
+    if has_plate_files:
+        return _expand_plate_level_replacements(job, base_dir)
+
     if not job.labels:
         return job
 
     if not any(label.replacement_text_file is not None for label in job.labels):
         return job
 
-    base_dir = Path(yaml_path).resolve().parent
     expanded_labels: list[LabelSpec] = []
     for label in job.labels:
         expanded_labels.extend(expand_label_with_replacements(label, base_dir))

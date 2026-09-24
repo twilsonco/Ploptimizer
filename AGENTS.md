@@ -95,13 +95,13 @@ JobSpec (job-level defaults)
 
 | Class | Purpose | Validation Rules |
 |-------|---------|------------------|
-| `JobSpec` | Root job container | Requires either `labels` list OR root-level `content` (mutually exclusive) |
-| `LabelSpec` | Individual label definition | `count >= 1`; requires `content` (min 1 TextLine) OR `replacement_text_file` (mutually exclusive with `count`) |
+| `JobSpec` | Root job container | Requires exactly one label source: `labels` list, root-level `content`, a job-level `replacement_text_file`, or plate-level replacement files (mutually exclusive); a job-level file also requires job-level `width`/`height`/`text_height` |
+| `LabelSpec` | Individual label definition | `count >= 1`; requires `content` (min 1 TextLine) OR `replacement_text_file` (mutually exclusive with `count`); optional `plate_id` pins the label to a declared plate (set by plate-level replacement expansion) |
 | `TextLine` | Text content unit | Requires non-empty `text` string |
-| `PlateSpec` | Physical sheet definition | All dimensions `>= 0`; `width`/`height` are the usable pack area, offset from the material's top-left by `left_clearance`/`top_clearance` (both default `0.0`) |
+| `PlateSpec` | Physical sheet definition | All dimensions `>= 0`; `width`/`height` are the usable pack area, offset from the material's top-left by `left_clearance`/`top_clearance` (both default `0.0`); optional `replacement_text_file` synthesizes labels pinned to this plate (requires job-level `width`/`height`/`text_height`) |
 | `HoleSpec` | Drilled hole definition | Location (required; 8 atomic enum values: corners + edges, plus `corners`/`sides` group shorthands expanded at validation) + optional `diameter` (default 0.125", must be > 0) |
 | `parse_yaml()` | Entry point | Returns validated `JobSpec` or raises `ValueError` |
-| `expand_job_spec()` | Replacement expansion (substitution.py) | Called after `parse_yaml()`; flattens replacement-driven labels into static LabelSpecs |
+| `expand_job_spec()` | Replacement expansion (substitution.py) | Called after `parse_yaml()`; flattens replacement-driven labels (job-, plate- or label-level) into static LabelSpecs |
 
 ### Horizontal Text Compression
 
@@ -230,6 +230,41 @@ job:
           text_height: 0.45
 ```
 
+**Pattern 4: Job-Level Replacement File** (no `labels` section needed)
+```yaml
+job:
+  job_name: "Batch 03"
+  width: 3.0                         # required: defines the label
+  height: 1.0                        # required: defines the label
+  text_height: 0.75                  # required: defines the label text
+  holes:                             # optional, like any job-level attribute
+    - location: sides
+  replacement_text_file: data.txt    # each line becomes label_0000, label_0001, ...
+  # content:                         # optional per-line attribute template
+  #   - text: "PLACEHOLDER"
+```
+
+**Pattern 5: Plate-Level Replacement File** (labels pinned to one plate)
+```yaml
+job:
+  job_name: "Batch 04"
+  width: 3.0                         # required: defines the generated labels
+  height: 1.0
+  text_height: 0.75
+  plates:
+    - id: scrap_a                    # its file's lines pack ONLY onto scrap_a
+      width: 24.0
+      height: 16.0
+      replacement_text_file: data_a.txt
+    - id: full_b                     # normal plate (accepts unpinned labels)
+      width: 24.0
+      height: 16.0
+  labels:                            # optional: static labels pack normally
+    - id: header
+      content:
+        - text: "HEADER"
+```
+
 ### Replacement Text Files (Badges / Multiples)
 
 `plt_optimizer/generate/substitution.py` implements EngraveLab/Vision Pro
@@ -267,6 +302,44 @@ whitespace character, never newline/alphanumeric).
   untouched; jobs without replacement labels return the same object.
 - **Examples:** `examples/job_specs/replacement_job.yaml` with
   `examples/job_specs/replacement_text_sample.txt` / `replacement_text_assets.txt`.
+
+#### Job-Level Replacement Files
+
+`replacement_text_file` (plus `replacement_text_delimiter`) is also
+accepted at the **job level**. This form *replaces* the `labels` section:
+the schema rejects `labels` alongside it, and job-level `count` is
+rejected (the file's line count determines the count). Because the
+synthesized labels carry no label-level dimensions, job-level `width`,
+`height` and `text_height` are **required** (a validation error names the
+missing fields); every other job-level label attribute (`margin`,
+`holes`, `max_h_compress`, ...) applies as usual. Job-level `content`,
+when present, acts as the per-line attribute template exactly like
+`LabelSpec.content` (it is *not* a second label source). Expansion
+(`substitution._expand_job_level_replacements`) synthesizes one static
+`LabelSpec` per file line with base id `label` (`label_0000`, ...) and
+clears the job-level replacement fields and the consumed `content`.
+
+#### Plate-Level Replacement Files
+
+A `PlateSpec` may declare `replacement_text_file` (+ delimiter). Its file
+lines synthesize labels **pinned to that plate** via
+`LabelSpec.plate_id` (base id = plate id: `p1_0000`, ...): the layout
+engine packs pinned entries in exclusive single-plate passes (pinned
+plates first, declaration order), and the declaring plate accepts no
+other labels. Label dimensions/typography are NOT plate fields — they
+come from the job-level cascade, so job-level `width`/`height`/
+`text_height` are required whenever any plate declares a file (same error
+as the job-level form). Plate files are mutually exclusive with a
+job-level file; root-level `content` acts as the shared attribute
+template (and root-level `count` is rejected in that mode). A job whose
+only label source is plate files is valid (no `labels`/`content`
+needed). Expansion clears the plate replacement fields on the returned
+copy. Layout failures raise `LayoutFitError`: pinned labels that do not
+fit their plate never spill onto other sheets, undeclared `plate_id`
+references abort, and unpinned labels with no unpinned plate left abort
+with a dedicated message. `LabelSpec.plate_id` may also be declared
+directly to pin a static label; `JobSpec` validates it against the
+declared plates.
 
 ### Plate-Space Toolpath Optimization
 Generated toolpaths are optimized in the **plate frame** (post-rectpack device
