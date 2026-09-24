@@ -17,9 +17,17 @@
 # the job aborts with LayoutFitError, so this file doubles as a regression
 # fixture for the flag.
 #
+# The fixture pins ``layout: rows`` (the historical width-first fill): the
+# banner-must-rotate and abort assertions below are row-frame specific -- in
+# the default column-major frame the 11"-tall banners land upright on the
+# 24x16 sheet and the job never aborts.
+#
 # Run with: python run_integration_test.py tests_deps/rotation_demo_job.yaml
 job:
   job_name: "Rotation Demo - Mix Rack Tags"
+
+  # Row-major fill order (see header): pins the historical packing frame.
+  layout: rows
 
   # ---------------------------------------------------------------------
   # Job-level defaults (cascade down to every label unless overridden).

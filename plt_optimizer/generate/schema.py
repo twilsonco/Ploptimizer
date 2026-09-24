@@ -134,6 +134,31 @@ class TextHAlignment(str, Enum):
     RIGHT = "right"
 
 
+class LayoutMode(str, Enum):
+    """Enumeration of plate fill-order preferences for bin packing.
+
+    ``rectpack`` has no sort option that controls fill order directly (the
+    emergent order is a side effect of placement tie-breaking), so
+    ``columns`` is realized by packing in a transposed frame with a
+    bottom-row fill algorithm and mapping every placement back into plate
+    space (see ``plt_optimizer.generate.layout``).
+
+    Attributes:
+        ROWS: Fill the plate width first, then extend downward (row-major;
+            the historical packing behaviour).
+        COLUMNS: Fill the plate height first, then extend rightward
+            (column-major; the default).
+    """
+
+    ROWS = "rows"
+    COLUMNS = "columns"
+
+
+# Default plate fill order: column-major, so labels stack up the plate
+# height and only extend rightward as far as necessary.
+DEFAULT_LAYOUT_MODE: LayoutMode = LayoutMode.COLUMNS
+
+
 class TextAttributes(BaseModel):
     """Attributes that can cascade down to individual text lines.
 
@@ -429,8 +454,12 @@ class PlateSpec(BaseModel):
             labels are rendered once and cached before bin-packing, so a
             per-plate value is not currently applied during rendering;
             the effective value is resolved from the label -> job ->
-            default cascade.
-    """
+            default cascade.        layout: Optional per-plate fill-order override (``rows`` /
+            ``columns``). ``None`` (the default) inherits the job-level
+            ``layout``. Unlike the other cascading fields, this one IS
+            applied at packing time: when plates declare different modes,
+            same-mode plates pack in one sequential pass and leftovers
+            cascade to the next group in declaration order."""
 
     id: str
     width: float = Field(ge=0.0, description="Plate width in inches (must be >= 0).")
@@ -460,6 +489,10 @@ class PlateSpec(BaseModel):
         description=(
             "Minimum engraved-stroke air gap in inches (schema parity; not applied at plate level)."
         ),
+    )
+    layout: Optional[LayoutMode] = Field(
+        default=None,
+        description="Per-plate fill-order override (None = inherit the job layout).",
     )
     clearance_padding: float = Field(
         ge=0.0, description="Padding between labels in inches (must be >= 0)."
@@ -494,6 +527,11 @@ class JobSpec(LabelAttributes):
             each whole text line as one unit; ``"word"`` splits lines on
             whitespace for finer rapid-travel routing at the cost of more
             TSP nodes.
+        layout: Preferential plate fill order for bin packing. ``columns``
+            (the default) fills each plate's height before extending
+            rightward; ``rows`` fills width before extending downward (the
+            historical behaviour). Cascades job -> plate: a plate may
+            override it via ``PlateSpec.layout``.
     """
 
     job_name: str
@@ -518,6 +556,14 @@ class JobSpec(LabelAttributes):
             "Plate-space text optimization granularity: 'line' routes each "
             "text line as one node (default); 'word' routes each "
             "whitespace-delimited word separately."
+        ),
+    )
+    layout: LayoutMode = Field(
+        default=DEFAULT_LAYOUT_MODE,
+        description=(
+            "Preferential plate fill order: 'columns' (default) fills the "
+            "plate height before extending rightward; 'rows' fills width "
+            "before extending downward."
         ),
     )
 

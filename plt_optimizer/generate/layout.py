@@ -35,7 +35,11 @@ from plt_optimizer.generate.label_renderer import (
     render_label_to_plt,
 )
 from plt_optimizer.generate.resolution import ResolvedLabel
-from plt_optimizer.generate.schema import PlateSpec
+from plt_optimizer.generate.schema import (
+    DEFAULT_LAYOUT_MODE,
+    LayoutMode,
+    PlateSpec,
+)
 
 # ---------------------------------------------------------------------------
 # Default plate dimensions for unbounded mode
@@ -107,6 +111,22 @@ PACK_CONFIGS: tuple[tuple[object, object], ...] = (
     (rectpack.GuillotineBlsfLas, rectpack.SORT_NONE),
     (rectpack.GuillotineBlsfLas, rectpack.SORT_AREA),
     (rectpack.GuillotineBafLas, rectpack.SORT_NONE),
+)
+
+# Candidate configurations for ``layout: columns`` (column-major fill).
+#
+# Column-major packing runs in a transposed frame (rectangles and bins
+# swapped, placements mapped back). The algorithms in :data:`PACK_CONFIGS`
+# fill the *plate's long axis* first regardless of the frame (verified
+# empirically: transposing a Guillotine/MaxRects run leaves the real-space
+# fill order unchanged), so the transposed frame is instead paired with
+# ``SkylineBl``, whose bottom-row fitness always fills the packer's X axis
+# first -- the real plate height -- before extending rightward. (Other
+# skyline fitnesses were rejected: e.g. ``SkylineMwf`` stacks upward to
+# minimize waste, which un-transposes back to row-major fill.)
+PACK_CONFIGS_COLUMNS: tuple[tuple[object, object], ...] = (
+    (rectpack.SkylineBl, rectpack.SORT_NONE),
+    (rectpack.SkylineBl, rectpack.SORT_AREA),
 )
 
 
@@ -214,11 +234,17 @@ def unroll_labels(
 # ---------------------------------------------------------------------------
 def _extract_packed_plates(
     packer: rectpack.packer.Packer,
+    *,
+    transpose: bool = False,
 ) -> list[PackedPlate]:
     """Translate ``rectpack`` results into typed ``PackedPlate`` objects.
 
     Args:
         packer: A ``rectpack.Packer`` that has already executed ``pack()``.
+        transpose: When True, the packer ran in the transposed column-major
+            frame (see :func:`_transpose_entries`) and every placement is
+            mapped back into real plate space via
+            ``(x, y, w, h) -> (y, x, h, w)``.
 
     Returns:
         A list of ``PackedPlate`` objects with all labels positioned.
@@ -231,11 +257,20 @@ def _extract_packed_plates(
             # Ignore empty auto-allocated bins
             continue
 
-        plate = PackedPlate(
-            plate_id=bin_obj.bid,
-            width=bin_obj.width,
-            height=bin_obj.height,
-        )
+        if transpose:
+            # The packer's bin was offered as (height, width); report the
+            # real plate dimensions.
+            plate = PackedPlate(
+                plate_id=bin_obj.bid,
+                width=bin_obj.height,
+                height=bin_obj.width,
+            )
+        else:
+            plate = PackedPlate(
+                plate_id=bin_obj.bid,
+                width=bin_obj.width,
+                height=bin_obj.height,
+            )
 
         for rect in bin_obj:
             # Unpack the custom ID tuple we passed in. The third element is
@@ -245,18 +280,34 @@ def _extract_packed_plates(
             # ResolvedLabel width may differ from what was actually packed.
             rect_id, source_label, pack_width = rect.rid
 
-            # Detect rotation: rect.width/height reflect post-rotation dims.
+            # Detect rotation: rect.width/height reflect post-rotation dims
+            # in the *packer* frame. In the transposed frame a packer-space
+            # rotation is exactly a real-space rotation (a 90-degree swap
+            # composed with the transpose is again a 90-degree swap), so
+            # comparing against the packer-space width stays correct.
             was_rotated = not math.isclose(rect.width, pack_width, rel_tol=1e-9)
 
-            packed_label = PackedLabel(
-                label_id=rect_id,
-                x=rect.x,
-                y=rect.y,
-                width=rect.width,
-                height=rect.height,
-                rotated=was_rotated,
-                source_label=source_label,
-            )
+            if transpose:
+                # Map the placement back out of the transposed frame.
+                packed_label = PackedLabel(
+                    label_id=rect_id,
+                    x=rect.y,
+                    y=rect.x,
+                    width=rect.height,
+                    height=rect.width,
+                    rotated=was_rotated,
+                    source_label=source_label,
+                )
+            else:
+                packed_label = PackedLabel(
+                    label_id=rect_id,
+                    x=rect.x,
+                    y=rect.y,
+                    width=rect.width,
+                    height=rect.height,
+                    rotated=was_rotated,
+                    source_label=source_label,
+                )
             plate.labels.append(packed_label)
 
         final_plates.append(plate)
@@ -264,10 +315,37 @@ def _extract_packed_plates(
     return final_plates
 
 
+# The ``rid`` payload carried with every rectangle: the instance id, the
+# source label, and the *packing* width the rectangle was offered to the
+# packer with (the baseline rotation detection compares against).
+_RidPayload = tuple[str, ResolvedLabel, float]
+
 # A rectangle entry as passed to the packer: (width, height, rid-payload).
 # The ``rid`` payload is an opaque tuple that rectpack preserves verbatim and
 # which :func:`_extract_packed_plates` later unpacks.
-_RectEntry = tuple[float, float, object]
+_RectEntry = tuple[float, float, _RidPayload]
+
+
+def _transpose_entries(entries: list[_RectEntry], transpose: bool) -> list[_RectEntry]:
+    """Swap rectangle dimensions into the transposed packing frame.
+
+    The ``rid`` payload is rebuilt carrying the *packer-space* width (the
+    swapped height), so rotation detection in :func:`_extract_packed_plates`
+    keeps comparing against the dimensions actually offered to the packer.
+
+    Args:
+        entries: Real-space ``(pack_width, pack_height, rid)`` tuples.
+        transpose: When False, entries are returned unchanged.
+
+    Returns:
+        Packer-space ``(pack_width, pack_height, rid)`` tuples.
+    """
+    if not transpose:
+        return entries
+    return [
+        (height, width, (rect_id, source_label, height))
+        for width, height, (rect_id, source_label, _pack_width) in entries
+    ]
 
 
 def _count_rotated(packer: rectpack.packer.Packer) -> int:
@@ -296,6 +374,7 @@ def _pack_best(
     rectangles_with_rid: list[_RectEntry],
     bin_specs: list[tuple[float, float, str]],
     allow_rotation: bool = True,
+    layout: LayoutMode = LayoutMode.ROWS,
 ) -> rectpack.packer.Packer:
     """Run several packing heuristics and return the packer with the best fit.
 
@@ -303,7 +382,9 @@ def _pack_best(
     The result that packs every rectangle onto the smallest total plate
     footprint (sum over non-empty plates of ``width * height``) is selected,
     which guarantees tighter layouts without ever regressing on packing quality
-    for any given input.
+    for any given input. Candidates that cannot fit every rectangle are ranked
+    by ``(packed_count desc, footprint asc)`` and only used when no candidate
+    fits everything.
 
     When ``allow_rotation`` is set, every candidate is evaluated twice — once
     with rotation disabled and once with it enabled — and candidates are
@@ -311,6 +392,18 @@ def _pack_best(
     rotate when rotation *strictly* improves the footprint; at equal
     footprints the all-horizontal layout always wins, keeping output stable
     for jobs that pack just as well without rotation.
+
+    ``layout`` selects the fill-order frame:
+
+    - :attr:`LayoutMode.ROWS` (historical behaviour): pack in the real frame
+      with :data:`PACK_CONFIGS`; the Guillotine/MaxRects heuristics fill the
+      plate width first, then extend downward.
+    - :attr:`LayoutMode.COLUMNS`: pack in the **transposed frame** (bins and
+      rectangles swapped) with :data:`PACK_CONFIGS_COLUMNS`; the skyline
+      bottom-row fitness fills the packer's X axis — the real plate height —
+      before extending rightward. The returned packer's coordinates are
+      packer-space; callers must extract them with
+      ``_extract_packed_plates(packer, transpose=True)``.
 
     Args:
         rectangles_with_rid: List of ``(pack_width, pack_height, rid)`` tuples.
@@ -321,22 +414,31 @@ def _pack_best(
             are considered. Rotated labels have their whole content rotated
             clockwise during plate assembly (see
             ``vectorize.assemble_plt_from_rendered_labels``).
+        layout: Preferential fill order (see above). Defaults to the
+            historical row-major frame.
 
     Returns:
         The best-performing configured ``rectpack.Packer`` that successfully
         packs all rectangles. If no candidate fits every rectangle, returns
-        the first packer (its partial result is surfaced to callers for error
+        the best partial packer (its result is surfaced to callers for error
         reporting).
     """
+    transpose = layout == LayoutMode.COLUMNS
+    configs = PACK_CONFIGS_COLUMNS if transpose else PACK_CONFIGS
+
     # Rotation variants to evaluate per packing configuration. With rotation
     # disabled the behaviour is exactly the historical single-variant sweep.
     orientations: tuple[bool, ...] = (False, True) if allow_rotation else (False,)
 
+    packer_rects = _transpose_entries(rectangles_with_rid, transpose)
+    packer_bins = [(h, w, bid) for w, h, bid in bin_specs] if transpose else bin_specs
+
     best_packer: Optional[rectpack.packer.Packer] = None
-    best_footprint: Optional[float] = None
+    best_packed: int = -1
+    best_footprint: float = 0.0
     best_rotations: int = 0
 
-    for pack_algo, sort_algo in PACK_CONFIGS:
+    for pack_algo, sort_algo in configs:
         for rotation in orientations:
             packer = rectpack.newPacker(
                 mode=rectpack.PackingMode.Offline,
@@ -346,39 +448,119 @@ def _pack_best(
                 rotation=rotation,
             )
 
-            for w, h, rid in rectangles_with_rid:
+            for w, h, rid in packer_rects:
                 packer.add_rect(w, h, rid=rid)
 
-            for width, height, bid in bin_specs:
+            for width, height, bid in packer_bins:
                 packer.add_bin(width, height, bid=bid)
 
             packer.pack()
 
             total_packed = sum(len(b) for b in packer)
-            if total_packed < len(rectangles_with_rid):
-                # This candidate could not fit everything; keep it as a
-                # fallback only if we have nothing better yet.
-                if best_packer is None:
-                    best_packer = packer
-                continue
-
             footprint = _plate_footprint(packer)
             rotations = _count_rotated(packer)
-            if best_footprint is None:
+
+            # Rank: full fits first; among equals, smallest footprint, then
+            # fewest rotations. Partials rank by packed count only (ties keep
+            # the incumbent); they only matter for error reporting.
+            full_fit = total_packed == len(rectangles_with_rid)
+            best_full = best_packer is not None and best_packed == len(rectangles_with_rid)
+            if best_packer is None:
                 take = True
-            elif math.isclose(footprint, best_footprint, rel_tol=1e-9, abs_tol=1e-9):
-                # Footprint tie (within float noise): prefer fewer rotations.
-                take = rotations < best_rotations
+            elif full_fit != best_full:
+                take = full_fit
+            elif full_fit:
+                if math.isclose(footprint, best_footprint, rel_tol=1e-9, abs_tol=1e-9):
+                    # Footprint tie (within float noise): prefer fewer rotations.
+                    take = rotations < best_rotations
+                else:
+                    take = footprint < best_footprint
             else:
-                take = footprint < best_footprint
+                take = total_packed > best_packed
 
             if take:
+                best_packed = total_packed
                 best_footprint = footprint
                 best_rotations = rotations
                 best_packer = packer
 
-    assert best_packer is not None  # PACK_CONFIGS is never empty
+    assert best_packer is not None  # Config lists are never empty
     return best_packer
+
+
+def _pack_group(
+    rectangles_with_rid: list[_RectEntry],
+    bin_specs: list[tuple[float, float, str]],
+    allow_rotation: bool,
+    layout: LayoutMode,
+) -> list[PackedPlate]:
+    """Pack rectangles onto one group of same-mode plates and extract plates.
+
+    Runs :func:`_pack_best` with the group's fill-order mode and maps the
+    packer result back into real plate space (transposing back for column
+    major groups).
+
+    Args:
+        rectangles_with_rid: Remaining ``(pack_width, pack_height, rid)``
+            tuples to pack.
+        bin_specs: ``(width, height, bid)`` plates sharing one fill mode.
+        allow_rotation: Whether rotated candidates are considered.
+        layout: The group's fill-order mode.
+
+    Returns:
+        The non-empty ``PackedPlate`` objects produced by this packing pass.
+    """
+    packer = _pack_best(
+        rectangles_with_rid,
+        bin_specs,
+        allow_rotation=allow_rotation,
+        layout=layout,
+    )
+    return _extract_packed_plates(packer, transpose=layout == LayoutMode.COLUMNS)
+
+
+def _resolve_plate_groups(
+    provided_plates: Optional[list[PlateSpec]],
+    job_layout: LayoutMode,
+    n_rectangles: int,
+) -> list[tuple[list[tuple[float, float, str]], LayoutMode]]:
+    """Group plates into sequential same-mode packing passes.
+
+    Consecutive plates resolving to the same fill mode share one packing
+    pass, so single-mode jobs — including every unbounded job — pack in
+    exactly one pass, identically to the historical behaviour. When plates
+    mix modes, each maximal run of same-mode plates becomes its own group
+    and the groups pack sequentially in declaration order: a group receives
+    only the label instances left over from the previous groups.
+
+    Args:
+        provided_plates: User-specified plates (constrained mode), or
+            ``None`` / empty for unbounded auto-allocation of default 24x16
+            plates.
+        job_layout: The job-level fill-order mode, used as the fallback for
+            plates that do not set ``layout`` and for unbounded mode.
+        n_rectangles: Number of label instances; caps the number of default
+            plates offered in unbounded mode (theoretical maximum: one per
+            instance).
+
+    Returns:
+        Declaration-ordered ``(bin_specs, layout)`` groups.
+    """
+    if not provided_plates:
+        default_bins = [
+            (DEFAULT_PLATE_WIDTH, DEFAULT_PLATE_HEIGHT, f"default_plate_{i + 1}")
+            for i in range(n_rectangles)
+        ]
+        return [(default_bins, job_layout)]
+
+    groups: list[tuple[list[tuple[float, float, str]], LayoutMode]] = []
+    for plate in provided_plates:
+        # PlateSpec.id is a required str, so every provided plate is usable.
+        plate_layout = plate.layout or job_layout
+        if not groups or groups[-1][1] != plate_layout:
+            groups.append(([], plate_layout))
+        groups[-1][0].append((plate.width, plate.height, plate.id))
+    return groups
 
 
 def _plate_footprint(packer: rectpack.packer.Packer) -> float:
@@ -410,10 +592,51 @@ def _plate_footprint(packer: rectpack.packer.Packer) -> float:
     return footprint
 
 
+def _pack_groups(
+    rectangles_with_rid: list[_RectEntry],
+    groups: list[tuple[list[tuple[float, float, str]], LayoutMode]],
+    allow_rotation: bool,
+) -> tuple[list[PackedPlate], list[_RectEntry]]:
+    """Pack rectangles through sequential same-mode plate groups.
+
+    Groups are processed in declaration order; each group only ever sees the
+    label instances left over from the previous groups, so a plate's fill
+    order governs exactly the labels that reach it. A single group (every
+    unbounded job and every single-mode job) therefore behaves exactly like
+    the historical one-pass packing.
+
+    Args:
+        rectangles_with_rid: All ``(pack_width, pack_height, rid)`` tuples.
+        groups: Declaration-ordered ``(bin_specs, layout)`` groups from
+            :func:`_resolve_plate_groups`.
+        allow_rotation: Whether rotated candidates are considered.
+
+    Returns:
+        A tuple of ``(packed_plates, leftover_rectangles)`` where
+        ``leftover_rectangles`` are the entries no group could place (empty
+        on success).
+    """
+    remaining = list(rectangles_with_rid)
+    all_plates: list[PackedPlate] = []
+
+    for bin_specs, group_layout in groups:
+        if not remaining or not bin_specs:
+            continue
+        plates = _pack_group(remaining, bin_specs, allow_rotation, group_layout)
+        if not plates:
+            continue
+        placed_ids = {packed.label_id for plate in plates for packed in plate.labels}
+        remaining = [entry for entry in remaining if entry[2][0] not in placed_ids]
+        all_plates.extend(plates)
+
+    return all_plates, remaining
+
+
 def generate_layout(
     resolved_labels: list[ResolvedLabel],
     provided_plates: Optional[list[PlateSpec]] = None,
     allow_rotation: bool = True,
+    layout: LayoutMode = DEFAULT_LAYOUT_MODE,
 ) -> list[PackedPlate]:
     """Pack resolved labels onto physical plates.
 
@@ -429,6 +652,11 @@ def generate_layout(
             label instances 90 degrees when it improves the fit. Rotated
             labels are flagged ``PackedLabel.rotated`` so plate assembly
             can rotate their content clockwise accordingly.
+        layout: Preferential fill order. ``columns`` (the default) fills
+            each plate's height before extending rightward; ``rows`` fills
+            width before extending downward (the historical behaviour).
+            A plate may override the job value via ``PlateSpec.layout``;
+            mixed modes pack in sequential declaration-ordered passes.
 
     Returns:
         A list of ``PackedPlate`` objects containing all successfully
@@ -455,32 +683,16 @@ def generate_layout(
 
     is_constrained = provided_plates is not None and len(provided_plates) > 0
 
-    if is_constrained:
-        # Constrained mode: use exactly what the user provided.
-        assert provided_plates is not None  # narrowed by is_constrained
-        bin_specs = [
-            (plate.width, plate.height, plate.id)
-            for plate in provided_plates
-            if plate.id is not None
-        ]
-    else:
-        # Unbounded mode: provide enough default plates to guarantee a fit.
-        # Theoretical maximum is 1 plate per label instance.
-        bin_specs = [
-            (DEFAULT_PLATE_WIDTH, DEFAULT_PLATE_HEIGHT, f"default_plate_{i + 1}")
-            for i in range(len(rectangles))
-        ]
-
-    packer = _pack_best(rect_with_rid, bin_specs, allow_rotation=allow_rotation)
+    groups = _resolve_plate_groups(provided_plates, layout, len(rectangles))
+    packed_plates, leftover = _pack_groups(rect_with_rid, groups, allow_rotation=allow_rotation)
 
     # Verify all labels were packed.
-    total_packed = sum(len(b) for b in packer)
-    if total_packed < len(rectangles):
+    if leftover:
         if is_constrained:
             raise LayoutFitError(
-                f"Could only fit {total_packed} of {len(rectangles)} labels "
-                "on the provided plates. Please specify larger or "
-                "additional plates."
+                f"Could only fit {len(rectangles) - len(leftover)} of "
+                f"{len(rectangles)} labels on the provided plates. Please "
+                "specify larger or additional plates."
             )
         else:
             # This should only trigger if a single label is larger than 24x16
@@ -491,7 +703,7 @@ def generate_layout(
                 "orientation."
             )
 
-    return _extract_packed_plates(packer)
+    return packed_plates
 
 
 def generate_layout_with_bounds(
@@ -499,6 +711,7 @@ def generate_layout_with_bounds(
     provided_plates: Optional[list[PlateSpec]] = None,
     pen_map: Optional[dict[float, int]] = None,
     allow_rotation: bool = True,
+    layout: LayoutMode = DEFAULT_LAYOUT_MODE,
 ) -> tuple[list[PackedPlate], dict[str, RenderedLabel]]:
     """Pack resolved labels onto plates using rendered dimensions.
 
@@ -523,6 +736,11 @@ def generate_layout_with_bounds(
             label instances 90 degrees when it improves the fit. Rotated
             labels are flagged ``PackedLabel.rotated`` so plate assembly
             can rotate their content clockwise accordingly.
+        layout: Preferential fill order. ``columns`` (the default) fills
+            each plate's height before extending rightward; ``rows`` fills
+            width before extending downward (the historical behaviour). A
+            plate may override the job value via ``PlateSpec.layout``;
+            mixed modes pack in sequential declaration-ordered passes.
 
     Returns:
         A tuple of:
@@ -559,32 +777,16 @@ def generate_layout_with_bounds(
 
     is_constrained = provided_plates is not None and len(provided_plates) > 0
 
-    if is_constrained:
-        # Constrained mode: use exactly what the user provided.
-        assert provided_plates is not None  # narrowed by is_constrained
-        bin_specs = [
-            (plate.width, plate.height, plate.id)
-            for plate in provided_plates
-            if plate.id is not None
-        ]
-    else:
-        # Unbounded mode: provide enough default plates to guarantee a fit.
-        # Theoretical maximum is 1 plate per label instance.
-        bin_specs = [
-            (DEFAULT_PLATE_WIDTH, DEFAULT_PLATE_HEIGHT, f"default_plate_{i + 1}")
-            for i in range(len(rectangles))
-        ]
-
-    packer = _pack_best(rect_with_rid, bin_specs, allow_rotation=allow_rotation)
+    groups = _resolve_plate_groups(provided_plates, layout, len(rectangles))
+    packed_plates, leftover = _pack_groups(rect_with_rid, groups, allow_rotation=allow_rotation)
 
     # Verify all labels were packed.
-    total_packed = sum(len(b) for b in packer)
-    if total_packed < len(rectangles):
+    if leftover:
         if is_constrained:
             raise LayoutFitError(
-                f"Could only fit {total_packed} of {len(rectangles)} labels "
-                "on the provided plates. Please specify larger or "
-                "additional plates."
+                f"Could only fit {len(rectangles) - len(leftover)} of "
+                f"{len(rectangles)} labels on the provided plates. Please "
+                "specify larger or additional plates."
             )
         else:
             # This should only trigger if a single rendered label is larger
@@ -595,7 +797,5 @@ def generate_layout_with_bounds(
                 "orientation."
             )
 
-    plates = _extract_packed_plates(packer)
-
     # Return both the plates and the rendered labels cache for Phase 3
-    return plates, rendered_labels
+    return packed_plates, rendered_labels

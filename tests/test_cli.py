@@ -1328,6 +1328,35 @@ class TestGenerateRun:
         assert "Generated 1 default plot(s):" in captured.out
         assert f"  {default_pdf}" in captured.out
 
+    def test_layout_field_forwarded_to_export(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The job-level layout enum must reach export_per_cutter_plts."""
+        from plt_optimizer.cli.generate import run
+        from plt_optimizer.generate.schema import LayoutMode
+        from plt_optimizer.generate.vectorize import PerCutterExport
+
+        captured_kwargs: dict[str, Any] = {}
+
+        def _capture_export(*args: Any, **kwargs: Any) -> PerCutterExport:
+            captured_kwargs.update(kwargs)
+            return PerCutterExport(plt_paths=[], pdf_paths=[], default_pdf_paths=[])
+
+        monkeypatch.setattr("plt_optimizer.generate.vectorize.export_per_cutter_plts", _capture_export)
+        spec_file = self._write_spec(tmp_path, name="rows_spec.yaml")
+        spec_file.write_text(
+            spec_file.read_text(encoding="utf-8").replace(
+                "  job_name: Generate Run Job\n",
+                "  job_name: Generate Run Job\n  layout: rows\n",
+            ),
+            encoding="utf-8",
+        )
+
+        assert run(self._args(spec_file)) == 0
+        assert captured_kwargs["layout"] is LayoutMode.ROWS
+
 
 class TestHelpDisplay:
     """Tests for help text display."""

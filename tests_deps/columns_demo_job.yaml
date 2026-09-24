@@ -1,0 +1,38 @@
+# Column-major fill-order demo job for the PLT-Optimizer generate pipeline.
+#
+# Pins the default ``layout: columns`` behaviour (JobSpec.layout). Sixteen
+# 3" x 1" labels pack onto a single 24" x 16" scrap sheet: the packer fills
+# the full 16" plate height with one column of stacked labels and extends
+# rightward only as far as necessary, so the unused material stays one clean
+# rectangular block (21" x 16") on the right for scrap reuse. Ids advance
+# bottom-to-top within the column (instance 0 at the plate's bottom edge).
+#
+# Run with: python run_integration_test.py tests_deps/columns_demo_job.yaml
+job:
+  job_name: "Column Major Demo - Breaker Tags"
+
+  # Column-major is the default; set explicitly so this fixture reads as a
+  # deliberate pin of the fill order.
+  layout: columns
+
+  # Shared label dimensions and typography (cascade to every label). The
+  # text must fit the 2.8" inner content area (3.0" - 2 x 0.1" margin): a
+  # wider render would push glyph strokes past the label edge and trip the
+  # integration runner's non-negative coordinate validation.
+  width: 3.0
+  height: 1.0
+  margin: 0.15
+  text_height: 0.35
+
+  plates:
+    - id: scrap_24x16
+      width: 24.0
+      height: 16.0
+      margin: 0.0
+      clearance_padding: 0.0
+
+  labels:
+    - id: breaker
+      count: 16
+      content:
+        - text: "BREAKER 1"

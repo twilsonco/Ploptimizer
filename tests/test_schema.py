@@ -19,11 +19,13 @@ from pydantic import BaseModel, ValidationError
 
 from plt_optimizer.generate.schema import (
     DEFAULT_HOLE_DIAMETER,
+    DEFAULT_LAYOUT_MODE,
     HoleLocation,
     HoleSpec,
     JobSpec,
     LabelAttributes,
     LabelSpec,
+    LayoutMode,
     PlateSpec,
     TextAttributes,
     TextHAlignment,
@@ -561,6 +563,90 @@ class TestTextChunkMode:
         )
         with pytest.raises((ValidationError, ValueError)):
             parse_yaml(spec_path)
+
+
+class TestLayoutMode:
+    """Tests for the job-level layout fill-order enum."""
+
+    def test_default_is_columns(self) -> None:
+        """Fill order defaults to column-major (fill height first)."""
+        job = JobSpec(job_name="LM", count=1, content=[TextLine(text="X")])
+        assert job.layout is LayoutMode.COLUMNS
+        assert DEFAULT_LAYOUT_MODE is LayoutMode.COLUMNS
+
+    def test_explicit_rows_parsed(self, tmp_path: Path) -> None:
+        """layout: rows must be honored from YAML."""
+        spec_path = tmp_path / "rows.yaml"
+        spec_path.write_text(
+            "job:\n"
+            "  job_name: 'Rows'\n"
+            "  layout: rows\n"
+            "  count: 1\n"
+            "  content:\n"
+            "    - text: 'X'\n",
+            encoding="utf-8",
+        )
+        job = parse_yaml(spec_path)
+        assert job.layout is LayoutMode.ROWS
+
+    def test_explicit_columns_parsed(self, tmp_path: Path) -> None:
+        """layout: columns parses like the default."""
+        spec_path = tmp_path / "cols.yaml"
+        spec_path.write_text(
+            "job:\n"
+            "  job_name: 'Cols'\n"
+            "  layout: columns\n"
+            "  count: 1\n"
+            "  content:\n"
+            "    - text: 'X'\n",
+            encoding="utf-8",
+        )
+        job = parse_yaml(spec_path)
+        assert job.layout is LayoutMode.COLUMNS
+
+    def test_invalid_mode_rejected(self, tmp_path: Path) -> None:
+        """Only 'rows' and 'columns' are valid fill orders."""
+        spec_path = tmp_path / "bad_layout.yaml"
+        spec_path.write_text(
+            "job:\n"
+            "  job_name: 'Bad'\n"
+            "  layout: diagonal\n"
+            "  count: 1\n"
+            "  content:\n"
+            "    - text: 'X'\n",
+            encoding="utf-8",
+        )
+        with pytest.raises((ValidationError, ValueError)):
+            parse_yaml(spec_path)
+
+    def test_plate_layout_defaults_to_none(self) -> None:
+        """A plate without an explicit layout inherits the job value."""
+        plate = PlateSpec(id="p1", width=24.0, height=16.0, margin=0.0, clearance_padding=0.0)
+        assert plate.layout is None
+
+    def test_plate_layout_override_parsed(self, tmp_path: Path) -> None:
+        """A per-plate layout override must be honored from YAML."""
+        spec_path = tmp_path / "plate_layout.yaml"
+        spec_path.write_text(
+            "job:\n"
+            "  job_name: 'PlateLayout'\n"
+            "  layout: columns\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 16.0\n"
+            "      margin: 0.0\n"
+            "      clearance_padding: 0.0\n"
+            "      layout: rows\n"
+            "  count: 1\n"
+            "  content:\n"
+            "    - text: 'X'\n",
+            encoding="utf-8",
+        )
+        job = parse_yaml(spec_path)
+        assert job.layout is LayoutMode.COLUMNS
+        assert job.plates is not None
+        assert job.plates[0].layout is LayoutMode.ROWS
 
 
 class TestLabelSpecValidation:

@@ -332,6 +332,53 @@ packer test both orientations (0°/90°) for every label instance.
   `tests/test_layout.py::TestRotationDemoExample`) — a tight 24x10 scrap
   sheet where rotation-required, rotation-refused and opportunistic-rotation
   labels coexist; it aborts with `LayoutFitError` when rotation is disabled.
+  The fixture pins `layout: rows` because its banner-must-rotate and abort
+  expectations are row-frame specific.
+
+### Bin-Packing Fill Order (`layout`)
+`JobSpec.layout` (str-Enum `LayoutMode`, default `columns`) sets the
+preferential plate fill order. `columns` fills each plate's **height** before
+extending rightward (so the used area grows up the engraving area first and
+the unused material stays one clean rectangular block for scrap reuse);
+`rows` fills width before extending downward (the historical behaviour). It
+cascades job → plate: `PlateSpec.layout` (`None` = inherit) overrides per
+plate. Threading mirrors `allow_rotation` (read from `JobSpec` at the CLI /
+integration-test call sites, passed as a keyword into
+`vectorize.export_per_cutter_plts` → `layout.generate_layout*` → `_pack_best`);
+it is a global packing concern and never enters `ResolvedLabel`.
+
+- `rectpack` cannot be *sorted* into column-major: for identical rectangles
+  every `SORT_*` is a stable no-op and the emergent fill order is purely the
+  placement heuristics' tie-breaking. `PACK_CONFIGS` (Guillotine/MaxRects)
+  fill the plate's **long axis** first regardless of frame, so transposing
+  alone leaves the real-space order unchanged (verified empirically).
+- `columns` therefore packs in a **transposed frame** (bins `(W,H)→(H,W)`,
+  rects `(w,h)→(h,w)` via `_transpose_entries`) paired with
+  `PACK_CONFIGS_COLUMNS` = `SkylineBl`, whose bottom-row fitness always fills
+  the packer's X axis — the real plate height — first. `_pack_best` returns
+  packer-space coordinates; callers extract with
+  `_extract_packed_plates(packer, transpose=True)`, which maps
+  `(x, y, w, h) → (y, x, h, w)` and the bin `(w, h) → (h, w)` back to plate
+  space. `rows` runs `PACK_CONFIGS` in the real frame verbatim (bit-identical
+  to the historical layouts).
+- Rotation detection is unchanged by the transpose: `_transpose_entries`
+  rebuilds the `rid` payload with the *packer-space* width, and a packer-space
+  90° swap composed with the transpose is again a 90° swap, so
+  `_extract_packed_plates` still compares `rect.width` against `rid[2]` and
+  `PackedLabel.rotated` keeps meaning "content turned 90° CW at assembly".
+  Instance ids advance bottom-to-top within a column (rectpack y-up).
+- `_plate_footprint` (used bounding-box area) is the selection metric for
+  both modes and is transpose-symmetric, so the tight-rectangular-block
+  objective is orientation-agnostic (no aspect penalty by design).
+- Per-plate modes: `_resolve_plate_groups` splits the plate list into maximal
+  runs of equal effective mode; `_pack_groups` packs those groups
+  sequentially in declaration order, each receiving only the previous group's
+  leftovers. A single group (every unbounded job and every uniform-mode job)
+  therefore behaves exactly like a one-pass pack. Unbounded mode uses the job
+  value.
+- Example fixture: `tests_deps/columns_demo_job.yaml` (pinned by
+  `tests/test_layout.py::TestColumnsDemoExample`) — 16 3x1 labels on a 24x16
+  sheet pack into one full-height column (bounding box 3x16).
 
 ### Integration Points
 - `parse_yaml(file_path)` returns a `JobSpec` ready for downstream bin-packing and rendering pipelines

@@ -22,7 +22,7 @@ from plt_optimizer.generate.layout import (
     unroll_labels,
 )
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
-from plt_optimizer.generate.schema import PlateSpec
+from plt_optimizer.generate.schema import LayoutMode, PlateSpec
 
 
 def _make_label(
@@ -383,7 +383,9 @@ class TestRotationDemoExample:
 
     The example is the hand-crafted rotation fixture: its 24x10 scrap sheet
     only fits every label when the packer rotates, and its equal-footprint
-    regions must stay horizontal.
+    regions must stay horizontal. The fixture pins ``layout: rows`` (the
+    historical width-first fill) because its banner-must-rotate and abort
+    expectations are row-frame specific.
     """
 
     def _load(self) -> tuple[list[ResolvedLabel], object]:
@@ -398,7 +400,13 @@ class TestRotationDemoExample:
         """All labels fit with rotation; banners and gap-fillers rotate."""
         labels, job = self._load()
         assert job.allow_rotation is True
-        plates = generate_layout(labels, job.plates, allow_rotation=job.allow_rotation)
+        assert job.layout == LayoutMode.ROWS
+        plates = generate_layout(
+            labels,
+            job.plates,
+            allow_rotation=job.allow_rotation,
+            layout=job.layout,
+        )
         packed = [pl for p in plates for pl in p.labels]
         assert len(packed) == 14
         rotated = {pl.label_id for pl in packed if pl.rotated}
@@ -411,7 +419,44 @@ class TestRotationDemoExample:
         """allow_rotation=False cannot fit the job on the provided plates."""
         labels, job = self._load()
         with pytest.raises(LayoutFitError, match="Could only fit"):
-            generate_layout(labels, job.plates, allow_rotation=False)
+            generate_layout(labels, job.plates, allow_rotation=False, layout=job.layout)
+
+
+class TestColumnsDemoExample:
+    """Regression tests for tests_deps/columns_demo_job.yaml.
+
+    The example is the hand-crafted column-major fixture: 16 3x1 labels on a
+    24x16 sheet must fill the full plate height with a single stacked column
+    (bounding box 3x16), leaving one clean rectangular scrap block on the
+    right. The historical row-major fill instead spreads them 24x2.
+    """
+
+    def _load(self) -> tuple[list[ResolvedLabel], object]:
+        """Parse and resolve the column-major demo job."""
+        from plt_optimizer.generate.resolution import resolve_job_spec
+        from plt_optimizer.generate.schema import parse_yaml
+
+        job = parse_yaml(Path("tests_deps/columns_demo_job.yaml"))
+        return resolve_job_spec(job), job
+
+    def test_example_fills_height_first(self) -> None:
+        """The pinned job packs one full-height column, minimal width."""
+        labels, job = self._load()
+        assert job.layout is LayoutMode.COLUMNS
+        plates = generate_layout(
+            labels,
+            job.plates,
+            allow_rotation=job.allow_rotation,
+            layout=job.layout,
+        )
+
+        assert len(plates) == 1
+        packed = [pl for p in plates for pl in p.labels]
+        assert len(packed) == 16
+        bbox_w = max(pl.x + pl.width for pl in packed)
+        bbox_h = max(pl.y + pl.height for pl in packed)
+        assert math.isclose(bbox_h, 16.0)
+        assert math.isclose(bbox_w, 3.0)
 
 
 class TestPackedPlateDataclass:
@@ -454,7 +499,10 @@ class TestBestAlgorithmSelection:
 
         Regression test: MaxRectsBssf alone strands a 3x1 label at the end of
         row 0, wasting vertical space. The best-fit selection across multiple
-        heuristics must pack narrow labels together on shared rows.
+        heuristics must pack narrow labels together on shared rows. Pinned to
+        the row-major frame (``layout=rows``): the column-major default
+        stacks labels up the plate height instead, where the 2-row optimum
+        does not apply.
         """
         from plt_optimizer.generate.layout import generate_layout_with_bounds
 
@@ -468,7 +516,7 @@ class TestBestAlgorithmSelection:
             _make_label(label_id="digits", width=6.0, height=1.0),
         ]
 
-        plates, _rendered = generate_layout_with_bounds(labels)
+        plates, _rendered = generate_layout_with_bounds(labels, layout=LayoutMode.ROWS)
 
         # All labels must fit on a single plate.
         assert len(plates) == 1
@@ -647,3 +695,268 @@ class TestGenerateLayoutWithBoundsFitErrors:
         with pytest.raises(LayoutFitError) as exc_info:
             generate_layout_with_bounds(labels)
         assert "exceed the maximum plate size" in str(exc_info.value)
+
+
+def _plate_bbox(plate: PackedPlate) -> tuple[float, float]:
+    """Return the (width, height) bounding box of a plate's placed labels."""
+    if not plate.labels:
+        return (0.0, 0.0)
+    return (
+        max(p.x + p.width for p in plate.labels),
+        max(p.y + p.height for p in plate.labels),
+    )
+
+
+class TestLayoutFillOrder:
+    """Fill-order behaviour of the ``layout`` mode (rows vs columns)."""
+
+    @staticmethod
+    def _scrap(width: float = 24.0, height: float = 16.0) -> list[PlateSpec]:
+        """A zero-margin/zero-padding plate of the given size."""
+        return [
+            PlateSpec(
+                id="scrap",
+                width=width,
+                height=height,
+                margin=0.0,
+                clearance_padding=0.0,
+            )
+        ]
+
+    def test_default_fills_height_first(self) -> None:
+        """Default (columns): 16 3x1 labels fill the full plate height.
+
+        The used bounding box must span the full 16" height while extending
+        only 3" to the right -- one full column, no width spill.
+        """
+        labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=16)]
+        plates = generate_layout(labels, self._scrap(), allow_rotation=False)
+
+        assert len(plates) == 1
+        bbox_w, bbox_h = _plate_bbox(plates[0])
+        assert math.isclose(bbox_h, 16.0)
+        assert math.isclose(bbox_w, 3.0)
+
+    def test_rows_fill_width_first(self) -> None:
+        """layout=rows: labels fill the full plate width before extending down.
+
+        Mirror image of the columns default: 40 3x1 labels keep the tight
+        24"-wide x 5"-tall row-major block (the columns frame would
+        instead produce a 9x16 column-major block).
+        """
+        labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=40)]
+        plates = generate_layout(
+            labels, self._scrap(), allow_rotation=False, layout=LayoutMode.ROWS
+        )
+
+        assert len(plates) == 1
+        bbox_w, bbox_h = _plate_bbox(plates[0])
+        assert math.isclose(bbox_w, 24.0)
+        assert math.isclose(bbox_h, 5.0)
+
+    def test_columns_extend_rightward_column_by_column(self) -> None:
+        """With more labels than one column holds, columns extend rightward."""
+        labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=20)]
+        plates = generate_layout(labels, self._scrap(), allow_rotation=False)
+
+        assert len(plates) == 1
+        bbox_w, bbox_h = _plate_bbox(plates[0])
+        # First 16 fill the height, the remaining 4 start the next column.
+        assert math.isclose(bbox_h, 16.0)
+        assert math.isclose(bbox_w, 6.0)
+
+    def test_columns_carry_sequential_ids_top_of_column(self) -> None:
+        """Instance ids advance bottom-to-top within a column (y-up frame)."""
+        labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=16)]
+        plates = generate_layout(labels, self._scrap(), allow_rotation=False)
+
+        positions = {p.label_id: (p.x, p.y) for p in plates[0].labels}
+        assert positions["lbl_0"] == pytest.approx((0.0, 0.0))
+        assert positions["lbl_1"] == pytest.approx((0.0, 1.0))
+        assert positions["lbl_15"] == pytest.approx((0.0, 15.0))
+
+    def test_columns_with_rotation_keeps_slot_math(self) -> None:
+        """Rotation inside the columns frame lands labels inside their slot.
+
+        2x5 labels on a 4x10 scrap: the columns frame fits 5 upright per
+        column (x=0 and x=2). With rotation allowed, the packer may turn
+        labels; every placement (rotated or not) must stay within the plate
+        and never overlap.
+        """
+        labels = [_make_label(label_id="r", width=2.0, height=5.0, count=4)]
+        plates = generate_layout(
+            labels, self._scrap(width=4.0, height=10.0), allow_rotation=True
+        )
+
+        assert len(plates) == 1
+        plate = plates[0]
+        for p in plate.labels:
+            assert 0.0 <= p.x and p.x + p.width <= plate.width + 1e-9
+            assert 0.0 <= p.y and p.y + p.height <= plate.height + 1e-9
+        for i, a in enumerate(plate.labels):
+            for b in plate.labels[i + 1 :]:
+                overlap_x = a.x < b.x + b.width and b.x < a.x + a.width
+                overlap_y = a.y < b.y + b.height and b.y < a.y + a.height
+                assert not (overlap_x and overlap_y)
+
+    def test_rotation_detection_in_columns_frame(self) -> None:
+        """A rect rotated inside the transposed frame is flagged rotated.
+
+        1x4 labels on a 4x3 scrap: upright they need 4" of height (frame
+        width); only lying down (rotated) do they fit. The rotated flag must
+        be set and the un-transposed dims swapped.
+        """
+        labels = [_make_label(label_id="tall", width=1.0, height=4.0, count=3)]
+        plates = generate_layout(
+            labels, self._scrap(width=4.0, height=3.0), allow_rotation=True
+        )
+
+        assert len(plates) == 1
+        packed = plates[0].labels
+        assert len(packed) == 3
+        assert all(p.rotated for p in packed)
+        assert all(math.isclose(p.width, 4.0) and math.isclose(p.height, 1.0) for p in packed)
+
+    def test_plate_layout_override_wins(self) -> None:
+        """A per-plate layout override beats the job-level value."""
+        labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=40)]
+        plate = PlateSpec(
+            id="rowster",
+            width=24.0,
+            height=16.0,
+            margin=0.0,
+            clearance_padding=0.0,
+            layout=LayoutMode.ROWS,
+        )
+        plates = generate_layout(
+            labels, [plate], allow_rotation=False, layout=LayoutMode.COLUMNS
+        )
+
+        assert len(plates) == 1
+        bbox_w, bbox_h = _plate_bbox(plates[0])
+        # Plate override -> row-major despite the columns job default.
+        assert math.isclose(bbox_w, 24.0)
+        assert math.isclose(bbox_h, 5.0)
+
+    def test_mixed_modes_pack_sequentially(self) -> None:
+        """Mixed plate modes cascade leftovers in declaration order.
+
+        Plate 1 (rows, 24x1) holds exactly 8 3x1 labels filling its width;
+        the 4 leftovers flow to plate 2 (columns, 24x16) and fill its height.
+        """
+        labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=12)]
+        plates_spec = [
+            PlateSpec(id="rows1", width=24.0, height=1.0, margin=0.0, clearance_padding=0.0),
+            PlateSpec(
+                id="cols1",
+                width=24.0,
+                height=16.0,
+                margin=0.0,
+                clearance_padding=0.0,
+                layout=LayoutMode.COLUMNS,
+            ),
+        ]
+        plates = generate_layout(
+            labels, plates_spec, allow_rotation=False, layout=LayoutMode.ROWS
+        )
+
+        assert [p.plate_id for p in plates] == ["rows1", "cols1"]
+        assert len(plates[0].labels) == 8
+        assert len(plates[1].labels) == 4
+        bbox_w, bbox_h = _plate_bbox(plates[1])
+        assert math.isclose(bbox_h, 4.0)  # column of 4: height-first
+        assert math.isclose(bbox_w, 3.0)
+
+    def test_mixed_modes_overflow_raises(self) -> None:
+        """Leftovers after the last mixed-mode group abort with the fit error."""
+        labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=12)]
+        plates_spec = [
+            PlateSpec(id="rows1", width=24.0, height=1.0, margin=0.0, clearance_padding=0.0),
+            PlateSpec(
+                id="cols1",
+                width=3.0,
+                height=3.0,
+                margin=0.0,
+                clearance_padding=0.0,
+                layout=LayoutMode.COLUMNS,
+            ),
+        ]
+        with pytest.raises(LayoutFitError, match="Could only fit 11 of 12"):
+            generate_layout(
+                labels, plates_spec, allow_rotation=False, layout=LayoutMode.ROWS
+            )
+
+    def test_columns_unbounded_uses_job_layout(self) -> None:
+        """Unbounded mode honours the job-level layout (columns default)."""
+        labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=16)]
+        plates = generate_layout(labels, allow_rotation=False)
+
+        assert len(plates) == 1
+        assert plates[0].plate_id == "default_plate_1"
+        bbox_w, bbox_h = _plate_bbox(plates[0])
+        assert math.isclose(bbox_h, 16.0)
+        assert math.isclose(bbox_w, 3.0)
+
+    def test_columns_overflow_spills_to_next_default_plate(self) -> None:
+        """Unbounded columns fill plate 1's capacity before opening plate 2.
+
+        A 24x16 plate holds 8 columns of 16 stacked 3x1 labels (128); the
+        129th instance lands on the second auto-allocated sheet.
+        """
+        labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=129)]
+        plates = generate_layout(labels, allow_rotation=False)
+
+        assert [p.plate_id for p in plates] == ["default_plate_1", "default_plate_2"]
+        assert len(plates[0].labels) == 128
+        assert len(plates[1].labels) == 1
+
+    def test_columns_error_wording_unbounded(self) -> None:
+        """Oversized labels in unbounded columns mode keep the size wording."""
+        labels = [_make_label(width=25.0, height=17.0)]
+        with pytest.raises(LayoutFitError, match="in either orientation"):
+            generate_layout(labels)
+
+    def test_bounds_path_fills_height_first(self) -> None:
+        """generate_layout_with_bounds honours the columns default too."""
+        labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=16)]
+        plates, _rendered = generate_layout_with_bounds(
+            labels, self._scrap(), allow_rotation=False
+        )
+
+        assert len(plates) == 1
+        bbox_w, bbox_h = _plate_bbox(plates[0])
+        assert math.isclose(bbox_h, 16.0)
+        assert math.isclose(bbox_w, 3.0)
+
+    def test_columns_transpose_entries_swaps_rid_width(self) -> None:
+        """The transposed rid payload carries the packer-space width."""
+        from plt_optimizer.generate.layout import _transpose_entries
+
+        label = _make_label(label_id="a", width=3.0, height=1.0)
+        entries = [(3.0, 1.0, ("a_0", label, 3.0))]
+
+        transposed = _transpose_entries(entries, transpose=True)
+
+        assert transposed == [(1.0, 3.0, ("a_0", label, 1.0))]
+        # Identity passthrough when disabled.
+        assert _transpose_entries(entries, transpose=False) is entries
+
+    def test_extract_packed_plates_transposes_back(self) -> None:
+        """Transposed extraction maps slot (x, y, w, h) to plate space."""
+        label = _make_label(label_id="a", width=3.0, height=1.0)
+        # Packer-space: bin offered as (16, 24); rect 1x3 at (5, 2).
+        fake_bin = _FakeBin(
+            "p1",
+            [_FakeRect(5.0, 2.0, 1.0, 3.0, rid=("a_0", label, 1.0))],
+            width=16.0,
+            height=24.0,
+        )
+
+        plates = _extract_packed_plates(_FakePacker([fake_bin]), transpose=True)
+
+        assert plates[0].width == 24.0
+        assert plates[0].height == 16.0
+        packed = plates[0].labels[0]
+        assert (packed.x, packed.y) == (2.0, 5.0)
+        assert (packed.width, packed.height) == (3.0, 1.0)
+        assert packed.rotated is False

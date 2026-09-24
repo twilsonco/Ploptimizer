@@ -243,6 +243,7 @@ def run(args: argparse.Namespace) -> int:
             allow_rotation=job.allow_rotation,
             fast_mode=args.fast_mode,
             logger=text_logger,
+            layout=job.layout,
         )
         exported_paths = export_result.plt_paths
     except LabelRenderError as e:
