@@ -435,6 +435,22 @@ it is a global packing concern and never enters `ResolvedLabel`.
   `(x, y, w, h) → (y, x, h, w)` and the bin `(w, h) → (h, w)` back to plate
   space. `rows` runs `PACK_CONFIGS` in the real frame verbatim (bit-identical
   to the historical layouts).
+- **`columns` is text-oriented, not plate-oriented.** Because the transposed
+  frame often *rotates* most labels, a naive plate-frame column fill would be
+  reader **row**-major once the sheet is turned to read the engraving. So
+  after extraction, `_extract_packed_plates` (transposed path only) re-assigns
+  instance ids onto the unchanged slots via `_reorder_ids_for_reader_order`:
+  slots are grouped by the *natural* (unrotated) dims they demand and, within
+  each interchangeable group, the content-ordered ids (the 4th `rid` element,
+  `seq`) are re-paired onto slots sorted by `_reader_order_key` — plate
+  `(x, y)` for unrotated labels, plate `(y, -x)` for rotated ones (reader
+  column-major: a rotated label's column is a plate-Y band filled
+  right-to-left in plate X, i.e. true top-to-bottom after turning the sheet
+  90° CCW). `plate.labels` is returned in this reader order too (assembly and
+  the plate optimizer's TSP baseline follow it). Only `(label_id,
+  source_label)` pairs move, so each plate keeps its exact id set and slot
+  geometry; an all-horizontal `columns` pack is a bit-identical no-op.
+  `rows` mode is never reordered.
 - Rotation detection is unchanged by the transpose: `_transpose_entries`
   rebuilds the `rid` payload with the *packer-space* width, and a packer-space
   90° swap composed with the transpose is again a 90° swap, so

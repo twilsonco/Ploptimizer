@@ -23,9 +23,10 @@ Example:
 
 from __future__ import annotations
 
+import logging
 import math
-from dataclasses import dataclass, field
-from typing import Mapping, Optional
+from dataclasses import dataclass, field, replace
+from typing import Mapping, Optional, Sequence
 
 import rectpack
 
@@ -40,6 +41,8 @@ from plt_optimizer.generate.schema import (
     LayoutMode,
     PlateSpec,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Default plate dimensions for unbounded mode
@@ -273,12 +276,21 @@ def _extract_packed_plates(
             after any transpose mapping). Bins missing from the mapping
             get zero clearance.
 
+    When ``transpose`` is set, each plate's instance ids are re-assigned
+    onto the packed slots in text-oriented reading order before returning
+    (see :func:`_reorder_ids_for_reader_order`): the slot geometry is
+    untouched, only interchangeable ``(label_id, source_label)`` pairs are
+    permuted, so every plate keeps its exact id set.
+
     Returns:
         A list of ``PackedPlate`` objects with all labels positioned.
         Empty bins (from auto-allocation) are discarded.
     """
     clearance_map: Mapping[str, tuple[float, float]] = clearances or {}
     final_plates: list[PackedPlate] = []
+    # Global pre-pack content-order index per instance id (4th rid element),
+    # consumed by the reader-order reassignment in the transposed frame.
+    seq_by_id: dict[str, int] = {}
 
     for bin_obj in packer:
         if len(bin_obj) == 0:
@@ -311,7 +323,8 @@ def _extract_packed_plates(
             # dimensions in the bounds path, nominal otherwise) — the only
             # reliable baseline for rotation detection, since the nominal
             # ResolvedLabel width may differ from what was actually packed.
-            rect_id, source_label, pack_width = rect.rid
+            rect_id, source_label, pack_width, seq = rect.rid
+            seq_by_id[rect_id] = seq
 
             # Detect rotation: rect.width/height reflect post-rotation dims
             # in the *packer* frame. In the transposed frame a packer-space
@@ -351,15 +364,23 @@ def _extract_packed_plates(
                 )
             plate.labels.append(packed_label)
 
+        if transpose:
+            # ``columns`` mode is text-oriented: re-pair the plate's ids
+            # onto its slots so the id sequence follows reading order as
+            # the reader sees the engraved labels (rotated labels included).
+            plate.labels = _reorder_ids_for_reader_order(plate.labels, seq_by_id)
+
         final_plates.append(plate)
 
     return final_plates
 
 
 # The ``rid`` payload carried with every rectangle: the instance id, the
-# source label, and the *packing* width the rectangle was offered to the
-# packer with (the baseline rotation detection compares against).
-_RidPayload = tuple[str, ResolvedLabel, float]
+# source label, the *packing* width the rectangle was offered to the
+# packer with (the baseline rotation detection compares against), and the
+# global pre-pack content-order index (used to re-pair ids onto slots in
+# text-oriented reading order after transposed-frame packing).
+_RidPayload = tuple[str, ResolvedLabel, float, int]
 
 # A rectangle entry as passed to the packer: (width, height, rid-payload).
 # The ``rid`` payload is an opaque tuple that rectpack preserves verbatim and
@@ -384,9 +405,110 @@ def _transpose_entries(entries: list[_RectEntry], transpose: bool) -> list[_Rect
     if not transpose:
         return entries
     return [
-        (height, width, (rect_id, source_label, height))
-        for width, height, (rect_id, source_label, _pack_width) in entries
+        (height, width, (rect_id, source_label, height, seq))
+        for width, height, (rect_id, source_label, _pack_width, seq) in entries
     ]
+
+
+def _reader_order_key(packed: PackedLabel) -> tuple[float, float]:
+    """Sort key placing a packed label in text-oriented reading order.
+
+    The emitted plate frame is the device frame (origin at the material's
+    top-left, +x rightward, +y downward). Unrotated labels read along +x,
+    so a reader's column is a fixed-X band filled top-to-bottom: key
+    ``(x, y)``. Rotated labels are turned 90 degrees clockwise at assembly
+    (see ``vectorize.rotate_plt_content_90cw``): their text reads along +y
+    with "up" pointing at +x, so the reader turns the sheet 90 degrees
+    counter-clockwise and sees reader-right as plate +y and reader-up as
+    plate +x. A reader's column is then a fixed-Y band filled right-to-left
+    in plate X (true top-to-bottom reading order): key ``(y, -x)``.
+
+    Args:
+        packed: The packed label to key.
+
+    Returns:
+        ``(column, row)`` reader-frame sort coordinates (ascending).
+    """
+    if packed.rotated:
+        return (packed.y, -packed.x)
+    return (packed.x, packed.y)
+
+
+def _reorder_ids_for_reader_order(
+    labels: Sequence[PackedLabel],
+    seq_by_id: Mapping[str, int],
+) -> list[PackedLabel]:
+    """Re-assign instance ids onto slots in text-oriented reading order.
+
+    ``layout: columns`` means column-major *as the reader sees the engraved
+    labels*. Because the transposed packing frame often rotates most
+    labels, naive plate-frame column fill becomes reader row-major, so
+    after extraction the ids are permuted back onto the (unchanged) slots.
+    Only labels with identical packing dimensions are interchangeable, so:
+
+    - Slots are grouped by the *natural* (unrotated) packing dimensions
+      they demand: ``(w, h)`` for an unrotated slot, ``(h, w)`` for a
+      rotated one. Every label of a group fits every slot of the group in
+      exactly the orientation the slot encodes, so rotated and unrotated
+      slots of the same label size interleave in one global reader-order
+      sequence.
+    - Within each group, slots are sorted by :func:`_reader_order_key`
+      and the group's labels (sorted by their pre-pack content sequence,
+      the 4th ``rid`` element) are re-paired onto them via
+      :func:`dataclasses.replace`.
+
+    The returned list is sorted by reader key across the whole plate, so
+    downstream assembly order (and the plate optimizer's TSP baseline)
+    follows reading order too. A plate whose winning packing is entirely
+    unrotated keeps the historical ``(x, y)`` id-to-slot mapping, making
+    this a bit-identical no-op for it.
+
+    Args:
+        labels: The plate's packed labels (instance ids unique).
+        seq_by_id: Global pre-pack content-order index per ``label_id``.
+
+    Returns:
+        New ``PackedLabel`` objects (same slots, permuted ids) in plate-wide
+        reader order.
+    """
+    if not labels:
+        return []
+
+    groups: dict[tuple[float, float], list[PackedLabel]] = {}
+    for packed in labels:
+        # Group by the *natural* (unrotated) dims the slot demands: a
+        # rotated slot of plate dims (w, h) holds a natural (h, w) label,
+        # an unrotated slot a natural (w, h) one. Only labels inside a
+        # group fit its slots in the encoded orientation.
+        if packed.rotated:
+            group_key = (round(packed.height, 6), round(packed.width, 6))
+        else:
+            group_key = (round(packed.width, 6), round(packed.height, 6))
+        groups.setdefault(group_key, []).append(packed)
+
+    reassigned: list[PackedLabel] = []
+    moved = 0
+    for group in groups.values():
+        slots = sorted(group, key=_reader_order_key)
+        contents = sorted(group, key=lambda packed: seq_by_id[packed.label_id])
+        for slot, content in zip(slots, contents):
+            if slot.label_id != content.label_id:
+                moved += 1
+            reassigned.append(
+                replace(
+                    slot,
+                    label_id=content.label_id,
+                    source_label=content.source_label,
+                )
+            )
+
+    reassigned.sort(key=_reader_order_key)
+    if moved:
+        logger.debug(
+            "Re-assigned %d label id(s) onto slots in text-oriented reading order.",
+            moved,
+        )
+    return reassigned
 
 
 def _count_rotated(packer: rectpack.packer.Packer) -> int:
@@ -985,9 +1107,11 @@ def generate_layout(
 
     # Build rectangle entries with their (rid) payloads. The packing width
     # travels with the payload so _extract_packed_plates can detect rotation
-    # against the dimensions actually offered to the packer.
+    # against the dimensions actually offered to the packer, and the
+    # enumerate index carries the pre-pack content order used by the
+    # text-oriented id reassignment in columns mode.
     rect_with_rid: list[_RectEntry] = [
-        (w, h, (r_id, label_ref, w)) for w, h, r_id, label_ref in rectangles
+        (w, h, (r_id, label_ref, w, seq)) for seq, (w, h, r_id, label_ref) in enumerate(rectangles)
     ]
 
     is_constrained = provided_plates is not None and len(provided_plates) > 0
@@ -1097,9 +1221,12 @@ def generate_layout_with_bounds(
     # Phase 2b: Unroll labels using rendered dimensions.
     rectangles = unroll_labels_with_rendered_bounds(resolved_labels, rendered_labels)
     # The packing width (rendered, not nominal) travels in the rid payload so
-    # rotation detection compares against the dimensions actually packed.
+    # rotation detection compares against the dimensions actually packed, and
+    # the enumerate index carries the pre-pack content order used by the
+    # text-oriented id reassignment in columns mode.
     rect_with_rid: list[_RectEntry] = [
-        (w, h, (r_id, label_ref, w)) for w, h, r_id, label_ref, _ in rectangles
+        (w, h, (r_id, label_ref, w, seq))
+        for seq, (w, h, r_id, label_ref, _) in enumerate(rectangles)
     ]
 
     is_constrained = provided_plates is not None and len(provided_plates) > 0

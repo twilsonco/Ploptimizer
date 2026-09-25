@@ -652,7 +652,7 @@ class TestEmptyBinHandling:
         empty = _FakeBin("default_plate_2", [])
         filled = _FakeBin(
             "default_plate_1",
-            [_FakeRect(0.0, 0.0, 2.0, 1.0, rid=("a_0", label, 2.0))],
+            [_FakeRect(0.0, 0.0, 2.0, 1.0, rid=("a_0", label, 2.0, 0))],
         )
 
         plates = _extract_packed_plates(_FakePacker([empty, filled]))
@@ -913,11 +913,11 @@ class TestLayoutFillOrder:
         from plt_optimizer.generate.layout import _transpose_entries
 
         label = _make_label(label_id="a", width=3.0, height=1.0)
-        entries = [(3.0, 1.0, ("a_0", label, 3.0))]
+        entries = [(3.0, 1.0, ("a_0", label, 3.0, 0))]
 
         transposed = _transpose_entries(entries, transpose=True)
 
-        assert transposed == [(1.0, 3.0, ("a_0", label, 1.0))]
+        assert transposed == [(1.0, 3.0, ("a_0", label, 1.0, 0))]
         # Identity passthrough when disabled.
         assert _transpose_entries(entries, transpose=False) is entries
 
@@ -927,7 +927,7 @@ class TestLayoutFillOrder:
         # Packer-space: bin offered as (16, 24); rect 1x3 at (5, 2).
         fake_bin = _FakeBin(
             "p1",
-            [_FakeRect(5.0, 2.0, 1.0, 3.0, rid=("a_0", label, 1.0))],
+            [_FakeRect(5.0, 2.0, 1.0, 3.0, rid=("a_0", label, 1.0, 0))],
             width=16.0,
             height=24.0,
         )
@@ -946,7 +946,7 @@ class TestLayoutFillOrder:
         label = _make_label(label_id="a", width=3.0, height=1.0)
         fake_bin = _FakeBin(
             "p1",
-            [_FakeRect(0.0, 0.0, 3.0, 1.0, rid=("a_0", label, 3.0))],
+            [_FakeRect(0.0, 0.0, 3.0, 1.0, rid=("a_0", label, 3.0, 0))],
         )
 
         plates = _extract_packed_plates(_FakePacker([fake_bin]), clearances={"p1": (0.5, 1.25)})
@@ -962,7 +962,7 @@ class TestLayoutFillOrder:
         # Packer-space: bin offered as (16, 24); rect 1x3 at (5, 2).
         fake_bin = _FakeBin(
             "p1",
-            [_FakeRect(5.0, 2.0, 1.0, 3.0, rid=("a_0", label, 1.0))],
+            [_FakeRect(5.0, 2.0, 1.0, 3.0, rid=("a_0", label, 1.0, 0))],
             width=16.0,
             height=24.0,
         )
@@ -980,7 +980,7 @@ class TestLayoutFillOrder:
         label = _make_label(label_id="a", width=3.0, height=1.0)
         fake_bin = _FakeBin(
             "p1",
-            [_FakeRect(0.0, 0.0, 3.0, 1.0, rid=("a_0", label, 3.0))],
+            [_FakeRect(0.0, 0.0, 3.0, 1.0, rid=("a_0", label, 3.0, 0))],
         )
 
         plates = _extract_packed_plates(_FakePacker([fake_bin]), clearances={"other": (9.0, 9.0)})
@@ -989,6 +989,210 @@ class TestLayoutFillOrder:
         assert math.isclose(plates[0].top_clearance, 0.0)
         packed = plates[0].labels[0]
         assert (packed.x, packed.y) == (0.0, 0.0)
+
+
+class TestReaderOrderReassignment:
+    """Text-oriented (reader-frame) id ordering in ``columns`` mode.
+
+    ``layout: columns`` must mean column-major *as the reader sees the
+    engraved labels*: an unrotated label's column is a plate-X band, a
+    rotated label's column is a plate-Y band read right-to-left in plate
+    X (true top-to-bottom after turning the sheet 90 degrees CCW). The
+    reassignment permutes only interchangeable ``(label_id, source_label)``
+    pairs onto unchanged slots.
+    """
+
+    @staticmethod
+    def _scrap(width: float = 24.0, height: float = 16.0) -> list[PlateSpec]:
+        """A zero-clearance plate of the given size."""
+        return [PlateSpec(id="scrap", width=width, height=height)]
+
+    @staticmethod
+    def _pos_map(plate: PackedPlate) -> dict[str, tuple[float, float]]:
+        """Map instance id to slot corner for assertions."""
+        return {p.label_id: (p.x, p.y) for p in plate.labels}
+
+    def test_rotated_columns_ids_follow_reader_bands(self) -> None:
+        """Rotated columns layout: ids fill plate-Y bands, x descending.
+
+        The sunwest-shaped repro: 117 3x1 labels on a 24x16 sheet. The
+        rotated candidate wins the footprint ranking, so most labels lie
+        sideways in 1x3 plate slots; the winning pack also keeps seven
+        upright labels along the bottom strip. Reader-frame column-major
+        then pins the deterministic id-to-slot mapping:
+
+        - ids 0..21 fill the plate band y=0 right-to-left (x=21..0) —
+          the reader's first column, top-to-bottom;
+        - id 22 is the upright slot at plate (0, 15): same reader column
+          (x=0), further down the column, so it interleaves before the
+          next rotated band;
+        - ids 23.. continue into the next rotated band (plate y=3).
+        """
+        labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=117)]
+        plates = generate_layout(labels, self._scrap(), allow_rotation=True)
+
+        assert len(plates) == 1
+        packed = plates[0].labels
+        assert len(packed) == 117
+        assert sum(1 for p in packed if p.rotated) == 110
+
+        pos = self._pos_map(plates[0])
+        # First reader column = plate band y=0, filled right-to-left.
+        assert pos["lbl_0"] == pytest.approx((21.0, 0.0))
+        assert pos["lbl_1"] == pytest.approx((20.0, 0.0))
+        assert pos["lbl_21"] == pytest.approx((0.0, 0.0))
+        # The upright slot at plate (0, 15) shares reader column 0 and
+        # sorts after the rotated band (row 15 > rows -21..0).
+        assert pos["lbl_22"] == pytest.approx((0.0, 15.0))
+        upright = [p for p in packed if not p.rotated]
+        assert any(math.isclose(p.x, 0.0) and math.isclose(p.y, 15.0) for p in upright)
+        # Next rotated band (reader column 1) continues at plate y=3.
+        assert pos["lbl_23"] == pytest.approx((21.0, 3.0))
+        # Rotated slots are 1x3 plate slots; ids never move geometry.
+        for p in packed:
+            if p.rotated:
+                assert math.isclose(p.width, 1.0) and math.isclose(p.height, 3.0)
+            else:
+                assert math.isclose(p.width, 3.0) and math.isclose(p.height, 1.0)
+
+    def test_pure_unrotated_columns_keep_historical_ids(self) -> None:
+        """No-op guard: an all-horizontal columns pack keeps id-to-slot map.
+
+        The reader key of unrotated slots is plate ``(x, y)`` — exactly the
+        historical placement order — so ids must land exactly as before the
+        reader-order reassignment existed (bottom-to-top within a column).
+        """
+        labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=20)]
+        plates = generate_layout(labels, self._scrap(), allow_rotation=False)
+
+        pos = self._pos_map(plates[0])
+        assert pos["lbl_0"] == pytest.approx((0.0, 0.0))
+        assert pos["lbl_1"] == pytest.approx((0.0, 1.0))
+        assert pos["lbl_15"] == pytest.approx((0.0, 15.0))
+        # Second column starts rightward once the first is full.
+        assert pos["lbl_16"] == pytest.approx((3.0, 0.0))
+
+    def test_labels_list_sorted_in_reader_order(self) -> None:
+        """``plate.labels`` itself follows reader order (assembly/TSP gain).
+
+        All 117 slots of the sunwest-shaped repro demand the same natural
+        dims (3x1), so one interchangeable group spans rotated and
+        upright slots alike and the id sequence is exactly reader order.
+        """
+        labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=117)]
+        plates = generate_layout(labels, self._scrap(), allow_rotation=True)
+
+        ids_in_order = [p.label_id for p in plates[0].labels]
+        assert ids_in_order == [f"lbl_{i}" for i in range(117)]
+
+    def test_mixed_orientations_interleave_in_reader_order(self) -> None:
+        """Rotated and unrotated same-size slots share one id sequence.
+
+        Hand-built extraction (bypassing the packer) with three slots of
+        natural dims 3x1: two unrotated at plate x=0 (y=0, 1) and one
+        rotated at plate (x=5, y=0). Reader keys: unrotated ``(x, y)`` ->
+        (0,0), (0,1); rotated ``(y, -x)`` -> (0, -5). Global reader sort:
+        the rotated slot (reader column 0, topmost row) gets id 0, then
+        the unrotated slots get ids 1 and 2.
+        """
+        labels = [
+            _make_label(label_id="a", width=3.0, height=1.0),
+            _make_label(label_id="b", width=3.0, height=1.0),
+            _make_label(label_id="c", width=3.0, height=1.0),
+        ]
+        # Packer-space rects (transposed frame: plate (x, y, w, h) comes
+        # from packer (y, x, h, w)); rid pack_width is the packer-space
+        # width an *unrotated* 3x1 label was offered with (1.0), so a
+        # placed width of 3.0 flags rotation.
+        rects = [
+            # Unrotated slot: plate dims 3x1 at (0, 0).
+            _FakeRect(0.0, 0.0, 1.0, 3.0, rid=("a_0", labels[0], 1.0, 0)),
+            # Unrotated slot: plate dims 3x1 at (0, 1).
+            _FakeRect(1.0, 0.0, 1.0, 3.0, rid=("b_0", labels[1], 1.0, 1)),
+            # Rotated slot: plate dims 1x3 at (5, 0).
+            _FakeRect(0.0, 5.0, 3.0, 1.0, rid=("c_0", labels[2], 1.0, 2)),
+        ]
+        fake_bin = _FakeBin("p1", rects, width=16.0, height=24.0)
+
+        plates = _extract_packed_plates(_FakePacker([fake_bin]), transpose=True)
+
+        pos = self._pos_map(plates[0])
+        # Reader keys: rotated slot (plate (5, 0)) -> (0, -5) topmost;
+        # then the unrotated slots (0, 0) and (0, 1). Ids follow.
+        assert pos["a_0"] == pytest.approx((5.0, 0.0))
+        assert pos["b_0"] == pytest.approx((0.0, 0.0))
+        assert pos["c_0"] == pytest.approx((0.0, 1.0))
+        # Slot geometry is untouched: dims/rotated flags ride with slots.
+        by_id = {p.label_id: p for p in plates[0].labels}
+        assert by_id["a_0"].rotated is True
+        assert math.isclose(by_id["a_0"].width, 1.0)
+        assert by_id["b_0"].rotated is False
+        assert math.isclose(by_id["b_0"].width, 3.0)
+        # source_label travels with the id (assembly keys on it).
+        assert by_id["a_0"].source_label.id == "a"
+
+    def test_different_sizes_never_swap(self) -> None:
+        """Labels of different packing dims are not interchangeable.
+
+        Slots of natural dims 3x1 and 2x2 form separate groups; ids may
+        permute only inside their own group, so every label still lands on
+        a slot it actually fits.
+        """
+        labels = [
+            _make_label(label_id="wide", width=3.0, height=1.0),
+            _make_label(label_id="square", width=2.0, height=2.0),
+        ]
+        # Packer-space: plate (x, y, w, h) from packer (y, x, h, w).
+        rects = [
+            # wide slot: plate dims 3x1 at (0, 0).
+            _FakeRect(0.0, 0.0, 1.0, 3.0, rid=("wide_0", labels[0], 1.0, 0)),
+            # square slot: plate dims 2x2 at (0, 1).
+            _FakeRect(1.0, 0.0, 2.0, 2.0, rid=("square_0", labels[1], 2.0, 1)),
+        ]
+        fake_bin = _FakeBin("p1", rects, width=16.0, height=24.0)
+
+        plates = _extract_packed_plates(_FakePacker([fake_bin]), transpose=True)
+
+        pos = self._pos_map(plates[0])
+        assert pos["wide_0"] == pytest.approx((0.0, 0.0))
+        assert pos["square_0"] == pytest.approx((0.0, 1.0))
+
+    def test_rows_mode_never_reorders(self) -> None:
+        """``rows`` mode keeps historical placement-order ids even when rotated."""
+        label = _make_label(label_id="tall", width=1.0, height=4.0, count=3)
+        plates = generate_layout(
+            [label], self._scrap(width=4.0, height=3.0), layout=LayoutMode.ROWS
+        )
+
+        packed = plates[0].labels
+        assert all(p.rotated for p in packed)
+        # Placement order (rectpack) is preserved verbatim, ids unmoved.
+        assert [p.label_id for p in packed] == ["tall_0", "tall_1", "tall_2"]
+
+    def test_per_plate_reassignment_across_spill(self) -> None:
+        """Reassignment is per-plate: each plate's id set is unchanged.
+
+        130 3x1 labels spill past one 24x16 sheet; both plates keep the
+        exact id sets the packer assigned (no cross-plate swaps), the
+        first plate holding the earliest ids, and every plate's labels
+        are ordered by reader key.
+        """
+        labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=130)]
+        plates = generate_layout(labels, allow_rotation=True)
+
+        assert len(plates) == 2
+        first = [p.label_id for p in plates[0].labels]
+        second = [p.label_id for p in plates[1].labels]
+        assert sorted(first + second) == sorted(f"lbl_{i}" for i in range(130))
+        # Permutation never moves ids across plates: plate 1's ids are
+        # exactly the packer-assigned prefix, plate 2's the remainder.
+        assert sorted(first) == sorted(f"lbl_{i}" for i in range(len(first)))
+        assert sorted(second) == sorted(
+            f"lbl_{i}" for i in range(len(first), len(first) + len(second))
+        )
+        for plate in plates:
+            keys = [(p.y, -p.x) if p.rotated else (p.x, p.y) for p in plate.labels]
+            assert keys == sorted(keys)
 
 
 class TestPlateClearances:
