@@ -52,6 +52,8 @@ dev = [
     "mypy>=1.8.0",
     "ruff>=0.2.0",
     "types-PyYAML>=6.0",
+    # Validates docs/schema/*.schema.json artifacts (tests + README workflow).
+    "jsonschema>=4.0",
 ]
 build = [
     "pyinstaller>=6.0.0,<7.0",

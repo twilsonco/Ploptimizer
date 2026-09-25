@@ -96,8 +96,21 @@ class HoleSpec(BaseModel):
             :data:`DEFAULT_HOLE_DIAMETER` (0.125"); must be positive.
     """
 
-    location: HoleLocation
-    diameter: float = Field(default=DEFAULT_HOLE_DIAMETER, gt=0.0)
+    location: HoleLocation = Field(
+        description=(
+            "Hole position on the label edge. Group shorthands 'corners' "
+            "(all four corners) and 'sides' (left + right) expand into their "
+            "atomic members at validation time."
+        )
+    )
+    diameter: float = Field(
+        default=DEFAULT_HOLE_DIAMETER,
+        gt=0.0,
+        description=(
+            "Hole diameter in inches (default 0.125). A job-config.json "
+            "'hole_diameter' fills entries that omit this field."
+        ),
+    )
 
     def expand(self) -> list[HoleSpec]:
         """Expand a group location into its atomic hole specifications.
@@ -206,9 +219,21 @@ class TextAttributes(BaseModel):
             at that level).
     """
 
-    text_height: Optional[float] = None
-    character_spacing: Optional[float] = None
-    line_spacing: Optional[float] = None
+    text_height: Optional[float] = Field(
+        default=None,
+        description="Font height in inches. Cascades line -> label -> job (fallback 0.25).",
+    )
+    character_spacing: Optional[float] = Field(
+        default=None,
+        description=(
+            "Extra spacing between characters in inches (fallback: 1.5x the "
+            "resolved cutter diameter)."
+        ),
+    )
+    line_spacing: Optional[float] = Field(
+        default=None,
+        description="Extra spacing between text lines in inches (fallback 0.1).",
+    )
     max_h_compress: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -258,11 +283,35 @@ class LabelAttributes(TextAttributes):
             atomic member holes at validation time.
     """
 
-    width: Optional[float] = Field(default=None, ge=0.0)
-    height: Optional[float] = Field(default=None, ge=0.0)
-    margin: Optional[float] = Field(default=None, ge=0.0)
-    hole_margin: Optional[float] = Field(default=None, ge=0.0)
-    holes: Optional[list[HoleSpec]] = None
+    width: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description="Label width in inches; unset = auto-size from rendered content (label -> job).",
+    )
+    height: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description="Label height in inches; unset = auto-size from rendered content (label -> job).",
+    )
+    margin: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description="Safety margin in inches between label edge and content (fallback 0.125).",
+    )
+    hole_margin: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Distance from hole edge to label edge in inches (label -> job, fallback 0.1875)."
+        ),
+    )
+    holes: Optional[list[HoleSpec]] = Field(
+        default=None,
+        description=(
+            "Drill holes; a label value replaces the job-level list entirely "
+            "(an empty list suppresses holes). 'corners'/'sides' expand to members."
+        ),
+    )
 
     @field_validator("holes", mode="after")
     @classmethod
@@ -296,7 +345,7 @@ class TextLine(TextAttributes):
             LabelSpec.text_height or JobSpec.text_height if not set locally.
     """
 
-    text: str
+    text: str = Field(description="The text string to render (non-empty).")
 
 
 def _validate_replacement_delimiter_value(v: Optional[str]) -> Optional[str]:
@@ -364,7 +413,7 @@ class LabelSpec(LabelAttributes):
             specific sheet.
     """
 
-    id: str
+    id: str = Field(description="Unique identifier for this label specification.")
     count: int = Field(
         ge=1, default=1, description="Number of instances to produce (must be >= 1)."
     )
@@ -513,7 +562,7 @@ class PlateSpec(BaseModel):
             to ``";"``. Requires ``replacement_text_file``.
     """
 
-    id: str
+    id: str = Field(description="Unique identifier for this plate specification.")
     width: float = Field(ge=0.0, description="Usable plate width in inches (must be >= 0).")
     height: float = Field(ge=0.0, description="Usable plate height in inches (must be >= 0).")
     left_clearance: float = Field(
@@ -696,13 +745,38 @@ class JobSpec(LabelAttributes):
             in inches (same cascade as ``left_clearance``).
     """
 
-    job_name: str
-    plates: Optional[list[PlateSpec]] = None
+    job_name: str = Field(description="Human-readable name for this job.")
+    plates: Optional[list[PlateSpec]] = Field(
+        default=None,
+        description=(
+            "Plate (material sheet) definitions. Omit for unbounded mode: "
+            "auto-allocated default_plate_{i} sheets (24x16 unless job-config "
+            "plate_width/plate_height override)."
+        ),
+    )
 
     # Allow either a list of labels, or a root-level label definition
-    labels: Optional[list[LabelSpec]] = None
-    count: Optional[int] = Field(default=None, ge=1)
-    content: Optional[list[TextLine]] = None
+    labels: Optional[list[LabelSpec]] = Field(
+        default=None,
+        description=(
+            "Explicit label list. Mutually exclusive with root-level content "
+            "and a job-level replacement_text_file."
+        ),
+    )
+    count: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Instance count for root-level single-label jobs; not allowed with replacement files."
+        ),
+    )
+    content: Optional[list[TextLine]] = Field(
+        default=None,
+        description=(
+            "Root-level text lines (single-label job) or the per-line "
+            "attribute template when a replacement file is in play."
+        ),
+    )
     replacement_text_file: Optional[str] = Field(
         default=None,
         description=(

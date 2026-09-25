@@ -56,7 +56,13 @@ PLT-Optimizer/
 │   └── job_specs/          # User-facing sample specs + replacement text data files
 ├── docs/                   # Developer documentation
 │   ├── README_DEV.md
-│   └── INTEGRATION_TESTING.md
+│   ├── INTEGRATION_TESTING.md
+│   └── schema/             # AI-friendly job-spec reference (generated + curated)
+│       ├── generate_ai_docs.py   # Regenerates the artifacts below
+│       ├── job_spec.schema.json  # JSON Schema for a job YAML's `job:` mapping
+│       ├── job_config.schema.json# JSON Schema for job-config.json defaults
+│       ├── JOB_SPEC.md     # Generated field/enum/fallback tables
+│       └── README.md       # Curated semantics (job forms, cascades, examples)
 ├── logs/                   # Generated log files
 ├── pyproject.toml          # Project configuration (uv)
 └── README.md

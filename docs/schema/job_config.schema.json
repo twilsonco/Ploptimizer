@@ -1,0 +1,330 @@
+{
+  "$defs": {
+    "HoleLocation": {
+      "description": "Enumeration of valid hole locations on a label.\n\nBesides the eight atomic positions (four edges and four corners), two\ngroup shorthands are accepted for the most common drilling patterns:\n``corners`` (all four corner holes) and ``sides`` (the left and right\nedge holes). Groups are expanded into their atomic members at schema\nvalidation time (see :data:`HOLE_LOCATION_GROUPS`), so downstream\nconsumers only ever see the eight atomic locations.\n\nAttributes:\n    left: Hole on the left edge.\n    right: Hole on the right edge.\n    top: Hole on the top edge.\n    bottom: Hole on the bottom edge.\n    top_left: Hole at the top-left corner.\n    top_right: Hole at the top-right corner.\n    bottom_left: Hole at the bottom-left corner.\n    bottom_right: Hole at the bottom-right corner.\n    corners: Group shorthand for all four corner holes.\n    sides: Group shorthand for the left and right edge holes.",
+      "enum": [
+        "left",
+        "right",
+        "top",
+        "bottom",
+        "top-left",
+        "top-right",
+        "bottom-left",
+        "bottom-right",
+        "corners",
+        "sides"
+      ],
+      "title": "HoleLocation",
+      "type": "string"
+    },
+    "HoleSpec": {
+      "description": "Specification for a hole to be drilled in a label.\n\n``location`` is the primary (and only required) field: the common case\nis a standard 0.125\" drill hole, which can be written as ``location``\nalone. ``diameter`` is an optional override for non-standard sizes.\n\nGroup locations (``corners`` / ``sides``) are expanded into their\natomic member holes at validation time by the ``holes`` field\nvalidator on :class:`LabelAttributes`; each expanded member inherits\nthis spec's ``diameter``.\n\nAttributes:\n    location: The position of the hole on the label edge. Group\n        shorthands ``corners`` (all four corners) and ``sides``\n        (left + right) are accepted and expanded into their members.\n    diameter: The diameter of the hole in inches. Defaults to\n        :data:`DEFAULT_HOLE_DIAMETER` (0.125\"); must be positive.",
+      "properties": {
+        "location": {
+          "$ref": "#/$defs/HoleLocation",
+          "description": "Hole position on the label edge. Group shorthands 'corners' (all four corners) and 'sides' (left + right) expand into their atomic members at validation time."
+        },
+        "diameter": {
+          "default": 0.125,
+          "description": "Hole diameter in inches (default 0.125). A job-config.json 'hole_diameter' fills entries that omit this field.",
+          "exclusiveMinimum": 0.0,
+          "title": "Diameter",
+          "type": "number"
+        }
+      },
+      "required": [
+        "location"
+      ],
+      "title": "HoleSpec",
+      "type": "object"
+    },
+    "LayoutMode": {
+      "description": "Enumeration of plate fill-order preferences for bin packing.\n\n``rectpack`` has no sort option that controls fill order directly (the\nemergent order is a side effect of placement tie-breaking), so\n``columns`` is realized by packing in a transposed frame with a\nbottom-row fill algorithm and mapping every placement back into plate\nspace (see ``plt_optimizer.generate.layout``).\n\nAttributes:\n    ROWS: Fill the plate width first, then extend downward (row-major;\n        the historical packing behaviour).\n    COLUMNS: Fill the plate height first, then extend rightward\n        (column-major; the default).",
+      "enum": [
+        "rows",
+        "columns"
+      ],
+      "title": "LayoutMode",
+      "type": "string"
+    },
+    "TextHAlignment": {
+      "description": "Enumeration of valid horizontal text alignment modes for a text line.\n\nThe alignment anchors the rendered line within the label's inner content\narea (label width minus both margins). ``left`` places the line's\nleft-most point precisely at the left margin; ``right`` places the\nline's right-most point precisely at the right margin; ``center``\n(the default) centers the line horizontally.\n\nAttributes:\n    LEFT: Left edge of the line sits at the left margin.\n    CENTER: Line is horizontally centered within the inner content area.\n    RIGHT: Right edge of the line sits at the right margin.",
+      "enum": [
+        "left",
+        "center",
+        "right"
+      ],
+      "title": "TextHAlignment",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Configured default values from ``job-config.json``.\n\nEvery field is optional; ``None`` (missing or explicit JSON ``null``)\nmeans \"no configured default\". Field names and validation mirror the\ncorresponding :class:`~plt_optimizer.generate.schema.JobSpec` /\n:class:`~plt_optimizer.generate.schema.PlateSpec` fields. Unknown keys\nare rejected so typos in a shop config fail loudly.\n\nAttributes:\n    text_height: Default font height in inches.\n    character_spacing: Default extra spacing between characters (in\n        inches). Unset falls back to the per-cutter derived default.\n    line_spacing: Default extra spacing between text lines in inches.\n    margin: Default label margin in inches.\n    hole_margin: Default hole margin in inches.\n    min_hole_margin: Default collision-avoidance floor for the hole\n        margin in inches.\n    hole_text_collision_distance: Default engraved-stroke air gap in\n        inches between text and drill-hole strokes.\n    max_h_compress: Default maximum horizontal compression fraction\n        in ``[0.0, 1.0]``.\n    text_h_alignment: Default horizontal text alignment.\n    holes: Default drill-hole list (injected at the job layer; group\n        locations expand exactly like spec-provided holes).\n    hole_diameter: Default drill-hole diameter in inches, applied to\n        hole entries (config- or spec-provided) that omit\n        ``diameter``.\n    allow_rotation: Default bin-packing rotation permission.\n    text_chunk_mode: Default plate-space text optimization granularity.\n    layout: Default plate fill order.\n    plate_width: Default usable plate width in inches (plate layer).\n    plate_height: Default usable plate height in inches (plate layer).\n    left_clearance: Default plate left-edge clearance in inches\n        (injected at the job layer; cascades onto plates that omit it).\n    top_clearance: Default plate top-edge clearance in inches\n        (injected at the job layer; cascades onto plates that omit it).",
+  "properties": {
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Free-form comment field (mirrors tools.json); not a default.",
+      "title": "Description"
+    },
+    "text_height": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default font height in inches (job layer).",
+      "title": "Text Height"
+    },
+    "character_spacing": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default extra spacing between characters in inches (job layer).",
+      "title": "Character Spacing"
+    },
+    "line_spacing": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default extra spacing between text lines in inches (job layer).",
+      "title": "Line Spacing"
+    },
+    "margin": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default label margin in inches (job layer).",
+      "title": "Margin"
+    },
+    "hole_margin": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default hole margin in inches (job layer; required-when-unconfigured).",
+      "title": "Hole Margin"
+    },
+    "min_hole_margin": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default collision-avoidance floor for the hole margin in inches (job layer; required-when-unconfigured).",
+      "title": "Min Hole Margin"
+    },
+    "hole_text_collision_distance": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default engraved-stroke air gap in inches between text and drill-hole strokes (job layer; required-when-unconfigured).",
+      "title": "Hole Text Collision Distance"
+    },
+    "max_h_compress": {
+      "anyOf": [
+        {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default maximum horizontal compression fraction in [0.0, 1.0] (job layer; required-when-unconfigured).",
+      "title": "Max H Compress"
+    },
+    "text_h_alignment": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TextHAlignment"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default horizontal text alignment (job layer)."
+    },
+    "holes": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/HoleSpec"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default drill-hole list (job layer; group locations expand like spec holes).",
+      "title": "Holes"
+    },
+    "hole_diameter": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default drill-hole diameter in inches, applied to hole entries (config- or spec-provided) that omit 'diameter'.",
+      "title": "Hole Diameter"
+    },
+    "allow_rotation": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default bin-packing rotation permission (job layer).",
+      "title": "Allow Rotation"
+    },
+    "text_chunk_mode": {
+      "anyOf": [
+        {
+          "enum": [
+            "line",
+            "word"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default plate-space text optimization granularity.",
+      "title": "Text Chunk Mode"
+    },
+    "layout": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LayoutMode"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default plate fill order (job layer)."
+    },
+    "plate_width": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default usable plate width in inches (plate layer + unbounded auto-allocation; never fills job-level label width).",
+      "title": "Plate Width"
+    },
+    "plate_height": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default usable plate height in inches (same layer rules as plate_width).",
+      "title": "Plate Height"
+    },
+    "left_clearance": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default plate left-edge clearance in inches (job layer; cascades onto plates that omit it).",
+      "title": "Left Clearance"
+    },
+    "top_clearance": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default plate top-edge clearance in inches (same cascade as left_clearance).",
+      "title": "Top Clearance"
+    }
+  },
+  "title": "JobDefaults",
+  "type": "object"
+}

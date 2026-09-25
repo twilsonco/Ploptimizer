@@ -123,24 +123,97 @@ class JobDefaults(BaseModel):
         default=None,
         description="Free-form comment field (mirrors tools.json); not a default.",
     )
-    text_height: Optional[float] = None
-    character_spacing: Optional[float] = None
-    line_spacing: Optional[float] = None
-    margin: Optional[float] = Field(default=None, ge=0.0)
-    hole_margin: Optional[float] = Field(default=None, ge=0.0)
-    min_hole_margin: Optional[float] = Field(default=None, ge=0.0)
-    hole_text_collision_distance: Optional[float] = Field(default=None, ge=0.0)
-    max_h_compress: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    text_h_alignment: Optional[TextHAlignment] = None
-    holes: Optional[list[HoleSpec]] = None
-    hole_diameter: Optional[float] = Field(default=None, gt=0.0)
-    allow_rotation: Optional[bool] = None
-    text_chunk_mode: Optional[Literal["line", "word"]] = None
-    layout: Optional[LayoutMode] = None
-    plate_width: Optional[float] = Field(default=None, ge=0.0)
-    plate_height: Optional[float] = Field(default=None, ge=0.0)
-    left_clearance: Optional[float] = Field(default=None, ge=0.0)
-    top_clearance: Optional[float] = Field(default=None, ge=0.0)
+    text_height: Optional[float] = Field(
+        default=None, description="Default font height in inches (job layer)."
+    )
+    character_spacing: Optional[float] = Field(
+        default=None, description="Default extra spacing between characters in inches (job layer)."
+    )
+    line_spacing: Optional[float] = Field(
+        default=None, description="Default extra spacing between text lines in inches (job layer)."
+    )
+    margin: Optional[float] = Field(
+        default=None, ge=0.0, description="Default label margin in inches (job layer)."
+    )
+    hole_margin: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description="Default hole margin in inches (job layer; required-when-unconfigured).",
+    )
+    min_hole_margin: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Default collision-avoidance floor for the hole margin in inches "
+            "(job layer; required-when-unconfigured)."
+        ),
+    )
+    hole_text_collision_distance: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Default engraved-stroke air gap in inches between text and "
+            "drill-hole strokes (job layer; required-when-unconfigured)."
+        ),
+    )
+    max_h_compress: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Default maximum horizontal compression fraction in [0.0, 1.0] "
+            "(job layer; required-when-unconfigured)."
+        ),
+    )
+    text_h_alignment: Optional[TextHAlignment] = Field(
+        default=None, description="Default horizontal text alignment (job layer)."
+    )
+    holes: Optional[list[HoleSpec]] = Field(
+        default=None,
+        description="Default drill-hole list (job layer; group locations expand like spec holes).",
+    )
+    hole_diameter: Optional[float] = Field(
+        default=None,
+        gt=0.0,
+        description=(
+            "Default drill-hole diameter in inches, applied to hole entries "
+            "(config- or spec-provided) that omit 'diameter'."
+        ),
+    )
+    allow_rotation: Optional[bool] = Field(
+        default=None, description="Default bin-packing rotation permission (job layer)."
+    )
+    text_chunk_mode: Optional[Literal["line", "word"]] = Field(
+        default=None, description="Default plate-space text optimization granularity."
+    )
+    layout: Optional[LayoutMode] = Field(
+        default=None, description="Default plate fill order (job layer)."
+    )
+    plate_width: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Default usable plate width in inches (plate layer + unbounded "
+            "auto-allocation; never fills job-level label width)."
+        ),
+    )
+    plate_height: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description="Default usable plate height in inches (same layer rules as plate_width).",
+    )
+    left_clearance: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Default plate left-edge clearance in inches (job layer; cascades onto plates that omit it)."
+        ),
+    )
+    top_clearance: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description="Default plate top-edge clearance in inches (same cascade as left_clearance).",
+    )
 
 
 @dataclass(frozen=True)

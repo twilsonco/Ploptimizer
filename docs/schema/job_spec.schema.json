@@ -1,0 +1,879 @@
+{
+  "$defs": {
+    "HoleLocation": {
+      "description": "Enumeration of valid hole locations on a label.\n\nBesides the eight atomic positions (four edges and four corners), two\ngroup shorthands are accepted for the most common drilling patterns:\n``corners`` (all four corner holes) and ``sides`` (the left and right\nedge holes). Groups are expanded into their atomic members at schema\nvalidation time (see :data:`HOLE_LOCATION_GROUPS`), so downstream\nconsumers only ever see the eight atomic locations.\n\nAttributes:\n    left: Hole on the left edge.\n    right: Hole on the right edge.\n    top: Hole on the top edge.\n    bottom: Hole on the bottom edge.\n    top_left: Hole at the top-left corner.\n    top_right: Hole at the top-right corner.\n    bottom_left: Hole at the bottom-left corner.\n    bottom_right: Hole at the bottom-right corner.\n    corners: Group shorthand for all four corner holes.\n    sides: Group shorthand for the left and right edge holes.",
+      "enum": [
+        "left",
+        "right",
+        "top",
+        "bottom",
+        "top-left",
+        "top-right",
+        "bottom-left",
+        "bottom-right",
+        "corners",
+        "sides"
+      ],
+      "title": "HoleLocation",
+      "type": "string"
+    },
+    "HoleSpec": {
+      "description": "Specification for a hole to be drilled in a label.\n\n``location`` is the primary (and only required) field: the common case\nis a standard 0.125\" drill hole, which can be written as ``location``\nalone. ``diameter`` is an optional override for non-standard sizes.\n\nGroup locations (``corners`` / ``sides``) are expanded into their\natomic member holes at validation time by the ``holes`` field\nvalidator on :class:`LabelAttributes`; each expanded member inherits\nthis spec's ``diameter``.\n\nAttributes:\n    location: The position of the hole on the label edge. Group\n        shorthands ``corners`` (all four corners) and ``sides``\n        (left + right) are accepted and expanded into their members.\n    diameter: The diameter of the hole in inches. Defaults to\n        :data:`DEFAULT_HOLE_DIAMETER` (0.125\"); must be positive.",
+      "properties": {
+        "location": {
+          "$ref": "#/$defs/HoleLocation",
+          "description": "Hole position on the label edge. Group shorthands 'corners' (all four corners) and 'sides' (left + right) expand into their atomic members at validation time."
+        },
+        "diameter": {
+          "default": 0.125,
+          "description": "Hole diameter in inches (default 0.125). A job-config.json 'hole_diameter' fills entries that omit this field.",
+          "exclusiveMinimum": 0.0,
+          "title": "Diameter",
+          "type": "number"
+        }
+      },
+      "required": [
+        "location"
+      ],
+      "title": "HoleSpec",
+      "type": "object"
+    },
+    "LabelSpec": {
+      "description": "Specification for a label to be generated.\n\nInherits optional styling fields (text_height, character_spacing,\nline_spacing, width, height, margin, holes) from LabelAttributes.\n\nA label may be defined in one of two ways:\n1. Statically, with a ``content`` list (and optional ``count``).\n2. As a template driven by an EngraveLab/Vision Pro-style replacement\n   text file (``replacement_text_file``). Each line of the file\n   produces one label instance; delimited items within a line replace\n   the template's text lines. In this mode ``count`` must not be set\n   (the file's line count determines it) and ``content`` is optional:\n   when omitted, every instance's lines inherit the label-level text\n   attributes; when present, its ``text`` values act as placeholders\n   declaring the per-line attributes (text height, alignment, etc.).\n\nAttributes:\n    id: Unique identifier for this label specification.\n    count: Number of instances to produce. Defaults to 1. Mutually\n        exclusive with ``replacement_text_file``.\n    content: List of text lines to render on the label. Required unless\n        ``replacement_text_file`` is provided.\n    replacement_text_file: Path to a replacement text file (resolved\n        relative to the job YAML file's directory unless absolute).\n        Each line produces one label instance; items within a line are\n        separated by ``replacement_text_delimiter``.\n    replacement_text_delimiter: Single special or whitespace character\n        separating text items within a replacement file line. Defaults\n        to ``\";\"``. Cannot be a newline or an alphanumeric character.\n    plate_id: Optional id of the plate this label is pinned to. Pinned\n        labels pack exclusively onto that plate, and the plate then\n        accepts no other labels. Normally set by plate-level\n        ``replacement_text_file`` expansion (see\n        :func:`plt_optimizer.generate.substitution.expand_job_spec`);\n        it may also be declared directly to pin a static label to a\n        specific sheet.",
+      "properties": {
+        "text_height": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Font height in inches. Cascades line -> label -> job (fallback 0.25).",
+          "title": "Text Height"
+        },
+        "character_spacing": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Extra spacing between characters in inches (fallback: 1.5x the resolved cutter diameter).",
+          "title": "Character Spacing"
+        },
+        "line_spacing": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Extra spacing between text lines in inches (fallback 0.1).",
+          "title": "Line Spacing"
+        },
+        "max_h_compress": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum horizontal compression fraction in [0.0, 1.0].",
+          "title": "Max H Compress"
+        },
+        "text_h_alignment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TextHAlignment"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Horizontal text alignment: left, center, or right."
+        },
+        "min_hole_margin": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum hole margin in inches; hole margins will not shrink below this value during collision avoidance.",
+          "title": "Min Hole Margin"
+        },
+        "hole_text_collision_distance": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum air gap in inches between engraved text and drill hole strokes, on top of the stroke floor 0.5 * (hole_cutter + text_cutter).",
+          "title": "Hole Text Collision Distance"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Label width in inches; unset = auto-size from rendered content (label -> job).",
+          "title": "Width"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Label height in inches; unset = auto-size from rendered content (label -> job).",
+          "title": "Height"
+        },
+        "margin": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Safety margin in inches between label edge and content (fallback 0.125).",
+          "title": "Margin"
+        },
+        "hole_margin": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Distance from hole edge to label edge in inches (label -> job, fallback 0.1875).",
+          "title": "Hole Margin"
+        },
+        "holes": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/HoleSpec"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Drill holes; a label value replaces the job-level list entirely (an empty list suppresses holes). 'corners'/'sides' expand to members.",
+          "title": "Holes"
+        },
+        "id": {
+          "description": "Unique identifier for this label specification.",
+          "title": "Id",
+          "type": "string"
+        },
+        "count": {
+          "default": 1,
+          "description": "Number of instances to produce (must be >= 1).",
+          "minimum": 1,
+          "title": "Count",
+          "type": "integer"
+        },
+        "content": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/TextLine"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Text lines to render. Required unless replacement_text_file is provided.",
+          "title": "Content"
+        },
+        "replacement_text_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Path to an EngraveLab/Vision Pro-style replacement text file. Each line produces one label instance. Mutually exclusive with count.",
+          "title": "Replacement Text File"
+        },
+        "replacement_text_delimiter": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Single-character delimiter separating text items within a replacement file line (default ';').",
+          "title": "Replacement Text Delimiter"
+        },
+        "plate_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Id of the plate this label is pinned to (packs exclusively onto that plate). Set by plate-level replacement expansion.",
+          "title": "Plate Id"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "LabelSpec",
+      "type": "object"
+    },
+    "LayoutMode": {
+      "description": "Enumeration of plate fill-order preferences for bin packing.\n\n``rectpack`` has no sort option that controls fill order directly (the\nemergent order is a side effect of placement tie-breaking), so\n``columns`` is realized by packing in a transposed frame with a\nbottom-row fill algorithm and mapping every placement back into plate\nspace (see ``plt_optimizer.generate.layout``).\n\nAttributes:\n    ROWS: Fill the plate width first, then extend downward (row-major;\n        the historical packing behaviour).\n    COLUMNS: Fill the plate height first, then extend rightward\n        (column-major; the default).",
+      "enum": [
+        "rows",
+        "columns"
+      ],
+      "title": "LayoutMode",
+      "type": "string"
+    },
+    "PlateSpec": {
+      "description": "Specification for a plate (material sheet) to cut labels from.\n\nAttributes:\n    id: Unique identifier for this plate specification.\n    width: Usable width of the plate in inches (the area available to\n        the packer). The material's right edge sits at\n        ``left_clearance + width``.\n    height: Usable height of the plate in inches (the area available to\n        the packer). The material's bottom edge sits at\n        ``top_clearance + height``.\n    left_clearance: Unused material width along the plate's left edge\n        in inches; shifts the usable area rightward. Defaults to 0.0.\n        Bottom and right clearances need no fields: the material always\n        extends to ``left_clearance + width`` on the right and\n        ``top_clearance + height`` at the bottom.\n    top_clearance: Unused material height along the plate's top edge in\n        inches; shifts the usable area downward (labels stay flush with\n        the bottom edge). Defaults to 0.0.\n    hole_margin: Optional hole margin in inches. Accepted for schema\n        parity with the job/label ``hole_margin`` cascade. NOTE: labels\n        are rendered once and cached before bin-packing (and a single\n        label may span multiple plates), so a per-plate value is not\n        currently applied during rendering; the effective value is\n        resolved from the label -> job -> default cascade.\n    max_h_compress: Optional maximum horizontal compression fraction.\n        Accepted for schema parity with the job/label ``max_h_compress``\n        cascade. NOTE: labels are rendered once and cached before\n        bin-packing (and a single label may span multiple plates), so a\n        per-plate value is not currently applied during rendering; the\n        effective value is resolved from the label -> job -> default\n        cascade.\n    text_h_alignment: Optional horizontal text alignment. Accepted for\n        schema parity with the job/label ``text_h_alignment`` cascade.\n        NOTE: labels are rendered once and cached before bin-packing\n        (and a single label may span multiple plates), so a per-plate\n        value is not currently applied during rendering; the effective\n        value is resolved from the label -> job -> default cascade.\n    min_hole_margin: Optional minimum hole margin in inches. Accepted\n        for schema parity with the job/label ``min_hole_margin``\n        cascade. NOTE: labels are rendered once and cached before\n        bin-packing (and a single label may span multiple plates), so\n        a per-plate value is not currently applied during rendering;\n        the effective value is resolved from the label -> job ->\n        default cascade.\n    hole_text_collision_distance: Optional minimum engraved-stroke\n        air gap in inches. Accepted for schema parity with the\n        job/label ``hole_text_collision_distance`` cascade. NOTE:\n        labels are rendered once and cached before bin-packing, so a\n        per-plate value is not currently applied during rendering;\n        the effective value is resolved from the label -> job ->\n        default cascade.        layout: Optional per-plate fill-order override (``rows`` /\n        ``columns``). ``None`` (the default) inherits the job-level\n        ``layout``. Unlike the other cascading fields, this one IS\n        applied at packing time: when plates declare different modes,\n        same-mode plates pack in one sequential pass and leftovers\n        cascade to the next group in declaration order.\n    replacement_text_file: Optional path to an EngraveLab/Vision\n        Pro-style replacement text file (resolved relative to the job\n        YAML directory unless absolute) whose lines each produce one\n        label generated *onto this plate only*. Label dimensions and\n        typography (``width`` / ``height`` / ``text_height`` / ...) are\n        NOT plate fields: they come from the job-level cascade. The\n        plate's usable ``width``/``height`` still describe the pack\n        area.\n    replacement_text_delimiter: Single special or whitespace character\n        separating text items within a replacement file line. Defaults\n        to ``\";\"``. Requires ``replacement_text_file``.",
+      "properties": {
+        "id": {
+          "description": "Unique identifier for this plate specification.",
+          "title": "Id",
+          "type": "string"
+        },
+        "width": {
+          "description": "Usable plate width in inches (must be >= 0).",
+          "minimum": 0.0,
+          "title": "Width",
+          "type": "number"
+        },
+        "height": {
+          "description": "Usable plate height in inches (must be >= 0).",
+          "minimum": 0.0,
+          "title": "Height",
+          "type": "number"
+        },
+        "left_clearance": {
+          "default": 0.0,
+          "description": "Unused material width along the plate's left edge in inches (shifts the usable area rightward; must be >= 0).",
+          "minimum": 0.0,
+          "title": "Left Clearance",
+          "type": "number"
+        },
+        "top_clearance": {
+          "default": 0.0,
+          "description": "Unused material height along the plate's top edge in inches (shifts the usable area downward; must be >= 0).",
+          "minimum": 0.0,
+          "title": "Top Clearance",
+          "type": "number"
+        },
+        "hole_margin": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Hole margin in inches (must be >= 0).",
+          "title": "Hole Margin"
+        },
+        "max_h_compress": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum horizontal compression fraction in [0.0, 1.0].",
+          "title": "Max H Compress"
+        },
+        "text_h_alignment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TextHAlignment"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Horizontal text alignment (schema parity; not applied at plate level)."
+        },
+        "min_hole_margin": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum hole margin in inches (schema parity; not applied at plate level).",
+          "title": "Min Hole Margin"
+        },
+        "hole_text_collision_distance": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum engraved-stroke air gap in inches (schema parity; not applied at plate level).",
+          "title": "Hole Text Collision Distance"
+        },
+        "layout": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LayoutMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Per-plate fill-order override (None = inherit the job layout)."
+        },
+        "replacement_text_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Path to an EngraveLab/Vision Pro-style replacement text file. Each line produces one label packed onto this plate only.",
+          "title": "Replacement Text File"
+        },
+        "replacement_text_delimiter": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Single-character delimiter separating text items within a replacement file line (default ';').",
+          "title": "Replacement Text Delimiter"
+        }
+      },
+      "required": [
+        "id",
+        "width",
+        "height"
+      ],
+      "title": "PlateSpec",
+      "type": "object"
+    },
+    "TextHAlignment": {
+      "description": "Enumeration of valid horizontal text alignment modes for a text line.\n\nThe alignment anchors the rendered line within the label's inner content\narea (label width minus both margins). ``left`` places the line's\nleft-most point precisely at the left margin; ``right`` places the\nline's right-most point precisely at the right margin; ``center``\n(the default) centers the line horizontally.\n\nAttributes:\n    LEFT: Left edge of the line sits at the left margin.\n    CENTER: Line is horizontally centered within the inner content area.\n    RIGHT: Right edge of the line sits at the right margin.",
+      "enum": [
+        "left",
+        "center",
+        "right"
+      ],
+      "title": "TextHAlignment",
+      "type": "string"
+    },
+    "TextLine": {
+      "description": "A single line of text content within a label.\n\nAttributes:\n    text: The actual text string to render.\n    text_height: Optional font height in inches. Inherits from parent\n        LabelSpec.text_height or JobSpec.text_height if not set locally.",
+      "properties": {
+        "text_height": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Font height in inches. Cascades line -> label -> job (fallback 0.25).",
+          "title": "Text Height"
+        },
+        "character_spacing": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Extra spacing between characters in inches (fallback: 1.5x the resolved cutter diameter).",
+          "title": "Character Spacing"
+        },
+        "line_spacing": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Extra spacing between text lines in inches (fallback 0.1).",
+          "title": "Line Spacing"
+        },
+        "max_h_compress": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum horizontal compression fraction in [0.0, 1.0].",
+          "title": "Max H Compress"
+        },
+        "text_h_alignment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TextHAlignment"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Horizontal text alignment: left, center, or right."
+        },
+        "min_hole_margin": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum hole margin in inches; hole margins will not shrink below this value during collision avoidance.",
+          "title": "Min Hole Margin"
+        },
+        "hole_text_collision_distance": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum air gap in inches between engraved text and drill hole strokes, on top of the stroke floor 0.5 * (hole_cutter + text_cutter).",
+          "title": "Hole Text Collision Distance"
+        },
+        "text": {
+          "description": "The text string to render (non-empty).",
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "TextLine",
+      "type": "object"
+    }
+  },
+  "description": "Top-level specification for a batch label generation job.\n\nInherits optional styling fields from LabelAttributes so they can be\nset at the Job level and inherited down to Label and TextLine levels.\n\nA job may be specified in one of three forms:\n1. A list of explicit labels (`labels`).\n2. A single root-level label definition (`content` + optional `count`).\n3. A job-level EngraveLab/Vision Pro-style replacement text file\n   (``replacement_text_file``): each line of the file produces one\n   label, generated from the job-level label attributes (``width``,\n   ``height`` and ``text_height`` are required at the job level;\n   ``content`` is an optional per-line attribute template, exactly\n   like on :class:`LabelSpec`). This form is mutually exclusive with\n   ``labels`` and ``count``.\n\nThe forms are mutually exclusive; exactly one must be provided.\n\nAttributes:\n    job_name: Human-readable name for this job.\n    plates: Optional list of plate specifications. If omitted, the\n        generation pipeline auto-allocates default 24x16 sheets.\n    labels: Optional list of unique label specifications to produce.\n    count: Optional count for root-level single-label jobs.\n    content: Optional root-level content for single-label jobs (or the\n        per-line attribute template for a job-level replacement file).\n    replacement_text_file: Job-level replacement text file (resolved\n        relative to the job YAML directory unless absolute). Each line\n        produces one label; items within a line are separated by\n        ``replacement_text_delimiter``. Requires job-level ``width``,\n        ``height`` and ``text_height``; mutually exclusive with\n        ``labels``, ``count`` and plate-level replacement files.\n    replacement_text_delimiter: Single special or whitespace character\n        separating text items within a replacement file line. Defaults\n        to ``\";\"``. Requires ``replacement_text_file``.\n    allow_rotation: Whether the bin packer may rotate label instances\n        90 degrees to improve plate utilization. When a rotated label\n        is assembled onto a plate its whole content (text, border and\n        drill holes) is rotated clockwise. Defaults to True.\n    text_chunk_mode: Granularity at which rendered text becomes a\n        plate-space optimization node: ``\"line\"`` (the default) routes\n        each whole text line as one unit; ``\"word\"`` splits lines on\n        whitespace for finer rapid-travel routing at the cost of more\n        TSP nodes.\n    layout: Preferential plate fill order for bin packing. ``columns``\n        (the default) fills each plate's height before extending\n        rightward; ``rows`` fills width before extending downward (the\n        historical behaviour). Cascades job -> plate: a plate may\n        override it via ``PlateSpec.layout``.\n    left_clearance: Job-level default for the plate left-edge\n        clearance in inches. Cascades job -> plate: plates that omit\n        ``left_clearance`` inherit this value; an explicit plate\n        value (including ``0.0``) always wins. Unbounded\n        auto-allocated sheets use it too (threaded through the export\n        call). ``None`` (the default) means no job-level default;\n        plates then fall back to their own ``0.0`` default.\n    top_clearance: Job-level default for the plate top-edge clearance\n        in inches (same cascade as ``left_clearance``).",
+  "properties": {
+    "text_height": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Font height in inches. Cascades line -> label -> job (fallback 0.25).",
+      "title": "Text Height"
+    },
+    "character_spacing": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Extra spacing between characters in inches (fallback: 1.5x the resolved cutter diameter).",
+      "title": "Character Spacing"
+    },
+    "line_spacing": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Extra spacing between text lines in inches (fallback 0.1).",
+      "title": "Line Spacing"
+    },
+    "max_h_compress": {
+      "anyOf": [
+        {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Maximum horizontal compression fraction in [0.0, 1.0].",
+      "title": "Max H Compress"
+    },
+    "text_h_alignment": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TextHAlignment"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Horizontal text alignment: left, center, or right."
+    },
+    "min_hole_margin": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Minimum hole margin in inches; hole margins will not shrink below this value during collision avoidance.",
+      "title": "Min Hole Margin"
+    },
+    "hole_text_collision_distance": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Minimum air gap in inches between engraved text and drill hole strokes, on top of the stroke floor 0.5 * (hole_cutter + text_cutter).",
+      "title": "Hole Text Collision Distance"
+    },
+    "width": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Label width in inches; unset = auto-size from rendered content (label -> job).",
+      "title": "Width"
+    },
+    "height": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Label height in inches; unset = auto-size from rendered content (label -> job).",
+      "title": "Height"
+    },
+    "margin": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Safety margin in inches between label edge and content (fallback 0.125).",
+      "title": "Margin"
+    },
+    "hole_margin": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Distance from hole edge to label edge in inches (label -> job, fallback 0.1875).",
+      "title": "Hole Margin"
+    },
+    "holes": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/HoleSpec"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Drill holes; a label value replaces the job-level list entirely (an empty list suppresses holes). 'corners'/'sides' expand to members.",
+      "title": "Holes"
+    },
+    "job_name": {
+      "description": "Human-readable name for this job.",
+      "title": "Job Name",
+      "type": "string"
+    },
+    "plates": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/PlateSpec"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Plate (material sheet) definitions. Omit for unbounded mode: auto-allocated default_plate_{i} sheets (24x16 unless job-config plate_width/plate_height override).",
+      "title": "Plates"
+    },
+    "labels": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/LabelSpec"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Explicit label list. Mutually exclusive with root-level content and a job-level replacement_text_file.",
+      "title": "Labels"
+    },
+    "count": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Instance count for root-level single-label jobs; not allowed with replacement files.",
+      "title": "Count"
+    },
+    "content": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/TextLine"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Root-level text lines (single-label job) or the per-line attribute template when a replacement file is in play.",
+      "title": "Content"
+    },
+    "replacement_text_file": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Job-level EngraveLab/Vision Pro-style replacement text file. Each line produces one label built from the job-level label attributes. Mutually exclusive with labels and count.",
+      "title": "Replacement Text File"
+    },
+    "replacement_text_delimiter": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Single-character delimiter separating text items within a replacement file line (default ';').",
+      "title": "Replacement Text Delimiter"
+    },
+    "allow_rotation": {
+      "default": true,
+      "description": "Allow the bin packer to rotate labels 90 degrees (clockwise at assembly) for tighter layouts. Set false to keep every label horizontal.",
+      "title": "Allow Rotation",
+      "type": "boolean"
+    },
+    "text_chunk_mode": {
+      "default": "line",
+      "description": "Plate-space text optimization granularity: 'line' routes each text line as one node (default); 'word' routes each whitespace-delimited word separately.",
+      "enum": [
+        "line",
+        "word"
+      ],
+      "title": "Text Chunk Mode",
+      "type": "string"
+    },
+    "layout": {
+      "$ref": "#/$defs/LayoutMode",
+      "default": "columns",
+      "description": "Preferential plate fill order: 'columns' (default) fills the plate height before extending rightward; 'rows' fills width before extending downward."
+    },
+    "left_clearance": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Job-level default plate left-edge clearance in inches (cascades job -> plate; an explicit plate value, including 0.0, wins).",
+      "title": "Left Clearance"
+    },
+    "top_clearance": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Job-level default plate top-edge clearance in inches (cascades job -> plate; an explicit plate value, including 0.0, wins).",
+      "title": "Top Clearance"
+    }
+  },
+  "required": [
+    "job_name"
+  ],
+  "title": "JobSpec",
+  "type": "object"
+}
