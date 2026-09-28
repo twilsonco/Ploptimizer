@@ -147,6 +147,110 @@ class TextHAlignment(str, Enum):
     RIGHT = "right"
 
 
+# Canonical stroke-color layer names mapped to their single-letter
+# abbreviations (EngraveLab/Vision Pro-style; black is "k" following the
+# CMYK convention). Used both to resolve abbreviations on input
+# (:meth:`TextColor._missing_`) and to tag color-split output files
+# (see ``plt_optimizer.generate.vectorize.export_per_cutter_plts``).
+TEXT_COLOR_ABBREVIATIONS: dict[str, str] = {
+    "cyan": "c",
+    "magenta": "m",
+    "yellow": "y",
+    "black": "k",
+    "red": "r",
+    "green": "g",
+    "blue": "b",
+    "violet": "v",
+    "orange": "o",
+    "pink": "p",
+    "teal": "t",
+    "none": "n",
+}
+
+# Reverse lookup (abbreviation -> canonical name) for input normalization.
+_TEXT_COLOR_BY_ABBREVIATION: dict[str, str] = {
+    letter: name for name, letter in TEXT_COLOR_ABBREVIATIONS.items()
+}
+
+
+class TextColor(str, Enum):
+    """Enumeration of stroke-color layer tags for text lines and labels.
+
+    The color carries no visual meaning in the emitted PLT: it is a layer
+    tag that splits otherwise-identical text into separate toolpaths (one
+    HPGL ``SP`` layer and one PLT file per color), so the cutter depth can
+    be changed between runs to expose a different material layer color on
+    3-layer stock. This mirrors the EngraveLab/Vision Pro workflow where a
+    different stroke color forces a separate toolpath.
+
+    Values may be written as the full name (``cyan``) or as the
+    single-letter abbreviation (``c``); both forms are case-insensitive.
+    ``none`` is the implicit default for every line that does not declare
+    a color and must never be specified explicitly (see the ``text_color``
+    field validator): users pick a real color name to force a toolpath
+    split.
+
+    Attributes:
+        cyan: Cyan stroke-color layer (abbreviation ``c``).
+        magenta: Magenta stroke-color layer (abbreviation ``m``).
+        yellow: Yellow stroke-color layer (abbreviation ``y``).
+        black: Black stroke-color layer (abbreviation ``k``, CMYK style).
+        red: Red stroke-color layer (abbreviation ``r``).
+        green: Green stroke-color layer (abbreviation ``g``).
+        blue: Blue stroke-color layer (abbreviation ``b``).
+        violet: Violet stroke-color layer (abbreviation ``v``).
+        orange: Orange stroke-color layer (abbreviation ``o``).
+        pink: Pink stroke-color layer (abbreviation ``p``).
+        teal: Teal stroke-color layer (abbreviation ``t``).
+        none: Implicit default for text that declares no color; cannot be
+            specified explicitly.
+    """
+
+    CYAN = "cyan"
+    MAGENTA = "magenta"
+    YELLOW = "yellow"
+    BLACK = "black"
+    RED = "red"
+    GREEN = "green"
+    BLUE = "blue"
+    VIOLET = "violet"
+    ORANGE = "orange"
+    PINK = "pink"
+    TEAL = "teal"
+    NONE = "none"
+
+    @classmethod
+    def _missing_(cls, value: object) -> Optional[TextColor]:
+        """Normalize full names and abbreviations case-insensitively.
+
+        Args:
+            value: The raw input that failed exact value matching.
+
+        Returns:
+            The matching member for a case-insensitive full name or a
+            (case-insensitive) single-letter abbreviation; ``None`` for
+            anything else, which re-raises the standard enum error.
+        """
+        if not isinstance(value, str):
+            return None
+        key = value.strip().lower()
+        key = _TEXT_COLOR_BY_ABBREVIATION.get(key, key)
+        for member in cls:
+            if member.value == key:
+                return member
+        return None
+
+    @property
+    def abbreviation(self) -> str:
+        """Return the single-letter abbreviation of this color.
+
+        Returns:
+            The one-letter tag (``k`` for black, ``m`` for magenta, ...)
+            used in color-split output file names.
+        """
+        return TEXT_COLOR_ABBREVIATIONS[self.value]
+
+
 class LayoutMode(str, Enum):
     """Enumeration of plate fill-order preferences for bin packing.
 
@@ -217,6 +321,17 @@ class TextAttributes(BaseModel):
             overlap). Cascades label -> job (and is accepted on text
             lines and plates for schema parity, where it is not applied
             at that level).
+        text_color: Optional stroke-color layer tag used to split
+            otherwise-identical text into separate toolpaths (one HPGL
+            ``SP`` layer and one PLT file per distinct color), so the
+            cutter depth can be changed between runs on 3-layer material
+            (EngraveLab/Vision Pro-style stroke colors). Accepted on text
+            lines and labels only -- it is deliberately NOT cascaded
+            (unset resolves to ``"none"`` and never reads a parent
+            value), and a job-level value is rejected. Values are
+            :class:`TextColor` full names or single-letter abbreviations,
+            both case-insensitive (``cyan`` / ``c`` ...). ``none`` is the
+            implicit default and cannot be specified explicitly.
     """
 
     text_height: Optional[float] = Field(
@@ -261,6 +376,42 @@ class TextAttributes(BaseModel):
             "0.5 * (hole_cutter + text_cutter)."
         ),
     )
+    text_color: Optional[TextColor] = Field(
+        default=None,
+        description=(
+            "Stroke-color layer tag splitting otherwise-identical text into "
+            "separate toolpaths (labels and text lines only; rejected at the "
+            "job level; never cascades). Full name or case-insensitive "
+            "single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); "
+            "'none' is the implicit default and cannot be specified."
+        ),
+    )
+
+    @field_validator("text_color")
+    @classmethod
+    def _reject_explicit_none_color(cls, value: Optional[TextColor]) -> Optional[TextColor]:
+        """Reject an explicitly specified ``none`` stroke color.
+
+        ``none`` is the implicit default applied to every line that omits
+        ``text_color``; specifying it explicitly is always a user mistake
+        (it requests no split while looking like a color), so it is
+        rejected wherever the field is accepted.
+
+        Args:
+            value: The validated color, or ``None`` (unset).
+
+        Returns:
+            The validated color.
+
+        Raises:
+            ValueError: If the value is explicitly ``none`` / ``n``.
+        """
+        if value is TextColor.NONE:
+            raise ValueError(
+                "text_color 'none' is the implicit default and cannot be "
+                "specified explicitly; omit the field instead"
+            )
+        return value
 
 
 class LabelAttributes(TextAttributes):
@@ -877,6 +1028,31 @@ class JobSpec(LabelAttributes):
                 fill["top_clearance"] = self.top_clearance
             updated_plates.append(plate.model_copy(update=fill) if fill else plate)
         self.plates = updated_plates
+        return self
+
+    @model_validator(mode="after")
+    def _reject_job_level_text_color(self) -> JobSpec:
+        """Reject a job-level ``text_color`` declaration.
+
+        ``text_color`` exists solely to distinguish otherwise-equivalent
+        text within a label or between labels; a job-wide color would
+        separate nothing (that is exactly what the implicit ``none``
+        default means), so the field is accepted on labels and text lines
+        only -- including root-level single-label jobs, where every other
+        label attribute is set at the job level.
+
+        Raises:
+            ValueError: Always, when ``text_color`` is set at the job level.
+
+        Returns:
+            Self for method chaining.
+        """
+        if self.text_color is not None:
+            raise ValueError(
+                "'text_color' cannot be set at the job level; declare it on "
+                "a label or an individual text line to split otherwise-"
+                "identical text into separate toolpaths"
+            )
         return self
 
     @model_validator(mode="after")

@@ -152,7 +152,7 @@ PACK_CONFIGS_COLUMNS: tuple[tuple[object, object], ...] = (
 
 def _render_labels_cache(
     resolved_labels: list[ResolvedLabel],
-    pen_map: Optional[dict[float, int]] = None,
+    pen_map: Optional[dict[tuple[float, str], int]] = None,
 ) -> dict[str, RenderedLabel]:
     """Render all unique labels and cache by ID.
 
@@ -161,8 +161,8 @@ def _render_labels_cache(
 
     Args:
         resolved_labels: Flat list of fully resolved labels.
-        pen_map: Optional mapping of text cutter diameter to HPGL pen
-            number (see
+        pen_map: Optional mapping of ``(text cutter diameter, text color)``
+            to HPGL pen number (see
             :func:`plt_optimizer.generate.resolution.build_cutter_pen_map`).
             Passed through to :func:`render_label_to_plt`; ``None`` keeps
             all text on the historical single text pen.
@@ -1152,7 +1152,7 @@ def generate_layout(
 def generate_layout_with_bounds(
     resolved_labels: list[ResolvedLabel],
     provided_plates: Optional[list[PlateSpec]] = None,
-    pen_map: Optional[dict[float, int]] = None,
+    pen_map: Optional[dict[tuple[float, str], int]] = None,
     allow_rotation: bool = True,
     layout: LayoutMode = DEFAULT_LAYOUT_MODE,
     default_plate_size: Optional[tuple[float, float]] = None,
@@ -1172,8 +1172,8 @@ def generate_layout_with_bounds(
             resolution engine.
         provided_plates: Optional list of user-specified plates. If None
             or empty, the engine auto-allocates default 24x16 sheets.
-        pen_map: Optional mapping of text cutter diameter to HPGL pen
-            number (see
+        pen_map: Optional mapping of ``(text cutter diameter, text color)``
+            to HPGL pen number (see
             :func:`plt_optimizer.generate.resolution.build_cutter_pen_map`)
             used when rendering labels for per-cutter PLT splitting.
             ``None`` keeps the historical single text pen.

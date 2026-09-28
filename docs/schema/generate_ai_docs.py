@@ -58,7 +58,7 @@ JOB_SPEC_MD = OUTPUT_DIR / "JOB_SPEC.md"
 
 # Rendering order for the markdown model sections (root model first).
 _MODEL_ORDER = ("JobSpec", "PlateSpec", "LabelSpec", "TextLine", "HoleSpec")
-_ENUM_ORDER = ("HoleLocation", "TextHAlignment", "LayoutMode")
+_ENUM_ORDER = ("HoleLocation", "TextHAlignment", "LayoutMode", "TextColor")
 
 # JSON-Schema primitive -> Python-flavoured name (AI-consumer friendly).
 _TYPE_NAMES = {"number": "float", "integer": "int", "string": "str", "boolean": "bool"}
@@ -82,6 +82,9 @@ _FALLBACK_NOTES: dict[str, str] = {
     "DEFAULT_MAX_H_COMPRESS": "0.0 = horizontal compression disabled. Required from config-or-"
     "spec when a job-config is in play.",
     "DEFAULT_TEXT_H_ALIGNMENT": "Horizontal alignment fallback when unset everywhere.",
+    "DEFAULT_TEXT_COLOR": "Implicit stroke-color layer of text that omits text_color "
+    "(never cascades; a job-level text_color is rejected). 'none' cannot be specified "
+    "explicitly.",
     "DEFAULT_HOLE_DIAMETER": "Drill-hole diameter when a hole entry omits 'diameter' (a "
     "job-config hole_diameter fills hole entries too).",
     "DEFAULT_PLATE_WIDTH": "Auto-allocated (unbounded mode) default plate width when job-config "

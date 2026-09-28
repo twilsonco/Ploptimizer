@@ -15,6 +15,7 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_MARGIN,
     DEFAULT_MAX_H_COMPRESS,
     DEFAULT_MIN_HOLE_MARGIN,
+    DEFAULT_TEXT_COLOR,
     DEFAULT_TEXT_H_ALIGNMENT,
     DEFAULT_TEXT_HEIGHT,
     IDEAL_CUTTER_MAP,
@@ -36,6 +37,7 @@ from plt_optimizer.generate.schema import (
     HoleSpec,
     JobSpec,
     LabelSpec,
+    TextColor,
     TextHAlignment,
     TextLine,
 )
@@ -1248,6 +1250,112 @@ class TestTextHAlignmentCascade:
         assert line.text_h_alignment == "center"
 
 
+class TestTextColorResolution:
+    """text_color must resolve line -> label -> default (never job)."""
+
+    def test_default_when_all_omit(self) -> None:
+        """All levels omitting yields the implicit 'none' color."""
+        job = JobSpec(
+            job_name="J",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert label.content[0].text_color == DEFAULT_TEXT_COLOR
+
+    def test_label_value_used_when_line_omits(self) -> None:
+        """Label-level color applies to its lines."""
+        job = JobSpec(
+            job_name="J",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    text_color="m",
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert label.content[0].text_color == "magenta"
+
+    def test_line_overrides_label(self) -> None:
+        """Line-level color overrides the label-level color."""
+        job = JobSpec(
+            job_name="J",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    text_color="magenta",
+                    content=[TextLine(text="X", text_color=TextColor.BLACK)],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert label.content[0].text_color == "black"
+
+    def test_per_line_color_within_one_label(self) -> None:
+        """Different lines in one label may carry different colors."""
+        job = JobSpec(
+            job_name="J",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[
+                        TextLine(text="A", text_color="m"),
+                        TextLine(text="B"),
+                        TextLine(text="C", text_color="black"),
+                    ],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert [line.text_color for line in label.content] == [
+            "magenta",
+            "none",
+            "black",
+        ]
+
+    def test_never_cascades_from_job(self) -> None:
+        """A job-level color is rejected outright, so nothing cascades."""
+        with pytest.raises(ValidationError):
+            JobSpec(
+                job_name="J",
+                text_color="red",
+                labels=[
+                    LabelSpec(
+                        id="lbl",
+                        width=2.0,
+                        height=1.0,
+                        content=[TextLine(text="X")],
+                    )
+                ],
+            )
+
+    def test_resolved_line_default_when_constructed_manually(self) -> None:
+        """Manually constructed ResolvedTextLine defaults to 'none'."""
+        line = ResolvedTextLine(
+            text="X",
+            nominal_text_height=0.25,
+            toolpath_text_height=0.22,
+            cutter_diameter=0.03,
+            character_spacing=0.0,
+            line_spacing=0.0,
+        )
+        assert line.text_color == "none"
+
+
 class TestMinHoleMarginCascade:
     """min_hole_margin must cascade label -> job -> default.
 
@@ -1508,7 +1616,7 @@ class TestSnapBoundaryHoleCutter:
 
 
 class TestBuildCutterPenMap:
-    """build_cutter_pen_map assigns one pen per distinct text cutter."""
+    """build_cutter_pen_map assigns one pen per distinct (cutter, color)."""
 
     @staticmethod
     def _label(label_id: str, cutters: list[float]) -> ResolvedLabel:
@@ -1539,29 +1647,81 @@ class TestBuildCutterPenMap:
 
     def test_single_cutter_keeps_pen_one(self) -> None:
         """A lone cutter keeps the historical text pen 1."""
-        assert build_cutter_pen_map([self._label("a", [0.03])]) == {0.03: 1}
+        assert build_cutter_pen_map([self._label("a", [0.03])]) == {(0.03, "none"): 1}
 
     def test_sorted_ascending_pen_assignment(self) -> None:
-        """Smallest cutter -> SP1, then SP4+ (SP2/SP3 reserved)."""
+        """Smallest layer -> SP1, then SP4+ (SP2/SP3 reserved)."""
         labels = [
             self._label("a", [0.06]),
             self._label("b", [0.03]),
             self._label("c", [0.015, 0.06]),
         ]
-        assert build_cutter_pen_map(labels) == {0.015: 1, 0.03: 4, 0.06: 5}
+        assert build_cutter_pen_map(labels) == {
+            (0.015, "none"): 1,
+            (0.03, "none"): 4,
+            (0.06, "none"): 5,
+        }
 
     def test_duplicate_cutters_share_pen(self) -> None:
-        """The same diameter across labels/lines maps to a single pen."""
+        """The same diameter/color across labels/lines maps to a single pen."""
         labels = [self._label("a", [0.03, 0.03]), self._label("b", [0.03])]
-        assert build_cutter_pen_map(labels) == {0.03: 1}
+        assert build_cutter_pen_map(labels) == {(0.03, "none"): 1}
 
     def test_many_cutters_skip_reserved_pens(self) -> None:
         """With 4+ cutters, pens never collide with 2 (borders) or 3 (holes)."""
         labels = [self._label("a", [0.01, 0.02, 0.03, 0.06, 0.125])]
         pen_map = build_cutter_pen_map(labels)
-        assert pen_map == {0.01: 1, 0.02: 4, 0.03: 5, 0.06: 6, 0.125: 7}
+        assert pen_map == {
+            (0.01, "none"): 1,
+            (0.02, "none"): 4,
+            (0.03, "none"): 5,
+            (0.06, "none"): 6,
+            (0.125, "none"): 7,
+        }
         assert 2 not in pen_map.values()
         assert 3 not in pen_map.values()
+
+    def test_same_cutter_different_colors_split_pens(self) -> None:
+        """Lines sharing a cutter but differing in color get distinct pens."""
+        content = [
+            ResolvedTextLine(
+                text="A",
+                nominal_text_height=0.3,
+                toolpath_text_height=0.27,
+                cutter_diameter=0.03,
+                character_spacing=0.0,
+                line_spacing=0.0,
+                text_color="magenta",
+            ),
+            ResolvedTextLine(
+                text="B",
+                nominal_text_height=0.3,
+                toolpath_text_height=0.27,
+                cutter_diameter=0.03,
+                character_spacing=0.0,
+                line_spacing=0.0,
+                text_color="black",
+            ),
+            ResolvedTextLine(
+                text="C",
+                nominal_text_height=0.3,
+                toolpath_text_height=0.27,
+                cutter_diameter=0.03,
+                character_spacing=0.0,
+                line_spacing=0.0,
+            ),
+        ]
+        label = ResolvedLabel(
+            id="colors", count=1, width=2.0, height=1.0, margin=0.1, content=content
+        )
+        pen_map = build_cutter_pen_map([label])
+        assert len(pen_map) == 3
+        assert len(set(pen_map.values())) == 3
+        assert {cutter for cutter, _color in pen_map} == {0.03}
+        # (cutter, color) sort order: black < magenta < none.
+        assert pen_map[(0.03, "black")] == 1
+        assert pen_map[(0.03, "magenta")] == 4
+        assert pen_map[(0.03, "none")] == 5
 
 
 class TestTextChunkModeCascade:

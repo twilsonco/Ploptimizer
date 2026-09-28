@@ -172,7 +172,7 @@ class TestRenderLabelOnceLayerGuards:
 
         def fake_by_pen(
             label: ResolvedLabel,
-            pen_map: Optional[dict[float, int]] = None,
+            pen_map: Optional[dict[tuple[float, str], int]] = None,
             chunk_mode: label_renderer.TextChunkMode = label_renderer.TextChunkMode.LINE,
         ) -> tuple[
             dict[int, vp.LineCollection],

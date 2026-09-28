@@ -92,6 +92,11 @@ class TestJobDefaultsModel:
         with pytest.raises(ValidationError):
             JobDefaults(**{"max_h_compress": 0.5, "maxh_compress": 0.5})  # type: ignore
 
+    def test_text_color_is_not_a_config_field(self) -> None:
+        """text_color never cascades, so it must not be a shop default."""
+        with pytest.raises(ValidationError):
+            JobDefaults(**{"text_color": "magenta"})  # type: ignore
+
     def test_description_key_allowed(self) -> None:
         """A free-form description (like tools.json) is accepted."""
         assert JobDefaults(**_FULL_CONFIG, description="shop A").description == "shop A"

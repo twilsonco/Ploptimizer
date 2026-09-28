@@ -481,7 +481,7 @@ class TestRenderLabelToPltPenMap:
 
     def test_pen_map_splits_text_across_pens(self) -> None:
         """With a pen_map each cutter's lines land on its own pen."""
-        pen_map = {0.03: 1, 0.06: 4}
+        pen_map = {(0.03, "none"): 1, (0.06, "none"): 4}
         rendered = render_label_to_plt(self._two_cutter_label(), pen_map=pen_map)
         content = rendered.plt_content
 
@@ -500,7 +500,7 @@ class TestRenderLabelToPltPenMap:
         """Pen assignment must not change the rendered footprint."""
         label = self._two_cutter_label()
         default = render_label_to_plt(label)
-        mapped = render_label_to_plt(label, pen_map={0.03: 1, 0.06: 4})
+        mapped = render_label_to_plt(label, pen_map={(0.03, "none"): 1, (0.06, "none"): 4})
         assert mapped.width == pytest.approx(default.width, abs=1e-6)
         assert mapped.height == pytest.approx(default.height, abs=1e-6)
 
@@ -512,7 +512,7 @@ class TestRenderLabelToPltPenMap:
         would differ from the union-centered result.
         """
         label = self._two_cutter_label()
-        rendered = render_label_to_plt(label, pen_map={0.03: 1, 0.06: 4})
+        rendered = render_label_to_plt(label, pen_map={(0.03, "none"): 1, (0.06, "none"): 4})
         content = rendered.plt_content
 
         ys: list[int] = []

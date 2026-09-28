@@ -9,6 +9,7 @@ from plt_optimizer.generate.resolution import resolve_job_spec
 from plt_optimizer.generate.schema import parse_yaml
 from plt_optimizer.generate.vectorize import (
     PerCutterExport,
+    _format_text_layer,
     export_per_cutter_plts,
 )
 
@@ -370,3 +371,190 @@ class TestExportWithoutPlates:
         )
 
         assert result.plt_paths
+
+
+def _two_color_label(label_id: str = "twocolor") -> ResolvedLabel:
+    """Build a label with two identical lines in different stroke colors."""
+    return ResolvedLabel(
+        id=label_id,
+        count=1,
+        width=3.0,
+        height=1.5,
+        margin=0.1,
+        content=[
+            ResolvedTextLine(
+                text="LAYER ONE",
+                nominal_text_height=0.5,
+                toolpath_text_height=0.47,
+                cutter_diameter=0.06,
+                character_spacing=0.0,
+                line_spacing=0.0,
+                text_color="magenta",
+            ),
+            ResolvedTextLine(
+                text="LAYER TWO",
+                nominal_text_height=0.5,
+                toolpath_text_height=0.47,
+                cutter_diameter=0.06,
+                character_spacing=0.0,
+                line_spacing=0.0,
+                text_color="black",
+            ),
+        ],
+    )
+
+
+class TestExportTextColorSplit:
+    """text_color splits one cutter's text into separate per-color files."""
+
+    def test_same_cutter_colors_split_into_two_files(self, tmp_path: Path) -> None:
+        """Two colors on one cutter produce two suffixed text PLTs."""
+        result = export_per_cutter_plts(
+            [_two_color_label()],
+            output_dir=tmp_path,
+            job_id="clr",
+            optimize=False,
+            plots=False,
+        )
+
+        text_names = sorted(p.name for p in result.plt_paths if "_text_" in p.name)
+        # (cutter, color) sort order: black -> pen 1, magenta -> pen 4.
+        assert text_names == [
+            "01_text_0.060_k_clr.plt",
+            "01_text_0.060_m_clr.plt",
+        ]
+        # Each file carries geometry on exactly one text pen (plus headers).
+        for name, pen in (("01_text_0.060_k_clr.plt", 1), ("01_text_0.060_m_clr.plt", 4)):
+            content = (tmp_path / "plt" / name).read_text(encoding="utf-8")
+            assert f"SP{pen};" in content
+            other = 4 if pen == 1 else 1
+            assert f"SP{other};" not in content
+            assert re.search(r"(?:PU|PD)\d", content)
+
+    def test_colored_export_keeps_structural_file_untagged(self, tmp_path: Path) -> None:
+        """The bh (borders + holes) file name never gains a color suffix."""
+        result = export_per_cutter_plts(
+            [_two_color_label()],
+            output_dir=tmp_path,
+            job_id="clr",
+            optimize=False,
+            plots=False,
+        )
+        bh_names = [p.name for p in result.plt_paths if "_bh_" in p.name]
+        assert bh_names == ["01_bh_0.015_clr.plt"]
+
+    def test_colorless_export_names_are_unchanged(self, tmp_path: Path) -> None:
+        """Jobs without colors keep the historical cutter-only names."""
+        result = export_per_cutter_plts(
+            [_label()],
+            output_dir=tmp_path,
+            job_id="plain",
+            optimize=False,
+            plots=False,
+        )
+        text_names = sorted(p.name for p in result.plt_paths if "_text_" in p.name)
+        assert text_names == ["01_text_0.030_plain.plt"]
+
+    def test_colored_export_optimizes_each_color_layer(self, tmp_path: Path) -> None:
+        """Optimized export routes and writes both color layers separately."""
+        result = export_per_cutter_plts(
+            [_two_color_label()],
+            output_dir=tmp_path,
+            job_id="opt",
+            optimize=True,
+            fast_mode=True,
+            plots=False,
+        )
+        text_names = sorted(p.name for p in result.plt_paths if "_text_" in p.name)
+        assert text_names == [
+            "01_text_0.060_k_opt.plt",
+            "01_text_0.060_m_opt.plt",
+        ]
+        for name in text_names:
+            content = (tmp_path / "plt" / name).read_text(encoding="utf-8")
+            assert content.startswith("IN;DF;PS0;")
+            assert re.search(r"(?:PU|PD)\d", content)
+
+
+class TestFormatTextLayer:
+    """Unit tests for the (cutter, color) file-name formatter."""
+
+    def test_none_color_keeps_cutter_only_name(self) -> None:
+        """The implicit color produces the historical cutter-only tag."""
+        assert _format_text_layer(0.04, "none") == "0.040"
+
+    def test_known_colors_use_abbreviation(self) -> None:
+        """Real colors gain their single-letter file-name tag."""
+        assert _format_text_layer(0.04, "magenta") == "0.040_m"
+        assert _format_text_layer(0.06, "black") == "0.060_k"
+
+    def test_unknown_color_falls_back_to_sanitized_value(self) -> None:
+        """Manually constructed unknown colors stay filesystem-safe."""
+        assert _format_text_layer(0.04, "chartreuse") == "0.040_chartreuse"
+        assert _format_text_layer(0.04, "bright-red!") == "0.040_brightred"
+        # Fully sanitized-empty values never produce a dangling separator.
+        assert _format_text_layer(0.04, "!!!") == "0.040_x"
+
+
+class TestTextColorDemoExample:
+    """Regression tests for tests_deps/text_color_demo_job.yaml.
+
+    The fixture is the hand-crafted stroke-color demo: three identical-
+    typography lines (one per stroke color: black, magenta, implicit none)
+    must split into three separate text toolpaths per plate, with the
+    colorless layer keeping the historical file name and the colored ones
+    gaining their 1-letter suffixes.
+    """
+
+    def _resolve(self) -> object:
+        """Parse and resolve the stroke-color demo job."""
+        from plt_optimizer.generate.schema import parse_yaml
+
+        job = parse_yaml(Path("tests_deps/text_color_demo_job.yaml"))
+        return resolve_job_spec(job)
+
+    def test_fixture_resolves_three_colors(self) -> None:
+        """Lines resolve to black / magenta / none in declaration order."""
+        labels = self._resolve()
+        assert len(labels) == 1
+        assert [line.text_color for line in labels[0].content] == [
+            "black",
+            "magenta",
+            "none",
+        ]
+
+    def test_fixture_exports_one_file_per_color(self, tmp_path: Path) -> None:
+        """The demo exports three suffixed text files plus the bh file."""
+        from plt_optimizer.generate.schema import parse_yaml
+
+        job = parse_yaml(Path("tests_deps/text_color_demo_job.yaml"))
+        labels = resolve_job_spec(job)
+        result = export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="demo",
+            optimize=False,
+            plots=False,
+        )
+        text_names = sorted(p.name for p in result.plt_paths if "_text_" in p.name)
+        # Single 0.375in text height -> one cutter (0.045) split three ways.
+        assert text_names == [
+            "01_text_0.045_demo.plt",
+            "01_text_0.045_k_demo.plt",
+            "01_text_0.045_m_demo.plt",
+        ]
+        assert [p.name for p in result.plt_paths if "_bh_" in p.name] == [
+            "01_bh_0.015_demo.plt"
+        ]
+        # Each text file carries geometry on exactly one pen.
+        pens_per_file = []
+        for path in result.plt_paths:
+            if "_text_" not in path.name:
+                continue
+            content = path.read_text(encoding="utf-8")
+            pens = set(re.findall(r"SP(\d+);", content)) - {"0"}
+            assert len(pens) == 1, f"{path.name} spans pens {pens}"
+            assert re.search(r"(?:PU|PD)\d", content)
+            pens_per_file.append(int(pens.pop()))
+        assert len(set(pens_per_file)) == 3

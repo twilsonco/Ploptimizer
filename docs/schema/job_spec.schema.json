@@ -135,6 +135,18 @@
           "description": "Minimum air gap in inches between engraved text and drill hole strokes, on top of the stroke floor 0.5 * (hole_cutter + text_cutter).",
           "title": "Hole Text Collision Distance"
         },
+        "text_color": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TextColor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stroke-color layer tag splitting otherwise-identical text into separate toolpaths (labels and text lines only; rejected at the job level; never cascades). Full name or case-insensitive single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); 'none' is the implicit default and cannot be specified."
+        },
         "width": {
           "anyOf": [
             {
@@ -440,6 +452,25 @@
       "title": "PlateSpec",
       "type": "object"
     },
+    "TextColor": {
+      "description": "Enumeration of stroke-color layer tags for text lines and labels.\n\nThe color carries no visual meaning in the emitted PLT: it is a layer\ntag that splits otherwise-identical text into separate toolpaths (one\nHPGL ``SP`` layer and one PLT file per color), so the cutter depth can\nbe changed between runs to expose a different material layer color on\n3-layer stock. This mirrors the EngraveLab/Vision Pro workflow where a\ndifferent stroke color forces a separate toolpath.\n\nValues may be written as the full name (``cyan``) or as the\nsingle-letter abbreviation (``c``); both forms are case-insensitive.\n``none`` is the implicit default for every line that does not declare\na color and must never be specified explicitly (see the ``text_color``\nfield validator): users pick a real color name to force a toolpath\nsplit.\n\nAttributes:\n    cyan: Cyan stroke-color layer (abbreviation ``c``).\n    magenta: Magenta stroke-color layer (abbreviation ``m``).\n    yellow: Yellow stroke-color layer (abbreviation ``y``).\n    black: Black stroke-color layer (abbreviation ``k``, CMYK style).\n    red: Red stroke-color layer (abbreviation ``r``).\n    green: Green stroke-color layer (abbreviation ``g``).\n    blue: Blue stroke-color layer (abbreviation ``b``).\n    violet: Violet stroke-color layer (abbreviation ``v``).\n    orange: Orange stroke-color layer (abbreviation ``o``).\n    pink: Pink stroke-color layer (abbreviation ``p``).\n    teal: Teal stroke-color layer (abbreviation ``t``).\n    none: Implicit default for text that declares no color; cannot be\n        specified explicitly.",
+      "enum": [
+        "cyan",
+        "magenta",
+        "yellow",
+        "black",
+        "red",
+        "green",
+        "blue",
+        "violet",
+        "orange",
+        "pink",
+        "teal",
+        "none"
+      ],
+      "title": "TextColor",
+      "type": "string"
+    },
     "TextHAlignment": {
       "description": "Enumeration of valid horizontal text alignment modes for a text line.\n\nThe alignment anchors the rendered line within the label's inner content\narea (label width minus both margins). ``left`` places the line's\nleft-most point precisely at the left margin; ``right`` places the\nline's right-most point precisely at the right margin; ``center``\n(the default) centers the line horizontally.\n\nAttributes:\n    LEFT: Left edge of the line sits at the left margin.\n    CENTER: Line is horizontally centered within the inner content area.\n    RIGHT: Right edge of the line sits at the right margin.",
       "enum": [
@@ -546,6 +577,18 @@
           "default": null,
           "description": "Minimum air gap in inches between engraved text and drill hole strokes, on top of the stroke floor 0.5 * (hole_cutter + text_cutter).",
           "title": "Hole Text Collision Distance"
+        },
+        "text_color": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TextColor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stroke-color layer tag splitting otherwise-identical text into separate toolpaths (labels and text lines only; rejected at the job level; never cascades). Full name or case-insensitive single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); 'none' is the implicit default and cannot be specified."
         },
         "text": {
           "description": "The text string to render (non-empty).",
@@ -655,6 +698,18 @@
       "default": null,
       "description": "Minimum air gap in inches between engraved text and drill hole strokes, on top of the stroke floor 0.5 * (hole_cutter + text_cutter).",
       "title": "Hole Text Collision Distance"
+    },
+    "text_color": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TextColor"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Stroke-color layer tag splitting otherwise-identical text into separate toolpaths (labels and text lines only; rejected at the job level; never cascades). Full name or case-insensitive single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); 'none' is the implicit default and cannot be specified."
     },
     "width": {
       "anyOf": [

@@ -379,6 +379,29 @@ already knows each toolpath's kind, the `Profiler` is skipped entirely.
 ### Cascading Resolution
 When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), and `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.15).
 
+### Stroke-Color Toolpath Splitting (`text_color`)
+
+`text_color` (enum `TextColor`) is a layer tag that splits otherwise-identical
+text into separate toolpaths so the cutter depth can change between runs on
+3-layer material (EngraveLab/Vision Pro stroke-color workflow). Accepted on
+**labels and text lines only**: it deliberately never cascades (resolution
+chain line → label → `"none"`, no job tier) and a job-level value is rejected
+by a `JobSpec` validator. It is also absent from `PlateSpec` and
+`job-config.json` (unknown key there).
+
+- Values: full names or 1-letter abbreviations, both case-insensitive
+  (`_missing_` normalization): cyan/c, magenta/m, yellow/y, black/k, red/r,
+  green/g, blue/b, violet/v, orange/o, pink/p, teal/t, none/n.
+- `none` is the implicit default of every line that omits the field and is
+  rejected when specified explicitly (field validator on `TextAttributes`).
+- `build_cutter_pen_map` keys on `(cutter_diameter, text_color)` sorted by
+  that tuple: smallest layer keeps SP1, rest SP4+ (SP2/SP3 reserved). Jobs
+  without colors produce the historical cutter-only assignment bit-identically.
+- `export_per_cutter_plts` writes one text file per `(cutter, color)` pen;
+  colored layers gain their 1-letter suffix (`01_text_0.040_m_<job>.plt`),
+  colorless jobs keep the historical names. The `bh` structural file is
+  never tagged.
+
 ### Bin-Packing Rotation (`allow_rotation`)
 `JobSpec.allow_rotation` (bool, default `True`) lets the `rectpack` bin
 packer test both orientations (0°/90°) for every label instance.

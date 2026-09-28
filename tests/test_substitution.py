@@ -18,7 +18,13 @@ import pytest
 from pydantic import ValidationError
 
 from plt_optimizer.generate.resolution import resolve_job_spec
-from plt_optimizer.generate.schema import JobSpec, LabelSpec, TextLine, parse_yaml
+from plt_optimizer.generate.schema import (
+    JobSpec,
+    LabelSpec,
+    TextColor,
+    TextLine,
+    parse_yaml,
+)
 from plt_optimizer.generate.substitution import (
     DEFAULT_REPLACEMENT_DELIMITER,
     SubstitutionError,
@@ -298,6 +304,25 @@ class TestExpandLabelWithReplacements:
         assert line.text_height == 0.6
         assert line.text_h_alignment is not None
         assert line.text_h_alignment.value == "left"
+
+    def test_line_text_color_survives_expansion(self, tmp_path: Path) -> None:
+        """A template line's text_color carries onto the synthesized line."""
+        _write(tmp_path / "r.txt", "REAL\n")
+        label = LabelSpec(
+            id="t",
+            replacement_text_file="r.txt",
+            content=[TextLine(text="PLACEHOLDER", text_color="m")],
+        )
+        (expanded,) = expand_label_with_replacements(label, tmp_path)
+        assert expanded.content is not None
+        assert expanded.content[0].text_color is TextColor.MAGENTA
+
+    def test_label_text_color_survives_expansion(self, tmp_path: Path) -> None:
+        """A label-level text_color carries onto every expanded instance."""
+        _write(tmp_path / "r.txt", "A\nB\n")
+        label = LabelSpec(id="t", replacement_text_file="r.txt", text_color="black")
+        result = expand_label_with_replacements(label, tmp_path)
+        assert all(lbl.text_color is TextColor.BLACK for lbl in result)
 
     def test_custom_delimiter_used(self, tmp_path: Path) -> None:
         """A custom delimiter splits the file lines."""

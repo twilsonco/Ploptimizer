@@ -28,6 +28,7 @@ from plt_optimizer.generate.schema import (
     LayoutMode,
     PlateSpec,
     TextAttributes,
+    TextColor,
     TextHAlignment,
     TextLine,
     parse_yaml,
@@ -975,6 +976,148 @@ class TestTextHAlignment:
             text_h_alignment="left",
         )
         assert plate.text_h_alignment is TextHAlignment.LEFT
+
+
+class TestTextColor:
+    """Tests for the text_color stroke-color layer field."""
+
+    def test_text_line_accepts_all_full_names(self) -> None:
+        """TextLine accepts every full color name via TextAttributes."""
+        expected = {
+            "cyan": TextColor.CYAN,
+            "magenta": TextColor.MAGENTA,
+            "yellow": TextColor.YELLOW,
+            "black": TextColor.BLACK,
+            "red": TextColor.RED,
+            "green": TextColor.GREEN,
+            "blue": TextColor.BLUE,
+            "violet": TextColor.VIOLET,
+            "orange": TextColor.ORANGE,
+            "pink": TextColor.PINK,
+            "teal": TextColor.TEAL,
+        }
+        for value, member in expected.items():
+            line = TextLine(text="HELLO", text_color=value)
+            assert line.text_color is member
+
+    def test_abbreviations_resolve_to_members(self) -> None:
+        """Single-letter abbreviations map to their full-name members."""
+        expected = {
+            "c": TextColor.CYAN,
+            "m": TextColor.MAGENTA,
+            "y": TextColor.YELLOW,
+            "k": TextColor.BLACK,
+            "r": TextColor.RED,
+            "g": TextColor.GREEN,
+            "b": TextColor.BLUE,
+            "v": TextColor.VIOLET,
+            "o": TextColor.ORANGE,
+            "p": TextColor.PINK,
+            "t": TextColor.TEAL,
+        }
+        for value, member in expected.items():
+            assert TextLine(text="X", text_color=value).text_color is member
+
+    def test_names_and_abbreviations_case_insensitive(self) -> None:
+        """Full names and abbreviations accept any capitalization."""
+        assert TextLine(text="X", text_color="Cyan").text_color is TextColor.CYAN
+        assert TextLine(text="X", text_color="MAGENTA").text_color is TextColor.MAGENTA
+        assert TextLine(text="X", text_color="M").text_color is TextColor.MAGENTA
+        assert TextLine(text="X", text_color="K").text_color is TextColor.BLACK
+
+    def test_accepts_enum_member_directly(self) -> None:
+        """Enum members are accepted as well as raw strings."""
+        line = TextLine(text="HELLO", text_color=TextColor.MAGENTA)
+        assert line.text_color is TextColor.MAGENTA
+
+    def test_direct_enum_non_string_rejected(self) -> None:
+        """Direct enum construction with a non-string misses every member."""
+        with pytest.raises(ValueError):
+            TextColor(5)  # type: ignore[call-overload]
+
+    def test_default_is_none(self) -> None:
+        """text_color defaults to None (implicit 'none' at resolution)."""
+        assert TextLine(text="X").text_color is None
+        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).text_color is None
+
+    def test_label_level_accepted(self) -> None:
+        """LabelSpec exposes the field via the attribute mixins."""
+        label = LabelSpec(id="lbl", text_color="m", content=[TextLine(text="X")])
+        assert label.text_color is TextColor.MAGENTA
+
+    def test_invalid_value_rejected(self) -> None:
+        """Values outside the enum must fail validation."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", text_color="purple")
+        with pytest.raises(ValidationError):
+            TextLine(text="X", text_color="kk")
+
+    def test_explicit_none_rejected_on_line(self) -> None:
+        """An explicit 'none' (or 'n') is rejected on a text line."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", text_color="none")
+        with pytest.raises(ValidationError):
+            TextLine(text="X", text_color="n")
+
+    def test_explicit_none_rejected_on_label(self) -> None:
+        """An explicit 'none' is rejected at the label level too."""
+        with pytest.raises(ValidationError):
+            LabelSpec(id="lbl", text_color="none", content=[TextLine(text="X")])
+
+    def test_job_level_rejected(self) -> None:
+        """A job-level text_color is rejected unconditionally."""
+        with pytest.raises(ValidationError):
+            JobSpec(job_name="J", text_color="red", content=[TextLine(text="X")])
+        with pytest.raises(ValidationError):
+            JobSpec(
+                job_name="J",
+                text_color="k",
+                labels=[LabelSpec(id="lbl", content=[TextLine(text="X")])],
+            )
+
+    def test_abbreviation_property(self) -> None:
+        """The abbreviation property exposes the file-name tag."""
+        assert TextColor.BLACK.abbreviation == "k"
+        assert TextColor.MAGENTA.abbreviation == "m"
+        assert TextColor.NONE.abbreviation == "n"
+
+    def test_parse_yaml_accepts_color(self, tmp_path: Path) -> None:
+        """A YAML spec with a label/line color parses and normalizes."""
+        spec_path = tmp_path / "color_job.yaml"
+        spec_path.write_text(
+            "job:\n"
+            "  job_name: Color Test\n"
+            "  labels:\n"
+            "    - id: lbl\n"
+            "      text_color: m\n"
+            "      content:\n"
+            "        - text: A\n"
+            "        - text: B\n"
+            "          text_color: K\n",
+            encoding="utf-8",
+        )
+        job = parse_yaml(spec_path)
+        assert job.labels is not None
+        assert job.labels[0].text_color is TextColor.MAGENTA
+        assert job.labels[0].content is not None
+        assert job.labels[0].content[0].text_color is None
+        assert job.labels[0].content[1].text_color is TextColor.BLACK
+
+    def test_parse_yaml_rejects_explicit_none(self, tmp_path: Path) -> None:
+        """A YAML spec explicitly setting 'none' fails validation."""
+        spec_path = tmp_path / "bad_color_job.yaml"
+        spec_path.write_text(
+            "job:\n"
+            "  job_name: Bad Color\n"
+            "  labels:\n"
+            "    - id: lbl\n"
+            "      content:\n"
+            "        - text: A\n"
+            "          text_color: none\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ValidationError):
+            parse_yaml(spec_path)
 
 
 class TestMinHoleMargin:

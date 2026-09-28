@@ -498,7 +498,7 @@ def assert_no_collisions(rendered_labels: Iterable[RenderedLabel]) -> None:
 
 def render_label_to_plt(
     label: ResolvedLabel,
-    pen_map: Optional[dict[float, int]] = None,
+    pen_map: Optional[dict[tuple[float, str], int]] = None,
 ) -> RenderedLabel:
     """Render a label independently to HPGL format and extract bounds.
 
@@ -537,13 +537,16 @@ def render_label_to_plt(
 
     Args:
         label: The ResolvedLabel to render (text, borders, holes).
-        pen_map: Optional mapping of text cutter diameter to HPGL pen
-            number (see :func:`plt_optimizer.generate.resolution.build_cutter_pen_map`).
-            Each text line is emitted on the pen of its cutter so
-            per-cutter PLT files can be split out after assembly. ``None``
-            (the default) renders all text on the historical text pen
-            (``SP1``), preserving back-compatible single-pen output.
-            Boundary lines always use ``SP2`` and drill holes ``SP3``.
+        pen_map: Optional mapping of ``(text cutter diameter, text color)``
+            to HPGL pen number (see
+            :func:`plt_optimizer.generate.resolution.build_cutter_pen_map`).
+            Each text line is emitted on the pen of its cutter/color layer
+            so per-cutter PLT files can be split out after assembly, and
+            lines sharing a cutter but differing in ``text_color`` land on
+            distinct pens. ``None`` (the default) renders all text on the
+            historical text pen (``SP1``), preserving back-compatible
+            single-pen output. Boundary lines always use ``SP2`` and drill
+            holes ``SP3``.
 
     Returns:
         RenderedLabel with rendered PLT content and measured bounds. When
@@ -636,13 +639,13 @@ def _chunk_mode_of(label: ResolvedLabel) -> TextChunkMode:
 
 def _render_label_once(
     label: ResolvedLabel,
-    pen_map: Optional[dict[float, int]] = None,
+    pen_map: Optional[dict[tuple[float, str], int]] = None,
 ) -> Tuple[RenderedLabel, List[_LineEntry]]:
     """Render a single label to PLT without collision resolution.
 
     Args:
         label: The ResolvedLabel to render (text, borders, holes).
-        pen_map: Optional cutter-diameter-to-pen mapping for per-cutter
+        pen_map: Optional ``(cutter, color)-to-pen`` mapping for per-cutter
             text layers (see :func:`render_label_to_plt`). ``None`` puts
             all text on the historical text pen (``SP1``).
 
@@ -1561,21 +1564,22 @@ def _render_text_local_with_bounds(
 
 def _render_text_lines_by_pen(
     label: ResolvedLabel,
-    pen_map: Optional[dict[float, int]] = None,
+    pen_map: Optional[dict[tuple[float, str], int]] = None,
     chunk_mode: TextChunkMode = TextChunkMode.LINE,
 ) -> Tuple[dict[int, vp.LineCollection], List[_LineEntry], List[TextChunkRecord]]:
     """Render text lines grouped onto per-cutter pen layers.
 
     Each positioned line's LineCollection is appended to the vpype layer
-    of its cutter's pen (see
+    of its ``(cutter, text_color)`` layer's pen (see
     :func:`plt_optimizer.generate.resolution.build_cutter_pen_map`). Lines
-    whose cutter is absent from ``pen_map`` (or when no map is supplied)
+    whose layer is absent from ``pen_map`` (or when no map is supplied)
     fall back to the historical text pen (``SP1``), preserving
     back-compatible single-pen output.
 
     Args:
         label: The resolved label whose ``content`` should be rendered.
-        pen_map: Optional mapping of cutter diameter to pen number.
+        pen_map: Optional mapping of ``(cutter diameter, text color)`` to
+            pen number.
         chunk_mode: Granularity of the returned chunk records (see
             :func:`_render_positioned_lines`).
 
@@ -1596,8 +1600,8 @@ def _render_text_lines_by_pen(
     ):
         pen = LAYER_TEXT
         if pen_map is not None and 0 <= line_index < len(label.content):
-            cutter = label.content[line_index].cutter_diameter
-            pen = pen_map.get(cutter, LAYER_TEXT)
+            line_content = label.content[line_index]
+            pen = pen_map.get((line_content.cutter_diameter, line_content.text_color), LAYER_TEXT)
         pens.setdefault(pen, vp.LineCollection()).extend(positioned_lc)
         line_entries.append(entry)
 

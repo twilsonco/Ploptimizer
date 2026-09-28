@@ -148,6 +148,7 @@ always wins at its level. Precedence per attribute:
 | Attribute | Cascade order | Fallback |
 |---|---|---|
 | `text_height`, `character_spacing`, `line_spacing`, `max_h_compress`, `text_h_alignment` | line → label → job → config | see fallback table in `JOB_SPEC.md` |
+| `text_color` | line → label (never job/plate/config) | `none` (implicit) |
 | `width`, `height` | label → job → auto-size from rendered content | — |
 | `margin` | label → job → config | 0.125 |
 | `hole_margin` | label → job → config | 0.1875 |

@@ -47,6 +47,7 @@ The forms are mutually exclusive; exactly one must be provided.
 | `text_h_alignment` | TextHAlignment \| null | null (unset) | — | Horizontal text alignment: left, center, or right. |
 | `min_hole_margin` | float \| null | null (unset) | >=0 | Minimum hole margin in inches; hole margins will not shrink below this value during collision avoidance. |
 | `hole_text_collision_distance` | float \| null | null (unset) | >=0 | Minimum air gap in inches between engraved text and drill hole strokes, on top of the stroke floor 0.5 * (hole_cutter + text_cutter). |
+| `text_color` | TextColor \| null | null (unset) | — | Stroke-color layer tag splitting otherwise-identical text into separate toolpaths (labels and text lines only; rejected at the job level; never cascades). Full name or case-insensitive single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); 'none' is the implicit default and cannot be specified. |
 | `width` | float \| null | null (unset) | >=0 | Label width in inches; unset = auto-size from rendered content (label -> job). |
 | `height` | float \| null | null (unset) | >=0 | Label height in inches; unset = auto-size from rendered content (label -> job). |
 | `margin` | float \| null | null (unset) | >=0 | Safety margin in inches between label edge and content (fallback 0.125). |
@@ -114,6 +115,7 @@ A label may be defined in one of two ways:
 | `text_h_alignment` | TextHAlignment \| null | null (unset) | — | Horizontal text alignment: left, center, or right. |
 | `min_hole_margin` | float \| null | null (unset) | >=0 | Minimum hole margin in inches; hole margins will not shrink below this value during collision avoidance. |
 | `hole_text_collision_distance` | float \| null | null (unset) | >=0 | Minimum air gap in inches between engraved text and drill hole strokes, on top of the stroke floor 0.5 * (hole_cutter + text_cutter). |
+| `text_color` | TextColor \| null | null (unset) | — | Stroke-color layer tag splitting otherwise-identical text into separate toolpaths (labels and text lines only; rejected at the job level; never cascades). Full name or case-insensitive single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); 'none' is the implicit default and cannot be specified. |
 | `width` | float \| null | null (unset) | >=0 | Label width in inches; unset = auto-size from rendered content (label -> job). |
 | `height` | float \| null | null (unset) | >=0 | Label height in inches; unset = auto-size from rendered content (label -> job). |
 | `margin` | float \| null | null (unset) | >=0 | Safety margin in inches between label edge and content (fallback 0.125). |
@@ -139,6 +141,7 @@ A single line of text content within a label.
 | `text_h_alignment` | TextHAlignment \| null | null (unset) | — | Horizontal text alignment: left, center, or right. |
 | `min_hole_margin` | float \| null | null (unset) | >=0 | Minimum hole margin in inches; hole margins will not shrink below this value during collision avoidance. |
 | `hole_text_collision_distance` | float \| null | null (unset) | >=0 | Minimum air gap in inches between engraved text and drill hole strokes, on top of the stroke floor 0.5 * (hole_cutter + text_cutter). |
+| `text_color` | TextColor \| null | null (unset) | — | Stroke-color layer tag splitting otherwise-identical text into separate toolpaths (labels and text lines only; rejected at the job level; never cascades). Full name or case-insensitive single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); 'none' is the implicit default and cannot be specified. |
 | `text` | str | **required** | — | The text string to render (non-empty). |
 
 ### `HoleSpec`
@@ -216,6 +219,39 @@ space (see ``plt_optimizer.generate.layout``).
 | `rows` | Fill the plate width first, then extend downward (row-major; the historical packing behaviour). |
 | `columns` | Fill the plate height first, then extend rightward (column-major; the default). |
 
+### `TextColor`
+
+Enumeration of stroke-color layer tags for text lines and labels.
+
+The color carries no visual meaning in the emitted PLT: it is a layer
+tag that splits otherwise-identical text into separate toolpaths (one
+HPGL ``SP`` layer and one PLT file per color), so the cutter depth can
+be changed between runs to expose a different material layer color on
+3-layer stock. This mirrors the EngraveLab/Vision Pro workflow where a
+different stroke color forces a separate toolpath.
+
+Values may be written as the full name (``cyan``) or as the
+single-letter abbreviation (``c``); both forms are case-insensitive.
+``none`` is the implicit default for every line that does not declare
+a color and must never be specified explicitly (see the ``text_color``
+field validator): users pick a real color name to force a toolpath
+split.
+
+| Value | Description |
+|---|---|
+| `cyan` | Cyan stroke-color layer (abbreviation ``c``). |
+| `magenta` | Magenta stroke-color layer (abbreviation ``m``). |
+| `yellow` | Yellow stroke-color layer (abbreviation ``y``). |
+| `black` | Black stroke-color layer (abbreviation ``k``, CMYK style). |
+| `red` | Red stroke-color layer (abbreviation ``r``). |
+| `green` | Green stroke-color layer (abbreviation ``g``). |
+| `blue` | Blue stroke-color layer (abbreviation ``b``). |
+| `violet` | Violet stroke-color layer (abbreviation ``v``). |
+| `orange` | Orange stroke-color layer (abbreviation ``o``). |
+| `pink` | Pink stroke-color layer (abbreviation ``p``). |
+| `teal` | Teal stroke-color layer (abbreviation ``t``). |
+| `none` | Implicit default for text that declares no color; cannot be specified explicitly. |
+
 ## Resolved fallback defaults
 
 When a cascading attribute is unset everywhere in its cascade (and no
@@ -236,6 +272,7 @@ always beats the config.
 | `DEFAULT_MIN_HOLE_MARGIN` | `None` | None = collision avoidance may shrink hole_margin all the way to 0.0. Required from config-or-spec when a job-config is in play. |
 | `DEFAULT_PLATE_HEIGHT` | `16.0` | Auto-allocated (unbounded mode) default plate height when job-config plate_height is unset. Required from config when a job-config is in play and plates are undeclared. |
 | `DEFAULT_PLATE_WIDTH` | `24.0` | Auto-allocated (unbounded mode) default plate width when job-config plate_width is unset. Required from config when a job-config is in play and plates are undeclared. |
+| `DEFAULT_TEXT_COLOR` | `'none'` | Implicit stroke-color layer of text that omits text_color (never cascades; a job-level text_color is rejected). 'none' cannot be specified explicitly. |
 | `DEFAULT_TEXT_HEIGHT` | `0.25` | Font height when unset at line/label/job level. |
 | `DEFAULT_TEXT_H_ALIGNMENT` | `'center'` | Horizontal alignment fallback when unset everywhere. |
 

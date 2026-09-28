@@ -10,7 +10,7 @@ Pen (layer) mapping of the assembled plate:
 - Pen 1: Text (legacy default text pen)
 - Pen 2: Boundaries (score/cut lines)
 - Pen 3: Drill holes
-- Pens 4+: Text lines grouped by cutter diameter (see
+- Pens 4+: Text lines grouped by cutter diameter and stroke color (see
   ``resolution.build_cutter_pen_map``)
 
 Example:
@@ -47,6 +47,7 @@ from plt_optimizer.generate.schema import (
     DEFAULT_LAYOUT_MODE,
     LayoutMode,
     PlateSpec,
+    TextColor,
 )
 from plt_optimizer.utils.logging import TextLogger
 
@@ -359,6 +360,35 @@ def _format_cutter(cutter_diameter: float) -> str:
     return f"{cutter_diameter:.3f}"
 
 
+def _format_text_layer(cutter_diameter: float, text_color: str) -> str:
+    """Format a ``(cutter, color)`` text layer for file names.
+
+    The implicit ``"none"`` color keeps the historical cutter-only name
+    (bit-identical output for color-less jobs); a real stroke color gains
+    its single-letter tag so color-split layers never collide
+    (``0.04`` + ``magenta`` -> ``"0.040_m"``).
+
+    Args:
+        cutter_diameter: Cutter diameter in inches.
+        text_color: Resolved stroke-color value (``"none"`` or a
+            :class:`~plt_optimizer.generate.schema.TextColor` value).
+
+    Returns:
+        File-name component, e.g. ``"0.030"`` or ``"0.030_m"``.
+    """
+    cutter_str = _format_cutter(cutter_diameter)
+    if text_color == TextColor.NONE.value:
+        return cutter_str
+    try:
+        abbreviation = TextColor(text_color).abbreviation
+    except ValueError:
+        # Unknown colors (manually constructed labels) fall back to the
+        # full sanitized value so file names stay filesystem-safe and can
+        # never collide with a real color's 1-letter abbreviation.
+        abbreviation = re.sub(r"[^0-9a-zA-Z]", "", text_color) or "x"
+    return f"{cutter_str}_{abbreviation}"
+
+
 def _format_plate_number(plate_number: int) -> str:
     """Format a plate number for file names (2-digit zero-padded).
 
@@ -396,11 +426,16 @@ def export_per_cutter_plts(
     - **borders + holes** share one file (same tool, engraved together),
       named ``<plate number>_bh_<cutter>_<job_id>.plt`` where ``<cutter>``
       is the boundary/hole cutter diameter (``bh`` = borders-holes).
-    - **text** gets one file per distinct cutter diameter, named
-      ``<plate number>_text_<cutter>_<job_id>.plt``. A text cutter equal
-      to the boundary/hole cutter still gets its own file (separate run).
-      The plate number is the 1-based packing-order index, zero-padded to
-      two digits (``01``, ``02``, ...).
+    - **text** gets one file per distinct cutter/color layer, named
+      ``<plate number>_text_<cutter>_<job_id>.plt`` (or
+      ``<plate number>_text_<cutter>_<color>_<job_id>.plt`` when the
+      layer carries a ``text_color`` tag, e.g. ``01_text_0.040_m_job.plt``
+      for magenta). A text cutter equal to the boundary/hole cutter still
+      gets its own file (separate run). Lines sharing a cutter but
+      differing in ``text_color`` split into separate files so the cutter
+      depth can change between runs (3-layer material). The plate number
+      is the 1-based packing-order index, zero-padded to two digits
+      (``01``, ``02``, ...).
     - The combined per-plate PLT is assembled **in memory only** (never
       written) and exposed via :attr:`PerCutterExport.combined_by_plate`;
       when ``plots`` is enabled it also drives the combined
@@ -469,10 +504,11 @@ def export_per_cutter_plts(
     if provided_plates is not None and len(provided_plates) == 0:
         provided_plates = None
 
-    # Pen == cutter: assign one HPGL pen per distinct text cutter so the
-    # assembled plate can be split into per-cutter files after assembly.
+    # Pen == (cutter, color): assign one HPGL pen per distinct text
+    # cutter/color layer so the assembled plate can be split into
+    # per-layer files after assembly.
     pen_map = build_cutter_pen_map(resolved_labels)
-    cutter_by_pen = {pen: cutter for cutter, pen in pen_map.items()}
+    layer_by_pen = {pen: layer for layer, pen in pen_map.items()}
 
     # Job-level boundary/hole cutter (all labels share the job-resolved
     # value; fall back to the default for content-less jobs).
@@ -557,12 +593,14 @@ def export_per_cutter_plts(
             structure_path.write_text(bh_content, encoding="utf-8")
             result.plt_paths.append(structure_path)
 
-        # Text group: one file per distinct text cutter pen with content.
-        # With optimization enabled the layer is routed directly from the
-        # rendered chunk records in plate space (parser/profiler skipped);
-        # otherwise the pen layer is extracted from the assembly as-is.
-        for pen_id in sorted(cutter_by_pen):
-            cutter = cutter_by_pen[pen_id]
+        # Text group: one file per distinct text cutter/color pen with
+        # content. With optimization enabled the layer is routed directly
+        # from the rendered chunk records in plate space (parser/profiler
+        # skipped); otherwise the pen layer is extracted from the
+        # assembly as-is.
+        for pen_id in sorted(layer_by_pen):
+            cutter, text_color = layer_by_pen[pen_id]
+            layer_tag = _format_text_layer(cutter, text_color)
             written_content: Optional[str] = None
             if optimize and strategy_factory is not None:
                 optimization = optimize_text_layer(
@@ -571,17 +609,17 @@ def export_per_cutter_plts(
                     pen_id,
                     strategy_factory,
                     logger=logger,
-                    log_prefix=f"[plate {plate_str} text {_format_cutter(cutter)}]",
+                    log_prefix=f"[plate {plate_str} text {layer_tag}]",
                 )
                 if optimization is not None:
                     written_content = optimization.content
-                    _report(f"{plate_str} text {_format_cutter(cutter)}", optimization)
+                    _report(f"{plate_str} text {layer_tag}", optimization)
             if written_content is None:
                 text_content = extract_pens_from_plt_text(combined, [pen_id])
                 if not plt_has_geometry(text_content):
                     continue
                 written_content = text_content
-            text_path = plt_dir / f"{plate_str}_text_{_format_cutter(cutter)}_{job_id}.plt"
+            text_path = plt_dir / f"{plate_str}_text_{layer_tag}_{job_id}.plt"
             text_path.write_text(written_content, encoding="utf-8")
             result.plt_paths.append(text_path)
 

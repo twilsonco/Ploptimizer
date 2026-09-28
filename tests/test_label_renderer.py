@@ -1318,8 +1318,8 @@ class TestTextChunkRecords:
         pen_map = build_cutter_pen_map([label])
         rendered = render_label_to_plt(label, pen_map=pen_map)
         assert len(rendered.text_chunks) == 2
-        assert rendered.text_chunks[0].pen == pen_map[0.03]
-        assert rendered.text_chunks[1].pen == pen_map[0.06]
+        assert rendered.text_chunks[0].pen == pen_map[(0.03, "none")]
+        assert rendered.text_chunks[1].pen == pen_map[(0.06, "none")]
         assert rendered.text_chunks[0].pen != rendered.text_chunks[1].pen
 
     def test_blank_word_produces_no_record(self) -> None:

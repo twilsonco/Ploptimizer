@@ -58,6 +58,11 @@ DEFAULT_BOUNDARY_HOLE_CUTTER: float = 0.015
 DEFAULT_MAX_H_COMPRESS: float = 0.0
 # Horizontal text alignment defaults to centering (existing behaviour).
 DEFAULT_TEXT_H_ALIGNMENT: str = "center"
+# Stroke-color layer tag default. ``"none"`` is the implicit color of
+# every line that omits ``text_color``; it never cascades (the field is
+# label/line-local by design, see schema.TextColor) and the resolution
+# engine never reads a job-level value (the schema rejects one).
+DEFAULT_TEXT_COLOR: str = "none"
 
 # ---------------------------------------------------------------------------
 # Cutter lookup table and inventory matching
@@ -216,6 +221,12 @@ class ResolvedTextLine:
             ``"right"``. ``"left"`` places the line's left-most point
             precisely at the left margin; ``"right"`` places the right-most
             point precisely at the right margin.
+        text_color: Stroke-color layer tag (``"none"`` default) splitting
+            otherwise-identical text into separate toolpaths. Resolved
+            line -> label -> default (deliberately NOT cascaded from the
+            job; see :class:`~plt_optimizer.generate.schema.TextColor`).
+            Consumed by the pen map so each ``(cutter, color)`` pair gets
+            its own HPGL ``SP`` layer and PLT file.
     """
 
     text: str
@@ -226,6 +237,7 @@ class ResolvedTextLine:
     line_spacing: float
     max_h_compress: float = 0.0
     text_h_alignment: str = DEFAULT_TEXT_H_ALIGNMENT
+    text_color: str = DEFAULT_TEXT_COLOR
 
 
 @dataclass(frozen=True)
@@ -617,6 +629,17 @@ def _resolve_content(
         else:
             line_text_h_alignment = DEFAULT_TEXT_H_ALIGNMENT
 
+        # Resolve the stroke-color layer tag (line -> label -> default).
+        # Deliberately no job tier: text_color distinguishes otherwise-
+        # equivalent text within/between labels and never cascades from
+        # the job (the schema rejects a job-level value outright).
+        if line.text_color is not None:
+            line_text_color: str = line.text_color.value
+        elif label_input.text_color is not None:
+            line_text_color = label_input.text_color.value
+        else:
+            line_text_color = DEFAULT_TEXT_COLOR
+
         resolved_content.append(
             ResolvedTextLine(
                 text=line.text,
@@ -627,6 +650,7 @@ def _resolve_content(
                 line_spacing=line_spacing,
                 max_h_compress=line_max_h_compress,
                 text_h_alignment=line_text_h_alignment,
+                text_color=line_text_color,
             )
         )
     return resolved_content
@@ -753,43 +777,56 @@ def _resolve_label(
     )
 
 
-def build_cutter_pen_map(resolved_labels: Sequence[ResolvedLabel]) -> dict[float, int]:
-    """Map each distinct text cutter diameter to an HPGL pen number.
+def build_cutter_pen_map(
+    resolved_labels: Sequence[ResolvedLabel],
+) -> dict[tuple[float, str], int]:
+    """Map each distinct text (cutter, color) layer to an HPGL pen number.
 
     Per-cutter export assigns one pen (HPGL ``SP`` layer) per distinct
-    text cutter diameter so every cutter ends up in its own PLT file.
-    Pen numbers are reserved for the structural layers:
+    text cutter diameter *and* stroke-color tag so every cutter ends up
+    in its own PLT file, and lines sharing a cutter but carrying
+    different ``text_color`` values still split into separate toolpaths
+    (depth changes between runs on 3-layer material). Pen numbers are
+    reserved for the structural layers:
 
-    - ``SP1``: the smallest text cutter (kept as pen 1 for backward
+    - ``SP1``: the smallest text layer (kept as pen 1 for backward
       compatibility with single-cutter jobs, where all text lands on the
       historical text layer).
     - ``SP2``: label boundaries (reserved, never a text pen).
     - ``SP3``: drill holes (reserved, never a text pen).
-    - ``SP4+``: remaining text cutters, sorted by ascending diameter.
+    - ``SP4+``: remaining text layers, sorted by ``(cutter, color)``.
 
     A text cutter that happens to equal the boundary/hole cutter still
-    gets its own pen (it is engraved in a separate run).
+    gets its own pen (it is engraved in a separate run). Jobs whose lines
+    all carry the implicit ``"none"`` color produce exactly the
+    historical cutter-only pen assignment.
 
     Args:
         resolved_labels: Fully resolved labels whose text lines carry
-            ``cutter_diameter`` values.
+            ``cutter_diameter`` and ``text_color`` values.
 
     Returns:
-        Mapping of cutter diameter (inches) to pen number. Empty when no
-        label has any text content.
+        Mapping of ``(cutter diameter (inches), text color)`` to pen
+        number. Empty when no label has any text content.
 
     Example:
         >>> # cutters 0.03 and 0.06 present -> smallest keeps pen 1
         >>> build_cutter_pen_map(labels)  # doctest: +SKIP
-        {0.03: 1, 0.06: 4}
+        {(0.03, "none"): 1, (0.06, "none"): 4}
     """
-    cutters = sorted({line.cutter_diameter for label in resolved_labels for line in label.content})
-    pen_map: dict[float, int] = {}
-    for index, cutter in enumerate(cutters):
-        # First (smallest) cutter keeps the historical text pen 1; the
-        # remaining cutters start at SP4 because SP2 (borders) and SP3
+    layers = sorted(
+        {
+            (line.cutter_diameter, line.text_color)
+            for label in resolved_labels
+            for line in label.content
+        }
+    )
+    pen_map: dict[tuple[float, str], int] = {}
+    for index, layer in enumerate(layers):
+        # First (smallest) layer keeps the historical text pen 1; the
+        # remaining layers start at SP4 because SP2 (borders) and SP3
         # (holes) are reserved for the structural layers.
-        pen_map[cutter] = 1 if index == 0 else index + 3
+        pen_map[layer] = 1 if index == 0 else index + 3
     return pen_map
 
 
