@@ -189,7 +189,12 @@ class TestExportAndOptimizePhase3:
             assert "PD" in path.read_text()
 
     def test_export_per_cutter_multi_cutter_naming(self, tmp_path: Path) -> None:
-        """Distinct text cutters produce one text file per cutter diameter."""
+        """Distinct text cutters produce one text file per cutter diameter.
+
+        Color-suffixed layers (``..._text_<cutter>_<color>_<job>.plt``) keep
+        the cutter at name index 2, so the tag extraction below covers both
+        tagged and untagged text files.
+        """
         job = parse_yaml("tests_deps/complex_test_job.yaml")
         resolved_labels = resolve_job_spec(job)
 
@@ -211,6 +216,56 @@ class TestExportAndOptimizePhase3:
         for tag in cutter_tags:
             major, _, minor = tag.partition(".")
             assert major.isdigit() and len(minor) == 3
+
+    def test_export_per_cutter_color_split_files(self, tmp_path: Path) -> None:
+        """complex_test_job's color_split_tag label exports per-color toolpaths.
+
+        The label's three lines share one cutter (text_height 0.3 -> 0.040")
+        but carry different ``text_color`` tags, so the export must split them
+        into three (cutter, color) layers: the black/magenta lines gain
+        1-letter suffixes while the untagged line merges into the historical
+        cutter-only ``0.040`` file.
+        """
+        job = parse_yaml("tests_deps/complex_test_job.yaml")
+        resolved_labels = resolve_job_spec(job)
+
+        result = export_per_cutter_plts(
+            resolved_labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="complex",
+            optimize=False,
+            plots=False,
+        )
+
+        text_files = sorted(p.name for p in result.plt_paths if "_text_" in p.name)
+        # The colored layers appear as additional suffixed files (the plate
+        # prefix depends on where the packer places the label, so match on
+        # the suffix).
+        assert any(name.endswith("_text_0.040_k_complex.plt") for name in text_files)
+        assert any(name.endswith("_text_0.040_m_complex.plt") for name in text_files)
+        # The implicit "none" layer keeps the historical cutter-only name.
+        assert any(name.endswith("_text_0.040_complex.plt") for name in text_files)
+        # The two colored files are *additional* toolpaths: each carries only
+        # its own layer's strokes on a single pen.
+        black_file = next(
+            p for p in result.plt_paths if p.name.endswith("_text_0.040_k_complex.plt")
+        )
+        magenta_file = next(
+            p for p in result.plt_paths if p.name.endswith("_text_0.040_m_complex.plt")
+        )
+        black_content = black_file.read_text(encoding="utf-8")
+        magenta_content = magenta_file.read_text(encoding="utf-8")
+        # Each color file selects exactly one layer pen (SP1+; SP0 tokens are
+        # the header/trailer pen resets, never a layer).
+        black_pens = {p for p in re.findall(r"SP(\d+);", black_content) if p != "0"}
+        magenta_pens = {p for p in re.findall(r"SP(\d+);", magenta_content) if p != "0"}
+        assert len(black_pens) == 1
+        assert len(magenta_pens) == 1
+        assert black_pens != magenta_pens
+        # Both files carry geometry.
+        assert re.search(r"(?:PU|PD)\d", black_content)
+        assert re.search(r"(?:PU|PD)\d", magenta_content)
 
     def test_export_phase3_file_organization(self, tmp_path: Path) -> None:
         """All Phase 3 output files live under <output_dir>/plt/."""

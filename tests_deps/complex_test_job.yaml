@@ -9,13 +9,18 @@
 #     suppression of inherited holes
 #   - Location-only drill holes: ``location`` alone is a valid hole spec and
 #     implies the default 0.125" diameter; an explicit ``diameter`` overrides
-#     it (see corner_drill)  #   - Group hole-location shorthands: ``corners`` (all four corners) and
-  #     ``sides`` (left + right) expand into their atomic member holes at
-  #     parse time (see valve_tag / group_holes)#   - hole_margin cascade: job-level default inset plus a label-level override
+#     it (see corner_drill)
+#   - Group hole-location shorthands: ``corners`` (all four corners) and
+#     ``sides`` (left + right) expand into their atomic member holes at
+#     parse time (see valve_tag / group_holes)
+#   - hole_margin cascade: job-level default inset plus a label-level override
 #   - Horizontal text compression: over-wide lines are uniformly squeezed
 #     (bounded by max_h_compress) so they respect the label margins
 #   - Horizontal text alignment: per-line left/right anchoring at the label
 #     margins plus label-level inheritance of the alignment default
+#   - Stroke-color toolpath splitting: same-cutter lines tagged with different
+#     ``text_color`` values (abbreviation, full name, or implicit none) export
+#     as separate per-color PLT files (see color_split_tag)
 #   - Replacement text file template (EngraveLab/Vision Pro "badges") mixed
 #     with fully static labels in one job
 #   - High-count volume labels forcing overflow onto the second plate
@@ -235,3 +240,25 @@ job:
           text_height: 0.45
         - text: "PLACEHOLDER LINE 2"
           text_h_alignment: center
+
+    # 13. Stroke-color toolpath splitting: all three lines share one cutter
+    #     (text_height 0.3 -> 0.040"), so a cutter-only split would merge them
+    #     into a single toolpath. The per-line ``text_color`` tags exercise the
+    #     three layer kinds at once: abbreviation ("k" -> black), full name
+    #     ("magenta"), and the implicit untagged "none" default. Export writes
+    #     one PLT per (cutter, color) layer: the colored layers gain a
+    #     1-letter suffix (``*_text_0.040_k_*.plt`` / ``*_text_0.040_m_*.plt``)
+    #     while the none layer keeps the historical cutter-only name
+    #     (``*_text_0.040_*.plt``). text_color is line/label-local and never
+    #     cascades from the job level.
+    - id: color_split_tag
+      count: 2
+      width: 3.0
+      height: 1.5
+      text_height: 0.3
+      content:
+        - text: "TOP COAT"
+          text_color: k
+        - text: "MIDDLE COAT"
+          text_color: magenta
+        - text: "BASE COAT"

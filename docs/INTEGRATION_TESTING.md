@@ -137,6 +137,8 @@ Designed to exercise every layer of the pipeline in a single run:
 - `hole_margin` cascade and `min_hole_margin` collision-avoidance floor
 - Horizontal text compression (`max_h_compress`) and alignment
   (`text_h_alignment`)
+- Stroke-color toolpath splitting (`text_color`): same-cutter lines tagged
+  black / magenta / implicit none export as separate per-color PLTs
 - Replacement text file templates mixed with static labels
 - High-count volume labels forcing overflow onto the second plate
 
@@ -262,7 +264,8 @@ After a run:
 
 ### Generated Files (`test_output/integration_test/`)
 - [ ] `plt/` contains one `<plate>_bh_<cutter>_<job>.plt` per plate and one
-      `<plate>_text_<cutter>_<job>.plt` per plate/cutter diameter
+      `<plate>_text_<cutter>[_<color>]_<job>.plt` per plate/cutter diameter
+      (colored text layers gain a 1-letter suffix, e.g. `_text_0.040_k_`)
 - [ ] `pdf/` contains a matching simple-outline PDF per PLT plus one
       `<plate>_all_<job>.pdf` combined preview per plate
 - [ ] No text bleeds over label boundaries; drill holes sit at their specified
