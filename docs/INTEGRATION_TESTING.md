@@ -191,7 +191,7 @@ Uses the production export path, `export_per_cutter_plts()`:
 - Bin-packs labels onto plates using their **rendered** bounds.
 - Assembles each plate in memory and splits the assembly **by cutter**:
   - borders + drill holes → one `<plate>_bh_<cutter>_<job_id>.plt` per plate
-  - text → one `<plate>_text_<cutter>_<job_id>.plt` per plate and cutter diameter
+  - text → one `<plate>_txt_<cutter>_<job_id>.plt` per plate and cutter diameter
 - The combined per-plate PLT stays in memory only (used for the combined PDF
   preview and optional color plots).
 - Text–hole collisions that avoidance resolves (hole-margin reduction
@@ -206,10 +206,10 @@ Outputs land in `test_output/integration_test/`:
 ```
 test_output/integration_test/
 ├── plt/
-│   ├── 01_text_0.060_Test_123_-_Single_Column.plt   # one per text cutter
+│   ├── 01_txt_0.060_Test_123_-_Single_Column.plt    # one per text cutter
 │   └── 01_bh_0.015_Test_123_-_Single_Column.plt     # borders + holes together
 └── pdf/
-    ├── 01_text_0.060_Test_123_-_Single_Column.pdf   # simple-outline previews
+    ├── 01_txt_0.060_Test_123_-_Single_Column.pdf    # simple-outline previews
     ├── 01_bh_0.015_Test_123_-_Single_Column.pdf
     └── 01_all_Test_123_-_Single_Column.pdf          # combined per plate
 ```
@@ -264,8 +264,8 @@ After a run:
 
 ### Generated Files (`test_output/integration_test/`)
 - [ ] `plt/` contains one `<plate>_bh_<cutter>_<job>.plt` per plate and one
-      `<plate>_text_<cutter>[_<color>]_<job>.plt` per plate/cutter diameter
-      (colored text layers gain a 1-letter suffix, e.g. `_text_0.040_k_`)
+      `<plate>_txt_<cutter>[_<color>]_<job>.plt` per plate/cutter diameter
+      (colored text layers gain a 1-letter suffix, e.g. `_txt_0.040_k_`)
 - [ ] `pdf/` contains a matching simple-outline PDF per PLT plus one
       `<plate>_all_<job>.pdf` combined preview per plate
 - [ ] No text bleeds over label boundaries; drill holes sit at their specified
@@ -349,7 +349,7 @@ uv run pytest tests/ -v
 uv run plt-optimizer generate tests_deps/test123_spec.yaml -o out/ --no-plots
 
 # Optimization pipeline on an exported PLT
-uv run plt-optimizer optimize out/plt/01_text_0.060_Test_123_-_Single_Column.plt
+uv run plt-optimizer optimize out/plt/01_txt_0.060_Test_123_-_Single_Column.plt
 ```
 
 ## Integration Points Verified

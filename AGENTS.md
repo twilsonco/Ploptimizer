@@ -398,7 +398,7 @@ by a `JobSpec` validator. It is also absent from `PlateSpec` and
   that tuple: smallest layer keeps SP1, rest SP4+ (SP2/SP3 reserved). Jobs
   without colors produce the historical cutter-only assignment bit-identically.
 - `export_per_cutter_plts` writes one text file per `(cutter, color)` pen;
-  colored layers gain their 1-letter suffix (`01_text_0.040_m_<job>.plt`),
+  colored layers gain their 1-letter suffix (`01_txt_0.040_m_<job>.plt`),
   colorless jobs keep the historical names. The `bh` structural file is
   never tagged.
 
@@ -613,7 +613,7 @@ rapid-travel plots), `--tools` (default `tools.json`; missing file → ideal
 cutters), `--job-config` (default `job-config.json`; top-layer job defaults and
 the required-when-unconfigured gate, see section 6), `--fast-mode` (plate-space
 routing via `NearestNeighbor2Opt` instead of the default `ParallelEnsemble`). File names:
-`<2-digit plate>_{text|bh}_<cutter>_<job_id>.<plt|pdf>` plus combined
+`<2-digit plate>_{txt|bh}_<cutter>_<job_id>.<plt|pdf>` plus combined
 `<plate>_all_<job_id>.pdf`. Simple-outline PDFs style strokes by toolpath kind:
 purely structural (`bh`) plots use `linewidth=2.0`/`alpha=0.3`; text and mixed
 combined (`all`) plots use `linewidth=1.0`/`alpha=1.0` (via

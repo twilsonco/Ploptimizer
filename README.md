@@ -61,9 +61,9 @@ plt-optimizer generate spec.yaml -o out/ --no-plots
 Runs the three-phase generation pipeline (label resolution with cutter compensation → bounds-aware bin packing → per-label rendering/assembly) and writes:
 
 ```
-out/plt/01_text_0.030_<job_id>.plt   # one file per text cutter (plate 01)
+out/plt/01_txt_0.030_<job_id>.plt    # one file per text cutter (plate 01)
 out/plt/01_bh_0.015_<job_id>.plt     # borders + drill holes together (plate 01)
-out/pdf/01_text_0.030_<job_id>.pdf   # simple-outline previews (--no-plots skips)
+out/pdf/01_txt_0.030_<job_id>.pdf    # simple-outline previews (--no-plots skips)
 out/pdf/01_all_<job_id>.pdf          # combined preview per plate
 ```
 

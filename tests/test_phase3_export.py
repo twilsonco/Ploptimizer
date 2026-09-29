@@ -44,7 +44,7 @@ class TestExportAndOptimizePhase3:
         # no inventory snapping) plus borders. Names are
         # <plate number>_<kind>_<cutter>_<job_id>.plt (2-digit plate).
         names = sorted(p.name for p in exported_paths)
-        assert any(name.startswith("01_text_0.060_") for name in names)
+        assert any(name.startswith("01_txt_0.060_") for name in names)
         assert any(name.startswith("01_bh_0.015_") for name in names)
         # The combined PLT is never written to disk.
         assert not any("_all_" in name for name in names)
@@ -162,7 +162,7 @@ class TestExportAndOptimizePhase3:
         by_name = dict(captured)
         # Borders+holes files are structural; text files are not.
         assert any("_bh_" in name and flag for name, flag in by_name.items())
-        assert any("_text_" in name and not flag for name, flag in by_name.items())
+        assert any("_txt_" in name and not flag for name, flag in by_name.items())
         # Combined per-plate plots mix layers and stay non-structural.
         all_plots = [flag for name, flag in by_name.items() if "_all_" in name]
         assert all_plots and not any(all_plots)
@@ -191,7 +191,7 @@ class TestExportAndOptimizePhase3:
     def test_export_per_cutter_multi_cutter_naming(self, tmp_path: Path) -> None:
         """Distinct text cutters produce one text file per cutter diameter.
 
-        Color-suffixed layers (``..._text_<cutter>_<color>_<job>.plt``) keep
+        Color-suffixed layers (``..._txt_<cutter>_<color>_<job>.plt``) keep
         the cutter at name index 2, so the tag extraction below covers both
         tagged and untagged text files.
         """
@@ -207,8 +207,8 @@ class TestExportAndOptimizePhase3:
             plots=False,
         )
 
-        text_files = [p.name for p in result.plt_paths if "_text_" in p.name]
-        # Name shape: <plate>_text_<cutter>_<job_id>.plt (job_id has no '_').
+        text_files = [p.name for p in result.plt_paths if "_txt_" in p.name]
+        # Name shape: <plate>_txt_<cutter>_<job_id>.plt (job_id has no '_').
         cutter_tags = {name.split("_")[2] for name in text_files}
         # complex_test_job exercises at least three distinct text cutters.
         assert len(cutter_tags) >= 3
@@ -238,21 +238,21 @@ class TestExportAndOptimizePhase3:
             plots=False,
         )
 
-        text_files = sorted(p.name for p in result.plt_paths if "_text_" in p.name)
+        text_files = sorted(p.name for p in result.plt_paths if "_txt_" in p.name)
         # The colored layers appear as additional suffixed files (the plate
         # prefix depends on where the packer places the label, so match on
         # the suffix).
-        assert any(name.endswith("_text_0.040_k_complex.plt") for name in text_files)
-        assert any(name.endswith("_text_0.040_m_complex.plt") for name in text_files)
+        assert any(name.endswith("_txt_0.040_k_complex.plt") for name in text_files)
+        assert any(name.endswith("_txt_0.040_m_complex.plt") for name in text_files)
         # The implicit "none" layer keeps the historical cutter-only name.
-        assert any(name.endswith("_text_0.040_complex.plt") for name in text_files)
+        assert any(name.endswith("_txt_0.040_complex.plt") for name in text_files)
         # The two colored files are *additional* toolpaths: each carries only
         # its own layer's strokes on a single pen.
         black_file = next(
-            p for p in result.plt_paths if p.name.endswith("_text_0.040_k_complex.plt")
+            p for p in result.plt_paths if p.name.endswith("_txt_0.040_k_complex.plt")
         )
         magenta_file = next(
-            p for p in result.plt_paths if p.name.endswith("_text_0.040_m_complex.plt")
+            p for p in result.plt_paths if p.name.endswith("_txt_0.040_m_complex.plt")
         )
         black_content = black_file.read_text(encoding="utf-8")
         magenta_content = magenta_file.read_text(encoding="utf-8")
@@ -472,14 +472,14 @@ class TestExportTextColorSplit:
             plots=False,
         )
 
-        text_names = sorted(p.name for p in result.plt_paths if "_text_" in p.name)
+        text_names = sorted(p.name for p in result.plt_paths if "_txt_" in p.name)
         # (cutter, color) sort order: black -> pen 1, magenta -> pen 4.
         assert text_names == [
-            "01_text_0.060_k_clr.plt",
-            "01_text_0.060_m_clr.plt",
+            "01_txt_0.060_k_clr.plt",
+            "01_txt_0.060_m_clr.plt",
         ]
         # Each file carries geometry on exactly one text pen (plus headers).
-        for name, pen in (("01_text_0.060_k_clr.plt", 1), ("01_text_0.060_m_clr.plt", 4)):
+        for name, pen in (("01_txt_0.060_k_clr.plt", 1), ("01_txt_0.060_m_clr.plt", 4)):
             content = (tmp_path / "plt" / name).read_text(encoding="utf-8")
             assert f"SP{pen};" in content
             other = 4 if pen == 1 else 1
@@ -507,8 +507,8 @@ class TestExportTextColorSplit:
             optimize=False,
             plots=False,
         )
-        text_names = sorted(p.name for p in result.plt_paths if "_text_" in p.name)
-        assert text_names == ["01_text_0.030_plain.plt"]
+        text_names = sorted(p.name for p in result.plt_paths if "_txt_" in p.name)
+        assert text_names == ["01_txt_0.030_plain.plt"]
 
     def test_colored_export_optimizes_each_color_layer(self, tmp_path: Path) -> None:
         """Optimized export routes and writes both color layers separately."""
@@ -520,10 +520,10 @@ class TestExportTextColorSplit:
             fast_mode=True,
             plots=False,
         )
-        text_names = sorted(p.name for p in result.plt_paths if "_text_" in p.name)
+        text_names = sorted(p.name for p in result.plt_paths if "_txt_" in p.name)
         assert text_names == [
-            "01_text_0.060_k_opt.plt",
-            "01_text_0.060_m_opt.plt",
+            "01_txt_0.060_k_opt.plt",
+            "01_txt_0.060_m_opt.plt",
         ]
         for name in text_names:
             content = (tmp_path / "plt" / name).read_text(encoding="utf-8")
@@ -592,12 +592,12 @@ class TestTextColorDemoExample:
             optimize=False,
             plots=False,
         )
-        text_names = sorted(p.name for p in result.plt_paths if "_text_" in p.name)
+        text_names = sorted(p.name for p in result.plt_paths if "_txt_" in p.name)
         # Single 0.375in text height -> one cutter (0.045) split three ways.
         assert text_names == [
-            "01_text_0.045_demo.plt",
-            "01_text_0.045_k_demo.plt",
-            "01_text_0.045_m_demo.plt",
+            "01_txt_0.045_demo.plt",
+            "01_txt_0.045_k_demo.plt",
+            "01_txt_0.045_m_demo.plt",
         ]
         assert [p.name for p in result.plt_paths if "_bh_" in p.name] == [
             "01_bh_0.015_demo.plt"
@@ -605,7 +605,7 @@ class TestTextColorDemoExample:
         # Each text file carries geometry on exactly one pen.
         pens_per_file = []
         for path in result.plt_paths:
-            if "_text_" not in path.name:
+            if "_txt_" not in path.name:
                 continue
             content = path.read_text(encoding="utf-8")
             pens = set(re.findall(r"SP(\d+);", content)) - {"0"}

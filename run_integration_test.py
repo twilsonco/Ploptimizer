@@ -282,7 +282,7 @@ def phase_3_vectorization_and_export(
     assembly by CUTTER:
 
     - borders + holes -> one ``<plate>_bh_<cutter>_<job_id>.plt`` per plate
-    - text -> one ``<plate>_text_<cutter>[_<color>]_<job_id>.plt`` per plate
+    - text -> one ``<plate>_txt_<cutter>[_<color>]_<job_id>.plt`` per plate
       and (cutter, stroke-color) layer; colored layers gain a 1-letter
       suffix, colorless jobs keep the cutter-only name
     - the combined per-plate PLT stays in memory only (returned in
@@ -514,7 +514,7 @@ def _run_single_spec(spec_override: Path | None) -> int:
         print("Comparison:")
         print("1. Inspect the generated artifacts under the output directory:")
         print("   - plt/: per-cutter toolpath files")
-        print("       <plate>_text_<cutter>[_<color>]_<job>.plt: one file per text layer")
+        print("       <plate>_txt_<cutter>[_<color>]_<job>.plt: one file per text layer")
         print("       <plate>_bh_<cutter>_<job>.plt: borders + drill holes together")
         print("   - pdf/: simple-outline previews")
         print("       <plate>_all_<job>.pdf: combined text + borders + holes per plate")

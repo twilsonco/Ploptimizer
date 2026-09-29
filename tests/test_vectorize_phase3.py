@@ -569,7 +569,7 @@ class TestExportStructuralLayerSkip:
         # The pen-1 text layer is written; the empty structural layer is not.
         assert result.plt_paths
         assert not any("_bh_" in p.name for p in result.plt_paths)
-        assert all("_text_" in p.name for p in result.plt_paths)
+        assert all("_txt_" in p.name for p in result.plt_paths)
         # The in-memory combined content still mirrors the (text-only) plate.
         assert all("SP1;" in content for content in result.combined_by_plate.values())
 
@@ -675,7 +675,7 @@ class TestPlateSpaceExport:
         """Optimization writes exactly the same per-cutter file set."""
         raw, opt = self._export_pair(tmp_path)
         assert set(raw) == set(opt)
-        assert any("_text_" in name for name in opt)
+        assert any("_txt_" in name for name in opt)
         assert any("_bh_" in name for name in opt)
 
     def test_text_geometry_is_vertex_exact(self, tmp_path: Path) -> None:
@@ -683,7 +683,7 @@ class TestPlateSpaceExport:
         raw, opt = self._export_pair(tmp_path)
         checked = 0
         for name, raw_content in raw.items():
-            if "_text_" not in name:
+            if "_txt_" not in name:
                 continue
             assert _cutting_segments(opt[name]) == _cutting_segments(raw_content), name
             checked += 1

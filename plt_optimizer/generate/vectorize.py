@@ -427,9 +427,9 @@ def export_per_cutter_plts(
       named ``<plate number>_bh_<cutter>_<job_id>.plt`` where ``<cutter>``
       is the boundary/hole cutter diameter (``bh`` = borders-holes).
     - **text** gets one file per distinct cutter/color layer, named
-      ``<plate number>_text_<cutter>_<job_id>.plt`` (or
-      ``<plate number>_text_<cutter>_<color>_<job_id>.plt`` when the
-      layer carries a ``text_color`` tag, e.g. ``01_text_0.040_m_job.plt``
+      ``<plate number>_txt_<cutter>_<job_id>.plt`` (or
+      ``<plate number>_txt_<cutter>_<color>_<job_id>.plt`` when the
+      layer carries a ``text_color`` tag, e.g. ``01_txt_0.040_m_job.plt``
       for magenta). A text cutter equal to the boundary/hole cutter still
       gets its own file (separate run). Lines sharing a cutter but
       differing in ``text_color`` split into separate files so the cutter
@@ -619,7 +619,7 @@ def export_per_cutter_plts(
                 if not plt_has_geometry(text_content):
                     continue
                 written_content = text_content
-            text_path = plt_dir / f"{plate_str}_text_{layer_tag}_{job_id}.plt"
+            text_path = plt_dir / f"{plate_str}_txt_{layer_tag}_{job_id}.plt"
             text_path.write_text(written_content, encoding="utf-8")
             result.plt_paths.append(text_path)
 

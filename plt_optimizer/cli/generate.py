@@ -8,10 +8,10 @@ rendering/assembly.
 
 Output layout (under ``-o``, defaulting to the spec's parent directory)::
 
-    <out>/plt/01_text_0.030_<job_id>.plt   # one file per text cutter (plate 01)
-    <out>/plt/01_text_0.030_m_<job_id>.plt # ... per stroke color (text_color)
+    <out>/plt/01_txt_0.030_<job_id>.plt    # one file per text cutter (plate 01)
+    <out>/plt/01_txt_0.030_m_<job_id>.plt  # ... per stroke color (text_color)
     <out>/plt/01_bh_0.015_<job_id>.plt     # borders + holes together (plate 01)
-    <out>/pdf/01_text_0.030_<job_id>.pdf   # simple-outline previews
+    <out>/pdf/01_txt_0.030_<job_id>.pdf    # simple-outline previews
     <out>/pdf/01_all_<job_id>.pdf          # combined preview per plate
 
 Text-hole collisions are reported per label: collisions that collision

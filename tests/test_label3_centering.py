@@ -43,7 +43,7 @@ def test_phase3_fixes_label3_centering(tmp_path: Path) -> None:
     # Find the text file
     text_path = None
     for path in exported_paths:
-        if "_text_" in path.name:
+        if "_txt_" in path.name:
             text_path = path
             break
 

@@ -236,7 +236,7 @@ class TestGenerateSubcommand:
         plt_files = sorted(p.name for p in (out_dir / "plt").iterdir())
         assert plt_files, "no per-cutter PLT files written"
         assert all(name.endswith("_Cli_Smoke_Job.plt") for name in plt_files)
-        assert any("_text_" in name for name in plt_files)
+        assert any("_txt_" in name for name in plt_files)
         assert any("_bh_" in name for name in plt_files)
         # --no-plots: no PDF previews.
         assert not (out_dir / "pdf").exists() or not list((out_dir / "pdf").iterdir())
@@ -1313,8 +1313,8 @@ class TestGenerateRun:
         from plt_optimizer.cli.generate import run
         from plt_optimizer.generate.vectorize import PerCutterExport
 
-        plt_path = tmp_path / "plt" / "01_text_0.060_job.plt"
-        pdf_path = tmp_path / "pdf" / "01_text_0.060_job.pdf"
+        plt_path = tmp_path / "plt" / "01_txt_0.060_job.plt"
+        pdf_path = tmp_path / "pdf" / "01_txt_0.060_job.pdf"
         default_pdf = tmp_path / "pdf" / "01_all_job_default.pdf"
 
         def _fake_export(*args: Any, **kwargs: Any) -> PerCutterExport:
