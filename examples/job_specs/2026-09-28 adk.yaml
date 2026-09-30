@@ -1,6 +1,6 @@
-# 2026-07-22
-# Sunwest SW0008
-# 1x3 white 0.75 text on black with 2 holes
+# 2026-09-28
+# ADK 111577 UPS2
+# 4x6 white 0.22in text on black; WARNING line red
 job:
   job_name: ADK 111577 UPS2
   replacement_text_file: 2026-09-28 adk.txt
