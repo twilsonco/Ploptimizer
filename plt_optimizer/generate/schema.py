@@ -494,9 +494,25 @@ class TextLine(TextAttributes):
         text: The actual text string to render.
         text_height: Optional font height in inches. Inherits from parent
             LabelSpec.text_height or JobSpec.text_height if not set locally.
+        placeholder: When ``True``, this line is replaced by the corresponding
+            item from the replacement file during expansion; all other
+            attributes (text height, alignment, color, ...) are preserved on
+            the synthesized line. Non-placeholder lines are copied verbatim to
+            every generated label instance. Requires the parent label to
+            declare ``replacement_text_file``.
     """
 
     text: str = Field(description="The text string to render (non-empty).")
+    placeholder: bool = Field(
+        default=False,
+        description=(
+            "Mark this line for selective replacement. When True, the line's "
+            "text is replaced by the corresponding replacement-file item; its "
+            "other attributes are preserved. Non-placeholder lines copy verbatim "
+            "to every instance. Requires the parent label to declare "
+            "replacement_text_file."
+        ),
+    )
 
 
 def _validate_replacement_delimiter_value(v: Optional[str]) -> Optional[str]:
@@ -640,6 +656,13 @@ class LabelSpec(LabelAttributes):
             )
         if self.content is not None and len(self.content) == 0:
             raise ValueError("content must contain at least one TextLine")
+        if self.replacement_text_file is None and self.content is not None:
+            bad = [line.text for line in self.content if line.placeholder]
+            if bad:
+                raise ValueError(
+                    f"label '{self.id}': content lines with 'placeholder: true' require "
+                    "'replacement_text_file' to be set"
+                )
         return self
 
 

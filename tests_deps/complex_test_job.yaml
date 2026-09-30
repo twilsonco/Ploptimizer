@@ -262,3 +262,43 @@ job:
         - text: "MIDDLE COAT"
           text_color: magenta
         - text: "BASE COAT"
+
+    # 14. Selective placeholder substitution: one middle line is marked
+    #     ``placeholder: true``; the surrounding constant lines (Line 1 /
+    #     Line 3) copy verbatim to every instance.
+    #     replacement_text_placeholder.txt supplies 2 lines:
+    #       - "ALPHA"     -> 1 item exactly fills the one placeholder;
+    #                        result: ["HEADER LINE", "ALPHA", "FOOTER LINE"]
+    #       - "BETA;GAMMA" -> 1 item fills placeholder, 1 extra appended
+    #                        after the last constant line;
+    #                        result: ["HEADER LINE", "BETA", "FOOTER LINE", "GAMMA"]
+    - id: placeholder_mixed
+      width: 4.0
+      height: 1.3
+      replacement_text_file: replacement_text_placeholder.txt
+      content:
+        - text: "HEADER LINE"
+          text_height: 0.3
+        - text: "REPLACE THIS"
+          placeholder: true
+          text_h_alignment: center
+        - text: "FOOTER LINE"
+          text_height: 0.2
+
+    # 15. Multiple placeholder lines: both content lines are marked
+    #     ``placeholder: true``, each carrying distinct typography attrs.
+    #     replacement_text_placeholder_multi.txt supplies 2 lines with
+    #     exactly 2 items each, filling both placeholders in order:
+    #       - "FIRST;SECOND" -> ["FIRST" (text_height 0.35), "SECOND" (right)]
+    #       - "THIRD;FOURTH" -> ["THIRD" (text_height 0.35), "FOURTH" (right)]
+    - id: placeholder_multi
+      width: 4.0
+      height: 1.3
+      replacement_text_file: replacement_text_placeholder_multi.txt
+      content:
+        - text: "REPLACE LINE 1"
+          placeholder: true
+          text_height: 0.35
+        - text: "REPLACE LINE 2"
+          placeholder: true
+          text_h_alignment: right

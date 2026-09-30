@@ -143,6 +143,7 @@ A single line of text content within a label.
 | `hole_text_collision_distance` | float \| null | null (unset) | >=0 | Minimum air gap in inches between engraved text and drill hole strokes, on top of the stroke floor 0.5 * (hole_cutter + text_cutter). |
 | `text_color` | TextColor \| null | null (unset) | — | Stroke-color layer tag splitting otherwise-identical text into separate toolpaths (labels and text lines only; rejected at the job level; never cascades). Full name or case-insensitive single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); 'none' is the implicit default and cannot be specified. |
 | `text` | str | **required** | — | The text string to render (non-empty). |
+| `placeholder` | bool | `false` | — | Mark this line for selective replacement. When True, the line's text is replaced by the corresponding replacement-file item; its other attributes are preserved. Non-placeholder lines copy verbatim to every instance. Requires the parent label to declare replacement_text_file. |
 
 ### `HoleSpec`
 

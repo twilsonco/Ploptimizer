@@ -18,7 +18,7 @@ keep:
 | File | Pinned by |
 |------|-----------|
 | `test123_spec.yaml` | `test_phase3_export.py`, `test_label_renderer.py`, `test_vectorize_phase3.py`, `test_label3_centering.py`; default spec of `run_integration_test.py` |
-| `complex_test_job.yaml` (+ `replacement_text_complex.txt`) | `test_schema.py`, `test_phase3_export.py` |
+| `complex_test_job.yaml` (+ `replacement_text_complex.txt` + `replacement_text_placeholder.txt` + `replacement_text_placeholder_multi.txt`) | `test_schema.py`, `test_phase3_export.py`, `test_substitution.py` |
 | `sample_spec.yaml` | `test_schema.py`; docstring examples in `plt_optimizer/generate/*` |
 | `rotation_demo_job.yaml` | `test_layout.py` (rotation-required/refused regression) |
 | `1-inch-square.plt` | `test_identity.py`, `test_benchmark.py` |

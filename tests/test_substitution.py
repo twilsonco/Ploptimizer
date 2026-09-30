@@ -791,3 +791,220 @@ class TestPlateLevelReplacementExpansion:
             ("pb_0000", "pb"),
             ("pb_0001", "pb"),
         ]
+
+
+class TestPlaceholderSubstitution:
+    """Selective placeholder substitution: some content lines are constant."""
+
+    def test_placeholder_without_file_raises_validation_error(self) -> None:
+        """A content line with placeholder=True on a static label must fail."""
+        with pytest.raises(ValidationError, match="placeholder.*require.*replacement_text_file"):
+            LabelSpec(
+                id="bad",
+                content=[
+                    TextLine(text="CONSTANT"),
+                    TextLine(text="REPLACE ME", placeholder=True),
+                ],
+            )
+
+    def test_constant_lines_kept_verbatim(self, tmp_path: Path) -> None:
+        """Non-placeholder lines appear unchanged in every generated instance."""
+        _write(tmp_path / "r.txt", "ITEM A\nITEM B\n")
+        label = LabelSpec(
+            id="t",
+            replacement_text_file="r.txt",
+            content=[
+                TextLine(text="CONST TOP"),
+                TextLine(text="REPLACE", placeholder=True),
+                TextLine(text="CONST BOT"),
+            ],
+        )
+        instances = expand_label_with_replacements(label, tmp_path)
+        assert len(instances) == 2
+        for inst in instances:
+            assert inst.content is not None
+            assert inst.content[0].text == "CONST TOP"
+            assert inst.content[2].text == "CONST BOT"
+
+    def test_placeholder_replaced_preserves_attrs(self, tmp_path: Path) -> None:
+        """Replaced placeholder keeps all attrs except text; placeholder cleared."""
+        _write(tmp_path / "r.txt", "REAL TEXT\n")
+        label = LabelSpec(
+            id="t",
+            replacement_text_file="r.txt",
+            content=[
+                TextLine(text="PLACEHOLDER", placeholder=True, text_height=0.6, text_h_alignment="left"),
+            ],
+        )
+        (inst,) = expand_label_with_replacements(label, tmp_path)
+        assert inst.content is not None
+        line = inst.content[0]
+        assert line.text == "REAL TEXT"
+        assert line.text_height == 0.6
+        assert line.text_h_alignment is not None and line.text_h_alignment.value == "left"
+        assert line.placeholder is False
+
+    def test_extra_items_appended_after_last_constant_line(self, tmp_path: Path) -> None:
+        """Extra items land after the final constant line, not between lines."""
+        _write(tmp_path / "r.txt", "ITEM1;ITEM2\n")
+        label = LabelSpec(
+            id="t",
+            replacement_text_file="r.txt",
+            content=[
+                TextLine(text="HEAD"),
+                TextLine(text="REPLACE ME", placeholder=True, text_h_alignment="center"),
+                TextLine(text="FOOT"),
+            ],
+        )
+        (inst,) = expand_label_with_replacements(label, tmp_path)
+        assert inst.content is not None
+        assert [line.text for line in inst.content] == ["HEAD", "ITEM1", "FOOT", "ITEM2"]
+        assert inst.content[1].text_h_alignment is not None
+        assert inst.content[1].text_h_alignment.value == "center"
+        # Extra item has no per-line overrides.
+        assert inst.content[3].text_h_alignment is None
+
+    def test_multiple_placeholders_filled_in_order(self, tmp_path: Path) -> None:
+        """Multiple placeholder lines are filled by successive items in order."""
+        _write(tmp_path / "r.txt", "ALPHA;BETA\n")
+        label = LabelSpec(
+            id="t",
+            replacement_text_file="r.txt",
+            content=[
+                TextLine(text="PH1", placeholder=True, text_height=0.5),
+                TextLine(text="PH2", placeholder=True, text_h_alignment="right"),
+            ],
+        )
+        (inst,) = expand_label_with_replacements(label, tmp_path)
+        assert inst.content is not None
+        assert [line.text for line in inst.content] == ["ALPHA", "BETA"]
+        assert inst.content[0].text_height == 0.5
+        assert inst.content[1].text_h_alignment is not None
+        assert inst.content[1].text_h_alignment.value == "right"
+
+    def test_fewer_items_than_placeholders_raises_substitution_error(
+        self, tmp_path: Path
+    ) -> None:
+        """A file line with fewer items than placeholder lines must abort."""
+        _write(tmp_path / "r.txt", "ONLY ONE ITEM\n")
+        label = LabelSpec(
+            id="badge",
+            replacement_text_file="r.txt",
+            content=[
+                TextLine(text="PH1", placeholder=True),
+                TextLine(text="PH2", placeholder=True),
+            ],
+        )
+        with pytest.raises(SubstitutionError, match="1 item.*2 placeholder"):
+            expand_label_with_replacements(label, tmp_path)
+
+    def test_fewer_items_error_names_label_and_line(self, tmp_path: Path) -> None:
+        """The error message includes the label id and file line number."""
+        _write(tmp_path / "r.txt", "ITEM1;ITEM2\nTOO FEW\n")
+        label = LabelSpec(
+            id="my_label",
+            replacement_text_file="r.txt",
+            content=[
+                TextLine(text="PH1", placeholder=True),
+                TextLine(text="PH2", placeholder=True),
+            ],
+        )
+        with pytest.raises(SubstitutionError, match="my_label") as exc_info:
+            expand_label_with_replacements(label, tmp_path)
+        assert "file line 2" in str(exc_info.value)
+
+    def test_no_placeholders_backward_compat(self, tmp_path: Path) -> None:
+        """A template with no placeholder=True lines behaves exactly as before."""
+        _write(tmp_path / "r.txt", "A;B\n")
+        label = LabelSpec(
+            id="t",
+            replacement_text_file="r.txt",
+            content=[TextLine(text="P1", text_height=0.5), TextLine(text="P2")],
+        )
+        (inst,) = expand_label_with_replacements(label, tmp_path)
+        assert inst.content is not None
+        assert [line.text for line in inst.content] == ["A", "B"]
+        assert inst.content[0].text_height == 0.5
+
+    def test_placeholder_in_job_level_content(self, tmp_path: Path) -> None:
+        """Job-level content with placeholder=True works via expand_job_spec."""
+        _write(tmp_path / "data.txt", "X\n")
+        yaml_path = tmp_path / "job.yaml"
+        yaml_path.write_text(
+            "job:\n"
+            "  job_name: J\n"
+            "  width: 3.0\n"
+            "  height: 1.0\n"
+            "  text_height: 0.5\n"
+            "  replacement_text_file: data.txt\n"
+            "  content:\n"
+            "    - text: CONSTANT\n"
+            "    - text: PH\n"
+            "      placeholder: true\n",
+            encoding="utf-8",
+        )
+        job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
+        assert job.labels is not None
+        (lbl,) = job.labels
+        assert lbl.content is not None
+        assert [line.text for line in lbl.content] == ["CONSTANT", "X"]
+        assert lbl.content[0].placeholder is False
+        assert lbl.content[1].placeholder is False
+
+
+class TestComplexJobPlaceholderLabels:
+    """Verify placeholder labels added to complex_test_job.yaml expand correctly."""
+
+    _YAML = Path("tests_deps/complex_test_job.yaml")
+
+    def _labels_by_id(self) -> dict[str, LabelSpec]:
+        job = expand_job_spec(parse_yaml(self._YAML), self._YAML)
+        assert job.labels is not None
+        return {lbl.id: lbl for lbl in job.labels}
+
+    def test_placeholder_mixed_instance0_exact_match(self) -> None:
+        """Instance 0: 1 item fills 1 placeholder; 2 constant lines unchanged."""
+        labels = self._labels_by_id()
+        lbl = labels["placeholder_mixed_0000"]
+        assert lbl.content is not None
+        assert [line.text for line in lbl.content] == ["HEADER LINE", "ALPHA", "FOOTER LINE"]
+
+    def test_placeholder_mixed_instance0_attrs_preserved(self) -> None:
+        """The replaced placeholder line retains its center alignment."""
+        labels = self._labels_by_id()
+        lbl = labels["placeholder_mixed_0000"]
+        assert lbl.content is not None
+        ph_line = lbl.content[1]
+        assert ph_line.text_h_alignment is not None
+        assert ph_line.text_h_alignment.value == "center"
+        assert ph_line.placeholder is False
+
+    def test_placeholder_mixed_instance1_extra_appended(self) -> None:
+        """Instance 1: 2 items → 1 fills placeholder, 1 appended after FOOTER LINE."""
+        labels = self._labels_by_id()
+        lbl = labels["placeholder_mixed_0001"]
+        assert lbl.content is not None
+        assert [line.text for line in lbl.content] == [
+            "HEADER LINE", "BETA", "FOOTER LINE", "GAMMA"
+        ]
+        # Extra appended line has no per-line typography overrides.
+        assert lbl.content[3].text_h_alignment is None
+        assert lbl.content[3].text_height is None
+
+    def test_placeholder_multi_instance0_both_placeholders_filled(self) -> None:
+        """Two placeholder lines are filled in order; typography attrs preserved."""
+        labels = self._labels_by_id()
+        lbl = labels["placeholder_multi_0000"]
+        assert lbl.content is not None
+        assert [line.text for line in lbl.content] == ["FIRST", "SECOND"]
+        assert lbl.content[0].text_height == 0.35
+        assert lbl.content[1].text_h_alignment is not None
+        assert lbl.content[1].text_h_alignment.value == "right"
+        assert all(line.placeholder is False for line in lbl.content)
+
+    def test_placeholder_multi_instance1(self) -> None:
+        """Second instance: THIRD/FOURTH fill the two placeholders correctly."""
+        labels = self._labels_by_id()
+        lbl = labels["placeholder_multi_0001"]
+        assert lbl.content is not None
+        assert [line.text for line in lbl.content] == ["THIRD", "FOURTH"]

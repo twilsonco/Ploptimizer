@@ -482,7 +482,7 @@
       "type": "string"
     },
     "TextLine": {
-      "description": "A single line of text content within a label.\n\nAttributes:\n    text: The actual text string to render.\n    text_height: Optional font height in inches. Inherits from parent\n        LabelSpec.text_height or JobSpec.text_height if not set locally.",
+      "description": "A single line of text content within a label.\n\nAttributes:\n    text: The actual text string to render.\n    text_height: Optional font height in inches. Inherits from parent\n        LabelSpec.text_height or JobSpec.text_height if not set locally.\n    placeholder: When ``True``, this line is replaced by the corresponding\n        item from the replacement file during expansion; all other\n        attributes (text height, alignment, color, ...) are preserved on\n        the synthesized line. Non-placeholder lines are copied verbatim to\n        every generated label instance. Requires the parent label to\n        declare ``replacement_text_file``.",
       "properties": {
         "text_height": {
           "anyOf": [
@@ -594,6 +594,12 @@
           "description": "The text string to render (non-empty).",
           "title": "Text",
           "type": "string"
+        },
+        "placeholder": {
+          "default": false,
+          "description": "Mark this line for selective replacement. When True, the line's text is replaced by the corresponding replacement-file item; its other attributes are preserved. Non-placeholder lines copy verbatim to every instance. Requires the parent label to declare replacement_text_file.",
+          "title": "Placeholder",
+          "type": "boolean"
         }
       },
       "required": [

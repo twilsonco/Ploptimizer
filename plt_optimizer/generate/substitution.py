@@ -165,30 +165,81 @@ def _resolve_file_path(replacement_text_file: str, base_dir: Path) -> Path:
 def _synthesize_content(
     template_content: Optional[list[TextLine]],
     items: list[str],
+    label_id: str = "",
+    instance_index: int = -1,
 ) -> list[TextLine]:
     """Build the concrete text lines for one replacement instance.
 
+    Two modes are supported depending on whether any template line declares
+    ``placeholder=True``:
+
+    **Original mode** (no placeholder lines): each item maps 1:1 to the
+    corresponding template line (``text`` replaced, all other attrs kept);
+    extra items beyond the template length become bare :class:`TextLine`
+    objects; fewer items than template lines silently drop the excess
+    template lines.
+
+    **Placeholder mode** (any ``placeholder=True`` line present): only
+    placeholder lines receive replacement items (in declaration order);
+    non-placeholder lines are copied verbatim to every instance; extra
+    items beyond the placeholder count are appended at the end as bare
+    :class:`TextLine` objects. Fewer items than placeholder lines raises
+    :class:`SubstitutionError`.
+
     Args:
-        template_content: The label's declared ``content`` lines (whose
-            ``text`` values act as attribute placeholders), or ``None``
-            when the label omitted ``content``.
+        template_content: The label's declared ``content`` lines, or
+            ``None`` when the label omitted ``content``.
         items: The delimited text items from one replacement file line.
+        label_id: Label id for error messages (optional).
+        instance_index: 0-based file line index for error messages
+            (optional; -1 = unknown).
 
     Returns:
-        One :class:`TextLine` per item. Items up to the template length
-        reuse the template line's attributes with the item as ``text``;
-        extra items become new lines inheriting label-level attributes
-        (all fields ``None``). Template lines beyond the item count are
-        dropped (fewer items -> fewer rendered lines).
+        One :class:`TextLine` per output line.
+
+    Raises:
+        SubstitutionError: In placeholder mode when the item count is
+            less than the number of placeholder lines.
     """
     template = template_content or []
-    content: list[TextLine] = []
-    for index, item in enumerate(items):
-        if index < len(template):
-            content.append(template[index].model_copy(update={"text": item}))
+    has_placeholders = any(line.placeholder for line in template)
+
+    if not has_placeholders:
+        # Original behavior: items map 1:1 to template lines in order.
+        content: list[TextLine] = []
+        for index, item in enumerate(items):
+            if index < len(template):
+                content.append(template[index].model_copy(update={"text": item}))
+            else:
+                content.append(TextLine(text=item))
+        return content
+
+    # Placeholder mode: validate item count against placeholder count.
+    placeholder_count = sum(1 for line in template if line.placeholder)
+    if len(items) < placeholder_count:
+        line_ref = f" (file line {instance_index + 1})" if instance_index >= 0 else ""
+        label_ref = f" for label '{label_id}'" if label_id else ""
+        raise SubstitutionError(
+            f"Replacement file line{line_ref}{label_ref} has {len(items)} item(s) but "
+            f"the template has {placeholder_count} placeholder line(s); "
+            "every placeholder must be covered by a file item"
+        )
+
+    # Walk template: non-placeholder lines verbatim; placeholder lines filled in order.
+    item_cursor = 0
+    out: list[TextLine] = []
+    for line in template:
+        if not line.placeholder:
+            out.append(line)
         else:
-            content.append(TextLine(text=item))
-    return content
+            out.append(line.model_copy(update={"text": items[item_cursor], "placeholder": False}))
+            item_cursor += 1
+
+    # Extra items beyond the placeholder count are appended at the end.
+    for item in items[item_cursor:]:
+        out.append(TextLine(text=item))
+
+    return out
 
 
 def expand_label_with_replacements(label: LabelSpec, base_dir: Path) -> list[LabelSpec]:
@@ -219,7 +270,7 @@ def expand_label_with_replacements(label: LabelSpec, base_dir: Path) -> list[Lab
 
     expanded: list[LabelSpec] = []
     for index, items in enumerate(instances):
-        content = _synthesize_content(label.content, items)
+        content = _synthesize_content(label.content, items, label.id, index)
         instance_id = f"{label.id}_{index:0{_INSTANCE_SUFFIX_WIDTH}d}"
         expanded.append(
             label.model_copy(
