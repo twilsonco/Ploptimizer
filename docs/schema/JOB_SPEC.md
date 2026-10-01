@@ -22,21 +22,25 @@ numeric field is in **inches**.
 
 Top-level specification for a batch label generation job.
 
-Inherits optional styling fields from LabelAttributes so they can be
-set at the Job level and inherited down to Label and TextLine levels.
+Inherits styling fields from LabelAttributes so they can be set at the
+job level and inherited down to labels and text lines. ``width`` and
+``height`` must be defined at either the job level or on each label.
 
 A job may be specified in one of three forms:
-1. A list of explicit labels (`labels`).
-2. A single root-level label definition (`content` + optional `count`).
+1. A list of explicit labels (`labels`), each with width/height defined.
+2. A single root-level label definition (`content` + optional `count`),
+   with width/height defined at the job or root level.
 3. A job-level EngraveLab/Vision Pro-style replacement text file
    (``replacement_text_file``): each line of the file produces one
-   label, generated from the job-level label attributes (``width``,
-   ``height`` and ``text_height`` are required at the job level;
-   ``content`` is an optional per-line attribute template, exactly
+   label, generated from the job-level label attributes. ``width``,
+   ``height`` and ``text_height`` must be defined at the job level;
+   ``content`` is an optional per-line attribute template (exactly
    like on :class:`LabelSpec`). This form is mutually exclusive with
    ``labels`` and ``count``.
 
-The forms are mutually exclusive; exactly one must be provided.
+The label source forms (1-3) are mutually exclusive; exactly one must
+be provided. The ``width`` and ``height`` cascade from label to job;
+they are no longer auto-sized from rendered content.
 
 | Field | Type | Default | Constraints | Description |
 |---|---|---|---|---|
@@ -48,8 +52,8 @@ The forms are mutually exclusive; exactly one must be provided.
 | `min_hole_margin` | float \| null | null (unset) | >=0 | Minimum hole margin in inches; hole margins will not shrink below this value during collision avoidance. |
 | `hole_text_collision_distance` | float \| null | null (unset) | >=0 | Minimum air gap in inches between engraved text and drill hole strokes, on top of the stroke floor 0.5 * (hole_cutter + text_cutter). |
 | `text_color` | TextColor \| null | null (unset) | — | Stroke-color layer tag splitting otherwise-identical text into separate toolpaths (labels and text lines only; rejected at the job level; never cascades). Full name or case-insensitive single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); 'none' is the implicit default and cannot be specified. |
-| `width` | float \| null | null (unset) | >=0 | Label width in inches; unset = auto-size from rendered content (label -> job). |
-| `height` | float \| null | null (unset) | >=0 | Label height in inches; unset = auto-size from rendered content (label -> job). |
+| `width` | float \| null | null (unset) | >0 | Label width in inches (must be > 0). Cascades label -> job; must be defined at one level. |
+| `height` | float \| null | null (unset) | >0 | Label height in inches (must be > 0). Cascades label -> job; must be defined at one level. |
 | `margin` | float \| null | null (unset) | >=0 | Universal margin in inches (fallback for h_margin and v_margin); cascades label -> job (fallback 0.125). |
 | `h_margin` | float \| null | null (unset) | >=0 | Horizontal margin in inches (left and right edges); cascades label -> job; falls back to margin if unset. |
 | `v_margin` | float \| null | null (unset) | >=0 | Vertical margin in inches (top and bottom edges); cascades label -> job; falls back to margin if unset. |
@@ -96,8 +100,10 @@ Specification for a plate (material sheet) to cut labels from.
 
 Specification for a label to be generated.
 
-Inherits optional styling fields (text_height, character_spacing,
+Inherits styling fields (text_height, character_spacing,
 line_spacing, width, height, margin, holes) from LabelAttributes.
+``width`` and ``height`` must be defined either on this label or at
+the job level; they are no longer auto-sized from rendered content.
 
 A label may be defined in one of two ways:
 1. Statically, with a ``content`` list (and optional ``count``).
@@ -120,8 +126,8 @@ A label may be defined in one of two ways:
 | `min_hole_margin` | float \| null | null (unset) | >=0 | Minimum hole margin in inches; hole margins will not shrink below this value during collision avoidance. |
 | `hole_text_collision_distance` | float \| null | null (unset) | >=0 | Minimum air gap in inches between engraved text and drill hole strokes, on top of the stroke floor 0.5 * (hole_cutter + text_cutter). |
 | `text_color` | TextColor \| null | null (unset) | — | Stroke-color layer tag splitting otherwise-identical text into separate toolpaths (labels and text lines only; rejected at the job level; never cascades). Full name or case-insensitive single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); 'none' is the implicit default and cannot be specified. |
-| `width` | float \| null | null (unset) | >=0 | Label width in inches; unset = auto-size from rendered content (label -> job). |
-| `height` | float \| null | null (unset) | >=0 | Label height in inches; unset = auto-size from rendered content (label -> job). |
+| `width` | float \| null | null (unset) | >0 | Label width in inches (must be > 0). Cascades label -> job; must be defined at one level. |
+| `height` | float \| null | null (unset) | >0 | Label height in inches (must be > 0). Cascades label -> job; must be defined at one level. |
 | `margin` | float \| null | null (unset) | >=0 | Universal margin in inches (fallback for h_margin and v_margin); cascades label -> job (fallback 0.125). |
 | `h_margin` | float \| null | null (unset) | >=0 | Horizontal margin in inches (left and right edges); cascades label -> job; falls back to margin if unset. |
 | `v_margin` | float \| null | null (unset) | >=0 | Vertical margin in inches (top and bottom edges); cascades label -> job; falls back to margin if unset. |

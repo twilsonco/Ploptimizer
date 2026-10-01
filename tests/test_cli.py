@@ -1403,7 +1403,7 @@ class TestGenerateRun:
 
         def _job(**clearances: float) -> JobSpec:
             return JobSpec(  # type: ignore[arg-type]
-                job_name="J", content=[TextLine(text="X")], **clearances
+                job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")], **clearances
             )
 
         assert _default_plate_clearance(_job()) is None

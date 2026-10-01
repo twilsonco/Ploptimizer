@@ -382,6 +382,8 @@ class TestExpandJobSpec:
         yaml_path.write_text(
             "job:\n"
             "  job_name: Test Job\n"
+            "  width: 2.0\n"
+            "  height: 1.0\n"
             "  text_height: 0.3\n"
             "  labels:\n"
             "    - id: static\n"
@@ -419,7 +421,7 @@ class TestExpandJobSpec:
         """Root-level single-label jobs skip expansion entirely."""
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text(
-            "job:\n  job_name: Root\n  count: 3\n  content:\n    - text: X\n",
+            "job:\n  job_name: Root\n  width: 2.0\n  height: 1.0\n  count: 3\n  content:\n    - text: X\n",
             encoding="utf-8",
         )
         job = parse_yaml(yaml_path)
@@ -439,7 +441,7 @@ class TestExpandJobSpec:
         """A template pointing at a missing file aborts job expansion."""
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text(
-            "job:\n  job_name: J\n  labels:\n"
+            "job:\n  job_name: J\n  width: 2.0\n  height: 1.0\n  labels:\n"
             "    - id: t\n      replacement_text_file: missing.txt\n",
             encoding="utf-8",
         )
@@ -514,7 +516,7 @@ class TestJobSpecModelCopy:
         _write(tmp_path / "r.txt", "A\n")
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text(
-            "job:\n  job_name: J\n  labels:\n    - id: t\n      replacement_text_file: r.txt\n",
+            "job:\n  job_name: J\n  width: 2.0\n  height: 1.0\n  labels:\n    - id: t\n      replacement_text_file: r.txt\n",
             encoding="utf-8",
         )
         job = expand_job_spec(parse_yaml(yaml_path), yaml_path)

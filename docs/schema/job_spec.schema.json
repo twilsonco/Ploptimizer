@@ -39,7 +39,7 @@
       "type": "object"
     },
     "LabelSpec": {
-      "description": "Specification for a label to be generated.\n\nInherits optional styling fields (text_height, character_spacing,\nline_spacing, width, height, margin, holes) from LabelAttributes.\n\nA label may be defined in one of two ways:\n1. Statically, with a ``content`` list (and optional ``count``).\n2. As a template driven by an EngraveLab/Vision Pro-style replacement\n   text file (``replacement_text_file``). Each line of the file\n   produces one label instance; delimited items within a line replace\n   the template's text lines. In this mode ``count`` must not be set\n   (the file's line count determines it) and ``content`` is optional:\n   when omitted, every instance's lines inherit the label-level text\n   attributes; when present, its ``text`` values act as placeholders\n   declaring the per-line attributes (text height, alignment, etc.).\n\nAttributes:\n    id: Unique identifier for this label specification.\n    count: Number of instances to produce. Defaults to 1. Mutually\n        exclusive with ``replacement_text_file``.\n    content: List of text lines to render on the label. Required unless\n        ``replacement_text_file`` is provided.\n    replacement_text_file: Path to a replacement text file (resolved\n        relative to the job YAML file's directory unless absolute).\n        Each line produces one label instance; items within a line are\n        separated by ``replacement_text_delimiter``.\n    replacement_text_delimiter: Single special or whitespace character\n        separating text items within a replacement file line. Defaults\n        to ``\";\"``. Cannot be a newline or an alphanumeric character.\n    plate_id: Optional id of the plate this label is pinned to. Pinned\n        labels pack exclusively onto that plate, and the plate then\n        accepts no other labels. Normally set by plate-level\n        ``replacement_text_file`` expansion (see\n        :func:`plt_optimizer.generate.substitution.expand_job_spec`);\n        it may also be declared directly to pin a static label to a\n        specific sheet.",
+      "description": "Specification for a label to be generated.\n\nInherits styling fields (text_height, character_spacing,\nline_spacing, width, height, margin, holes) from LabelAttributes.\n``width`` and ``height`` must be defined either on this label or at\nthe job level; they are no longer auto-sized from rendered content.\n\nA label may be defined in one of two ways:\n1. Statically, with a ``content`` list (and optional ``count``).\n2. As a template driven by an EngraveLab/Vision Pro-style replacement\n   text file (``replacement_text_file``). Each line of the file\n   produces one label instance; delimited items within a line replace\n   the template's text lines. In this mode ``count`` must not be set\n   (the file's line count determines it) and ``content`` is optional:\n   when omitted, every instance's lines inherit the label-level text\n   attributes; when present, its ``text`` values act as placeholders\n   declaring the per-line attributes (text height, alignment, etc.).\n\nAttributes:\n    id: Unique identifier for this label specification.\n    count: Number of instances to produce. Defaults to 1. Mutually\n        exclusive with ``replacement_text_file``.\n    content: List of text lines to render on the label. Required unless\n        ``replacement_text_file`` is provided.\n    replacement_text_file: Path to a replacement text file (resolved\n        relative to the job YAML file's directory unless absolute).\n        Each line produces one label instance; items within a line are\n        separated by ``replacement_text_delimiter``.\n    replacement_text_delimiter: Single special or whitespace character\n        separating text items within a replacement file line. Defaults\n        to ``\";\"``. Cannot be a newline or an alphanumeric character.\n    plate_id: Optional id of the plate this label is pinned to. Pinned\n        labels pack exclusively onto that plate, and the plate then\n        accepts no other labels. Normally set by plate-level\n        ``replacement_text_file`` expansion (see\n        :func:`plt_optimizer.generate.substitution.expand_job_spec`);\n        it may also be declared directly to pin a static label to a\n        specific sheet.",
       "properties": {
         "text_height": {
           "anyOf": [
@@ -150,7 +150,7 @@
         "width": {
           "anyOf": [
             {
-              "minimum": 0.0,
+              "exclusiveMinimum": 0.0,
               "type": "number"
             },
             {
@@ -158,13 +158,13 @@
             }
           ],
           "default": null,
-          "description": "Label width in inches; unset = auto-size from rendered content (label -> job).",
+          "description": "Label width in inches (must be > 0). Cascades label -> job; must be defined at one level.",
           "title": "Width"
         },
         "height": {
           "anyOf": [
             {
-              "minimum": 0.0,
+              "exclusiveMinimum": 0.0,
               "type": "number"
             },
             {
@@ -172,7 +172,7 @@
             }
           ],
           "default": null,
-          "description": "Label height in inches; unset = auto-size from rendered content (label -> job).",
+          "description": "Label height in inches (must be > 0). Cascades label -> job; must be defined at one level.",
           "title": "Height"
         },
         "margin": {
@@ -665,7 +665,7 @@
       "type": "object"
     }
   },
-  "description": "Top-level specification for a batch label generation job.\n\nInherits optional styling fields from LabelAttributes so they can be\nset at the Job level and inherited down to Label and TextLine levels.\n\nA job may be specified in one of three forms:\n1. A list of explicit labels (`labels`).\n2. A single root-level label definition (`content` + optional `count`).\n3. A job-level EngraveLab/Vision Pro-style replacement text file\n   (``replacement_text_file``): each line of the file produces one\n   label, generated from the job-level label attributes (``width``,\n   ``height`` and ``text_height`` are required at the job level;\n   ``content`` is an optional per-line attribute template, exactly\n   like on :class:`LabelSpec`). This form is mutually exclusive with\n   ``labels`` and ``count``.\n\nThe forms are mutually exclusive; exactly one must be provided.\n\nAttributes:\n    job_name: Human-readable name for this job.\n    plates: Optional list of plate specifications. If omitted, the\n        generation pipeline auto-allocates default 24x16 sheets.\n    labels: Optional list of unique label specifications to produce.\n    count: Optional count for root-level single-label jobs.\n    content: Optional root-level content for single-label jobs (or the\n        per-line attribute template for a job-level replacement file).\n    replacement_text_file: Job-level replacement text file (resolved\n        relative to the job YAML directory unless absolute). Each line\n        produces one label; items within a line are separated by\n        ``replacement_text_delimiter``. Requires job-level ``width``,\n        ``height`` and ``text_height``; mutually exclusive with\n        ``labels``, ``count`` and plate-level replacement files.\n    replacement_text_delimiter: Single special or whitespace character\n        separating text items within a replacement file line. Defaults\n        to ``\";\"``. Requires ``replacement_text_file``.\n    allow_rotation: Whether the bin packer may rotate label instances\n        90 degrees to improve plate utilization. When a rotated label\n        is assembled onto a plate its whole content (text, border and\n        drill holes) is rotated clockwise. Defaults to True.\n    text_chunk_mode: Granularity at which rendered text becomes a\n        plate-space optimization node: ``\"line\"`` (the default) routes\n        each whole text line as one unit; ``\"word\"`` splits lines on\n        whitespace for finer rapid-travel routing at the cost of more\n        TSP nodes.\n    layout: Preferential plate fill order for bin packing. ``columns``\n        (the default) fills each plate's height before extending\n        rightward; ``rows`` fills width before extending downward (the\n        historical behaviour). Cascades job -> plate: a plate may\n        override it via ``PlateSpec.layout``.\n    left_clearance: Job-level default for the plate left-edge\n        clearance in inches. Cascades job -> plate: plates that omit\n        ``left_clearance`` inherit this value; an explicit plate\n        value (including ``0.0``) always wins. Unbounded\n        auto-allocated sheets use it too (threaded through the export\n        call). ``None`` (the default) means no job-level default;\n        plates then fall back to their own ``0.0`` default.\n    top_clearance: Job-level default for the plate top-edge clearance\n        in inches (same cascade as ``left_clearance``).",
+  "description": "Top-level specification for a batch label generation job.\n\nInherits styling fields from LabelAttributes so they can be set at the\njob level and inherited down to labels and text lines. ``width`` and\n``height`` must be defined at either the job level or on each label.\n\nA job may be specified in one of three forms:\n1. A list of explicit labels (`labels`), each with width/height defined.\n2. A single root-level label definition (`content` + optional `count`),\n   with width/height defined at the job or root level.\n3. A job-level EngraveLab/Vision Pro-style replacement text file\n   (``replacement_text_file``): each line of the file produces one\n   label, generated from the job-level label attributes. ``width``,\n   ``height`` and ``text_height`` must be defined at the job level;\n   ``content`` is an optional per-line attribute template (exactly\n   like on :class:`LabelSpec`). This form is mutually exclusive with\n   ``labels`` and ``count``.\n\nThe label source forms (1-3) are mutually exclusive; exactly one must\nbe provided. The ``width`` and ``height`` cascade from label to job;\nthey are no longer auto-sized from rendered content.\n\nAttributes:\n    job_name: Human-readable name for this job.\n    plates: Optional list of plate specifications. If omitted, the\n        generation pipeline auto-allocates default 24x16 sheets.\n    labels: Optional list of unique label specifications to produce.\n    count: Optional count for root-level single-label jobs.\n    content: Optional root-level content for single-label jobs (or the\n        per-line attribute template for a job-level replacement file).\n    replacement_text_file: Job-level replacement text file (resolved\n        relative to the job YAML directory unless absolute). Each line\n        produces one label; items within a line are separated by\n        ``replacement_text_delimiter``. Requires job-level ``width``,\n        ``height`` and ``text_height``; mutually exclusive with\n        ``labels``, ``count`` and plate-level replacement files.\n    replacement_text_delimiter: Single special or whitespace character\n        separating text items within a replacement file line. Defaults\n        to ``\";\"``. Requires ``replacement_text_file``.\n    allow_rotation: Whether the bin packer may rotate label instances\n        90 degrees to improve plate utilization. When a rotated label\n        is assembled onto a plate its whole content (text, border and\n        drill holes) is rotated clockwise. Defaults to True.\n    text_chunk_mode: Granularity at which rendered text becomes a\n        plate-space optimization node: ``\"line\"`` (the default) routes\n        each whole text line as one unit; ``\"word\"`` splits lines on\n        whitespace for finer rapid-travel routing at the cost of more\n        TSP nodes.\n    layout: Preferential plate fill order for bin packing. ``columns``\n        (the default) fills each plate's height before extending\n        rightward; ``rows`` fills width before extending downward (the\n        historical behaviour). Cascades job -> plate: a plate may\n        override it via ``PlateSpec.layout``.\n    left_clearance: Job-level default for the plate left-edge\n        clearance in inches. Cascades job -> plate: plates that omit\n        ``left_clearance`` inherit this value; an explicit plate\n        value (including ``0.0``) always wins. Unbounded\n        auto-allocated sheets use it too (threaded through the export\n        call). ``None`` (the default) means no job-level default;\n        plates then fall back to their own ``0.0`` default.\n    top_clearance: Job-level default for the plate top-edge clearance\n        in inches (same cascade as ``left_clearance``).",
   "properties": {
     "text_height": {
       "anyOf": [
@@ -776,7 +776,7 @@
     "width": {
       "anyOf": [
         {
-          "minimum": 0.0,
+          "exclusiveMinimum": 0.0,
           "type": "number"
         },
         {
@@ -784,13 +784,13 @@
         }
       ],
       "default": null,
-      "description": "Label width in inches; unset = auto-size from rendered content (label -> job).",
+      "description": "Label width in inches (must be > 0). Cascades label -> job; must be defined at one level.",
       "title": "Width"
     },
     "height": {
       "anyOf": [
         {
-          "minimum": 0.0,
+          "exclusiveMinimum": 0.0,
           "type": "number"
         },
         {
@@ -798,7 +798,7 @@
         }
       ],
       "default": null,
-      "description": "Label height in inches; unset = auto-size from rendered content (label -> job).",
+      "description": "Label height in inches (must be > 0). Cascades label -> job; must be defined at one level.",
       "title": "Height"
     },
     "margin": {

@@ -422,8 +422,8 @@ class LabelAttributes(TextAttributes):
     they describe the label container, not individual glyphs.
 
     Attributes:
-        width: Optional label width in inches.
-        height: Optional label height in inches.
+        width: Label width in inches; must be defined at label or job level.
+        height: Label height in inches; must be defined at label or job level.
         margin: Optional universal margin in inches (used as fallback for
             h_margin and v_margin when those are unset). Cascades
             label -> job (fallback 0.125).
@@ -442,13 +442,13 @@ class LabelAttributes(TextAttributes):
 
     width: Optional[float] = Field(
         default=None,
-        ge=0.0,
-        description="Label width in inches; unset = auto-size from rendered content (label -> job).",
+        gt=0.0,
+        description="Label width in inches (must be > 0). Cascades label -> job; must be defined at one level.",
     )
     height: Optional[float] = Field(
         default=None,
-        ge=0.0,
-        description="Label height in inches; unset = auto-size from rendered content (label -> job).",
+        gt=0.0,
+        description="Label height in inches (must be > 0). Cascades label -> job; must be defined at one level.",
     )
     margin: Optional[float] = Field(
         default=None,
@@ -569,8 +569,10 @@ def _validate_replacement_delimiter_value(v: Optional[str]) -> Optional[str]:
 class LabelSpec(LabelAttributes):
     """Specification for a label to be generated.
 
-    Inherits optional styling fields (text_height, character_spacing,
+    Inherits styling fields (text_height, character_spacing,
     line_spacing, width, height, margin, holes) from LabelAttributes.
+    ``width`` and ``height`` must be defined either on this label or at
+    the job level; they are no longer auto-sized from rendered content.
 
     A label may be defined in one of two ways:
     1. Statically, with a ``content`` list (and optional ``count``).
@@ -908,21 +910,25 @@ class PlateSpec(BaseModel):
 class JobSpec(LabelAttributes):
     """Top-level specification for a batch label generation job.
 
-    Inherits optional styling fields from LabelAttributes so they can be
-    set at the Job level and inherited down to Label and TextLine levels.
+    Inherits styling fields from LabelAttributes so they can be set at the
+    job level and inherited down to labels and text lines. ``width`` and
+    ``height`` must be defined at either the job level or on each label.
 
     A job may be specified in one of three forms:
-    1. A list of explicit labels (`labels`).
-    2. A single root-level label definition (`content` + optional `count`).
+    1. A list of explicit labels (`labels`), each with width/height defined.
+    2. A single root-level label definition (`content` + optional `count`),
+       with width/height defined at the job or root level.
     3. A job-level EngraveLab/Vision Pro-style replacement text file
        (``replacement_text_file``): each line of the file produces one
-       label, generated from the job-level label attributes (``width``,
-       ``height`` and ``text_height`` are required at the job level;
-       ``content`` is an optional per-line attribute template, exactly
+       label, generated from the job-level label attributes. ``width``,
+       ``height`` and ``text_height`` must be defined at the job level;
+       ``content`` is an optional per-line attribute template (exactly
        like on :class:`LabelSpec`). This form is mutually exclusive with
        ``labels`` and ``count``.
 
-    The forms are mutually exclusive; exactly one must be provided.
+    The label source forms (1-3) are mutually exclusive; exactly one must
+    be provided. The ``width`` and ``height`` cascade from label to job;
+    they are no longer auto-sized from rendered content.
 
     Attributes:
         job_name: Human-readable name for this job.
@@ -1255,6 +1261,70 @@ class JobSpec(LabelAttributes):
                     f"label '{label.id}': plate_id '{label.plate_id}' does not "
                     "reference a declared plate"
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_width_height_defined(self) -> JobSpec:
+        """Ensure width and height are defined at label or job level.
+
+        Since auto-sizing from rendered content is no longer supported,
+        every label (static or synthesized) must have width and height
+        defined either explicitly at the label level or cascaded from
+        the job level. This validator checks that requirement.
+
+        Raises:
+            ValueError: If a label lacks both width and height and the job
+                lacks width/height to cascade; if root-level labels lack
+                dimensions and the job doesn't provide them; or if a
+                job-level or plate-level replacement file doesn't have
+                job-level width/height (already checked in
+                _validate_replacement_structure, but enforced here too for
+                consistency).
+
+        Returns:
+            Self for method chaining.
+        """
+        job_width = self.width
+        job_height = self.height
+
+        # Check explicit labels (if present)
+        if self.labels:
+            for label in self.labels:
+                label_width = label.width or job_width
+                label_height = label.height or job_height
+                if label_width is None or label_height is None:
+                    missing = []
+                    if label_width is None:
+                        missing.append("width")
+                    if label_height is None:
+                        missing.append("height")
+                    raise ValueError(
+                        f"label '{label.id}': {', '.join(missing)} must be defined "
+                        f"at the label level or inherited from the job level"
+                    )
+
+        # Check root-level content (if present as a label source, not as a template)
+        if self.content is not None and len(self.content) > 0:
+            # Only check if content is a label source (not a replacement template)
+            has_replacement = self.replacement_text_file is not None
+            has_plate_files = any(
+                plate.replacement_text_file is not None for plate in self.plates or []
+            )
+            is_template = has_replacement or (has_plate_files and self.labels is None)
+
+            if not is_template:
+                # Root-level content is a label source
+                if job_width is None or job_height is None:
+                    missing = []
+                    if job_width is None:
+                        missing.append("width")
+                    if job_height is None:
+                        missing.append("height")
+                    raise ValueError(
+                        f"Root-level job with 'content': {', '.join(missing)} must be "
+                        f"defined at the job level"
+                    )
+
         return self
 
 

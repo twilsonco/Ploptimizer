@@ -23,7 +23,6 @@ from plt_optimizer.generate.resolution import (
     ResolvedLabel,
     ResolvedTextLine,
     build_cutter_pen_map,
-    calculate_label_dimensions,
     compute_horizontal_offset,
     compute_horizontal_scale,
     fit_line_spacing_to_margins,
@@ -131,47 +130,6 @@ class TestGetCutterDiameter:
         assert 1.0 in IDEAL_CUTTER_MAP
 
 
-class TestCalculateLabelDimensions:
-    """Tests for the auto-sizing calculation helper."""
-
-    def test_single_line(self) -> None:
-        """A single line should produce a sensible bounding box."""
-        content = [_make_line(text="HELLO", nominal_text_height=0.5)]
-        width, height = calculate_label_dimensions(content, margin=0.125)
-        # Width based on nominal height: 5 * 0.5 * 0.6 + 0.25 = 1.75
-        # Height based on nominal height: 0.5 + 0.25 = 0.75
-        assert math.isclose(width, 1.75)
-        assert math.isclose(height, 0.75)
-
-    def test_multiple_lines_stack_height(self) -> None:
-        """Multiple lines should stack heights with line spacing."""
-        content = [
-            _make_line(text="A", nominal_text_height=0.5, line_spacing=0.1),
-            _make_line(text="B", nominal_text_height=0.5),
-        ]
-        width, height = calculate_label_dimensions(content, margin=0.0)
-        # Height: 0.5 + 0.1 + 0.5 = 1.1 -> ceil(4.4)/4 = 1.25
-        assert math.isclose(height, 1.25)
-
-    def test_margin_applied_to_both_sides(self) -> None:
-        """Margin should be added to both width and height on both sides."""
-        content = [_make_line(text="X", nominal_text_height=1.0)]
-        width, height = calculate_label_dimensions(content, margin=0.25)
-        # Width: 1*1*0.6 + 0.5 = 1.1 -> ceil(4.4)/4 = 1.25
-        # Height: 1.0 + 0.5 = 1.5 -> ceil(6.0)/4 = 1.5
-        assert math.isclose(width, 1.25)
-        assert math.isclose(height, 1.5)
-
-    def test_rounds_up_to_nearest_quarter(self) -> None:
-        """Dimensions should round up to the nearest 0.25 inch."""
-        content = [_make_line(text="AB", nominal_text_height=0.3)]
-        width, height = calculate_label_dimensions(content, margin=0.0)
-        # Width: 2*0.3*0.6 = 0.36 -> ceil(1.44)/4 = 0.5
-        # Height: 0.3 -> ceil(1.2)/4 = 0.5
-        assert math.isclose(width, 0.5)
-        assert math.isclose(height, 0.5)
-
-
 class TestResolveJobSpecRootLevel:
     """Tests for root-level single-label jobs."""
 
@@ -194,23 +152,12 @@ class TestResolveJobSpecRootLevel:
         assert labels[0].count == 10
         assert labels[0].id.startswith("label_")
 
-    def test_root_level_auto_sizes_when_omitted(self) -> None:
-        """Root-level jobs without dimensions should auto-size from content."""
-        job = JobSpec(
-            job_name="Batch",
-            count=5,
-            content=[TextLine(text="WARNING", text_height=0.5)],
-        )
-        labels = resolve_job_spec(job)
-        assert len(labels) == 1
-        assert labels[0].width > 0
-        assert labels[0].height > 0
-        assert labels[0].count == 5
-
     def test_root_level_generates_unique_ids(self) -> None:
         """Each root-level job should get a unique synthetic ID."""
         job = JobSpec(
             job_name="Batch",
+            width=2.0,
+            height=1.0,
             count=1,
             content=[TextLine(text="X")],
         )
@@ -553,60 +500,6 @@ class TestHoleMarginResolution:
             )
 
 
-class TestAutoSizing:
-    """Tests for auto-sizing when dimensions are omitted."""
-
-    def test_label_with_no_dimensions_auto_sizes(self) -> None:
-        """Labels without width/height should auto-size from content."""
-        job = JobSpec(
-            job_name="Auto",
-            labels=[
-                LabelSpec(
-                    id="lbl",
-                    count=1,
-                    content=[TextLine(text="WARNING", text_height=0.5)],
-                ),
-            ],
-        )
-        labels = resolve_job_spec(job)
-        assert labels[0].width > 0
-        assert labels[0].height > 0
-
-    def test_only_width_auto_sized(self) -> None:
-        """If only width is missing, height should be preserved."""
-        job = JobSpec(
-            job_name="Partial",
-            labels=[
-                LabelSpec(
-                    id="lbl",
-                    count=1,
-                    height=2.0,
-                    content=[TextLine(text="X", text_height=0.5)],
-                ),
-            ],
-        )
-        labels = resolve_job_spec(job)
-        assert math.isclose(labels[0].height, 2.0)
-        assert labels[0].width > 0
-
-    def test_only_height_auto_sized(self) -> None:
-        """If only height is missing, width should be preserved."""
-        job = JobSpec(
-            job_name="Partial",
-            labels=[
-                LabelSpec(
-                    id="lbl",
-                    count=1,
-                    width=3.0,
-                    content=[TextLine(text="X", text_height=0.5)],
-                ),
-            ],
-        )
-        labels = resolve_job_spec(job)
-        assert math.isclose(labels[0].width, 3.0)
-        assert labels[0].height > 0
-
-
 class TestCutterCompensation:
     """Tests for cutter compensation in resolved text lines."""
 
@@ -876,24 +769,6 @@ class TestMarginPrecedenceInResolution:
         )
         label = resolve_job_spec(job)[0]
         assert math.isclose(label.content[0].line_spacing, 0.15)
-
-    def test_auto_sized_label_keeps_spacing(self) -> None:
-        """Auto-sizing already reserves spacing, so nothing should clamp."""
-        job = JobSpec(
-            job_name="Auto",
-            text_height=0.3,
-            line_spacing=0.3,
-            margin=0.25,
-            labels=[
-                LabelSpec(
-                    id="auto_warning",
-                    count=1,
-                    content=[TextLine(text="WARNING"), TextLine(text="HIGH VOLTAGE")],
-                ),
-            ],
-        )
-        label = resolve_job_spec(job)[0]
-        assert math.isclose(label.content[0].line_spacing, 0.3)
 
     def test_single_line_label_is_unaffected(self) -> None:
         """Single-line labels have no spacing to clamp even when too tall."""

@@ -138,10 +138,13 @@ job:
       content:
         - text: "OVERSIZE"
 
-    # 6. Auto-sizing: no width/height, bounding-box calculation from
-    #    content. Inherits job margin/typography and the job-level hole.
+    # 6. Fixed dimensions: standard 3x1 label with two lines of text.
+    # (Was used to test auto-sizing, which is no longer supported; now
+    # demonstrates fixed sizing.)
     - id: auto_warning
       count: 6
+      width: 3.0
+      height: 1.0
       text_height: 0.3
       content:
         - text: "WARNING"

@@ -318,51 +318,6 @@ class ResolvedLabel:
 
 
 # ---------------------------------------------------------------------------
-# Auto-sizing helper
-# ---------------------------------------------------------------------------
-def calculate_label_dimensions(
-    content: list[ResolvedTextLine],
-    margin: float,
-) -> tuple[float, float]:
-    """Calculate auto-dimensions for a label from its resolved content.
-
-    Uses a stub width estimation based on character count and text height.
-    Both dimensions are rounded up to the nearest 0.25 inch increment.
-
-    Args:
-        content: Fully resolved text lines for the label.
-        margin: Resolved margin in inches (applied to both sides).
-
-    Returns:
-        A tuple of (width, height) in inches, rounded up to the nearest
-        0.25 inch.
-    """
-    max_text_width = 0.0
-    total_text_height = 0.0
-
-    for i, line in enumerate(content):
-        # Stub width estimation: char count * nominal height * ratio + char spacing
-        est_width = (len(line.text) * line.nominal_text_height * 0.6) + (
-            len(line.text) * line.character_spacing
-        )
-        max_text_width = max(max_text_width, est_width)
-
-        total_text_height += line.nominal_text_height
-        if i < len(content) - 1:
-            total_text_height += line.line_spacing
-
-    # Add margins to both sides
-    raw_width = max_text_width + (margin * 2)
-    raw_height = total_text_height + (margin * 2)
-
-    # Round up to nearest 0.25 inch
-    final_width = math.ceil(raw_width * 4) / 4
-    final_height = math.ceil(raw_height * 4) / 4
-
-    return final_width, final_height
-
-
-# ---------------------------------------------------------------------------
 # Margin precedence helper
 # ---------------------------------------------------------------------------
 def fit_line_spacing_to_margins(
@@ -804,16 +759,12 @@ def _resolve_label(
     # Resolve holes
     resolved_holes = _resolve_holes(label_input, job)
 
-    # Execute auto-sizing calculations (use nominal heights for sizing)
-    final_width: Optional[float] = label_input.width or job.width
-    final_height: Optional[float] = label_input.height or job.height
+    # Resolve final width and height (both must be defined at schema validation time)
+    # After schema validation, one of (label_width, job_width) is always non-None
+    final_width: float = label_input.width if label_input.width is not None else job.width  # type: ignore[assignment]
+    final_height: float = label_input.height if label_input.height is not None else job.height  # type: ignore[assignment]
 
-    if final_width is None or final_height is None:
-        calc_width, calc_height = calculate_label_dimensions(resolved_content, label_margin)
-        final_width = final_width or calc_width
-        final_height = final_height or calc_height
-
-    # At this point, final_width and final_height are guaranteed non-None
+    # Sanity check: schema validation guarantees both are non-None
     assert final_width is not None and final_height is not None
 
     # Margin precedence: shrink line spacing (never margins) so the stacked

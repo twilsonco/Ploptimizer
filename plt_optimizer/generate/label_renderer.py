@@ -1512,6 +1512,9 @@ def _render_positioned_lines(
     spacings = [
         line_spacing for _idx, _lc, _height, line_spacing, _mhc, _align, _wg in rendered_lines[:-1]
     ]
+    # Vertical margin applies as-is; no cutter compensation needed since the
+    # margin is user-specified and text already accounts for per-line cutter diameter
+    # via horizontal compensation.
     available_height = label.height - (2 * v_margin)
     adjusted_spacings = fit_line_spacing_to_margins(
         [height for _idx, _lc, height, _spacing, _mhc, _align, _wg in rendered_lines],
@@ -1555,7 +1558,10 @@ def _render_positioned_lines(
 
         # Margin precedence for width: compress over-wide lines so they
         # respect the inner content area (bounded by max_h_compress).
-        available_width = inner_width - (2 * h_margin)
+        # Include half the line's cutter diameter in the horizontal margin
+        # so all text has consistent visual margin from the border.
+        cutter_margin_h = h_margin + (line.cutter_diameter / 2.0)
+        available_width = inner_width - (2 * cutter_margin_h)
         filtered_lc = compress_line_to_width(
             filtered_lc,
             available_width,
@@ -1573,7 +1579,7 @@ def _render_positioned_lines(
         # the line's left-most point at the left margin, "right" anchors
         # the right-most point at the right margin, "center" centers it.
         target_left_x = compute_horizontal_offset(
-            rendered_width, available_width, h_margin, text_h_alignment
+            rendered_width, available_width, cutter_margin_h, text_h_alignment
         )
         x_offset = target_left_x - min_x
 
@@ -1738,9 +1744,9 @@ def _hole_circles_local(label: ResolvedLabel) -> List[Tuple[float, float, float]
     """Compute drill-hole circles in the label's local coordinate space.
 
     Each circle center is inset from the relevant edge(s) by ``hole_margin +
-    radius``, so the closest point of the circle sits exactly
-    ``label.hole_margin`` inches from the label boundary. With a margin of
-    0.0 the circle is tangent to the edge.
+    half the hole cutter diameter + radius``, so the closest point of the
+    circle's stroke sits exactly ``label.hole_margin`` inches from the label
+    boundary. This ensures consistent spacing regardless of hole cutter size.
 
     Args:
         label: The resolved label whose ``holes`` should be measured.
@@ -1753,9 +1759,10 @@ def _hole_circles_local(label: ResolvedLabel) -> List[Tuple[float, float, float]
     for hole in label.holes:
         radius = hole.diameter / 2.0
         # Distance from the edge to the hole center: the requested hole
-        # margin plus the radius, so the circle's closest point is
+        # margin plus half the hole cutter diameter (for visual consistency)
+        # plus the radius, so the circle's stroke edge sits exactly
         # hole_margin inches away from the edge.
-        offset = label.hole_margin + radius
+        offset = label.hole_margin + (label.hole_cutter_diameter / 2.0) + radius
         location = str(hole.location)
 
         if location == "top-left":

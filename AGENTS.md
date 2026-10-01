@@ -83,7 +83,9 @@ JobSpec (job-level defaults)
   `0.0` is honored (strokes may touch but never overlap).
 
 **LabelAttributes** (extends TextAttributes, cascades to LabelSpec only):
-- `width`, `height`, `margin`: Label dimensions & safety margins
+- `width`: Label width in inches; must be defined at label or job level (required; no longer auto-sized).
+- `height`: Label height in inches; must be defined at label or job level (required; no longer auto-sized).
+- `margin`: Label safety margins (optional)
 - `hole_margin`: Distance from hole edge to label edge (cascades: label → plate → job)
 - `holes`: List of `HoleSpec` objects (diameter + location enum). Group
   locations `corners` (all four corners) and `sides` (left + right) are
@@ -95,8 +97,8 @@ JobSpec (job-level defaults)
 
 | Class | Purpose | Validation Rules |
 |-------|---------|------------------|
-| `JobSpec` | Root job container | Requires exactly one label source: `labels` list, root-level `content`, a job-level `replacement_text_file`, or plate-level replacement files (mutually exclusive); a job-level file also requires job-level `width`/`height`/`text_height` |
-| `LabelSpec` | Individual label definition | `count >= 1`; requires `content` (min 1 TextLine) OR `replacement_text_file` (mutually exclusive with `count`); optional `plate_id` pins the label to a declared plate (set by plate-level replacement expansion) |
+| `JobSpec` | Root job container | Requires exactly one label source: `labels` list, root-level `content`, a job-level `replacement_text_file`, or plate-level replacement files (mutually exclusive); `width`/`height` must be defined at job or label level (no longer auto-sized) |
+| `LabelSpec` | Individual label definition | `count >= 1`; requires `content` (min 1 TextLine) OR `replacement_text_file` (mutually exclusive with `count`); `width`/`height` must be defined at label or job level; optional `plate_id` pins the label to a declared plate |
 | `TextLine` | Text content unit | Requires non-empty `text` string |
 | `PlateSpec` | Physical sheet definition | All dimensions `>= 0`; `width`/`height` are the usable pack area, offset from the material's top-left by `left_clearance`/`top_clearance` (both default `0.0`); optional `replacement_text_file` synthesizes labels pinned to this plate (requires job-level `width`/`height`/`text_height`) |
 | `HoleSpec` | Drilled hole definition | Location (required; 8 atomic enum values: corners + edges, plus `corners`/`sides` group shorthands expanded at validation) + optional `diameter` (default 0.125", must be > 0) |
@@ -195,23 +197,28 @@ intersection-invariant.
 
 ### Job Specification Patterns
 
-**Pattern 1: Explicit Labels List**
+**Pattern 1: Explicit Labels List** (each label must have `width` and `height`)
 ```yaml
 job:
   job_name: "Batch 01"
   text_height: 0.5
   labels:
     - id: "label_1"
+      width: 3.0
+      height: 1.0
       count: 10
       content:
         - text: "Line 1"
         - text: "Line 2"
 ```
 
-**Pattern 2: Root-Level Single Label** (auto-repeated via `count`)
+**Pattern 2: Root-Level Single Label** (auto-repeated via `count`; dimensions required)
 ```yaml
 job:
   job_name: "Simple Labels"
+  width: 3.0
+  height: 1.0
+  text_height: 0.5
   count: 20
   content:
     - text: "Single repeating label"
