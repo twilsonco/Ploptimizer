@@ -46,7 +46,7 @@ they are no longer auto-sized from rendered content.
 |---|---|---|---|---|
 | `text_height` | float \| null | null (unset) | — | Font height in inches. Cascades line -> label -> job (fallback 0.25). |
 | `character_spacing` | float \| null | null (unset) | — | Extra spacing between characters in inches (fallback: 1.5x the resolved cutter diameter). |
-| `line_spacing` | float \| null | null (unset) | — | Extra spacing between text lines in inches (fallback 0.1). |
+| `line_spacing` | float \| str \| null | null (unset) | — | Extra spacing between text lines in inches (fallback 0.1), or 'auto' to calculate spacing automatically based on label height, margins, and text line count. |
 | `max_h_compress` | float \| null | null (unset) | >=0 <=1 | Maximum horizontal compression fraction in [0.0, 1.0]. |
 | `text_h_alignment` | TextHAlignment \| null | null (unset) | — | Horizontal text alignment: left, center, or right. |
 | `min_hole_margin` | float \| null | null (unset) | >=0 | Minimum hole margin in inches; hole margins will not shrink below this value during collision avoidance. |
@@ -120,7 +120,7 @@ A label may be defined in one of two ways:
 |---|---|---|---|---|
 | `text_height` | float \| null | null (unset) | — | Font height in inches. Cascades line -> label -> job (fallback 0.25). |
 | `character_spacing` | float \| null | null (unset) | — | Extra spacing between characters in inches (fallback: 1.5x the resolved cutter diameter). |
-| `line_spacing` | float \| null | null (unset) | — | Extra spacing between text lines in inches (fallback 0.1). |
+| `line_spacing` | float \| str \| null | null (unset) | — | Extra spacing between text lines in inches (fallback 0.1), or 'auto' to calculate spacing automatically based on label height, margins, and text line count. |
 | `max_h_compress` | float \| null | null (unset) | >=0 <=1 | Maximum horizontal compression fraction in [0.0, 1.0]. |
 | `text_h_alignment` | TextHAlignment \| null | null (unset) | — | Horizontal text alignment: left, center, or right. |
 | `min_hole_margin` | float \| null | null (unset) | >=0 | Minimum hole margin in inches; hole margins will not shrink below this value during collision avoidance. |
@@ -148,7 +148,7 @@ A single line of text content within a label.
 |---|---|---|---|---|
 | `text_height` | float \| null | null (unset) | — | Font height in inches. Cascades line -> label -> job (fallback 0.25). |
 | `character_spacing` | float \| null | null (unset) | — | Extra spacing between characters in inches (fallback: 1.5x the resolved cutter diameter). |
-| `line_spacing` | float \| null | null (unset) | — | Extra spacing between text lines in inches (fallback 0.1). |
+| `line_spacing` | float \| str \| null | null (unset) | — | Extra spacing between text lines in inches (fallback 0.1), or 'auto' to calculate spacing automatically based on label height, margins, and text line count. |
 | `max_h_compress` | float \| null | null (unset) | >=0 <=1 | Maximum horizontal compression fraction in [0.0, 1.0]. |
 | `text_h_alignment` | TextHAlignment \| null | null (unset) | — | Horizontal text alignment: left, center, or right. |
 | `min_hole_margin` | float \| null | null (unset) | >=0 | Minimum hole margin in inches; hole margins will not shrink below this value during collision avoidance. |

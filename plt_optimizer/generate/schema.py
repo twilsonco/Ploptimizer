@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Union
 
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -285,7 +285,16 @@ class TextAttributes(BaseModel):
     Attributes:
         text_height: Optional font height in inches.
         character_spacing: Optional extra spacing between characters in inches.
-        line_spacing: Optional extra spacing between text lines in inches.
+        line_spacing: Optional extra spacing between text lines in inches,
+            or ``"auto"`` to calculate spacing automatically. When ``"auto"``,
+            spacing is calculated such that all lines have equal spacing.
+            If ``v_margin`` is explicitly specified, the specified v_margin
+            is honored and line_spacing is calculated to fill the remaining
+            space. If ``v_margin`` is not explicitly specified, the functional
+            v_margin equals the inter-line spacing. Cutter widths of the top
+            and bottom lines are considered: half the respective cutter width
+            is added to the functional v_margin to ensure correct placement
+            in the engraved output. Cascades line -> label -> job (fallback 0.1).
         max_h_compress: Optional maximum horizontal compression fraction in
             ``[0.0, 1.0]``. When a rendered line is wider than the label's
             inner content area, the line may be uniformly compressed
@@ -345,9 +354,13 @@ class TextAttributes(BaseModel):
             "resolved cutter diameter)."
         ),
     )
-    line_spacing: Optional[float] = Field(
+    line_spacing: Optional[Union[float, Literal["auto"]]] = Field(
         default=None,
-        description="Extra spacing between text lines in inches (fallback 0.1).",
+        description=(
+            "Extra spacing between text lines in inches (fallback 0.1), or "
+            "'auto' to calculate spacing automatically based on label height, "
+            "margins, and text line count."
+        ),
     )
     max_h_compress: Optional[float] = Field(
         default=None,

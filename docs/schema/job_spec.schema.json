@@ -73,11 +73,15 @@
               "type": "number"
             },
             {
+              "const": "auto",
+              "type": "string"
+            },
+            {
               "type": "null"
             }
           ],
           "default": null,
-          "description": "Extra spacing between text lines in inches (fallback 0.1).",
+          "description": "Extra spacing between text lines in inches (fallback 0.1), or 'auto' to calculate spacing automatically based on label height, margins, and text line count.",
           "title": "Line Spacing"
         },
         "max_h_compress": {
@@ -572,11 +576,15 @@
               "type": "number"
             },
             {
+              "const": "auto",
+              "type": "string"
+            },
+            {
               "type": "null"
             }
           ],
           "default": null,
-          "description": "Extra spacing between text lines in inches (fallback 0.1).",
+          "description": "Extra spacing between text lines in inches (fallback 0.1), or 'auto' to calculate spacing automatically based on label height, margins, and text line count.",
           "title": "Line Spacing"
         },
         "max_h_compress": {
@@ -699,11 +707,15 @@
           "type": "number"
         },
         {
+          "const": "auto",
+          "type": "string"
+        },
+        {
           "type": "null"
         }
       ],
       "default": null,
-      "description": "Extra spacing between text lines in inches (fallback 0.1).",
+      "description": "Extra spacing between text lines in inches (fallback 0.1), or 'auto' to calculate spacing automatically based on label height, margins, and text line count.",
       "title": "Line Spacing"
     },
     "max_h_compress": {

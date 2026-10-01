@@ -444,6 +444,125 @@ def compute_horizontal_offset(
     return margin + (available_width - rendered_width) / 2.0
 
 
+def _resolve_auto_line_spacing(
+    content: list[ResolvedTextLine],
+    label_height: float,
+    v_margin_explicit: Optional[float],
+    boundary_hole_cutter: float,
+    label_id: str,
+) -> tuple[list[ResolvedTextLine], Optional[float]]:
+    """Resolve any auto line spacing values in content.
+
+    When ``line_spacing="auto"``, spacing is calculated such that all lines
+    have equal spacing. If ``v_margin`` is explicitly specified, it is honored
+    and ``line_spacing`` is calculated to fill the remaining space. If
+    ``v_margin`` is not explicitly specified, the functional ``v_margin`` is
+    set equal to the inter-line spacing.
+
+    Cutter widths of the top and bottom lines are considered: half the
+    respective cutter width is added to the functional ``v_margin`` to ensure
+    correct placement in the engraved output.
+
+    Args:
+        content: Fully resolved text lines (with line_spacing=-1.0 for auto).
+        label_height: Final label height in inches (outer boundary).
+        v_margin_explicit: The explicitly specified v_margin, or None if
+            v_margin was determined by cascading through margins/defaults.
+        boundary_hole_cutter: Cutter diameter used for hole/boundary cutting.
+        label_id: Identifier used in log messages.
+
+    Returns:
+        A tuple of (updated_content, calculated_v_margin). calculated_v_margin
+        is non-None only when v_margin was not explicitly specified (auto mode),
+        in which case it should replace the default v_margin.
+    """
+    if len(content) < 1:
+        return content, None
+
+    # Check if any lines have auto spacing (sentinel value -1.0)
+    auto_indices = [i for i, line in enumerate(content) if line.line_spacing < 0.0]
+    if not auto_indices:
+        return content, None
+
+    # Single-line content with auto spacing: zero spacing, no lines after it
+    if len(content) == 1:
+        if auto_indices:
+            updated_content = [replace(content[0], line_spacing=0.0)]
+            return updated_content, None
+        else:
+            return content, None
+
+    # If only some lines have auto spacing (mixed), convert all to auto for consistency
+    if len(auto_indices) != len(content):
+        logger.warning(
+            "Label %s: mixed auto and explicit line_spacing detected; treating all lines as auto.",
+            label_id,
+        )
+        auto_indices = list(range(len(content)))
+
+    line_heights = [line.nominal_text_height for line in content]
+    total_line_height = sum(line_heights)
+    num_lines = len(content)
+
+    # Calculate cutter adjustment for top and bottom lines
+    # Half of top line's cutter adds to top v_margin, half of bottom's adds to bottom
+    top_cutter_adjustment = content[0].cutter_diameter / 2.0
+    bottom_cutter_adjustment = content[-1].cutter_diameter / 2.0
+    total_cutter_adjustment = top_cutter_adjustment + bottom_cutter_adjustment
+
+    calculated_v_margin: Optional[float] = None
+
+    if v_margin_explicit is not None:
+        # Explicit v_margin: calculate line_spacing to fill the remaining space
+        available_height = label_height - 2.0 * v_margin_explicit - total_cutter_adjustment
+        if num_lines > 1:
+            calculated_spacing = max(0.0, (available_height - total_line_height) / (num_lines - 1))
+        else:
+            calculated_spacing = 0.0
+
+        logger.info(
+            "Label %s: auto line_spacing calculated as %.4fin "
+            "(explicit v_margin=%.4fin, available_height=%.4fin, line_height=%.4fin).",
+            label_id,
+            calculated_spacing,
+            v_margin_explicit,
+            available_height,
+            total_line_height,
+        )
+    else:
+        # Auto v_margin: functional v_margin equals inter-line spacing
+        # Solve: total_line_height + (num_lines - 1) * spacing + 2 * spacing + cutter_adjustment = label_height
+        # total_line_height + (num_lines + 1) * spacing = label_height - cutter_adjustment
+        # spacing = (label_height - cutter_adjustment - total_line_height) / (num_lines + 1)
+        if num_lines > 1:
+            calculated_spacing = max(
+                0.0,
+                (label_height - total_cutter_adjustment - total_line_height) / (num_lines + 1),
+            )
+        else:
+            calculated_spacing = (label_height - total_cutter_adjustment - total_line_height) / 2.0
+
+        # Set calculated_v_margin to the line_spacing so it will be used instead of default
+        calculated_v_margin = calculated_spacing
+
+        logger.info(
+            "Label %s: auto line_spacing and v_margin calculated as %.4fin "
+            "(auto v_margin mode, label_height=%.4fin, line_height=%.4fin).",
+            label_id,
+            calculated_spacing,
+            label_height,
+            total_line_height,
+        )
+
+    # Replace sentinel values with calculated spacing
+    updated_content = [
+        replace(line, line_spacing=calculated_spacing) if i in auto_indices else line
+        for i, line in enumerate(content)
+    ]
+
+    return updated_content, calculated_v_margin
+
+
 def _fit_content_to_margins(
     content: list[ResolvedTextLine],
     label_height: float,
@@ -614,12 +733,24 @@ def _resolve_content(
             or job.character_spacing
             or (cutter_dia * 1.5)
         )
-        line_spacing = (
+
+        # Resolve line_spacing, checking for "auto" at each cascade level
+        line_spacing_raw = (
             line.line_spacing
             or label_input.line_spacing
             or job.line_spacing
             or DEFAULT_LINE_SPACING
         )
+
+        # Check if the resolved value is the string "auto"
+        if isinstance(line_spacing_raw, str) and line_spacing_raw == "auto":
+            # Use sentinel value -1.0 to indicate auto; will be calculated later
+            line_spacing: float = -1.0
+        else:
+            # Convert to float (handles both numeric and None cases)
+            line_spacing = (
+                float(line_spacing_raw) if line_spacing_raw is not None else DEFAULT_LINE_SPACING
+            )
 
         # Resolve horizontal compression limit explicitly so an intentional
         # ``0.0`` (compression disabled) is honored instead of falling
@@ -766,6 +897,22 @@ def _resolve_label(
 
     # Sanity check: schema validation guarantees both are non-None
     assert final_width is not None and final_height is not None
+
+    # Check if v_margin was explicitly specified (not derived from cascading margins)
+    v_margin_is_explicit = label_input.v_margin is not None or job.v_margin is not None
+
+    # Resolve any auto line spacing (must happen before margin fitting)
+    resolved_content, calculated_v_margin = _resolve_auto_line_spacing(
+        resolved_content,
+        final_height,
+        label_v_margin if v_margin_is_explicit else None,
+        hole_cutter,
+        label_id,
+    )
+
+    # If auto v_margin was calculated, use it instead of the default
+    if calculated_v_margin is not None:
+        label_v_margin = calculated_v_margin
 
     # Margin precedence: shrink line spacing (never margins) so the stacked
     # text block fits within the inner content area.
