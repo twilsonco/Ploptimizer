@@ -81,7 +81,7 @@
             }
           ],
           "default": null,
-          "description": "Extra spacing between text lines in inches (fallback 0.1), or 'auto' to calculate spacing automatically based on label height, margins, and text line count.",
+          "description": "Extra spacing between text lines in inches, or 'auto' to calculate spacing automatically based on label height, margins, and text line count (default when unspecified). Fallback when not specified at any level is 'auto'.",
           "title": "Line Spacing"
         },
         "max_h_compress": {
@@ -584,7 +584,7 @@
             }
           ],
           "default": null,
-          "description": "Extra spacing between text lines in inches (fallback 0.1), or 'auto' to calculate spacing automatically based on label height, margins, and text line count.",
+          "description": "Extra spacing between text lines in inches, or 'auto' to calculate spacing automatically based on label height, margins, and text line count (default when unspecified). Fallback when not specified at any level is 'auto'.",
           "title": "Line Spacing"
         },
         "max_h_compress": {
@@ -715,7 +715,7 @@
         }
       ],
       "default": null,
-      "description": "Extra spacing between text lines in inches (fallback 0.1), or 'auto' to calculate spacing automatically based on label height, margins, and text line count.",
+      "description": "Extra spacing between text lines in inches, or 'auto' to calculate spacing automatically based on label height, margins, and text line count (default when unspecified). Fallback when not specified at any level is 'auto'.",
       "title": "Line Spacing"
     },
     "max_h_compress": {

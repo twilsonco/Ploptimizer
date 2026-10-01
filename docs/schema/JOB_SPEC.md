@@ -46,7 +46,7 @@ they are no longer auto-sized from rendered content.
 |---|---|---|---|---|
 | `text_height` | float \| null | null (unset) | — | Font height in inches. Cascades line -> label -> job (fallback 0.25). |
 | `character_spacing` | float \| null | null (unset) | — | Extra spacing between characters in inches (fallback: 1.5x the resolved cutter diameter). |
-| `line_spacing` | float \| str \| null | null (unset) | — | Extra spacing between text lines in inches (fallback 0.1), or 'auto' to calculate spacing automatically based on label height, margins, and text line count. |
+| `line_spacing` | float \| str \| null | null (unset) | — | Extra spacing between text lines in inches, or 'auto' to calculate spacing automatically based on label height, margins, and text line count (default when unspecified). Fallback when not specified at any level is 'auto'. |
 | `max_h_compress` | float \| null | null (unset) | >=0 <=1 | Maximum horizontal compression fraction in [0.0, 1.0]. |
 | `text_h_alignment` | TextHAlignment \| null | null (unset) | — | Horizontal text alignment: left, center, or right. |
 | `min_hole_margin` | float \| null | null (unset) | >=0 | Minimum hole margin in inches; hole margins will not shrink below this value during collision avoidance. |
@@ -121,7 +121,7 @@ A label may be defined in one of two ways:
 |---|---|---|---|---|
 | `text_height` | float \| null | null (unset) | — | Font height in inches. Cascades line -> label -> job (fallback 0.25). |
 | `character_spacing` | float \| null | null (unset) | — | Extra spacing between characters in inches (fallback: 1.5x the resolved cutter diameter). |
-| `line_spacing` | float \| str \| null | null (unset) | — | Extra spacing between text lines in inches (fallback 0.1), or 'auto' to calculate spacing automatically based on label height, margins, and text line count. |
+| `line_spacing` | float \| str \| null | null (unset) | — | Extra spacing between text lines in inches, or 'auto' to calculate spacing automatically based on label height, margins, and text line count (default when unspecified). Fallback when not specified at any level is 'auto'. |
 | `max_h_compress` | float \| null | null (unset) | >=0 <=1 | Maximum horizontal compression fraction in [0.0, 1.0]. |
 | `text_h_alignment` | TextHAlignment \| null | null (unset) | — | Horizontal text alignment: left, center, or right. |
 | `min_hole_margin` | float \| null | null (unset) | >=0 | Minimum hole margin in inches; hole margins will not shrink below this value during collision avoidance. |
@@ -149,7 +149,7 @@ A single line of text content within a label.
 |---|---|---|---|---|
 | `text_height` | float \| null | null (unset) | — | Font height in inches. Cascades line -> label -> job (fallback 0.25). |
 | `character_spacing` | float \| null | null (unset) | — | Extra spacing between characters in inches (fallback: 1.5x the resolved cutter diameter). |
-| `line_spacing` | float \| str \| null | null (unset) | — | Extra spacing between text lines in inches (fallback 0.1), or 'auto' to calculate spacing automatically based on label height, margins, and text line count. |
+| `line_spacing` | float \| str \| null | null (unset) | — | Extra spacing between text lines in inches, or 'auto' to calculate spacing automatically based on label height, margins, and text line count (default when unspecified). Fallback when not specified at any level is 'auto'. |
 | `max_h_compress` | float \| null | null (unset) | >=0 <=1 | Maximum horizontal compression fraction in [0.0, 1.0]. |
 | `text_h_alignment` | TextHAlignment \| null | null (unset) | — | Horizontal text alignment: left, center, or right. |
 | `min_hole_margin` | float \| null | null (unset) | >=0 | Minimum hole margin in inches; hole margins will not shrink below this value during collision avoidance. |
@@ -281,7 +281,7 @@ always beats the config.
 | `DEFAULT_HOLE_MARGIN` | `0.1875` | Hole margin when unset everywhere. Required from config-or-spec when a job-config is in play. |
 | `DEFAULT_HOLE_TEXT_COLLISION_DISTANCE` | `0.15` | Engraved-stroke air gap on top of the stroke floor 0.5 * (hole_cutter + text_cutter). Required from config-or-spec when a job-config is in play (the shop job-config.json currently sets 0.1). |
 | `DEFAULT_H_MARGIN` | `None` | — |
-| `DEFAULT_LINE_SPACING` | `0.1` | Extra line spacing when unset at line/label/job level. |
+| `DEFAULT_LINE_SPACING` | `'auto'` | Extra line spacing when unset at line/label/job level. |
 | `DEFAULT_MARGIN` | `0.125` | Label margin when unset at label/job level. |
 | `DEFAULT_MAX_H_COMPRESS` | `0.0` | 0.0 = horizontal compression disabled. Required from config-or-spec when a job-config is in play. |
 | `DEFAULT_MIN_HOLE_MARGIN` | `None` | None = collision avoidance may shrink hole_margin all the way to 0.0. Required from config-or-spec when a job-config is in play. |
