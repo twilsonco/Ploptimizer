@@ -1,0 +1,19 @@
+# 2026-09-28
+# Coolsys Walmart 1238
+# 0.5in white text on black
+job:
+  job_name: Coolsys Walmart 1238
+  text_height: 0.5
+  line_spacing: 0.3
+  holes:
+    - location: sides
+
+  labels:
+    - id: case tags
+      width: 3
+      height: 2
+      replacement_text_file: 2026-09-30 coolsys case tags.txt
+    - id: equipment tags
+      width: 5
+      height: 3
+      replacement_text_file: 2026-09-30 coolsys equipment tags.txt
