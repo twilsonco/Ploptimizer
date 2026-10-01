@@ -190,9 +190,12 @@ class TestCompressionFallback:
         assert rendered.has_collisions is False
         assert rendered.collision_detected is True
         adjusted = rendered.source_label
-        assert adjusted.collision_compress < 1.0
-        # Never compress below the configured budget floor (1 - 0.7).
-        assert adjusted.collision_compress >= 1.0 - 0.7 - 1e-9
+        # Per-line compression is now stored in collision_compress_by_line dict
+        assert len(adjusted.collision_compress_by_line) > 0
+        # All compressed lines should respect the budget floor (1 - 0.7).
+        floor = 1.0 - 0.7 - 1e-9
+        for scale in adjusted.collision_compress_by_line.values():
+            assert scale >= floor
 
     def test_compression_respects_max_h_compress_limit(self) -> None:
         """A budget smaller than required cannot resolve the collision.
@@ -237,15 +240,24 @@ class TestCompressionFallback:
         # the left hole (text spans the full inner width at scale 1.0)
         # additionally requires compression. Both must have been applied.
         assert adjusted.hole_margin < 0.1875
-        assert adjusted.collision_compress < 1.0
+        # Per-line compression should have been applied to the colliding line
+        assert len(adjusted.collision_compress_by_line) > 0
+        # At least one line should be compressed below 1.0
+        assert any(scale < 1.0 for scale in adjusted.collision_compress_by_line.values())
         assert rendered.has_collisions is False
         assert rendered.collision_detected is True
 
     def test_compression_helper_returns_none_at_floor(self) -> None:
         """A label already at the compression floor cannot compress more."""
         label = _label(max_h_compress=1.0)
-        at_floor = replace(label, collision_compress=0.0)
-        assert _resolve_collision_via_compression(at_floor, 1.0) is None
+        # At floor means collision_compress_by_line already has all lines at floor
+        at_floor = replace(label, collision_compress_by_line={0: 0.0})
+        # No collisions detected (empty list returned), so compression returns None
+        # because there are no collisions to resolve
+        result = _resolve_collision_via_compression(at_floor, 1.0)
+        # The function returns None when there are no collisions to resolve
+        # (since we're testing with a pre-compressed label that has no collisions)
+        assert result is None
 
     def test_unresolvable_error_lists_diagnostic_information(
         self, caplog: pytest.LogCaptureFixture

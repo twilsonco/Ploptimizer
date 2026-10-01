@@ -199,8 +199,8 @@ def unroll_labels_with_rendered_bounds(
     for label in resolved_labels:
         rendered = rendered_labels[label.id]
         # Prefer the *rendered* source label: collision avoidance may have
-        # returned an adjusted clone (reduced hole_margin and/or
-        # collision_compress). Propagating it through the packer keeps
+        # returned an adjusted clone (reduced hole_margin and/or per-line
+        # collision_compress_by_line). Propagating it through the packer keeps
         # plate vectorization and Phase 3 assembly consistent with the
         # emitted PLT geometry.
         effective_label = rendered.source_label

@@ -115,8 +115,8 @@ class RenderedLabel:
     Attributes:
         source_label: The original ResolvedLabel that was rendered. When
             text-hole collision avoidance adjusted the label (reduced
-            ``hole_margin`` and/or applied ``collision_compress``), this is
-            the *adjusted* label so downstream consumers (packing, plate
+            ``hole_margin`` and/or applied per-line ``collision_compress_by_line``),
+            this is the *adjusted* label so downstream consumers (packing, plate
             vectorization) stay consistent with the emitted PLT.
         plt_content: Raw HPGL text content (without postprocessing).
         x_min: Minimum x-coordinate in inches.
@@ -364,10 +364,11 @@ def _resolve_collision_via_compression(
 ) -> Optional[ResolvedLabel]:
     """Phase 3: compress text horizontally until collisions clear.
 
-    Sweeps the label-level ``collision_compress`` scale from ``1.0`` down
-    to ``(1 - budget)`` (the configured ``max_h_compress`` floor),
-    re-rendering the text at each step and re-checking collisions. Returns
-    the first (least destructive) scale that clears every collision.
+    Calculates the minimum compression needed for each line that is
+    colliding with a hole, and applies per-line compression. Non-colliding
+    lines remain at full width. Returns a label with
+    ``collision_compress_by_line`` set to the per-line scales when one
+    clears all collisions, otherwise ``None``.
 
     Args:
         label: The label whose collision should be resolved (may already
@@ -379,37 +380,55 @@ def _resolve_collision_via_compression(
             included in the resolution WARNING for informative output.
 
     Returns:
-        A clone of ``label`` with ``collision_compress`` set below ``1.0``
-        when one clears all collisions, otherwise ``None``.
+        A clone of ``label`` with ``collision_compress_by_line`` set to
+        per-line scales when one clears all collisions, otherwise ``None``.
     """
     floor = max(0.0, 1.0 - min(budget, 1.0))
-    start = max(label.collision_compress, floor)
-    if start <= floor:
-        return None
 
+    # First pass: detect collisions and identify which lines are colliding
+    _candidate_lc, candidate_entries = _render_text_local_with_bounds(label)
+    sweep_collisions = _detect_text_hole_collisions(label, candidate_entries)
+    if not sweep_collisions:
+        return None  # No collisions to resolve
+
+    # Build a set of colliding line indices
+    colliding_lines = {collision.line_index for collision in sweep_collisions}
+
+    # Sweep over compression levels and track per-line success
     steps = max(1, _COMPRESSION_RESOLVE_STEPS)
     for i in range(1, steps + 1):
-        scale = start - (start - floor) * i / steps
-        candidate_label = replace(label, collision_compress=scale)
+        scale = floor + (1.0 - floor) * (steps - i) / steps
+
+        # Create per-line compression map: only compress colliding lines
+        per_line_compress: dict[int, float] = dict.fromkeys(colliding_lines, scale)
+        candidate_label = replace(label, collision_compress_by_line=per_line_compress)
+
+        # Re-render and check collisions
         _candidate_lc, candidate_entries = _render_text_local_with_bounds(candidate_label)
         sweep_collisions = _detect_text_hole_collisions(candidate_label, candidate_entries)
+
         if not sweep_collisions:
             logger.warning(
-                "Label %s: compressed text horizontally to %.1f%% width to "
+                "Label %s: compressed %d text line(s) horizontally to %.1f%% width to "
                 "avoid text-hole collision on %s (max_h_compress budget %.2f).",
                 label.id,
+                len(colliding_lines),
                 scale * 100.0,
                 line_desc or "colliding text",
                 budget,
             )
             logger.debug(
-                "Label %s: Compression sweep iteration %d/%d found successful scale %.3f",
+                "Label %s: Compression sweep iteration %d/%d found successful scale %.3f "
+                "for %d line(s): %s",
                 label.id,
                 i,
                 steps,
                 scale,
+                len(colliding_lines),
+                sorted(colliding_lines),
             )
             return candidate_label
+
     return None
 
 
@@ -432,11 +451,14 @@ def _format_unresolvable_collision(
         current margin/compression state and actionable recommendations.
     """
     budget = min((line.max_h_compress for line in label.content), default=0.0)
-    scale_text = (
-        f"{attempted_scale:.3f}"
-        if attempted_scale is not None
-        else f"{label.collision_compress:.3f}"
-    )
+    if attempted_scale is not None:
+        scale_text = f"{attempted_scale:.3f}"
+    elif label.collision_compress_by_line:
+        scales = list(label.collision_compress_by_line.values())
+        avg_scale = sum(scales) / len(scales) if scales else 1.0
+        scale_text = f"{avg_scale:.3f}"
+    else:
+        scale_text = "1.000"
     details = "; ".join(
         f"line {collision.line_index} ({collision.line_text!r}) vs "
         f"{collision.hole_location} hole (gap {collision.gap:.4f}in below "
@@ -629,19 +651,24 @@ def render_label_to_plt(
             # Compression found a scale that cleared collisions in the sweep,
             # but the final render still has collisions. Log at DEBUG level
             # since we'll report the full error diagnostics below.
-            logger.debug(
-                "Label %s: Compression sweep found scale %.3f but final render "
-                "still has %d collision(s).",
-                label.id,
-                compressed_label.collision_compress,
-                len(final_collisions),
-            )
+            if compressed_label.collision_compress_by_line:
+                scales = list(compressed_label.collision_compress_by_line.values())
+                avg_scale = sum(scales) / len(scales) if scales else 1.0
+                logger.debug(
+                    "Label %s: Compression sweep found per-line scales (avg %.3f) but final render "
+                    "still has %d collision(s).",
+                    label.id,
+                    avg_scale,
+                    len(final_collisions),
+                )
             collisions = final_collisions
             base_label = compressed_label
         # Report the state at the most aggressive scale tried, so the
         # measured gaps match what the sweep actually evaluated.
         attempted_scale = max(0.0, 1.0 - min(budget, 1.0))
-        final_label = replace(base_label, collision_compress=attempted_scale)
+        # For diagnostics, create per-line compression map with the floor scale
+        per_line_floor_compress = dict.fromkeys(range(len(base_label.content)), attempted_scale)
+        final_label = replace(base_label, collision_compress_by_line=per_line_floor_compress)
         _, final_entries = _render_text_local_with_bounds(final_label)
         collisions = _detect_text_hole_collisions(final_label, final_entries)
         base_label = final_label
@@ -1378,9 +1405,10 @@ def _render_positioned_lines(
     rendered with the single-line Relief CAD font via ftext, replacing vpype's
     built-in Hershey stroke-font engine.
 
-    When ``label.collision_compress`` is below ``1.0`` (set by the text-hole
-    collision resolution sweep), every rendered line is additionally scaled
-    horizontally by that factor before alignment.
+    When per-line compression is active (set by the text-hole collision
+    resolution sweep), only the identified colliding lines are horizontally
+    scaled by their per-line compression factor (non-colliding lines remain
+    at full width) before alignment.
 
     Args:
         label: The resolved label whose ``content`` should be rendered.
@@ -1451,10 +1479,11 @@ def _render_positioned_lines(
         _min_x, min_y, _max_x, max_y = bounds
         rendered_height = max_y - min_y
 
-        # Collision-avoidance compression (Phase 3): an unconditional uniform
-        # X scale discovered by the collision sweep, applied before the
-        # regular margin-driven compression below.
-        filtered_lc = _apply_collision_compress(filtered_lc, label.collision_compress)
+        # Collision-avoidance compression (Phase 3): per-line horizontal scale
+        # for lines that are colliding with holes. Only the identified colliding
+        # lines get compressed; non-colliding lines remain at full width.
+        compression_scale = label.collision_compress_by_line.get(line_index, 1.0)
+        filtered_lc = _apply_collision_compress(filtered_lc, compression_scale)
         bounds = filtered_lc.bounds()
         if bounds is None:  # pragma: no cover - measured just above
             continue

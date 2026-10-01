@@ -261,12 +261,14 @@ class ResolvedLabel:
             during text-hole collision avoidance. ``None`` (the default)
             allows shrinking the hole margin all the way to ``0.0``; the
             resolution engine always populates the cascaded value.
-        collision_compress: Extra uniform horizontal scale in ``(0.0, 1.0]``
-            applied to every renderable text line when the collision
-            avoidance system had to compress text away from drill holes.
-            ``1.0`` (the default) means no collision-driven compression was
-            applied. Set by the renderer via ``dataclasses.replace``; never
-            sourced from the YAML schema.
+        collision_compress_by_line: Mapping of line index to per-line
+            horizontal scale in ``(0.0, 1.0]`` when text-hole collision
+            avoidance had to compress specific lines away from drill holes.
+            An empty dict (the default) means no collision-driven compression
+            was applied. Each line can have its own compression scale;
+            lines not in the dict use scale ``1.0`` (uncompressed). Set by
+            the renderer via ``dataclasses.replace``; never sourced from the
+            YAML schema.
         hole_text_collision_distance: Minimum air gap in inches kept
             between the engraved text stroke and the engraved drill-hole
             stroke (cascaded label -> job, default ``0.15``). Combined
@@ -298,7 +300,7 @@ class ResolvedLabel:
     holes: list[ResolvedHoleSpec] = field(default_factory=list)
     content: list[ResolvedTextLine] = field(default_factory=list)
     min_hole_margin: Optional[float] = None
-    collision_compress: float = 1.0
+    collision_compress_by_line: dict[int, float] = field(default_factory=dict)
     hole_text_collision_distance: float = DEFAULT_HOLE_TEXT_COLLISION_DISTANCE
     hole_cutter_diameter: float = DEFAULT_BOUNDARY_HOLE_CUTTER
     text_chunk_mode: str = "line"
