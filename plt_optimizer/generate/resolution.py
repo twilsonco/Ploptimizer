@@ -454,14 +454,16 @@ def _resolve_auto_line_spacing(
     """Resolve any auto line spacing values in content.
 
     When ``line_spacing="auto"``, spacing is calculated such that all lines
-    have equal spacing. If ``v_margin`` is explicitly specified, it is honored
-    and ``line_spacing`` is calculated to fill the remaining space. If
-    ``v_margin`` is not explicitly specified, the functional ``v_margin`` is
-    set equal to the inter-line spacing.
+    have equal functional spacing (accounting for cutter stroke width). If
+    ``v_margin`` is explicitly specified, it is honored and ``line_spacing``
+    is calculated to fill the remaining space. If ``v_margin`` is not
+    explicitly specified, the functional ``v_margin`` is set equal to the
+    inter-line spacing.
 
-    Cutter widths of the top and bottom lines are considered: half the
-    respective cutter width is added to the functional ``v_margin`` to ensure
-    correct placement in the engraved output.
+    Cutter widths of ALL lines are considered: each line's cutter width
+    contributes to both the gap above and below it (except edges contribute
+    only half at the boundary). The sum of all cutter diameters accounts for
+    the total stroke expansion.
 
     Args:
         content: Fully resolved text lines (with line_spacing=-1.0 for auto).
@@ -504,18 +506,19 @@ def _resolve_auto_line_spacing(
     total_line_height = sum(line_heights)
     num_lines = len(content)
 
-    # Calculate cutter adjustment for top and bottom lines
-    # Half of top line's cutter adds to top v_margin, half of bottom's adds to bottom
-    top_cutter_adjustment = content[0].cutter_diameter / 2.0
-    bottom_cutter_adjustment = content[-1].cutter_diameter / 2.0
-    total_cutter_adjustment = top_cutter_adjustment + bottom_cutter_adjustment
+    # Calculate total cutter adjustment: each line's cutter contributes to spacing above and below it.
+    # Top line contributes C1/2 above (top margin) + C1/2 below (gap to line 2).
+    # Middle lines contribute full cutter to gaps above and below.
+    # Bottom line contributes CN/2 below (bottom margin) + CN/2 above (gap from line N-1).
+    # Total: C1 + C2 + ... + CN.
+    total_cutter_adjustment = sum(line.cutter_diameter for line in content)
 
     calculated_v_margin: Optional[float] = None
 
     if v_margin_explicit is not None:
         # Explicit v_margin: calculate line_spacing to fill the remaining space
-        # Account for cutter adjustments that reduce effective geometric margins
-        available_height = label_height - 2.0 * v_margin_explicit + total_cutter_adjustment
+        # Account for all cutter widths that take up geometric space
+        available_height = label_height - 2.0 * v_margin_explicit - total_cutter_adjustment
         if num_lines > 1:
             calculated_spacing = max(0.0, (available_height - total_line_height) / (num_lines - 1))
         else:
@@ -532,18 +535,22 @@ def _resolve_auto_line_spacing(
         )
     else:
         # Auto v_margin: functional v_margin equals inter-line spacing
-        # Geometric margins account for cutter width: geometric_margin + cutter_adj/2 = functional_margin
-        # For equal functional spacing:
-        #   (inter - top_cutter/2) + line1 + inter + line2 + (inter - bot_cutter/2) = label_height
-        #   3*inter + line_total - cutter_adj = label_height
-        #   inter = (label_height - line_total + cutter_adj) / (num_lines + 1)
+        # Each line's cutter width contributes to the spacing around it:
+        # - Top line: C1/2 above (top margin) + C1/2 below (top of spacing1)
+        # - Middle lines: full cutter for both gaps above and below
+        # - Bottom line: CN/2 above (bottom of spacingN) + CN/2 below (bottom margin)
+        # Total: C1 + C2 + ... + CN
+        #
+        # Available space for equal functional spacing:
+        #   (num_lines + 1)*f + line_total + sum(all_cutters) = label_height
+        #   f = (label_height - line_total - sum(all_cutters)) / (num_lines + 1)
         if num_lines > 1:
             calculated_spacing = max(
                 0.0,
-                (label_height + total_cutter_adjustment - total_line_height) / (num_lines + 1),
+                (label_height - total_cutter_adjustment - total_line_height) / (num_lines + 1),
             )
         else:
-            calculated_spacing = (label_height + total_cutter_adjustment - total_line_height) / 2.0
+            calculated_spacing = (label_height - total_cutter_adjustment - total_line_height) / 2.0
 
         # Set calculated_v_margin to the line_spacing so it will be used instead of default
         calculated_v_margin = calculated_spacing

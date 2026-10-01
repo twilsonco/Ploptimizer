@@ -20,9 +20,9 @@ class TestAutoLineSpacing:
         For 3 lines of 0.25" height in a 2.0" tall label with no explicit
         v_margin:
         - total_line_height = 0.75"
-        - cutter_adjustment = 0.03" (0.015" x 2)
-        - spacing = (2.0 + 0.03 - 0.75) / (3 + 1) = 0.32"
-        - v_margin should be set to 0.32"
+        - all_cutter_widths = 0.03" x 3 = 0.09"
+        - spacing = (2.0 - 0.09 - 0.75) / (3 + 1) = 1.16 / 4 = 0.29"
+        - v_margin should be set to 0.29"
         """
         job = JobSpec(
             job_name="Test Auto Spacing No Explicit Margin",
@@ -41,7 +41,7 @@ class TestAutoLineSpacing:
         label = resolved_labels[0]
 
         # V-margin should be set to the calculated line_spacing
-        assert abs(label.v_margin - 0.32) < 0.005
+        assert abs(label.v_margin - 0.29) < 0.005
         # All lines should have the same spacing
         for line in label.content:
             assert abs(line.line_spacing - label.v_margin) < 0.001
@@ -50,9 +50,10 @@ class TestAutoLineSpacing:
         """Auto spacing honors explicit v_margin and calculates line_spacing to fit.
 
         For 3 lines of 0.25" height in a 2.0" tall label with explicit v_margin=0.2":
-        - available_height = 2.0 - 2*0.2 + 0.03 = 1.63"
+        - all_cutter_widths = 0.03" x 3 = 0.09"
+        - available_height = 2.0 - 2*0.2 - 0.09 = 1.51"
         - total_line_height = 0.75"
-        - spacing = (1.63 - 0.75) / 2 = 0.44"
+        - spacing = (1.51 - 0.75) / 2 = 0.38"
         - v_margin should stay at 0.2"
         """
         job = JobSpec(
@@ -75,7 +76,7 @@ class TestAutoLineSpacing:
         # V-margin should remain at the explicit value
         assert abs(label.v_margin - 0.2) < 0.001
         # Line spacing should fit the available space
-        assert abs(label.content[0].line_spacing - 0.44) < 0.01
+        assert abs(label.content[0].line_spacing - 0.38) < 0.01
 
     def test_auto_spacing_single_line(self) -> None:
         """Auto spacing handles single-line labels correctly."""
