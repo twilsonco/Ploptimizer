@@ -14,6 +14,6 @@ job:
       height: 2
       replacement_text_file: 2026-09-30 coolsys case tags.txt
     - id: equipment tags
-      width: 5
+      width: 6
       height: 3
       replacement_text_file: 2026-09-30 coolsys equipment tags.txt
