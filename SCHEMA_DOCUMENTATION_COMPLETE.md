@@ -82,7 +82,7 @@ git commit -m "feat: add new_tool_option to job-config.json"
 | Script | Purpose | When to Use | Command |
 |---|---|---|---|
 | **`docs/schema/generate_ai_docs.py`** | Generate all schema docs | After editing config/models (main entry point) | `python3 docs/schema/generate_ai_docs.py` |
-| **`scripts/generate_schema_docs.py`** | Format tool_options for UIs | Building a web UI, alternate documentation | `python3 scripts/generate_schema_docs.py --show` |
+| **`docs/schema/generate_schema_docs.py`** | Format tool_options for UIs | Building a web UI, alternate documentation | `python3 docs/schema/generate_schema_docs.py --show` |
 | **`tests/test_job_spec_docs.py`** | Detect drift | Before committing (runs in CI) | `python3 -m pytest tests/test_job_spec_docs.py` |
 
 ---
@@ -220,7 +220,7 @@ cat docs/schema/JOB_SPEC.md | grep -A 15 "Available Tool Options"
 
 # For Developers:
 python3 docs/schema/generate_ai_docs.py    # Regenerate all docs
-python3 scripts/generate_schema_docs.py --show  # Show tool options nicely formatted
+python3 docs/schema/generate_schema_docs.py --show  # Show tool options nicely formatted
 
 # For Testing:
 python3 -m pytest tests/test_job_spec_docs.py  # Drift detection

@@ -14,7 +14,7 @@ The `generate_schema_docs.py` script reads `job-config.json` and generates docum
 
 ### Generate formatted documentation:
 ```bash
-python3 scripts/generate_schema_docs.py --show
+python3 docs/schema/generate_schema_docs.py --show
 ```
 
 Output shows all 9 tool options with name, command, type, units, ranges, and defaults:
@@ -34,7 +34,7 @@ Use this for:
 
 ### Generate Python code for schema.py docstring:
 ```bash
-python3 scripts/generate_schema_docs.py --show-python-code
+python3 docs/schema/generate_schema_docs.py --show-python-code
 ```
 
 Output shows code ready to copy-paste into the `JobSpec.tool_options` field:
@@ -48,7 +48,7 @@ Output shows code ready to copy-paste into the `JobSpec.tool_options` field:
 ```
 
 **To apply to schema.py:**
-1. Run: `python3 scripts/generate_schema_docs.py --show-python-code`
+1. Run: `python3 docs/schema/generate_schema_docs.py --show-python-code`
 2. Copy the output lines
 3. Paste them at the end of the description string in `JobSpec.tool_options` field
 4. Ensure proper indentation (should match surrounding lines)
@@ -67,7 +67,7 @@ Set up an automated pre-commit hook to update documentation whenever `job-config
     hooks:
       - id: sync-schema-docs
         name: Sync schema docs from job-config
-        entry: bash -c 'python3 scripts/generate_schema_docs.py --show-python-code > /tmp/schema_docs.txt && echo "Run: python3 scripts/generate_schema_docs.py --show-python-code and update JobSpec.tool_options"'
+        entry: bash -c 'python3 docs/schema/generate_schema_docs.py --show-python-code > /tmp/schema_docs.txt && echo "Run: python3 docs/schema/generate_schema_docs.py --show-python-code and update JobSpec.tool_options"'
         language: system
         files: 'job-config\.json'
         stages: [commit]
@@ -80,7 +80,7 @@ Or simpler version (just a reminder):
     hooks:
       - id: remind-update-schema-docs
         name: Reminder to update schema docs
-        entry: bash -c 'git diff --cached job-config.json > /dev/null && echo "⚠️  job-config.json changed - run: python3 scripts/generate_schema_docs.py --show-python-code"'
+        entry: bash -c 'git diff --cached job-config.json > /dev/null && echo "⚠️  job-config.json changed - run: python3 docs/schema/generate_schema_docs.py --show-python-code"'
         language: system
         files: 'job-config\.json'
         stages: [commit]
@@ -103,22 +103,22 @@ Now, any time you modify `job-config.json`, pre-commit will remind you to update
 
 ### Show all available options:
 ```bash
-python3 scripts/generate_schema_docs.py --show
+python3 docs/schema/generate_schema_docs.py --show
 ```
 
 ### Generate Python code for docstring:
 ```bash
-python3 scripts/generate_schema_docs.py --show-python-code
+python3 docs/schema/generate_schema_docs.py --show-python-code
 ```
 
 ### Specify non-default job-config path:
 ```bash
-python3 scripts/generate_schema_docs.py --show --config /path/to/job-config.json
+python3 docs/schema/generate_schema_docs.py --show --config /path/to/job-config.json
 ```
 
 ### Run with no arguments (shows both):
 ```bash
-python3 scripts/generate_schema_docs.py
+python3 docs/schema/generate_schema_docs.py
 ```
 
 ---
@@ -158,8 +158,8 @@ Example:
 **Scenario:** You add a new tool option to `job-config.json`.
 
 1. Edit `job-config.json` and add the new option
-2. Run: `python3 scripts/generate_schema_docs.py --show` to preview
-3. Run: `python3 scripts/generate_schema_docs.py --show-python-code` to get code
+2. Run: `python3 docs/schema/generate_schema_docs.py --show` to preview
+3. Run: `python3 docs/schema/generate_schema_docs.py --show-python-code` to get code
 4. Copy the new lines into `schema.py` `JobSpec.tool_options` docstring
 5. Commit both `job-config.json` and `schema.py`
 
@@ -172,12 +172,12 @@ Done! Schema docs are now in sync with the actual tool options.
 **Script not found:**
 ```bash
 cd /Users/haiiro/NoSync/PLT-Optimizer  # Navigate to repo root
-python3 scripts/generate_schema_docs.py --show
+python3 docs/schema/generate_schema_docs.py --show
 ```
 
 **job-config.json not found:**
 ```bash
-python3 scripts/generate_schema_docs.py --show --config ./job-config.json
+python3 docs/schema/generate_schema_docs.py --show --config ./job-config.json
 ```
 
 **Pre-commit hook not running:**
@@ -192,7 +192,7 @@ pre-commit run remind-update-schema-docs --all-files  # Test manually
 
 1. **Try the script:**
    ```bash
-   python3 scripts/generate_schema_docs.py --show
+   python3 docs/schema/generate_schema_docs.py --show
    ```
 
 2. **(Optional) Set up pre-commit hook** for automatic reminders

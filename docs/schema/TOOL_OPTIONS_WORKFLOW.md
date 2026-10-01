@@ -8,7 +8,7 @@ Tool options are HPGL header commands that control engraver parameters (cutting 
 |---|---|---|
 | **`docs/schema/JOB_SPEC.md`** | Complete reference table | Users, AI agents, schema validation |
 | **`docs/schema/generate_ai_docs.py`** | Auto-generation script | Developers (regenerate when config changes) |
-| **`scripts/generate_schema_docs.py`** | Standalone utility | UI/documentation generation |
+| **`docs/schema/generate_schema_docs.py`** | Standalone utility | UI/documentation generation |
 
 ---
 
@@ -100,7 +100,7 @@ python3 docs/schema/generate_ai_docs.py
 
 ---
 
-### 2. `scripts/generate_schema_docs.py` — UI/Documentation Helper
+### 2. `docs/schema/generate_schema_docs.py` — UI/Documentation Helper
 
 **Purpose:** Format tool options for use in UIs, documentation sites, or other tools
 
@@ -113,13 +113,13 @@ python3 docs/schema/generate_ai_docs.py
 **Commands:**
 ```bash
 # Show nicely formatted list for documentation
-python3 scripts/generate_schema_docs.py --show
+python3 docs/schema/generate_schema_docs.py --show
 
 # Generate Python code for copy-paste into docstrings
-python3 scripts/generate_schema_docs.py --show-python-code
+python3 docs/schema/generate_schema_docs.py --show-python-code
 
 # Specify non-default config path
-python3 scripts/generate_schema_docs.py --show --config /path/to/job-config.json
+python3 docs/schema/generate_schema_docs.py --show --config /path/to/job-config.json
 ```
 
 **Output:**
@@ -184,7 +184,7 @@ JOB_SPEC.md (with tool_options table)
 ```
 job-config.json (tool_options)
         ↓
-scripts/generate_schema_docs.py
+docs/schema/generate_schema_docs.py
         ↓
 human-readable markdown or Python code
 ```
@@ -266,5 +266,5 @@ A: They reference `docs/schema/JOB_SPEC.md` which is always up-to-date.
 | Task | Script | Command |
 |---|---|---|
 | **Generate all schema docs** | `docs/schema/generate_ai_docs.py` | `python3 docs/schema/generate_ai_docs.py` |
-| **Format options for UI** | `scripts/generate_schema_docs.py` | `python3 scripts/generate_schema_docs.py --show` |
+| **Format options for UI** | `docs/schema/generate_schema_docs.py` | `python3 docs/schema/generate_schema_docs.py --show` |
 | **Validate docs are current** | pytest | `python3 -m pytest tests/test_job_spec_docs.py` |

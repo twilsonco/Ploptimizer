@@ -7,15 +7,15 @@ generation.
 
 Usage:
     # Show the generated documentation (for copy-paste or review)
-    python3 scripts/generate_schema_docs.py --show
+    python3 docs/schema/generate_schema_docs.py --show
 
     # Generate Python code snippet for embedding in schema
-    python3 scripts/generate_schema_docs.py --show-python-code
+    python3 docs/schema/generate_schema_docs.py --show-python-code
 
     # Typical workflow:
     # 1. Run with --show to see the current docs
     # 2. Copy the output into your documentation system
-    # 3. For pre-commit integration, see SCHEMA_DOCS_INTEGRATION.md
+    # 3. For pre-commit integration, see docs/schema/SCHEMA_DOCS_INTEGRATION.md
 """
 
 from __future__ import annotations
