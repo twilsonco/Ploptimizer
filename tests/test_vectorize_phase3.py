@@ -637,6 +637,7 @@ class TestPlateSpaceExport:
             "      width: 3.0\n"
             "      height: 1.5\n"
             "      margin: 0.1\n"
+            "      line_spacing: 0.1\n"
             "      holes:\n"
             "        - location: top-left\n"
             "        - location: bottom-right\n"
