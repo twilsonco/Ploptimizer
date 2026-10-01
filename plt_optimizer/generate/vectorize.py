@@ -402,11 +402,46 @@ def _format_plate_number(plate_number: int) -> str:
     return f"{plate_number:02d}"
 
 
+def _build_plot_title(job_name: str, plt_path: Path) -> str:
+    """Build a descriptive title for a plot from the job name and PLT file path.
+
+    The file name format is:
+    - Text: ``<plate>_txt_<cutter>_<job_id>.plt`` or ``<plate>_txt_<cutter>_<color>_<job_id>.plt``
+    - Structural: ``<plate>_bh_<cutter>_<job_id>.plt``
+
+    Args:
+        job_name: The human-readable job name.
+        plt_path: Path to the PLT file, used to extract plot type and cutter size.
+
+    Returns:
+        A descriptive title string, e.g. ``"My Job text (0.040 cutter)"`` or
+        ``"My Job borders and holes (0.015 cutter)"``.
+    """
+    stem = plt_path.stem
+    parts = stem.split("_")
+
+    # Extract cutter from the filename. The format is:
+    # <plate>_<kind>_<cutter>[_<color>]_<job_id>
+    # We need to find the cutter, which is after the kind (txt/bh)
+    if len(parts) >= 3:
+        kind = parts[1]  # 'txt' or 'bh'
+        cutter_str = parts[2]  # cutter diameter like '0.040'
+
+        if kind == "bh":
+            return f"{job_name} borders and holes ({cutter_str} cutter)"
+        elif kind == "txt":
+            return f"{job_name} text ({cutter_str} cutter)"
+
+    # Fallback for unexpected format
+    return f"{job_name} {stem}"
+
+
 def export_per_cutter_plts(
     resolved_labels: list[ResolvedLabel],
     provided_plates: list[PlateSpec] | None = None,
     output_dir: str | Path = "output",
     job_id: str = "job",
+    job_name: str = "",
     optimize: bool = True,
     plots: bool = True,
     default_plots: bool = False,
@@ -455,6 +490,7 @@ def export_per_cutter_plts(
             subdirectories are created inside it.
         job_id: Job identifier used as the file-name prefix (should be
             filesystem-safe; the CLI sanitizes the job name).
+        job_name: Human-readable job name for plot titles (optional).
         optimize: If True, run the PLT optimizer on each written file.
         plots: If True, write simple-outline PDF previews for every
             written PLT plus a combined ``*_all_*`` PDF per plate.
@@ -624,9 +660,11 @@ def export_per_cutter_plts(
             result.plt_paths.append(text_path)
 
     if plots:
-        result.pdf_paths = _write_simple_plots(output_dir, job_id, result)
+        result.pdf_paths = _write_simple_plots(output_dir, job_id, result, job_name=job_name)
     if default_plots:
-        result.default_pdf_paths = write_default_plots(output_dir, job_id, result)
+        result.default_pdf_paths = write_default_plots(
+            output_dir, job_id, result, job_name=job_name
+        )
 
     return result
 
@@ -635,6 +673,7 @@ def _write_simple_plots(
     output_dir: Path,
     job_id: str,
     result: PerCutterExport,
+    job_name: str = "",
 ) -> list[Path]:
     """Write simple-outline PDF previews for a per-cutter export.
 
@@ -657,6 +696,7 @@ def _write_simple_plots(
         job_id: Job identifier used in combined PDF names.
         result: The export result whose ``plt_paths`` and
             ``combined_by_plate`` drive the plots.
+        job_name: Human-readable job name for plot titles (optional).
 
     Returns:
         List of written PDF paths.
@@ -676,9 +716,11 @@ def _write_simple_plots(
         # File-name shape: <plate number>_<kind>_<cutter>_<job_id>; the bh
         # (borders + holes) kind is purely structural, text is not.
         is_structural = plt_path.stem.split("_")[1:2] == ["bh"]
+        title = _build_plot_title(job_name, plt_path) if job_name else "PLT Toolpath Visualization"
         plot_plt_document(
             document,
             output_path=pdf_path,
+            title=title,
             show_plot=False,
             simple_mode=True,
             is_structural=is_structural,
@@ -689,7 +731,18 @@ def _write_simple_plots(
         document = parser.parse_string(combined)
         pdf_path = pdf_dir / f"{_format_plate_number(plate_no)}_all_{job_id}.pdf"
         # Combined plots mix text + borders + holes: thin opaque strokes.
-        plot_plt_document(document, output_path=pdf_path, show_plot=False, simple_mode=True)
+        title = (
+            f"{job_name} combined view (plate {plate_no})"
+            if job_name
+            else "PLT Toolpath Visualization"
+        )
+        plot_plt_document(
+            document,
+            output_path=pdf_path,
+            title=title,
+            show_plot=False,
+            simple_mode=True,
+        )
         pdf_paths.append(pdf_path)
 
     return pdf_paths
@@ -699,6 +752,7 @@ def write_default_plots(
     output_dir: Path,
     job_id: str,
     result: PerCutterExport,
+    job_name: str = "",
 ) -> list[Path]:
     """Write color-coded ``*_default.pdf`` diagnostic plots for an export.
 
@@ -717,6 +771,7 @@ def write_default_plots(
         job_id: Job identifier used in combined PDF names.
         result: The export result whose ``plt_paths`` and
             ``combined_by_plate`` drive the plots.
+        job_name: Human-readable job name for plot titles (optional).
 
     Returns:
         List of written PDF paths.
@@ -733,13 +788,31 @@ def write_default_plots(
     for plt_path in result.plt_paths:
         document = parser.parse_file(plt_path)
         pdf_path = pdf_dir / f"{plt_path.stem}_default.pdf"
-        plot_plt_document(document, output_path=pdf_path, show_plot=False, simple_mode=False)
+        title = _build_plot_title(job_name, plt_path) if job_name else "PLT Toolpath Visualization"
+        plot_plt_document(
+            document,
+            output_path=pdf_path,
+            title=title,
+            show_plot=False,
+            simple_mode=False,
+        )
         pdf_paths.append(pdf_path)
 
     for plate_no, combined in result.combined_by_plate.items():
         document = parser.parse_string(combined)
         pdf_path = pdf_dir / f"{_format_plate_number(plate_no)}_all_{job_id}_default.pdf"
-        plot_plt_document(document, output_path=pdf_path, show_plot=False, simple_mode=False)
+        title = (
+            f"{job_name} combined view (plate {plate_no})"
+            if job_name
+            else "PLT Toolpath Visualization"
+        )
+        plot_plt_document(
+            document,
+            output_path=pdf_path,
+            title=title,
+            show_plot=False,
+            simple_mode=False,
+        )
         pdf_paths.append(pdf_path)
 
     return pdf_paths

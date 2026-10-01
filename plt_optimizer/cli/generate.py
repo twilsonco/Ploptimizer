@@ -291,6 +291,7 @@ def run(args: argparse.Namespace) -> int:
             job.plates,
             output_dir=output_dir,
             job_id=job_id,
+            job_name=job.job_name,
             optimize=True,
             plots=not args.no_plots,
             default_plots=args.default_plots,
