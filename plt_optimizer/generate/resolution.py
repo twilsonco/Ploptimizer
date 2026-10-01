@@ -514,7 +514,8 @@ def _resolve_auto_line_spacing(
 
     if v_margin_explicit is not None:
         # Explicit v_margin: calculate line_spacing to fill the remaining space
-        available_height = label_height - 2.0 * v_margin_explicit - total_cutter_adjustment
+        # Account for cutter adjustments that reduce effective geometric margins
+        available_height = label_height - 2.0 * v_margin_explicit + total_cutter_adjustment
         if num_lines > 1:
             calculated_spacing = max(0.0, (available_height - total_line_height) / (num_lines - 1))
         else:
@@ -531,16 +532,18 @@ def _resolve_auto_line_spacing(
         )
     else:
         # Auto v_margin: functional v_margin equals inter-line spacing
-        # Solve: total_line_height + (num_lines - 1) * spacing + 2 * spacing + cutter_adjustment = label_height
-        # total_line_height + (num_lines + 1) * spacing = label_height - cutter_adjustment
-        # spacing = (label_height - cutter_adjustment - total_line_height) / (num_lines + 1)
+        # Geometric margins account for cutter width: geometric_margin + cutter_adj/2 = functional_margin
+        # For equal functional spacing:
+        #   (inter - top_cutter/2) + line1 + inter + line2 + (inter - bot_cutter/2) = label_height
+        #   3*inter + line_total - cutter_adj = label_height
+        #   inter = (label_height - line_total + cutter_adj) / (num_lines + 1)
         if num_lines > 1:
             calculated_spacing = max(
                 0.0,
-                (label_height - total_cutter_adjustment - total_line_height) / (num_lines + 1),
+                (label_height + total_cutter_adjustment - total_line_height) / (num_lines + 1),
             )
         else:
-            calculated_spacing = (label_height - total_cutter_adjustment - total_line_height) / 2.0
+            calculated_spacing = (label_height + total_cutter_adjustment - total_line_height) / 2.0
 
         # Set calculated_v_margin to the line_spacing so it will be used instead of default
         calculated_v_margin = calculated_spacing
