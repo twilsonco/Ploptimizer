@@ -472,7 +472,7 @@ class TestParseYamlWithJobConfig:
         """The shipped job-config.json supplies the required defaults."""
         job = parse_yaml("tests_deps/test123_spec.yaml", job_config_path=Path("job-config.json"))
         assert job.hole_margin == 0.1875
-        assert job.max_h_compress == 0.5
+        assert job.max_h_compress == 0.7
         assert job.min_hole_margin == 0.15
         assert job.hole_text_collision_distance == 0.1
 
