@@ -351,6 +351,20 @@
       "default": null,
       "description": "Default plate top-edge clearance in inches (same cascade as left_clearance).",
       "title": "Top Clearance"
+    },
+    "auto_line_spacing_interline_to_top_bottom_ratio": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Ratio controlling inter-line spacing relative to top/bottom margins when auto line spacing is enabled. Default 1.0 makes all gaps equal. Values > 1.0 increase inter-line spacing at the expense of top/bottom margins.",
+      "title": "Auto Line Spacing Interline To Top Bottom Ratio"
     }
   },
   "title": "JobDefaults",

@@ -1558,13 +1558,15 @@ def _render_positioned_lines(
 
         # Margin precedence for width: compress over-wide lines so they
         # respect the inner content area (bounded by max_h_compress).
-        # Include half the line's cutter diameter in the horizontal margin
-        # so all text has consistent visual margin from the border.
+        # For alignment: use the user-specified h_margin (visual margin).
+        # For compression: include half the line's cutter diameter so all text
+        # has consistent visual margin from the border.
         cutter_margin_h = h_margin + (line.cutter_diameter / 2.0)
-        available_width = inner_width - (2 * cutter_margin_h)
+        compression_available_width = inner_width - (2 * cutter_margin_h)
+        alignment_available_width = inner_width - (2 * h_margin)
         filtered_lc = compress_line_to_width(
             filtered_lc,
-            available_width,
+            compression_available_width,
             max_h_compress,
             label.id,
             line_text=label.content[line_index].text,
@@ -1579,7 +1581,7 @@ def _render_positioned_lines(
         # the line's left-most point at the left margin, "right" anchors
         # the right-most point at the right margin, "center" centers it.
         target_left_x = compute_horizontal_offset(
-            rendered_width, available_width, cutter_margin_h, text_h_alignment
+            rendered_width, alignment_available_width, h_margin, text_h_alignment
         )
         x_offset = target_left_x - min_x
 

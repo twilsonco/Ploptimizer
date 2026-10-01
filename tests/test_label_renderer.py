@@ -580,17 +580,20 @@ class TestHoleCircleGeometry:
         assert len(circles) == len(holes)
         for (center_x, center_y, radius), hole in zip(circles, holes):
             assert radius == pytest.approx(hole.diameter / 2.0)
+            # Offset includes hole_cutter_diameter/2 (default 0.015 → 0.0075 half)
+            offset_x = 0.0075 + radius
+            offset_y = 0.0075 + radius
             expected_x = {
-                "top-left": radius,
-                "top-right": 4.0 - radius,
-                "bottom-right": 4.0 - radius,
-                "bottom-left": radius,
+                "top-left": offset_x,
+                "top-right": 4.0 - offset_x,
+                "bottom-right": 4.0 - offset_x,
+                "bottom-left": offset_x,
             }[hole.location]
             expected_y = {
-                "top-left": 2.0 - radius,
-                "top-right": 2.0 - radius,
-                "bottom-right": radius,
-                "bottom-left": radius,
+                "top-left": 2.0 - offset_y,
+                "top-right": 2.0 - offset_y,
+                "bottom-right": offset_y,
+                "bottom-left": offset_y,
             }[hole.location]
             assert center_x == pytest.approx(expected_x, abs=1e-9)
             assert center_y == pytest.approx(expected_y, abs=1e-9)
@@ -606,11 +609,14 @@ class TestHoleCircleGeometry:
         circles = _hole_circles_local(_make_hole_label(holes))
 
         assert len(circles) == len(holes)
+        # Offset includes hole_cutter_diameter/2 (default 0.015 → 0.0075 half)
+        # left/right holes: radius = 0.0625 → offset = 0.0075 + 0.0625 = 0.07
+        # top/bottom holes: radius = 0.125 → offset = 0.0075 + 0.125 = 0.1325
         expected_centers = {
-            "left": (0.0625, 1.0),
-            "right": (4.0 - 0.0625, 1.0),
-            "top": (2.0, 2.0 - 0.125),
-            "bottom": (2.0, 0.125),
+            "left": (0.0075 + 0.0625, 1.0),
+            "right": (4.0 - (0.0075 + 0.0625), 1.0),
+            "top": (2.0, 2.0 - (0.0075 + 0.125)),
+            "bottom": (2.0, 0.0075 + 0.125),
         }
         for (center_x, center_y, radius), hole in zip(circles, holes):
             ex, ey = expected_centers[hole.location]
@@ -764,44 +770,50 @@ class TestHoleMarginRendering:
     """hole_margin controls the gap between a hole circle and the label edge.
 
     The closest point of each hole circle must sit exactly
-    ``label.hole_margin`` inches from the boundary (center inset by
-    ``hole_margin + radius``). With ``hole_margin == 0.0`` the circle is
-    tangent to the edge, matching the legacy behavior.
+    ``label.hole_margin`` inches from the boundary. The center is inset by
+    ``hole_margin + hole_cutter_diameter/2 + radius`` to account for the
+    stroke width of the hole cutter (default 0.015" → 0.0075" half-width).
+    With ``hole_margin == 0.0`` the circle's stroke is tangent to the edge.
     """
 
     def test_zero_margin_keeps_circle_tangent(self) -> None:
-        """hole_margin == 0.0 must keep the circle tangent to the edge."""
+        """hole_margin == 0.0 must keep the circle's stroke tangent to the edge."""
         hole = ResolvedHoleSpec(diameter=0.125, location="left")
         circles = _hole_circles_local(_make_hole_label([hole], hole_margin=0.0))
-        # Center at (radius, height/2), radius 0.0625.
+        # Center at (hole_cutter/2 + radius, height/2).
+        # hole_cutter = 0.015 → 0.0075 half-width. radius = 0.0625.
+        # center_x = 0.0075 + 0.0625 = 0.07
         assert len(circles) == 1
         center_x, center_y, radius = circles[0]
-        assert center_x == pytest.approx(0.0625, abs=1e-9)
+        assert center_x == pytest.approx(0.0075 + 0.0625, abs=1e-9)
         assert center_y == pytest.approx(1.0, abs=1e-9)
         assert radius == pytest.approx(0.0625, abs=1e-9)
 
     def test_margin_insets_circle_from_edge(self) -> None:
-        """With hole_margin, the circle's closest point is hole_margin away."""
+        """With hole_margin, the circle's closest point is hole_margin + cutter/2 away."""
         hole = ResolvedHoleSpec(diameter=0.125, location="left")
         hole_margin = 0.1875
         radius = hole.diameter / 2.0
         circles = _hole_circles_local(_make_hole_label([hole], hole_margin=hole_margin))
 
-        # Center inset by hole_margin + radius; radius unchanged.
+        # Center inset by hole_margin + hole_cutter_diameter/2 + radius.
+        # hole_cutter_diameter = 0.015 → 0.0075 half-width.
         assert len(circles) == 1
         center_x, center_y, r = circles[0]
-        assert center_x == pytest.approx(hole_margin + radius, abs=1e-9)
+        expected_center_x = hole_margin + 0.0075 + radius
+        assert center_x == pytest.approx(expected_center_x, abs=1e-9)
         assert center_y == pytest.approx(1.0, abs=1e-9)
         assert r == pytest.approx(radius, abs=1e-9)
-        # Closest point of the circle to the left edge (x=0) == hole_margin.
-        assert center_x - r == pytest.approx(hole_margin, abs=1e-9)
+        # Closest point of the circle to the left edge (x=0) == hole_margin + cutter/2.
+        assert center_x - r == pytest.approx(hole_margin + 0.0075, abs=1e-9)
 
     def test_margin_applies_to_all_edge_and_corner_locations(self) -> None:
         """hole_margin must be honored for every supported location."""
         hole_margin = 0.25
         diameter = 0.125
         radius = diameter / 2.0
-        offset = hole_margin + radius
+        # offset includes hole_cutter_diameter / 2 (default 0.015 → 0.0075 half)
+        offset = hole_margin + 0.0075 + radius
         width, height = 4.0, 2.0
 
         holes = [
@@ -839,9 +851,10 @@ class TestHoleMarginRendering:
 
         Uses a bottom-left hole on a small label. After the device-convention
         Y flip (mirror across the label centerline), the hole lands near the
-        top-left, so its distance to the left edge and to the top edge must
-        both equal hole_margin. The check reads the native ``AA`` arc center
-        and derives the radius from the preceding ``PU`` start point.
+        top-left, so its distance to the left edge (accounting for hole cutter
+        stroke) and to the top edge must correspond to hole_margin. The check
+        reads the native ``AA`` arc center and derives the radius from the
+        preceding ``PU`` start point.
         """
         hole_margin = 0.1875
         diameter = 0.125
@@ -870,12 +883,14 @@ class TestHoleMarginRendering:
         # Quarter arcs, one full revolution.
         assert sweep == -90  # negated by the Y-axis flip
 
-        # The circle's closest point sits hole_margin from the left edge, and
-        # (post-flip) hole_margin below the top edge.
+        # The circle center is inset by (hole_margin + hole_cutter/2 + radius),
+        # so the closest point is at hole_margin + hole_cutter/2.
+        # hole_cutter_diameter = 0.015 → 0.0075 half-width.
+        expected_gap = hole_margin + 0.0075
         left_gap = (cx - radius_units) / 1000.0
         top_gap = label.height - (cy + radius_units) / 1000.0
-        assert left_gap == pytest.approx(hole_margin, abs=0.002)
-        assert top_gap == pytest.approx(hole_margin, abs=0.002)
+        assert left_gap == pytest.approx(expected_gap, abs=0.002)
+        assert top_gap == pytest.approx(expected_gap, abs=0.002)
 
 
 class TestCompressLineToWidth:

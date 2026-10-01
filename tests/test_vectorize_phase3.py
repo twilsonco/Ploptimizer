@@ -242,9 +242,12 @@ class TestRotatePltContent90cw:
         assert max(ys) == pytest.approx(5.0, abs=0.01)
 
         # Clockwise rotation maps the device-convention hole center
-        # (0.25, 0.75) to (0.25, 0.25); the slot offset adds (5, 3).
+        # to the rotated position; the slot offset adds (5, 3).
+        # Hole center offset includes hole_cutter_diameter/2 (0.0075) + hole_margin (0.1875) + radius (0.0625) = 0.2575
+        # Before rotation: (0.2575, 0.2575)
+        # After rotation and offset: (5.2575, 3.2575) ≈ (5.26, 3.26) when rounded to 2 decimal places
         centers = {(round(a.center.x / 1000, 2), round(a.center.y / 1000, 2)) for a in arcs}
-        assert centers == {(5.25, 3.25)}
+        assert centers == {(5.26, 3.26)}
         # The rigid transform preserves the drill radius.
         assert all(a.radius / 1000 == pytest.approx(0.0625, abs=0.001) for a in arcs)
 

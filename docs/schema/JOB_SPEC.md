@@ -71,6 +71,7 @@ they are no longer auto-sized from rendered content.
 | `layout` | LayoutMode | `"columns"` | — | Preferential plate fill order: 'columns' (default) fills the plate height before extending rightward; 'rows' fills width before extending downward. |
 | `left_clearance` | float \| null | null (unset) | >=0 | Job-level default plate left-edge clearance in inches (cascades job -> plate; an explicit plate value, including 0.0, wins). |
 | `top_clearance` | float \| null | null (unset) | >=0 | Job-level default plate top-edge clearance in inches (cascades job -> plate; an explicit plate value, including 0.0, wins). |
+| `auto_line_spacing_interline_to_top_bottom_ratio` | float \| null | null (unset) | >0 | Ratio controlling inter-line spacing relative to top/bottom margins when auto line spacing is enabled. Default 1.0 makes all gaps equal. Values > 1.0 increase inter-line spacing at the expense of top/bottom margins. |
 
 ## Models
 
