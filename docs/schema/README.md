@@ -9,12 +9,14 @@ machine validation.
 |---|---|---|
 | `job_spec.schema.json` | `JobSpec` model (`plt_optimizer/generate/schema.py`) | `uv run python docs/schema/generate_ai_docs.py` |
 | `job_config.schema.json` | `JobDefaults` model (`plt_optimizer/generate/job_config.py`) | same command |
-| `JOB_SPEC.md` | both models + fallback constants scraped from `resolution.py` / `layout.py` | same command |
+| `JOB_SPEC.md` | both models + fallback constants scraped from `resolution.py` / `layout.py` + tool_options from `job-config.json` | same command |
 | `README.md` (this file) | hand-written semantics | manual |
 
 Drift is pinned by `tests/test_job_spec_docs.py`: if `schema.py` /
 `job_config.py` change without regenerating the artifacts, the test suite
-fails. All units are **inches**.
+fails. The tool_options table in `JOB_SPEC.md` is auto-generated from the
+live `job-config.json`, so it always reflects the current available engraver
+parameters. All units are **inches**.
 
 ## Pipeline context
 
@@ -28,6 +30,30 @@ CLI entry: `plt-optimizer generate <spec.yaml>` (flags: `--job-config`,
 tooling: `plt_optimizer.generate.schema.parse_yaml(path)` → validated
 `JobSpec` or `ValueError` (`JobConfigError` subclass for config-gate
 violations).
+
+## Tool Options (HPGL Header Commands)
+
+The `tool_options` field lets you specify engraver parameters (cutting
+velocity, spindle speed, dwell time, etc.) as HPGL header commands prepended
+to generated PLT files. **See the "Available Tool Options" section in
+`JOB_SPEC.md`** for the full table of parameters, their HPGL commands, units,
+ranges, and defaults.
+
+Typical usage:
+
+```yaml
+job:
+  job_name: "Custom Speeds"
+  tool_options:
+    cutting_velocity: 1.5      # override default 0.8 in/sec
+    spindle_speed: 15000       # override default 12000 rpm
+  # ... rest of job spec ...
+```
+
+Defaults come from `job-config.json` with **dual values** for text vs
+borders/holes layers (each layer may need different settings). Out-of-bounds
+values are automatically clamped to their configured range with a WARNING
+logged. See `plt_optimizer/generate/tool_options.py` for the clamping logic.
 
 ## The five job forms (exactly one label source)
 

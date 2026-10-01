@@ -368,6 +368,78 @@ def _scrape_constants() -> dict[str, str]:
     return constants
 
 
+def _load_tool_options() -> dict[str, Any]:
+    """Load tool_options metadata from job-config.json.
+
+    Returns:
+        Dict of tool_options from job-config.json, or empty dict if
+        job-config.json is not found or has no tool_options.
+    """
+    config_path = REPO_ROOT / "job-config.json"
+    if not config_path.exists():
+        return {}
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        return config.get("tool_options", {})
+    except (json.JSONDecodeError, IOError):
+        return {}
+
+
+def _format_tool_options_markdown(tool_options: dict[str, Any]) -> list[str]:
+    """Format tool_options as markdown table rows for the reference.
+
+    Args:
+        tool_options: Dict of tool_options from job-config.json.
+
+    Returns:
+        List of markdown lines for the tool_options reference section.
+    """
+    if not tool_options:
+        return []
+
+    lines = [
+        "## Available Tool Options",
+        "",
+        "These options control HPGL header commands prepended to PLT files.",
+        "Each can be set at the job level via `tool_options` dict in the job YAML;",
+        "defaults come from `job-config.json` with separate values for text vs",
+        "borders/holes layers. All numeric options are clamped to their configured",
+        "bounds with a WARNING logged if clamped.",
+        "",
+        "| Key | Command | Type | Units | Text Default | Borders/Holes Default |",
+        "|---|---|---|---|---|---|",
+    ]
+
+    for key in sorted(tool_options.keys()):
+        option = tool_options[key]
+        command = option.get("command", "?")
+        param_type = option.get("type", "?")
+        units = option.get("units", "")
+
+        default = option.get("default", {})
+        if isinstance(default, dict):
+            text_default = str(default.get("text", "—"))
+            bh_default = str(default.get("borders_holes", "—"))
+        else:
+            text_default = str(default) if default is not None else "—"
+            bh_default = text_default
+
+        # Add range if available
+        range_suffix = ""
+        if param_type in ("int", "float"):
+            min_val = option.get("min")
+            max_val = option.get("max")
+            if min_val is not None and max_val is not None:
+                range_suffix = f" [{min_val}–{max_val}]"
+
+        units_cell = f"{units}{range_suffix}" if range_suffix else units
+        row = f"| `{key}` | `{command}` | {param_type} | {units_cell} | {text_default} | {bh_default} |"
+        lines.append(row)
+
+    lines.append("")
+    return lines
+
+
 def build_job_spec_markdown() -> str:
     """Render the complete generated markdown reference.
 
@@ -453,6 +525,12 @@ def build_job_spec_markdown() -> str:
         "fallback above and nothing is required.",
         "",
     ]
+
+    # Add tool_options reference section if available in job-config.json
+    tool_options = _load_tool_options()
+    if tool_options:
+        lines += _format_tool_options_markdown(tool_options)
+
     return "\n".join(lines)
 
 

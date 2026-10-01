@@ -72,6 +72,7 @@ they are no longer auto-sized from rendered content.
 | `left_clearance` | float \| null | null (unset) | >=0 | Job-level default plate left-edge clearance in inches (cascades job -> plate; an explicit plate value, including 0.0, wins). |
 | `top_clearance` | float \| null | null (unset) | >=0 | Job-level default plate top-edge clearance in inches (cascades job -> plate; an explicit plate value, including 0.0, wins). |
 | `auto_line_spacing_interline_to_top_bottom_ratio` | float \| null | null (unset) | >0 | Ratio controlling inter-line spacing relative to top/bottom margins when auto line spacing is enabled. Default 1.0 makes all gaps equal. Values > 1.0 increase inter-line spacing at the expense of top/bottom margins. |
+| `tool_options` | ? \| null | null (unset) | — | Optional engraver tool options (header commands). Keys are underscored header names (e.g., 'cutting_velocity', 'dwell_time', 'spindle_speed'). Values override job-config.json defaults for those parameters. Supported options and their ranges are defined in job-config.json 'tool_options' metadata, which includes 'command', 'type', 'units', 'default' (with dual text/borders_holes values), and for numeric types 'min'/'max' bounds. Omitted options use job-config defaults or are omitted from the PLT if the default is null. Out-of-bounds values are clamped to the configured range with a WARNING logged. |
 
 ## Models
 
@@ -307,3 +308,23 @@ everywhere aborts parsing with `JobConfigError`:
 
 Without a config path (direct API / test callers), every field keeps its
 fallback above and nothing is required.
+
+## Available Tool Options
+
+These options control HPGL header commands prepended to PLT files.
+Each can be set at the job level via `tool_options` dict in the job YAML;
+defaults come from `job-config.json` with separate values for text vs
+borders/holes layers. All numeric options are clamped to their configured
+bounds with a WARNING logged if clamped.
+
+| Key | Command | Type | Units | Text Default | Borders/Holes Default |
+|---|---|---|---|---|---|
+| `cutting_velocity` | `VS` | float | in/sec [0.05–3.0] | 0.8 | 0.8 |
+| `dwell_time` | `ZO124,` | int | milliseconds [10–1000] | 50 | 50 |
+| `plunge_velocity` | `VZ` | float | in/sec [0.1–3.0] | 2.0 | 2.0 |
+| `proximity` | `ZO104,` | bool | on/off | True | True |
+| `spindle` | `ZO123,` | bool | on/off | True | True |
+| `spindle_speed` | `ZO100,` | int | rpm [3000–18000] | 12000 | 12000 |
+| `vacuum` | `ZO102,` | bool | on/off | True | True |
+| `z_clearance` | `ZU` | float | in [0.05–1.0] | 0.2 | 0.2 |
+| `z_up_velocity` | `ZO105,` | int | milliseconds [100–3000] | 1000 | 1000 |

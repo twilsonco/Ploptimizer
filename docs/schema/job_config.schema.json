@@ -59,7 +59,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "Configured default values from ``job-config.json``.\n\nEvery field is optional; ``None`` (missing or explicit JSON ``null``)\nmeans \"no configured default\". Field names and validation mirror the\ncorresponding :class:`~plt_optimizer.generate.schema.JobSpec` /\n:class:`~plt_optimizer.generate.schema.PlateSpec` fields. Unknown keys\nare rejected so typos in a shop config fail loudly.\n\nAttributes:\n    text_height: Default font height in inches.\n    character_spacing: Default extra spacing between characters (in\n        inches). Unset falls back to the per-cutter derived default.\n    line_spacing: Default extra spacing between text lines in inches.\n    margin: Default label margin in inches.\n    h_margin: Default horizontal (left/right) margin in inches; falls\n        back to margin if unset.\n    v_margin: Default vertical (top/bottom) margin in inches; falls back\n        to margin if unset.\n    hole_margin: Default hole margin in inches.\n    min_hole_margin: Default collision-avoidance floor for the hole\n        margin in inches.\n    hole_text_collision_distance: Default engraved-stroke air gap in\n        inches between text and drill-hole strokes.\n    max_h_compress: Default maximum horizontal compression fraction\n        in ``[0.0, 1.0]``.\n    text_h_alignment: Default horizontal text alignment.\n    holes: Default drill-hole list (injected at the job layer; group\n        locations expand exactly like spec-provided holes).\n    hole_diameter: Default drill-hole diameter in inches, applied to\n        hole entries (config- or spec-provided) that omit\n        ``diameter``.\n    allow_rotation: Default bin-packing rotation permission.\n    text_chunk_mode: Default plate-space text optimization granularity.\n    layout: Default plate fill order.\n    plate_width: Default usable plate width in inches (plate layer).\n    plate_height: Default usable plate height in inches (plate layer).\n    left_clearance: Default plate left-edge clearance in inches\n        (injected at the job layer; cascades onto plates that omit it).\n    top_clearance: Default plate top-edge clearance in inches\n        (injected at the job layer; cascades onto plates that omit it).",
+  "description": "Configured default values from ``job-config.json``.\n\nEvery field is optional; ``None`` (missing or explicit JSON ``null``)\nmeans \"no configured default\". Field names and validation mirror the\ncorresponding :class:`~plt_optimizer.generate.schema.JobSpec` /\n:class:`~plt_optimizer.generate.schema.PlateSpec` fields. Unknown keys\nare rejected so typos in a shop config fail loudly.\n\nAttributes:\n    text_height: Default font height in inches.\n    character_spacing: Default extra spacing between characters (in\n        inches). Unset falls back to the per-cutter derived default.\n    line_spacing: Default extra spacing between text lines in inches.\n    margin: Default label margin in inches.\n    h_margin: Default horizontal (left/right) margin in inches; falls\n        back to margin if unset.\n    v_margin: Default vertical (top/bottom) margin in inches; falls back\n        to margin if unset.\n    hole_margin: Default hole margin in inches.\n    min_hole_margin: Default collision-avoidance floor for the hole\n        margin in inches.\n    hole_text_collision_distance: Default engraved-stroke air gap in\n        inches between text and drill-hole strokes.\n    max_h_compress: Default maximum horizontal compression fraction\n        in ``[0.0, 1.0]``.\n    text_h_alignment: Default horizontal text alignment.\n    holes: Default drill-hole list (injected at the job layer; group\n        locations expand exactly like spec-provided holes).\n    hole_diameter: Default drill-hole diameter in inches, applied to\n        hole entries (config- or spec-provided) that omit\n        ``diameter``.\n    allow_rotation: Default bin-packing rotation permission.\n    text_chunk_mode: Default plate-space text optimization granularity.\n    layout: Default plate fill order.\n    plate_width: Default usable plate width in inches (plate layer).\n    plate_height: Default usable plate height in inches (plate layer).\n    left_clearance: Default plate left-edge clearance in inches\n        (injected at the job layer; cascades onto plates that omit it).\n    top_clearance: Default plate top-edge clearance in inches\n        (injected at the job layer; cascades onto plates that omit it).\n    auto_line_spacing_interline_to_top_bottom_ratio: Ratio controlling\n        inter-line spacing relative to top/bottom margins when auto line\n        spacing is enabled.\n    tool_options: Engraver tool options (header commands) metadata with\n        HPGL command prefixes, types, units, dual defaults, and bounds.",
   "properties": {
     "description": {
       "anyOf": [
@@ -365,6 +365,20 @@
       "default": null,
       "description": "Ratio controlling inter-line spacing relative to top/bottom margins when auto line spacing is enabled. Default 1.0 makes all gaps equal. Values > 1.0 increase inter-line spacing at the expense of top/bottom margins.",
       "title": "Auto Line Spacing Interline To Top Bottom Ratio"
+    },
+    "tool_options": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional engraver tool options (header commands) metadata. Keys are underscored header names (e.g., 'cutting_velocity', 'dwell_time'). Values are dicts with 'command' (HPGL prefix), 'type' (bool/int/float), 'units' (measurement unit string, e.g. 'in/sec'), 'default' (dual text/borders_holes dict), and for numeric types 'min'/'max' bounds. Populated by the extract_headers.py script from PLT reference files.",
+      "title": "Tool Options"
     }
   },
   "title": "JobDefaults",
