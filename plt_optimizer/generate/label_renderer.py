@@ -392,7 +392,8 @@ def _resolve_collision_via_compression(
         scale = start - (start - floor) * i / steps
         candidate_label = replace(label, collision_compress=scale)
         _candidate_lc, candidate_entries = _render_text_local_with_bounds(candidate_label)
-        if not _detect_text_hole_collisions(candidate_label, candidate_entries):
+        sweep_collisions = _detect_text_hole_collisions(candidate_label, candidate_entries)
+        if not sweep_collisions:
             logger.warning(
                 "Label %s: compressed text horizontally to %.1f%% width to "
                 "avoid text-hole collision on %s (max_h_compress budget %.2f).",
@@ -400,6 +401,13 @@ def _resolve_collision_via_compression(
                 scale * 100.0,
                 line_desc or "colliding text",
                 budget,
+            )
+            logger.debug(
+                "Label %s: Compression sweep iteration %d/%d found successful scale %.3f",
+                label.id,
+                i,
+                steps,
+                scale,
             )
             return candidate_label
     return None
@@ -589,6 +597,15 @@ def render_label_to_plt(
         if floor < label.hole_margin:
             base_label = replace(label, hole_margin=floor)
             collisions = _detect_text_hole_collisions(base_label, line_entries)
+            logger.debug(
+                "Label %s: Phase 2 margin adjustment failed. "
+                "Reduced hole_margin from %.4fin to %.4fin floor. "
+                "Remaining collisions after margin reduction: %d",
+                label.id,
+                label.hole_margin,
+                floor,
+                len(collisions),
+            )
 
     # ---- Phase 3: compress text horizontally within max_h_compress ----
     budget = min((line.max_h_compress for line in label.content), default=0.0)
@@ -598,9 +615,29 @@ def render_label_to_plt(
             base_label, budget, line_desc=line_desc
         )
         if compressed_label is not None:
-            _log_collisions(label, detected_collisions, level=logging.WARNING)
-            resolved_rendered, _ = _render_label_once(compressed_label, pen_map=pen_map)
-            return replace(resolved_rendered, collision_detected=True)
+            # Verify that the compression actually cleared collisions in the
+            # final render. The compression sweep uses _render_text_local_with_bounds
+            # which may produce different bounds than the final _render_label_once,
+            # so we must re-check with the actual rendered geometry.
+            resolved_rendered, resolved_line_entries = _render_label_once(
+                compressed_label, pen_map=pen_map
+            )
+            final_collisions = _detect_text_hole_collisions(compressed_label, resolved_line_entries)
+            if not final_collisions:
+                _log_collisions(label, detected_collisions, level=logging.WARNING)
+                return replace(resolved_rendered, collision_detected=True)
+            # Compression found a scale that cleared collisions in the sweep,
+            # but the final render still has collisions. Log at DEBUG level
+            # since we'll report the full error diagnostics below.
+            logger.debug(
+                "Label %s: Compression sweep found scale %.3f but final render "
+                "still has %d collision(s).",
+                label.id,
+                compressed_label.collision_compress,
+                len(final_collisions),
+            )
+            collisions = final_collisions
+            base_label = compressed_label
         # Report the state at the most aggressive scale tried, so the
         # measured gaps match what the sweep actually evaluated.
         attempted_scale = max(0.0, 1.0 - min(budget, 1.0))

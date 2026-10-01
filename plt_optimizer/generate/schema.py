@@ -350,7 +350,7 @@ class TextAttributes(BaseModel):
         description="Extra spacing between text lines in inches (fallback 0.1).",
     )
     max_h_compress: Optional[float] = Field(
-        default=0.5,
+        default=None,
         ge=0.0,
         le=1.0,
         description="Maximum horizontal compression fraction in [0.0, 1.0].",
@@ -360,7 +360,7 @@ class TextAttributes(BaseModel):
         description="Horizontal text alignment: left, center, or right.",
     )
     min_hole_margin: Optional[float] = Field(
-        default=0.15,
+        default=None,
         ge=0.0,
         description=(
             "Minimum hole margin in inches; hole margins will not shrink "
@@ -368,7 +368,7 @@ class TextAttributes(BaseModel):
         ),
     )
     hole_text_collision_distance: Optional[float] = Field(
-        default=0.15,
+        default=None,
         ge=0.0,
         description=(
             "Minimum air gap in inches between engraved text and drill "
@@ -445,12 +445,12 @@ class LabelAttributes(TextAttributes):
         description="Label height in inches; unset = auto-size from rendered content (label -> job).",
     )
     margin: Optional[float] = Field(
-        default=0.15,
+        default=None,
         ge=0.0,
         description="Safety margin in inches between label edge and content (fallback 0.125).",
     )
     hole_margin: Optional[float] = Field(
-        default=0.1875,
+        default=None,
         ge=0.0,
         description=(
             "Distance from hole edge to label edge in inches (label -> job, fallback 0.1875)."
