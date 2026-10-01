@@ -1,0 +1,9 @@
+cutting velocity [in/sec] float 0.8 0.05 3.0
+dwell time [milliseconds] int 50 10 1000
+plunge velocity [in/sec] float 2.0 0.1 3.0
+proximity [on/off] bool true
+spindle [on/off] bool true
+spindle speed [rpm] int 12000 3000 18000
+vacuum [on/off] bool true
+z clearance [in] float 0.2 0.05 1.0
+z up velocity [milliseconds] int 1000 100 3000
