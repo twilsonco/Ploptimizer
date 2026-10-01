@@ -224,3 +224,36 @@ class TestAutoLineSpacing:
         total_height += sum(line.line_spacing for line in label.content[:-1])
         available_height = label.height - 2 * label.margin
         assert total_height <= available_height + 0.01  # Small tolerance for rounding
+
+    def test_auto_spacing_with_interline_ratio(self) -> None:
+        """Auto spacing respects interline_to_top_bottom_ratio parameter.
+
+        For 2 lines of 0.5" height in a 2.0" tall label with ratio=1.5:
+        - total_line_height = 1.0"
+        - available_space = 1.0"
+        - top_bottom_gap = 1.0 / (2 + 1*1.5) = 1.0 / 3.5 = 0.2857"
+        - interline_gap = 1.5 * 0.2857 = 0.4286"
+        - v_margin should be set to 0.2857"
+        """
+        job = JobSpec(
+            job_name="Test Auto Spacing with Ratio",
+            width=3.0,
+            height=2.0,
+            text_height=0.5,
+            line_spacing="auto",
+            auto_line_spacing_interline_to_top_bottom_ratio=1.5,
+            content=[
+                TextLine(text="Line 1"),
+                TextLine(text="Line 2"),
+            ],
+        )
+
+        resolved_labels = resolve_job_spec(job)
+        label = resolved_labels[0]
+
+        # v_margin should be the top/bottom gap
+        assert abs(label.v_margin - 0.2857) < 0.01
+        # line_spacing should be larger than v_margin due to ratio
+        assert abs(label.content[0].line_spacing - 0.4286) < 0.01
+        # line_spacing should be approximately ratio * v_margin
+        assert abs(label.content[0].line_spacing / label.v_margin - 1.5) < 0.01

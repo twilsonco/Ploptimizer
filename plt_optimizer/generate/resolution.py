@@ -450,18 +450,21 @@ def _resolve_auto_line_spacing(
     v_margin_explicit: Optional[float],
     boundary_hole_cutter: float,
     label_id: str,
+    interline_to_top_bottom_ratio: float = 1.0,
 ) -> tuple[list[ResolvedTextLine], Optional[float]]:
     """Resolve any auto line spacing values in content.
 
     When ``line_spacing="auto"``, spacing is calculated such that all lines
-    have equal functional spacing. If ``v_margin`` is explicitly specified,
-    it is honored and ``line_spacing`` is calculated to fill the remaining
-    space. If ``v_margin`` is not explicitly specified, the functional
-    ``v_margin`` is set equal to the inter-line spacing.
+    have equal functional spacing (or proportional spacing if a ratio > 1.0
+    is provided). If ``v_margin`` is explicitly specified, it is honored and
+    ``line_spacing`` is calculated to fill the remaining space. If ``v_margin``
+    is not explicitly specified, the functional ``v_margin`` is set equal to
+    the inter-line spacing (or scaled by the ratio).
 
     Cutter width is a horizontal measure (stroke width) and does not affect
     vertical line spacing. The calculation divides available vertical space
-    equally among inter-line gaps and top/bottom margins.
+    among inter-line gaps and top/bottom margins, with the ratio controlling
+    their relative sizes.
 
     Args:
         content: Fully resolved text lines (with line_spacing=-1.0 for auto).
@@ -470,6 +473,10 @@ def _resolve_auto_line_spacing(
             v_margin was determined by cascading through margins/defaults.
         boundary_hole_cutter: Cutter diameter used for hole/boundary cutting.
         label_id: Identifier used in log messages.
+        interline_to_top_bottom_ratio: Ratio controlling inter-line spacing
+            relative to top/bottom margins. Default 1.0 makes all gaps equal.
+            Values > 1.0 increase inter-line spacing at the expense of
+            top/bottom margins.
 
     Returns:
         A tuple of (updated_content, calculated_v_margin). calculated_v_margin
@@ -524,25 +531,38 @@ def _resolve_auto_line_spacing(
             total_line_height,
         )
     else:
-        # Auto v_margin: functional v_margin equals inter-line spacing
-        # Divide available vertical space equally among (num_lines + 1) gaps:
-        #   spacing = (label_height - total_line_height) / (num_lines + 1)
+        # Auto v_margin: calculate gaps with optional ratio adjustment
+        # When ratio = 1.0, all gaps are equal (top margin = inter-line = bottom margin).
+        # When ratio > 1.0, inter-line gaps are larger at the expense of top/bottom margins.
+        #
+        # Formula:
+        #   top_bottom_gap = (height - line_total) / (2 + (num_lines - 1) * ratio)
+        #   interline_gap = ratio * top_bottom_gap
+        #
+        available_space = label_height - total_line_height
         if num_lines > 1:
-            calculated_spacing = max(
+            # Multiple lines: account for (num_lines - 1) inter-line gaps
+            top_bottom_gap = max(
                 0.0,
-                (label_height - total_line_height) / (num_lines + 1),
+                available_space / (2.0 + (num_lines - 1) * interline_to_top_bottom_ratio),
             )
+            calculated_spacing = interline_to_top_bottom_ratio * top_bottom_gap
         else:
-            calculated_spacing = (label_height - total_line_height) / 2.0
+            # Single line: top and bottom gaps only
+            top_bottom_gap = available_space / 2.0
+            calculated_spacing = 0.0
 
-        # Set calculated_v_margin to the line_spacing so it will be used instead of default
-        calculated_v_margin = calculated_spacing
+        # Set calculated_v_margin to the top/bottom gap value
+        calculated_v_margin = top_bottom_gap
 
         logger.info(
-            "Label %s: auto line_spacing and v_margin calculated as %.4fin "
-            "(auto v_margin mode, label_height=%.4fin, line_height=%.4fin).",
+            "Label %s: auto line_spacing and v_margin calculated as "
+            "line_spacing=%.4fin, v_margin=%.4fin "
+            "(auto v_margin mode, ratio=%.2f, label_height=%.4fin, line_height=%.4fin).",
             label_id,
             calculated_spacing,
+            top_bottom_gap,
+            interline_to_top_bottom_ratio,
             label_height,
             total_line_height,
         )
@@ -894,6 +914,9 @@ def _resolve_label(
     # Check if v_margin was explicitly specified (not derived from cascading margins)
     v_margin_is_explicit = label_input.v_margin is not None or job.v_margin is not None
 
+    # Resolve auto line spacing ratio (job level only)
+    interline_to_top_bottom_ratio = job.auto_line_spacing_interline_to_top_bottom_ratio or 1.0
+
     # Resolve any auto line spacing (must happen before margin fitting)
     resolved_content, calculated_v_margin = _resolve_auto_line_spacing(
         resolved_content,
@@ -901,6 +924,7 @@ def _resolve_label(
         label_v_margin if v_margin_is_explicit else None,
         hole_cutter,
         label_id,
+        interline_to_top_bottom_ratio,
     )
 
     # If auto v_margin was calculated, use it instead of the default

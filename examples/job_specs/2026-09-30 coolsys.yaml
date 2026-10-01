@@ -5,6 +5,7 @@ job:
   job_name: Coolsys Walmart 1238
   text_height: 0.5
   line_spacing: "auto"
+  auto_line_spacing_interline_to_top_bottom_ratio: 1.3
   holes:
     - location: sides
 

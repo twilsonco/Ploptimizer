@@ -1075,6 +1075,15 @@ class JobSpec(LabelAttributes):
             "0.0, wins)."
         ),
     )
+    auto_line_spacing_interline_to_top_bottom_ratio: Optional[float] = Field(
+        default=None,
+        gt=0.0,
+        description=(
+            "Ratio controlling inter-line spacing relative to top/bottom margins "
+            "when auto line spacing is enabled. Default 1.0 makes all gaps equal. "
+            "Values > 1.0 increase inter-line spacing at the expense of top/bottom margins."
+        ),
+    )
 
     @field_validator("replacement_text_delimiter")
     @classmethod

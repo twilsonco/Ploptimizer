@@ -9,5 +9,6 @@
   "left_clearance": 0.0,
   "top_clearance": 0.0,
   "hole_diameter": 0.125,
-  "layout": "columns"
+  "layout": "columns",
+  "auto_line_spacing_interline_to_top_bottom_ratio": 1.2
 }
