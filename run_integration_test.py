@@ -414,7 +414,7 @@ def phase_3_5_validate_coordinates(exported_paths: list[Path]) -> None:
 # ============================================================================
 # PHASE 4: VISUALIZATION (Optional)
 # ============================================================================
-def phase_4_visualization(export_result: PerCutterExport) -> None:
+def phase_4_visualization(export_result: PerCutterExport, job_name: str = "") -> None:
     """Phase 4: Generate color-coded PDF previews using the plotter.
 
     The simple-outline previews (one per per-cutter PLT plus one combined
@@ -434,6 +434,7 @@ def phase_4_visualization(export_result: PerCutterExport) -> None:
     Args:
         export_result: The per-cutter export whose PLTs and combined
             content drive the plots.
+        job_name: Human-readable job name for plot titles (optional).
     """
     print_separator("PHASE 4: VISUALIZATION (OPTIONAL)")
 
@@ -445,7 +446,7 @@ def phase_4_visualization(export_result: PerCutterExport) -> None:
 
     try:
         pdf_paths = write_default_plots(
-            export_result.output_dir, export_result.job_id, export_result
+            export_result.output_dir, export_result.job_id, export_result, job_name=job_name
         )
         for pdf_path in pdf_paths:
             print(f"✓ Generated: {pdf_path.name}")
@@ -513,7 +514,7 @@ def _run_single_spec(spec_override: Path | None) -> int:
         phase_3_5_validate_coordinates(export_result.plt_paths)
 
         # Phase 4: Visualization (optional)
-        phase_4_visualization(export_result)
+        phase_4_visualization(export_result, job_name=job_name)
 
         print_separator("INTEGRATION TEST COMPLETE")
         print("✓ Pipeline executed successfully")
