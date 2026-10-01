@@ -253,6 +253,10 @@ def build_tool_options(headers: dict, commands: dict) -> dict:
             'default': dual_default,
         }
         
+        # Add units if present
+        if header_info['units']:
+            option['units'] = header_info['units']
+        
         # Add bounds for int/float types
         if param_type in ('int', 'float'):
             option['min'] = header_info['min']

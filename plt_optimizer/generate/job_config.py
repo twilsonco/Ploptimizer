@@ -119,6 +119,11 @@ class JobDefaults(BaseModel):
             (injected at the job layer; cascades onto plates that omit it).
         top_clearance: Default plate top-edge clearance in inches
             (injected at the job layer; cascades onto plates that omit it).
+        auto_line_spacing_interline_to_top_bottom_ratio: Ratio controlling
+            inter-line spacing relative to top/bottom margins when auto line
+            spacing is enabled.
+        tool_options: Engraver tool options (header commands) metadata with
+            HPGL command prefixes, types, units, dual defaults, and bounds.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -248,8 +253,10 @@ class JobDefaults(BaseModel):
         description=(
             "Optional engraver tool options (header commands) metadata. "
             "Keys are underscored header names (e.g., 'cutting_velocity', 'dwell_time'). "
-            "Values are dicts with 'command', 'type', 'default' (dual text/borders_holes), "
-            "'min', and 'max' keys. Populated by the extract_headers.py script from PLT reference files."
+            "Values are dicts with 'command' (HPGL prefix), 'type' (bool/int/float), "
+            "'units' (measurement unit string, e.g. 'in/sec'), 'default' (dual "
+            "text/borders_holes dict), and for numeric types 'min'/'max' bounds. "
+            "Populated by the extract_headers.py script from PLT reference files."
         ),
     )
 
