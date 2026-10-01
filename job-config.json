@@ -14,7 +14,7 @@
   "tool_options": {
     "cutting_velocity": {
       "name": "cutting velocity",
-      "description": "",
+      "description": "Speed (in inches per second) at which the tool moves while cutting.",
       "command": "VS",
       "type": "float",
       "default": {
@@ -27,7 +27,7 @@
     },
     "dwell_time": {
       "name": "dwell time",
-      "description": "",
+      "description": "Time (milliseconds) the tool dwells before lifting or after plunging.",
       "command": "ZO124,",
       "type": "int",
       "default": {
@@ -40,7 +40,7 @@
     },
     "plunge_velocity": {
       "name": "plunge velocity",
-      "description": "",
+      "description": "Speed (in inches per second) at which the tool plunges (lowers) into the material.",
       "command": "VZ",
       "type": "float",
       "default": {
@@ -53,7 +53,7 @@
     },
     "proximity": {
       "name": "proximity",
-      "description": "",
+      "description": "Proximity sensor activation (on/off). If off, the tool operates without proximity sensing and depth must be set manually before each job.",
       "command": "ZO104,",
       "type": "bool",
       "default": {
@@ -64,7 +64,7 @@
     },
     "spindle": {
       "name": "spindle",
-      "description": "",
+      "description": "Spindle activation (on/off). Off for e.g. diamond drag engraving.",
       "command": "ZO123,",
       "type": "bool",
       "default": {
@@ -75,7 +75,7 @@
     },
     "spindle_speed": {
       "name": "spindle speed",
-      "description": "",
+      "description": "Spindle rotation speed in revolutions per minute (rpm).",
       "command": "ZO100,",
       "type": "int",
       "default": {
@@ -88,7 +88,7 @@
     },
     "vacuum": {
       "name": "vacuum",
-      "description": "",
+      "description": "Vacuum (chip removal) activation (on/off). Must have vacuum connected via AUX unit for this to work.",
       "command": "ZO102,",
       "type": "bool",
       "default": {
@@ -99,7 +99,7 @@
     },
     "z_clearance": {
       "name": "z clearance",
-      "description": "",
+      "description": "Controls how (in inches) high the tool lifts between cuts.",
       "command": "ZU",
       "type": "float",
       "default": {
@@ -112,7 +112,7 @@
     },
     "z_up_velocity": {
       "name": "z up velocity",
-      "description": "",
+      "description": "Speed at which the tool lifts after cutting. Specify the amount of time (in milliseconds) for the tool to go from the cutting position to the clearance height.",
       "command": "ZO105,",
       "type": "int",
       "default": {
