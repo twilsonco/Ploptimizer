@@ -357,9 +357,10 @@ class TextAttributes(BaseModel):
     line_spacing: Optional[Union[float, Literal["auto"]]] = Field(
         default=None,
         description=(
-            "Extra spacing between text lines in inches (fallback 0.1), or "
+            "Extra spacing between text lines in inches, or "
             "'auto' to calculate spacing automatically based on label height, "
-            "margins, and text line count."
+            "margins, and text line count (default when unspecified). Fallback when "
+            "not specified at any level is 'auto'."
         ),
     )
     max_h_compress: Optional[float] = Field(

@@ -27,7 +27,7 @@ import logging
 import math
 import uuid
 from dataclasses import dataclass, field, replace
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Union
 
 from plt_optimizer.generate.schema import JobSpec, LabelSpec
 
@@ -42,7 +42,7 @@ DEFAULT_MARGIN: float = 0.125
 # Both are None to indicate "unset"; resolution logic fills them in.
 DEFAULT_H_MARGIN: Optional[float] = None
 DEFAULT_V_MARGIN: Optional[float] = None
-DEFAULT_LINE_SPACING: float = 0.1
+DEFAULT_LINE_SPACING: Union[str, float] = "auto"
 DEFAULT_HOLE_MARGIN: float = 0.1875
 # Lower bound for hole-margin shrinkage during text-hole collision
 # avoidance. ``None`` (the default) means collision avoidance may reduce

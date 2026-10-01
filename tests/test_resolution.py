@@ -302,7 +302,9 @@ class TestCascadeResolution:
         # char_spacing falls back to cutter_dia * 1.5 when omitted
         expected_cutter = get_cutter_diameter(DEFAULT_TEXT_HEIGHT)
         assert math.isclose(labels[0].content[0].character_spacing, expected_cutter * 1.5)
-        assert math.isclose(labels[0].content[0].line_spacing, DEFAULT_LINE_SPACING)
+        # line_spacing defaults to "auto" (string), which for a single line resolves to 0.0
+        # (no inter-line spacing for a single line)
+        assert math.isclose(labels[0].content[0].line_spacing, 0.0)
         assert math.isclose(labels[0].margin, DEFAULT_MARGIN)
 
 
@@ -639,9 +641,12 @@ class TestFallbackConstants:
         assert DEFAULT_MARGIN > 0
 
     def test_default_line_spacing(self) -> None:
-        """DEFAULT_LINE_SPACING should be a non-negative float."""
-        assert isinstance(DEFAULT_LINE_SPACING, float)
-        assert DEFAULT_LINE_SPACING >= 0
+        """DEFAULT_LINE_SPACING should be either 'auto' or a non-negative float."""
+        assert isinstance(DEFAULT_LINE_SPACING, (str, float))
+        if isinstance(DEFAULT_LINE_SPACING, float):
+            assert DEFAULT_LINE_SPACING >= 0
+        elif isinstance(DEFAULT_LINE_SPACING, str):
+            assert DEFAULT_LINE_SPACING == "auto"
 
 
 class TestFitLineSpacingToMargins:
