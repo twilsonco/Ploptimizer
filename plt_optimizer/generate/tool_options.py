@@ -232,8 +232,8 @@ def prepend_tool_option_headers(
 ) -> str:
     """Prepend tool option headers to PLT content.
 
-    Inserts tool option headers after the "IN;" initialization command
-    but before the "PA;" command (which marks the start of geometry).
+    Inserts tool option headers after the "IN;" initialization command.
+    Works with both line-oriented and single-line HPGL content.
 
     Args:
         plt_content: The original HPGL PLT content string.
@@ -250,18 +250,16 @@ def prepend_tool_option_headers(
         # No headers to add; return content as-is
         return plt_content
 
-    lines = plt_content.split("\n")
-    result_lines = []
-
     # Find the IN; command and insert headers after it
-    for i, line in enumerate(lines):
-        result_lines.append(line)
-        if line.strip() == "IN;":
-            # Insert headers after IN;
-            for header in headers:
-                result_lines.append(header)
-            # Add the rest of the original content (skip the line we just added)
-            result_lines.extend(lines[i + 1 :])
-            break
+    # PLT content may be all on one line (IN;DF;PS0;...) or multi-line
+    in_index = plt_content.find("IN;")
+    if in_index == -1:
+        logger.warning(
+            f"Could not find 'IN;' command in {plt_type} PLT content; "
+            "tool option headers will not be prepended."
+        )
+        return plt_content
 
-    return "\n".join(result_lines)
+    # Insert headers after IN;
+    header_string = "".join(headers)
+    return plt_content[: in_index + 3] + header_string + plt_content[in_index + 3 :]

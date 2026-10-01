@@ -186,17 +186,16 @@ class TestToolOptionHeaderPrepending:
 
         result = prepend_tool_option_headers(plt_content, job, job_config, "text")
 
-        # Should have headers between IN; and PA;
-        lines = result.split("\n")
-        in_idx = next(i for i, l in enumerate(lines) if l.strip() == "IN;")
-        pa_idx = next(i for i, l in enumerate(lines) if l.strip() == "PA;")
-        
-        assert in_idx < pa_idx
+        # Headers should be present after IN; command
+        assert "IN;" in result
+        assert "VS" in result  # cutting_velocity command
+        # IN; should come before PA;
+        in_pos = result.find("IN;")
+        pa_pos = result.find("PA;")
+        assert in_pos < pa_pos
         # Headers should be between IN; and PA;
-        for line in lines[in_idx + 1 : pa_idx]:
-            if line.strip() and not line.startswith(";"):
-                # Should be a valid header
-                assert line.endswith(";")
+        between = result[in_pos:pa_pos]
+        assert "VS" in between  # At least one header should be between IN; and PA;
 
     def test_prepend_preserves_existing_content(self):
         """Geometry content is preserved when headers are prepended."""

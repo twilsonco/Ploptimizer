@@ -141,6 +141,8 @@ def phase_2_resolution_and_layout(
     LayoutMode,
     tuple[float, float] | None,
     tuple[float, float] | None,
+    object,
+    object,
 ]:
     """Phase 2: Resolution, bin packing, and verification.
 
@@ -162,7 +164,7 @@ def phase_2_resolution_and_layout(
     Returns:
         Tuple of (resolved_labels, packed_plates, provided_plates, job_id,
         job_name, allow_rotation, layout, default_plate_size,
-        default_plate_clearance).
+        default_plate_clearance, job, job_config).
     """
     print_separator("PHASE 2: PIPELINE EXECUTION")
 
@@ -259,6 +261,8 @@ def phase_2_resolution_and_layout(
         job.layout,
         default_plate_size,
         default_plate_clearance,
+        job,
+        job_config,
     )
 
 
@@ -275,6 +279,8 @@ def phase_3_vectorization_and_export(
     layout: LayoutMode = DEFAULT_LAYOUT_MODE,
     default_plate_size: tuple[float, float] | None = None,
     default_plate_clearance: tuple[float, float] | None = None,
+    job_spec: object | None = None,
+    job_config: object | None = None,
 ) -> PerCutterExport:
     """Phase 3: Export per-cutter PLT files using the clean Phase 3 pipeline.
 
@@ -298,6 +304,8 @@ def phase_3_vectorization_and_export(
         resolved_labels: List of fully resolved labels from the resolution step.
         provided_plates: Optional list of PlateSpec objects. If None,
             unbounded mode auto-allocates default plates sized by
+        job_spec: JobSpec object from parsing (for tool_options header generation).
+        job_config: JobConfig object from loading job-config.json.
             ``default_plate_size`` (matching ``export_per_cutter_plts``
             behavior), overflowing onto as many plates as needed.
         output_dir: Optional output directory. Defaults to
@@ -327,6 +335,12 @@ def phase_3_vectorization_and_export(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info(f"Exporting to: {output_dir}")
+    logger.info(f"DEBUG: job_spec is None: {job_spec is None}")
+    logger.info(f"DEBUG: job_config is None: {job_config is None}")
+    if job_spec and hasattr(job_spec, 'tool_options'):
+        logger.info(f"DEBUG: job_spec.tool_options: {job_spec.tool_options}")
+    if job_config and hasattr(job_config, 'defaults'):
+        logger.info(f"DEBUG: job_config.defaults.tool_options exists: {hasattr(job_config.defaults, 'tool_options')}")
 
     export_result = export_per_cutter_plts(
         resolved_labels,
@@ -340,6 +354,8 @@ def phase_3_vectorization_and_export(
         layout=layout,
         default_plate_size=default_plate_size,
         default_plate_clearance=default_plate_clearance,
+        job_spec=job_spec,
+        job_config=job_config,
     )
 
     print("\n--- EXPORT RESULTS ---\n")
@@ -486,6 +502,8 @@ def _run_single_spec(spec_override: Path | None) -> int:
             layout,
             default_plate_size,
             default_plate_clearance,
+            job,
+            job_config,
         ) = phase_2_resolution_and_layout(
             job_yaml, inventory, boundary_hole_cutter, job_config_json
         )
@@ -508,6 +526,8 @@ def _run_single_spec(spec_override: Path | None) -> int:
             layout,
             default_plate_size,
             default_plate_clearance,
+            job,
+            job_config,
         )
 
         # Phase 3.5: Coordinate Validation (on the written per-cutter PLTs)
