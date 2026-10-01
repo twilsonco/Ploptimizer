@@ -10,5 +10,5 @@
   "top_clearance": 0.0,
   "hole_diameter": 0.125,
   "layout": "columns",
-  "auto_line_spacing_interline_to_top_bottom_ratio": 1.2
+  "auto_line_spacing_interline_to_top_bottom_ratio": 2.0
 }

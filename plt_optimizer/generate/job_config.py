@@ -280,6 +280,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "layout",
     "left_clearance",
     "top_clearance",
+    "auto_line_spacing_interline_to_top_bottom_ratio",
 )
 
 
