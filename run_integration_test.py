@@ -161,7 +161,8 @@ def phase_2_resolution_and_layout(
 
     Returns:
         Tuple of (resolved_labels, packed_plates, provided_plates, job_id,
-        allow_rotation, layout, default_plate_size, default_plate_clearance).
+        job_name, allow_rotation, layout, default_plate_size,
+        default_plate_clearance).
     """
     print_separator("PHASE 2: PIPELINE EXECUTION")
 
@@ -253,6 +254,7 @@ def phase_2_resolution_and_layout(
         packed_plates,
         job.plates,
         job_id,
+        job.job_name,
         job.allow_rotation,
         job.layout,
         default_plate_size,
@@ -268,6 +270,7 @@ def phase_3_vectorization_and_export(
     provided_plates: list | None = None,
     output_dir: Path | None = None,
     job_id: str = "job",
+    job_name: str = "",
     allow_rotation: bool = True,
     layout: LayoutMode = DEFAULT_LAYOUT_MODE,
     default_plate_size: tuple[float, float] | None = None,
@@ -300,6 +303,7 @@ def phase_3_vectorization_and_export(
         output_dir: Optional output directory. Defaults to
             ``test_output/integration_test``.
         job_id: Filesystem-safe job identifier used as the file-name prefix.
+        job_name: Human-readable job name for plot titles (optional).
         allow_rotation: If True (the default), the bin packer may rotate
             labels 90 degrees for tighter layouts (job-level flag).
         layout: Preferential plate fill order (job-level value; a plate may
@@ -329,6 +333,7 @@ def phase_3_vectorization_and_export(
         provided_plates,
         output_dir=output_dir,
         job_id=job_id,
+        job_name=job_name,
         optimize=True,
         plots=True,
         allow_rotation=allow_rotation,
@@ -475,6 +480,7 @@ def _run_single_spec(spec_override: Path | None) -> int:
             packed_plates,
             provided_plates,
             job_id,
+            job_name,
             allow_rotation,
             layout,
             default_plate_size,
@@ -496,6 +502,7 @@ def _run_single_spec(spec_override: Path | None) -> int:
             provided_plates,
             phase_3_output_dir,
             job_id,
+            job_name,
             allow_rotation,
             layout,
             default_plate_size,
