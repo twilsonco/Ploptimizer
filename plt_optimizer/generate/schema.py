@@ -424,7 +424,13 @@ class LabelAttributes(TextAttributes):
     Attributes:
         width: Optional label width in inches.
         height: Optional label height in inches.
-        margin: Optional margin in inches.
+        margin: Optional universal margin in inches (used as fallback for
+            h_margin and v_margin when those are unset). Cascades
+            label -> job (fallback 0.125).
+        h_margin: Optional horizontal margin in inches (left and right edges).
+            Cascades label -> job; falls back to ``margin`` if unset.
+        v_margin: Optional vertical margin in inches (top and bottom edges).
+            Cascades label -> job; falls back to ``margin`` if unset.
         hole_margin: Optional hole margin in inches. The closest point of a
             hole circle to the label edge will be this far from the edge.
             Cascades job -> plate -> label (label overrides plate overrides
@@ -447,7 +453,26 @@ class LabelAttributes(TextAttributes):
     margin: Optional[float] = Field(
         default=None,
         ge=0.0,
-        description="Safety margin in inches between label edge and content (fallback 0.125).",
+        description=(
+            "Universal margin in inches (fallback for h_margin and v_margin); "
+            "cascades label -> job (fallback 0.125)."
+        ),
+    )
+    h_margin: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Horizontal margin in inches (left and right edges); cascades "
+            "label -> job; falls back to margin if unset."
+        ),
+    )
+    v_margin: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Vertical margin in inches (top and bottom edges); cascades "
+            "label -> job; falls back to margin if unset."
+        ),
     )
     hole_margin: Optional[float] = Field(
         default=None,
@@ -685,6 +710,18 @@ class PlateSpec(BaseModel):
         top_clearance: Unused material height along the plate's top edge in
             inches; shifts the usable area downward (labels stay flush with
             the bottom edge). Defaults to 0.0.
+        h_margin: Optional horizontal margin in inches. Accepted for schema
+            parity with the job/label ``h_margin`` cascade. NOTE: labels
+            are rendered once and cached before bin-packing (and a single
+            label may span multiple plates), so a per-plate value is not
+            currently applied during rendering; the effective value is
+            resolved from the label -> job -> default cascade.
+        v_margin: Optional vertical margin in inches. Accepted for schema
+            parity with the job/label ``v_margin`` cascade. NOTE: labels
+            are rendered once and cached before bin-packing (and a single
+            label may span multiple plates), so a per-plate value is not
+            currently applied during rendering; the effective value is
+            resolved from the label -> job -> default cascade.
         hole_margin: Optional hole margin in inches. Accepted for schema
             parity with the job/label ``hole_margin`` cascade. NOTE: labels
             are rendered once and cached before bin-packing (and a single
@@ -754,6 +791,16 @@ class PlateSpec(BaseModel):
             "Unused material height along the plate's top edge in inches "
             "(shifts the usable area downward; must be >= 0)."
         ),
+    )
+    h_margin: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description="Horizontal margin in inches (schema parity; not applied at plate level).",
+    )
+    v_margin: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description="Vertical margin in inches (schema parity; not applied at plate level).",
     )
     hole_margin: Optional[float] = Field(
         default=None, ge=0.0, description="Hole margin in inches (must be >= 0)."

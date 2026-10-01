@@ -92,6 +92,8 @@ def _label(
         width=width,
         height=height,
         margin=margin,
+        h_margin=margin,
+        v_margin=margin,
         hole_margin=hole_margin,
         holes=holes,
         content=[_make_line(text, max_h_compress=max_h_compress)],
@@ -505,6 +507,9 @@ class TestStrokeAwareThreshold:
 
     def test_dataclass_defaults(self) -> None:
         """Manually built labels default to 0.15in gap and 0.015in cutter."""
-        label = ResolvedLabel(id="defaults", count=1, width=3.0, height=1.0, margin=0.1)
+        label = ResolvedLabel(
+            id="defaults", count=1, width=3.0, height=1.0, margin=0.1,
+            h_margin=0.1, v_margin=0.1
+        )
         assert label.hole_text_collision_distance == pytest.approx(0.15)
         assert label.hole_cutter_diameter == pytest.approx(0.015)

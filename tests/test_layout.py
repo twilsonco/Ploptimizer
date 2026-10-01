@@ -41,6 +41,8 @@ def _make_label(
         width=width,
         height=height,
         margin=margin,
+        h_margin=margin,
+        v_margin=margin,
         content=[
             ResolvedTextLine(
                 text="X",
@@ -357,6 +359,8 @@ class TestRotationEnabled:
             width=1.0,
             height=1.0,
             margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
             content=[
                 ResolvedTextLine(
                     text="W" * 20,
@@ -469,7 +473,10 @@ class TestPackedPlateDataclass:
 
     def test_packed_label_is_frozen(self) -> None:
         """PackedLabel should be immutable."""
-        label = ResolvedLabel(id="x", count=1, width=1.0, height=1.0, margin=0.0)
+        label = ResolvedLabel(
+            id="x", count=1, width=1.0, height=1.0, margin=0.0,
+            h_margin=0.0, v_margin=0.0
+        )
         packed = PackedLabel(
             label_id="x_0", x=0.0, y=0.0, width=1.0, height=1.0, rotated=False, source_label=label
         )

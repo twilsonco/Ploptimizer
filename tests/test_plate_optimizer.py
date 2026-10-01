@@ -49,6 +49,8 @@ def _make_label(height: float = 1.0) -> ResolvedLabel:
         width=3.0,
         height=height,
         margin=0.1,
+        h_margin=0.1,
+        v_margin=0.1,
         hole_margin=0.1,
         content=[
             ResolvedTextLine(

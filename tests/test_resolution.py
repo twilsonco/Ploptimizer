@@ -704,6 +704,8 @@ class TestResolvedDataclasses:
             width=1.0,
             height=1.0,
             margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
         )
         with pytest.raises(Exception):  # FrozenInstanceError
             label.width = 2.0  # type: ignore[misc]
@@ -722,7 +724,10 @@ class TestResolvedDataclasses:
 
     def test_default_factories(self) -> None:
         """ResolvedLabel should have empty default lists."""
-        label = ResolvedLabel(id="x", count=1, width=1.0, height=1.0, margin=0.1)
+        label = ResolvedLabel(
+            id="x", count=1, width=1.0, height=1.0, margin=0.1,
+            h_margin=0.1, v_margin=0.1
+        )
         assert label.holes == []
         assert label.content == []
 
@@ -1456,7 +1461,10 @@ class TestMinHoleMarginCascade:
 
     def test_resolved_label_defaults(self) -> None:
         """Manually constructed ResolvedLabel defaults for the new fields."""
-        label = ResolvedLabel(id="x", count=1, width=1.0, height=1.0, margin=0.1)
+        label = ResolvedLabel(
+            id="x", count=1, width=1.0, height=1.0, margin=0.1,
+            h_margin=0.1, v_margin=0.1
+        )
         assert label.min_hole_margin is None
         assert label.collision_compress_by_line == {}  # Empty dict means no per-line compression
 
@@ -1548,7 +1556,10 @@ class TestHoleTextCollisionDistanceCascade:
 
     def test_resolved_label_defaults(self) -> None:
         """Manually constructed ResolvedLabel defaults for the new fields."""
-        label = ResolvedLabel(id="x", count=1, width=1.0, height=1.0, margin=0.1)
+        label = ResolvedLabel(
+            id="x", count=1, width=1.0, height=1.0, margin=0.1,
+            h_margin=0.1, v_margin=0.1
+        )
         assert math.isclose(label.hole_text_collision_distance, 0.15)
         assert math.isclose(label.hole_cutter_diameter, DEFAULT_BOUNDARY_HOLE_CUTTER)
         assert math.isclose(DEFAULT_BOUNDARY_HOLE_CUTTER, 0.015)
@@ -1637,6 +1648,8 @@ class TestBuildCutterPenMap:
             width=2.0,
             height=1.0,
             margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
             content=content,
         )
 
@@ -1712,7 +1725,8 @@ class TestBuildCutterPenMap:
             ),
         ]
         label = ResolvedLabel(
-            id="colors", count=1, width=2.0, height=1.0, margin=0.1, content=content
+            id="colors", count=1, width=2.0, height=1.0, margin=0.1,
+            h_margin=0.1, v_margin=0.1, content=content
         )
         pen_map = build_cutter_pen_map([label])
         assert len(pen_map) == 3
@@ -1764,5 +1778,8 @@ class TestTextChunkModeCascade:
 
     def test_resolved_label_defaults_to_line(self) -> None:
         """Manually constructed ResolvedLabel defaults to 'line'."""
-        label = ResolvedLabel(id="x", count=1, width=1.0, height=1.0, margin=0.1)
+        label = ResolvedLabel(
+            id="x", count=1, width=1.0, height=1.0, margin=0.1,
+            h_margin=0.1, v_margin=0.1
+        )
         assert label.text_chunk_mode == "line"

@@ -38,6 +38,10 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 DEFAULT_TEXT_HEIGHT: float = 0.25
 DEFAULT_MARGIN: float = 0.125
+# Horizontal and vertical margins fall back to margin, then the default.
+# Both are None to indicate "unset"; resolution logic fills them in.
+DEFAULT_H_MARGIN: Optional[float] = None
+DEFAULT_V_MARGIN: Optional[float] = None
 DEFAULT_LINE_SPACING: float = 0.1
 DEFAULT_HOLE_MARGIN: float = 0.1875
 # Lower bound for hole-margin shrinkage during text-hole collision
@@ -249,7 +253,11 @@ class ResolvedLabel:
         count: Number of instances to produce.
         width: Label width in inches (never None).
         height: Label height in inches (never None).
-        margin: Label margin in inches.
+        margin: Universal margin in inches (fallback for h_margin, v_margin).
+        h_margin: Horizontal margin in inches (left and right edges).
+            Falls back to margin when unset in the schema.
+        v_margin: Vertical margin in inches (top and bottom edges).
+            Falls back to margin when unset in the schema.
         hole_margin: Hole margin in inches. The closest point of a hole
             circle to the label edge sits this far from the edge. Defaults
             to 0.0 (circle tangent to the edge) for manually constructed
@@ -296,6 +304,8 @@ class ResolvedLabel:
     width: float
     height: float
     margin: float
+    h_margin: float
+    v_margin: float
     hole_margin: float = 0.0
     holes: list[ResolvedHoleSpec] = field(default_factory=list)
     content: list[ResolvedTextLine] = field(default_factory=list)
@@ -539,6 +549,53 @@ def _fit_content_to_margins(
 # ---------------------------------------------------------------------------
 # Resolution engine
 # ---------------------------------------------------------------------------
+def _resolve_margins(
+    label_input: LabelSpec | JobSpec,
+    job: JobSpec,
+) -> tuple[float, float]:
+    """Resolve h_margin and v_margin with fallback to margin then defaults.
+
+    Cascade order for h_margin:
+        label.h_margin → job.h_margin → label.margin → job.margin → DEFAULT_MARGIN
+
+    Cascade order for v_margin:
+        label.v_margin → job.v_margin → label.margin → job.margin → DEFAULT_MARGIN
+
+    Args:
+        label_input: The label (or root-level job) being processed.
+        job: The outer JobSpec providing fallback values.
+
+    Returns:
+        A tuple of (h_margin, v_margin) in inches, both guaranteed to be
+        non-None and positive.
+    """
+    # Resolve h_margin
+    h_margin = label_input.h_margin
+    if h_margin is None:
+        h_margin = job.h_margin
+    if h_margin is None:
+        h_margin = label_input.margin
+    if h_margin is None:
+        h_margin = job.margin
+    if h_margin is None:
+        h_margin = DEFAULT_MARGIN
+    h_margin = float(h_margin)
+
+    # Resolve v_margin
+    v_margin = label_input.v_margin
+    if v_margin is None:
+        v_margin = job.v_margin
+    if v_margin is None:
+        v_margin = label_input.margin
+    if v_margin is None:
+        v_margin = job.margin
+    if v_margin is None:
+        v_margin = DEFAULT_MARGIN
+    v_margin = float(v_margin)
+
+    return h_margin, v_margin
+
+
 def _resolve_holes(
     label_input: LabelSpec | JobSpec,
     job: JobSpec,
@@ -690,6 +747,9 @@ def _resolve_label(
     # Resolve label-level styles (Label -> Job -> Fallback)
     label_margin: float = label_input.margin or job.margin or DEFAULT_MARGIN
 
+    # Resolve h_margin and v_margin with fallback to margin then defaults
+    label_h_margin, label_v_margin = _resolve_margins(label_input, job)
+
     # Resolve hole margin explicitly so an intentional ``0.0`` (hole tangent
     # to the edge) is honored instead of falling through to the default.
     if label_input.hole_margin is not None:
@@ -768,6 +828,8 @@ def _resolve_label(
         width=final_width,
         height=final_height,
         margin=label_margin,
+        h_margin=label_h_margin,
+        v_margin=label_v_margin,
         hole_margin=label_hole_margin,
         holes=resolved_holes,
         content=resolved_content,

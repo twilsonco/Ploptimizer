@@ -81,6 +81,8 @@ def _label(
         width=width,
         height=height,
         margin=margin,
+        h_margin=margin,
+        v_margin=margin,
         holes=[],
         content=content,
         **kwargs,
@@ -338,7 +340,7 @@ class TestCenterTextLayerDefensive:
     @staticmethod
     def _label_for_centering() -> ResolvedLabel:
         """Label whose expected text center is y=500 plotter units."""
-        return ResolvedLabel(id="centering", count=1, width=2.0, height=1.0, margin=0.1)
+        return ResolvedLabel(id="centering", count=1, width=2.0, height=1.0, margin=0.1, h_margin=0.1, v_margin=0.1)
 
     def test_malformed_coordinate_tokens_are_survivable(self, tmp_path: Path) -> None:
         """Unparsable Y tokens are skipped in detection and left intact.

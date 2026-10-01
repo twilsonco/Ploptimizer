@@ -1163,10 +1163,10 @@ def _center_text_layer_vertically(
     text_y_max = max(y_coords)
 
     # Expected center position (in plotter units: 1 inch = 1000 units)
-    margin_units = label.margin * 1000.0
+    v_margin_units = label.v_margin * 1000.0
     label_height_units = label.height * 1000.0
-    available_height_units = label_height_units - (2 * margin_units)
-    expected_center_y = margin_units + available_height_units / 2.0
+    available_height_units = label_height_units - (2 * v_margin_units)
+    expected_center_y = v_margin_units + available_height_units / 2.0
 
     # Current center of text
     current_center_y = (text_y_min + text_y_max) / 2.0
@@ -1431,7 +1431,8 @@ def _render_positioned_lines(
     if not label.content:
         return []
 
-    margin = label.margin
+    h_margin = label.h_margin
+    v_margin = label.v_margin
     inner_width = label.width
 
     # First pass: render all lines and measure their heights. Keep each
@@ -1511,7 +1512,7 @@ def _render_positioned_lines(
     spacings = [
         line_spacing for _idx, _lc, _height, line_spacing, _mhc, _align, _wg in rendered_lines[:-1]
     ]
-    available_height = label.height - (2 * margin)
+    available_height = label.height - (2 * v_margin)
     adjusted_spacings = fit_line_spacing_to_margins(
         [height for _idx, _lc, height, _spacing, _mhc, _align, _wg in rendered_lines],
         spacings,
@@ -1520,11 +1521,11 @@ def _render_positioned_lines(
     if adjusted_spacings != spacings:
         logger.warning(
             "Label %s: line_spacing reduced at render time from %s to %s "
-            "to preserve margin %.3fin.",
+            "to preserve v_margin %.3fin.",
             label.id,
             [round(s, 4) for s in spacings],
             [round(s, 4) for s in adjusted_spacings],
-            margin,
+            v_margin,
         )
     total_rendered_height = sum(
         height for _idx, _lc, height, _spacing, _mhc, _align, _wg in rendered_lines
@@ -1554,7 +1555,7 @@ def _render_positioned_lines(
 
         # Margin precedence for width: compress over-wide lines so they
         # respect the inner content area (bounded by max_h_compress).
-        available_width = inner_width - (2 * margin)
+        available_width = inner_width - (2 * h_margin)
         filtered_lc = compress_line_to_width(
             filtered_lc,
             available_width,
@@ -1572,7 +1573,7 @@ def _render_positioned_lines(
         # the line's left-most point at the left margin, "right" anchors
         # the right-most point at the right margin, "center" centers it.
         target_left_x = compute_horizontal_offset(
-            rendered_width, available_width, margin, text_h_alignment
+            rendered_width, available_width, h_margin, text_h_alignment
         )
         x_offset = target_left_x - min_x
 

@@ -50,7 +50,9 @@ The forms are mutually exclusive; exactly one must be provided.
 | `text_color` | TextColor \| null | null (unset) | — | Stroke-color layer tag splitting otherwise-identical text into separate toolpaths (labels and text lines only; rejected at the job level; never cascades). Full name or case-insensitive single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); 'none' is the implicit default and cannot be specified. |
 | `width` | float \| null | null (unset) | >=0 | Label width in inches; unset = auto-size from rendered content (label -> job). |
 | `height` | float \| null | null (unset) | >=0 | Label height in inches; unset = auto-size from rendered content (label -> job). |
-| `margin` | float \| null | null (unset) | >=0 | Safety margin in inches between label edge and content (fallback 0.125). |
+| `margin` | float \| null | null (unset) | >=0 | Universal margin in inches (fallback for h_margin and v_margin); cascades label -> job (fallback 0.125). |
+| `h_margin` | float \| null | null (unset) | >=0 | Horizontal margin in inches (left and right edges); cascades label -> job; falls back to margin if unset. |
+| `v_margin` | float \| null | null (unset) | >=0 | Vertical margin in inches (top and bottom edges); cascades label -> job; falls back to margin if unset. |
 | `hole_margin` | float \| null | null (unset) | >=0 | Distance from hole edge to label edge in inches (label -> job, fallback 0.1875). |
 | `holes` | list[HoleSpec] \| null | null (unset) | — | Drill holes; a label value replaces the job-level list entirely (an empty list suppresses holes). 'corners'/'sides' expand to members. |
 | `job_name` | str | **required** | — | Human-readable name for this job. |
@@ -79,6 +81,8 @@ Specification for a plate (material sheet) to cut labels from.
 | `height` | float | **required** | >=0 | Usable plate height in inches (must be >= 0). |
 | `left_clearance` | float | `0.0` | >=0 | Unused material width along the plate's left edge in inches (shifts the usable area rightward; must be >= 0). |
 | `top_clearance` | float | `0.0` | >=0 | Unused material height along the plate's top edge in inches (shifts the usable area downward; must be >= 0). |
+| `h_margin` | float \| null | null (unset) | >=0 | Horizontal margin in inches (schema parity; not applied at plate level). |
+| `v_margin` | float \| null | null (unset) | >=0 | Vertical margin in inches (schema parity; not applied at plate level). |
 | `hole_margin` | float \| null | null (unset) | >=0 | Hole margin in inches (must be >= 0). |
 | `max_h_compress` | float \| null | null (unset) | >=0 <=1 | Maximum horizontal compression fraction in [0.0, 1.0]. |
 | `text_h_alignment` | TextHAlignment \| null | null (unset) | — | Horizontal text alignment (schema parity; not applied at plate level). |
@@ -118,7 +122,9 @@ A label may be defined in one of two ways:
 | `text_color` | TextColor \| null | null (unset) | — | Stroke-color layer tag splitting otherwise-identical text into separate toolpaths (labels and text lines only; rejected at the job level; never cascades). Full name or case-insensitive single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); 'none' is the implicit default and cannot be specified. |
 | `width` | float \| null | null (unset) | >=0 | Label width in inches; unset = auto-size from rendered content (label -> job). |
 | `height` | float \| null | null (unset) | >=0 | Label height in inches; unset = auto-size from rendered content (label -> job). |
-| `margin` | float \| null | null (unset) | >=0 | Safety margin in inches between label edge and content (fallback 0.125). |
+| `margin` | float \| null | null (unset) | >=0 | Universal margin in inches (fallback for h_margin and v_margin); cascades label -> job (fallback 0.125). |
+| `h_margin` | float \| null | null (unset) | >=0 | Horizontal margin in inches (left and right edges); cascades label -> job; falls back to margin if unset. |
+| `v_margin` | float \| null | null (unset) | >=0 | Vertical margin in inches (top and bottom edges); cascades label -> job; falls back to margin if unset. |
 | `hole_margin` | float \| null | null (unset) | >=0 | Distance from hole edge to label edge in inches (label -> job, fallback 0.1875). |
 | `holes` | list[HoleSpec] \| null | null (unset) | — | Drill holes; a label value replaces the job-level list entirely (an empty list suppresses holes). 'corners'/'sides' expand to members. |
 | `id` | str | **required** | — | Unique identifier for this label specification. |
@@ -267,6 +273,7 @@ always beats the config.
 | `DEFAULT_HOLE_DIAMETER` | `0.125` | Drill-hole diameter when a hole entry omits 'diameter' (a job-config hole_diameter fills hole entries too). |
 | `DEFAULT_HOLE_MARGIN` | `0.1875` | Hole margin when unset everywhere. Required from config-or-spec when a job-config is in play. |
 | `DEFAULT_HOLE_TEXT_COLLISION_DISTANCE` | `0.15` | Engraved-stroke air gap on top of the stroke floor 0.5 * (hole_cutter + text_cutter). Required from config-or-spec when a job-config is in play (the shop job-config.json currently sets 0.1). |
+| `DEFAULT_H_MARGIN` | `None` | — |
 | `DEFAULT_LINE_SPACING` | `0.1` | Extra line spacing when unset at line/label/job level. |
 | `DEFAULT_MARGIN` | `0.125` | Label margin when unset at label/job level. |
 | `DEFAULT_MAX_H_COMPRESS` | `0.0` | 0.0 = horizontal compression disabled. Required from config-or-spec when a job-config is in play. |
@@ -276,6 +283,7 @@ always beats the config.
 | `DEFAULT_TEXT_COLOR` | `'none'` | Implicit stroke-color layer of text that omits text_color (never cascades; a job-level text_color is rejected). 'none' cannot be specified explicitly. |
 | `DEFAULT_TEXT_HEIGHT` | `0.25` | Font height when unset at line/label/job level. |
 | `DEFAULT_TEXT_H_ALIGNMENT` | `'center'` | Horizontal alignment fallback when unset everywhere. |
+| `DEFAULT_V_MARGIN` | `None` | — |
 
 ## Required-when-unconfigured (job-config gate)
 

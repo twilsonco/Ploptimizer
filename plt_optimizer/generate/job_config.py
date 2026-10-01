@@ -93,6 +93,10 @@ class JobDefaults(BaseModel):
             inches). Unset falls back to the per-cutter derived default.
         line_spacing: Default extra spacing between text lines in inches.
         margin: Default label margin in inches.
+        h_margin: Default horizontal (left/right) margin in inches; falls
+            back to margin if unset.
+        v_margin: Default vertical (top/bottom) margin in inches; falls back
+            to margin if unset.
         hole_margin: Default hole margin in inches.
         min_hole_margin: Default collision-avoidance floor for the hole
             margin in inches.
@@ -134,6 +138,22 @@ class JobDefaults(BaseModel):
     )
     margin: Optional[float] = Field(
         default=None, ge=0.0, description="Default label margin in inches (job layer)."
+    )
+    h_margin: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Default horizontal margin (left/right) in inches; falls back to "
+            "margin if unset (job layer)."
+        ),
+    )
+    v_margin: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Default vertical margin (top/bottom) in inches; falls back to "
+            "margin if unset (job layer)."
+        ),
     )
     hole_margin: Optional[float] = Field(
         default=None,
@@ -239,6 +259,8 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "character_spacing",
     "line_spacing",
     "margin",
+    "h_margin",
+    "v_margin",
     "hole_margin",
     "min_hole_margin",
     "hole_text_collision_distance",

@@ -299,6 +299,8 @@ def _label(
         width=width,
         height=height,
         margin=0.0,
+        h_margin=0.0,
+        v_margin=0.0,
         content=[
             ResolvedTextLine(
                 text="X",
@@ -436,6 +438,8 @@ def _two_color_label(label_id: str = "twocolor") -> ResolvedLabel:
         width=3.0,
         height=1.5,
         margin=0.1,
+        h_margin=0.1,
+        v_margin=0.1,
         content=[
             ResolvedTextLine(
                 text="LAYER ONE",

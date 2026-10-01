@@ -96,6 +96,8 @@ class TestTranslatePltCoordinates:
             width=2.0,
             height=1.0,
             margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
             hole_margin=0.1875,
             holes=[ResolvedHoleSpec(diameter=0.125, location="bottom-left")],
             content=[],
@@ -193,6 +195,8 @@ class TestRotatePltContent90cw:
             width=2.0,
             height=1.0,
             margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
             hole_margin=0.1875,
             holes=[ResolvedHoleSpec(diameter=0.125, location="bottom-left")],
             content=[],
@@ -350,7 +354,7 @@ class TestAssemblePltFromRenderedLabels:
         and no content to append (line 146 false side). The plate must
         degrade to a bare header+footer, without any PU0,0 separator.
         """
-        label = ResolvedLabel(id="blank", count=1, width=1.0, height=1.0, margin=0.1)
+        label = ResolvedLabel(id="blank", count=1, width=1.0, height=1.0, margin=0.1, h_margin=0.1, v_margin=0.1)
         rendered = RenderedLabel(
             source_label=label,
             plt_content="IN;DF;PS0;PU100,200;SP0;IN;%",
@@ -451,6 +455,8 @@ class TestRenderLabelToPltPenMap:
             width=4.0,
             height=2.0,
             margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
             content=[
                 ResolvedTextLine(
                     text="BIG",
