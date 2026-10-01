@@ -1,0 +1,13 @@
+job:
+  job_name: "Tool Options Demo"
+  width: 3.0
+  height: 1.0
+  text_height: 0.5
+  content:
+    - text: "Tool Options Test"
+  tool_options:
+    cutting_velocity: 1.5
+    dwell_time: 75
+    spindle_speed: 15000
+    z_clearance: 0.3
+    proximity: false

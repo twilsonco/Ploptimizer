@@ -1,0 +1,11 @@
+job:
+  job_name: "Tool Options Bool Test"
+  width: 3.0
+  height: 1.0
+  text_height: 0.5
+  content:
+    - text: "Bool Options Test"
+  tool_options:
+    spindle: false
+    vacuum: false
+    proximity: true

@@ -243,6 +243,15 @@ class JobDefaults(BaseModel):
             "Values > 1.0 increase inter-line spacing at the expense of top/bottom margins."
         ),
     )
+    tool_options: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Optional engraver tool options (header commands) metadata. "
+            "Keys are underscored header names (e.g., 'cutting_velocity', 'dwell_time'). "
+            "Values are dicts with 'command', 'type', 'default' (dual text/borders_holes), "
+            "'min', and 'max' keys. Populated by the extract_headers.py script from PLT reference files."
+        ),
+    )
 
 
 @dataclass(frozen=True)

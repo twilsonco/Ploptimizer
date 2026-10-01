@@ -1,0 +1,12 @@
+job:
+  job_name: "Tool Options Clamping Test"
+  width: 3.0
+  height: 1.0
+  text_height: 0.5
+  content:
+    - text: "Clamping Test"
+  tool_options:
+    cutting_velocity: 5.0  # max is 3.0, should be clamped
+    dwell_time: 50        # ok (within 10-1000)
+    spindle_speed: 25000  # max is 18000, should be clamped
+    z_clearance: -0.1     # min is 0.05, should be clamped

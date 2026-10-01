@@ -1085,6 +1085,17 @@ class JobSpec(LabelAttributes):
             "Values > 1.0 increase inter-line spacing at the expense of top/bottom margins."
         ),
     )
+    tool_options: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Optional engraver tool options (header commands). Keys are underscored "
+            "header names (e.g., 'cutting_velocity', 'dwell_time', 'spindle_speed'). "
+            "Values override job-config.json defaults for those parameters. "
+            "Supported options and their ranges are defined in job-config.json "
+            "'tool_options' metadata. Omitted options use job-config defaults "
+            "or are omitted from the PLT if the default is null."
+        ),
+    )
 
     @field_validator("replacement_text_delimiter")
     @classmethod

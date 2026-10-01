@@ -10,5 +10,109 @@
   "top_clearance": 0.0,
   "hole_diameter": 0.125,
   "layout": "columns",
-  "auto_line_spacing_interline_to_top_bottom_ratio": 1.3
+  "auto_line_spacing_interline_to_top_bottom_ratio": 1.3,
+  "tool_options": {
+    "cutting_velocity": {
+      "name": "cutting velocity",
+      "description": "",
+      "command": "VS",
+      "type": "float",
+      "default": {
+        "text": 0.8,
+        "borders_holes": 0.8
+      },
+      "min": 0.05,
+      "max": 3.0
+    },
+    "dwell_time": {
+      "name": "dwell time",
+      "description": "",
+      "command": "ZO124,",
+      "type": "int",
+      "default": {
+        "text": 50,
+        "borders_holes": 50
+      },
+      "min": 10,
+      "max": 1000
+    },
+    "plunge_velocity": {
+      "name": "plunge velocity",
+      "description": "",
+      "command": "VZ",
+      "type": "float",
+      "default": {
+        "text": 2.0,
+        "borders_holes": 2.0
+      },
+      "min": 0.1,
+      "max": 3.0
+    },
+    "proximity": {
+      "name": "proximity",
+      "description": "",
+      "command": "ZO104,",
+      "type": "bool",
+      "default": {
+        "text": true,
+        "borders_holes": true
+      }
+    },
+    "spindle": {
+      "name": "spindle",
+      "description": "",
+      "command": "ZO123,",
+      "type": "bool",
+      "default": {
+        "text": true,
+        "borders_holes": true
+      }
+    },
+    "spindle_speed": {
+      "name": "spindle speed",
+      "description": "",
+      "command": "ZO100,",
+      "type": "int",
+      "default": {
+        "text": 12000,
+        "borders_holes": 12000
+      },
+      "min": 3000,
+      "max": 18000
+    },
+    "vacuum": {
+      "name": "vacuum",
+      "description": "",
+      "command": "ZO102,",
+      "type": "bool",
+      "default": {
+        "text": true,
+        "borders_holes": true
+      }
+    },
+    "z_clearance": {
+      "name": "z clearance",
+      "description": "",
+      "command": "ZU",
+      "type": "float",
+      "default": {
+        "text": 0.2,
+        "borders_holes": 0.2
+      },
+      "min": 0.05,
+      "max": 1.0
+    },
+    "z_up_velocity": {
+      "name": "z up velocity",
+      "description": "",
+      "command": "ZO105,",
+      "type": "int",
+      "default": {
+        "text": 1000,
+        "borders_holes": 1000
+      },
+      "min": 100,
+      "max": 3000
+    }
+  }
 }

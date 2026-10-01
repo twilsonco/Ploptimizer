@@ -301,6 +301,8 @@ def run(args: argparse.Namespace) -> int:
             layout=job.layout,
             default_plate_size=default_plate_size,
             default_plate_clearance=_default_plate_clearance(job),
+            job_spec=job,
+            job_config=job_config,
         )
         exported_paths = export_result.plt_paths
     except LabelRenderError as e:

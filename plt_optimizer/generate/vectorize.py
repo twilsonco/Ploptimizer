@@ -27,7 +27,11 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import TYPE_CHECKING, Optional, Sequence
+
+if TYPE_CHECKING:
+    from plt_optimizer.generate.job_config import JobConfig
+    from plt_optimizer.generate.schema import JobSpec
 
 from plt_optimizer.core.optimizer import OptimizationStrategy
 from plt_optimizer.generate.label_renderer import RenderedLabel, extract_bounds_from_plt
@@ -456,6 +460,8 @@ def export_per_cutter_plts(
     layout: LayoutMode = DEFAULT_LAYOUT_MODE,
     default_plate_size: Optional[tuple[float, float]] = None,
     default_plate_clearance: Optional[tuple[float, float]] = None,
+    job_spec: Optional[JobSpec] = None,
+    job_config: Optional[JobConfig] = None,
 ) -> PerCutterExport:
     """Export plates as per-cutter PLT files (and optional simple PDFs).
 
@@ -527,6 +533,14 @@ def export_per_cutter_plts(
             applied to every auto-allocated unbounded bin (from
             ``job-config.json`` ``left_clearance`` / ``top_clearance``).
             Ignored when plates are given (their own clearances apply).
+        job_spec: Optional JobSpec for applying tool option headers to
+            generated PLT files. When provided, tool options (engraver
+            parameters like cutting velocity, spindle speed, etc.) are
+            prepended to the PLT headers. If ``None``, no tool option
+            headers are added (backwards compatible).
+        job_config: Optional JobConfig with tool_options metadata (command
+            strings, dual defaults, bounds). Required when ``job_spec`` is
+            provided; ignored otherwise.
 
     Returns:
         A :class:`PerCutterExport` with written PLT paths, PDF paths, and
@@ -630,6 +644,15 @@ def export_per_cutter_plts(
                 if optimization is not None:
                     bh_content = optimization.content
                     _report(f"{plate_str} bh", optimization)
+
+            # Prepend tool option headers if job_spec and job_config are provided
+            if job_spec is not None and job_config is not None:
+                from plt_optimizer.generate.tool_options import prepend_tool_option_headers
+
+                bh_content = prepend_tool_option_headers(
+                    bh_content, job_spec, job_config, "borders_holes"
+                )
+
             structure_path = plt_dir / f"{plate_str}_bh_{_format_cutter(hole_cutter)}_{job_id}.plt"
             structure_path.write_text(bh_content, encoding="utf-8")
             result.plt_paths.append(structure_path)
@@ -660,6 +683,15 @@ def export_per_cutter_plts(
                 if not plt_has_geometry(text_content):
                     continue
                 written_content = text_content
+
+            # Prepend tool option headers if job_spec and job_config are provided
+            if job_spec is not None and job_config is not None:
+                from plt_optimizer.generate.tool_options import prepend_tool_option_headers
+
+                written_content = prepend_tool_option_headers(
+                    written_content, job_spec, job_config, "text"
+                )
+
             text_path = plt_dir / f"{plate_str}_txt_{layer_tag}_{job_id}.plt"
             text_path.write_text(written_content, encoding="utf-8")
             result.plt_paths.append(text_path)

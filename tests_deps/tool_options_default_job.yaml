@@ -1,0 +1,8 @@
+job:
+  job_name: "Tool Options Defaults"
+  width: 3.0
+  height: 1.0
+  text_height: 0.5
+  content:
+    - text: "Using Job-Config Defaults"
+  # No tool_options specified; should use job-config.json defaults
