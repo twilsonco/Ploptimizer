@@ -909,9 +909,12 @@ def _resolve_label(
 
     # Margin precedence: shrink line spacing (never margins) so the stacked
     # text block fits within the inner content area.
-    resolved_content = _fit_content_to_margins(
-        resolved_content, final_height, label_margin, label_id
-    )
+    # Skip this when auto line spacing was used, since the spacing was already
+    # calculated to fit perfectly within the v_margin.
+    if calculated_v_margin is None:
+        resolved_content = _fit_content_to_margins(
+            resolved_content, final_height, label_margin, label_id
+        )
 
     return ResolvedLabel(
         id=label_id,
