@@ -24,6 +24,10 @@
 #   - Replacement text file template (EngraveLab/Vision Pro "badges") mixed
 #     with fully static labels in one job
 #   - High-count volume labels forcing overflow onto the second plate
+#   - Auto line spacing (line_spacing: "auto"): flexible inter-line spacing
+#     calculated based on label height, text line count, and cutter widths,
+#     with optional explicit v_margin override (see auto_spacing_equal,
+#     auto_spacing_with_margin, auto_mixed_lines)
 #
 # Run with: python run_integration_test.py tests_deps/complex_test_job.yaml
 job:
@@ -305,3 +309,47 @@ job:
         - text: "REPLACE LINE 2"
           placeholder: true
           text_h_alignment: right
+
+    # 16. Auto line spacing (without explicit v_margin): all lines are evenly
+    #     spaced such that the functional v_margin equals the inter-line
+    #     spacing. Cutter widths are considered for top and bottom lines.
+    - id: auto_spacing_equal
+      count: 3
+      width: 4.0
+      height: 1.8
+      text_height: 0.3
+      line_spacing: "auto"
+      content:
+        - text: "AUTO SPACED"
+        - text: "EVENLY"
+        - text: "DISTRIBUTION"
+
+    # 17. Auto line spacing with explicit v_margin: the explicit v_margin
+    #     (0.2") is honored, and line_spacing is calculated to fit the
+    #     remaining available space. Tests the dual-mode calculation path.
+    - id: auto_spacing_with_margin
+      count: 2
+      width: 5.0
+      height: 1.6
+      text_height: 0.3
+      line_spacing: "auto"
+      margin: 0.2
+      content:
+        - text: "AUTO WITH"
+        - text: "EXPLICIT MARGIN"
+
+    # 18. Mixed auto and explicit line_spacing at line level: all lines
+    #     are treated as auto with a warning logged; verifies that mixed
+    #     auto/explicit detection works end-to-end in the job pipeline.
+    - id: auto_mixed_lines
+      count: 2
+      width: 4.5
+      height: 1.5
+      text_height: 0.3
+      content:
+        - text: "AUTO LINE ONE"
+          line_spacing: "auto"
+        - text: "AUTO LINE TWO"
+          line_spacing: "auto"
+        - text: "AUTO LINE THREE"
+          line_spacing: "auto"
