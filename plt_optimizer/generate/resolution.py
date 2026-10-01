@@ -454,16 +454,14 @@ def _resolve_auto_line_spacing(
     """Resolve any auto line spacing values in content.
 
     When ``line_spacing="auto"``, spacing is calculated such that all lines
-    have equal functional spacing (accounting for cutter stroke width). If
-    ``v_margin`` is explicitly specified, it is honored and ``line_spacing``
-    is calculated to fill the remaining space. If ``v_margin`` is not
-    explicitly specified, the functional ``v_margin`` is set equal to the
-    inter-line spacing.
+    have equal functional spacing. If ``v_margin`` is explicitly specified,
+    it is honored and ``line_spacing`` is calculated to fill the remaining
+    space. If ``v_margin`` is not explicitly specified, the functional
+    ``v_margin`` is set equal to the inter-line spacing.
 
-    Cutter widths of ALL lines are considered: each line's cutter width
-    contributes to both the gap above and below it (except edges contribute
-    only half at the boundary). The sum of all cutter diameters accounts for
-    the total stroke expansion.
+    Cutter width is a horizontal measure (stroke width) and does not affect
+    vertical line spacing. The calculation divides available vertical space
+    equally among inter-line gaps and top/bottom margins.
 
     Args:
         content: Fully resolved text lines (with line_spacing=-1.0 for auto).
@@ -506,19 +504,11 @@ def _resolve_auto_line_spacing(
     total_line_height = sum(line_heights)
     num_lines = len(content)
 
-    # Calculate total cutter adjustment: each line's cutter contributes to spacing above and below it.
-    # Top line contributes C1/2 above (top margin) + C1/2 below (gap to line 2).
-    # Middle lines contribute full cutter to gaps above and below.
-    # Bottom line contributes CN/2 below (bottom margin) + CN/2 above (gap from line N-1).
-    # Total: C1 + C2 + ... + CN.
-    total_cutter_adjustment = sum(line.cutter_diameter for line in content)
-
     calculated_v_margin: Optional[float] = None
 
     if v_margin_explicit is not None:
         # Explicit v_margin: calculate line_spacing to fill the remaining space
-        # Account for all cutter widths that take up geometric space
-        available_height = label_height - 2.0 * v_margin_explicit - total_cutter_adjustment
+        available_height = label_height - 2.0 * v_margin_explicit
         if num_lines > 1:
             calculated_spacing = max(0.0, (available_height - total_line_height) / (num_lines - 1))
         else:
@@ -535,22 +525,15 @@ def _resolve_auto_line_spacing(
         )
     else:
         # Auto v_margin: functional v_margin equals inter-line spacing
-        # Each line's cutter width contributes to the spacing around it:
-        # - Top line: C1/2 above (top margin) + C1/2 below (top of spacing1)
-        # - Middle lines: full cutter for both gaps above and below
-        # - Bottom line: CN/2 above (bottom of spacingN) + CN/2 below (bottom margin)
-        # Total: C1 + C2 + ... + CN
-        #
-        # Available space for equal functional spacing:
-        #   (num_lines + 1)*f + line_total + sum(all_cutters) = label_height
-        #   f = (label_height - line_total - sum(all_cutters)) / (num_lines + 1)
+        # Divide available vertical space equally among (num_lines + 1) gaps:
+        #   spacing = (label_height - total_line_height) / (num_lines + 1)
         if num_lines > 1:
             calculated_spacing = max(
                 0.0,
-                (label_height - total_cutter_adjustment - total_line_height) / (num_lines + 1),
+                (label_height - total_line_height) / (num_lines + 1),
             )
         else:
-            calculated_spacing = (label_height - total_cutter_adjustment - total_line_height) / 2.0
+            calculated_spacing = (label_height - total_line_height) / 2.0
 
         # Set calculated_v_margin to the line_spacing so it will be used instead of default
         calculated_v_margin = calculated_spacing
