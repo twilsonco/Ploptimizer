@@ -1458,7 +1458,7 @@ class TestMinHoleMarginCascade:
         """Manually constructed ResolvedLabel defaults for the new fields."""
         label = ResolvedLabel(id="x", count=1, width=1.0, height=1.0, margin=0.1)
         assert label.min_hole_margin is None
-        assert label.collision_compress == 1.0
+        assert label.collision_compress_by_line == {}  # Empty dict means no per-line compression
 
 
 class TestHoleTextCollisionDistanceCascade:
