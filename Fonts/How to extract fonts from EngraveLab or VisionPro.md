@@ -31,6 +31,14 @@ printable ASCII character, ready for the label generator to place and scale.
    compression. Remove any horizontal or vertical compression / stretch
    settings.
 
+   > **Crisper glyphs:** the extractor's upscale multiplies everything —
+   > including EngraveLab's per-stroke jitter at small sizes. Engraving at
+   > 0.05 inch means a 20x upscale; engraving at 0.2 inch means only 5x, so
+   > the same jitter lands 4x smaller in the final font. For the crispest
+   > results, use the **largest height that still fits your plate without
+   > compression** (e.g. 0.1" – 0.2" where the plate allows), and put that
+   > number in the file name.
+
 3. Paste the contents of [`ascii.txt`](ascii.txt) as the text: every printable
    ASCII character (`!` through `~`) in one long row, separated by many spaces.
    The wide spacing is what lets the extractor tell characters apart — do not
@@ -138,6 +146,11 @@ extracted are replaced.
   file name doesn't match what was engraved, or EngraveLab compressed the
   toolpath anyway (row wider than the plate). Lower the text height,
   re-engrave, and fix the file name.
+- **Glyphs look rough or jittery in the extracted font.** The engraved text
+  height was very small, so the upscale factor (e.g. 20x at 0.05 inch)
+  amplified EngraveLab's engraving jitter along with the geometry. Nothing
+  is broken — re-engrave at the largest height that still fits the plate
+  (see Step 1) to shrink the amplification.
 - **A character logs a degenerate/no-geometry WARNING.** Some fonts draw
   certain characters with zero width (e.g. a dot-less style) — harmless; the
   entry is kept as an empty string and renders as blank.
