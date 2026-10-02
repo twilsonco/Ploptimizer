@@ -8,9 +8,13 @@ VisionPro.md`` beside this script) is:
 1. In EngraveLab/Vision Pro, use the **Text Compose** tool (never *Frame
    Text Compose*, which compresses to fit the plate) with the contents of
    ``Fonts/ascii.txt``: every printable ASCII character in one long row,
-   separated by many spaces, text height exactly **1.0 inch**, any font.
+   separated by many spaces, any font. Pick a text height small enough that
+   the whole row fits the machine plate without EngraveLab compressing the
+   toolpath (e.g. 0.05 inch); the height is recorded in the file name.
 2. Engrave the sheet to a PLT file.
-3. Drop the PLT into ``Fonts/PLT-ascii/`` named ``<font_name>.plt``.
+3. Drop the PLT into ``Fonts/PLT-ascii/`` named ``<font name> <height>.plt``
+   (e.g. ``dino 0.05.plt``), where ``<height>`` is the engraved text height
+   in inches.
 4. Run this script::
 
        uv run python Fonts/extract_plt_fonts.py
@@ -19,7 +23,8 @@ Each input file is parsed with the core :class:`~plt_optimizer.core.parser.PLTPa
 split into individual glyphs by clustering stroke paths along X (the
 character spacing is intentionally huge, but EngraveLab emits strokes in a
 scrambled order, so chronological chunking cannot be used), translated so
-each glyph is centered on the origin, and re-emitted as a self-contained
+each glyph is centered on the origin, scaled by ``1 / text height`` to a
+uniform 1.0-inch design height, and re-emitted as a self-contained
 ``PU``/``PD``/``AA`` command string (3-decimal plotter units, 1000 units =
 1 inch).
 
@@ -27,10 +32,11 @@ The result is merged into ``Fonts/plt_fonts.json``::
 
     {"<Font Name>": {"<char>": "<HPGL commands>", ...}, ...}
 
-Font keys are the file stem title-cased (``DINO.plt`` -> ``"Dino"``); use
-``--font-name`` to override for a single file. Existing fonts in the JSON
-are preserved unless ``--rebuild`` is given. The downstream consumer
-(placing/scaling glyphs when generating labels) is a later task.
+Font keys are the file-name font part title-cased (``dino 0.05.plt`` ->
+``"Dino"``); use ``--font-name`` to override for a single file. Existing
+fonts in the JSON are preserved unless ``--rebuild`` is given. The
+downstream consumer (placing/scaling glyphs when generating labels) is a
+later task.
 """
 
 from __future__ import annotations
@@ -118,13 +124,17 @@ class FontExtraction:
 
     Attributes:
         font_name: Title-cased font key used in ``plt_fonts.json``.
-        glyphs: Character -> origin-centered HPGL command string.
+        glyphs: Character -> origin-centered HPGL command string (scaled to
+            1.0-inch design height).
         threshold: X-gap clustering threshold actually used (plotter units).
+        text_height: Engraved text height in inches parsed from the file
+            name; glyphs were scaled by ``1 / text_height``.
     """
 
     font_name: str
     glyphs: GlyphMap
     threshold: float
+    text_height: float
 
 
 def load_characters(ascii_file: Path) -> List[str]:
@@ -150,6 +160,47 @@ def load_characters(ascii_file: Path) -> List[str]:
     if not characters:
         raise FontExtractionError(f"Character file {ascii_file} contains no characters")
     return list(characters)
+
+
+def parse_font_file_name(plt_path: Path) -> Tuple[str, float]:
+    """Split an engraved sample file name into (font name, text height).
+
+    The convention is ``<font name> <text height>.plt`` (e.g.
+    ``dino 0.05.plt``): the last whitespace-separated token of the stem is
+    the text height in inches engraved in EngraveLab/Vision Pro, and the
+    remaining tokens form the font name (title-cased). The extractor scales
+    every glyph by ``1 / text height`` so the stored font is normalized to
+    1.0-inch design height regardless of the engraved size.
+
+    Args:
+        plt_path: Path to the engraved sample PLT.
+
+    Returns:
+        Tuple of ``(font_name, text_height_inches)``.
+
+    Raises:
+        FontExtractionError: If the file name carries no positive finite
+            trailing text-height token.
+    """
+    tokens = plt_path.stem.split()
+    if len(tokens) < 2:
+        raise FontExtractionError(
+            f"{plt_path.name}: file name must be '<font name> <text height>.plt' "
+            f"(e.g. 'dino 0.05.plt'); no text height found"
+        )
+    *name_tokens, height_token = tokens
+    try:
+        text_height = float(height_token)
+    except ValueError as e:
+        raise FontExtractionError(
+            f"{plt_path.name}: trailing file-name token {height_token!r} is not a "
+            f"text height in inches (e.g. 'dino 0.05.plt')"
+        ) from e
+    if not math.isfinite(text_height) or text_height <= 0.0:
+        raise FontExtractionError(
+            f"{plt_path.name}: text height must be a positive finite number of inches"
+        )
+    return " ".join(name_tokens).title(), text_height
 
 
 def arc_bounds(arc: ArcSegment) -> Bounds:
@@ -425,6 +476,66 @@ def translate_path(path: StrokePath, dx: float, dy: float) -> StrokePath:
     )
 
 
+def scale_coordinate(coordinate: Coordinate, factor: float) -> Coordinate:
+    """Return ``coordinate`` scaled uniformly about the origin.
+
+    Args:
+        coordinate: Point to scale.
+        factor: Uniform scale factor.
+
+    Returns:
+        A new :class:`Coordinate` (constructor rounds to 3 decimals).
+    """
+    return Coordinate(coordinate.x * factor, coordinate.y * factor)
+
+
+def scale_segment(segment: Segment, factor: float) -> Segment:
+    """Return ``segment`` scaled uniformly about the origin.
+
+    A uniform scale is a similarity transform: arc centers scale like any
+    point, radii scale with the factor, and sweep angles are preserved.
+
+    Args:
+        segment: Line or arc segment to scale.
+        factor: Uniform scale factor.
+
+    Returns:
+        A new segment of the same kind.
+    """
+    if isinstance(segment, ArcSegment):
+        return ArcSegment(
+            start=scale_coordinate(segment.start, factor),
+            end=scale_coordinate(segment.end, factor),
+            center=scale_coordinate(segment.center, factor),
+            sweep_angle=segment.sweep_angle,
+            is_cutting=segment.is_cutting,
+        )
+    return StrokeSegment(
+        start=scale_coordinate(segment.start, factor),
+        end=scale_coordinate(segment.end, factor),
+        is_cutting=segment.is_cutting,
+    )
+
+
+def scale_path(path: StrokePath, factor: float) -> StrokePath:
+    """Return ``path`` scaled uniformly about the origin.
+
+    Args:
+        path: Path to scale.
+        factor: Uniform scale factor.
+
+    Returns:
+        A new :class:`StrokePath`.
+    """
+    pen_up = (
+        scale_coordinate(path.pen_up_position, factor) if path.pen_up_position is not None else None
+    )
+    return StrokePath(
+        pen_up_position=pen_up,
+        segments=tuple(scale_segment(seg, factor) for seg in path.segments),
+    )
+
+
 def _format_number(value: float) -> str:
     """Format one coordinate value with the source files' 3-decimal precision.
 
@@ -504,6 +615,7 @@ def extract_font_from_document(
     document: PLTDocument,
     characters: Sequence[str],
     cluster_threshold: Optional[float] = None,
+    scale: float = 1.0,
 ) -> Tuple[GlyphMap, float]:
     """Split one ASCII sample document into origin-centered glyphs.
 
@@ -513,6 +625,9 @@ def extract_font_from_document(
         cluster_threshold: Manual X-gap threshold in plotter units. When
             ``None`` the threshold is auto-calibrated to produce exactly
             ``len(characters)`` clusters.
+        scale: Uniform factor applied to every glyph after centering
+            (``1 / engraved text height`` normalizes to 1.0-inch design
+            height).
 
     Returns:
         Tuple of ``(glyph_map, threshold_used)`` where ``glyph_map`` maps
@@ -543,9 +658,9 @@ def extract_font_from_document(
             f"Compose) or pass --cluster-threshold (used {threshold:.3f})."
         )
 
-    heights = sorted((c.bounds[3] - c.bounds[1]) / 1000.0 for c in clusters)
+    heights = sorted((c.bounds[3] - c.bounds[1]) * scale / 1000.0 for c in clusters)
     logger.info(
-        "Median glyph height %.3f in (a correct sheet is engraved at 1.0 inch text height)",
+        "Median glyph height %.3f in after scaling (design height is 1.0 inch)",
         heights[len(heights) // 2],
     )
 
@@ -554,16 +669,16 @@ def extract_font_from_document(
         x_min, y_min, x_max, y_max = cluster.bounds
         dx = -(x_min + x_max) / 2.0
         dy = -(y_min + y_max) / 2.0
-        moved = tuple(translate_path(p, dx, dy) for p in cluster.paths)
+        moved = tuple(scale_path(translate_path(p, dx, dy), scale) for p in cluster.paths)
         glyph = emit_glyph(moved)
         if not glyph:
             logger.warning("Character %r produced no geometry", character)
-        elif (x_max - x_min) < 1.0 and (y_max - y_min) < 1.0:
+        elif (x_max - x_min) * scale < 1.0 and (y_max - y_min) * scale < 1.0:
             logger.warning(
-                "Character %r is degenerate (%.3f x %.3f units)",
+                "Character %r is degenerate (%.3f x %.3f units at design height)",
                 character,
-                x_max - x_min,
-                y_max - y_min,
+                (x_max - x_min) * scale,
+                (y_max - y_min) * scale,
             )
         glyphs[character] = glyph
     return glyphs, threshold
@@ -574,37 +689,56 @@ def extract_font_file(
     characters: Sequence[str],
     font_name: Optional[str] = None,
     cluster_threshold: Optional[float] = None,
+    text_height: Optional[float] = None,
 ) -> FontExtraction:
-    """Extract one ``<font_name>.plt`` sample sheet into a font.
+    """Extract one ``<font name> <text height>.plt`` sample sheet into a font.
 
     Args:
         plt_path: Path to the engraved sample PLT.
         characters: Expected characters in left-to-right order.
-        font_name: Explicit font key; defaults to the title-cased stem.
+        font_name: Explicit font key; defaults to the file-name font part.
         cluster_threshold: Manual X-gap threshold (see
             :func:`extract_font_from_document`).
+        text_height: Engraved text height in inches; overrides the value
+            parsed from the file name (and lets height-less names through).
 
     Returns:
         The extraction result.
 
     Raises:
-        FontExtractionError: If parsing or clustering fails.
+        FontExtractionError: If parsing or clustering fails, or the file
+            name carries no usable text height.
     """
-    name = font_name or plt_path.stem.title()
+    if text_height is not None:
+        name = font_name or plt_path.stem.title()
+        height = text_height
+    else:
+        default_name, height = parse_font_file_name(plt_path)
+        name = font_name or default_name
+    if not math.isfinite(height) or height <= 0.0:
+        raise FontExtractionError(
+            f"{plt_path.name}: text height must be a positive finite number of inches"
+        )
+    scale = 1.0 / height
     parser = PLTParser()
     try:
         document = parser.parse_file(plt_path)
     except ParseError as e:
         raise FontExtractionError(f"Failed to parse {plt_path}: {e}") from e
-    glyphs, threshold = extract_font_from_document(document, characters, cluster_threshold)
+    glyphs, threshold = extract_font_from_document(
+        document, characters, cluster_threshold, scale=scale
+    )
     logger.info(
-        "Extracted font %r from %s: %d glyphs, threshold=%.1f units",
+        "Extracted font %r from %s: %d glyphs, threshold=%.1f units, "
+        "engraved height=%.4g in, scale=%.4gx",
         name,
         plt_path.name,
         len(glyphs),
         threshold,
+        height,
+        scale,
     )
-    return FontExtraction(font_name=name, glyphs=glyphs, threshold=threshold)
+    return FontExtraction(font_name=name, glyphs=glyphs, threshold=threshold, text_height=height)
 
 
 def load_existing_fonts(output: Path) -> Dict[str, GlyphMap]:
@@ -699,8 +833,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--fonts-dir",
         type=Path,
         default=DEFAULT_INPUT_DIR,
-        help="Directory containing <font_name>.plt sample sheets "
-        "(default: %(default)s relative to the repo root).",
+        help="Directory containing '<font name> <text height>.plt' sample "
+        "sheets (default: %(default)s relative to the repo root).",
     )
     parser.add_argument(
         "--output",
@@ -726,7 +860,9 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--font-name",
         default=None,
         help="Explicit font key; only valid with a single input file. "
-        "Default: the file stem title-cased (DINO.plt -> 'Dino').",
+        "Default: the file-name font part title-cased "
+        "('dino 0.05.plt' -> 'Dino'). The text height still comes from "
+        "the file name.",
     )
     parser.add_argument(
         "--rebuild",

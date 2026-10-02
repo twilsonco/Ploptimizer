@@ -115,6 +115,36 @@ class TestLoadCharacters:
             script.load_characters(ascii_file)
 
 
+class TestParseFontFileName:
+    """Tests for parse_font_file_name()."""
+
+    def test_parses_name_and_height(self) -> None:
+        name, height = script.parse_font_file_name(Path("dino 0.05.plt"))
+        assert name == "Dino"
+        assert height == pytest.approx(0.05)
+
+    def test_multiword_font_name(self) -> None:
+        name, height = script.parse_font_file_name(Path("heavy slant 1.25.plt"))
+        assert name == "Heavy Slant"
+        assert height == pytest.approx(1.25)
+
+    def test_missing_height_raises(self) -> None:
+        with pytest.raises(script.FontExtractionError, match="no text height found"):
+            script.parse_font_file_name(Path("dino.plt"))
+
+    def test_non_numeric_height_raises(self) -> None:
+        with pytest.raises(script.FontExtractionError, match="not a"):
+            script.parse_font_file_name(Path("dino big.plt"))
+
+    def test_zero_height_raises(self) -> None:
+        with pytest.raises(script.FontExtractionError, match="positive finite"):
+            script.parse_font_file_name(Path("dino 0.plt"))
+
+    def test_negative_height_raises(self) -> None:
+        with pytest.raises(script.FontExtractionError, match="positive finite"):
+            script.parse_font_file_name(Path("dino -0.5.plt"))
+
+
 class TestSegmentBounds:
     """Tests for arc_bounds()/segment_bounds()/path_bounds()."""
 
@@ -233,6 +263,51 @@ class TestClusterPaths:
             script.cluster_paths([StrokePath(segments=())], threshold=10.0)
 
 
+class TestScale:
+    """Tests for the scale helpers."""
+
+    def test_line_scaled_about_origin(self) -> None:
+        seg = StrokeSegment(Coordinate(1.0, 2.0), Coordinate(3.0, -4.0), True)
+        scaled = script.scale_segment(seg, 20.0)
+        assert (scaled.start.x, scaled.start.y) == (20.0, 40.0)
+        assert (scaled.end.x, scaled.end.y) == (60.0, -80.0)
+
+    def test_arc_scales_center_radius_preserves_sweep(self) -> None:
+        arc = ArcSegment(
+            start=Coordinate(10.0, 0.0),
+            end=Coordinate(0.0, 10.0),
+            center=Coordinate(0.0, 0.0),
+            sweep_angle=90.0,
+            is_cutting=True,
+        )
+        scaled = script.scale_segment(arc, 2.0)
+        assert isinstance(scaled, ArcSegment)
+        assert scaled.radius == pytest.approx(20.0)
+        assert scaled.sweep_angle == pytest.approx(90.0)
+
+    def test_path_pen_up_scaled(self) -> None:
+        path = StrokePath(
+            pen_up_position=Coordinate(1.0, -2.0),
+            segments=(StrokeSegment(Coordinate(1.0, 1.0), Coordinate(2.0, 2.0), True),),
+        )
+        scaled = script.scale_path(path, 10.0)
+        assert scaled.pen_up_position is not None
+        assert (scaled.pen_up_position.x, scaled.pen_up_position.y) == (10.0, -20.0)
+
+    def test_document_scale_normalizes_glyph_size(self, three_blob_doc: PLTDocument) -> None:
+        # Blobs are 300 units tall-ish; scale=20 doubles every coordinate
+        # after centering.
+        plain, _ = script.extract_font_from_document(three_blob_doc, "ABC")
+        scaled, _ = script.extract_font_from_document(three_blob_doc, "ABC", scale=20.0)
+        for ch in "ABC":
+            assert len(scaled[ch]) >= len(plain[ch])
+        reparsed = PLTParser().parse_string(scaled["A"])
+        xs = [s.end.x for p in reparsed.stroke_paths for s in p.segments]
+        ys = [s.end.y for p in reparsed.stroke_paths for s in p.segments]
+        assert (max(xs) - min(xs)) > 1000.0  # 300*20 = 6000-wide blob
+        assert (max(ys) - min(ys)) > 1000.0
+
+
 class TestTranslate:
     """Tests for the translate helpers."""
 
@@ -349,18 +424,37 @@ class TestExtractFontFromDocument:
 class TestExtractFontFile:
     """Tests for extract_font_file() including the real-word guard rail."""
 
-    def test_font_name_defaults_to_title_cased_stem(self, tmp_path: Path) -> None:
-        plt_path = tmp_path / "DINO.plt"
+    def test_font_name_and_height_from_file_name(self, tmp_path: Path) -> None:
+        plt_path = tmp_path / "DINO 0.05.plt"
         plt_path.write_text(make_blob_plt([0.0, 3000.0, 6000.0]), encoding="utf-8")
         extraction = script.extract_font_file(plt_path, "ABC")
         assert extraction.font_name == "Dino"
+        assert extraction.text_height == pytest.approx(0.05)
         assert sorted(extraction.glyphs) == ["A", "B", "C"]
+        # Glyphs are scaled by 1/0.05 = 20x: the 300-unit-wide blob is 6000+.
+        reparsed = PLTParser().parse_string(extraction.glyphs["A"])
+        xs = [s.end.x for p in reparsed.stroke_paths for s in p.segments]
+        assert max(xs) - min(xs) > 1000.0
 
-    def test_font_name_override(self, tmp_path: Path) -> None:
-        plt_path = tmp_path / "whatever.plt"
-        plt_path.write_text(make_blob_plt([0.0, 3000.0]), encoding="utf-8")
-        extraction = script.extract_font_file(plt_path, "AB", font_name="My Font")
+    def test_font_name_override_keeps_file_name_height(self, tmp_path: Path) -> None:
+        plt_path = tmp_path / "whatever 2.plt"
+        plt_path.write_text(make_blob_plt([0.0, 3000.0, 6000.0]), encoding="utf-8")
+        extraction = script.extract_font_file(plt_path, "ABC", font_name="My Font")
         assert extraction.font_name == "My Font"
+        assert extraction.text_height == pytest.approx(2.0)
+
+    def test_text_height_argument_overrides_file_name(self, tmp_path: Path) -> None:
+        plt_path = tmp_path / "plain.plt"
+        plt_path.write_text(make_blob_plt([0.0, 3000.0, 6000.0]), encoding="utf-8")
+        extraction = script.extract_font_file(plt_path, "ABC", text_height=0.5)
+        assert extraction.font_name == "Plain"
+        assert extraction.text_height == pytest.approx(0.5)
+
+    def test_missing_height_in_file_name_raises(self, tmp_path: Path) -> None:
+        plt_path = tmp_path / "noheight.plt"
+        plt_path.write_text(make_blob_plt([0.0, 3000.0, 6000.0]), encoding="utf-8")
+        with pytest.raises(script.FontExtractionError, match="no text height found"):
+            script.extract_font_file(plt_path, "ABC")
 
     def test_word_engrave_fixture_is_rejected(self) -> None:
         """dino_word_sample.plt is a word engraving, not a full ASCII row.
@@ -370,7 +464,7 @@ class TestExtractFontFile:
         """
         assert DINO_FIXTURE.exists(), "missing fixture tests_deps/dino_word_sample.plt"
         with pytest.raises(script.FontExtractionError) as excinfo:
-            script.extract_font_file(DINO_FIXTURE, ASCII_CHARS)
+            script.extract_font_file(DINO_FIXTURE, ASCII_CHARS, text_height=0.05)
         message = str(excinfo.value)
         assert "separated stroke groups" in message
         assert "94" in message
@@ -418,7 +512,7 @@ class TestMainCli:
     def _make_fonts_dir(self, tmp_path: Path) -> Path:
         fonts_dir = tmp_path / "fonts"
         fonts_dir.mkdir()
-        (fonts_dir / "myfont.plt").write_text(
+        (fonts_dir / "myfont 1.plt").write_text(
             make_blob_plt([0.0, 3000.0, 6000.0], scrambled=True), encoding="utf-8"
         )
         return fonts_dir
@@ -458,7 +552,9 @@ class TestMainCli:
             str(out),
         ]
         assert script.main(args) == 0
-        (fonts_dir / "other.plt").write_text(make_blob_plt([0.0, 3000.0, 6000.0]), encoding="utf-8")
+        (fonts_dir / "other 1.plt").write_text(
+            make_blob_plt([0.0, 3000.0, 6000.0]), encoding="utf-8"
+        )
         assert script.main(args) == 0
         data = json.loads(out.read_text(encoding="utf-8"))
         assert sorted(data) == ["Myfont", "Other"]
@@ -476,8 +572,10 @@ class TestMainCli:
             str(out),
         ]
         assert script.main(base) == 0
-        (fonts_dir / "myfont.plt").unlink()
-        (fonts_dir / "other.plt").write_text(make_blob_plt([0.0, 3000.0, 6000.0]), encoding="utf-8")
+        (fonts_dir / "myfont 1.plt").unlink()
+        (fonts_dir / "other 1.plt").write_text(
+            make_blob_plt([0.0, 3000.0, 6000.0]), encoding="utf-8"
+        )
         assert script.main(base + ["--rebuild"]) == 0
         data = json.loads(out.read_text(encoding="utf-8"))
         assert sorted(data) == ["Other"]
@@ -487,7 +585,7 @@ class TestMainCli:
     ) -> None:
         fonts_dir = tmp_path / "fonts"
         fonts_dir.mkdir()
-        (fonts_dir / "bad.plt").write_text(make_blob_plt([0.0, 3000.0]), encoding="utf-8")
+        (fonts_dir / "bad 1.plt").write_text(make_blob_plt([0.0, 3000.0]), encoding="utf-8")
         out = tmp_path / "out.json"
         with caplog.at_level(logging.INFO, logger="extract_plt_fonts"):
             rc = script.main(
@@ -534,7 +632,7 @@ class TestMainCli:
 
     def test_font_name_requires_single_file(self, tmp_path: Path) -> None:
         fonts_dir = self._make_fonts_dir(tmp_path)
-        (fonts_dir / "second.plt").write_text(
+        (fonts_dir / "second 1.plt").write_text(
             make_blob_plt([0.0, 3000.0, 6000.0]), encoding="utf-8"
         )
         rc = script.main(

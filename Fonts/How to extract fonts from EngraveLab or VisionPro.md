@@ -20,16 +20,24 @@ printable ASCII character, ready for the label generator to place and scale.
    > Text Compose compresses the text to fit the plate width, which would
    > distort every glyph. Text Compose engraves the font at its natural width.
 
-2. Set the **text height to exactly 1.0 inch** and remove any horizontal or
-   vertical compression / stretch settings.
+2. Set the **text height small enough that the whole row fits your machine
+   plate** — and note the value you chose. EngraveLab silently compresses
+   the *engraved toolpath* to fit the plate, so a 1.0-inch row on a small
+   machine would come out squashed. A good starting point is **0.05 inch**
+   on a typical 12" x 12" machine; use something smaller for wider fonts or
+   bigger character counts. The extractor scales every glyph back up to a
+   uniform 1.0-inch design height using the height recorded in the file
+   name (Step 3), so any height works as long as it fits without
+   compression. Remove any horizontal or vertical compression / stretch
+   settings.
 
 3. Paste the contents of [`ascii.txt`](ascii.txt) as the text: every printable
    ASCII character (`!` through `~`) in one long row, separated by many spaces.
    The wide spacing is what lets the extractor tell characters apart — do not
-   reduce it. The row will be long (roughly 20+ inches); that is expected. If
-   your software wraps it onto multiple lines, split it into two documents
-   (e.g. `!`–`[` and `]`–`~`) and extract each with `--font-name` + merge
-   (see [Tips](#tips-and-troubleshooting)).
+   reduce it. Characters must appear left-to-right in exactly `ascii.txt`
+   order. If your software wraps it onto multiple lines, split it into two
+   documents (e.g. `!`–`[` and `]`–`~`) and extract each with `--font-name`
+   + merge (see [Tips](#tips-and-troubleshooting)).
 
 4. Select the desired font. Any single-line (stroke) font works; script or
    multi-stroke fonts are fine too — each character's strokes are kept together.
@@ -37,20 +45,31 @@ printable ASCII character, ready for the label generator to place and scale.
 ## Step 2 — Engrave to PLT
 
 "Engrave" (plot) the document to a PLT file using your usual plotter post.
-Do **not** let the software scale-to-fit the material; the 1.0-inch text
-height must survive into the file (the extractor logs the median glyph height
-as a sanity check).
+The row must fit the plate at the chosen text height — if EngraveLab still
+compresses the output (glyphs come out squashed / the median glyph height
+logged in Step 4 doesn't match your chosen height), lower the text height
+and re-engrave.
 
 ## Step 3 — Copy the PLT into `Fonts/PLT-ascii/`
 
 Save/copy the file as:
 
 ```
-Fonts/PLT-ascii/<font_name>.plt
+Fonts/PLT-ascii/<font name> <text height>.plt
 ```
 
-`<font_name>` becomes the JSON key, title-cased (`DINO.plt` → `"Dino"`).
-One font per file, one full ASCII row per file.
+where `<text height>` is the text height you set in Step 1, in inches:
+
+```
+Fonts/PLT-ascii/dino 0.05.plt     →  font "Dino",     engraved at 0.05 in
+Fonts/PLT-ascii/heavy eng 0.25.plt →  font "Heavy Eng", engraved at 0.25 in
+```
+
+The font-name part becomes the JSON key, title-cased (`dino 0.05.plt` →
+`"Dino"`). The extractor scales every glyph by `1 / text height` (e.g. 20x
+for `0.05`), so all fonts land in `plt_fonts.json` at a uniform 1.0-inch
+design height no matter how small they were engraved. One font per file,
+one full ASCII row per file.
 
 > **Note:** files in `Fonts/PLT-ascii/` must each contain the *full*
 > `ascii.txt` row for one font. Word engravings or partial samples cannot be
@@ -68,14 +87,15 @@ The script:
 2. Clusters stroke paths along X (the wide inter-character spacing separates
    characters even though EngraveLab emits strokes in scrambled order).
 3. Translates every glyph so it is centered on the origin (Y keeps the
-   plotter's native down-positive convention).
+   plotter's native down-positive convention), then scales it by
+   `1 / <text height>` to a uniform 1.0-inch design height.
 4. Creates/updates [`plt_fonts.json`](plt_fonts.json):
 
 ```json
 {
   "Dino": {
-    "!": "PU-0.015,249.500;PD-0.015,-249.500;PU0.000,499.000;PD0.000,480.000;",
-    "\"": "PU-60.000,300.000;PD-60.000,500.000;PU60.000,300.000;PD60.000,500.000;",
+    "!": "PU-0.300,4990.000;PD-0.300,-4990.000;PU0.000,9980.000;PD0.000,9600.000;",
+    "\"": "PU-1200.000,6000.000;PD-1200.000,10000.000;PU1200.000,6000.000;PD1200.000,10000.000;",
     "...": "..."
   },
   "Jhanuni": { "...": "..." }
@@ -94,12 +114,16 @@ extracted are replaced.
 | `-v` / `--verbose` | Debug logging (per-cluster detail). |
 | `--fonts-dir DIR` | Read sample sheets from somewhere else. |
 | `--output FILE` | Write the JSON somewhere else. |
-| `--font-name NAME` | Explicit font key (requires exactly one input file). |
+| `--font-name NAME` | Explicit font key (requires exactly one input file; the height still comes from the file name). |
 | `--cluster-threshold N` | Manual X-gap split distance in plotter units. Only if auto-calibration fails. |
 | `--rebuild` | Regenerate the JSON from scratch, dropping fonts whose `.plt` is gone. |
 
 ## Tips and troubleshooting
 
+- **"...file name must be '<font name> <text height>.plt'".** The trailing
+  space-separated token of the file name (before `.plt`) must be the engraved
+  text height in inches, e.g. `dino 0.05.plt`. Fonts whose names genuinely
+  end in a number need care: the last token is always read as the height.
 - **"Clustering produced N glyph groups but the character list has 94."**
   The sheet doesn't contain exactly one widely-spaced copy of every character
   in order. Check: full `ascii.txt` pasted? Single row (not wrapped)?
@@ -107,11 +131,13 @@ extracted are replaced.
   documents and extract each with `--font-name` into the same font key using
   two runs plus a manual merge, or split `ascii.txt` accordingly.
 - **"Found only N separated stroke groups."** The characters are touching or
-  nearly touching — the spacing is too small. Re-engrave with many more spaces
-  between characters.
-- **Median glyph height far from 1.0 in.** Something scaled the text
-  (Frame Text Compose, or a scale-to-fit in the plot post). The glyphs still
-  extract, but downstream placement assumes 1-inch design height.
+  nearly touching — the spacing is too small (or the text height is so small
+  the spacing rounded away). Re-engrave with many more spaces between
+  characters, or a slightly larger text height that still fits the plate.
+- **Median glyph height far from 1.0 in after scaling.** The height in the
+  file name doesn't match what was engraved, or EngraveLab compressed the
+  toolpath anyway (row wider than the plate). Lower the text height,
+  re-engrave, and fix the file name.
 - **A character logs a degenerate/no-geometry WARNING.** Some fonts draw
   certain characters with zero width (e.g. a dot-less style) — harmless; the
   entry is kept as an empty string and renders as blank.
