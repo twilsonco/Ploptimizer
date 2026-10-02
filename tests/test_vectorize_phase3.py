@@ -151,17 +151,31 @@ class TestRotatePltContent90cw:
 
     def test_rotate_arc_center_maps_angle_preserved(self) -> None:
         """AA centers rotate like points; the sweep angle is kept verbatim."""
-        # Full circle: center (2000, 2000), radius 1000 (pen starts at the
-        # rightmost point). Content bounds span [1000, 3000] x [1000, 3000],
-        # so y_max_units=3000 and x_min_units=1000.
+        # Quarter arc: center (2000, 2000), radius 1000 (pen starts at the
+        # rightmost point) sweeping -90 deg down to (2000, 1000). The swept
+        # extent spans [2000, 3000] x [1000, 2000] (NOT the full circle --
+        # glyph fonts use huge-radius arcs whose circles dwarf the cut), so
+        # y_max_units=2000 and x_min_units=2000.
         content = "PU3000,2000;PD3000,2000;AA2000,2000,-90"
         result = rotate_plt_content_90cw(content)
 
-        # Center (2000,2000) -> (3000-2000, 2000-1000) = (1000, 1000); the
-        # east start point maps south: (3000,2000) -> (1000, 2000). The
-        # sweep sign survives the pure rotation untouched.
-        assert "AA1000,1000,-90" in result
-        assert "PU1000,2000" in result
+        # Center (2000,2000) -> (2000-2000, 2000-2000) = (0, 0); the east
+        # start point maps south: (3000,2000) -> (0, 1000). The sweep sign
+        # survives the pure rotation untouched.
+        assert "AA0,0,-90" in result
+        assert "PU0,1000" in result
+
+    def test_rotate_arc_decimal_sweep_preserved(self) -> None:
+        """A decimal arc sweep (font glyphs) survives rotation verbatim."""
+        # A square frame fixes the content bounds at [1000,3000]^2 so the
+        # pivot is unambiguous; the shallow decimal-sweep arc rides inside it.
+        content = (
+            "PU1000,1000;PD3000,1000,3000,3000,1000,3000,1000,1000;"
+            "PU3000,2000;PD3000,2000;AA2000,2000,-12.345"
+        )
+        result = rotate_plt_content_90cw(content)
+        # y_max_units=3000, x_min_units=1000: center (2000,2000) -> (1000,1000).
+        assert "AA1000,1000,-12.345" in result
 
     def test_rotate_content_without_geometry_unchanged(self) -> None:
         """Coordinate-free content is returned verbatim."""

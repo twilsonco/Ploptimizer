@@ -103,10 +103,11 @@ def translate_plt_coordinates(plt_content: str, dx: float, dy: float) -> str:
         try:
             translated_parts = []
             for i, part in enumerate(parts):
-                val = int(part)
+                val = int(float(part))
                 # AA carries a trailing sweep angle that must not be shifted.
+                # Keep its text verbatim (font glyph sweeps carry decimals).
                 if cmd == "AA" and i >= 2:
-                    translated_parts.append(str(val))
+                    translated_parts.append(part)
                 elif i % 2 == 0:  # x coordinate
                     translated_parts.append(str(val + dx_units))
                 else:  # y coordinate
@@ -115,7 +116,7 @@ def translate_plt_coordinates(plt_content: str, dx: float, dy: float) -> str:
         except (ValueError, IndexError):
             return match.group(0)
 
-    coord_pattern = r"(PA|PU|PD|AA)([\d,\-]+)"
+    coord_pattern = r"(PA|PU|PD|AA)([\d,\.\-]+)"
     return re.sub(coord_pattern, translate_coordinates, plt_content)
 
 
@@ -166,15 +167,18 @@ def rotate_plt_content_90cw(plt_content: str) -> str:
         parts = match.group(2).split(",")
 
         try:
-            values = [int(part) for part in parts]
+            values = [int(float(part)) for part in parts]
         except ValueError:
             return match.group(0)
 
         if cmd == "AA":
             if len(values) < 3:
                 return match.group(0)
-            cx, cy, angle = values[0], values[1], values[2]
-            return f"AA{y_max_units - cy},{cx - x_min_units},{angle}"
+            cx, cy = values[0], values[1]
+            # The sweep keeps its original text (font glyph sweeps carry
+            # decimals); a rotation preserves it verbatim.
+            angle_text = parts[2]
+            return f"AA{y_max_units - cy},{cx - x_min_units},{angle_text}"
 
         if len(values) % 2 != 0:
             # Malformed coordinate list (pairs expected): leave untouched.
@@ -187,7 +191,7 @@ def rotate_plt_content_90cw(plt_content: str) -> str:
             rotated_parts.append(str(x - x_min_units))
         return f"{cmd}{','.join(rotated_parts)}"
 
-    return re.sub(r"(PA|PU|PD|AA)([\d,\-]+)", rotate_coordinates, plt_content)
+    return re.sub(r"(PA|PU|PD|AA)([\d,\.\-]+)", rotate_coordinates, plt_content)
 
 
 def assemble_plt_from_rendered_labels(

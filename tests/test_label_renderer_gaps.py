@@ -256,10 +256,15 @@ class TestCollectHpglGeometryArcGuard:
         assert arcs == []
 
     def test_well_formed_arc_still_parses(self) -> None:
-        """A full ``AA`` command still yields one radius-bearing arc."""
+        """A full ``AA`` command yields one radius-bearing arc extent."""
         _points, arcs = _collect_hpgl_geometry("PU400,200;AA300,200,90;")
 
-        assert arcs == [(300, 200, 100)]
+        assert len(arcs) == 1
+        arc = arcs[0]
+        assert (arc.cx, arc.cy, arc.radius) == (300, 200, 100)
+        # Pen at (400,200) sits due east of the center (300,200).
+        assert arc.start_angle == pytest.approx(0.0)
+        assert arc.sweep_angle == pytest.approx(90.0)
 
 
 class TestTransformWithoutFlip:

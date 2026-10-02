@@ -343,10 +343,11 @@ def _format_segment(segment: Segment) -> str:
     """
     cmd = "PD" if segment.is_cutting else "PU"
     if isinstance(segment, ArcSegment):
-        return (
-            f"{cmd};AA{int(round(segment.center.x))},"
-            f"{int(round(segment.center.y))},{int(round(segment.sweep_angle))}"
-        )
+        # Integral sweeps (drill holes) emit as ints for bit-parity; font
+        # glyph arcs carry decimal sweeps that must survive verbatim.
+        sweep = segment.sweep_angle
+        angle_text = str(int(sweep)) if sweep == int(sweep) else f"{sweep:.3f}"
+        return f"{cmd};AA{int(round(segment.center.x))},{int(round(segment.center.y))},{angle_text}"
     return f"{cmd}{_format_point(int(round(segment.end.x)), int(round(segment.end.y)))}"
 
 

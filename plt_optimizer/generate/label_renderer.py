@@ -17,7 +17,7 @@ import tempfile
 from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Iterable, List, NamedTuple, Optional, Sequence, Tuple
 
 import numpy as np
 import vpype as vp
@@ -26,7 +26,11 @@ from plt_optimizer.generate.ftext_renderer import (
     render_text_line_ftext,
     render_text_line_ftext_with_words,
 )
-from plt_optimizer.generate.geometry import CollisionResult, circle_aabb_gap
+from plt_optimizer.generate.geometry import (
+    CollisionResult,
+    arc_swept_bounds,
+    circle_aabb_gap,
+)
 from plt_optimizer.generate.resolution import (
     ResolvedLabel,
     compute_horizontal_offset,
@@ -777,51 +781,99 @@ def _render_label_once(
         temp_path.unlink(missing_ok=True)
 
 
+class ArcExtent(NamedTuple):
+    """One ``AA`` arc recovered from HPGL content, in plotter units.
+
+    Attributes:
+        cx: Arc center X.
+        cy: Arc center Y.
+        radius: Distance from the arc's start (the pen position when the
+            ``AA`` was emitted) to its center.
+        start_angle: Angle of the arc's start point around the center, in
+            degrees.
+        sweep_angle: Signed sweep angle in degrees (HPGL ``AA`` convention).
+    """
+
+    cx: int
+    cy: int
+    radius: int
+    start_angle: float
+    sweep_angle: float
+
+    def swept_bounds(self) -> Tuple[float, float, float, float]:
+        """Return the ``(x_min, y_min, x_max, y_max)`` of the *swept* arc.
+
+        Single-line glyph fonts approximate near-straight strokes with
+        huge-radius best-fit arcs, so the arc's full circle dwarfs the actual
+        cut. Measuring only the swept extent keeps those glyphs' footprints
+        tight, while a full-revolution arc (a drill hole's four quarter
+        arcs) still yields its whole circle.
+        """
+        return arc_swept_bounds(
+            float(self.cx), float(self.cy), float(self.radius), self.start_angle, self.sweep_angle
+        )
+
+
 def _collect_hpgl_geometry(
     content: str,
-) -> Tuple[List[Tuple[int, int]], List[Tuple[int, int, int]]]:
+) -> Tuple[List[Tuple[int, int]], List[ArcExtent]]:
     """Extract all point coordinates and arc definitions from HPGL content.
 
     Parses ``PA``/``PU``/``PD`` coordinate pairs and ``AA`` (arc absolute)
-    commands. Arc parameters are returned as ``(center_x, center_y, radius)``
-    tuples in plotter units, where the radius is the distance from the arc
-    center to the current pen position at the time of the command.
+    commands. Arcs are returned as :class:`ArcExtent` records whose radius is
+    the distance from the arc center to the current pen position at the time
+    of the command, together with the start angle and signed sweep needed to
+    measure the *swept* extent (see :meth:`ArcExtent.swept_bounds`).
 
     Args:
         content: Raw HPGL text content.
 
     Returns:
         Tuple of ``(points, arcs)`` where ``points`` is a list of ``(x, y)``
-        pairs and ``arcs`` is a list of ``(cx, cy, radius)`` triples.
+        pairs and ``arcs`` is a list of :class:`ArcExtent` records.
     """
     points: List[Tuple[int, int]] = []
-    arcs: List[Tuple[int, int, int]] = []
+    arcs: List[ArcExtent] = []
 
     current_x = 0
     current_y = 0
 
     # A command token starts with two letters; capture the mnemonic and the
     # parameter string separately so AA parameters (which include a trailing
-    # angle) are not mistaken for coordinate pairs.
+    # angle) are not mistaken for coordinate pairs. The angle may carry a
+    # decimal point (font glyph sweeps are stored to 3 decimals).
     for match in re.finditer(r"(PA|PU|PD|AA)([\d,\.\-]+)", content):
         cmd = match.group(1)
         parts = [p for p in match.group(2).split(",") if p != ""]
 
-        try:
-            values = [int(float(p)) for p in parts]
-        except ValueError:  # pragma: no cover - malformed numeric token
-            continue
-
         if cmd == "AA":
             # AA takes (center_x, center_y, angle); radius is implicit from
             # the current pen position.
-            if len(values) >= 3:
-                cx, cy = values[0], values[1]
-                radius = int(round(math.hypot(current_x - cx, current_y - cy)))
-                arcs.append((cx, cy, radius))
+            if len(parts) >= 3:
+                try:
+                    cx, cy = int(float(parts[0])), int(float(parts[1]))
+                    sweep = float(parts[2])
+                except ValueError:  # pragma: no cover - malformed numeric token
+                    continue
+                radius = math.hypot(current_x - cx, current_y - cy)
+                start_angle = math.degrees(math.atan2(current_y - cy, current_x - cx))
+                arcs.append(
+                    ArcExtent(
+                        cx=cx,
+                        cy=cy,
+                        radius=int(round(radius)),
+                        start_angle=start_angle,
+                        sweep_angle=sweep,
+                    )
+                )
                 # An arc ends on the circle; without an exact end coordinate
                 # we conservatively keep the pen position (the following PU
                 # re-establishes it in generated content).
+            continue
+
+        try:
+            values = [int(float(p)) for p in parts]
+        except ValueError:  # pragma: no cover - malformed numeric token
             continue
 
         for i in range(0, len(values) - 1, 2):
@@ -886,7 +938,13 @@ def _transform_hpgl_coordinates(
             cx = _map_x(values[0])
             cy = _map_y(values[1])
             angle = -values[2] if flip_y_axis else values[2]
-            return f"AA{int(round(cx))},{int(round(cy))},{int(round(angle))}"
+            # Coordinates follow the integer plotter-unit contract, but the
+            # sweep keeps its decimals (font glyph sweeps carry 3): huge
+            # radius arcs make even half a degree of rounding a visible
+            # positional error. Integral sweeps (drill holes) emit bare
+            # integers, keeping hole output bit-identical.
+            angle_text = str(int(angle)) if angle == int(angle) else f"{angle:.3f}"
+            return f"AA{int(round(cx))},{int(round(cy))},{angle_text}"
 
         out: List[str] = []
         for i, value in enumerate(values):
@@ -913,8 +971,8 @@ def extract_bounds_from_plt(plt_content: str) -> Tuple[float, float, float, floa
     Raises:
         ValueError: If no valid coordinates found in PLT content.
     """
-    x_coords = []
-    y_coords = []
+    x_coords: list[float] = []
+    y_coords: list[float] = []
 
     points, arcs = _collect_hpgl_geometry(plt_content)
 
@@ -922,12 +980,13 @@ def extract_bounds_from_plt(plt_content: str) -> Tuple[float, float, float, floa
         x_coords.append(x)
         y_coords.append(y)
 
-    # Arcs (drill holes) contribute their full circle bounding box so the
-    # measured footprint always contains the complete circle, even for
-    # partial sweeps.
-    for cx, cy, radius in arcs:
-        x_coords.extend((cx - radius, cx + radius))
-        y_coords.extend((cy - radius, cy + radius))
+    # Arcs contribute their *swept* extent (not the full circle) so
+    # huge-radius best-fit glyph arcs measure tight while drill holes
+    # (four quarter arcs) still cover their whole circle.
+    for arc in arcs:
+        x_min_a, y_min_a, x_max_a, y_max_a = arc.swept_bounds()
+        x_coords.extend((x_min_a, x_max_a))
+        y_coords.extend((y_min_a, y_max_a))
 
     if not x_coords or not y_coords:
         raise ValueError("No valid coordinates found in PLT content")
@@ -1131,18 +1190,19 @@ def _center_text_layer_vertically(
     section_pattern = r"(SP\d+;)"
     parts = re.split(section_pattern, content)
 
-    coord_pattern = r"(?:PA|PU|PD)([\d,\-]+)"
-
     def _section_y_coords(section: str) -> List[int]:
-        """Collect every Y coordinate in one pen section."""
-        ys: List[int] = []
-        for match in re.finditer(coord_pattern, section):
-            coord_parts = match.group(1).split(",")
-            for i in range(1, len(coord_parts), 2):
-                try:
-                    ys.append(int(coord_parts[i]))
-                except (ValueError, IndexError):
-                    pass
+        """Collect every Y extent in one pen section (points + swept arcs).
+
+        Arc (``AA``) commands contribute their *swept* Y extent so
+        arc-bearing text (PLT-extracted fonts) centers on the real cut
+        rather than on chord vertices.
+        """
+        section_points, section_arcs = _collect_hpgl_geometry(section)
+        ys: List[int] = [y for _x, y in section_points]
+        for arc in section_arcs:
+            _x_min, y_min, _x_max, y_max = arc.swept_bounds()
+            ys.append(int(math.floor(y_min)))
+            ys.append(int(math.ceil(y_max)))
         return ys
 
     # Union of Y coordinates across all text pens centers the whole block.
@@ -1188,14 +1248,23 @@ def _center_text_layer_vertically(
     )
 
     def adjust_coords_in_pen(coord_match: re.Match[str]) -> str:
-        """Shift the Y coordinates of one coordinate command."""
+        """Shift the Y coordinates of one coordinate or arc command.
+
+        ``PA``/``PU``/``PD`` carry alternating X,Y pairs (odd indices shift).
+        ``AA`` carries ``(center_x, center_y, sweep)``: the center Y shifts,
+        the center X and the (possibly decimal) sweep are preserved verbatim
+        so arc geometry stays exact.
+        """
         cmd = coord_match.group(1)
         coord_parts = coord_match.group(2).split(",")
 
         try:
             adjusted_parts = []
             for i, part in enumerate(coord_parts):
-                val = int(part)
+                if cmd == "AA" and i >= 2:  # sweep angle: never shifted
+                    adjusted_parts.append(part)
+                    continue
+                val = int(float(part))
                 if i % 2 == 1:  # Y coordinate (odd index)
                     adjusted_val = int(round(val + y_adjustment))
                     adjusted_parts.append(str(adjusted_val))
@@ -1205,8 +1274,8 @@ def _center_text_layer_vertically(
         except (ValueError, IndexError):
             return coord_match.group(0)
 
-    # Apply the shared adjustment to every text pen section.
-    coord_pattern_in_pen = r"(PA|PU|PD)([\d,\-]+)"
+    # Apply the shared adjustment to every text pen section (points + arcs).
+    coord_pattern_in_pen = r"(PA|PU|PD|AA)([\d,\.\-]+)"
     for i in range(1, len(parts), 2):
         try:
             pen_id = int(parts[i][2:-1])
@@ -1239,13 +1308,14 @@ def _flip_y_coordinates_in_plt(file_path: Path) -> None:
     """
     content = file_path.read_text(encoding="utf-8")
 
-    # Extract ALL coordinates and arcs across every layer. Arc (drill hole)
-    # extents are included so the mirror centerline accounts for the full
-    # circle, keeping holes aligned with text and borders.
+    # Extract ALL coordinates and arcs across every layer. Arc extents are
+    # included (swept, not full circle) so the mirror centerline accounts for
+    # the real cut, keeping holes and glyph arcs aligned with text and borders.
     points, arcs = _collect_hpgl_geometry(content)
     all_y: list[int] = [y for _x, y in points]
-    for _cx, cy, radius in arcs:
-        all_y.extend((cy - radius, cy + radius))
+    for arc in arcs:
+        _x_min_a, y_min_a, _x_max_a, y_max_a = arc.swept_bounds()
+        all_y.extend((int(math.floor(y_min_a)), int(math.ceil(y_max_a))))
 
     if not all_y:
         return

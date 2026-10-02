@@ -85,3 +85,58 @@ def circle_aabb_gap(
     dy = max(y_min - cy, 0.0, cy - y_max)
 
     return math.hypot(dx, dy) - hole_radius
+
+
+def arc_swept_bounds(
+    center_x: float,
+    center_y: float,
+    radius: float,
+    start_angle: float,
+    sweep_angle: float,
+) -> TextBounds:
+    """Return the axis-aligned bounding box of an arc's *swept* portion.
+
+    Single-line fonts approximate many near-straight glyph strokes with
+    huge-radius best-fit arcs, so an arc's full circle dwarfs the actual cut.
+    Measuring only the swept extent (the two endpoints plus any cardinal
+    angle the arc passes through) keeps a glyph's footprint tight. A
+    full-revolution arc still yields its whole circle.
+
+    Angles are in degrees and follow the HPGL ``AA`` convention used by
+    :class:`~plt_optimizer.core.models.ArcSegment`: the arc starts at
+    ``start_angle`` and ends at ``start_angle + sweep_angle`` (the sign of
+    ``sweep_angle`` encodes direction). The computation is frame-agnostic --
+    it operates in whatever Cartesian frame the caller supplies.
+
+    Args:
+        center_x: Arc center X coordinate.
+        center_y: Arc center Y coordinate.
+        radius: Arc radius (>= 0).
+        start_angle: Angle of the arc's start point, in degrees.
+        sweep_angle: Signed sweep from start to end, in degrees.
+
+    Returns:
+        ``(x_min, y_min, x_max, y_max)`` of the swept arc in the caller's
+        coordinate units.
+    """
+    theta_start = math.radians(start_angle)
+    theta_end = theta_start + math.radians(sweep_angle)
+    lo, hi = min(theta_start, theta_end), max(theta_start, theta_end)
+
+    # Collect the endpoints plus every cardinal angle (multiple of 90 deg)
+    # the swept range passes through -- those are the only places an arc can
+    # reach an axis-aligned extremum.
+    quarter = math.pi / 2.0
+    angles = [theta_start, theta_end]
+    k = math.floor(lo / quarter) - 1
+    while True:
+        cardinal = k * quarter
+        if cardinal > hi:
+            break
+        if cardinal >= lo:
+            angles.append(cardinal)
+        k += 1
+
+    xs = [center_x + radius * math.cos(a) for a in angles]
+    ys = [center_y + radius * math.sin(a) for a in angles]
+    return (min(xs), min(ys), max(xs), max(ys))

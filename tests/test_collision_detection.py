@@ -15,6 +15,7 @@ import pytest
 
 from plt_optimizer.generate.geometry import (
     CollisionResult,
+    arc_swept_bounds,
     circle_aabb_gap,
 )
 
@@ -84,3 +85,53 @@ class TestCollisionResult:
         assert result.hole_index == 0
         assert result.hole_location == "top-left"
         assert math.isclose(result.gap, -0.25)
+
+
+class TestArcSweptBounds:
+    """Tests for the swept-arc bounding box used by arc-native text."""
+
+    def test_quarter_arc_first_quadrant(self) -> None:
+        """A 0->90 deg quarter arc stays in the first quadrant."""
+        x_min, y_min, x_max, y_max = arc_swept_bounds(0.0, 0.0, 1.0, 0.0, 90.0)
+        assert x_min == pytest.approx(0.0, abs=1e-12)
+        assert y_min == pytest.approx(0.0, abs=1e-12)
+        assert x_max == pytest.approx(1.0, abs=1e-12)
+        assert y_max == pytest.approx(1.0, abs=1e-12)
+
+    def test_full_circle_reports_whole_circle(self) -> None:
+        """A 360 deg sweep must report the full circle box."""
+        x_min, y_min, x_max, y_max = arc_swept_bounds(2.0, 3.0, 1.5, 0.0, 360.0)
+        assert x_min == pytest.approx(0.5)
+        assert x_max == pytest.approx(3.5)
+        assert y_min == pytest.approx(1.5)
+        assert y_max == pytest.approx(4.5)
+
+    def test_negative_sweep_matches_positive(self) -> None:
+        """Sweep direction never changes the swept footprint."""
+        forward = arc_swept_bounds(0.0, 0.0, 1.0, 0.0, 90.0)
+        backward = arc_swept_bounds(0.0, 0.0, 1.0, 90.0, -90.0)
+        assert forward == pytest.approx(backward, abs=1e-12)
+
+    def test_zero_sweep_is_endpoint(self) -> None:
+        """A zero sweep degenerates to the single start point."""
+        box = arc_swept_bounds(1.0, 1.0, 2.0, 30.0, 0.0)
+        expected_x = 1.0 + 2.0 * math.cos(math.radians(30.0))
+        expected_y = 1.0 + 2.0 * math.sin(math.radians(30.0))
+        assert box == pytest.approx((expected_x, expected_y, expected_x, expected_y))
+
+    def test_shallow_huge_radius_arc_stays_tight(self) -> None:
+        """A near-straight huge-radius arc must not report its full circle.
+
+        EngraveLab approximates straight glyph strokes with arcs of radius
+        thousands of plotter units; using the full circle would explode every
+        glyph's footprint.
+        """
+        radius = 4000.0
+        _x_min, y_min, _x_max, y_max = arc_swept_bounds(0.0, 0.0, radius, 90.0, 1.0)
+        assert y_max - y_min < 1.0
+        assert y_max <= radius + 1e-9
+
+    def test_cardinal_angles_included(self) -> None:
+        """A sweep crossing 90 deg reaches the top of the circle."""
+        _x_min, _y_min, _x_max, y_max = arc_swept_bounds(0.0, 0.0, 1.0, 45.0, 90.0)
+        assert y_max == pytest.approx(1.0)
