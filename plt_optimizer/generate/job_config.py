@@ -89,6 +89,10 @@ class JobDefaults(BaseModel):
 
     Attributes:
         text_height: Default font height in inches.
+        font: Default font name selecting the glyph outlines (PLT-extracted
+            ``plt_fonts.json`` key or ``Fonts/`` TTF basename,
+            case-insensitive). Unset falls back to the schema default
+            (``ReliefSingleLineCAD-Regular``).
         character_spacing: Default extra spacing between characters (in
             inches). Unset falls back to the per-cutter derived default.
         line_spacing: Default extra spacing between text lines in inches.
@@ -134,6 +138,15 @@ class JobDefaults(BaseModel):
     )
     text_height: Optional[float] = Field(
         default=None, description="Default font height in inches (job layer)."
+    )
+    font: Optional[str] = Field(
+        default=None,
+        description=(
+            "Default font name (job layer): a PLT-extracted font key or a "
+            "Fonts/ TTF basename, case-insensitive. Canonicalized and "
+            "validated when the job spec is built; unset falls back to the "
+            "schema default font."
+        ),
     )
     character_spacing: Optional[float] = Field(
         default=None, description="Default extra spacing between characters in inches (job layer)."
@@ -281,6 +294,7 @@ class JobConfig:
 # job layer and cascade onto plates via ``JobSpec``.
 _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "text_height",
+    "font",
     "character_spacing",
     "line_spacing",
     "margin",

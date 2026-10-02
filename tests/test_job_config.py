@@ -118,6 +118,15 @@ class TestJobDefaultsModel:
         assert defaults.layout is not None
         assert defaults.layout.value == "rows"
 
+    def test_font_field_optional(self) -> None:
+        """font defaults to None and accepts a free-form name."""
+        assert JobDefaults().font is None
+        assert JobDefaults(font="dino").font == "dino"
+
+    def test_font_not_required_when_unconfigured(self) -> None:
+        """font has a schema-level fallback, so it is never required."""
+        assert "font" not in REQUIRED_WHEN_UNCONFIGURED
+
 
 class TestLoadJobConfig:
     """Tests for load_job_config()."""
@@ -371,6 +380,78 @@ class TestApplyJobConfigDefaults:
         config = load_job_config(_write_config(tmp_path, config_data))
         filled = apply_job_config_defaults(_minimal_job(holes=[]), config)
         assert filled["holes"] == []
+
+    def test_config_font_injected_at_job_layer(self, tmp_path: Path) -> None:
+        """A configured font lands as a job-level value."""
+        config_data = dict(_FULL_CONFIG)
+        config_data["font"] = "dino"
+        config = load_job_config(_write_config(tmp_path, config_data))
+        filled = apply_job_config_defaults(_minimal_job(), config)
+        assert filled["font"] == "dino"
+
+    def test_yaml_font_wins_over_config(self, tmp_path: Path) -> None:
+        """A spec-declared font is never overridden by the config."""
+        config_data = dict(_FULL_CONFIG)
+        config_data["font"] = "dino"
+        config = load_job_config(_write_config(tmp_path, config_data))
+        filled = apply_job_config_defaults(_minimal_job(font="jhanuni"), config)
+        assert filled["font"] == "jhanuni"
+
+    def test_null_yaml_font_filled_by_config(self, tmp_path: Path) -> None:
+        """An explicit ``font: null`` is unset semantics: config fills."""
+        config_data = dict(_FULL_CONFIG)
+        config_data["font"] = "dino"
+        config = load_job_config(_write_config(tmp_path, config_data))
+        filled = apply_job_config_defaults(_minimal_job(font=None), config)
+        assert filled["font"] == "dino"
+
+    def test_config_font_canonicalizes_through_parse(self, tmp_path: Path) -> None:
+        """A config font passes through JobSpec validation (canonical form)."""
+        config_data = dict(_FULL_CONFIG)
+        config_data["font"] = "dino"
+        config_path = _write_config(tmp_path, config_data)
+        spec_path = tmp_path / "spec.yaml"
+        spec_path.write_text(
+            "job:\n"
+            "  job_name: Config Font Job\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 12.0\n"
+            "  labels:\n"
+            "    - id: l1\n"
+            "      width: 2.0\n"
+            "      height: 1.0\n"
+            "      content:\n"
+            "        - text: Hi\n",
+            encoding="utf-8",
+        )
+        job = parse_yaml(spec_path, job_config_path=config_path)
+        assert job.font == "Dino"
+
+    def test_config_unknown_font_fails_parse(self, tmp_path: Path) -> None:
+        """An unknown config font fails at JobSpec validation (strict)."""
+        config_data = dict(_FULL_CONFIG)
+        config_data["font"] = "NotARealFont"
+        config_path = _write_config(tmp_path, config_data)
+        spec_path = tmp_path / "spec.yaml"
+        spec_path.write_text(
+            "job:\n"
+            "  job_name: Bad Config Font\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 12.0\n"
+            "  labels:\n"
+            "    - id: l1\n"
+            "      width: 2.0\n"
+            "      height: 1.0\n"
+            "      content:\n"
+            "        - text: Hi\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ValidationError):
+            parse_yaml(spec_path, job_config_path=config_path)
 
 
 class TestAssertRequiredFields:

@@ -29,6 +29,7 @@ import uuid
 from dataclasses import dataclass, field, replace
 from typing import Optional, Sequence, Union
 
+from plt_optimizer.generate.font_registry import DEFAULT_FONT_NAME
 from plt_optimizer.generate.schema import JobSpec, LabelSpec
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,10 @@ logger = logging.getLogger(__name__)
 # Global fallback constants
 # ---------------------------------------------------------------------------
 DEFAULT_TEXT_HEIGHT: float = 0.25
+# Font selected when ``font`` is unset at line/label/job level. The value
+# must be a valid registry name (PLT-extracted key or Fonts/ TTF basename);
+# see ``plt_optimizer.generate.font_registry``.
+DEFAULT_FONT: str = DEFAULT_FONT_NAME
 DEFAULT_MARGIN: float = 0.125
 # Horizontal and vertical margins fall back to margin, then the default.
 # Both are None to indicate "unset"; resolution logic fills them in.
@@ -231,6 +236,11 @@ class ResolvedTextLine:
             job; see :class:`~plt_optimizer.generate.schema.TextColor`).
             Consumed by the pen map so each ``(cutter, color)`` pair gets
             its own HPGL ``SP`` layer and PLT file.
+        font: Canonical font name selecting the glyph outlines (cascaded
+            line -> label -> job, default ``DEFAULT_FONT``). Either a
+            PLT-extracted ``plt_fonts.json`` key (rendered arc-native) or a
+            ``Fonts/`` TTF basename (rendered through ftext); resolve the
+            kind via ``font_registry.resolve_font``.
     """
 
     text: str
@@ -242,6 +252,7 @@ class ResolvedTextLine:
     max_h_compress: float = 0.0
     text_h_alignment: str = DEFAULT_TEXT_H_ALIGNMENT
     text_color: str = DEFAULT_TEXT_COLOR
+    font: str = DEFAULT_FONT
 
 
 @dataclass(frozen=True)
@@ -798,6 +809,18 @@ def _resolve_content(
         else:
             line_text_color = DEFAULT_TEXT_COLOR
 
+        # Resolve the font name (line -> label -> job -> default). Schema
+        # validation already canonicalized every explicit value, so the
+        # cascade only picks the first tier that is set.
+        if line.font is not None:
+            line_font: str = line.font
+        elif label_input.font is not None:
+            line_font = label_input.font
+        elif job.font is not None:
+            line_font = job.font
+        else:
+            line_font = DEFAULT_FONT
+
         resolved_content.append(
             ResolvedTextLine(
                 text=line.text,
@@ -809,6 +832,7 @@ def _resolve_content(
                 max_h_compress=line_max_h_compress,
                 text_h_alignment=line_text_h_alignment,
                 text_color=line_text_color,
+                font=line_font,
             )
         )
     return resolved_content

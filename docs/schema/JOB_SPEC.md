@@ -45,6 +45,7 @@ they are no longer auto-sized from rendered content.
 | Field | Type | Default | Constraints | Description |
 |---|---|---|---|---|
 | `text_height` | float \| null | null (unset) | — | Font height in inches. Cascades line -> label -> job (fallback 0.25). |
+| `font` | str \| null | null (unset) | — | Font name: a PLT-extracted font key (Fonts/plt_fonts.json, rendered arc-native with arcs preserved) or a TrueType basename (*.ttf under Fonts/, extension stripped); case-insensitive, canonicalized at validation. Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list. |
 | `character_spacing` | float \| null | null (unset) | — | Extra spacing between characters in inches (fallback: 1.5x the resolved cutter diameter). |
 | `line_spacing` | float \| str \| null | null (unset) | — | Extra spacing between text lines in inches, or 'auto' to calculate spacing automatically based on label height, margins, and text line count (default when unspecified). Fallback when not specified at any level is 'auto'. |
 | `max_h_compress` | float \| null | null (unset) | >=0 <=1 | Maximum horizontal compression fraction in [0.0, 1.0]. |
@@ -92,6 +93,7 @@ Specification for a plate (material sheet) to cut labels from.
 | `hole_margin` | float \| null | null (unset) | >=0 | Hole margin in inches (must be >= 0). |
 | `max_h_compress` | float \| null | null (unset) | >=0 <=1 | Maximum horizontal compression fraction in [0.0, 1.0]. |
 | `text_h_alignment` | TextHAlignment \| null | null (unset) | — | Horizontal text alignment (schema parity; not applied at plate level). |
+| `font` | str \| null | null (unset) | — | Font name (schema parity; not applied at plate level). Accepted and canonicalized like the cascading font field. |
 | `min_hole_margin` | float \| null | null (unset) | >=0 | Minimum hole margin in inches (schema parity; not applied at plate level). |
 | `hole_text_collision_distance` | float \| null | null (unset) | >=0 | Minimum engraved-stroke air gap in inches (schema parity; not applied at plate level). |
 | `layout` | LayoutMode \| null | null (unset) | — | Per-plate fill-order override (None = inherit the job layout). |
@@ -121,6 +123,7 @@ A label may be defined in one of two ways:
 | Field | Type | Default | Constraints | Description |
 |---|---|---|---|---|
 | `text_height` | float \| null | null (unset) | — | Font height in inches. Cascades line -> label -> job (fallback 0.25). |
+| `font` | str \| null | null (unset) | — | Font name: a PLT-extracted font key (Fonts/plt_fonts.json, rendered arc-native with arcs preserved) or a TrueType basename (*.ttf under Fonts/, extension stripped); case-insensitive, canonicalized at validation. Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list. |
 | `character_spacing` | float \| null | null (unset) | — | Extra spacing between characters in inches (fallback: 1.5x the resolved cutter diameter). |
 | `line_spacing` | float \| str \| null | null (unset) | — | Extra spacing between text lines in inches, or 'auto' to calculate spacing automatically based on label height, margins, and text line count (default when unspecified). Fallback when not specified at any level is 'auto'. |
 | `max_h_compress` | float \| null | null (unset) | >=0 <=1 | Maximum horizontal compression fraction in [0.0, 1.0]. |
@@ -149,6 +152,7 @@ A single line of text content within a label.
 | Field | Type | Default | Constraints | Description |
 |---|---|---|---|---|
 | `text_height` | float \| null | null (unset) | — | Font height in inches. Cascades line -> label -> job (fallback 0.25). |
+| `font` | str \| null | null (unset) | — | Font name: a PLT-extracted font key (Fonts/plt_fonts.json, rendered arc-native with arcs preserved) or a TrueType basename (*.ttf under Fonts/, extension stripped); case-insensitive, canonicalized at validation. Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list. |
 | `character_spacing` | float \| null | null (unset) | — | Extra spacing between characters in inches (fallback: 1.5x the resolved cutter diameter). |
 | `line_spacing` | float \| str \| null | null (unset) | — | Extra spacing between text lines in inches, or 'auto' to calculate spacing automatically based on label height, margins, and text line count (default when unspecified). Fallback when not specified at any level is 'auto'. |
 | `max_h_compress` | float \| null | null (unset) | >=0 <=1 | Maximum horizontal compression fraction in [0.0, 1.0]. |
@@ -278,6 +282,8 @@ always beats the config.
 | Constant | Value | Note |
 |---|---|---|
 | `DEFAULT_BOUNDARY_HOLE_CUTTER` | `0.015` | Boundary/hole cutter diameter feeding the collision stroke floor; tools.json boundary_hole_cutter_size overrides it. |
+| `DEFAULT_FONT` | `'ReliefSingleLineCAD-Regular'` | Font fallback when unset at line/label/job level (and when job-config font is unset). Must be a valid font_registry name: a PLT-extracted plt_fonts.json key (arc-native) or a Fonts/ TTF basename; run generate_schema_docs.py --show-fonts. |
+| `DEFAULT_FONT_NAME` | `'ReliefSingleLineCAD-Regular'` | Registry-level default font name (font_registry.DEFAULT_FONT_NAME); resolution.DEFAULT_FONT mirrors it. |
 | `DEFAULT_HOLE_DIAMETER` | `0.125` | Drill-hole diameter when a hole entry omits 'diameter' (a job-config hole_diameter fills hole entries too). |
 | `DEFAULT_HOLE_MARGIN` | `0.1875` | Hole margin when unset everywhere. Required from config-or-spec when a job-config is in play. |
 | `DEFAULT_HOLE_TEXT_COLLISION_DISTANCE` | `0.15` | Engraved-stroke air gap on top of the stroke floor 0.5 * (hole_cutter + text_cutter). Required from config-or-spec when a job-config is in play (the shop job-config.json currently sets 0.1). |

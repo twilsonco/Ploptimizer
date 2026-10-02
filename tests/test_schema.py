@@ -1148,6 +1148,109 @@ class TestTextColor:
             parse_yaml(spec_path)
 
 
+class TestFontField:
+    """Tests for the cascading ``font`` field (font_registry-backed)."""
+
+    def test_default_is_none(self) -> None:
+        """font defaults to None (the resolution layer applies the default)."""
+        assert TextLine(text="X").font is None
+        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).font is None
+        assert JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]).font is None
+
+    def test_plt_font_canonicalized(self) -> None:
+        """A PLT-extracted font key canonicalizes case-insensitively."""
+        assert TextLine(text="X", font="dino").font == "Dino"
+        assert TextLine(text="X", font="DINO").font == "Dino"
+        assert TextLine(text="X", font=" Jhanuni ").font == "Jhanuni"
+
+    def test_ttf_basename_canonicalized(self) -> None:
+        """A TTF basename (extension stripped) canonicalizes case-insensitively."""
+        assert TextLine(text="X", font="reliefsinglelinecad-regular").font == (
+            "ReliefSingleLineCAD-Regular"
+        )
+
+    def test_label_and_job_levels_accepted(self) -> None:
+        """Label- and job-level font values canonicalize like line-level."""
+        label = LabelSpec(id="lbl", font="dino", content=[TextLine(text="X")])
+        assert label.font == "Dino"
+        job = JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            font="dino",
+            content=[TextLine(text="X")],
+        )
+        assert job.font == "Dino"
+
+    def test_unknown_font_rejected_with_choices(self) -> None:
+        """An unknown font name fails validation listing the valid names."""
+        with pytest.raises(ValidationError) as excinfo:
+            TextLine(text="X", font="Comic Sans")
+        message = str(excinfo.value)
+        assert "Unknown font" in message
+        # The error lists every valid name so users can pick one.
+        for name in ("Dino", "Jhanuni", "ReliefSingleLineCAD-Regular"):
+            assert name in message
+
+    def test_empty_font_rejected(self) -> None:
+        """An empty/whitespace font name is rejected (never a valid font)."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", font="")
+        with pytest.raises(ValidationError):
+            TextLine(text="X", font="   ")
+
+    def test_plate_parity_field_canonicalized(self) -> None:
+        """PlateSpec accepts and canonicalizes font for schema parity."""
+        plate = PlateSpec(id="p1", width=24.0, height=16.0, font="dino")
+        assert plate.font == "Dino"
+
+    def test_plate_parity_field_rejects_unknown(self) -> None:
+        """PlateSpec rejects unknown fonts exactly like the cascading field."""
+        with pytest.raises(ValidationError):
+            PlateSpec(id="p1", width=24.0, height=16.0, font="nope")
+
+    def test_parse_yaml_accepts_font(self, tmp_path: Path) -> None:
+        """A YAML spec with job/label/line fonts parses and canonicalizes."""
+        spec_path = tmp_path / "font_job.yaml"
+        spec_path.write_text(
+            "job:\n"
+            "  job_name: Font Test\n"
+            "  font: dino\n"
+            "  labels:\n"
+            "    - id: lbl\n"
+            "      width: 2.0\n"
+            "      height: 1.0\n"
+            "      content:\n"
+            "        - text: A\n"
+            "        - text: B\n"
+            "          font: JHANUNI\n",
+            encoding="utf-8",
+        )
+        job = parse_yaml(spec_path)
+        assert job.font == "Dino"
+        assert job.labels is not None
+        assert job.labels[0].font is None
+        assert job.labels[0].content is not None
+        assert job.labels[0].content[0].font is None
+        assert job.labels[0].content[1].font == "Jhanuni"
+
+    def test_parse_yaml_rejects_unknown_font(self, tmp_path: Path) -> None:
+        """A YAML spec with an unknown font fails validation."""
+        spec_path = tmp_path / "bad_font_job.yaml"
+        spec_path.write_text(
+            "job:\n"
+            "  job_name: Bad Font\n"
+            "  labels:\n"
+            "    - id: lbl\n"
+            "      content:\n"
+            "        - text: A\n"
+            "          font: NotARealFont\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ValidationError):
+            parse_yaml(spec_path)
+
+
 class TestMinHoleMargin:
     """Tests for the min_hole_margin collision-avoidance floor field."""
 

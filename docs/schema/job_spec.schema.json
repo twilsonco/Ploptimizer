@@ -54,6 +54,19 @@
           "description": "Font height in inches. Cascades line -> label -> job (fallback 0.25).",
           "title": "Text Height"
         },
+        "font": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Font name: a PLT-extracted font key (Fonts/plt_fonts.json, rendered arc-native with arcs preserved) or a TrueType basename (*.ttf under Fonts/, extension stripped); case-insensitive, canonicalized at validation. Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list.",
+          "title": "Font"
+        },
         "character_spacing": {
           "anyOf": [
             {
@@ -437,6 +450,19 @@
           "default": null,
           "description": "Horizontal text alignment (schema parity; not applied at plate level)."
         },
+        "font": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Font name (schema parity; not applied at plate level). Accepted and canonicalized like the cascading font field.",
+          "title": "Font"
+        },
         "min_hole_margin": {
           "anyOf": [
             {
@@ -556,6 +582,19 @@
           "default": null,
           "description": "Font height in inches. Cascades line -> label -> job (fallback 0.25).",
           "title": "Text Height"
+        },
+        "font": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Font name: a PLT-extracted font key (Fonts/plt_fonts.json, rendered arc-native with arcs preserved) or a TrueType basename (*.ttf under Fonts/, extension stripped); case-insensitive, canonicalized at validation. Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list.",
+          "title": "Font"
         },
         "character_spacing": {
           "anyOf": [
@@ -687,6 +726,19 @@
       "default": null,
       "description": "Font height in inches. Cascades line -> label -> job (fallback 0.25).",
       "title": "Text Height"
+    },
+    "font": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Font name: a PLT-extracted font key (Fonts/plt_fonts.json, rendered arc-native with arcs preserved) or a TrueType basename (*.ttf under Fonts/, extension stripped); case-insensitive, canonicalized at validation. Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list.",
+      "title": "Font"
     },
     "character_spacing": {
       "anyOf": [

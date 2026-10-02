@@ -21,6 +21,11 @@ from typing import Any, Literal, Optional, Union
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from plt_optimizer.generate.font_registry import (
+    DEFAULT_FONT_NAME,
+    normalize_font_name,
+)
+
 
 class HoleLocation(str, Enum):
     """Enumeration of valid hole locations on a label.
@@ -284,6 +289,16 @@ class TextAttributes(BaseModel):
 
     Attributes:
         text_height: Optional font height in inches.
+        font: Optional font name selecting the glyph outlines used to render
+            text. Valid values are the PLT-extracted font keys of
+            ``Fonts/plt_fonts.json`` (rendered arc-native) and the basenames
+            of ``*.ttf`` files under ``Fonts/`` (extension stripped, rendered
+            through ftext); matching is case-insensitive and the value is
+            canonicalized at validation time. Cascades line -> label -> job
+            (fallback ``"ReliefSingleLineCAD-Regular"``). Unknown names are
+            rejected with the full valid list. Run
+            ``docs/schema/generate_schema_docs.py --show-fonts`` for the
+            current list.
         character_spacing: Optional extra spacing between characters in inches.
         line_spacing: Optional extra spacing between text lines in inches,
             or ``"auto"`` to calculate spacing automatically. When ``"auto"``,
@@ -346,6 +361,18 @@ class TextAttributes(BaseModel):
     text_height: Optional[float] = Field(
         default=None,
         description="Font height in inches. Cascades line -> label -> job (fallback 0.25).",
+    )
+    font: Optional[str] = Field(
+        default=None,
+        description=(
+            "Font name: a PLT-extracted font key (Fonts/plt_fonts.json, "
+            "rendered arc-native with arcs preserved) or a TrueType basename "
+            "(*.ttf under Fonts/, extension stripped); case-insensitive, "
+            "canonicalized at validation. Cascades line -> label -> job "
+            f"(fallback {DEFAULT_FONT_NAME}). Unknown names are rejected; run "
+            "docs/schema/generate_schema_docs.py --show-fonts for the full "
+            "valid list."
+        ),
     )
     character_spacing: Optional[float] = Field(
         default=None,
@@ -426,6 +453,30 @@ class TextAttributes(BaseModel):
                 "specified explicitly; omit the field instead"
             )
         return value
+
+    @field_validator("font")
+    @classmethod
+    def _canonicalize_font_name(cls, value: Optional[str]) -> Optional[str]:
+        """Canonicalize a requested font name against the font registry.
+
+        Applies to every model inheriting the ``font`` field (TextLine,
+        LabelSpec, JobSpec). Matching is case-insensitive; the stored value
+        becomes the canonical font name (``plt_fonts.json`` key or TTF
+        basename), so downstream consumers never re-match case.
+
+        Args:
+            value: The requested font name, or ``None`` (unset).
+
+        Returns:
+            The canonical font name, or ``None`` when unset.
+
+        Raises:
+            ValueError: If the name matches no known PLT or TrueType font
+                (the message lists every valid name).
+        """
+        if value is None:
+            return None
+        return normalize_font_name(value)
 
 
 class LabelAttributes(TextAttributes):
@@ -831,6 +882,13 @@ class PlateSpec(BaseModel):
         default=None,
         description="Horizontal text alignment (schema parity; not applied at plate level).",
     )
+    font: Optional[str] = Field(
+        default=None,
+        description=(
+            "Font name (schema parity; not applied at plate level). Accepted "
+            "and canonicalized like the cascading font field."
+        ),
+    )
     min_hole_margin: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -878,6 +936,24 @@ class PlateSpec(BaseModel):
                 newline, or is alphanumeric.
         """
         return _validate_replacement_delimiter_value(v)
+
+    @field_validator("font")
+    @classmethod
+    def _canonicalize_font_name(cls, value: Optional[str]) -> Optional[str]:
+        """Canonicalize the parity ``font`` field like the cascading one.
+
+        Args:
+            value: The requested font name, or ``None`` (unset).
+
+        Returns:
+            The canonical font name, or ``None`` when unset.
+
+        Raises:
+            ValueError: If the name matches no known PLT or TrueType font.
+        """
+        if value is None:
+            return None
+        return normalize_font_name(value)
 
     @model_validator(mode="after")
     def _validate_replacement_fields(self) -> PlateSpec:

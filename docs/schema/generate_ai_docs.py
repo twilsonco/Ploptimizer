@@ -85,6 +85,11 @@ _FALLBACK_NOTES: dict[str, str] = {
     "DEFAULT_TEXT_COLOR": "Implicit stroke-color layer of text that omits text_color "
     "(never cascades; a job-level text_color is rejected). 'none' cannot be specified "
     "explicitly.",
+    "DEFAULT_FONT": "Font fallback when unset at line/label/job level (and when job-config "
+    "font is unset). Must be a valid font_registry name: a PLT-extracted plt_fonts.json key "
+    "(arc-native) or a Fonts/ TTF basename; run generate_schema_docs.py --show-fonts.",
+    "DEFAULT_FONT_NAME": "Registry-level default font name (font_registry.DEFAULT_FONT_NAME); "
+    "resolution.DEFAULT_FONT mirrors it.",
     "DEFAULT_HOLE_DIAMETER": "Drill-hole diameter when a hole entry omits 'diameter' (a "
     "job-config hole_diameter fills hole entries too).",
     "DEFAULT_PLATE_WIDTH": "Auto-allocated (unbounded mode) default plate width when job-config "

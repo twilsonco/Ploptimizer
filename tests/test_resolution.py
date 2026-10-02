@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from plt_optimizer.generate.resolution import (
     DEFAULT_BOUNDARY_HOLE_CUTTER,
+    DEFAULT_FONT,
     DEFAULT_HOLE_MARGIN,
     DEFAULT_HOLE_TEXT_COLLISION_DISTANCE,
     DEFAULT_LINE_SPACING,
@@ -648,6 +649,13 @@ class TestFallbackConstants:
         elif isinstance(DEFAULT_LINE_SPACING, str):
             assert DEFAULT_LINE_SPACING == "auto"
 
+    def test_default_font_is_valid_registry_name(self) -> None:
+        """DEFAULT_FONT must resolve in the font registry (never stale)."""
+        from plt_optimizer.generate.font_registry import resolve_font
+
+        assert isinstance(DEFAULT_FONT, str)
+        assert resolve_font(DEFAULT_FONT).name == DEFAULT_FONT
+
 
 class TestFitLineSpacingToMargins:
     """Tests for the margin-precedence line spacing fit helper."""
@@ -1239,6 +1247,116 @@ class TestTextColorResolution:
             line_spacing=0.0,
         )
         assert line.text_color == "none"
+
+
+class TestFontCascade:
+    """font must resolve line -> label -> job -> DEFAULT_FONT."""
+
+    def test_default_when_all_omit(self) -> None:
+        """All levels omitting yields DEFAULT_FONT."""
+        job = JobSpec(
+            job_name="J",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert label.content[0].font == DEFAULT_FONT
+
+    def test_job_value_used_when_lower_levels_omit(self) -> None:
+        """Job-level font applies to labels and lines that omit it."""
+        job = JobSpec(
+            job_name="J",
+            font="dino",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert label.content[0].font == "Dino"
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level font overrides the job-level font."""
+        job = JobSpec(
+            job_name="J",
+            font="dino",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    font="jhanuni",
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert label.content[0].font == "Jhanuni"
+
+    def test_line_overrides_label_and_job(self) -> None:
+        """Line-level font wins over both parent tiers."""
+        job = JobSpec(
+            job_name="J",
+            font="dino",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    font="jhanuni",
+                    content=[TextLine(text="X", font="reliefsinglelinecad-regular")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert label.content[0].font == "ReliefSingleLineCAD-Regular"
+
+    def test_per_line_font_within_one_label(self) -> None:
+        """Different lines in one label may carry different fonts."""
+        job = JobSpec(
+            job_name="J",
+            font="dino",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[
+                        TextLine(text="A"),
+                        TextLine(text="B", font="jhanuni"),
+                        TextLine(text="C", font="ReliefSingleLineCAD-Regular"),
+                    ],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert [line.font for line in label.content] == [
+            "Dino",
+            "Jhanuni",
+            "ReliefSingleLineCAD-Regular",
+        ]
+
+    def test_resolved_line_default_when_constructed_manually(self) -> None:
+        """Manually constructed ResolvedTextLine defaults to DEFAULT_FONT."""
+        line = ResolvedTextLine(
+            text="X",
+            nominal_text_height=0.25,
+            toolpath_text_height=0.22,
+            cutter_diameter=0.03,
+            character_spacing=0.0,
+            line_spacing=0.0,
+        )
+        assert line.font == DEFAULT_FONT
 
 
 class TestMinHoleMarginCascade:
