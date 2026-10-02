@@ -21,10 +21,9 @@ problem per plate and per cutter:
   :func:`~plt_optimizer.core.pipeline.optimize_and_reassemble`) with a
   hand-built ``ProfileResult(is_structural=True)``, skipping the Profiler.
 
-Both paths re-emit integer-unit HPGL (``PU``/``PD``/``AA``) preserving pen
-selection, which the generic
-:class:`~plt_optimizer.core.writer.PLTWriter` cannot do (it hoists every
-header -- including pen selects -- ahead of the geometry).
+Both paths re-emit integer-unit HPGL (``PU``/``PD``/``AA``) framed by the
+``IN;PA;`` header and ``SP;`` footer (EngraveLab reference framing): the
+per-cutter files are single-tool streams and carry no ``SP`` pen selects.
 
 Coordinate chain (verified against the emitted per-cutter files; all
 values in plotter units, 1 inch = 1000 units):
@@ -67,8 +66,8 @@ from plt_optimizer.core.pipeline import (
 )
 from plt_optimizer.core.profiler import ProfileResult
 from plt_optimizer.generate.label_renderer import (
-    LAYER_BOUNDARY,
-    LAYER_HOLES,
+    PLT_FOOTER,
+    PLT_HEADER,
     RenderedLabel,
     TextChunkRecord,
 )
@@ -373,71 +372,29 @@ def _emit_path(path: StrokePath) -> str:
     return ";".join(parts)
 
 
-def emit_layer_document(
-    paths: Sequence[StrokePath],
-    pen_of: Callable[[StrokePath], int],
-) -> str:
+def emit_layer_document(paths: Sequence[StrokePath]) -> str:
     """Emit a complete HPGL document for one optimized plate layer.
 
-    Pen selection is re-emitted whenever the pen changes, preserving the
-    SP-grouped structure of the unoptimized per-cutter files (the generic
-    ``PLTWriter`` would hoist pen selects into the header instead).
+    Per-cutter files carry no ``SP`` pen selects: each file is one cutter's
+    toolpath, so the geometry is a bare ``PU``/``PD``/``AA`` stream framed by
+    the ``IN;PA;`` header and the ``SP;`` footer (EngraveLab reference
+    framing). Every path is pen-up-led, so dropping the selects cannot join
+    two paths with a spurious cut.
 
     Args:
         paths: Optimized, ordered stroke paths.
-        pen_of: Maps a path to its HPGL pen number.
 
     Returns:
-        Full HPGL content (``IN;DF;PS0;...SP0;IN;%``). Empty-geometry
-        layers still produce a valid (geometry-free) document.
+        Full HPGL content (``IN;PA;...SP;``). Empty-geometry layers still
+        produce a valid (geometry-free) document.
     """
-    lines: List[str] = ["IN;DF;PS0;"]
-    current_pen: Optional[int] = None
+    lines: List[str] = [PLT_HEADER]
     for path in paths:
         if not path.segments:
             continue
-        pen = pen_of(path)
-        if pen != current_pen:
-            lines.append(f"SP{pen};")
-            current_pen = pen
         lines.append(_emit_path(path) + ";")
-    lines.append("SP0;IN;%")
+    lines.append(PLT_FOOTER)
     return "".join(lines)
-
-
-def _text_pen_of(pen: int) -> Callable[[StrokePath], int]:
-    """Return a constant pen mapper for a single-cutter text layer.
-
-    Args:
-        pen: The layer's pen number.
-
-    Returns:
-        Mapper returning ``pen`` for every path.
-    """
-
-    def _constant(_path: StrokePath) -> int:
-        return pen
-
-    return _constant
-
-
-def _structural_pen_of(path: StrokePath) -> int:
-    """Infer the pen of a structural path (holes vs. borders).
-
-    Drill holes are the only arc-bearing structural content (native HPGL
-    ``AA`` macros); borders are pure polylines. Reversal during
-    optimization preserves segment types, so this attribution is exact.
-
-    Args:
-        path: A path of the borders+holes layer.
-
-    Returns:
-        :data:`LAYER_HOLES` for arc-bearing paths, else
-        :data:`LAYER_BOUNDARY`.
-    """
-    if any(isinstance(segment, ArcSegment) for segment in path.segments):
-        return LAYER_HOLES
-    return LAYER_BOUNDARY
 
 
 def optimize_text_layer(
@@ -477,7 +434,7 @@ def optimize_text_layer(
         logger=logger,
         log_prefix=log_prefix,
     )
-    content = emit_layer_document(outcome.optimized_doc.stroke_paths, _text_pen_of(pen))
+    content = emit_layer_document(outcome.optimized_doc.stroke_paths)
     return PlateOptimization(
         content=content,
         outcome=outcome,
@@ -536,7 +493,7 @@ def optimize_structural_layer(
         logger=logger,
         log_prefix=log_prefix,
     )
-    content = emit_layer_document(outcome.optimized_doc.stroke_paths, _structural_pen_of)
+    content = emit_layer_document(outcome.optimized_doc.stroke_paths)
     return PlateOptimization(
         content=content,
         outcome=outcome,

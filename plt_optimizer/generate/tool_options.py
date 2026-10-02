@@ -251,7 +251,7 @@ def prepend_tool_option_headers(
         return plt_content
 
     # Find the IN; command and insert headers after it
-    # PLT content may be all on one line (IN;DF;PS0;...) or multi-line
+    # PLT content may be all on one line (IN;PA;...) or multi-line
     in_index = plt_content.find("IN;")
     if in_index == -1:
         logger.warning(

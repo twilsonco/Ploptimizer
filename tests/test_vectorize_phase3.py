@@ -25,7 +25,7 @@ class TestTranslatePltCoordinates:
 
     def test_translate_no_offset(self) -> None:
         """Test that zero offset returns original content."""
-        plt_content = "IN;DF;PS0;SP1;PU1000,2000;PD1000,2000,3000,2000;SP0;IN;%"
+        plt_content = "IN;PA;SP1;PU1000,2000;PD1000,2000,3000,2000;SP;"
         result = translate_plt_coordinates(plt_content, 0.0, 0.0)
         assert result == plt_content
 
@@ -165,7 +165,7 @@ class TestRotatePltContent90cw:
 
     def test_rotate_content_without_geometry_unchanged(self) -> None:
         """Coordinate-free content is returned verbatim."""
-        content = "IN;DF;PS0;SP0;IN;%"
+        content = "IN;PA;SP;"
         assert rotate_plt_content_90cw(content) == content
 
     def test_rotate_malformed_command_left_untouched(self) -> None:
@@ -290,8 +290,8 @@ class TestAssemblePltFromRenderedLabels:
         result = assemble_plt_from_rendered_labels(plate, rendered_map)
 
         # Verify result is valid HPGL
-        assert result.startswith("IN;DF;PS0;")
-        assert result.endswith("%")
+        assert result.startswith("IN;PA;")
+        assert result.endswith("SP;")
         assert "PU0,0;" in result  # Pen-up command
         # Should contain original coordinates (no offset)
         # Original rendered coordinates should still be present
@@ -344,8 +344,8 @@ class TestAssemblePltFromRenderedLabels:
         result = assemble_plt_from_rendered_labels(plate, rendered_map)
 
         # Verify result is valid HPGL with multiple labels
-        assert result.startswith("IN;DF;PS0;")
-        assert result.endswith("%")
+        assert result.startswith("IN;PA;")
+        assert result.endswith("SP;")
         # Should have pen-up commands between labels
         assert result.count("PU0,0;") == 2
 
@@ -360,7 +360,7 @@ class TestAssemblePltFromRenderedLabels:
         label = ResolvedLabel(id="blank", count=1, width=1.0, height=1.0, margin=0.1, h_margin=0.1, v_margin=0.1)
         rendered = RenderedLabel(
             source_label=label,
-            plt_content="IN;DF;PS0;PU100,200;SP0;IN;%",
+            plt_content="IN;PA;PU100,200;SP;",
             x_min=0.0,
             y_min=0.0,
             x_max=1.0,
@@ -383,7 +383,7 @@ class TestAssemblePltFromRenderedLabels:
         )
 
         assembled = assemble_plt_from_rendered_labels(plate, {label.id: rendered})
-        assert assembled == "IN;DF;PS0;SP0;IN;%"
+        assert assembled == "IN;PA;SP;"
         assert "PU0,0;" not in assembled
 
 
@@ -391,12 +391,12 @@ class TestExtractPensFromPltText:
     """Multi-pen extraction keeps AA arcs and filters by SP sections."""
 
     SAMPLE = (
-        "IN;DF;PS0;"
+        "IN;PA;"
         "SP1;PU100,100;PD200,200;"
         "SP2;PU0,0;PD3000,0,3000,1000,0,1000,0,0;"
         "SP3;PU500,500;PD500,500;AA400,500,90;AA400,500,90;AA400,500,90;AA400,500,90;"
         "SP4;PU900,900;PD950,950;"
-        "SP0;IN;%"
+        "SP;"
     )
 
     def test_single_pen_extraction(self) -> None:
@@ -404,20 +404,34 @@ class TestExtractPensFromPltText:
         result = extract_pens_from_plt_text(self.SAMPLE, [1])
         assert "PU100,100" in result
         assert "PD200,200" in result
-        assert "SP1;" in result
+        assert "SP1;" not in result  # final files are pen-select-free
         assert "PD3000,0" not in result
         assert "AA400,500" not in result
-        assert result.startswith("IN;DF;PS0;")
-        assert result.endswith("%")
+        assert result.startswith("IN;PA;")
+        assert result.endswith("SP;")
 
     def test_multi_pen_extraction_keeps_arcs(self) -> None:
         """Borders+holes extraction preserves native AA arc commands."""
         result = extract_pens_from_plt_text(self.SAMPLE, [2, 3])
         assert "PD3000,0" in result  # borders
         assert "AA400,500,90" in result  # holes survive extraction
-        assert "SP2;" in result and "SP3;" in result
+        assert "SP2;" not in result and "SP3;" not in result  # selects dropped
         assert "PU100,100" not in result  # text pen excluded
         assert "PU900,900" not in result  # other text pen excluded
+
+    def test_bare_pd_section_start_gains_penup_move(self) -> None:
+        """A section opening with a bare PD is rewritten PU-led.
+
+        The renderer's origin-skip emits closed boundary loops as bare
+        ``PD0,1000,0,0,...``; with the SP reset gone from the output, the
+        first pair must become an explicit ``PU`` move so concatenating
+        layers can never splice a spurious cut between contours. The
+        rewrite is parser-exact (a bare PD's first pair is its pen-up
+        position).
+        """
+        sample = "IN;PA;SP2;PD0,1000,0,0,3000,0,3000,1000,0,1000;SP;"
+        result = extract_pens_from_plt_text(sample, [2])
+        assert "PU0,1000;PD0,0,3000,0,3000,1000,0,1000;" in result
 
     def test_missing_pen_yields_empty_geometry(self) -> None:
         """Requesting absent pens yields a header/footer-only result."""
@@ -426,24 +440,25 @@ class TestExtractPensFromPltText:
 
     def test_plt_has_geometry(self) -> None:
         """Geometry detection recognizes PU/PD/PA/AA and rejects headers."""
-        assert plt_has_geometry("IN;DF;PS0;SP1;PU1,2;SP0;IN;%")
-        assert plt_has_geometry("IN;DF;PS0;SP3;AA1,2,90;SP0;IN;%")
-        assert plt_has_geometry("IN;DF;PS0;SP1;PA1,2;SP0;IN;%")
-        assert plt_has_geometry("IN;DF;PS0;SP1;PD1,2;SP0;IN;%")
-        assert not plt_has_geometry("IN;DF;PS0;SP0;IN;%")
+        assert plt_has_geometry("IN;PA;SP1;PU1,2;SP;")
+        assert plt_has_geometry("IN;PA;SP3;AA1,2,90;SP;")
+        assert plt_has_geometry("IN;PA;SP1;PA1,2;SP;")
+        assert plt_has_geometry("IN;PA;SP1;PD1,2;SP;")
+        assert not plt_has_geometry("IN;PA;SP;")
         assert not plt_has_geometry("")
 
     def test_empty_commands_are_skipped(self) -> None:
         """Empty command chunks (double semicolons) are ignored."""
-        result = extract_pens_from_plt_text("IN;DF;PS0;SP1;;PU1,2;SP0;IN;%", [1])
+        result = extract_pens_from_plt_text("IN;PA;SP1;;PU1,2;SP;", [1])
         assert "PU1,2" in result
         assert ";;" not in result
 
     def test_malformed_pen_select_is_ignored(self) -> None:
         """An unparseable SP command leaves the current layer state alone."""
-        result = extract_pens_from_plt_text("IN;DF;PS0;SP1;SPX;PD3,4;SP0;IN;%", [1])
-        # SPX neither parses nor flips the layer: pen 1 geometry survives.
-        assert "PD3,4" in result
+        result = extract_pens_from_plt_text("IN;PA;SP1;SPX;PD3,4;SP;", [1])
+        # SPX neither parses nor flips the layer: pen 1 geometry survives,
+        # section-leading (position unknown) as the parser-equivalent PU.
+        assert "PU3,4" in result
         assert "SPX" not in result
 
 
@@ -563,7 +578,7 @@ class TestExportStructuralLayerSkip:
             rendered_labels_map: dict[str, RenderedLabel],
         ) -> str:
             """Return a plate containing only pen-1 text geometry."""
-            return "IN;DF;PS0;SP1;PU100,100;PD200,200;SP0;IN;%"
+            return "IN;PA;SP1;PU100,100;PD200,200;SP;"
 
         monkeypatch.setattr(vectorize, "assemble_plt_from_rendered_labels", fake_assemble)
 
@@ -713,21 +728,21 @@ class TestPlateSpaceExport:
             checked += 1
         assert checked > 0
 
-    def test_pen_selection_survives_optimization(self, tmp_path: Path) -> None:
-        """Optimized files keep SP selects around geometry (never hoisted)."""
+    def test_files_are_pen_select_free_and_pu_led(self, tmp_path: Path) -> None:
+        """Optimized files carry no SP selects; every contour is PU-led."""
         raw, opt = self._export_pair(tmp_path)
         for name, content in opt.items():
-            assert content.startswith("IN;DF;PS0;")
-            assert content.endswith("%")
-            # Geometry must follow a pen select, not precede every SP token.
-            first_sp = content.find("SP")
-            first_pd = content.find("PD")
-            assert 0 <= first_sp < first_pd, name
-            pens = set(re.findall(r"SP(\d+);", content.replace("SP0;IN;%", "")))
-            if "_bh_" in name:
-                assert pens and pens <= {"2", "3"}
-            else:
-                assert pens and "2" not in pens and "3" not in pens
+            assert content.startswith("IN;PA;")
+            assert content.endswith("SP;\n")
+            # Final per-cutter files are single-tool streams: no pen selects.
+            assert not re.search(r"SP\d", content), name
+            # Geometry must be pen-up-led: the first drawable command after
+            # the header is a PU move, never a bare PD/AA.
+            first_geom = re.search(r"(PU|PD|AA)", content[len("IN;PA;") :])
+            assert first_geom is not None and first_geom.group(1) == "PU", name
+            # Raw (unoptimized) files share the framing too.
+            assert raw[name].startswith("IN;PA;")
+            assert raw[name].endswith("SP;\n")
 
     def test_word_mode_matches_line_mode_geometry(self, tmp_path: Path) -> None:
         """Chunk granularity changes routing nodes, never emitted geometry."""
@@ -780,5 +795,5 @@ class TestPlateSpaceExport:
         assert result.plt_paths
         for path in result.plt_paths:
             content = path.read_text(encoding="utf-8")
-            assert content.startswith("IN;DF;PS0;")
-            assert content.endswith("%")
+            assert content.startswith("IN;PA;")
+            assert content.endswith("SP;\n")

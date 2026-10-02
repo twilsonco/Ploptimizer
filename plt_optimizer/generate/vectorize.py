@@ -34,7 +34,12 @@ if TYPE_CHECKING:
     from plt_optimizer.generate.schema import JobSpec
 
 from plt_optimizer.core.optimizer import OptimizationStrategy
-from plt_optimizer.generate.label_renderer import RenderedLabel, extract_bounds_from_plt
+from plt_optimizer.generate.label_renderer import (
+    PLT_FOOTER,
+    PLT_HEADER,
+    RenderedLabel,
+    extract_bounds_from_plt,
+)
 from plt_optimizer.generate.layout import PackedPlate
 from plt_optimizer.generate.plate_optimizer import (
     PlateOptimization,
@@ -204,8 +209,9 @@ def assemble_plt_from_rendered_labels(
     """
     import re
 
-    # Start with HPGL header
-    plt_lines = ["IN;DF;PS0;"]
+    # Start with HPGL header (tool options are inserted after IN; at write
+    # time; the header terminates with PA; -- EngraveLab reference framing)
+    plt_lines = [PLT_HEADER]
 
     # Process each label on the plate
     for packed_label in plate.labels:
@@ -215,10 +221,9 @@ def assemble_plt_from_rendered_labels(
         # Get the rendered PLT content (strip header/footer)
         plt_content = rendered.plt_content
         # Remove ONLY the initial header, not the SP command that follows it
-        plt_content = re.sub(r"^IN;DF;PS0;", "", plt_content)
-        # Remove final footer (pen off and end commands)
-        # Handle both: "SP0;IN;%" (new format) and "PU...;SP0;IN;%" (old format)
-        plt_content = re.sub(r"(?:PU[^;]*;)?SP0;IN;%?$", "", plt_content)
+        plt_content = re.sub(r"^IN;PA;", "", plt_content)
+        # Remove final footer (bare pen deselect)
+        plt_content = re.sub(r"(?:PU[^;]*;)?SP;$", "", plt_content)
         plt_content = plt_content.strip()
         if plt_content.endswith(";"):
             plt_content = plt_content[:-1]
@@ -244,7 +249,7 @@ def assemble_plt_from_rendered_labels(
             plt_lines.append(";")
 
     # Add footer
-    plt_lines.append("SP0;IN;%")
+    plt_lines.append(PLT_FOOTER)
 
     return "".join(plt_lines)
 
@@ -256,6 +261,15 @@ def extract_pens_from_plt_text(plt_content: str, pen_ids: Sequence[int]) -> str:
     issued while one of the requested pen IDs was selected. Arc (``AA``)
     commands are preserved, so drill-hole layers (pen 3) survive
     extraction.
+
+    The extracted content carries NO ``SP`` pen selects (final per-cutter
+    files are single-tool streams, matching the EngraveLab reference
+    framing). Because the ``SP`` resets are gone, a section that starts
+    with a bare ``PD`` (the renderer's origin-skip optimization for closed
+    boundary loops) is rewritten to ``PU{first};PD{rest}`` -- every contour
+    in the output is pen-up-led, so concatenating layers can never splice a
+    spurious cut between two contours (the rewrite is parser-exact: a bare
+    ``PD``'s first pair is its pen-up position).
 
     Args:
         plt_content: Raw HPGL PLT text content.
@@ -270,36 +284,72 @@ def extract_pens_from_plt_text(plt_content: str, pen_ids: Sequence[int]) -> str:
     """
     wanted = {int(pen_id) for pen_id in pen_ids}
 
-    lines = []
-    lines.append("IN;DF;PS0;")
+    lines = [PLT_HEADER]
 
     # Parse and filter commands
     in_target_layer = False
+    # Whether the pen has a valid position in the extracted stream: after
+    # entering a target layer (SP reset) the plotter position is unknown,
+    # so the first command must be a move (PU), never a bare PD.
+    pen_positioned = False
     commands = plt_content.split(";")
 
     for cmd in commands:
         if not cmd.strip():
             continue
 
-        # Check for pen select command
+        # Check for pen select command (filter only; never emitted)
         if cmd.startswith("SP"):
             try:
                 pen_id = int(cmd[2:])
-                in_target_layer = pen_id in wanted
-                if in_target_layer and pen_id > 0:
-                    lines.append(f"SP{pen_id};")
             except (ValueError, IndexError):
-                pass
+                continue
+            in_target_layer = pen_id in wanted
+            pen_positioned = False
         # Include drawing commands only if we're in target layer
         elif in_target_layer and cmd.strip() and not cmd.startswith("IN"):
+            if not pen_positioned:
+                cmd = _front_bare_pd_with_move(cmd)
+            pen_positioned = True
             lines.append(f"{cmd};")
 
-    lines.append("SP0;IN;%")
+    lines.append(PLT_FOOTER)
     return "".join(lines)
 
 
+def _front_bare_pd_with_move(command: str) -> str:
+    """Rewrite a section-leading bare ``PD`` as an explicit pen-up move.
+
+    ``PU{first};PD{rest}`` is exactly equivalent to the bare ``PD`` (its
+    first coordinate pair is the path's pen-up position) and keeps every
+    emitted contour pen-up-led. A single-pair ``PD`` becomes the bare move
+    ``PU{p}`` (also parser-equivalent: a path with no pen-down segment is
+    dropped anyway). Anything else (``PU``/``AA``/malformed) is returned
+    verbatim.
+
+    Args:
+        command: The first drawable command of an extracted pen section.
+
+    Returns:
+        The PU-led rewrite, or ``command`` unchanged.
+    """
+    if not command.startswith("PD"):
+        return command
+    parts = command[2:].split(",")
+    if len(parts) < 2:
+        return command
+    try:
+        int(parts[0])
+        int(parts[1])
+    except ValueError:
+        return command
+    first = f"{parts[0]},{parts[1]}"
+    rest = ",".join(parts[2:])
+    return f"PU{first};PD{rest}" if rest else f"PU{first}"
+
+
 # Matches any drawable coordinate command (pen moves, pen-down strokes,
-# absolute moves, or arcs). Header/footer tokens (IN/DF/PS/SP) never match.
+# absolute moves, or arcs). Header/footer tokens (IN/PA/SP) never match.
 _GEOMETRY_COMMAND_PATTERN = re.compile(r"(?:PU|PD|PA|AA)[\d,\-]+")
 
 
@@ -654,7 +704,7 @@ def export_per_cutter_plts(
                 )
 
             structure_path = plt_dir / f"{plate_str}_bh_{_format_cutter(hole_cutter)}_{job_id}.plt"
-            structure_path.write_text(bh_content, encoding="utf-8")
+            structure_path.write_text(bh_content + "\n", encoding="utf-8")
             result.plt_paths.append(structure_path)
 
         # Text group: one file per distinct text cutter/color pen with
@@ -693,7 +743,7 @@ def export_per_cutter_plts(
                 )
 
             text_path = plt_dir / f"{plate_str}_txt_{layer_tag}_{job_id}.plt"
-            text_path.write_text(written_content, encoding="utf-8")
+            text_path.write_text(written_content + "\n", encoding="utf-8")
             result.plt_paths.append(text_path)
 
     # Extract text height from resolved labels for plot titles

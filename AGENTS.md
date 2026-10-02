@@ -367,10 +367,15 @@ already knows each toolpath's kind, the `Profiler` is skipped entirely.
   hand-built `ProfileResult(is_structural=True)`; the structural chunker branch
   maps every path 1:1 to a block.
 - **Re-emission**: `emit_layer_document` writes integer-unit HPGL
-  (`PU`/`PD`/`AA`) re-selecting `SP` on every pen change. The generic
-  `PLTWriter` cannot be used here — it hoists all headers (including pen
-  selects) ahead of the geometry, which would leave generated content
-  pen-unselected.
+  (`PU`/`PD`/`AA`) framed by the shared `PLT_HEADER` (`IN;PA;`) and
+  `PLT_FOOTER` (`SP;`) constants from `label_renderer`. Per-cutter files
+  carry **no `SP` pen selects** (each file is a single logical layer; the
+  pen map only groups content upstream); every `StrokePath` is PU-led, and
+  `extract_pens_from_plt_text` rewrites any section-leading bare `PD` to
+  `PU{first_pair};PD{rest}` so dropping the pen-select resets can never
+  join adjacent sections with a phantom cut. Written files end with
+  `SP;\n`. The generic `PLTWriter` is not used here — it hoists all headers
+  ahead of the geometry.
 - **Transform chain** (verified against emitted files, plotter units): center
   text block to `height/2` → Y-mirror by the rendered bounds sum → rotate 90° CW
   if the packer placed the label sideways → translate by the packed slot. Text

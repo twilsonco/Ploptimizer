@@ -41,6 +41,16 @@ LAYER_TEXT: int = 1
 LAYER_BOUNDARY: int = 2
 LAYER_HOLES: int = 3
 
+# PLT document framing (EngraveLab reference parity). The header is
+# ``IN;PA;`` -- tool option headers (VS/ZO/...) are inserted after ``IN;``
+# by ``tool_options.prepend_tool_option_headers``, so the header always
+# terminates with ``PA;`` before geometry starts. The footer is the bare
+# pen-deselect ``SP;`` (no DF/PS0, no SP0 reset, no trailing IN, no ``%``).
+# Written files additionally end with a single newline (appended at the
+# per-cutter write sites in ``vectorize.export_per_cutter_plts``).
+PLT_HEADER: str = "IN;PA;"
+PLT_FOOTER: str = "SP;"
+
 # Resolution sweep granularity for text-hole collision avoidance. The
 # margin sweep reuses already-rendered text geometry (holes move, text
 # does not), so it is cheap; the compression sweep re-renders text per
@@ -748,13 +758,6 @@ def _render_label_once(
         _export_to_plt_with_postprocessing(doc, temp_path, label, text_pens=set(text_pens))
         plt_content = temp_path.read_text().strip()
 
-        # Ensure proper formatting (ends with %)
-        if not plt_content.endswith("%"):
-            if plt_content.endswith("IN;"):
-                plt_content += "%"
-            else:
-                plt_content = plt_content.rstrip(";") + ";%"
-
         # Extract bounds from rendered PLT
         x_min, y_min, x_max, y_max = extract_bounds_from_plt(plt_content)
 
@@ -1021,8 +1024,7 @@ def _linecollection_to_hpgl(doc: vp.Document, holes_hpgl: str = "") -> str:
     """
     lines = [
         "IN",  # Initialize
-        "DF",  # Default values
-        "PS0",  # Select primary pen slot
+        "PA",  # Header terminator (EngraveLab reference framing)
     ]
 
     # Track if we've added any content to know if we need footer
@@ -1090,8 +1092,7 @@ def _linecollection_to_hpgl(doc: vp.Document, holes_hpgl: str = "") -> str:
 
     # End sequence - no PU command in footer, let assembly add it
     if has_content:
-        lines.append("SP0")
-        lines.append("IN")
+        lines.append("SP")
 
     return ";".join(lines) + ";"
 

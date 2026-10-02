@@ -203,7 +203,12 @@ class TestRenderLabelOnceLayerGuards:
 
 
 class TestRenderLabelOnceTerminator:
-    """Branch 591->598 / line 595: PLT terminator normalization variants."""
+    """render_label_to_plt takes the exported content verbatim (stripped).
+
+    The historical ``%``-terminator normalization was removed with the move
+    to EngraveLab framing (content ends with the bare ``SP;`` footer), so
+    the only post-read step is whitespace stripping.
+    """
 
     @staticmethod
     def _patch_export(monkeypatch: pytest.MonkeyPatch, content: str) -> None:
@@ -219,25 +224,25 @@ class TestRenderLabelOnceTerminator:
 
         monkeypatch.setattr(label_renderer, "_export_to_plt_with_postprocessing", fake_export)
 
-    def test_content_already_terminated_by_percent_is_kept(
+    def test_sp_footer_is_kept_without_percent(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Content ending in ``%`` must not gain a second terminator."""
-        self._patch_export(monkeypatch, "IN;DF;PS0;SP1;PU0,0;PD1000,1000;SP0;IN;%")
+        """A bare ``SP;`` footer is kept verbatim; no ``%`` is appended."""
+        self._patch_export(monkeypatch, "IN;PA;SP1;PU0,0;PD1000,1000;SP;")
         rendered = render_label_to_plt(_label(content=[]))
 
-        assert rendered.plt_content.endswith("%")
-        assert rendered.plt_content.count("%") == 1
+        assert rendered.plt_content == "IN;PA;SP1;PU0,0;PD1000,1000;SP;"
+        assert "%" not in rendered.plt_content
         assert rendered.width == pytest.approx(1.0, abs=1e-9)
 
-    def test_content_without_in_footer_gets_terminator_appended(
+    def test_surrounding_whitespace_is_stripped(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Content ending in a bare ``;`` must be closed with ``;%``."""
-        self._patch_export(monkeypatch, "IN;DF;PS0;SP1;PU0,0;PD1000,1000;")
+        """Leading/trailing whitespace is stripped, content otherwise kept."""
+        self._patch_export(monkeypatch, "\n  IN;PA;SP1;PU0,0;PD1000,1000;SP;  \n")
         rendered = render_label_to_plt(_label(content=[]))
 
-        assert rendered.plt_content == "IN;DF;PS0;SP1;PU0,0;PD1000,1000;%"
+        assert rendered.plt_content == "IN;PA;SP1;PU0,0;PD1000,1000;SP;"
 
 
 class TestCollectHpglGeometryArcGuard:
@@ -299,7 +304,7 @@ class TestLinecollectionToHpglDefensive:
 
         out = _linecollection_to_hpgl(doc)
 
-        assert out == "IN;DF;PS0;SP1;PU1000,1000;PD2000,2000;SP0;IN;"
+        assert out == "IN;PA;SP1;PU1000,1000;PD2000,2000;SP;"
 
     def test_point_less_segment_is_skipped(self) -> None:
         """A segment with a length but no iterable points emits nothing."""
@@ -311,7 +316,7 @@ class TestLinecollectionToHpglDefensive:
 
         out = _linecollection_to_hpgl(doc)
 
-        assert out == "IN;DF;PS0;SP1;PU1000,1000;PD2000,2000;SP0;IN;"
+        assert out == "IN;PA;SP1;PU1000,1000;PD2000,2000;SP;"
 
     def test_single_point_segment_emits_pen_up_only(self) -> None:
         """A lone vertex produces ``PU`` with no trailing ``PD``."""
@@ -331,7 +336,7 @@ class TestLinecollectionToHpglDefensive:
         """A document with no content keeps the header-only output."""
         out = _linecollection_to_hpgl(vp.Document())
 
-        assert out == "IN;DF;PS0;"
+        assert out == "IN;PA;"
 
 
 class TestCenterTextLayerDefensive:
@@ -351,7 +356,7 @@ class TestCenterTextLayerDefensive:
         """
         plt_file = tmp_path / "label.plt"
         plt_file.write_text(
-            "IN;DF;PS0;SP1;PU100,200;PD900,300;PA500,-;SP0;IN;%",
+            "IN;PA;SP1;PU100,200;PD900,300;PA500,-;SP;",
             encoding="utf-8",
         )
 
@@ -367,7 +372,7 @@ class TestCenterTextLayerDefensive:
     def test_already_centered_text_is_left_untouched(self, tmp_path: Path) -> None:
         """A text block centered at the expected Y needs no adjustment."""
         plt_file = tmp_path / "label.plt"
-        original = "IN;DF;PS0;SP1;PU0,400;PD1000,600;SP0;IN;%"
+        original = "IN;PA;SP1;PU0,400;PD1000,600;SP;"
         plt_file.write_text(original, encoding="utf-8")
 
         _center_text_layer_vertically(plt_file, self._label_for_centering())

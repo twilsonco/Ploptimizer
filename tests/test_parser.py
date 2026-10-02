@@ -430,11 +430,11 @@ class TestPenSelectBreaksPath:
     def test_sp2_does_not_create_cross_shape_segment(self) -> None:
         """Two rectangles separated by PU0,0;SP2 should not be joined."""
         content = (
-            "IN;DF;PS0;"
+            "IN;PA;"
             "SP2;PD0,1000,0,0,3000,0,3000,1000,0,1000;"  # rect1
             "PU0,0;"
             "SP2;PD5000,2000,5000,1000,8000,1000,8000,2000,5000,2000;"  # rect2
-            "SP0;IN;%"
+            "SP;"
         )
         parser = PLTParser()
         doc = parser.parse_string(content)

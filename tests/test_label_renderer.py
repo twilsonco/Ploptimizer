@@ -62,7 +62,7 @@ class TestFlipYCoordinatesInPlt:
         plt_file = tmp_path / "label.plt"
         # Points at y=200 and y=800; min+max = 1000.
         plt_file.write_text(
-            "IN;DF;PS0;SP1;PU500,200;PD500,800;PA300,400;SP0;IN;%",
+            "IN;PA;SP1;PU500,200;PD500,800;PA300,400;SP;",
             encoding="utf-8",
         )
 
@@ -79,7 +79,7 @@ class TestFlipYCoordinatesInPlt:
         plt_file = tmp_path / "label.plt"
         # y-values are 200 and 800; mirrored across centerline sum=1000.
         plt_file.write_text(
-            "IN;DF;PS0;SP1;PU100,200;PD900,300;PA500,400;SP0;IN;%",
+            "IN;PA;SP1;PU100,200;PD900,300;PA500,400;SP;",
             encoding="utf-8",
         )
 
@@ -93,7 +93,7 @@ class TestFlipYCoordinatesInPlt:
     def test_flip_no_coordinates_returns_unchanged(self, tmp_path) -> None:
         """A file with no coordinates should be left unchanged."""
         plt_file = tmp_path / "label.plt"
-        original = "IN;DF;PS0;SP0;IN;%"
+        original = "IN;PA;SP;"
         plt_file.write_text(original, encoding="utf-8")
 
         _flip_y_coordinates_in_plt(plt_file)
@@ -106,7 +106,7 @@ class TestExtractBoundsFromPlt:
 
     def test_extract_bounds_simple_rectangle(self) -> None:
         """Test bounds extraction from simple rectangle PLT."""
-        plt_content = "IN;DF;PS0;SP1;PA0,0;PD1000,0,1000,1000,0,1000,0,0;SP0;IN;%"
+        plt_content = "IN;PA;SP1;PA0,0;PD1000,0,1000,1000,0,1000,0,0;SP;"
         x_min, y_min, x_max, y_max = extract_bounds_from_plt(plt_content)
 
         assert x_min == 0.0
@@ -116,7 +116,7 @@ class TestExtractBoundsFromPlt:
 
     def test_extract_bounds_with_multiple_commands(self) -> None:
         """Test bounds extraction with multiple PA/PD commands."""
-        plt_content = "IN;DF;PS0;SP1;PA500,500;PD1000,1000;PA100,200;PD800,900;SP0;IN;%"
+        plt_content = "IN;PA;SP1;PA500,500;PD1000,1000;PA100,200;PD800,900;SP;"
         x_min, y_min, x_max, y_max = extract_bounds_from_plt(plt_content)
 
         assert x_min == 0.1
@@ -128,7 +128,7 @@ class TestExtractBoundsFromPlt:
         """Test bounds with negative coordinates (should be converted by postprocessing)."""
         # Most PLT files have non-negative coordinates after postprocessing
         # but we should handle this gracefully
-        plt_content = "IN;DF;PS0;SP1;PA-500,0;PD500,1000;SP0;IN;%"
+        plt_content = "IN;PA;SP1;PA-500,0;PD500,1000;SP;"
         x_min, y_min, x_max, y_max = extract_bounds_from_plt(plt_content)
 
         assert x_min == -0.5
@@ -136,14 +136,14 @@ class TestExtractBoundsFromPlt:
 
     def test_extract_bounds_no_coordinates(self) -> None:
         """Test that ValueError is raised if no coordinates found."""
-        plt_content = "IN;DF;PS0;SP0;IN;%"
+        plt_content = "IN;PA;SP;"
         with pytest.raises(ValueError, match="No valid coordinates"):
             extract_bounds_from_plt(plt_content)
 
     def test_extract_bounds_ignores_pu_commands(self) -> None:
         """Test that PU (pen-up) commands are included in bounds."""
         # PU coordinates define visual extent and should be included
-        plt_content = "IN;DF;PS0;SP1;PU10000,10000;PA0,0;PD1000,1000;SP0;IN;%"
+        plt_content = "IN;PA;SP1;PU10000,10000;PA0,0;PD1000,1000;SP;"
         x_min, y_min, x_max, y_max = extract_bounds_from_plt(plt_content)
 
         assert x_min == 0.0
@@ -226,7 +226,7 @@ class TestRenderLabelToPlt:
         assert rendered.width > 0
         assert rendered.height > 0
         assert rendered.plt_content.startswith("IN;")
-        assert rendered.plt_content.endswith("%")
+        assert rendered.plt_content.endswith("SP;")
 
     def test_render_label_bounds_are_positive(self) -> None:
         """Test that rendered bounds are non-negative (after postprocessing)."""

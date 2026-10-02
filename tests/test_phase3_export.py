@@ -36,8 +36,8 @@ class TestExportAndOptimizePhase3:
         for path in exported_paths:
             assert path.parent == tmp_path / "plt"
             content = path.read_text()
-            assert content.startswith("IN;DF;PS0;")
-            assert content.endswith("%")
+            assert content.startswith("IN;PA;")
+            assert content.endswith("SP;\n")
             assert len(content) > 50  # Has actual content
 
         # test123 uses a single 0.5in text height (ideal cutter 0.06in,
@@ -256,13 +256,15 @@ class TestExportAndOptimizePhase3:
         )
         black_content = black_file.read_text(encoding="utf-8")
         magenta_content = magenta_file.read_text(encoding="utf-8")
-        # Each color file selects exactly one layer pen (SP1+; SP0 tokens are
-        # the header/trailer pen resets, never a layer).
-        black_pens = {p for p in re.findall(r"SP(\d+);", black_content) if p != "0"}
-        magenta_pens = {p for p in re.findall(r"SP(\d+);", magenta_content) if p != "0"}
-        assert len(black_pens) == 1
-        assert len(magenta_pens) == 1
-        assert black_pens != magenta_pens
+        # Per-cutter files are pen-select-free single-tool streams; the
+        # layers stay separate because each file carries ONLY its own
+        # strokes -- the two color layers share no cutting coordinates.
+        assert not re.search(r"SP\d", black_content)
+        assert not re.search(r"SP\d", magenta_content)
+        black_points = _cutting_points(black_content)
+        magenta_points = _cutting_points(magenta_content)
+        assert black_points and magenta_points
+        assert black_points.isdisjoint(magenta_points)
         # Both files carry geometry.
         assert re.search(r"(?:PU|PD)\d", black_content)
         assert re.search(r"(?:PU|PD)\d", magenta_content)
@@ -323,6 +325,33 @@ def _first_cutting_x(path: Path) -> int:
             xs.append(int(match.group(1)))
     assert xs, f"No cutting coordinates found in {path}"
     return min(xs)
+
+
+def _cutting_points(content: str) -> set[tuple[int, int]]:
+    """Collect every coordinate pair touched by a pen-down command.
+
+    Per-cutter files no longer carry ``SP`` pen selects, so color/layer
+    separation is verified by geometry instead: strokes belonging to
+    different text lines occupy disjoint coordinates.
+
+    Args:
+        content: Raw HPGL text of one written PLT file.
+
+    Returns:
+        Set of ``(x, y)`` plotter-unit pairs appearing in ``PD`` commands.
+    """
+    points: set[tuple[int, int]] = set()
+    for token in content.split(";"):
+        token = token.strip()
+        if not token.startswith("PD"):
+            continue
+        values = token[2:].split(",")
+        for i in range(0, len(values) - 1, 2):
+            try:
+                points.add((int(values[i]), int(values[i + 1])))
+            except ValueError:
+                continue
+    return points
 
 
 class TestExportWithoutPlates:
@@ -482,13 +511,21 @@ class TestExportTextColorSplit:
             "01_txt_0.060_k_clr.plt",
             "01_txt_0.060_m_clr.plt",
         ]
-        # Each file carries geometry on exactly one text pen (plus headers).
-        for name, pen in (("01_txt_0.060_k_clr.plt", 1), ("01_txt_0.060_m_clr.plt", 4)):
-            content = (tmp_path / "plt" / name).read_text(encoding="utf-8")
-            assert f"SP{pen};" in content
-            other = 4 if pen == 1 else 1
-            assert f"SP{other};" not in content
+        # Each file carries only its own layer's strokes: the two color
+        # layers occupy disjoint cutting coordinates (no SP selects remain
+        # in per-cutter output to distinguish them).
+        contents = {
+            name: (tmp_path / "plt" / name).read_text(encoding="utf-8")
+            for name in text_names
+        }
+        for content in contents.values():
+            assert not re.search(r"SP\d", content)
             assert re.search(r"(?:PU|PD)\d", content)
+        points = {name: _cutting_points(content) for name, content in contents.items()}
+        assert len(points) == 2
+        (k_points, m_points) = (points[name] for name in sorted(points))
+        assert k_points and m_points
+        assert k_points.isdisjoint(m_points)
 
     def test_colored_export_keeps_structural_file_untagged(self, tmp_path: Path) -> None:
         """The bh (borders + holes) file name never gains a color suffix."""
@@ -531,7 +568,7 @@ class TestExportTextColorSplit:
         ]
         for name in text_names:
             content = (tmp_path / "plt" / name).read_text(encoding="utf-8")
-            assert content.startswith("IN;DF;PS0;")
+            assert content.startswith("IN;PA;")
             assert re.search(r"(?:PU|PD)\d", content)
 
 
@@ -606,14 +643,19 @@ class TestTextColorDemoExample:
         assert [p.name for p in result.plt_paths if "_bh_" in p.name] == [
             "01_bh_0.015_demo.plt"
         ]
-        # Each text file carries geometry on exactly one pen.
-        pens_per_file = []
+        # Each text file carries only its own layer's strokes: the three
+        # color layers occupy pairwise-disjoint cutting coordinates (the
+        # per-cutter files carry no SP selects to key on).
+        points_per_file = []
         for path in result.plt_paths:
             if "_txt_" not in path.name:
                 continue
             content = path.read_text(encoding="utf-8")
-            pens = set(re.findall(r"SP(\d+);", content)) - {"0"}
-            assert len(pens) == 1, f"{path.name} spans pens {pens}"
+            assert not re.search(r"SP\d", content), f"{path.name} carries pen selects"
             assert re.search(r"(?:PU|PD)\d", content)
-            pens_per_file.append(int(pens.pop()))
-        assert len(set(pens_per_file)) == 3
+            points_per_file.append(_cutting_points(content))
+        assert len(points_per_file) == 3
+        for i, first in enumerate(points_per_file):
+            assert first, "text file carries no cutting geometry"
+            for second in points_per_file[i + 1 :]:
+                assert first.isdisjoint(second), "color layers share coordinates"

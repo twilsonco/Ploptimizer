@@ -14,17 +14,11 @@ import pytest
 
 from plt_optimizer.core.models import ArcSegment, Coordinate, StrokePath, StrokeSegment
 from plt_optimizer.core.optimizer import NearestNeighbor2OptStrategy
-from plt_optimizer.generate.label_renderer import (
-    LAYER_BOUNDARY,
-    LAYER_HOLES,
-    RenderedLabel,
-    TextChunkRecord,
-)
+from plt_optimizer.generate.label_renderer import RenderedLabel, TextChunkRecord
 from plt_optimizer.generate.layout import PackedLabel
 from plt_optimizer.generate.plate_optimizer import (
     _label_transform,
     _rapid_distance,
-    _structural_pen_of,
     _transform_point,
     build_text_blocks,
     emit_layer_document,
@@ -88,7 +82,7 @@ def _make_rendered(
     """
     return RenderedLabel(
         source_label=label or _make_label(),
-        plt_content="IN;DF;PS0;%",
+        plt_content="IN;PA;%",
         x_min=x_min,
         y_min=y_min,
         x_max=x_max,
@@ -270,7 +264,7 @@ class TestBuildTextBlocks:
 
 
 class TestEmitLayerDocument:
-    """Integer-unit HPGL emission with pen grouping."""
+    """Integer-unit HPGL emission (pen-select-free per-cutter framing)."""
 
     def _path(self, points: List[Tuple[int, int]]) -> StrokePath:
         start = Coordinate(float(points[0][0]), float(points[0][1]))
@@ -284,17 +278,11 @@ class TestEmitLayerDocument:
         ]
         return StrokePath(pen_up_position=start, segments=tuple(segments))
 
-    def test_constant_pen_emits_single_sp(self) -> None:
-        """A constant pen emits exactly one SP for all paths."""
+    def test_paths_emit_penup_led_without_sp(self) -> None:
+        """All paths emit as bare PU-led streams: no SP selects at all."""
         paths = [self._path([(0, 0), (10, 0)]), self._path([(5, 5), (15, 5)])]
-        content = emit_layer_document(paths, lambda path: 1)
-        assert content == "IN;DF;PS0;SP1;PU0,0;PD10,0;PU5,5;PD15,5;SP0;IN;%"
-
-    def test_pen_switch_between_paths(self) -> None:
-        """A pen change between paths re-emits SP."""
-        paths = [self._path([(0, 0), (10, 0)]), self._path([(5, 5), (15, 5)])]
-        content = emit_layer_document(paths, lambda path: 2 if path is paths[0] else 3)
-        assert content == "IN;DF;PS0;SP2;PU0,0;PD10,0;SP3;PU5,5;PD15,5;SP0;IN;%"
+        content = emit_layer_document(paths)
+        assert content == "IN;PA;PU0,0;PD10,0;PU5,5;PD15,5;SP;"
 
     def test_arc_segments_emit_aa(self) -> None:
         """Arc segments become PD;AA commands with integer fields."""
@@ -308,35 +296,13 @@ class TestEmitLayerDocument:
             is_cutting=True,
         )
         path = StrokePath(pen_up_position=start, segments=(arc,))
-        content = emit_layer_document([path], lambda _p: 3)
-        assert "SP3;PU100,100;PD;AA50,100,-90;" in content
+        content = emit_layer_document([path])
+        assert "PU100,100;PD;AA50,100,-90;" in content
 
     def test_degenerate_paths_skipped(self) -> None:
         """Segment-less paths emit nothing (but do not crash)."""
-        content = emit_layer_document([StrokePath()], lambda _p: 1)
-        assert content == "IN;DF;PS0;SP0;IN;%"
-
-
-class TestStructuralPenOf:
-    """Pen attribution for borders vs. drill holes."""
-
-    def test_arc_path_is_hole(self) -> None:
-        start = Coordinate(0.0, 0.0)
-        arc = ArcSegment(
-            start=start,
-            end=Coordinate(10.0, 0.0),
-            center=Coordinate(5.0, 0.0),
-            sweep_angle=-90.0,
-            is_cutting=True,
-        )
-        path = StrokePath(pen_up_position=start, segments=(arc,))
-        assert _structural_pen_of(path) == LAYER_HOLES
-
-    def test_line_path_is_boundary(self) -> None:
-        start = Coordinate(0.0, 0.0)
-        seg = StrokeSegment(start=start, end=Coordinate(10.0, 0.0), is_cutting=True)
-        path = StrokePath(pen_up_position=start, segments=(seg,))
-        assert _structural_pen_of(path) == LAYER_BOUNDARY
+        content = emit_layer_document([StrokePath()])
+        assert content == "IN;PA;SP;"
 
 
 class TestRapidDistance:
@@ -390,8 +356,8 @@ class TestOptimizeTextLayer:
         )
         assert result is not None
         assert result.node_count == 2
-        assert result.content.startswith("IN;DF;PS0;SP1;")
-        assert result.content.endswith("SP0;IN;%")
+        assert result.content.startswith("IN;PA;")
+        assert result.content.endswith("SP;")
         # Every optimized stroke must exist in the unoptimized layer.
         from plt_optimizer.core.parser import PLTParser
 
@@ -400,8 +366,7 @@ class TestOptimizeTextLayer:
                 path
                 for block in build_text_blocks([_packed("t", 0.0, 0.0)], {"t": rendered}, 1)
                 for path in block.paths
-            ],
-            lambda _p: 1,
+            ]
         )
         raw_doc = PLTParser().parse_string(raw)
         opt_doc = PLTParser().parse_string(result.content)
@@ -430,28 +395,30 @@ class TestOptimizeStructuralLayer:
     """Borders+holes routing entry point."""
 
     def test_empty_content_returns_none(self) -> None:
-        assert optimize_structural_layer("IN;DF;PS0;SP2;SP0;IN;%", _fast_strategy) is None
+        assert optimize_structural_layer("IN;PA;SP;", _fast_strategy) is None
 
     def test_deduplicates_coincident_borders(self) -> None:
         # Two labels sharing the edge x=1000 (duplicated stroke).
         content = (
-            "IN;DF;PS0;SP2;PU0,0;PD1000,0,1000,1000,0,1000,0,0;"
+            "IN;PA;PU0,0;PD1000,0,1000,1000,0,1000,0,0;"
             "PU1000,0;PD2000,0,2000,1000,1000,1000,1000,0;"
-            "SP0;IN;%"
+            "SP;"
         )
         result = optimize_structural_layer(content, _fast_strategy)
         assert result is not None
         # The shared edge collapses to one stroke: 7 unique segments.
         assert result.node_count <= 8
-        assert "SP2;" in result.content
-        assert result.content.endswith("SP0;IN;%")
+        import re as _re
+
+        assert not _re.search(r"SP\d", result.content)  # pen-select-free output
+        assert result.content.endswith("SP;")
 
     def test_holes_keep_arc_geometry(self) -> None:
         content = (
-            "IN;DF;PS0;SP2;PU0,0;PD1000,0;SP3;PU100,100;PD100,100;"
-            "AA50,100,-90;AA50,100,-90;AA50,100,-90;AA50,100,-90;SP0;IN;%"
+            "IN;PA;PU0,0;PD1000,0;PU100,100;PD100,100;"
+            "AA50,100,-90;AA50,100,-90;AA50,100,-90;AA50,100,-90;SP;"
         )
         result = optimize_structural_layer(content, _fast_strategy)
         assert result is not None
-        assert "SP3;" in result.content
+        assert "PU100,100;PD100,100" in result.content
         assert "AA50,100,-90" in result.content
