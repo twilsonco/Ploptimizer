@@ -20,10 +20,6 @@ def test_phase3_fixes_label3_centering(tmp_path: Path) -> None:
     job = parse_yaml("tests_deps/test123_spec.yaml")
     resolved_labels = resolve_job_spec(job)
 
-    # The spec also defines alpha/digit reference labels; this regression
-    # targets the original three 3in x 1in labels only.
-    resolved_labels = [label for label in resolved_labels if label.id.startswith("test_")]
-
     # Verify we have 3 labels
     assert len(resolved_labels) == 3
     for i, label in enumerate(resolved_labels):

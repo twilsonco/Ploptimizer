@@ -264,9 +264,6 @@ class TestRenderLabelToPlt:
         from plt_optimizer.generate.resolution import resolve_job_spec
 
         labels = resolve_job_spec(job)
-        # The spec also carries wider alpha/digit reference labels; this test
-        # covers the three identical 3in x 1in labels it was written for.
-        labels = [label for label in labels if label.id.startswith("test_")]
         rendered_labels = []
 
         for label in labels:

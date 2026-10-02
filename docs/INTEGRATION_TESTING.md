@@ -119,10 +119,10 @@ two plates.
 
 ### `tests_deps/test123_spec.yaml` — Default Job Spec
 
-Reproduces the reference file `examples/test123.plt`: small labels (e.g. three
-3" × 1" labels with 0.5" text — "Test 1", "Test 2", "Test 3") plus alphabet /
-digit range labels, packed on a single 24" × 16" plate (constrained mode,
-edge-to-edge: `left_clearance: 0.0`, `top_clearance: 0.0`).
+Reproduces the reference file `examples/test123.plt`: three 3" × 1" labels
+with 0.5" text ("Test 1", "Test 2", "Test 3"), packed on a single 24" × 16"
+plate (constrained mode, edge-to-edge: `left_clearance: 0.0`,
+`top_clearance: 0.0`).
 
 ### `tests_deps/complex_test_job.yaml` — Stress-Test Spec
 
