@@ -136,6 +136,33 @@ class TestExportAndOptimizePhase3:
         # Opt-in plots are tracked separately from the simple previews.
         assert result.pdf_paths == []
 
+    def test_write_default_plots_skips_combined_when_disabled(self, tmp_path: Path) -> None:
+        """include_combined=False omits the per-plate *_all_*_default.pdf."""
+        from plt_optimizer.generate.vectorize import write_default_plots
+
+        job = parse_yaml("tests_deps/test123_spec.yaml")
+        resolved_labels = resolve_job_spec(job)
+
+        result = export_per_cutter_plts(
+            resolved_labels,
+            output_dir=tmp_path,
+            job_id="nc",
+            optimize=False,
+            plots=False,
+        )
+        assert result.combined_by_plate  # Combined content exists in memory.
+
+        pdf_paths = write_default_plots(tmp_path, "nc", result, include_combined=False)
+
+        names = sorted(p.name for p in pdf_paths)
+        # One color plot per written PLT (same stem + _default).
+        for plt_path in result.plt_paths:
+            assert f"{plt_path.stem}_default.pdf" in names
+        # The combined text + borders/holes default plot is never written.
+        assert not any("_all_" in name for name in names)
+        pdf_dir = tmp_path / "pdf"
+        assert not any("_all_" in p.name for p in pdf_dir.iterdir())
+
     def test_export_simple_plots_structural_styling_wiring(self, tmp_path: Path) -> None:
         """Simple plots: bh files render structural, text/all plots do not."""
         from unittest.mock import patch
@@ -515,8 +542,7 @@ class TestExportTextColorSplit:
         # layers occupy disjoint cutting coordinates (no SP selects remain
         # in per-cutter output to distinguish them).
         contents = {
-            name: (tmp_path / "plt" / name).read_text(encoding="utf-8")
-            for name in text_names
+            name: (tmp_path / "plt" / name).read_text(encoding="utf-8") for name in text_names
         }
         for content in contents.values():
             assert not re.search(r"SP\d", content)
@@ -640,9 +666,7 @@ class TestTextColorDemoExample:
             "01_txt_0.045_k_demo.plt",
             "01_txt_0.045_m_demo.plt",
         ]
-        assert [p.name for p in result.plt_paths if "_bh_" in p.name] == [
-            "01_bh_0.015_demo.plt"
-        ]
+        assert [p.name for p in result.plt_paths if "_bh_" in p.name] == ["01_bh_0.015_demo.plt"]
         # Each text file carries only its own layer's strokes: the three
         # color layers occupy pairwise-disjoint cutting coordinates (the
         # per-cutter files carry no SP selects to key on).

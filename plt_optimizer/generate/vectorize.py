@@ -859,15 +859,17 @@ def write_default_plots(
     result: PerCutterExport,
     job_name: str = "",
     text_height: float | None = None,
+    include_combined: bool = True,
 ) -> list[Path]:
     """Write color-coded ``*_default.pdf`` diagnostic plots for an export.
 
     Renders the plotter's default (color-coded, rapid-travel) view of
     every written per-cutter PLT as ``<plt-stem>_default.pdf`` plus one
     combined ``<plate number>_all_<job_id>_default.pdf`` per plate from
-    the in-memory combined content (text + borders + holes together). These
-    diagnostics are strictly opt-in; the simple-outline previews remain
-    the standard output.
+    the in-memory combined content (text + borders + holes together;
+    skipped when ``include_combined`` is False). These diagnostics are
+    strictly opt-in; the simple-outline previews remain the standard
+    output.
 
     matplotlib is imported lazily through the plotter module so headless
     optimizer-only environments never pay the import cost.
@@ -879,6 +881,9 @@ def write_default_plots(
             ``combined_by_plate`` drive the plots.
         job_name: Human-readable job name for plot titles (optional).
         text_height: Text height in inches for text plot titles (optional).
+        include_combined: When True (the default), also render the
+            combined per-plate default plot (text + borders + holes
+            together). Set False to produce only the per-cutter plots.
 
     Returns:
         List of written PDF paths.
@@ -909,21 +914,22 @@ def write_default_plots(
         )
         pdf_paths.append(pdf_path)
 
-    for plate_no, combined in result.combined_by_plate.items():
-        document = parser.parse_string(combined)
-        pdf_path = pdf_dir / f"{_format_plate_number(plate_no)}_all_{job_id}_default.pdf"
-        title = (
-            f"{job_name} combined view (plate {plate_no})"
-            if job_name
-            else "PLT Toolpath Visualization"
-        )
-        plot_plt_document(
-            document,
-            output_path=pdf_path,
-            title=title,
-            show_plot=False,
-            simple_mode=False,
-        )
-        pdf_paths.append(pdf_path)
+    if include_combined:
+        for plate_no, combined in result.combined_by_plate.items():
+            document = parser.parse_string(combined)
+            pdf_path = pdf_dir / f"{_format_plate_number(plate_no)}_all_{job_id}_default.pdf"
+            title = (
+                f"{job_name} combined view (plate {plate_no})"
+                if job_name
+                else "PLT Toolpath Visualization"
+            )
+            plot_plt_document(
+                document,
+                output_path=pdf_path,
+                title=title,
+                show_plot=False,
+                simple_mode=False,
+            )
+            pdf_paths.append(pdf_path)
 
     return pdf_paths

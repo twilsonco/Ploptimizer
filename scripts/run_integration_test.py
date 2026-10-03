@@ -344,10 +344,12 @@ def phase_3_vectorization_and_export(
     logger.info(f"Exporting to: {output_dir}")
     logger.info(f"DEBUG: job_spec is None: {job_spec is None}")
     logger.info(f"DEBUG: job_config is None: {job_config is None}")
-    if job_spec and hasattr(job_spec, 'tool_options'):
+    if job_spec and hasattr(job_spec, "tool_options"):
         logger.info(f"DEBUG: job_spec.tool_options: {job_spec.tool_options}")
-    if job_config and hasattr(job_config, 'defaults'):
-        logger.info(f"DEBUG: job_config.defaults.tool_options exists: {hasattr(job_config.defaults, 'tool_options')}")
+    if job_config and hasattr(job_config, "defaults"):
+        logger.info(
+            f"DEBUG: job_config.defaults.tool_options exists: {hasattr(job_config.defaults, 'tool_options')}"
+        )
 
     export_result = export_per_cutter_plts(
         resolved_labels,
@@ -445,9 +447,12 @@ def phase_4_visualization(export_result: PerCutterExport, job_name: str = "") ->
     ``pdf/``. This phase adds the color-coded default plots (with rapid
     travel visualization):
 
-    - one ``<plt-stem>_default.pdf`` per per-cutter PLT file, and
-    - one ``<plate>_all_<job_id>_default.pdf`` per plate from the
-      in-memory combined content (text + borders + holes together).
+    - one ``<plt-stem>_default.pdf`` per per-cutter PLT file.
+
+    The combined per-plate default plot (text + borders + holes together
+    in one color-coded view) is deliberately NOT generated here -- the
+    per-cutter default plots plus the simple combined ``*_all_*.pdf``
+    preview already cover both views.
 
     These color-coded plots are strictly opt-in via the module-level
     :data:`GENERATE_DEFAULT_PLOTS` flag; by default this phase is a no-op.
@@ -469,7 +474,11 @@ def phase_4_visualization(export_result: PerCutterExport, job_name: str = "") ->
 
     try:
         pdf_paths = write_default_plots(
-            export_result.output_dir, export_result.job_id, export_result, job_name=job_name
+            export_result.output_dir,
+            export_result.job_id,
+            export_result,
+            job_name=job_name,
+            include_combined=False,
         )
         for pdf_path in pdf_paths:
             print(f"✓ Generated: {pdf_path.name}")
@@ -494,8 +503,8 @@ def _run_single_spec(spec_override: Path | None) -> int:
     """
     try:
         # Phase 1: Data Preparation
-        job_yaml, tools_json, inventory, boundary_hole_cutter, job_config_json = (
-            phase_1_data_prep(spec_override)
+        job_yaml, tools_json, inventory, boundary_hole_cutter, job_config_json = phase_1_data_prep(
+            spec_override
         )
 
         # Phase 2: Resolution and Layout (nominal-dimension packing for reporting)
