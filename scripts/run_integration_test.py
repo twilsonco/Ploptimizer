@@ -9,10 +9,10 @@ with intermediate state dumps for verification. Validates:
 - Bin packing and multi-plate allocation
 - Vectorization and PLT export
 
-Run with: python run_integration_test.py
+Run with: python scripts/run_integration_test.py
 Or target a specific spec / every spec in a directory:
-    python run_integration_test.py tests_deps/complex_test_job.yaml
-    python run_integration_test.py tests_deps
+    python scripts/run_integration_test.py tests_deps/complex_test_job.yaml
+    python scripts/run_integration_test.py tests_deps
 """
 
 from __future__ import annotations
@@ -22,6 +22,13 @@ import logging
 import re
 import sys
 from pathlib import Path
+
+# Repo root (one level above scripts/) so the pipeline imports and every
+# repo-root-relative default (tests_deps/, tools.json, job-config.json,
+# test_output/) work regardless of the current working directory.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:  # allow running as a plain script
+    sys.path.insert(0, str(REPO_ROOT))
 
 # Setup logging for visibility
 logging.basicConfig(
@@ -101,7 +108,7 @@ def phase_1_data_prep(
     """
     print_separator("PHASE 1: TEST DATA PREPARATION")
 
-    workspace = Path(__file__).parent
+    workspace = REPO_ROOT
     job_yaml = job_yaml_override or workspace / "tests_deps" / "test123_spec.yaml"
     if not job_yaml.is_absolute():
         job_yaml = workspace / job_yaml
@@ -327,7 +334,7 @@ def phase_3_vectorization_and_export(
     """
     print_separator("PHASE 3: VECTORIZATION AND EXPORT (PER-CUTTER)")
 
-    workspace = Path(__file__).parent
+    workspace = REPO_ROOT
     if output_dir is None:
         output_dir = workspace / "test_output" / "integration_test"
     elif not output_dir.is_absolute():
@@ -609,7 +616,7 @@ def main(argv: list[str] | None = None) -> int:
 
     spec_override = Path(argv[0])
     if not spec_override.is_absolute():
-        spec_override = Path(__file__).parent / spec_override
+        spec_override = REPO_ROOT / spec_override
 
     if not spec_override.is_dir():
         return _run_single_spec(spec_override)

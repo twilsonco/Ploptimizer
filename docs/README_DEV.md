@@ -44,7 +44,9 @@ PLT-Optimizer/
 │       ├── __init__.py
 │       └── plotter.py      # Matplotlib-based path visualization
 ├── run_tray.py             # GUI entry point (system tray application)
-├── run_integration_test.py # End-to-end generate-pipeline test runner
+├── scripts/                # Developer-facing helper scripts
+│   ├── run_integration_test.py # End-to-end generate-pipeline test runner
+│   └── font_showcase.py    # Per-font showcase PDF renderer
 ├── tools.json              # Cutter inventory + boundary/hole cutter size
 ├── tests/                  # Test suite (pytest)
 ├── tests_deps/             # Frozen fixtures used by unit tests (do not move/edit)
@@ -673,13 +675,13 @@ The suite mirrors the package layout; highlights:
 
 ### End-to-End Integration Test
 
-`run_integration_test.py` drives the full generate pipeline (YAML → resolution →
+`scripts/run_integration_test.py` drives the full generate pipeline (YAML → resolution →
 bin packing → per-cutter PLT export → coordinate validation) with intermediate
 dumps:
 
 ```bash
-uv run python run_integration_test.py
-uv run python run_integration_test.py tests_deps/complex_test_job.yaml
+uv run python scripts/run_integration_test.py
+uv run python scripts/run_integration_test.py tests_deps/complex_test_job.yaml
 ```
 
 Artifacts land under `test_output/integration_test/`. See

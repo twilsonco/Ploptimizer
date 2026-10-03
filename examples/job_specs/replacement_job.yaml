@@ -20,7 +20,7 @@
 # Run with:
 #   uv run plt-optimizer generate examples/job_specs/replacement_job.yaml -o out.plt
 # or:
-#   uv run python run_integration_test.py examples/job_specs/replacement_job.yaml
+#   uv run python scripts/run_integration_test.py examples/job_specs/replacement_job.yaml
 job:
   job_name: "Replacement Text Demo - Field Tags"
 

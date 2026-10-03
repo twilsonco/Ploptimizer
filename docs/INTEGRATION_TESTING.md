@@ -2,7 +2,7 @@
 
 ## Overview
 
-`run_integration_test.py` validates the full PLT-Optimizer **generate** pipeline,
+`scripts/run_integration_test.py` validates the full PLT-Optimizer **generate** pipeline,
 from YAML job-specification ingestion through per-cutter PLT export, with
 intermediate state dumps for manual verification. The framework covers:
 
@@ -26,17 +26,17 @@ intermediate state dumps for manual verification. The framework covers:
 
 ```bash
 cd /path/to/PLT-Optimizer
-source .venv/bin/activate        # or: uv run python run_integration_test.py
-python run_integration_test.py
+source .venv/bin/activate        # or: uv run python scripts/run_integration_test.py
+python scripts/run_integration_test.py
 ```
 
 An optional positional argument selects an alternative job spec (relative to the
 repo root or absolute):
 
 ```bash
-python run_integration_test.py tests_deps/complex_test_job.yaml
-python run_integration_test.py examples/job_specs/replacement_job.yaml
-python run_integration_test.py tests_deps/rotation_demo_job.yaml
+python scripts/run_integration_test.py tests_deps/complex_test_job.yaml
+python scripts/run_integration_test.py examples/job_specs/replacement_job.yaml
+python scripts/run_integration_test.py tests_deps/rotation_demo_job.yaml
 ```
 
 When a spec override is used, Phase 3 outputs land under
@@ -49,7 +49,7 @@ with its own per-spec output directory, followed by a PASS/FAIL summary. The
 process exits non-zero if any spec fails:
 
 ```bash
-python run_integration_test.py tests_deps
+python scripts/run_integration_test.py tests_deps
 ```
 
 > Note: not every fixture/example spec is expected to pass end-to-end. Some
@@ -249,7 +249,7 @@ is a no-op:
 ```
 
 Enable by flipping the module-level `GENERATE_DEFAULT_PLOTS = True` flag in
-`run_integration_test.py` (equivalents elsewhere: `export_per_cutter_plts(...,
+`scripts/run_integration_test.py` (equivalents elsewhere: `export_per_cutter_plts(...,
 default_plots=True)` or the CLI's `--default-plots`).
 
 ## Verification Checklist

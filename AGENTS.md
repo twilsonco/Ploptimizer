@@ -318,7 +318,7 @@ whitespace character, never newline/alphanumeric).
   data — the EngraveLab constraint, enforced by construction.
 - **Expansion:** `expand_job_spec(job, yaml_path)` runs between
   `parse_yaml()` and `resolve_job_spec()` (wired into `cli/generate.py`
-  and `run_integration_test.py`). Each file line becomes a static
+  and `scripts/run_integration_test.py`). Each file line becomes a static
   `LabelSpec` with `count=1`, id suffix `_{index:04d}`, and replacement
   fields cleared. Static labels and root-level jobs pass through
   untouched; jobs without replacement labels return the same object.
