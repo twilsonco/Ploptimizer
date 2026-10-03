@@ -1,3 +1,4 @@
+
 # How to extract fonts from EngraveLab or VisionPro
 
 EngraveLab and Vision Pro cannot export their vector fonts, but they can
@@ -58,19 +59,19 @@ compresses the output (glyphs come out squashed / the median glyph height
 logged in Step 4 doesn't match your chosen height), lower the text height
 and re-engrave.
 
-## Step 3 — Copy the PLT into `Fonts/PLT-ascii/`
+## Step 3 — Copy the PLT into `Fonts/PLT/`
 
 Save/copy the file as:
 
 ```
-Fonts/PLT-ascii/<font name> <text height>.plt
+Fonts/PLT/<font name> <text height>.plt
 ```
 
 where `<text height>` is the text height you set in Step 1, in inches:
 
 ```
-Fonts/PLT-ascii/dino 0.05.plt     →  font "Dino",     engraved at 0.05 in
-Fonts/PLT-ascii/heavy eng 0.25.plt →  font "Heavy Eng", engraved at 0.25 in
+Fonts/PLT/dino 0.05.plt     →  font "Dino",     engraved at 0.05 in
+Fonts/PLT/heavy eng 0.25.plt →  font "Heavy Eng", engraved at 0.25 in
 ```
 
 The font-name part becomes the JSON key, title-cased (`dino 0.05.plt` →
@@ -79,7 +80,7 @@ for `0.05`), so all fonts land in `plt_fonts.json` at a uniform 1.0-inch
 design height no matter how small they were engraved. One font per file,
 one full ASCII row per file.
 
-> **Note:** files in `Fonts/PLT-ascii/` must each contain the *full*
+> **Note:** files in `Fonts/PLT/` must each contain the *full*
 > `ascii.txt` row for one font. Word engravings or partial samples cannot be
 > mapped to the character list and will be rejected with a clear error.
 
@@ -91,7 +92,7 @@ uv run python Fonts/extract_plt_fonts.py
 
 The script:
 
-1. Parses each `Fonts/PLT-ascii/*.plt` with the core PLT parser.
+1. Parses each `Fonts/PLT/*.plt` with the core PLT parser.
 2. Clusters stroke paths along X (the wide inter-character spacing separates
    characters even though EngraveLab emits strokes in scrambled order).
 3. Translates every glyph so it is centered on the origin (Y keeps the

@@ -12,7 +12,7 @@ VisionPro.md`` beside this script) is:
    the whole row fits the machine plate without EngraveLab compressing the
    toolpath (e.g. 0.05 inch); the height is recorded in the file name.
 2. Engrave the sheet to a PLT file.
-3. Drop the PLT into ``Fonts/PLT-ascii/`` named ``<font name> <height>.plt``
+3. Drop the PLT into ``Fonts/PLT/`` named ``<font name> <height>.plt``
    (e.g. ``dino 0.05.plt``), where ``<height>`` is the engraved text height
    in inches.
 4. Run this script::
@@ -67,7 +67,7 @@ from plt_optimizer.core.parser import ParseError, PLTParser  # noqa: E402
 logger = logging.getLogger("extract_plt_fonts")
 
 FONTS_DIR = REPO_ROOT / "Fonts"
-DEFAULT_INPUT_DIR = FONTS_DIR / "PLT-ascii"
+DEFAULT_INPUT_DIR = FONTS_DIR / "PLT"
 DEFAULT_OUTPUT = FONTS_DIR / "plt_fonts.json"
 DEFAULT_ASCII_FILE = FONTS_DIR / "ascii.txt"
 
@@ -819,13 +819,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         prog="extract_plt_fonts",
         description=(
             "Extract origin-centered per-character HPGL glyphs from engraved "
-            "ASCII sample sheets (Fonts/PLT-ascii/*.plt) into plt_fonts.json."
+            "ASCII sample sheets (Fonts/PLT/*.plt) into plt_fonts.json."
         ),
         epilog=(
             "Typical usage:\n"
             "  uv run python Fonts/extract_plt_fonts.py\n"
             "  uv run python Fonts/extract_plt_fonts.py --font-name Dino "
-            "--fonts-dir Fonts/PLT-ascii -v\n"
+            "--fonts-dir Fonts/PLT -v\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

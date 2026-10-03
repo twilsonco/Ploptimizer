@@ -1,0 +1,13 @@
+- [ ] EngraveLab/VisionPro font extraction
+  - [x] Initial version w/ origin-centered storage of font glyphs
+  - [x] Typesettings using origin-centered font glyphs
+  - [x] Integration into full toolpath generation pipeline
+  - [ ] Redo extraction/storage to include baseline/ascender/descender/bbox/profile envelopes for proper kerning, spacing, and vertical placement
+  - [ ] Extraction script needs to
+    - [ ] Get baseline-capline reference character from end of font file name, `<font name>_<font height inches>_<reference character>`
+    - [ ] Change to allow for multi-row extraction of font glyphs (initial version required that all glyphs be in a single row). `ascii.txt` file reflects the multi-row layout which will be assumed to be the layout of font plt files.
+    - [ ] Verify correct row extraction using assumption that each row contains the expected characters as defined in `ascii.txt`, in addition to starting and ending with the reference character.
+    - [ ] Verify reference character by locating it in the extracted glyphs (order defined by `ascii.txt`), then confirm that it matches the reference characters at the beginning and end of each row.
+    - [ ] Extract each character's relative position to the baseline and capline, as well as its bounding box and profile envelope.
+    - [ ] Include this new information in the `plt-fonts.json` file. Record the reference character used, the path to the font plt file, the text height extracted from the font plt file, text height as computed from the reference character, scaled text height of stored glyphs (1 inch) and then each character's glyph (HPGL scaled commands, bounding box, profile envelope, and other necessary metadata).
+  - [ ] Update typesetting and toolpath generation to utilize the enhanced font metadata for improved kerning, spacing, and vertical placement
