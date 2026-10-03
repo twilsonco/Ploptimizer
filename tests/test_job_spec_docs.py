@@ -128,6 +128,45 @@ class TestSchemaSelfDescribing:
         assert not missing, f"fields missing Field(description=...): {missing}"
 
 
+class TestFontDocumentation:
+    """The ``font`` field's documented discovery path must stay live.
+
+    The schema descriptions deliberately do NOT embed the font list (it
+    changes whenever a glyph sheet is extracted or a ``*.ttf`` is dropped
+    into ``Fonts/``); they point at ``generate_schema_docs.py --show-fonts``
+    instead. These tests guard that pointer.
+    """
+
+    @staticmethod
+    def _load_docs_script() -> Any:
+        """Import ``docs/schema/generate_schema_docs.py`` as a module by path.
+
+        Returns:
+            The loaded script module.
+        """
+        spec = importlib.util.spec_from_file_location(
+            "generate_schema_docs", DOCS_DIR / "generate_schema_docs.py"
+        )
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_show_fonts_lists_every_registry_choice(self) -> None:
+        """``--show-fonts`` output covers the live registry, name by name."""
+        from plt_optimizer.generate.font_registry import font_name_choices
+
+        script = self._load_docs_script()
+        rendered = "\n".join(script.format_fonts_list())
+        for name in font_name_choices():
+            assert f"**{name}**" in rendered, f"{name} missing from --show-fonts"
+
+    def test_committed_docs_point_at_the_flag(self) -> None:
+        """JOB_SPEC.md keeps the ``--show-fonts`` pointer for ``font`` users."""
+        markdown = (DOCS_DIR / "JOB_SPEC.md").read_text(encoding="utf-8")
+        assert "--show-fonts" in markdown
+
+
 class TestExampleSpecsParse:
     """Every checked-in example job spec must parse against the schema."""
 

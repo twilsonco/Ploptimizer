@@ -59,6 +59,21 @@ JobSpec (job-level defaults)
 
 **TextAttributes** (cascades to TextLine):
 - `text_height`: Font height in inches
+- `font`: Font name selecting the glyph outlines. Either a PLT-extracted
+  `Fonts/plt_fonts.json` key (rendered **arc-native** through
+  `plt_font_renderer.py`: PU/PD/AA glyphs keep their native `AA` arcs
+  end-to-end — only X-compression may flatten them, with a WARNING) or a
+  `Fonts/**.ttf` basename (extension stripped, rendered through the
+  matplotlib `ftext_renderer` path). Case-insensitive, canonicalized at
+  validation (`font_registry.resolve_font`); unknown names are rejected.
+  Cascades line → label → job (default `ReliefSingleLineCAD-Regular`;
+  accepted on plates for schema parity only). Inter-glyph advance is
+  cutter-aware: `cutter_diameter + 0.125 * text_height +
+  character_spacing`; a space advances `0.5 * text_height +
+  character_spacing`. A character the PLT font lacks raises
+  `PltFontRenderError` at render → `LabelRenderError` (CLI non-zero).
+  List every valid name with
+  `python docs/schema/generate_schema_docs.py --show-fonts`.
 - `character_spacing`: Extra spacing between characters
 - `line_spacing`: Extra spacing between text lines
 - `max_h_compress`: Maximum horizontal compression fraction in [0, 1] (default
@@ -557,7 +572,7 @@ toolset. `parse_yaml(spec, job_config_path=...)` loads it and injects its
 values into the raw job mapping **before** `JobSpec` validation, always at the
 top-most layer:
 
-- Cascading attributes (`text_height`, `character_spacing`, `line_spacing`,
+- Cascading attributes (`text_height`, `font`, `character_spacing`, `line_spacing`,
   `margin`, `hole_margin`, `min_hole_margin`, `hole_text_collision_distance`,
   `max_h_compress`, `text_h_alignment`, `holes`, `allow_rotation`,
   `text_chunk_mode`, `layout`) fill missing **job-level** keys; the existing

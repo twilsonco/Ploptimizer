@@ -12,6 +12,9 @@ Usage:
     # Generate Python code snippet for embedding in schema
     python3 docs/schema/generate_schema_docs.py --show-python-code
 
+    # List every valid ``font`` value (PLT-extracted keys + TTF basenames)
+    python3 docs/schema/generate_schema_docs.py --show-fonts
+
     # Typical workflow:
     # 1. Run with --show to see the current docs
     # 2. Copy the output into your documentation system
@@ -23,6 +26,10 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:  # allow running as a plain script
+    sys.path.insert(0, str(REPO_ROOT))
 
 
 def load_job_config(config_path: Path) -> dict:
@@ -146,6 +153,42 @@ def format_python_docstring_addition(tool_options: dict) -> list[str]:
     return lines
 
 
+def format_fonts_list() -> list[str]:
+    """List every valid ``font`` value from the live font registry.
+
+    PLT-extracted fonts (``Fonts/plt_fonts.json`` keys, rendered arc-native)
+    and TrueType fonts (``*.ttf`` basenames under ``Fonts/``) are reported
+    separately, followed by the combined list the schema accepts.
+
+    Returns:
+        List of formatted lines (each can be printed or joined).
+    """
+    from plt_optimizer.generate import font_registry
+
+    plt_fonts = sorted(font_registry.load_plt_fonts(), key=str.lower)
+    ttfs = sorted(font_registry.available_ttf_fonts(), key=str.lower)
+
+    lines = [
+        "**Available Fonts** "
+        f"(default when unset: {font_registry.DEFAULT_FONT_NAME}):",
+        "",
+        f"- PLT-extracted ({len(plt_fonts)}) — rendered arc-native, arcs "
+        "preserved end-to-end (Fonts/plt_fonts.json):",
+    ]
+    lines += [f"  - **{name}**" for name in plt_fonts] or ["  - (none found)"]
+    lines += [
+        f"- TrueType ({len(ttfs)}) — rendered through the ftext path "
+        "(*.ttf basenames under Fonts/):",
+    ]
+    lines += [f"  - **{name}**" for name in ttfs] or ["  - (none found)"]
+    lines += [
+        "",
+        "Any of these names (case-insensitive) is accepted by the cascading "
+        "`font` field on job, label and text line.",
+    ]
+    return lines
+
+
 def main() -> int:
     """Main entry point."""
     import argparse
@@ -164,6 +207,11 @@ def main() -> int:
         help='Show Python docstring code ready for copy-paste into schema.py'
     )
     parser.add_argument(
+        '--show-fonts',
+        action='store_true',
+        help='List every valid font name (PLT-extracted keys + TTF basenames)'
+    )
+    parser.add_argument(
         '--config',
         type=Path,
         default=Path('job-config.json'),
@@ -171,6 +219,16 @@ def main() -> int:
     )
     
     args = parser.parse_args()
+    
+    # Font discovery lives in the code (font_registry), not in job-config.json,
+    # so it works even when the config file is absent.
+    if args.show_fonts:
+        print("Available Fonts (valid cascading `font` values):")
+        print("=" * 80)
+        for line in format_fonts_list():
+            print(line)
+        print("=" * 80)
+        return 0
     
     # Load config
     try:
