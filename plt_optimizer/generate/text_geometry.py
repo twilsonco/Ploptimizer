@@ -365,7 +365,7 @@ class Stroke:
             if line_run[0] != pen:
                 parts.append(f"PU{_units(line_run[0].real)},{_units(line_run[0].imag)}")
             rest = line_run[1:]
-            if rest:
+            if rest:  # pragma: no branch - a flushed run always has >= 2 points
                 joined = ",".join(f"{_units(p.real)},{_units(p.imag)}" for p in rest)
                 parts.append(f"PD{joined}")
             pen = line_run[-1]
@@ -406,7 +406,7 @@ class Stroke:
         """
         lc = vp.LineCollection()
         for chain in self.polyline_chains():
-            if len(chain) >= 2:
+            if len(chain) >= 2:  # pragma: no branch - chains always >= 2 points
                 lc.append(np.asarray(chain, dtype=complex))
         return lc
 
@@ -609,7 +609,7 @@ class TextBlock:
                     if points and chain and chain[0] == points[-1]:
                         chain = chain[1:]
                     points.extend(chain)
-            if len(points) >= 2:
+            if len(points) >= 2:  # pragma: no branch - strokes always >= 2 points
                 lc.append(np.asarray(points, dtype=complex))
         return lc
 
@@ -676,14 +676,16 @@ def block_from_parser_paths(paths: Sequence[StrokePath], scale: float = 1.0) -> 
                         sweep_deg=seg.sweep_angle,
                     )
                 )
-            elif isinstance(seg, StrokeSegment):
+            elif isinstance(
+                seg, StrokeSegment
+            ):  # pragma: no branch - parser emits only these two kinds
                 segments.append(
                     LineSeg(
                         start=complex(seg.start.x, seg.start.y) * scale,
                         end=complex(seg.end.x, seg.end.y) * scale,
                     )
                 )
-        if not segments:
+        if not segments:  # pragma: no cover - parser emits only lines and arcs
             continue
         if path.pen_up_position is not None:
             pen_up = complex(path.pen_up_position.x, path.pen_up_position.y) * scale

@@ -43,10 +43,9 @@ values in plotter units, 1 inch = 1000 units):
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
-
-import numpy as np
 
 from plt_optimizer.core.chunker import MacroBlock
 from plt_optimizer.core.models import (
@@ -65,6 +64,7 @@ from plt_optimizer.core.pipeline import (
     preprocess_document,
 )
 from plt_optimizer.core.profiler import ProfileResult
+from plt_optimizer.generate.geometry import arc_swept_bounds
 from plt_optimizer.generate.label_renderer import (
     PLT_FOOTER,
     PLT_HEADER,
@@ -73,6 +73,7 @@ from plt_optimizer.generate.label_renderer import (
 )
 from plt_optimizer.generate.layout import PackedLabel
 from plt_optimizer.generate.resolution import ResolvedLabel
+from plt_optimizer.generate.text_geometry import LineSeg, Stroke, TextBlock
 from plt_optimizer.utils.logging import TextLogger
 
 # Plotter units per inch (HPGL default used throughout the generate pipeline).
@@ -132,6 +133,77 @@ def _units(value_inches: float) -> int:
     return int(round(value_inches * _UNITS_PER_INCH))
 
 
+def _block_text_y_extents(block: TextBlock) -> List[int]:
+    """Collect a text block's Y extents in plotter units (label-local frame).
+
+    Mirrors ``label_renderer._center_text_layer_vertically``'s view of the
+    emitted HPGL exactly (same rounding, same pen-tracking quirks of
+    ``_collect_hpgl_geometry`` and ``Stroke.to_hpgl`` emission):
+
+    - The stroke-leading ``PU{pen_up}`` records ``pen_up``.
+    - A line run's start is emitted (``PU``) only when the pen must
+      re-anchor there; the batched ``PD`` records every later run vertex.
+    - An ``AA`` measures its *swept* extent from the last recorded PU/PD
+      pen position (an arc never advances that measured pen, so chained
+      arcs measure from the same start) -- never the full circle. Its bare
+      ``PD`` carries no coordinates and records nothing.
+
+    Matching the HPGL side exactly keeps the plate-space centering shift
+    identical to the shift the emitted label received.
+
+    Args:
+        block: The label-local text block.
+
+    Returns:
+        Y extents in integer plotter units (empty for empty blocks).
+    """
+    ys: List[int] = []
+    # Last recorded PU/PD point in plotter units (the measured pen of
+    # _collect_hpgl_geometry); None until the first point is recorded.
+    last_x: Optional[int] = None
+    last_y: Optional[int] = None
+
+    def _record(x_units: int, y_units: int) -> None:
+        nonlocal last_x, last_y
+        ys.append(y_units)
+        last_x, last_y = x_units, y_units
+
+    for stroke in block.strokes:
+        # The stroke is always PU-led to pen_up (see Stroke.to_hpgl).
+        pen: complex = stroke.pen_up
+        _record(_units(pen.real), _units(pen.imag))
+        prev_was_line = False
+        for segment in stroke.segments:
+            if isinstance(segment, LineSeg):
+                if not prev_was_line and segment.start != pen:
+                    # Run start: emitted as a re-anchoring PU.
+                    _record(_units(segment.start.real), _units(segment.start.imag))
+                _record(_units(segment.end.real), _units(segment.end.imag))
+                pen = segment.end
+                prev_was_line = True
+                continue
+            prev_was_line = False
+            if segment.start != pen:
+                # to_hpgl emits PU{start}: the measured pen re-anchors.
+                _record(_units(segment.start.real), _units(segment.start.imag))
+            assert last_x is not None and last_y is not None  # noqa: S101 - PU always records
+            center_x = _units(segment.center.real)
+            center_y = _units(segment.center.imag)
+            # ArcExtent stores an integer-unit radius; mirror the rounding.
+            radius = int(round(math.hypot(last_x - center_x, last_y - center_y)))
+            start_angle = math.degrees(math.atan2(last_y - center_y, last_x - center_x))
+            _x_min, y_min, _x_max, y_max = arc_swept_bounds(
+                center_x, center_y, radius, start_angle, segment.sweep_deg
+            )
+            ys.append(int(math.floor(y_min)))
+            ys.append(int(math.ceil(y_max)))
+            # The measured pen does NOT advance across the arc (mirrors
+            # _collect_hpgl_geometry); the inch pen does, for the next
+            # segment's PU decision in to_hpgl.
+            pen = segment.end
+    return ys
+
+
 def _label_transform(rendered: RenderedLabel, label: ResolvedLabel) -> _LabelTransform:
     """Compute the label-local -> device-unit transform constants.
 
@@ -146,9 +218,8 @@ def _label_transform(rendered: RenderedLabel, label: ResolvedLabel) -> _LabelTra
     """
     ys: List[int] = []
     for record in rendered.text_chunks:
-        for contour in record.contours:
-            if len(contour):
-                ys.extend(int(round(v)) for v in (contour.imag * _UNITS_PER_INCH).tolist())
+        for block in record.blocks:
+            ys.extend(_block_text_y_extents(block))
     if ys:
         current_center = (min(ys) + max(ys)) / 2.0
     else:  # No text: centering is a no-op.
@@ -196,41 +267,132 @@ def _transform_point(
     return x4 + dx_units, y4 + dy_units
 
 
-def _contour_to_path(
+def _transform_center(
     transform: _LabelTransform,
-    contour: np.ndarray,
+    center: complex,
     rotated: bool,
     dx_units: int,
     dy_units: int,
-) -> StrokePath:
-    """Convert one label-local contour (complex vertices) to a StrokePath.
+) -> Tuple[float, float]:
+    """Map one arc center through the label transform WITHOUT rounding.
+
+    Mirrors ``_transform_hpgl_coordinates``'s treatment of ``AA`` centers:
+    the center is mapped like any point, but its float value is only
+    rounded at emission (``_format_segment``), keeping huge-radius glyph
+    arcs exact through the chain.
 
     Args:
         transform: The label's :class:`_LabelTransform`.
-        contour: Complex vertex array of the contour (label-local inches).
+        center: Arc center in label-local inches.
         rotated: Whether the packer placed this label sideways.
         dx_units: Slot translation X in plotter units.
         dy_units: Slot translation Y in plotter units.
 
     Returns:
-        A pen-down :class:`~plt_optimizer.core.models.StrokePath` in device
-        units (pen-up at the first vertex). Degenerate contours yield a
-        path with no segments (pen-up only).
+        The ``(x, y)`` device center as floats (unrounded plotter units).
     """
-    points = [
-        _transform_point(transform, point.real, point.imag, rotated, dx_units, dy_units)
-        for point in contour
-    ]
-    if not points:  # pragma: no cover - empty contours are filtered upstream
-        return StrokePath(pen_up_position=None, segments=())
-    start = Coordinate(float(points[0][0]), float(points[0][1]))
+    x1 = center.real * _UNITS_PER_INCH
+    y1 = center.imag * _UNITS_PER_INCH
+    y2 = y1 + transform.shift
+    y3 = transform.flip_span - y2
+    if rotated:
+        x4 = transform.rot_y_max - y3
+        y4 = x1 - transform.rot_x_min
+    else:
+        x4, y4 = x1, y3
+    return x4 + dx_units, y4 + dy_units
+
+
+def _stroke_to_path(
+    transform: _LabelTransform,
+    stroke: Stroke,
+    rotated: bool,
+    dx_units: int,
+    dy_units: int,
+) -> StrokePath:
+    """Convert one label-local arc-native stroke to a device StrokePath.
+
+    Line segments map point-wise through the same chain the historical
+    polyline path used (:func:`_transform_point`, integer-rounded).
+    Arcs map start and center like points and NEGATE the sweep: the label
+    transform chain always contains exactly one Y-mirror (the device flip;
+    rotations and translations preserve sweeps), matching
+    ``_transform_hpgl_coordinates(flip_y_axis=True)`` on the emitted HPGL.
+    The arc end is derived from the transformed start/center/sweep with the
+    parser's own ``AA`` geometry so downstream re-emission stays exact.
+
+    Args:
+        transform: The label's :class:`_LabelTransform`.
+        stroke: The arc-native stroke (label-local inches).
+        rotated: Whether the packer placed this label sideways.
+        dx_units: Slot translation X in plotter units.
+        dy_units: Slot translation Y in plotter units.
+
+    Returns:
+        A :class:`~plt_optimizer.core.models.StrokePath` in device units
+        (pen-up at the stroke's rapid target). Empty strokes yield a path
+        with no segments.
+    """
+    pen_x, pen_y = _transform_point(
+        transform, stroke.pen_up.real, stroke.pen_up.imag, rotated, dx_units, dy_units
+    )
+    pen_up = Coordinate(float(pen_x), float(pen_y))
     segments: List[Segment] = []
-    previous = start
-    for x, y in points[1:]:
-        current = Coordinate(float(x), float(y))
-        segments.append(StrokeSegment(start=previous, end=current, is_cutting=True))
-        previous = current
-    return StrokePath(pen_up_position=start, segments=tuple(segments))
+    for segment in stroke.segments:
+        if isinstance(segment, LineSeg):
+            end_x, end_y = _transform_point(
+                transform, segment.end.real, segment.end.imag, rotated, dx_units, dy_units
+            )
+            start_x, start_y = _transform_point(
+                transform, segment.start.real, segment.start.imag, rotated, dx_units, dy_units
+            )
+            segments.append(
+                StrokeSegment(
+                    start=Coordinate(float(start_x), float(start_y)),
+                    end=Coordinate(float(end_x), float(end_y)),
+                    is_cutting=True,
+                )
+            )
+            continue
+        start_x, start_y = _transform_point(
+            transform, segment.start.real, segment.start.imag, rotated, dx_units, dy_units
+        )
+        center_x, center_y = _transform_center(
+            transform, segment.center, rotated, dx_units, dy_units
+        )
+        sweep = -segment.sweep_deg  # exactly one Y-mirror in the chain
+        start = Coordinate(float(start_x), float(start_y))
+        end = _arc_end_device(start, Coordinate(center_x, center_y), sweep)
+        segments.append(
+            ArcSegment(
+                start=start,
+                end=end,
+                center=Coordinate(center_x, center_y),
+                sweep_angle=sweep,
+                is_cutting=True,
+            )
+        )
+    return StrokePath(pen_up_position=pen_up, segments=tuple(segments))
+
+
+def _arc_end_device(start: Coordinate, center: Coordinate, sweep_deg: float) -> Coordinate:
+    """Derive an arc's end point with the core parser's ``AA`` geometry.
+
+    Args:
+        start: Arc start in device units.
+        center: Arc center in device units (unrounded).
+        sweep_deg: Signed sweep angle in degrees (device convention).
+
+    Returns:
+        The arc end point in device units.
+    """
+    radius = start.distance_to(center)
+    theta_start = math.atan2(start.y - center.y, start.x - center.x)
+    theta_end = theta_start + math.radians(sweep_deg)
+    return Coordinate(
+        center.x + radius * math.cos(theta_end),
+        center.y + radius * math.sin(theta_end),
+    )
 
 
 def _record_paths(
@@ -240,7 +402,7 @@ def _record_paths(
     dx_units: int,
     dy_units: int,
 ) -> Tuple[StrokePath, ...]:
-    """Convert a chunk record's contours into device-space stroke paths.
+    """Convert a chunk record's blocks into device-space stroke paths.
 
     Args:
         transform: The label's :class:`_LabelTransform`.
@@ -250,11 +412,13 @@ def _record_paths(
         dy_units: Slot translation Y in plotter units.
 
     Returns:
-        Non-empty paths of the record, in contour order.
+        Non-empty paths of the record, in block/stroke order.
     """
     paths = [
-        _contour_to_path(transform, contour, rotated, dx_units, dy_units)
-        for contour in record.contours
+        _stroke_to_path(transform, stroke, rotated, dx_units, dy_units)
+        for block in record.blocks
+        for stroke in block.strokes
+        if not stroke.is_empty
     ]
     return tuple(path for path in paths if path.segments)
 

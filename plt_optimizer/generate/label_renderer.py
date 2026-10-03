@@ -17,11 +17,12 @@ import tempfile
 from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
-from typing import Iterable, List, NamedTuple, Optional, Sequence, Tuple
+from typing import Iterable, List, Mapping, NamedTuple, Optional, Sequence, Tuple
 
 import numpy as np
 import vpype as vp
 
+from plt_optimizer.generate.font_registry import FontNotFoundError, resolve_font
 from plt_optimizer.generate.ftext_renderer import (
     render_text_line_ftext,
     render_text_line_ftext_with_words,
@@ -31,12 +32,19 @@ from plt_optimizer.generate.geometry import (
     arc_swept_bounds,
     circle_aabb_gap,
 )
+from plt_optimizer.generate.plt_font_renderer import (
+    PltFontRenderError,
+    render_text_line_plt_font,
+    render_text_line_plt_font_with_words,
+)
 from plt_optimizer.generate.resolution import (
     ResolvedLabel,
+    ResolvedTextLine,
     compute_horizontal_offset,
     compute_horizontal_scale,
     fit_line_spacing_to_margins,
 )
+from plt_optimizer.generate.text_geometry import TextBlock, block_from_linecollection
 
 logger = logging.getLogger(__name__)
 
@@ -90,24 +98,42 @@ class TextChunkRecord:
     stroke geometry so the plate-space optimizer can build one routing node
     per chunk without re-parsing emitted HPGL or classifying geometry.
 
+    Geometry is arc-native: :attr:`blocks` preserve ``AA`` arcs end-to-end
+    (PLT-extracted fonts), so the emitted cut file keeps native arcs. The
+    :attr:`contours` property exposes the legacy polyline view (arcs
+    flattened) for vertex-level consumers and tests.
+
     Attributes:
         line_index: Index of the chunk's text line in ``ResolvedLabel.content``.
         word_index: Index of the word within the line's whitespace split, or
             ``None`` for a whole-line chunk.
         word_text: The word's text (empty string for whole-line chunks).
         pen: HPGL pen number the chunk is emitted on (its cutter's pen).
-        contours: Vertex arrays of the chunk's strokes, label-local inches
-            with ``+y`` up (pre-export frame; transformed to the device
-            frame by the plate-space export pipeline).
-        bounds: ``(x_min, y_min, x_max, y_max)`` of :attr:`contours`.
+        blocks: The chunk's strokes as arc-native :class:`TextBlock` objects
+            (one per rendered source block), label-local inches with ``+y``
+            up (pre-export frame; transformed to the device frame by the
+            plate-space export pipeline).
+        bounds: ``(x_min, y_min, x_max, y_max)`` of :attr:`blocks` (swept-
+            analytic: arcs contribute their swept extent, never a full circle).
     """
 
     line_index: int
     word_index: Optional[int]
     word_text: str
     pen: int
-    contours: Tuple[np.ndarray, ...]
+    blocks: Tuple[TextBlock, ...]
     bounds: Tuple[float, float, float, float]
+
+    @property
+    def contours(self) -> Tuple[np.ndarray, ...]:
+        """Polyline view of :attr:`blocks` (arcs flattened, faithful chains).
+
+        Returns:
+            One complex vertex array per stroke, in block order.
+        """
+        return tuple(
+            np.asarray(line) for block in self.blocks for line in block.to_vpype_polylines()
+        )
 
 
 class LabelRenderError(Exception):
@@ -732,17 +758,17 @@ def _render_label_once(
         at its default) and the per-line rendered bounds used by
         :func:`_detect_text_hole_collisions`.
     """
-    # Create vpype Document
+    # Create vpype Document (polylines only: the boundary rectangle). Text is
+    # no longer routed through vpype because a LineCollection cannot carry
+    # arcs; text blocks are emitted as native HPGL alongside the boundary.
     doc = vp.Document()
 
-    # Render text layers, one vpype layer per cutter pen (SP1 only when no
-    # pen_map is supplied, preserving the historical single-pen output).
+    # Render text layers, one arc-native block tuple per cutter pen (SP1
+    # only when no pen_map is supplied, preserving the historical
+    # single-pen output).
     text_pens, line_entries, chunk_records = _render_text_lines_by_pen(
         label, pen_map, chunk_mode=_chunk_mode_of(label)
     )
-    for pen_number, text_lc in sorted(text_pens.items()):
-        if not text_lc.is_empty():
-            doc.add(text_lc, pen_number)
 
     # Render boundary layer
     boundary_lc = _render_boundary_local(label)
@@ -752,14 +778,18 @@ def _render_label_once(
     # NOTE: Drill holes are intentionally NOT added to the vpype document.
     # A LineCollection can only represent polylines, which would force the
     # circles to be emitted as polygons. Holes are instead emitted directly
-    # as native HPGL arc (``AA``) commands by ``_render_holes_hpgl``.
+    # as native HPGL arc (``AA``) commands by ``_render_holes_hpgl``. Text
+    # is likewise emitted as native HPGL (arcs preserved) by
+    # ``_linecollection_to_hpgl`` from ``text_pens``.
 
     # Export to temporary file with postprocessing
     with tempfile.NamedTemporaryFile(mode="w", suffix=".plt", delete=False) as f:
         temp_path = Path(f.name)
 
     try:
-        _export_to_plt_with_postprocessing(doc, temp_path, label, text_pens=set(text_pens))
+        _export_to_plt_with_postprocessing(
+            doc, temp_path, label, text_pens=set(text_pens), text_blocks=text_pens
+        )
         plt_content = temp_path.read_text().strip()
 
         # Extract bounds from rendered PLT
@@ -1005,6 +1035,7 @@ def _export_to_plt_with_postprocessing(
     output_path: Path,
     label: ResolvedLabel,
     text_pens: Optional[Iterable[int]] = None,
+    text_blocks: Optional[Mapping[int, Sequence[TextBlock]]] = None,
 ) -> None:
     """Export vpype Document to PLT for a single label.
 
@@ -1014,7 +1045,9 @@ def _export_to_plt_with_postprocessing(
 
     Process:
     1. Extract coordinates directly from vpype LineCollection (units are inches)
-       and convert them losslessly to plotter units at 1:1000 scale.
+       and convert them losslessly to plotter units at 1:1000 scale. Arc-native
+       text layers arrive as :class:`TextBlock` tuples (``text_blocks``) and
+       emit their ``AA`` arcs verbatim.
     2. Center the text pen(s) vertically within label bounds (one shared
        delta across every text pen so multi-cutter text blocks stay aligned).
     3. Invert the Y-axis to device convention for upright display.
@@ -1023,21 +1056,25 @@ def _export_to_plt_with_postprocessing(
     produces coordinates at nominal scale; rescaling would distort footprints.
 
     Args:
-        doc: The vpype Document to export.
-        output_path: Destination PLT file path.
+        doc: The vpype Document to export (polylines only: boundary).
+        output_path: Destination PLT file (or its parent when synthetic).
         label: The label being rendered (used to get expected dimensions).
         text_pens: Pen numbers carrying text geometry (one per cutter pen
             when a pen map is in use). Defaults to the historical single
             text pen (``SP1``). Boundary (``SP2``) and hole (``SP3``) pens
             are never centered.
+        text_blocks: Optional mapping of text pen number to the positioned
+            arc-native blocks emitted on that pen (see
+            :func:`_render_text_lines_by_pen`). When supplied, those pens
+            emit native PU/PD/AA instead of vpype layers.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Manually generate HPGL from LineCollection to preserve coordinates.
-    # Drill holes are emitted as native HPGL arcs (pen 3) alongside the
-    # polyline text/boundary layers.
+    # Manually generate HPGL from the boundary polylines and the arc-native
+    # text blocks. Drill holes are emitted as native HPGL arcs (pen 3)
+    # alongside them.
     holes_hpgl = _render_holes_hpgl(label)
-    hpgl_content = _linecollection_to_hpgl(doc, holes_hpgl=holes_hpgl)
+    hpgl_content = _linecollection_to_hpgl(doc, holes_hpgl=holes_hpgl, text_blocks=text_blocks)
 
     # Write to file
     output_path.write_text(hpgl_content, encoding="utf-8")
@@ -1062,7 +1099,11 @@ def _export_to_plt_with_postprocessing(
     _flip_y_coordinates_in_plt(output_path)
 
 
-def _linecollection_to_hpgl(doc: vp.Document, holes_hpgl: str = "") -> str:
+def _linecollection_to_hpgl(
+    doc: vp.Document,
+    holes_hpgl: str = "",
+    text_blocks: Optional[Mapping[int, Sequence[TextBlock]]] = None,
+) -> str:
     """Convert vpype Document to raw HPGL commands.
 
     Manually generates HPGL from LineCollections instead of using vpype's
@@ -1077,6 +1118,12 @@ def _linecollection_to_hpgl(doc: vp.Document, holes_hpgl: str = "") -> str:
         holes_hpgl: Optional pre-rendered HPGL for the drill-hole layer
             (pen 3), produced by :func:`_render_holes_hpgl`. It is emitted
             as native arc commands after the polyline layers.
+        text_blocks: Optional mapping of text pen number to arc-native
+            :class:`TextBlock` tuples (see :func:`_render_text_lines_by_pen`).
+            Those pens emit ``PU``/``PD``/``AA`` directly (arcs preserved,
+            polyline strokes bit-identical to the historical
+            ``PU{first};PD{rest}`` batching); pens present in BOTH this map
+            and ``doc`` are emitted from the map only.
 
     Returns:
         Raw HPGL/PLT content as a string.
@@ -1090,11 +1137,29 @@ def _linecollection_to_hpgl(doc: vp.Document, holes_hpgl: str = "") -> str:
     has_content = False
     skipped_first_pu0_0 = False  # Track if we've skipped the initial PU0,0
 
-    # Process each pen layer present in the document, in ascending pen order.
-    # Pen 1 is the default text pen, 2 the boundary, and per-cutter text
-    # pens (see build_cutter_pen_map) occupy 1 plus SP4+; drill holes are
-    # emitted separately as native arcs under SP3.
-    for pen_num in sorted(doc.layers):
+    block_pens = {pen for pen, blocks in (text_blocks or {}).items() if blocks}
+
+    # Process every pen carrying geometry, in ascending pen order: arc-native
+    # text blocks (pen 1 and per-cutter pens 4+, see build_cutter_pen_map) and
+    # polyline document layers (2 the boundary); drill holes are emitted
+    # separately as native arcs under SP3.
+    for pen_num in sorted(set(doc.layers) | block_pens):
+        blocks = text_blocks.get(pen_num) if text_blocks is not None else None
+        if blocks:
+            # Arc-native text layer: every stroke emits PU-led (PU/PD/AA), so
+            # the layer never starts with a bare PD and the origin-skip
+            # optimization below is a boundary-rectangle concern only.
+            if not any(not stroke.is_empty for block in blocks for stroke in block.strokes):
+                continue
+            has_content = True
+            lines.append(f"SP{pen_num}")
+            for block in blocks:
+                for stroke in block.strokes:
+                    if stroke.is_empty:
+                        continue
+                    lines.append(stroke.to_hpgl())
+            continue
+
         lc = doc.layers.get(pen_num)
         if lc is None or lc.is_empty():
             continue
@@ -1343,12 +1408,12 @@ def _flip_y_coordinates_in_plt(file_path: Path) -> None:
 
 
 def compress_line_to_width(
-    line_lc: vp.LineCollection,
+    line_block: TextBlock,
     available_width: float,
     max_h_compress: float,
     label_id: str,
     line_text: Optional[str] = None,
-) -> vp.LineCollection:
+) -> TextBlock:
     """Uniformly compress a rendered text line horizontally to fit the margin box.
 
     Margin precedence for width: when the rendered line is wider than the
@@ -1360,8 +1425,12 @@ def compress_line_to_width(
     where compression is disabled (``max_h_compress == 0.0``), are returned
     unchanged.
 
+    Arcs cannot survive the non-uniform X scale, so a compressed line's
+    arcs are flattened to polylines (bounded chord error, see
+    :meth:`TextBlock.compress_x`) with a WARNING naming the label/line.
+
     Args:
-        line_lc: The rendered LineCollection for a single text line.
+        line_block: The rendered text block for a single text line.
         available_width: Inner content width in inches (label width minus
             both margins).
         max_h_compress: Maximum compression fraction in ``[0.0, 1.0]``.
@@ -1370,18 +1439,18 @@ def compress_line_to_width(
             messages so warnings identify the offending line.
 
     Returns:
-        The original collection when no compression is needed or allowed,
-        otherwise a new horizontally compressed collection.
+        The original block when no compression is needed or allowed,
+        otherwise a new horizontally compressed block.
     """
-    bounds = line_lc.bounds()
+    bounds = line_block.bounds()
     if bounds is None:
-        return line_lc
+        return line_block
     min_x, _min_y, max_x, _max_y = bounds
     rendered_width = max_x - min_x
 
     scale = compute_horizontal_scale(rendered_width, available_width, max_h_compress)
     if scale >= 1.0:
-        return line_lc
+        return line_block
 
     compressed_width = rendered_width * scale
     line_desc = f" {line_text!r}" if line_text is not None else ""
@@ -1411,48 +1480,115 @@ def compress_line_to_width(
     # Uniform X scaling anchored at the line's left edge; Y coordinates are
     # untouched so glyph height and vertical stacking are unaffected. The
     # caller re-centers the compressed line horizontally afterwards.
-    # NOTE: complex arithmetic must touch only .real -- multiplying a complex
-    # segment by a float would (wrongly) scale Y as well.
-    compressed = vp.LineCollection()
-    for segment in line_lc:
-        compressed.append(min_x + (segment.real - min_x) * scale + 1j * segment.imag)
-    return compressed
+    context = f"of label {label_id}{line_desc}" if line_desc else f"of label {label_id}"
+    return line_block.compress_x(scale, context=context)
 
 
-def _apply_collision_compress(line_lc: vp.LineCollection, scale: float) -> vp.LineCollection:
+def _apply_collision_compress(line_block: TextBlock, scale: float, context: str = "") -> TextBlock:
     """Uniformly scale a rendered line horizontally by a collision-avoidance factor.
 
     Unlike :func:`compress_line_to_width` (which only engages when a line
     overflows the inner content area), this applies an unconditional uniform
     X scale produced by the text-hole collision resolution sweep. Y is
     untouched and the line's left edge is kept fixed; the caller re-aligns
-    the compressed line afterwards.
+    the compressed line afterwards. Arcs on a compressed line are flattened
+    (bounded chord error) with a WARNING.
 
     Args:
-        line_lc: The rendered LineCollection for a single text line.
+        line_block: The rendered text block for a single text line.
         scale: Uniform horizontal scale in ``(0.0, 1.0]``. ``1.0`` returns
-            the collection unchanged.
+            the block unchanged.
+        context: Optional description for the arc-flattening WARNING.
 
     Returns:
-        The original collection when ``scale >= 1.0`` or bounds are
-        unavailable, otherwise a new horizontally scaled collection.
+        The original block when ``scale >= 1.0`` or bounds are
+        unavailable, otherwise a new horizontally scaled block.
     """
     if scale >= 1.0:
-        return line_lc
-    bounds = line_lc.bounds()
-    if bounds is None:  # pragma: no cover - callers check emptiness
-        return line_lc
-    min_x = bounds[0]
-    compressed = vp.LineCollection()
-    for segment in line_lc:
-        compressed.append(min_x + (segment.real - min_x) * scale + 1j * segment.imag)
-    return compressed
+        return line_block
+    return line_block.compress_x(scale, context=context)
+
+
+def _render_line_block(
+    line: ResolvedTextLine,
+    chunk_mode: TextChunkMode,
+) -> Tuple[TextBlock, Optional[List[Tuple[str, List[int]]]]]:
+    """Render one resolved text line to an arc-native :class:`TextBlock`.
+
+    Dispatches on the line's cascaded ``font``:
+
+    - ``kind == "plt"``: PLT-extracted fonts render through
+      :func:`~plt_optimizer.generate.plt_font_renderer.render_text_line_plt_font_with_words`;
+      arcs stay arcs end-to-end. Word groups index the block's strokes and
+      are exact by construction.
+    - ``kind == "ttf"``: TrueType fonts render through the ftext (matplotlib)
+      path; the resulting LineCollection is adapted losslessly (it is
+      polyline-only anyway) via :func:`block_from_linecollection`. ftext word
+      groups index contours, which map 1:1 onto the adapted block's strokes.
+
+    Args:
+        line: The resolved text line (font, height, cutter, spacing).
+        chunk_mode: When ``WORD``, request per-word stroke groups.
+
+    Returns:
+        ``(block, word_groups)`` where ``word_groups`` is ``None`` in line
+        mode (or when word grouping is unavailable) and otherwise lists one
+        ``(word_text, stroke_indices)`` pair per whitespace-delimited segment.
+
+    Raises:
+        PltFontRenderError: If a PLT font lacks a glyph (propagated from the
+            PLT renderer; unknown font names are reported as
+            :class:`PltFontRenderError` too).
+    """
+    try:
+        ref = resolve_font(line.font)
+    except FontNotFoundError as exc:
+        raise PltFontRenderError(str(exc)) from exc
+
+    if ref.kind == "plt":
+        if chunk_mode is TextChunkMode.WORD:
+            block, groups = render_text_line_plt_font_with_words(
+                line.text,
+                target_height_inches=line.toolpath_text_height,
+                font_name=ref.name,
+                cutter_diameter=line.cutter_diameter,
+                character_spacing=line.character_spacing,
+            )
+            return block, (groups or None)
+        block = render_text_line_plt_font(
+            line.text,
+            target_height_inches=line.toolpath_text_height,
+            font_name=ref.name,
+            cutter_diameter=line.cutter_diameter,
+            character_spacing=line.character_spacing,
+        )
+        return block, None
+
+    # TrueType family: the historical ftext path, adapted to TextBlock.
+    if chunk_mode is TextChunkMode.WORD:
+        filtered_lc, groups = render_text_line_ftext_with_words(
+            line.text,
+            target_height_inches=line.toolpath_text_height,
+            font_path=ref.path,
+        )
+        block = block_from_linecollection(filtered_lc)
+        # Contour indices map 1:1 onto strokes only when every contour
+        # survived adaptation; otherwise fall back to whole-line chunking.
+        if groups and len(block.strokes) == len(filtered_lc):
+            return block, groups
+        return block, None
+    filtered_lc = render_text_line_ftext(
+        line.text,
+        target_height_inches=line.toolpath_text_height,
+        font_path=ref.path,
+    )
+    return block_from_linecollection(filtered_lc), None
 
 
 def _render_positioned_lines(
     label: ResolvedLabel,
     chunk_mode: TextChunkMode = TextChunkMode.LINE,
-) -> List[Tuple[int, vp.LineCollection, _LineEntry, Optional[List[Tuple[str, List[int]]]]]]:
+) -> List[Tuple[int, TextBlock, _LineEntry, Optional[List[Tuple[str, List[int]]]]]]:
     """Render and position every text line of a label (shared core).
 
     NOTE: The absolute vertical anchor is irrelevant because the export
@@ -1472,32 +1608,38 @@ def _render_positioned_lines(
     Lines are horizontally aligned within the label's content area according
     to each line's ``text_h_alignment`` ("left" anchors the line's left-most
     point at the left margin, "right" anchors the right-most point at the
-    right margin, "center" centers it). Text is
-    rendered with the single-line Relief CAD font via ftext, replacing vpype's
-    built-in Hershey stroke-font engine.
+    right margin, "center" centers it). Each line renders in its cascaded
+    ``font``: TrueType fonts through ftext (matplotlib), PLT-extracted fonts
+    through the arc-native glyph walker (see :func:`_render_line_block`).
 
     When per-line compression is active (set by the text-hole collision
     resolution sweep), only the identified colliding lines are horizontally
     scaled by their per-line compression factor (non-colliding lines remain
-    at full width) before alignment.
+    at full width) before alignment. Compression flattens arcs (bounded
+    chord error) with a WARNING -- native arcs and compression are mutually
+    exclusive.
 
     Args:
         label: The resolved label whose ``content`` should be rendered.
         chunk_mode: When ``WORD``, each line is additionally partitioned into
-            whitespace-delimited word groups (contour indices into the
-            rendered line, exact by construction). ``LINE`` (the default)
+            whitespace-delimited word groups (stroke indices into the
+            rendered block, exact by construction). ``LINE`` (the default)
             reports no word groups.
 
     Returns:
-        One ``(line_index, positioned_lc, entry, word_groups)`` tuple per
-        renderable line, in content order, where ``positioned_lc`` is the
-        positioned LineCollection, ``entry`` is its ``(line_index,
+        One ``(line_index, positioned_block, entry, word_groups)`` tuple per
+        renderable line, in content order, where ``positioned_block`` is the
+        positioned :class:`TextBlock`, ``entry`` is its ``(line_index,
         line_text, bounds)`` record in label-local coordinates (pre-export
-        anchor, block centered around y=0), and ``word_groups`` is ``None``
-        in line mode or a list of ``(word_text, contour_indices)`` pairs
-        indexing ``positioned_lc`` contours in word order. The export
-        pipeline vertically centers the block at ``height / 2``; collision
-        detection applies that shift itself.
+        anchor, block centered around y=0; bounds are swept-analytic), and
+        ``word_groups`` is ``None`` in line mode or a list of ``(word_text,
+        stroke_indices)`` pairs indexing ``positioned_block`` strokes in word
+        order. The export pipeline vertically centers the block at
+        ``height / 2``; collision detection applies that shift itself.
+
+    Raises:
+        LabelRenderError: If a line's font cannot render its text (missing
+            glyph, unknown font), naming the label and line.
     """
     if not label.content:
         return []
@@ -1514,7 +1656,7 @@ def _render_positioned_lines(
     rendered_lines: list[
         Tuple[
             int,
-            vp.LineCollection,
+            TextBlock,
             float,
             float,
             float,
@@ -1525,28 +1667,21 @@ def _render_positioned_lines(
     total_rendered_height = 0.0
 
     for line_index, line in enumerate(label.content):
-        # Render at the toolpath_text_height (cutter-compensated) using the
-        # single-line TTF font. ftext returns upright glyphs with baseline at 0.
-        word_groups: Optional[List[Tuple[str, List[int]]]] = None
-        if chunk_mode is TextChunkMode.WORD:
-            filtered_lc, groups = render_text_line_ftext_with_words(
-                line.text,
-                target_height_inches=line.toolpath_text_height,
-            )
-            # An empty group list means grouping was unavailable for this
-            # line; fall back to whole-line chunking for it.
-            word_groups = groups or None
-        else:
-            filtered_lc = render_text_line_ftext(
-                line.text,
-                target_height_inches=line.toolpath_text_height,
-            )
+        # Render at the toolpath_text_height (cutter-compensated) in the
+        # line's cascaded font. Both renderers return upright glyphs.
+        try:
+            block, word_groups = _render_line_block(line, chunk_mode)
+        except PltFontRenderError as exc:
+            raise LabelRenderError(
+                f"Label {label.id}: text line {line_index} ({line.text!r}) "
+                f"cannot be rendered: {exc}"
+            ) from exc
 
-        if filtered_lc.is_empty():
+        if block.is_empty():
             continue
 
-        bounds = filtered_lc.bounds()
-        if bounds is None:
+        bounds = block.bounds()
+        if bounds is None:  # pragma: no cover - is_empty covers this in practice
             continue
         _min_x, min_y, _max_x, max_y = bounds
         rendered_height = max_y - min_y
@@ -1555,8 +1690,9 @@ def _render_positioned_lines(
         # for lines that are colliding with holes. Only the identified colliding
         # lines get compressed; non-colliding lines remain at full width.
         compression_scale = label.collision_compress_by_line.get(line_index, 1.0)
-        filtered_lc = _apply_collision_compress(filtered_lc, compression_scale)
-        bounds = filtered_lc.bounds()
+        line_desc = f"of label {label.id} line {line_index} ({line.text!r})"
+        block = _apply_collision_compress(block, compression_scale, context=line_desc)
+        bounds = block.bounds()
         if bounds is None:  # pragma: no cover - measured just above
             continue
         rendered_height = bounds[3] - bounds[1]
@@ -1564,7 +1700,7 @@ def _render_positioned_lines(
         rendered_lines.append(
             (
                 line_index,
-                filtered_lc,
+                block,
                 rendered_height,
                 line.line_spacing,
                 line.max_h_compress,
@@ -1611,21 +1747,20 @@ def _render_positioned_lines(
     current_y = total_rendered_height / 2.0
 
     # Second pass: position each line, stacked top-to-bottom (+y up).
-    positioned: List[
-        Tuple[int, vp.LineCollection, _LineEntry, Optional[List[Tuple[str, List[int]]]]]
-    ] = []
+    positioned: List[Tuple[int, TextBlock, _LineEntry, Optional[List[Tuple[str, List[int]]]]]] = []
     for i, (
         line_index,
-        filtered_lc,
+        block,
         rendered_height,
         _line_spacing,
         max_h_compress,
         text_h_alignment,
         word_groups,
     ) in enumerate(rendered_lines):
-        bounds = filtered_lc.bounds()
+        bounds = block.bounds()
         if bounds is None:  # pragma: no cover - measured in first pass
             continue
+        line = label.content[line_index]
 
         # Margin precedence for width: compress over-wide lines so they
         # respect the inner content area (bounded by max_h_compress).
@@ -1635,14 +1770,14 @@ def _render_positioned_lines(
         cutter_margin_h = h_margin + (line.cutter_diameter / 2.0)
         compression_available_width = inner_width - (2 * cutter_margin_h)
         alignment_available_width = inner_width - (2 * h_margin)
-        filtered_lc = compress_line_to_width(
-            filtered_lc,
+        block = compress_line_to_width(
+            block,
             compression_available_width,
             max_h_compress,
             label.id,
-            line_text=label.content[line_index].text,
+            line_text=line.text,
         )
-        bounds = filtered_lc.bounds()
+        bounds = block.bounds()
         if bounds is None:  # pragma: no cover - measured in first pass
             continue
         min_x, _min_y, max_x, max_y = bounds
@@ -1658,18 +1793,27 @@ def _render_positioned_lines(
 
         # Vertical stacking: top of this line's glyphs at current_y.
         y_offset = current_y - max_y
-        filtered_lc.translate(x_offset, y_offset)
+        block = block.translate(x_offset, y_offset)
 
-        positioned_bounds = filtered_lc.bounds()
-        if positioned_bounds is not None:
-            positioned.append(
+        # Translation is additive, so the positioned bounds are the measured
+        # bounds shifted; no re-measurement is needed.
+        positioned.append(
+            (
+                line_index,
+                block,
                 (
                     line_index,
-                    filtered_lc,
-                    (line_index, label.content[line_index].text, positioned_bounds),
-                    word_groups,
-                )
+                    label.content[line_index].text,
+                    (
+                        min_x + x_offset,
+                        bounds[1] + y_offset,
+                        max_x + x_offset,
+                        max_y + y_offset,
+                    ),
+                ),
+                word_groups,
             )
+        )
 
         # Move down past this line (plus adjusted spacing, except after
         # the last).
@@ -1686,8 +1830,8 @@ def _render_text_local_with_bounds(
     """Render text at local coordinates and report per-line bounds.
 
     Thin wrapper over :func:`_render_positioned_lines` returning the
-    combined LineCollection (all lines on one collection) plus the
-    per-line bounds records used for collision detection.
+    combined polyline view (arcs flattened; all lines on one collection)
+    plus the per-line bounds records used for collision detection.
 
     Args:
         label: The resolved label whose ``content`` should be rendered.
@@ -1702,8 +1846,8 @@ def _render_text_local_with_bounds(
     """
     text_lc = vp.LineCollection()
     line_entries: List[_LineEntry] = []
-    for _line_index, positioned_lc, entry, _wg in _render_positioned_lines(label):
-        text_lc.extend(positioned_lc)
+    for _line_index, positioned_block, entry, _wg in _render_positioned_lines(label):
+        text_lc.extend(positioned_block.to_vpype_polylines())
         line_entries.append(entry)
     return text_lc, line_entries
 
@@ -1712,11 +1856,11 @@ def _render_text_lines_by_pen(
     label: ResolvedLabel,
     pen_map: Optional[dict[tuple[float, str], int]] = None,
     chunk_mode: TextChunkMode = TextChunkMode.LINE,
-) -> Tuple[dict[int, vp.LineCollection], List[_LineEntry], List[TextChunkRecord]]:
+) -> Tuple[dict[int, Tuple[TextBlock, ...]], List[_LineEntry], List[TextChunkRecord]]:
     """Render text lines grouped onto per-cutter pen layers.
 
-    Each positioned line's LineCollection is appended to the vpype layer
-    of its ``(cutter, text_color)`` layer's pen (see
+    Each positioned line's arc-native :class:`TextBlock` is appended to the
+    block tuple of its ``(cutter, text_color)`` layer's pen (see
     :func:`plt_optimizer.generate.resolution.build_cutter_pen_map`). Lines
     whose layer is absent from ``pen_map`` (or when no map is supplied)
     fall back to the historical text pen (``SP1``), preserving
@@ -1731,40 +1875,41 @@ def _render_text_lines_by_pen(
 
     Returns:
         Tuple of ``(pens, line_entries, chunk_records)`` where ``pens`` maps
-        pen number to the LineCollection for that pen (only non-empty pens
-        included), ``line_entries`` is the same per-line bounds record list
-        returned by :func:`_render_text_local_with_bounds`, and
-        ``chunk_records`` holds one :class:`TextChunkRecord` per chunk (per
-        line in ``LINE`` mode; per word plus any ungrouped line in ``WORD``
-        mode) in label-local coordinates for plate-space optimization.
+        pen number to the tuple of positioned blocks for that pen (only
+        non-empty pens included), ``line_entries`` is the same per-line
+        bounds record list returned by
+        :func:`_render_text_local_with_bounds`, and ``chunk_records`` holds
+        one :class:`TextChunkRecord` per chunk (per line in ``LINE`` mode;
+        per word plus any ungrouped line in ``WORD`` mode) in label-local
+        coordinates for plate-space optimization.
     """
-    pens: dict[int, vp.LineCollection] = {}
+    pens: dict[int, List[TextBlock]] = {}
     line_entries: List[_LineEntry] = []
     chunk_records: List[TextChunkRecord] = []
-    for line_index, positioned_lc, entry, word_groups in _render_positioned_lines(
+    for line_index, positioned_block, entry, word_groups in _render_positioned_lines(
         label, chunk_mode=chunk_mode
     ):
         pen = LAYER_TEXT
         if pen_map is not None and 0 <= line_index < len(label.content):
             line_content = label.content[line_index]
             pen = pen_map.get((line_content.cutter_diameter, line_content.text_color), LAYER_TEXT)
-        pens.setdefault(pen, vp.LineCollection()).extend(positioned_lc)
+        pens.setdefault(pen, []).append(positioned_block)
         line_entries.append(entry)
 
-        contours = tuple(np.asarray(line) for line in positioned_lc)
         if word_groups is not None:
             for word_index, (word_text, indices) in enumerate(word_groups):
                 if not indices:
                     continue  # blank segment: no strokes to route
-                word_contours = tuple(contours[i] for i in indices)
+                word_block = TextBlock(strokes=tuple(positioned_block.strokes[i] for i in indices))
+                word_bounds = word_block.bounds()
                 chunk_records.append(
                     TextChunkRecord(
                         line_index=line_index,
                         word_index=word_index,
                         word_text=word_text,
                         pen=pen,
-                        contours=word_contours,
-                        bounds=_contours_bounds(word_contours),
+                        blocks=(word_block,),
+                        bounds=word_bounds if word_bounds is not None else entry[2],
                     )
                 )
         else:
@@ -1774,33 +1919,19 @@ def _render_text_lines_by_pen(
                     word_index=None,
                     word_text="",
                     pen=pen,
-                    contours=contours,
+                    blocks=(positioned_block,),
                     bounds=entry[2],
                 )
             )
-    return pens, line_entries, chunk_records
-
-
-def _contours_bounds(contours: Sequence[np.ndarray]) -> Tuple[float, float, float, float]:
-    """Return the ``(x_min, y_min, x_max, y_max)`` bounds of vertex arrays.
-
-    Args:
-        contours: Complex vertex arrays (one per contour).
-
-    Returns:
-        Bounds tuple in the contours' coordinate units. Degenerate/empty
-        input yields an all-zero tuple.
-    """
-    xs: List[float] = []
-    ys: List[float] = []
-    for contour in contours:
-        if len(contour) == 0:
-            continue
-        xs.extend(contour.real.tolist())
-        ys.extend(contour.imag.tolist())
-    if not xs or not ys:
-        return (0.0, 0.0, 0.0, 0.0)
-    return (min(xs), min(ys), max(xs), max(ys))
+    return (
+        {
+            pen: tuple(blocks)
+            for pen, blocks in pens.items()
+            if any(not b.is_empty() for b in blocks)
+        },
+        line_entries,
+        chunk_records,
+    )
 
 
 def _render_boundary_local(label: ResolvedLabel) -> vp.LineCollection:
