@@ -76,6 +76,12 @@ class TestArcHelpers:
         assert arc_flatten_segments(0.0, 1.0) == 1
         assert arc_flatten_segments(90.0, 0.0) == 1
 
+    def test_flatten_segment_count_tiny_radius(self) -> None:
+        """A radius under the chord tolerance falls back to angular sizing."""
+        # r < tol makes the radial formula meaningless (acos domain);
+        # the angular floor (>= 2 chords per 90 deg) takes over.
+        assert arc_flatten_segments(90.0, ARC_FLATTEN_CHORD_TOL_INCHES / 2) == 18
+
     def test_flatten_segment_count_refines_with_radius(self) -> None:
         """A huge radius needs many more chords than a tiny one."""
         small = arc_flatten_segments(90.0, 0.01)
@@ -221,6 +227,15 @@ class TestStroke:
         assert chains[2] == [2 + 1j, 3 + 1j]
         assert chains[1][-1] == pytest.approx(stroke.segments[1].end, abs=1e-12)
 
+    def test_polyline_chains_merge_consecutive_lines(self) -> None:
+        """Consecutive line segments merge into one chain (start recorded once)."""
+        stroke = Stroke(
+            pen_up=0j,
+            segments=(LineSeg(0j, 1 + 0j), LineSeg(1 + 0j, 2 + 0j), LineSeg(2 + 0j, 3 + 0j)),
+        )
+        chains = stroke.polyline_chains()
+        assert chains == [[0j, 1 + 0j, 2 + 0j, 3 + 0j]]
+
     def test_to_linecollection_drops_degenerate(self) -> None:
         """Single-point chains never reach the LineCollection view."""
         stroke = Stroke(pen_up=0j, segments=(LineSeg(0j, 1 + 1j),))
@@ -363,6 +378,33 @@ class TestTextBlock:
         for line in lc:
             assert len(line) >= 2
 
+    def test_to_vpype_polylines_skips_segmentless_strokes(self) -> None:
+        """A stroke without segments contributes no polyline."""
+        block = TextBlock(
+            strokes=(
+                Stroke(pen_up=5 + 5j, segments=()),
+                Stroke(pen_up=0j, segments=(LineSeg(0j, 1 + 0j),)),
+            )
+        )
+        lines = list(block.to_vpype_polylines())
+        assert len(lines) == 1
+        assert len(lines[0]) == 2
+
+    def test_to_vpype_polylines_joins_arc_to_line_vertices(self) -> None:
+        """A chained arc drops its duplicate start when merged into the run."""
+        arc = _quarter_arc()  # starts at 1+0j, exactly the line's end
+        block = TextBlock(
+            strokes=(Stroke(pen_up=0j, segments=(LineSeg(0j, 1 + 0j), arc)),)
+        )
+        lines = list(block.to_vpype_polylines())
+        assert len(lines) == 1
+        # Line contributes 2 points; the flattened arc adds its own vertices
+        # minus the shared start point.
+        arc_points = len(arc.flattened())
+        assert len(lines[0]) == 2 + arc_points - 1
+        assert lines[0][1] == pytest.approx(1 + 0j)
+        assert lines[0][2] != pytest.approx(1 + 0j)
+
     def test_to_vpype_polylines_one_polyline_per_stroke(self) -> None:
         """The legacy view chains a stroke's vertices into a single polyline."""
         stroke = Stroke(
@@ -448,11 +490,33 @@ class TestBlockFromParserPaths:
         block = block_from_parser_paths(doc.stroke_paths, scale=1 / 1000)
         assert len(block.strokes) == 1
 
+    def test_skips_segmentless_handbuilt_paths(self) -> None:
+        """A stroke path without segments is skipped defensively."""
+        from plt_optimizer.core.models import StrokePath
+
+        block = block_from_parser_paths([StrokePath(pen_up_position=None, segments=())])
+        assert block.strokes == ()
+
     def test_pen_up_defaults_to_first_segment_start(self) -> None:
         """A path without an explicit pen-up uses its first vertex."""
         doc = PLTParser().parse_string("IN;PA;PU0,0;PD1000,0;SP;")
         block = block_from_parser_paths(doc.stroke_paths, scale=1 / 1000)
         assert block.strokes[0].pen_up == pytest.approx(0j)
+
+    def test_missing_pen_up_position_falls_back_to_start(self) -> None:
+        """A hand-built path without a pen-up anchors at the first vertex."""
+        from plt_optimizer.core.models import Coordinate, StrokePath, StrokeSegment
+
+        path = StrokePath(
+            pen_up_position=None,
+            segments=(
+                StrokeSegment(
+                    start=Coordinate(3.0, 4.0), end=Coordinate(5.0, 6.0), is_cutting=True
+                ),
+            ),
+        )
+        block = block_from_parser_paths([path], scale=2.0)
+        assert block.strokes[0].pen_up == pytest.approx(6 + 8j)
 
     def test_scale_converts_units(self) -> None:
         """The scale maps plotter units to inches."""

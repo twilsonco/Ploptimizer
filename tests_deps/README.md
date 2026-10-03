@@ -21,6 +21,8 @@ keep:
 | `complex_test_job.yaml` (+ `replacement_text_complex.txt` + `replacement_text_placeholder.txt` + `replacement_text_placeholder_multi.txt`) | `test_schema.py`, `test_phase3_export.py`, `test_substitution.py` |
 | `sample_spec.yaml` | `test_schema.py`; docstring examples in `plt_optimizer/generate/*` |
 | `rotation_demo_job.yaml` | `test_layout.py` (rotation-required/refused regression) |
+| `columns_demo_job.yaml` | `test_layout.py` (column-major fill regression) |
+| `plt_font_demo_job.yaml` | `test_plt_font_renderer.py` (font cascade + arc-native AA regression) |
 | `1-inch-square.plt` | `test_identity.py`, `test_benchmark.py` |
 | `test_rect_grid13sheet0.plt` | `test_identity.py` |
 | `1x3 half inch letters holes1.plt` | `test_identity.py` |

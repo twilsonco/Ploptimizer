@@ -39,11 +39,13 @@ from plt_optimizer.generate.label_renderer import (
     _collision_threshold,
     _linecollection_to_hpgl,
     _render_boundary_local,
+    _render_line_block,
     _render_text_local_with_bounds,
     _transform_hpgl_coordinates,
     render_label_to_plt,
 )
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
+from plt_optimizer.generate.text_geometry import LineSeg, Stroke, TextBlock
 
 
 def _make_line(text: str, height: float = 0.3) -> ResolvedTextLine:
@@ -105,33 +107,6 @@ class _EmptyIterableSegment:
         return iter(())
 
 
-class _BoundslessLineCollection(vp.LineCollection):
-    """Non-empty collection whose ``bounds()`` reports ``None``.
-
-    Trips the defensive ``bounds is None`` skip in the first pass of
-    ``_render_positioned_lines`` (a real vpype collection cannot be both
-    non-empty and bounds-less).
-    """
-
-    def bounds(self) -> Optional[tuple[float, float, float, float]]:
-        """Report no bounds regardless of content."""
-        return None
-
-
-class _TranslateClearsLineCollection(vp.LineCollection):
-    """Collection that loses all geometry when translated.
-
-    Trips the ``positioned_bounds is not None`` guard in the second pass of
-    ``_render_positioned_lines``: the line renders with valid bounds but the
-    positioning translate empties it, so no collision entry is recorded.
-    """
-
-    def translate(self, dx: float, dy: float) -> None:
-        """Translate, then drop every segment."""
-        super().translate(dx, dy)
-        self._lines.clear()
-
-
 def _stub_ftext(factory: Callable[[], vp.LineCollection]) -> Callable[..., vp.LineCollection]:
     """Build a ``render_text_line_ftext`` replacement returning fresh stubs.
 
@@ -177,11 +152,11 @@ class TestRenderLabelOnceLayerGuards:
             pen_map: Optional[dict[tuple[float, str], int]] = None,
             chunk_mode: label_renderer.TextChunkMode = label_renderer.TextChunkMode.LINE,
         ) -> tuple[
-            dict[int, vp.LineCollection],
+            dict[int, tuple[TextBlock, ...]],
             list[label_renderer._LineEntry],
             list[label_renderer.TextChunkRecord],
         ]:
-            return {9: vp.LineCollection()}, [], []
+            return {9: ()}, [], []
 
         monkeypatch.setattr(label_renderer, "_render_text_lines_by_pen", fake_by_pen)
         rendered = render_label_to_plt(_label())
@@ -219,6 +194,7 @@ class TestRenderLabelOnceTerminator:
             output_path: Path,
             label: ResolvedLabel,
             text_pens: Optional[set[int]] = None,
+            text_blocks: Optional[dict[int, tuple[TextBlock, ...]]] = None,
         ) -> None:
             Path(output_path).write_text(content, encoding="utf-8")
 
@@ -344,6 +320,87 @@ class TestLinecollectionToHpglDefensive:
         assert out == "IN;PA;"
 
 
+class TestLinecollectionToHpglBlockPens:
+    """Arc-native ``text_blocks`` layers in ``_linecollection_to_hpgl``."""
+
+    @staticmethod
+    def _block(*stroke_specs: bool) -> TextBlock:
+        """Build a block with one stroke per flag (True = has geometry).
+
+        Args:
+            stroke_specs: One flag per stroke; ``True`` produces a one-segment
+                stroke, ``False`` a segment-less (empty) stroke.
+
+        Returns:
+            A TextBlock for emission tests.
+        """
+        strokes = tuple(
+            Stroke(
+                pen_up=complex(1.0 + index, 1.0),
+                segments=(LineSeg(complex(1.0 + index, 1.0), complex(2.0 + index, 2.0)),)
+                if has_geometry
+                else (),
+            )
+            for index, has_geometry in enumerate(stroke_specs)
+        )
+        return TextBlock(strokes=strokes)
+
+    def test_all_empty_block_pen_is_skipped(self) -> None:
+        """A block pen whose strokes are all empty emits no SP section."""
+        doc = vp.Document()
+        good = vp.LineCollection()
+        good.append(np.array([1 + 1j, 2 + 2j]))
+        doc.layers[2] = good
+
+        out = _linecollection_to_hpgl(doc, text_blocks={4: (self._block(False),)})
+
+        assert "SP4" not in out
+        assert "SP2" in out
+
+    def test_empty_strokes_within_block_pen_are_skipped(self) -> None:
+        """Segment-less strokes inside a live block pen emit nothing."""
+        out = _linecollection_to_hpgl(vp.Document(), text_blocks={1: (self._block(False, True),)})
+
+        assert out == "IN;PA;SP1;PU2000,1000;PD3000,2000;SP;"
+
+    def test_block_pen_emits_without_document_layers(self) -> None:
+        """A block-only document still gets header, pen section and footer."""
+        out = _linecollection_to_hpgl(vp.Document(), text_blocks={1: (self._block(True),)})
+
+        assert out == "IN;PA;SP1;PU1000,1000;PD2000,2000;SP;"
+
+
+class TestRenderLineBlockWordFallback:
+    """TTF word groups fall back to whole-line chunking on 1:1 mismatch."""
+
+    def test_dropped_contour_disables_word_groups(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A contour lost in adaptation voids the contour-indexed groups."""
+        # Two contours, one of which is a lone vertex: block_from_linecollection
+        # drops it, so strokes (1) != contours (2) and groups cannot be trusted.
+        lc = vp.LineCollection()
+        lc.append(np.array([0 + 0j, 1 + 1j]))
+        # append() filters degenerate arrays, so inject the lone vertex raw.
+        lc._lines.append(np.array([2 + 2j]))
+
+        def fake_with_words(
+            *args: object, **kwargs: object
+        ) -> tuple[vp.LineCollection, list[tuple[str, list[int]]]]:
+            return lc, [("AB", [0]), ("C", [1])]
+
+        monkeypatch.setattr(label_renderer, "render_text_line_ftext_with_words", fake_with_words)
+        line = ResolvedTextLine(
+            text="AB C",
+            nominal_text_height=0.3,
+            toolpath_text_height=0.27,
+            cutter_diameter=0.03,
+            character_spacing=0.0,
+            line_spacing=0.0,
+        )
+        block, groups = _render_line_block(line, label_renderer.TextChunkMode.WORD)
+        assert groups is None
+        assert len(block.strokes) == 1
+
+
 class TestCenterTextLayerDefensive:
     """Malformed tokens and the already-centered early return."""
 
@@ -405,12 +462,20 @@ class TestRenderPositionedLinesSkipGuards:
         assert text_lc.is_empty()
         assert entries == []
 
-    def test_line_without_bounds_is_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A non-empty render reporting no bounds is dropped safely."""
+    def test_line_without_geometry_is_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A render whose polylines all carry no segments is dropped safely.
+
+        Blocks measure bounds analytically (no bounds <=> no segments), so
+        the historical "bounds-less non-empty collection" guard folded into
+        the emptiness check when rendering moved to arc-native blocks: a
+        lone vertex adapts to a segment-less stroke and the line renders
+        nothing.
+        """
 
         def factory() -> vp.LineCollection:
-            stub = _BoundslessLineCollection()
-            stub.append(np.array([0 + 0j, 1 + 0.3j]))
+            stub = vp.LineCollection()
+            # append() filters degenerate arrays, so inject the lone vertex raw.
+            stub._lines.append(np.array([0.5 + 0.5j]))
             return stub
 
         monkeypatch.setattr(label_renderer, "render_text_line_ftext", _stub_ftext(factory))
@@ -418,15 +483,13 @@ class TestRenderPositionedLinesSkipGuards:
 
         assert entries == []
 
-    def test_line_losing_geometry_on_translate_is_not_recorded(
+    def test_empty_rendered_line_is_not_recorded(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A line emptied by the positioning translate gets no entry."""
+        """A line that renders to a fully empty block gets no entry."""
 
         def factory() -> vp.LineCollection:
-            stub = _TranslateClearsLineCollection()
-            stub.append(np.array([0 + 0j, 1 + 0.3j]))
-            return stub
+            return vp.LineCollection()
 
         monkeypatch.setattr(label_renderer, "render_text_line_ftext", _stub_ftext(factory))
         text_lc, entries = _render_text_local_with_bounds(_label())

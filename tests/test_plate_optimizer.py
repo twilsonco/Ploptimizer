@@ -7,18 +7,27 @@ and the text/structural optimization entry points.
 
 from __future__ import annotations
 
+import math
 from typing import List, Optional, Tuple
 
-import numpy as np
 import pytest
 
 from plt_optimizer.core.models import ArcSegment, Coordinate, StrokePath, StrokeSegment
 from plt_optimizer.core.optimizer import NearestNeighbor2OptStrategy
-from plt_optimizer.generate.label_renderer import RenderedLabel, TextChunkRecord
+from plt_optimizer.generate.label_renderer import (
+    RenderedLabel,
+    TextChunkRecord,
+    _collect_hpgl_geometry,
+    _transform_hpgl_coordinates,
+)
 from plt_optimizer.generate.layout import PackedLabel
 from plt_optimizer.generate.plate_optimizer import (
+    _block_text_y_extents,
     _label_transform,
+    _LabelTransform,
     _rapid_distance,
+    _record_paths,
+    _stroke_to_path,
     _transform_point,
     build_text_blocks,
     emit_layer_document,
@@ -26,6 +35,7 @@ from plt_optimizer.generate.plate_optimizer import (
     optimize_text_layer,
 )
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
+from plt_optimizer.generate.text_geometry import ArcSeg, LineSeg, Stroke, TextBlock
 
 
 def _make_label(height: float = 1.0) -> ResolvedLabel:
@@ -106,9 +116,8 @@ def _line_record(
         line_index: Source line index.
 
     Returns:
-        A TextChunkRecord with one contour.
+        A TextChunkRecord with one polyline-only block.
     """
-    contour = np.array([complex(x, y) for x, y in points])
     xs = [p[0] for p in points]
     ys = [p[1] for p in points]
     return TextChunkRecord(
@@ -116,9 +125,24 @@ def _line_record(
         word_index=None,
         word_text="",
         pen=pen,
-        contours=(contour,),
+        blocks=(block_from_points(points),),
         bounds=(min(xs), min(ys), max(xs), max(ys)),
     )
+
+
+def block_from_points(points: List[Tuple[float, float]]) -> TextBlock:
+    """Build a single-stroke polyline :class:`TextBlock` from inch vertices.
+
+    Args:
+        points: Polyline vertices in label-local inches (at least one).
+
+    Returns:
+        A TextBlock whose one stroke chains the points tip-to-tail (a lone
+        point yields a stroke with no segments).
+    """
+    vertices = [complex(x, y) for x, y in points]
+    segments = tuple(LineSeg(a, b) for a, b in zip(vertices[:-1], vertices[1:]))
+    return TextBlock(strokes=(Stroke(pen_up=vertices[0], segments=segments),))
 
 
 def _packed(rendered_id: str, x: float, y: float, rotated: bool = False) -> PackedLabel:
@@ -203,6 +227,195 @@ class TestTransformChain:
         assert transform.shift == pytest.approx(label.height * 500.0)
 
 
+def _arc_record(
+    segments: Tuple[ArcSeg, ...],
+    pen_up: complex,
+    pen: int = 1,
+) -> TextChunkRecord:
+    """Build a whole-line chunk record from one arc-aware stroke.
+
+    Args:
+        segments: The stroke's text segments (LineSeg/ArcSeg).
+        pen_up: Stroke rapid target in label-local inches.
+        pen: Pen number for the record.
+
+    Returns:
+        A TextChunkRecord with one arc-aware block.
+    """
+    block = TextBlock(strokes=(Stroke(pen_up=pen_up, segments=segments),))
+    return TextChunkRecord(
+        line_index=0,
+        word_index=None,
+        word_text="",
+        pen=pen,
+        blocks=(block,),
+        bounds=(0.0, 0.0, 1.0, 1.0),
+    )
+
+
+class TestArcAwareYExtents:
+    """``_block_text_y_extents`` mirrors the HPGL-side Y measurement."""
+
+    def test_matches_hpgl_side_measurement(self) -> None:
+        """A mixed line/arc block measures identically via both paths."""
+        stroke = Stroke(
+            pen_up=0.5 + 0.2j,
+            segments=(
+                LineSeg(0.6 + 0.3j, 0.8 + 0.7j),
+                ArcSeg(start=0.9 + 0.4j, center=1.2 + 0.4j, sweep_deg=-90.5),
+                ArcSeg(start=1.2 + 0.1j, center=1.2 + 0.4j, sweep_deg=45.25),
+                LineSeg(1.5 + 0.2j, 1.6 + 0.9j),
+            ),
+        )
+        block = TextBlock(strokes=(stroke,))
+        local_ys = _block_text_y_extents(block)
+
+        # The HPGL side: emit the stroke, then measure with the exact
+        # collector the label renderer's centering uses.
+        hpgl = stroke.to_hpgl()
+        points, arcs = _collect_hpgl_geometry(hpgl)
+        hpgl_ys = [y for _x, y in points]
+        for arc in arcs:
+            _x_min, y_min, _x_max, y_max = arc.swept_bounds()
+            hpgl_ys.append(int(math.floor(y_min)))
+            hpgl_ys.append(int(math.ceil(y_max)))
+
+        assert sorted(local_ys) == sorted(hpgl_ys)
+
+    def test_arc_measures_from_last_recorded_pen(self) -> None:
+        """Chained arcs share the measured pen (it never advances across AA)."""
+        # Arc starts deliberately away from the pen: to_hpgl re-anchors with
+        # PU, and both measurements must see the re-anchored point.
+        stroke = Stroke(
+            pen_up=0.0 + 0.0j,
+            segments=(ArcSeg(start=0.5 + 0.5j, center=0.5 + 0.0j, sweep_deg=180.0),),
+        )
+        block = TextBlock(strokes=(stroke,))
+        local_ys = _block_text_y_extents(block)
+
+        points, arcs = _collect_hpgl_geometry(stroke.to_hpgl())
+        hpgl_ys = [y for _x, y in points]
+        for arc in arcs:
+            _x_min, y_min, _x_max, y_max = arc.swept_bounds()
+            hpgl_ys.append(int(math.floor(y_min)))
+            hpgl_ys.append(int(math.ceil(y_max)))
+
+        # PU0,0 + PU500,500 recorded; the half-circle (center 500,0, r=500)
+        # sweeps from 90 deg clockwise through 0 deg to -90 deg: y in [-500, 500].
+        assert min(local_ys) == -500
+        assert max(local_ys) == 500
+        assert sorted(local_ys) == sorted(hpgl_ys)
+
+    def test_line_run_start_away_from_pen_is_recorded(self) -> None:
+        """A line run not starting at the pen records its run-start point."""
+        stroke = Stroke(pen_up=0.0 + 0.0j, segments=(LineSeg(1 + 1j, 2 + 2j),))
+        block = TextBlock(strokes=(stroke,))
+        # PU(pen_up)=0, re-anchoring PU(1000,1000), PD end (2000,2000).
+        assert _block_text_y_extents(block) == [0, 1000, 2000]
+
+    def test_shift_with_arcs_matches_centering(self) -> None:
+        """The arc-aware center keeps the transform shift aligned with export."""
+        label = _make_label(height=1.0)
+        # Arc sweeping y in [100, 700] device units (label-local y 100..700).
+        record = _arc_record(
+            (ArcSeg(start=0.5 + 0.1j, center=0.5 + 0.4j, sweep_deg=180.0),),
+            pen_up=0.5 + 0.1j,
+        )
+        rendered = _make_rendered((record,), y_min=0.0, y_max=1.0, label=label)
+        transform = _label_transform(rendered, label)
+        # Union y in [100, 700] -> center 400; expected = 500 -> shift +100.
+        assert transform.shift == pytest.approx(100.0)
+
+
+class TestArcStrokeConversion:
+    """Label-local arc strokes map to device ArcSegments exactly once mirrored."""
+
+    _TRANSFORM = _LabelTransform(shift=0.0, flip_span=1000, rot_y_max=1000, rot_x_min=0)
+
+    def _arc_stroke(self) -> Stroke:
+        """One arc stroke: start (500,400), center (500,600), sweep +90."""
+        return Stroke(
+            pen_up=0.5 + 0.4j,
+            segments=(ArcSeg(start=0.5 + 0.4j, center=0.5 + 0.6j, sweep_deg=90.0),),
+        )
+
+    def test_sweep_negated_and_end_derived(self) -> None:
+        """Exactly one Y-mirror: start/center flip, sweep negates, end derives."""
+        path = _stroke_to_path(self._TRANSFORM, self._arc_stroke(), False, 0, 0)
+        assert len(path.segments) == 1
+        arc = path.segments[0]
+        assert isinstance(arc, ArcSegment)
+        assert (arc.start.x, arc.start.y) == (500.0, 600.0)
+        assert (arc.center.x, arc.center.y) == (500.0, 400.0)
+        assert arc.sweep_angle == pytest.approx(-90.0)
+        # Start sits due north of the center (radius 200); -90 deg lands due east.
+        assert arc.end.x == pytest.approx(700.0, abs=1e-6)
+        assert arc.end.y == pytest.approx(400.0, abs=1e-6)
+        assert emit_layer_document([path]) == "IN;PA;PU500,600;PD;AA500,400,-90;SP;"
+
+    def test_matches_hpgl_string_transform(self) -> None:
+        """Object conversion equals _transform_hpgl_coordinates on the string."""
+        # Chained stroke: the line run starts at the pen-up and the arc
+        # starts at the line end, so the source HPGL carries no redundant
+        # re-anchoring PUs and both paths emit the same minimal stream.
+        stroke = Stroke(
+            pen_up=0.5 + 0.2j,
+            segments=(
+                LineSeg(0.5 + 0.2j, 0.8 + 0.7j),
+                ArcSeg(start=0.8 + 0.7j, center=1.2 + 0.4j, sweep_deg=-90.0),
+            ),
+        )
+        transformed = _transform_hpgl_coordinates(
+            stroke.to_hpgl(), flip_y_span=1000, flip_y_axis=True
+        )
+        path = _stroke_to_path(self._TRANSFORM, stroke, False, 0, 0)
+        emitted = emit_layer_document([path])
+        body = emitted[len("IN;PA;") : -len("SP;")]
+        assert body == transformed + ";"
+
+    def test_rotated_center_maps_through_rotation(self) -> None:
+        """Rotated labels map arc centers with the 90 CW rotation too."""
+        record = _arc_record(
+            (ArcSeg(start=0.5 + 0.4j, center=0.5 + 0.6j, sweep_deg=90.0),),
+            pen_up=0.5 + 0.4j,
+        )
+        paths = _record_paths(self._TRANSFORM, record, rotated=True, dx_units=10, dy_units=20)
+        assert len(paths) == 1
+        arc = paths[0].segments[0]
+        assert isinstance(arc, ArcSegment)
+        # Unrotated device start (500, 600) rotates to (1000-600, 500-0)=(400,500).
+        assert (arc.start.x, arc.start.y) == (410.0, 520.0)
+        # Unrotated center (500, 400) rotates to (1000-400, 500)=(600,500).
+        assert (arc.center.x, arc.center.y) == pytest.approx((610.0, 520.0))
+        assert arc.sweep_angle == pytest.approx(-90.0)
+
+
+class TestRecordPathFiltering:
+    """``_record_paths`` drops empty strokes and segment-less paths."""
+
+    def test_empty_strokes_never_reach_paths(self) -> None:
+        """A block mixing empty and real strokes yields only the real path."""
+        record = TextChunkRecord(
+            line_index=0,
+            word_index=None,
+            word_text="",
+            pen=1,
+            blocks=(
+                TextBlock(
+                    strokes=(
+                        Stroke(pen_up=0.5 + 0.5j, segments=()),
+                        Stroke(pen_up=0.0 + 0.0j, segments=(LineSeg(0j, 1 + 1j),)),
+                    )
+                ),
+            ),
+            bounds=(0.0, 0.0, 1.0, 1.0),
+        )
+        transform = _LabelTransform(shift=0.0, flip_span=1000, rot_y_max=1000, rot_x_min=0)
+        paths = _record_paths(transform, record, rotated=False, dx_units=0, dy_units=0)
+        assert len(paths) == 1
+        assert len(paths[0].segments) == 1
+
+
 class TestBuildTextBlocks:
     """Chunk-record -> MacroBlock node construction."""
 
@@ -233,14 +446,14 @@ class TestBuildTextBlocks:
         assert build_text_blocks(packed, cache, pen=1) == []
 
     def test_degenerate_chunks_skipped(self) -> None:
-        """Chunks whose contours carry no segments produce no block."""
+        """Chunks whose blocks carry no segments produce no block."""
         label = _make_label()
         single = TextChunkRecord(
             line_index=0,
             word_index=None,
             word_text="",
             pen=1,
-            contours=(np.array([complex(0.5, 0.0)]),),
+            blocks=(TextBlock(strokes=(Stroke(pen_up=complex(0.5, 0.0), segments=()),)),),
             bounds=(0.5, 0.0, 0.5, 0.0),
         )
         rendered = _make_rendered((single,), label=label)

@@ -1,0 +1,60 @@
+# Cascading-font demo job for the PLT-Optimizer generate pipeline.
+#
+# Pins the ``font`` attribute at all three cascade levels (job -> label ->
+# text line) and the arc-native rendering contract of PLT-extracted fonts
+# (see plt_optimizer/generate/font_registry.py and plt_font_renderer.py):
+#
+#   - dino_banner: inherits the job-level ``font: Dino`` (PLT-extracted).
+#     Glyphs carry native AA arcs that must survive end-to-end (no
+#     flattening), so the rendered label contains AA commands.
+#   - ttf_card: label-level override to ReliefSingleLineCAD-Regular (a
+#     Fonts/ TrueType basename). The ftext path is polyline-only, so the
+#     rendered label contains NO AA commands.
+#   - mixed_tag: two lines with different fonts -- the first overrides at
+#     the TEXT LINE level (Jhanuni, arc-bearing), the second inherits the
+#     job-level Dino. Both lines arc-render; per-line font resolution is
+#     visible on the resolved spec.
+#
+# All three labels are 4.0" x 1.5" with a 0.15" margin; every line's
+# rendered width stays inside the 3.7" inner content area, so no
+# horizontal compression ever fires (compression would flatten arcs and
+# defeat the AA assertions below).
+#
+# Run with: python run_integration_test.py tests_deps/plt_font_demo_job.yaml
+job:
+  job_name: "PLT Font Demo - Dino Jhanuni TTF"
+
+  # Job-level default: every label/line without an explicit font renders
+  # with the PLT-extracted Dino glyphs (arc-native).
+  font: Dino
+
+  width: 4.0
+  height: 1.5
+  text_height: 0.4
+  margin: 0.15
+
+  plates:
+    - id: sheet_24x16
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. Job-level font (Dino): arc-bearing PLT glyphs.
+    - id: dino_banner
+      content:
+        - text: "DINO ARC 123"
+
+    # 2. Label-level override to a TrueType font: polyline-only output.
+    - id: ttf_card
+      font: ReliefSingleLineCAD-Regular
+      content:
+        - text: "TRUE TYPE"
+
+    # 3. Text-line-level override + inheritance in one label: line 0 is
+    #    Jhanuni (PLT, arcs), line 1 falls back through the label tier to
+    #    the job-level Dino (PLT, arcs).
+    - id: mixed_tag
+      content:
+        - text: "JHANUNI ARC"
+          font: Jhanuni
+        - text: "DINO SECOND"

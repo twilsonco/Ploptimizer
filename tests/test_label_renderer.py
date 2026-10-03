@@ -22,6 +22,7 @@ from plt_optimizer.generate.resolution import (
     ResolvedTextLine,
 )
 from plt_optimizer.generate.schema import parse_yaml
+from plt_optimizer.generate.text_geometry import LineSeg, Stroke, TextBlock
 
 
 def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
@@ -894,11 +895,16 @@ class TestCompressLineToWidth:
     """Unit tests for the uniform horizontal line compression helper."""
 
     @staticmethod
-    def _stub_line(min_x: float, max_x: float, min_y: float, max_y: float) -> vp.LineCollection:
-        """Build a two-point diagonal segment spanning the given bounds."""
-        lc = vp.LineCollection()
-        lc.append(np.array([complex(min_x, min_y), complex(max_x, max_y)]))
-        return lc
+    def _stub_line(min_x: float, max_x: float, min_y: float, max_y: float) -> TextBlock:
+        """Build a two-point diagonal stroke spanning the given bounds."""
+        return TextBlock(
+            strokes=(
+                Stroke(
+                    pen_up=complex(min_x, min_y),
+                    segments=(LineSeg(complex(min_x, min_y), complex(max_x, max_y)),),
+                ),
+            )
+        )
 
     def test_line_that_fits_is_returned_unchanged(self) -> None:
         """A line within the available width must be returned as the same object."""
@@ -915,7 +921,9 @@ class TestCompressLineToWidth:
         lc = self._stub_line(1.0, 7.0, 0.2, 0.7)
         out = compress_line_to_width(lc, 3.0, 0.8, "lbl")
 
-        min_x, min_y, max_x, max_y = out.bounds()
+        bounds = out.bounds()
+        assert bounds is not None
+        min_x, min_y, max_x, max_y = bounds
         assert max_x - min_x == pytest.approx(3.0, abs=1e-9)
         assert min_x == pytest.approx(1.0, abs=1e-9)
         assert (min_y, max_y) == pytest.approx((0.2, 0.7))
@@ -925,13 +933,14 @@ class TestCompressLineToWidth:
         lc = self._stub_line(0.0, 10.0, 0.0, 0.5)
         out = compress_line_to_width(lc, 1.0, 0.4, "lbl")
 
-        _min_x, _min_y, max_x, _max_y = out.bounds()
+        bounds = out.bounds()
+        assert bounds is not None
         # Limit 0.4 floors the scale at 0.6 -> width 6.0, not the needed 1.0.
-        assert max_x == pytest.approx(6.0, abs=1e-9)
+        assert bounds[2] == pytest.approx(6.0, abs=1e-9)
 
     def test_empty_collection_is_returned_unchanged(self) -> None:
-        """An empty collection has no bounds and must pass through."""
-        lc = vp.LineCollection()
+        """An empty block has no bounds and must pass through."""
+        lc = TextBlock.empty()
         assert compress_line_to_width(lc, 3.0, 0.5, "lbl") is lc
 
 
