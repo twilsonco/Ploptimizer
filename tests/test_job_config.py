@@ -39,6 +39,7 @@ _FULL_CONFIG: dict[str, Any] = {
     "hole_text_collision_distance": 0.1,
     "space_width_fraction": 0.35,
     "min_glyph_width": 0.02,
+    "kerning_window_fraction": 0.15,
     "plate_width": 24.0,
     "plate_height": 16.0,
     "left_clearance": 0.0,
@@ -133,8 +134,10 @@ class TestJobDefaultsModel:
         """space_width_fraction/min_glyph_width keep renderer-level fallbacks."""
         assert "space_width_fraction" not in REQUIRED_WHEN_UNCONFIGURED
         assert "min_glyph_width" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "kerning_window_fraction" not in REQUIRED_WHEN_UNCONFIGURED
         assert JobDefaults().space_width_fraction is None
         assert JobDefaults().min_glyph_width is None
+        assert JobDefaults().kerning_window_fraction is None
 
 
 class TestLoadJobConfig:
@@ -211,6 +214,7 @@ class TestApplyJobConfigDefaults:
         assert filled["hole_text_collision_distance"] == 0.1
         assert filled["space_width_fraction"] == 0.35
         assert filled["min_glyph_width"] == 0.02
+        assert filled["kerning_window_fraction"] == 0.15
 
     def test_yaml_values_win(self, tmp_path: Path) -> None:
         """Spec-declared values are never overridden by the config."""
@@ -568,7 +572,8 @@ class TestParseYamlWithJobConfig:
         assert job.min_hole_margin == 0.15
         assert job.hole_text_collision_distance == 0.1
         assert job.space_width_fraction == 0.3
-        assert job.min_glyph_width == 0.0
+        assert job.min_glyph_width == 0.06
+        assert job.kerning_window_fraction == 0.05
 
     def test_yaml_overrides_config(self) -> None:
         """Spec-declared values still win over the shipped config."""

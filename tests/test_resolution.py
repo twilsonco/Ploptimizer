@@ -12,6 +12,7 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_FONT,
     DEFAULT_HOLE_MARGIN,
     DEFAULT_HOLE_TEXT_COLLISION_DISTANCE,
+    DEFAULT_KERNING_WINDOW_FRACTION,
     DEFAULT_LINE_SPACING,
     DEFAULT_MARGIN,
     DEFAULT_MAX_H_COMPRESS,
@@ -1968,3 +1969,104 @@ class TestMinGlyphWidthCascade:
         )
         label = resolve_job_spec(job)[0]
         assert math.isclose(label.content[0].min_glyph_width, 0.0)
+
+
+class TestKerningWindowFractionCascade:
+    """kerning_window_fraction must cascade line -> label -> job -> default."""
+
+    def test_default_when_all_omit(self) -> None:
+        """All levels omitting yields the 0.05 window default."""
+        job = JobSpec(
+            job_name="J",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(
+            label.content[0].kerning_window_fraction, DEFAULT_KERNING_WINDOW_FRACTION
+        )
+        assert DEFAULT_KERNING_WINDOW_FRACTION == 0.05
+
+    def test_job_value_used_when_label_omits(self) -> None:
+        """Job-level value cascades to the line."""
+        job = JobSpec(
+            job_name="J",
+            kerning_window_fraction=0.2,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].kerning_window_fraction, 0.2)
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level value overrides the job-level value."""
+        job = JobSpec(
+            job_name="J",
+            kerning_window_fraction=0.2,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    kerning_window_fraction=0.4,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].kerning_window_fraction, 0.4)
+
+    def test_line_overrides_label(self) -> None:
+        """Line-level value overrides the label-level value."""
+        job = JobSpec(
+            job_name="J",
+            kerning_window_fraction=0.2,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    kerning_window_fraction=0.4,
+                    content=[TextLine(text="X", kerning_window_fraction=0.1)],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].kerning_window_fraction, 0.1)
+
+    def test_explicit_zero_at_line_beats_parents(self) -> None:
+        """An explicit 0.0 (historical same-height kerning) must win."""
+        job = JobSpec(
+            job_name="J",
+            kerning_window_fraction=0.2,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    kerning_window_fraction=0.4,
+                    content=[TextLine(text="X", kerning_window_fraction=0.0)],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].kerning_window_fraction, 0.0)
+
+    def test_above_one_rejected(self) -> None:
+        """The fraction is bounded by 1.0 at every level."""
+        with pytest.raises(ValueError):
+            TextLine(text="X", kerning_window_fraction=1.01)
+        with pytest.raises(ValueError):
+            JobSpec(job_name="J", kerning_window_fraction=1.5)

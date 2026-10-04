@@ -1555,6 +1555,7 @@ def _render_line_block(
                 character_spacing=line.character_spacing,
                 space_width_fraction=line.space_width_fraction,
                 min_glyph_width=line.min_glyph_width,
+                kerning_window_fraction=line.kerning_window_fraction,
             )
             return block, (groups or None)
         block = render_text_line_plt_font(
@@ -1565,6 +1566,7 @@ def _render_line_block(
             character_spacing=line.character_spacing,
             space_width_fraction=line.space_width_fraction,
             min_glyph_width=line.min_glyph_width,
+            kerning_window_fraction=line.kerning_window_fraction,
         )
         return block, None
 

@@ -360,6 +360,18 @@ class TextAttributes(BaseModel):
             ``None`` means unset. Cascades line -> label -> job (and is
             accepted on plates for schema parity, where it is not applied
             at that level).
+        kerning_window_fraction: Optional kerning window for PLT-extracted
+            fonts, in ``[0.0, 1.0]``, as a fraction of the rendered text
+            height. Each profile-envelope sample compares against the
+            opposite silhouette within +/- (half of this fraction) of the
+            text height, and the effective penetration smooths over the
+            same window: sustained closeness (``db``) earns the full
+            tightening while a localized poke (``AP``) earns less.
+            Defaults to ``0.05``; only ``None`` means unset (an explicit
+            ``0.0`` reproduces the historical same-height maximum-
+            penetration kerning). Cascades line -> label -> job (and is
+            accepted on plates for schema parity, where it is not applied
+            at that level).
         text_color: Optional stroke-color layer tag used to split
             otherwise-identical text into separate toolpaths (one HPGL
             ``SP`` layer and one PLT file per distinct color), so the
@@ -451,6 +463,21 @@ class TextAttributes(BaseModel):
             "fonts): clamps the profile-envelope kerning so zero-width "
             "glyphs still reserve real air. Cascades line -> label -> job "
             "(fallback 0.0 = pure envelope kerning); explicit 0.0 is honored."
+        ),
+    )
+    kerning_window_fraction: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Kerning window for PLT-extracted fonts as a fraction of the "
+            "rendered text height in [0.0, 1.0]: each envelope sample "
+            "compares against the opposite silhouette within +/- (half of "
+            "this fraction) of the text height and the effective "
+            "penetration smooths over the same window, so sustained "
+            "closeness kernes fully while localized pokes kern less. "
+            "Cascades line -> label -> job (fallback 0.05); explicit 0.0 "
+            "is honored (= historical same-height kerning)."
         ),
     )
     text_color: Optional[TextColor] = Field(
@@ -870,6 +897,12 @@ class PlateSpec(BaseModel):
             and cached before bin-packing, so a per-plate value is not
             currently applied during rendering; the effective value is
             resolved from the line -> label -> job -> default cascade.
+        kerning_window_fraction: Optional kerning window fraction in
+            ``[0.0, 1.0]``. Accepted for schema parity with the job/label
+            ``kerning_window_fraction`` cascade. NOTE: labels are rendered
+            once and cached before bin-packing, so a per-plate value is
+            not currently applied during rendering; the effective value is
+            resolved from the line -> label -> job -> default cascade.
         layout: Optional per-plate fill-order override (``rows`` /
             ``columns``). ``None`` (the default) inherits the job-level
             ``layout``. Unlike the other cascading fields, this one IS
@@ -954,6 +987,15 @@ class PlateSpec(BaseModel):
         description=(
             "Global minimum glyph advance width in inches (schema parity; "
             "not applied at plate level)."
+        ),
+    )
+    kerning_window_fraction: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Kerning window fraction as a fraction of the rendered text "
+            "height (schema parity; not applied at plate level)."
         ),
     )
     hole_text_collision_distance: Optional[float] = Field(

@@ -71,9 +71,15 @@ JobSpec (job-level defaults)
   library (baseline-normalized glyphs, +y up, ref char exactly 1000 units):
   glyphs anchor on the baseline (descenders hang below), the reference
   character scales to exactly `text_height`, and adjacent glyphs inside a
-  word are **profile-envelope kerned** — origin-to-origin advance = max
-  horizontal silhouette penetration across the pair's overlapping height +
-  clearance `cutter_diameter + character_spacing` (no fixed height fudge);
+  word are **profile-envelope kerned** — origin-to-origin advance =
+  windowed silhouette penetration across the pair's overlapping height +
+  clearance `cutter_diameter + character_spacing` (no fixed height fudge).
+  The window `kerning_window_fraction` (fraction of text height, default
+  0.05) makes each envelope sample compare against the deepest opposing
+  sample within ±half the window (staggered pokes count), then takes the
+  max *local mean* penetration — sustained closeness (`db`) kernes fully,
+  a localized poke (`AP`) is diluted and kernes less; `0.0` reproduces
+  the historical same-height maximum-penetration math exactly;
   a space advances `space_width_fraction * text_height +
   character_spacing` and breaks kerning. A character the PLT font lacks
   raises `PltFontRenderError` at render → `LabelRenderError` (CLI
@@ -92,6 +98,16 @@ JobSpec (job-level defaults)
   floor so zero-width glyphs (`!`, `|`) still reserve real air. Cascades
   line → label → job (accepted on plates for schema parity only);
   `job-config.json` supplies the shop default.
+- `kerning_window_fraction`: Profile-envelope kerning window for PLT fonts
+  as a fraction of the rendered text height (`ge=0.0`, `le=1.0`, default
+  `None` → **0.05**; only `None` means unset, an explicit `0.0` restores
+  the historical same-height maximum-penetration kerning). Each envelope
+  sample compares against the opposite silhouette within ±(half this
+  fraction) of the text height and the effective penetration smooths over
+  the same window, so staggered pokes count and localized closeness kernes
+  less than sustained closeness. Cascades line → label → job (accepted on
+  plates for schema parity only); `job-config.json` supplies the shop
+  default.
 - `max_h_compress`: Maximum horizontal compression fraction in [0, 1] (default
   0.0 = disabled). When a rendered line is wider than the label's inner
   content area, it is uniformly compressed horizontally down to at most
@@ -420,7 +436,7 @@ already knows each toolpath's kind, the `Profiler` is skipped entirely.
   **removed**; optimization now happens pre-write in plate space.
 
 ### Cascading Resolution
-When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.15), `space_width_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.3), and `min_glyph_width` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0).
+When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.15), `space_width_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.3), `min_glyph_width` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `kerning_window_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.05).
 
 ### Stroke-Color Toolpath Splitting (`text_color`)
 
@@ -591,7 +607,7 @@ top-most layer:
 - Cascading attributes (`text_height`, `font`, `character_spacing`, `line_spacing`,
   `margin`, `hole_margin`, `min_hole_margin`, `hole_text_collision_distance`,
   `max_h_compress`, `text_h_alignment`, `space_width_fraction`,
-  `min_glyph_width`, `holes`, `allow_rotation`,
+  `min_glyph_width`, `kerning_window_fraction`, `holes`, `allow_rotation`,
   `text_chunk_mode`, `layout`) fill missing **job-level** keys; the existing
   label -> job cascade then works unchanged and YAML values always win (an
   explicit YAML `null` counts as unset; `holes: []` suppression is a value).

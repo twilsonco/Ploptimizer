@@ -73,6 +73,12 @@ DEFAULT_SPACE_WIDTH_FRACTION: float = 0.3
 # The profile-envelope kerning clamps the left glyph's right silhouette
 # outward to this floor; 0.0 means pure envelope kerning.
 DEFAULT_MIN_GLYPH_WIDTH: float = 0.0
+# Kerning window (fraction of the rendered text height, in [0.0, 1.0])
+# for PLT-extracted fonts. Each envelope sample compares against the
+# opposite silhouette within +/- (half of this fraction) of the text
+# height and the effective penetration smooths over the same window;
+# 0.0 reproduces the historical same-height maximum-penetration kerning.
+DEFAULT_KERNING_WINDOW_FRACTION: float = 0.05
 # Horizontal text alignment defaults to centering (existing behaviour).
 DEFAULT_TEXT_H_ALIGNMENT: str = "center"
 # Stroke-color layer tag default. ``"none"`` is the implicit color of
@@ -262,6 +268,16 @@ class ResolvedTextLine:
             label -> job, default ``DEFAULT_MIN_GLYPH_WIDTH`` (0.0 = pure
             envelope kerning). Explicit ``0.0`` is honored; only ``None``
             means unset.
+        kerning_window_fraction: Kerning window as a fraction of the
+            rendered text height in [0.0, 1.0] (PLT-extracted fonts):
+            envelope samples compare against the opposite silhouette
+            within +/- (half of this fraction) of the text height and the
+            effective penetration smooths over the same window, so
+            sustained closeness kernes fully while localized pokes kern
+            less. Cascaded line -> label -> job, default
+            ``DEFAULT_KERNING_WINDOW_FRACTION`` (0.05). Explicit ``0.0``
+            is honored (= historical same-height kerning); only ``None``
+            means unset.
     """
 
     text: str
@@ -276,6 +292,7 @@ class ResolvedTextLine:
     font: str = DEFAULT_FONT
     space_width_fraction: float = DEFAULT_SPACE_WIDTH_FRACTION
     min_glyph_width: float = DEFAULT_MIN_GLYPH_WIDTH
+    kerning_window_fraction: float = DEFAULT_KERNING_WINDOW_FRACTION
 
 
 @dataclass(frozen=True)
@@ -867,6 +884,17 @@ def _resolve_content(
         else:
             line_min_glyph_width = DEFAULT_MIN_GLYPH_WIDTH
 
+        # Resolve the PLT-font kerning window fraction with the same
+        # explicit-None precedence (line -> label -> job -> default).
+        if line.kerning_window_fraction is not None:
+            line_kerning_window_fraction: float = line.kerning_window_fraction
+        elif label_input.kerning_window_fraction is not None:
+            line_kerning_window_fraction = label_input.kerning_window_fraction
+        elif job.kerning_window_fraction is not None:
+            line_kerning_window_fraction = job.kerning_window_fraction
+        else:
+            line_kerning_window_fraction = DEFAULT_KERNING_WINDOW_FRACTION
+
         resolved_content.append(
             ResolvedTextLine(
                 text=line.text,
@@ -881,6 +909,7 @@ def _resolve_content(
                 font=line_font,
                 space_width_fraction=line_space_width_fraction,
                 min_glyph_width=line_min_glyph_width,
+                kerning_window_fraction=line_kerning_window_fraction,
             )
         )
     return resolved_content

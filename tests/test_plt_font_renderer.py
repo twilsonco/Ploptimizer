@@ -24,6 +24,7 @@ from plt_optimizer.generate.label_renderer import (
     render_label_to_plt,
 )
 from plt_optimizer.generate.plt_font_renderer import (
+    KERNING_WINDOW_FRACTION,
     MIN_GLYPH_WIDTH,
     SPACE_HEIGHT_FRACTION,
     PltFontRenderError,
@@ -311,6 +312,43 @@ class TestLayoutMath:
         assert floored.bounds() is not None
         assert floored.bounds()[2] == pytest.approx(0.25, abs=1e-9)
 
+    def test_kerning_window_fraction_threads_through(self, synth_lib: Path) -> None:
+        """The fraction reaches the kerning math and smooths the advance.
+
+        C's right silhouette is ``0.5/1.0/0.5`` at ``y=0/0.5/1.0``; A's
+        left silhouette is the diagonal ``x = y``. The same-height
+        penetration profile is ``[0.5, 0.5, -0.5]`` (max 0.5, so A's origin
+        lands at 0.5 and the line spans 1.5). A window of 0.5 (fraction
+        1.0) reaches past the sample spacing: stage 1 deepens the mid
+        sample to ``1.0 - 0.0 = 1.0`` giving ``[0.5, 1.0, 0.0]``, and stage
+        2's best local mean is ``(0.5 + 1.0) / 2 = 0.75`` -- the line
+        widens to 1.75.
+        """
+        historical = _render(
+            "CA",
+            1.0,
+            synth_lib,
+            cutter_diameter=0.0,
+            character_spacing=0.0,
+            kerning_window_fraction=0.0,
+        )
+        default = _render("CA", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0)
+        assert historical.bounds() is not None and default.bounds() is not None
+        # The default 0.05 window (half-width 0.025) stays below the 0.5
+        # sample spacing of this coarse synthetic font, so it is a no-op.
+        assert historical.bounds()[2] == pytest.approx(1.5, abs=1e-9)
+        assert default.bounds()[2] == pytest.approx(1.5, abs=1e-9)
+        wide = _render(
+            "CA",
+            1.0,
+            synth_lib,
+            cutter_diameter=0.0,
+            character_spacing=0.0,
+            kerning_window_fraction=1.0,
+        )
+        assert wide.bounds() is not None
+        assert wide.bounds()[2] == pytest.approx(1.75, abs=1e-9)
+
     def test_cap_height_scaling(self, synth_lib: Path) -> None:
         """The reference glyph scales to exactly the target height."""
         block = _render("A", 0.8, synth_lib)
@@ -425,6 +463,67 @@ class TestEnvelopeHelpers:
             right_envelope=(),
         )
         assert kerning_offset(low, high) == pytest.approx(0.4)
+
+    @staticmethod
+    def _geometry(
+        bounding_box: Tuple[float, float, float, float],
+        left: Tuple[Tuple[float, float], ...] = (),
+        right: Tuple[Tuple[float, float], ...] = (),
+    ) -> _GlyphGeometry:
+        """Build a bare geometry carrier for pure kerning math tests."""
+        return _GlyphGeometry(
+            block=TextBlock.empty(),
+            bounding_box=bounding_box,
+            left_envelope=left,
+            right_envelope=right,
+        )
+
+    def test_kerning_window_zero_matches_same_height_max(self) -> None:
+        """A zero window reproduces the historical same-height comparison."""
+        left = self._geometry((0.0, 0.0, 1.0, 1.0), right=((0.0, 0.0), (1.0, 0.5), (0.0, 1.0)))
+        right = self._geometry((0.0, 0.0, 0.4, 1.0), left=((0.4, 0.0), (0.4, 1.0)))
+        legacy = kerning_offset(left, right)
+        assert kerning_offset(left, right, window_design=0.0) == pytest.approx(legacy)
+        # The poke at y=0.5 (x=1.0) vs the flat left silhouette (x=0.4) is
+        # the same-height worst case: penetration 0.6.
+        assert legacy == pytest.approx(0.6)
+
+    def test_kerning_window_detects_staggered_pokes(self) -> None:
+        """Pokes at different heights count once the window spans the offset.
+
+        The left glyph pokes right at y=0.5 (x=1.0); the right glyph pokes
+        left at y=0.7 (x=0.0). Same-height sampling only sees penetrations
+        of 0.6; a 0.2 window pairs the pokes and raises the offset.
+        """
+        left = self._geometry((0.0, 0.0, 1.0, 1.0), right=((0.0, 0.0), (1.0, 0.5), (0.0, 1.0)))
+        right = self._geometry(
+            (0.0, 0.0, 0.4, 1.0),
+            left=((0.4, 0.0), (0.4, 0.6), (0.0, 0.7), (0.4, 1.0)),
+        )
+        assert kerning_offset(left, right, window_design=0.0) == pytest.approx(0.6)
+        # Stage 1 pairs y=0.5 (x=1.0) with the y=0.7 poke (x=0.0) -> p=1.0;
+        # stage 2 smooths the profile [_, 1.0, 0.8, 0.6, _] to its best
+        # local mean (1.0 + 0.8 + 0.6) / 3.
+        assert kerning_offset(left, right, window_design=0.2) == pytest.approx(0.8)
+
+    def test_kerning_window_localized_poke_kerns_less_than_sustained(self) -> None:
+        """Sustained closeness keeps its full tightening; a poke is diluted.
+
+        Both pairs share the same same-height maximum penetration (1.0),
+        but the localized pair (``AP``-like: close only at one height) is
+        averaged down by its neighbourhood while the sustained pair
+        (``db``-like: close along the whole overlap) is untouched.
+        """
+        flat_right = ((0.0, 0.0), (0.0, 1.0))
+        localized = self._geometry((0.0, 0.0, 1.0, 1.0), right=((0.0, 0.0), (1.0, 0.5), (0.0, 1.0)))
+        sustained = self._geometry((0.0, 0.0, 1.0, 1.0), right=((1.0, 0.0), (1.0, 1.0)))
+        receiving = self._geometry((0.0, 0.0, 0.4, 1.0), left=flat_right)
+        assert kerning_offset(localized, receiving) == pytest.approx(1.0)
+        assert kerning_offset(sustained, receiving) == pytest.approx(1.0)
+        # Window 0.5: localized profile [0, 1, 0] -> best local mean 0.5;
+        # sustained profile [1, 1] -> stays 1.0.
+        assert kerning_offset(localized, receiving, window_design=0.5) == pytest.approx(0.5)
+        assert kerning_offset(sustained, receiving, window_design=0.5) == pytest.approx(1.0)
 
 
 class TestWordGroups:
@@ -577,6 +676,7 @@ class TestModuleHygiene:
         """The v2 layout defaults are the module's documented contract."""
         assert SPACE_HEIGHT_FRACTION == pytest.approx(0.3)
         assert MIN_GLYPH_WIDTH == pytest.approx(0.0)
+        assert KERNING_WINDOW_FRACTION == pytest.approx(0.05)
 
 
 def _resolved_line(text: str, font: str, height: float = 0.3) -> ResolvedTextLine:
@@ -623,6 +723,7 @@ class TestLabelRendererDispatch:
         # ResolvedTextLine defaults for the v2 typesetting fields.
         assert calls["space_width_fraction"] == pytest.approx(0.3)
         assert calls["min_glyph_width"] == pytest.approx(0.0)
+        assert calls["kerning_window_fraction"] == pytest.approx(0.05)
         assert block.strokes == _triangle_block().strokes
         assert groups is None  # line mode never requests word groups
 

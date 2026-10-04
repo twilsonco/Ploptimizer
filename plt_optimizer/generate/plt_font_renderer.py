@@ -19,19 +19,35 @@ Layout contract:
   ``target_height_inches`` exactly (uniform scale
   ``target_height_inches / normalized_ref_height``, so relative glyph
   sizes -- cap height vs. x-height -- are preserved).
-- Adjacent glyphs inside a word are kerned with their profile envelopes:
-  the origin-to-origin advance is the maximum horizontal penetration of
-  the left glyph's right silhouette into the right glyph's left silhouette
-  across their overlapping height range, plus the clearance::
+- Adjacent glyphs inside a word are kerned with their profile envelopes
+  through a *windowed* comparison controlled by
+  ``kerning_window_fraction`` (``[0, 1]``, a fraction of the text height;
+  default ``0.05``). With ``w = 0.5 * kerning_window_fraction * height``
+  and ``p(y)`` the horizontal penetration of the left glyph's right
+  silhouette into the right glyph's left silhouette at height ``y``:
+
+  1. each sample ``p(y)`` on the left glyph compares against the deepest
+     right-glyph silhouette sample within ``|y' - y| <= w``, so staggered
+     pokes (the glyphs approach each other at slightly different heights)
+     are still detected; and
+  2. the effective penetration is the maximum, over samples, of the mean
+     ``p`` within the same window -- closeness sustained along the height
+     (e.g. ``db``) earns the full tightening, while a localized poke
+     (e.g. ``AP``) is diluted by its neighbourhood and earns less.
+
+  The origin-to-origin advance is the effective penetration plus the
+  clearance::
 
       clearance = cutter_diameter + character_spacing
 
-  so the engraved strokes keep exactly ``clearance`` of air at the
-tightest sampled height. A global minimum glyph width (``min_glyph_width``,
-  an absolute inch floor, default ``0.0``) clamps the left silhouette
-  outward so zero-width glyphs (``!``, ``|``) still reserve real air.
-  Glyph pairs without overlapping height (or lacking envelopes) fall back
-  to the left glyph's bounding-box width, floored by ``min_glyph_width``.
+  so a fully-close pair keeps exactly ``clearance`` of air at the
+tightest height. ``kerning_window_fraction = 0.0`` reproduces the
+  historical same-height maximum-penetration kerning exactly. A global
+  minimum glyph width (``min_glyph_width``, an absolute inch floor,
+  default ``0.0``) clamps the left silhouette outward so zero-width
+  glyphs (``!``, ``|``) still reserve real air. Glyph pairs without
+  overlapping height (or lacking envelopes) fall back to the left glyph's
+  bounding-box width, floored by ``min_glyph_width``.
 - A space character carries no glyph::
 
       space_advance = space_width_fraction * height + character_spacing
@@ -72,6 +88,14 @@ SPACE_HEIGHT_FRACTION: float = 0.3
 # not cascade an explicit ``min_glyph_width``. ``0.0`` = pure profile
 # envelope kerning.
 MIN_GLYPH_WIDTH: float = 0.0
+
+# Fallback kerning window as a fraction of the rendered text height,
+# used when the caller does not cascade an explicit
+# ``kerning_window_fraction``. Each envelope sample compares against the
+# opposite silhouette within +/- (half of this fraction) of the text
+# height, and the effective penetration smooths over the same window.
+# ``0.0`` reproduces the historical same-height kerning exactly.
+KERNING_WINDOW_FRACTION: float = 0.05
 
 # Glyphs are stored in plotter units (1000 units per design inch).
 _UNITS_PER_INCH: float = 1000.0
@@ -236,25 +260,69 @@ def _kerning_sample_heights(
     return sorted(heights)
 
 
+def _windowed_mean_max(values: Sequence[float], ys: Sequence[float], window: float) -> float:
+    """Maximum, over samples, of the mean ``values`` within ``window`` of ``y``.
+
+    For every sample ``k`` the mean of all samples ``j`` with
+    ``|ys[j] - ys[k]| <= window`` is computed, and the maximum of those
+    local means is returned. With ``window == 0`` the result is simply
+    ``max(values)`` (each sample averages only itself), reproducing the
+    historical same-height maximum-penetration kerning.
+
+    Args:
+        values: Sample values in ascending-``ys`` order.
+        ys: Strictly ascending sample heights (same length as ``values``).
+        window: Half-width of the smoothing window, in ``ys`` units.
+
+    Returns:
+        The maximum local mean; ``-inf`` when ``values`` is empty.
+    """
+    best = float("-inf")
+    for y_k in ys:
+        lo = 0
+        while ys[lo] < y_k - window:
+            lo += 1
+        hi = len(ys) - 1
+        while ys[hi] > y_k + window:
+            hi -= 1
+        total = 0.0
+        for index in range(lo, hi + 1):
+            total += values[index]
+        local_mean = total / (hi - lo + 1)
+        if local_mean > best:
+            best = local_mean
+    return best
+
+
 def kerning_offset(
     left: _GlyphGeometry,
     right: _GlyphGeometry,
     min_glyph_width_design: float = 0.0,
+    window_design: float = 0.0,
 ) -> float:
     """Design-unit origin-to-origin offset between two adjacent glyphs.
 
-    The offset is the maximum horizontal penetration of the left glyph's
-    right silhouette into the right glyph's left silhouette across their
-    overlapping height range (profile-envelope kerning). The global
-    minimum glyph width clamps the left silhouette outward, so zero-width
-    glyphs still reserve real air. The clearance is NOT included -- the
-    caller adds it in the output frame.
+    Windowed profile-envelope kerning. Over the pair's overlapping height
+    range, each sample of the left glyph's right silhouette (floored by
+    the global minimum glyph width) is compared against the *deepest*
+    sample of the right glyph's left silhouette within ``window_design``
+    of its height, so staggered pokes -- the glyphs approaching each
+    other at slightly different heights -- are detected too. The
+    effective offset is then the maximum, over samples, of the mean
+    penetration within the same window: closeness sustained along the
+    whole overlap (e.g. ``db``) earns the full tightening, while a
+    localized poke (e.g. ``AP``, close only at the very bottom) is
+    diluted by its neighbourhood and earns less. The clearance is NOT
+    included -- the caller adds it in the output frame.
 
     Args:
         left: The earlier (left) glyph geometry.
         right: The following (right) glyph geometry.
         min_glyph_width_design: Global minimum advance width in design
             units (``0.0`` = pure envelope kerning).
+        window_design: Half-width of the comparison/smoothing window in
+            design units (``0.0`` = historical same-height maximum
+            penetration).
 
     Returns:
         Offset in design units (multiply by the render scale, then add
@@ -265,16 +333,34 @@ def kerning_offset(
     y_low = max(left_box[1], right_box[1])
     y_high = min(left_box[3], right_box[3])
     if y_high >= y_low and left.right_envelope and right.left_envelope:
-        penetration: Optional[float] = None
+        ys: List[float] = []
+        right_xs: List[float] = []
+        left_xs: List[float] = []
         for y in _kerning_sample_heights(left.right_envelope, right.left_envelope, y_low, y_high):
             right_x = interpolate_envelope(left.right_envelope, y)
             left_x = interpolate_envelope(right.left_envelope, y)
             if right_x is None or left_x is None:  # pragma: no cover - guards
                 continue
-            value = max(right_x, min_glyph_width_design) - left_x
-            penetration = value if penetration is None else max(penetration, value)
-        if penetration is not None:
-            return penetration
+            ys.append(y)
+            right_xs.append(max(right_x, min_glyph_width_design))
+            left_xs.append(left_x)
+        if right_xs:
+            # Stage 1: deepest opposing silhouette within +/- window of
+            # each sample height (a two-pointer min filter over the
+            # ascending ys). With window == 0 this is the same-y sample.
+            penetrations: List[float] = []
+            lo = 0
+            for k, (y_k, right_x) in enumerate(zip(ys, right_xs)):
+                while ys[lo] < y_k - window_design:
+                    lo += 1
+                hi = k
+                while hi + 1 < len(ys) and ys[hi + 1] <= y_k + window_design:
+                    hi += 1
+                deepest = min(left_xs[lo : hi + 1])
+                penetrations.append(right_x - deepest)
+            # Stage 2: the maximum local mean dilutes localized pokes
+            # while sustained closeness keeps its full tightening.
+            return _windowed_mean_max(penetrations, ys, window_design)
     # No overlapping height (or missing envelopes): fall back to the left
     # glyph's bounding-box width, floored by the minimum width.
     return max(left_box[2] - left_box[0], min_glyph_width_design)
@@ -319,6 +405,7 @@ def render_text_line_plt_font_with_words(
     character_spacing: float = 0.0,
     space_width_fraction: Optional[float] = None,
     min_glyph_width: Optional[float] = None,
+    kerning_window_fraction: Optional[float] = None,
     json_path: Optional[Path] = None,
     fonts_dir: Optional[Path] = None,
 ) -> Tuple[TextBlock, List[Tuple[str, List[int]]]]:
@@ -342,6 +429,10 @@ def render_text_line_plt_font_with_words(
         min_glyph_width: Global minimum glyph advance width in inches
             clamping the profile envelopes (``None`` falls back to
             :data:`MIN_GLYPH_WIDTH`; ``0.0`` = pure envelope kerning).
+        kerning_window_fraction: Kerning window as a fraction of the
+            rendered text height in ``[0, 1]`` (``None`` falls back to
+            :data:`KERNING_WINDOW_FRACTION`; ``0.0`` = historical
+            same-height maximum-penetration kerning).
         json_path: Optional ``plt_fonts.json`` override (tests).
         fonts_dir: Optional Fonts root override (tests).
 
@@ -374,6 +465,13 @@ def render_text_line_plt_font_with_words(
     # The kerning math runs in design units (output = design * scale), so
     # the absolute inch floor converts by dividing through the scale.
     min_width_design = min_width_inches / scale if scale > 0 else 0.0
+    window_fraction = (
+        KERNING_WINDOW_FRACTION if kerning_window_fraction is None else kerning_window_fraction
+    )
+    # The window is a fraction of the rendered text height; in the design
+    # frame the reference character is exactly ``normalized_ref_height``
+    # tall (1.0 for v2 libraries), so the height fraction converts directly.
+    window_design = 0.5 * window_fraction * font_data.normalized_ref_height
 
     words = text.split(" ")
 
@@ -402,11 +500,8 @@ def render_text_line_plt_font_with_words(
         for char in word:
             geometry = _glyph_entry(json_path_key, canonical, char)
             if previous is not None:
-                cursor = (
-                    previous_origin
-                    + kerning_offset(previous, geometry, min_width_design) * scale
-                    + clearance
-                )
+                offset = kerning_offset(previous, geometry, min_width_design, window_design)
+                cursor = previous_origin + offset * scale + clearance
             placed = geometry.block.scaled(scale).translate(cursor, 0.0)
             strokes.extend(placed.strokes)
             previous_origin = cursor
@@ -424,6 +519,7 @@ def render_text_line_plt_font(
     character_spacing: float = 0.0,
     space_width_fraction: Optional[float] = None,
     min_glyph_width: Optional[float] = None,
+    kerning_window_fraction: Optional[float] = None,
     json_path: Optional[Path] = None,
     fonts_dir: Optional[Path] = None,
 ) -> TextBlock:
@@ -445,6 +541,9 @@ def render_text_line_plt_font(
         min_glyph_width: Global minimum glyph advance width in inches
             clamping the profile envelopes (``None`` falls back to
             :data:`MIN_GLYPH_WIDTH`).
+        kerning_window_fraction: Kerning window as a fraction of the
+            rendered text height in ``[0, 1]`` (``None`` falls back to
+            :data:`KERNING_WINDOW_FRACTION`).
         json_path: Optional ``plt_fonts.json`` override (tests).
         fonts_dir: Optional Fonts root override (tests).
 
@@ -462,6 +561,7 @@ def render_text_line_plt_font(
         character_spacing=character_spacing,
         space_width_fraction=space_width_fraction,
         min_glyph_width=min_glyph_width,
+        kerning_window_fraction=kerning_window_fraction,
         json_path=json_path,
         fonts_dir=fonts_dir,
     )
