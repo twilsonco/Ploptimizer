@@ -54,9 +54,9 @@ generator to place, scale, and kern.
    three-row split:
 
    ```
-   E!"#$%&'()*+,-./0123456789:;<=>?@ABCDEF
-   EGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklm
-   Enopqrstuvwxyz{|}~E
+   E ! " # $ % & ' ( ) * + , - . / 0 1 2 3 4 5 6 7 8 9 : ; < = > ? @ A B C D E F E
+   E G H I J K L M N O P Q R S T U V W X Y Z [ \ ] ^ _ ` a b c d e f g h i j k l m E
+   E n o p q r s t u v w x y z { | } ~ E
    ```
 
    The rows do not need to be equal length — the extractor discovers the row
@@ -70,6 +70,7 @@ generator to place, scale, and kern.
    - Characters are spaced far enough apart that no two glyphs touch. Use
      spaces or tabs between characters if needed — extra whitespace is fine
      and makes clustering more reliable.
+   - Recommended method is to simply copy the text of `ascii.txt` into your document, then add the reference character at the start and end of each row.
 
    > The number of spaces between characters does **not** need to be uniform,
    > and rows may even overlap horizontally — glyph grouping is spatial, not
