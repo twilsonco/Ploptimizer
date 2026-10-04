@@ -1553,6 +1553,8 @@ def _render_line_block(
                 font_name=ref.name,
                 cutter_diameter=line.cutter_diameter,
                 character_spacing=line.character_spacing,
+                space_width_fraction=line.space_width_fraction,
+                min_glyph_width=line.min_glyph_width,
             )
             return block, (groups or None)
         block = render_text_line_plt_font(
@@ -1561,6 +1563,8 @@ def _render_line_block(
             font_name=ref.name,
             cutter_diameter=line.cutter_diameter,
             character_spacing=line.character_spacing,
+            space_width_fraction=line.space_width_fraction,
+            min_glyph_width=line.min_glyph_width,
         )
         return block, None
 

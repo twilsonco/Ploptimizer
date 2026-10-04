@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any, Dict
 
 import pytest
 
@@ -13,12 +14,35 @@ from plt_optimizer.generate.font_registry import (
     FONTS_DIR,
     PLT_FONTS_JSON_PATH,
     FontNotFoundError,
+    PltFontData,
     available_ttf_fonts,
     font_name_choices,
     load_plt_fonts,
     normalize_font_name,
     resolve_font,
 )
+
+
+def _v2_font(characters: Dict[str, str], **metadata: Any) -> Dict[str, Any]:
+    """Build a v2 font object from a ``{char: hpgl}`` mapping.
+
+    Args:
+        characters: Character -> HPGL string mapping (bbox/envelope-less
+            entries are valid v2 entries).
+        **metadata: Optional metadata overrides (e.g. ``reference_char``).
+
+    Returns:
+        A JSON-serializable v2 font object.
+    """
+    font: Dict[str, Any] = {
+        "reference_char": "A",
+        "declared_height_in": 1.0,
+        "reference_char_height_in": 1.0,
+        "normalized_ref_height": 1.0,
+        "characters": {char: {"glyph": hpgl} for char, hpgl in characters.items()},
+    }
+    font.update(metadata)
+    return font
 
 
 @pytest.fixture(autouse=True)
@@ -40,7 +64,12 @@ def fonts_root(tmp_path: Path) -> Path:
     (tmp_path / "ignored.otf").write_bytes(b"otf")
     library = tmp_path / "plt_fonts.json"
     library.write_text(
-        json.dumps({"Dino": {"A": "PU0,0;PD1,1;"}, "Jhanuni": {"A": "PU0,0;"}}),
+        json.dumps(
+            {
+                "Dino": _v2_font({"A": "PU0,0;PD1,1;"}),
+                "Jhanuni": _v2_font({"A": "PU0,0;"}),
+            }
+        ),
         encoding="utf-8",
     )
     return tmp_path
@@ -57,12 +86,17 @@ class TestBundledAssets:
         assert PLT_FONTS_JSON_PATH.exists()
 
     def test_bundled_library_loads(self) -> None:
-        """The shipped plt_fonts.json parses into glyph maps."""
+        """The shipped plt_fonts.json parses into v2 font objects."""
         fonts = load_plt_fonts()
         assert fonts, "bundled plt_fonts.json produced no fonts"
-        for name, glyphs in fonts.items():
+        for name, data in fonts.items():
             assert name
-            assert all(isinstance(char, str) and isinstance(cmd, str) for char, cmd in glyphs.items())
+            assert isinstance(data, PltFontData)
+            assert data.characters, f"font {name!r} carries no characters"
+            for char, entry in data.characters.items():
+                assert isinstance(char, str)
+                assert isinstance(entry.glyph, str)
+            assert data.normalized_ref_height > 0.0
 
     def test_default_font_is_available(self) -> None:
         """The default font name resolves to the bundled TTF."""
@@ -83,10 +117,91 @@ class TestLoadPltFonts:
     """PLT library loading and its degradation paths."""
 
     def test_loads_glyph_maps(self, fonts_root: Path) -> None:
-        """A well-formed library yields name -> character map."""
+        """A well-formed library yields name -> v2 font data."""
         fonts = load_plt_fonts(fonts_root / "plt_fonts.json")
         assert set(fonts) == {"Dino", "Jhanuni"}
-        assert fonts["Dino"]["A"] == "PU0,0;PD1,1;"
+        assert fonts["Dino"].characters["A"].glyph == "PU0,0;PD1,1;"
+        assert fonts["Dino"].reference_char == "A"
+        assert fonts["Dino"].normalized_ref_height == pytest.approx(1.0)
+
+    def test_parses_bbox_and_envelopes(self, tmp_path: Path) -> None:
+        """Nested bbox/envelope structures land on the glyph entry."""
+        library = tmp_path / "plt_fonts.json"
+        library.write_text(
+            json.dumps(
+                {
+                    "Test": {
+                        "normalized_ref_height": 1.0,
+                        "characters": {
+                            "A": {
+                                "glyph": "PU0,0;PD1000,1000;",
+                                "bounding_box": {
+                                    "min_x": 0.0,
+                                    "min_y": 0.0,
+                                    "max_x": 1000.0,
+                                    "max_y": 1000.0,
+                                },
+                                "left_envelope": [[0.0, 0.0], [1000.0, 1000.0]],
+                                "right_envelope": [[0.0, 0.0], [1000.0, 1000.0]],
+                            }
+                        },
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        entry = load_plt_fonts(library)["Test"].characters["A"]
+        assert entry.bounding_box == (0.0, 0.0, 1000.0, 1000.0)
+        assert entry.left_envelope == ((0.0, 0.0), (1000.0, 1000.0))
+        assert entry.right_envelope == ((0.0, 0.0), (1000.0, 1000.0))
+
+    def test_legacy_flat_font_skipped_with_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A legacy flat ``char -> HPGL`` font is rejected with a WARNING."""
+        library = tmp_path / "plt_fonts.json"
+        library.write_text(
+            json.dumps({"Old": {"A": "PU0,0;"}, "New": _v2_font({"A": "PU0,0;"})}),
+            encoding="utf-8",
+        )
+        with caplog.at_level("WARNING"):
+            fonts = load_plt_fonts(library)
+        assert set(fonts) == {"New"}
+        assert "legacy flat" in caplog.text
+
+    def test_malformed_glyph_entry_skipped(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A character entry without a glyph string is skipped."""
+        library = tmp_path / "plt_fonts.json"
+        library.write_text(
+            json.dumps(
+                {
+                    "Test": _v2_font(
+                        {"A": "PU0,0;", "B": {"bounding_box": {"min_x": 0}}}
+                    )
+                }
+            ),
+            encoding="utf-8",
+        )
+        with caplog.at_level("WARNING"):
+            fonts = load_plt_fonts(library)
+        assert set(fonts["Test"].characters) == {"A"}
+        assert "not a v2 glyph entry" in caplog.text
+
+    def test_non_positive_normalized_height_falls_back(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A bogus normalized_ref_height warns and falls back to 1.0."""
+        library = tmp_path / "plt_fonts.json"
+        library.write_text(
+            json.dumps({"Test": _v2_font({"A": "PU0,0;"}, normalized_ref_height=0.0)}),
+            encoding="utf-8",
+        )
+        with caplog.at_level("WARNING"):
+            fonts = load_plt_fonts(library)
+        assert fonts["Test"].normalized_ref_height == pytest.approx(1.0)
+        assert "non-positive" in caplog.text
 
     def test_missing_file_warns_and_returns_empty(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
@@ -117,9 +232,11 @@ class TestLoadPltFonts:
     def test_non_map_font_entry_skipped(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """A font entry that is not a character map is skipped."""
+        """A font entry that is not a v2 object is skipped."""
         bad = tmp_path / "plt_fonts.json"
-        bad.write_text(json.dumps({"Good": {"A": "x"}, "Bad": [1, 2]}), encoding="utf-8")
+        bad.write_text(
+            json.dumps({"Good": _v2_font({"A": "x"}), "Bad": [1, 2]}), encoding="utf-8"
+        )
         with caplog.at_level("WARNING"):
             fonts = load_plt_fonts(bad)
         assert set(fonts) == {"Good"}
@@ -182,7 +299,7 @@ class TestResolveFont:
     def test_ttf_wins_cross_family_collision(self, tmp_path: Path) -> None:
         """A TTF basename shadowing a PLT key resolves to the TTF."""
         library = tmp_path / "plt_fonts.json"
-        library.write_text(json.dumps({"Dup": {"A": "x"}}), encoding="utf-8")
+        library.write_text(json.dumps({"Dup": _v2_font({"A": "x"})}), encoding="utf-8")
         (tmp_path / "Dup.ttf").write_bytes(b"t")
         ref = resolve_font("dup", json_path=library, fonts_dir=tmp_path)
         assert ref.kind == "ttf"

@@ -10,4 +10,4 @@
     - [x] Verify reference character by locating it in the extracted glyphs (order defined by `ascii.txt`), then confirm that it matches the reference characters at the beginning and end of each row.
     - [x] Extract each character's relative position to the baseline and capline, as well as its bounding box and profile envelope.
     - [x] Include this new information in the `plt-fonts.json` file. Record the reference character used, the path to the font plt file, the text height extracted from the font plt file, text height as computed from the reference character, scaled text height of stored glyphs (1 inch) and then each character's glyph (HPGL scaled commands, bounding box, profile envelope, and other necessary metadata).
-  - [ ] Update typesetting and toolpath generation to utilize the enhanced font metadata for improved kerning, spacing, and vertical placement
+  - [x] Update typesetting and toolpath generation to utilize the enhanced font metadata for improved kerning, spacing, and vertical placement

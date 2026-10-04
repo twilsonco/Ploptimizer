@@ -65,6 +65,14 @@ DEFAULT_HOLE_TEXT_COLLISION_DISTANCE: float = 0.15
 DEFAULT_BOUNDARY_HOLE_CUTTER: float = 0.015
 # Horizontal compression is opt-in: 0.0 disables it entirely.
 DEFAULT_MAX_H_COMPRESS: float = 0.0
+# Space advance (PLT-extracted fonts) as a fraction of the rendered text
+# height: a space advances ``DEFAULT_SPACE_WIDTH_FRACTION * text_height +
+# character_spacing``.
+DEFAULT_SPACE_WIDTH_FRACTION: float = 0.3
+# Global minimum glyph advance width (inches) for PLT-extracted fonts.
+# The profile-envelope kerning clamps the left glyph's right silhouette
+# outward to this floor; 0.0 means pure envelope kerning.
+DEFAULT_MIN_GLYPH_WIDTH: float = 0.0
 # Horizontal text alignment defaults to centering (existing behaviour).
 DEFAULT_TEXT_H_ALIGNMENT: str = "center"
 # Stroke-color layer tag default. ``"none"`` is the implicit color of
@@ -241,6 +249,19 @@ class ResolvedTextLine:
             PLT-extracted ``plt_fonts.json`` key (rendered arc-native) or a
             ``Fonts/`` TTF basename (rendered through ftext); resolve the
             kind via ``font_registry.resolve_font``.
+        space_width_fraction: Space advance as a fraction of the rendered
+            text height (PLT-extracted fonts): a space advances
+            ``space_width_fraction * text_height + character_spacing``.
+            Cascaded line -> label -> job, default
+            ``DEFAULT_SPACE_WIDTH_FRACTION`` (0.3). Explicit ``0.0`` is
+            honored; only ``None`` means unset.
+        min_glyph_width: Global minimum glyph advance width in inches
+            (PLT-extracted fonts): the profile-envelope kerning clamps the
+            left glyph's right silhouette outward to this floor so
+            zero-width glyphs still reserve real air. Cascaded line ->
+            label -> job, default ``DEFAULT_MIN_GLYPH_WIDTH`` (0.0 = pure
+            envelope kerning). Explicit ``0.0`` is honored; only ``None``
+            means unset.
     """
 
     text: str
@@ -253,6 +274,8 @@ class ResolvedTextLine:
     text_h_alignment: str = DEFAULT_TEXT_H_ALIGNMENT
     text_color: str = DEFAULT_TEXT_COLOR
     font: str = DEFAULT_FONT
+    space_width_fraction: float = DEFAULT_SPACE_WIDTH_FRACTION
+    min_glyph_width: float = DEFAULT_MIN_GLYPH_WIDTH
 
 
 @dataclass(frozen=True)
@@ -821,6 +844,29 @@ def _resolve_content(
         else:
             line_font = DEFAULT_FONT
 
+        # Resolve the PLT-font space advance fraction explicitly so an
+        # intentional ``0.0`` is honored instead of falling through to a
+        # parent value (line -> label -> job -> default).
+        if line.space_width_fraction is not None:
+            line_space_width_fraction: float = line.space_width_fraction
+        elif label_input.space_width_fraction is not None:
+            line_space_width_fraction = label_input.space_width_fraction
+        elif job.space_width_fraction is not None:
+            line_space_width_fraction = job.space_width_fraction
+        else:
+            line_space_width_fraction = DEFAULT_SPACE_WIDTH_FRACTION
+
+        # Resolve the PLT-font global minimum glyph width with the same
+        # explicit-None precedence (line -> label -> job -> default).
+        if line.min_glyph_width is not None:
+            line_min_glyph_width: float = line.min_glyph_width
+        elif label_input.min_glyph_width is not None:
+            line_min_glyph_width = label_input.min_glyph_width
+        elif job.min_glyph_width is not None:
+            line_min_glyph_width = job.min_glyph_width
+        else:
+            line_min_glyph_width = DEFAULT_MIN_GLYPH_WIDTH
+
         resolved_content.append(
             ResolvedTextLine(
                 text=line.text,
@@ -833,6 +879,8 @@ def _resolve_content(
                 text_h_alignment=line_text_h_alignment,
                 text_color=line_text_color,
                 font=line_font,
+                space_width_fraction=line_space_width_fraction,
+                min_glyph_width=line_min_glyph_width,
             )
         )
     return resolved_content

@@ -5,6 +5,8 @@
   "hole_margin": 0.1875,
   "min_hole_margin": 0.15,
   "hole_text_collision_distance": 0.1,
+  "space_width_fraction": 0.3,
+  "min_glyph_width": 0.0,
   "plate_width": 24.0,
   "plate_height": 16.0,
   "left_clearance": 0.0,

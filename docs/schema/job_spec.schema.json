@@ -152,6 +152,34 @@
           "description": "Minimum air gap in inches between engraved text and drill hole strokes, on top of the stroke floor 0.5 * (hole_cutter + text_cutter).",
           "title": "Hole Text Collision Distance"
         },
+        "space_width_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Space advance as a fraction of the rendered text height (PLT-extracted fonts): a space advances space_width_fraction * text_height + character_spacing. Cascades line -> label -> job (fallback 0.3); explicit 0.0 is honored.",
+          "title": "Space Width Fraction"
+        },
+        "min_glyph_width": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Global minimum glyph advance width in inches (PLT-extracted fonts): clamps the profile-envelope kerning so zero-width glyphs still reserve real air. Cascades line -> label -> job (fallback 0.0 = pure envelope kerning); explicit 0.0 is honored.",
+          "title": "Min Glyph Width"
+        },
         "text_color": {
           "anyOf": [
             {
@@ -348,7 +376,7 @@
       "type": "string"
     },
     "PlateSpec": {
-      "description": "Specification for a plate (material sheet) to cut labels from.\n\nAttributes:\n    id: Unique identifier for this plate specification.\n    width: Usable width of the plate in inches (the area available to\n        the packer). The material's right edge sits at\n        ``left_clearance + width``.\n    height: Usable height of the plate in inches (the area available to\n        the packer). The material's bottom edge sits at\n        ``top_clearance + height``.\n    left_clearance: Unused material width along the plate's left edge\n        in inches; shifts the usable area rightward. Defaults to 0.0.\n        Bottom and right clearances need no fields: the material always\n        extends to ``left_clearance + width`` on the right and\n        ``top_clearance + height`` at the bottom.\n    top_clearance: Unused material height along the plate's top edge in\n        inches; shifts the usable area downward (labels stay flush with\n        the bottom edge). Defaults to 0.0.\n    h_margin: Optional horizontal margin in inches. Accepted for schema\n        parity with the job/label ``h_margin`` cascade. NOTE: labels\n        are rendered once and cached before bin-packing (and a single\n        label may span multiple plates), so a per-plate value is not\n        currently applied during rendering; the effective value is\n        resolved from the label -> job -> default cascade.\n    v_margin: Optional vertical margin in inches. Accepted for schema\n        parity with the job/label ``v_margin`` cascade. NOTE: labels\n        are rendered once and cached before bin-packing (and a single\n        label may span multiple plates), so a per-plate value is not\n        currently applied during rendering; the effective value is\n        resolved from the label -> job -> default cascade.\n    hole_margin: Optional hole margin in inches. Accepted for schema\n        parity with the job/label ``hole_margin`` cascade. NOTE: labels\n        are rendered once and cached before bin-packing (and a single\n        label may span multiple plates), so a per-plate value is not\n        currently applied during rendering; the effective value is\n        resolved from the label -> job -> default cascade.\n    max_h_compress: Optional maximum horizontal compression fraction.\n        Accepted for schema parity with the job/label ``max_h_compress``\n        cascade. NOTE: labels are rendered once and cached before\n        bin-packing (and a single label may span multiple plates), so a\n        per-plate value is not currently applied during rendering; the\n        effective value is resolved from the label -> job -> default\n        cascade.\n    text_h_alignment: Optional horizontal text alignment. Accepted for\n        schema parity with the job/label ``text_h_alignment`` cascade.\n        NOTE: labels are rendered once and cached before bin-packing\n        (and a single label may span multiple plates), so a per-plate\n        value is not currently applied during rendering; the effective\n        value is resolved from the label -> job -> default cascade.\n    min_hole_margin: Optional minimum hole margin in inches. Accepted\n        for schema parity with the job/label ``min_hole_margin``\n        cascade. NOTE: labels are rendered once and cached before\n        bin-packing (and a single label may span multiple plates), so\n        a per-plate value is not currently applied during rendering;\n        the effective value is resolved from the label -> job ->\n        default cascade.\n    hole_text_collision_distance: Optional minimum engraved-stroke\n        air gap in inches. Accepted for schema parity with the\n        job/label ``hole_text_collision_distance`` cascade. NOTE:\n        labels are rendered once and cached before bin-packing, so a\n        per-plate value is not currently applied during rendering;\n        the effective value is resolved from the label -> job ->\n        default cascade.        layout: Optional per-plate fill-order override (``rows`` /\n        ``columns``). ``None`` (the default) inherits the job-level\n        ``layout``. Unlike the other cascading fields, this one IS\n        applied at packing time: when plates declare different modes,\n        same-mode plates pack in one sequential pass and leftovers\n        cascade to the next group in declaration order.\n    replacement_text_file: Optional path to an EngraveLab/Vision\n        Pro-style replacement text file (resolved relative to the job\n        YAML directory unless absolute) whose lines each produce one\n        label generated *onto this plate only*. Label dimensions and\n        typography (``width`` / ``height`` / ``text_height`` / ...) are\n        NOT plate fields: they come from the job-level cascade. The\n        plate's usable ``width``/``height`` still describe the pack\n        area.\n    replacement_text_delimiter: Single special or whitespace character\n        separating text items within a replacement file line. Defaults\n        to ``\";\"``. Requires ``replacement_text_file``.",
+      "description": "Specification for a plate (material sheet) to cut labels from.\n\nAttributes:\n    id: Unique identifier for this plate specification.\n    width: Usable width of the plate in inches (the area available to\n        the packer). The material's right edge sits at\n        ``left_clearance + width``.\n    height: Usable height of the plate in inches (the area available to\n        the packer). The material's bottom edge sits at\n        ``top_clearance + height``.\n    left_clearance: Unused material width along the plate's left edge\n        in inches; shifts the usable area rightward. Defaults to 0.0.\n        Bottom and right clearances need no fields: the material always\n        extends to ``left_clearance + width`` on the right and\n        ``top_clearance + height`` at the bottom.\n    top_clearance: Unused material height along the plate's top edge in\n        inches; shifts the usable area downward (labels stay flush with\n        the bottom edge). Defaults to 0.0.\n    h_margin: Optional horizontal margin in inches. Accepted for schema\n        parity with the job/label ``h_margin`` cascade. NOTE: labels\n        are rendered once and cached before bin-packing (and a single\n        label may span multiple plates), so a per-plate value is not\n        currently applied during rendering; the effective value is\n        resolved from the label -> job -> default cascade.\n    v_margin: Optional vertical margin in inches. Accepted for schema\n        parity with the job/label ``v_margin`` cascade. NOTE: labels\n        are rendered once and cached before bin-packing (and a single\n        label may span multiple plates), so a per-plate value is not\n        currently applied during rendering; the effective value is\n        resolved from the label -> job -> default cascade.\n    hole_margin: Optional hole margin in inches. Accepted for schema\n        parity with the job/label ``hole_margin`` cascade. NOTE: labels\n        are rendered once and cached before bin-packing (and a single\n        label may span multiple plates), so a per-plate value is not\n        currently applied during rendering; the effective value is\n        resolved from the label -> job -> default cascade.\n    max_h_compress: Optional maximum horizontal compression fraction.\n        Accepted for schema parity with the job/label ``max_h_compress``\n        cascade. NOTE: labels are rendered once and cached before\n        bin-packing (and a single label may span multiple plates), so a\n        per-plate value is not currently applied during rendering; the\n        effective value is resolved from the label -> job -> default\n        cascade.\n    text_h_alignment: Optional horizontal text alignment. Accepted for\n        schema parity with the job/label ``text_h_alignment`` cascade.\n        NOTE: labels are rendered once and cached before bin-packing\n        (and a single label may span multiple plates), so a per-plate\n        value is not currently applied during rendering; the effective\n        value is resolved from the label -> job -> default cascade.\n    min_hole_margin: Optional minimum hole margin in inches. Accepted\n        for schema parity with the job/label ``min_hole_margin``\n        cascade. NOTE: labels are rendered once and cached before\n        bin-packing (and a single label may span multiple plates), so\n        a per-plate value is not currently applied during rendering;\n        the effective value is resolved from the label -> job ->\n        default cascade.\n    hole_text_collision_distance: Optional minimum engraved-stroke\n        air gap in inches. Accepted for schema parity with the\n        job/label ``hole_text_collision_distance`` cascade. NOTE:\n        labels are rendered once and cached before bin-packing, so a\n        per-plate value is not currently applied during rendering;\n        the effective value is resolved from the label -> job ->\n        default cascade.\n    space_width_fraction: Optional space advance fraction. Accepted\n        for schema parity with the job/label ``space_width_fraction``\n        cascade. NOTE: labels are rendered once and cached before\n        bin-packing, so a per-plate value is not currently applied\n        during rendering; the effective value is resolved from the\n        line -> label -> job -> default cascade.\n    min_glyph_width: Optional global minimum glyph advance width in\n        inches. Accepted for schema parity with the job/label\n        ``min_glyph_width`` cascade. NOTE: labels are rendered once\n        and cached before bin-packing, so a per-plate value is not\n        currently applied during rendering; the effective value is\n        resolved from the line -> label -> job -> default cascade.\n    layout: Optional per-plate fill-order override (``rows`` /\n        ``columns``). ``None`` (the default) inherits the job-level\n        ``layout``. Unlike the other cascading fields, this one IS\n        applied at packing time: when plates declare different modes,\n        same-mode plates pack in one sequential pass and leftovers\n        cascade to the next group in declaration order.\n    replacement_text_file: Optional path to an EngraveLab/Vision\n        Pro-style replacement text file (resolved relative to the job\n        YAML directory unless absolute) whose lines each produce one\n        label generated *onto this plate only*. Label dimensions and\n        typography (``width`` / ``height`` / ``text_height`` / ...) are\n        NOT plate fields: they come from the job-level cascade. The\n        plate's usable ``width``/``height`` still describe the pack\n        area.\n    replacement_text_delimiter: Single special or whitespace character\n        separating text items within a replacement file line. Defaults\n        to ``\";\"``. Requires ``replacement_text_file``.",
       "properties": {
         "id": {
           "description": "Unique identifier for this plate specification.",
@@ -476,6 +504,34 @@
           "default": null,
           "description": "Minimum hole margin in inches (schema parity; not applied at plate level).",
           "title": "Min Hole Margin"
+        },
+        "space_width_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Space advance fraction (schema parity; not applied at plate level).",
+          "title": "Space Width Fraction"
+        },
+        "min_glyph_width": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Global minimum glyph advance width in inches (schema parity; not applied at plate level).",
+          "title": "Min Glyph Width"
         },
         "hole_text_collision_distance": {
           "anyOf": [
@@ -681,6 +737,34 @@
           "description": "Minimum air gap in inches between engraved text and drill hole strokes, on top of the stroke floor 0.5 * (hole_cutter + text_cutter).",
           "title": "Hole Text Collision Distance"
         },
+        "space_width_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Space advance as a fraction of the rendered text height (PLT-extracted fonts): a space advances space_width_fraction * text_height + character_spacing. Cascades line -> label -> job (fallback 0.3); explicit 0.0 is honored.",
+          "title": "Space Width Fraction"
+        },
+        "min_glyph_width": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Global minimum glyph advance width in inches (PLT-extracted fonts): clamps the profile-envelope kerning so zero-width glyphs still reserve real air. Cascades line -> label -> job (fallback 0.0 = pure envelope kerning); explicit 0.0 is honored.",
+          "title": "Min Glyph Width"
+        },
         "text_color": {
           "anyOf": [
             {
@@ -824,6 +908,34 @@
       "default": null,
       "description": "Minimum air gap in inches between engraved text and drill hole strokes, on top of the stroke floor 0.5 * (hole_cutter + text_cutter).",
       "title": "Hole Text Collision Distance"
+    },
+    "space_width_fraction": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Space advance as a fraction of the rendered text height (PLT-extracted fonts): a space advances space_width_fraction * text_height + character_spacing. Cascades line -> label -> job (fallback 0.3); explicit 0.0 is honored.",
+      "title": "Space Width Fraction"
+    },
+    "min_glyph_width": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Global minimum glyph advance width in inches (PLT-extracted fonts): clamps the profile-envelope kerning so zero-width glyphs still reserve real air. Cascades line -> label -> job (fallback 0.0 = pure envelope kerning); explicit 0.0 is honored.",
+      "title": "Min Glyph Width"
     },
     "text_color": {
       "anyOf": [

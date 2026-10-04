@@ -5,9 +5,13 @@ attribute:
 
 1. **PLT-extracted fonts** -- keys of ``Fonts/plt_fonts.json``, produced by
    ``Fonts/extract_plt_fonts.py`` from engraved EngraveLab / Vision Pro
-   sample sheets. Each glyph is an origin-centered HPGL (``PU``/``PD``/``AA``)
-   string normalized to a 1.0-inch design height. These render natively with
-   arcs preserved (see :mod:`plt_optimizer.generate.plt_font_renderer`).
+   sample sheets. Each glyph is a baseline-normalized HPGL
+   (``PU``/``PD``/``AA``) string in plotter units (1000 units = 1 inch,
+   ``+y`` up, baseline at ``y = 0``, left edge at ``x = 0``) with the
+   reference character exactly 1000 units tall, accompanied by its bounding
+   box and left/right profile envelopes used for kerning (see
+   :class:`PltGlyphEntry`). These render natively with arcs preserved (see
+   :mod:`plt_optimizer.generate.plt_font_renderer`).
 2. **TrueType fonts** -- every ``*.ttf`` under ``Fonts/`` (recursively),
    selected by file-name basename without extension (e.g.
    ``"ReliefSingleLineCAD-Regular"``). These render through
@@ -29,7 +33,7 @@ import logging
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -89,17 +93,201 @@ class FontRef:
     path: Optional[Path] = None
 
 
+@dataclass(frozen=True)
+class PltGlyphEntry:
+    """One character's stored geometry from ``plt_fonts.json`` (v2 schema).
+
+    All numeric values are plotter units (1000 units = 1 inch) in the
+    baseline-normalized storage frame: ``+y`` up, baseline at ``y = 0``,
+    glyph left edge at ``x = 0``, and the font's reference character
+    exactly ``normalized_ref_height * 1000`` units tall.
+
+    Attributes:
+        glyph: Self-contained ``PU``/``PD``/``AA`` HPGL command string.
+        bounding_box: ``(min_x, min_y, max_x, max_y)`` in plotter units;
+            ``None`` when the library entry carries no bounding box (the
+            renderer then measures the parsed glyph instead).
+        left_envelope: Left-silhouette samples ``((x, y), ...)`` sorted by
+            ascending ``y``, sampled across the bounding box height.
+        right_envelope: Right-silhouette samples in the same frame/order.
+    """
+
+    glyph: str
+    bounding_box: Optional[Tuple[float, float, float, float]] = None
+    left_envelope: Tuple[Tuple[float, float], ...] = ()
+    right_envelope: Tuple[Tuple[float, float], ...] = ()
+
+
+@dataclass(frozen=True)
+class PltFontData:
+    """One PLT-extracted font: metadata plus its per-character geometry.
+
+    Attributes:
+        characters: Mapping of character to :class:`PltGlyphEntry`. The
+            space character is intentionally absent (nothing to cut); the
+            typesetter handles its advance.
+        reference_char: Framing character the sheet was verified with.
+        declared_height_in: Text height from the sample-sheet file name
+            (metadata only; never applied as a correction).
+        reference_char_height_in: Measured reference-character height in
+            inches at the original sheet scale (metadata only).
+        normalized_ref_height: Height of the reference character in stored
+            design units (1.0 for every v2 library: the extractor scales
+            the reference char to exactly 1000 plotter units). The renderer
+            derives its scale from this value.
+    """
+
+    characters: Dict[str, PltGlyphEntry]
+    reference_char: str = ""
+    declared_height_in: Optional[float] = None
+    reference_char_height_in: Optional[float] = None
+    normalized_ref_height: float = 1.0
+
+
+def _parse_bounding_box(raw: object) -> Optional[Tuple[float, float, float, float]]:
+    """Parse a ``bounding_box`` mapping into ``(min_x, min_y, max_x, max_y)``.
+
+    Args:
+        raw: The raw JSON value for the entry's ``bounding_box`` key.
+
+    Returns:
+        The bbox tuple, or ``None`` when absent or malformed.
+    """
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return (
+            float(raw["min_x"]),
+            float(raw["min_y"]),
+            float(raw["max_x"]),
+            float(raw["max_y"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _parse_envelope(raw: object) -> Tuple[Tuple[float, float], ...]:
+    """Parse an envelope list of ``[x, y]`` pairs into a tuple of tuples.
+
+    Args:
+        raw: The raw JSON value for an envelope key.
+
+    Returns:
+        The sample points; empty when absent or malformed.
+    """
+    if not isinstance(raw, list):
+        return ()
+    points: List[Tuple[float, float]] = []
+    for point in raw:
+        if not isinstance(point, (list, tuple)) or len(point) != 2:
+            continue
+        try:
+            points.append((float(point[0]), float(point[1])))
+        except (TypeError, ValueError):
+            continue
+    return tuple(points)
+
+
+def _parse_glyph_entry(raw: object) -> Optional[PltGlyphEntry]:
+    """Parse one v2 character entry; ``None`` when malformed.
+
+    Args:
+        raw: The raw JSON value for one character of a font's
+            ``characters`` mapping.
+
+    Returns:
+        The parsed :class:`PltGlyphEntry`, or ``None`` when the entry is
+        not a v2 object (missing/invalid ``glyph`` string).
+    """
+    if not isinstance(raw, dict) or not isinstance(raw.get("glyph"), str):
+        return None
+    return PltGlyphEntry(
+        glyph=raw["glyph"],
+        bounding_box=_parse_bounding_box(raw.get("bounding_box")),
+        left_envelope=_parse_envelope(raw.get("left_envelope")),
+        right_envelope=_parse_envelope(raw.get("right_envelope")),
+    )
+
+
+def _parse_font_data(name: str, raw: object, path: Path) -> Optional[PltFontData]:
+    """Parse one v2 font object; ``None`` when malformed or legacy-flat.
+
+    Args:
+        name: The font key (for logging).
+        raw: The raw JSON value for the font.
+        path: Library path (for logging).
+
+    Returns:
+        The parsed :class:`PltFontData`, or ``None`` when the entry is not
+        a v2 font object (including the legacy flat ``char -> HPGL``
+        schema, which is rejected with a WARNING).
+    """
+    if not isinstance(raw, dict) or not isinstance(raw.get("characters"), dict):
+        logger.warning(
+            "PLT font %r in %s is not a v2 font object (expected a 'characters' "
+            "mapping; legacy flat libraries require re-running the extractor "
+            "with --rebuild); skipping it",
+            name,
+            path,
+        )
+        return None
+    characters: Dict[str, PltGlyphEntry] = {}
+    for char, entry_raw in raw["characters"].items():
+        entry = _parse_glyph_entry(entry_raw)
+        if entry is None:
+            logger.warning(
+                "PLT font %r character %r in %s is not a v2 glyph entry; skipping it",
+                name,
+                char,
+                path,
+            )
+            continue
+        characters[str(char)] = entry
+    normalized = raw.get("normalized_ref_height")
+    try:
+        normalized_ref_height = float(normalized) if normalized is not None else 1.0
+    except (TypeError, ValueError):
+        normalized_ref_height = 1.0
+    if normalized_ref_height <= 0.0:
+        logger.warning(
+            "PLT font %r in %s has non-positive normalized_ref_height %r; using 1.0",
+            name,
+            path,
+            normalized,
+        )
+        normalized_ref_height = 1.0
+
+    def _opt_float(key: str) -> Optional[float]:
+        value = raw.get(key)
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    reference_char = raw.get("reference_char")
+    return PltFontData(
+        characters=characters,
+        reference_char=reference_char if isinstance(reference_char, str) else "",
+        declared_height_in=_opt_float("declared_height_in"),
+        reference_char_height_in=_opt_float("reference_char_height_in"),
+        normalized_ref_height=normalized_ref_height,
+    )
+
+
 @lru_cache(maxsize=8)
-def load_plt_fonts(json_path: Optional[Path] = None) -> Dict[str, Dict[str, str]]:
-    """Load the PLT-extracted font library.
+def load_plt_fonts(json_path: Optional[Path] = None) -> Dict[str, PltFontData]:
+    """Load the PLT-extracted font library (v2 nested schema).
 
     Args:
         json_path: Optional override for ``plt_fonts.json`` (used by tests).
 
     Returns:
-        Mapping of font name to ``{character: HPGL command string}``. Empty
-        (with a WARNING) when the library file is missing or unreadable --
-        a missing library must not break TTF-only jobs.
+        Mapping of font name to :class:`PltFontData`. Empty (with a
+        WARNING) when the library file is missing or unreadable -- a
+        missing library must not break TTF-only jobs. Fonts stored in the
+        rejected legacy flat schema are skipped with a WARNING.
     """
     path = json_path if json_path is not None else PLT_FONTS_JSON_PATH
     if not path.exists():
@@ -113,12 +301,12 @@ def load_plt_fonts(json_path: Optional[Path] = None) -> Dict[str, Dict[str, str]
     if not isinstance(raw, dict):
         logger.warning("PLT font library %s is not a JSON object; ignoring it", path)
         return {}
-    fonts: Dict[str, Dict[str, str]] = {}
-    for name, glyphs in raw.items():
-        if not isinstance(glyphs, dict):
-            logger.warning("PLT font %r in %s is not a character map; skipping it", name, path)
+    fonts: Dict[str, PltFontData] = {}
+    for name, font_raw in raw.items():
+        data = _parse_font_data(str(name), font_raw, path)
+        if data is None:
             continue
-        fonts[str(name)] = {str(char): str(cmd) for char, cmd in glyphs.items()}
+        fonts[str(name)] = data
     return fonts
 
 
@@ -145,7 +333,7 @@ def available_ttf_fonts(fonts_dir: Optional[Path] = None) -> Dict[str, Path]:
 
 
 def _canonical_map(
-    plt_fonts: Dict[str, Dict[str, str]], ttfs: Dict[str, Path]
+    plt_fonts: Dict[str, PltFontData], ttfs: Dict[str, Path]
 ) -> Dict[str, tuple[FontKind, str]]:
     """Build the case-insensitive lowercase-name to (kind, canonical) index.
 

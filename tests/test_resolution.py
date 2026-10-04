@@ -15,7 +15,9 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_LINE_SPACING,
     DEFAULT_MARGIN,
     DEFAULT_MAX_H_COMPRESS,
+    DEFAULT_MIN_GLYPH_WIDTH,
     DEFAULT_MIN_HOLE_MARGIN,
+    DEFAULT_SPACE_WIDTH_FRACTION,
     DEFAULT_TEXT_COLOR,
     DEFAULT_TEXT_H_ALIGNMENT,
     DEFAULT_TEXT_HEIGHT,
@@ -1781,3 +1783,188 @@ class TestTextChunkModeCascade:
             h_margin=0.1, v_margin=0.1
         )
         assert label.text_chunk_mode == "line"
+
+
+class TestSpaceWidthFractionCascade:
+    """space_width_fraction must cascade line -> label -> job -> default."""
+
+    def test_default_when_all_omit(self) -> None:
+        """All levels omitting yields the 0.3 default."""
+        job = JobSpec(
+            job_name="J",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(
+            label.content[0].space_width_fraction, DEFAULT_SPACE_WIDTH_FRACTION
+        )
+
+    def test_job_value_used_when_label_omits(self) -> None:
+        """Job-level value cascades to the line."""
+        job = JobSpec(
+            job_name="J",
+            space_width_fraction=0.45,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].space_width_fraction, 0.45)
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level value overrides the job-level value."""
+        job = JobSpec(
+            job_name="J",
+            space_width_fraction=0.45,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    space_width_fraction=0.6,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].space_width_fraction, 0.6)
+
+    def test_line_overrides_label(self) -> None:
+        """Line-level value overrides the label-level value."""
+        job = JobSpec(
+            job_name="J",
+            space_width_fraction=0.45,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    space_width_fraction=0.6,
+                    content=[TextLine(text="X", space_width_fraction=0.2)],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].space_width_fraction, 0.2)
+
+    def test_explicit_zero_at_label_beats_job(self) -> None:
+        """An explicit 0.0 must win over a parent value, not fall through."""
+        job = JobSpec(
+            job_name="J",
+            space_width_fraction=0.5,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    space_width_fraction=0.0,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].space_width_fraction, 0.0)
+
+
+class TestMinGlyphWidthCascade:
+    """min_glyph_width must cascade line -> label -> job -> default."""
+
+    def test_default_when_all_omit(self) -> None:
+        """All levels omitting yields the pure-envelope default (0.0)."""
+        job = JobSpec(
+            job_name="J",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].min_glyph_width, DEFAULT_MIN_GLYPH_WIDTH)
+        assert DEFAULT_MIN_GLYPH_WIDTH == 0.0
+
+    def test_job_value_used_when_label_omits(self) -> None:
+        """Job-level value cascades to the line."""
+        job = JobSpec(
+            job_name="J",
+            min_glyph_width=0.1,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].min_glyph_width, 0.1)
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level value overrides the job-level value."""
+        job = JobSpec(
+            job_name="J",
+            min_glyph_width=0.1,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    min_glyph_width=0.2,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].min_glyph_width, 0.2)
+
+    def test_line_overrides_label(self) -> None:
+        """Line-level value overrides the label-level value."""
+        job = JobSpec(
+            job_name="J",
+            min_glyph_width=0.1,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    min_glyph_width=0.2,
+                    content=[TextLine(text="X", min_glyph_width=0.05)],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].min_glyph_width, 0.05)
+
+    def test_explicit_zero_at_line_beats_parents(self) -> None:
+        """An explicit 0.0 must win over a parent value, not fall through."""
+        job = JobSpec(
+            job_name="J",
+            min_glyph_width=0.1,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    min_glyph_width=0.2,
+                    content=[TextLine(text="X", min_glyph_width=0.0)],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].min_glyph_width, 0.0)

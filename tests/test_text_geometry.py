@@ -534,7 +534,7 @@ def test_real_glyphs_roundtrip(char: str) -> None:
     from many vertices).
     """
     fonts = json.loads((REPO_ROOT / "Fonts" / "plt_fonts.json").read_text(encoding="utf-8"))
-    glyph = fonts["Dino"][char]
+    glyph = fonts["Dino"]["characters"][char]["glyph"]
     doc = PLTParser().parse_string("IN;PA;" + glyph + "SP;")
     block = block_from_parser_paths(doc.stroke_paths, scale=1 / 1000)
     bounds = block.bounds()

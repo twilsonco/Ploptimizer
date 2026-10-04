@@ -52,6 +52,8 @@ they are no longer auto-sized from rendered content.
 | `text_h_alignment` | TextHAlignment \| null | null (unset) | — | Horizontal text alignment: left, center, or right. |
 | `min_hole_margin` | float \| null | null (unset) | >=0 | Minimum hole margin in inches; hole margins will not shrink below this value during collision avoidance. |
 | `hole_text_collision_distance` | float \| null | null (unset) | >=0 | Minimum air gap in inches between engraved text and drill hole strokes, on top of the stroke floor 0.5 * (hole_cutter + text_cutter). |
+| `space_width_fraction` | float \| null | null (unset) | >=0 | Space advance as a fraction of the rendered text height (PLT-extracted fonts): a space advances space_width_fraction * text_height + character_spacing. Cascades line -> label -> job (fallback 0.3); explicit 0.0 is honored. |
+| `min_glyph_width` | float \| null | null (unset) | >=0 | Global minimum glyph advance width in inches (PLT-extracted fonts): clamps the profile-envelope kerning so zero-width glyphs still reserve real air. Cascades line -> label -> job (fallback 0.0 = pure envelope kerning); explicit 0.0 is honored. |
 | `text_color` | TextColor \| null | null (unset) | — | Stroke-color layer tag splitting otherwise-identical text into separate toolpaths (labels and text lines only; rejected at the job level; never cascades). Full name or case-insensitive single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); 'none' is the implicit default and cannot be specified. |
 | `width` | float \| null | null (unset) | >0 | Label width in inches (must be > 0). Cascades label -> job; must be defined at one level. |
 | `height` | float \| null | null (unset) | >0 | Label height in inches (must be > 0). Cascades label -> job; must be defined at one level. |
@@ -95,6 +97,8 @@ Specification for a plate (material sheet) to cut labels from.
 | `text_h_alignment` | TextHAlignment \| null | null (unset) | — | Horizontal text alignment (schema parity; not applied at plate level). |
 | `font` | str \| null | null (unset) | — | Font name (schema parity; not applied at plate level). Accepted and canonicalized like the cascading font field. |
 | `min_hole_margin` | float \| null | null (unset) | >=0 | Minimum hole margin in inches (schema parity; not applied at plate level). |
+| `space_width_fraction` | float \| null | null (unset) | >=0 | Space advance fraction (schema parity; not applied at plate level). |
+| `min_glyph_width` | float \| null | null (unset) | >=0 | Global minimum glyph advance width in inches (schema parity; not applied at plate level). |
 | `hole_text_collision_distance` | float \| null | null (unset) | >=0 | Minimum engraved-stroke air gap in inches (schema parity; not applied at plate level). |
 | `layout` | LayoutMode \| null | null (unset) | — | Per-plate fill-order override (None = inherit the job layout). |
 | `replacement_text_file` | str \| null | null (unset) | — | Path to an EngraveLab/Vision Pro-style replacement text file. Each line produces one label packed onto this plate only. |
@@ -130,6 +134,8 @@ A label may be defined in one of two ways:
 | `text_h_alignment` | TextHAlignment \| null | null (unset) | — | Horizontal text alignment: left, center, or right. |
 | `min_hole_margin` | float \| null | null (unset) | >=0 | Minimum hole margin in inches; hole margins will not shrink below this value during collision avoidance. |
 | `hole_text_collision_distance` | float \| null | null (unset) | >=0 | Minimum air gap in inches between engraved text and drill hole strokes, on top of the stroke floor 0.5 * (hole_cutter + text_cutter). |
+| `space_width_fraction` | float \| null | null (unset) | >=0 | Space advance as a fraction of the rendered text height (PLT-extracted fonts): a space advances space_width_fraction * text_height + character_spacing. Cascades line -> label -> job (fallback 0.3); explicit 0.0 is honored. |
+| `min_glyph_width` | float \| null | null (unset) | >=0 | Global minimum glyph advance width in inches (PLT-extracted fonts): clamps the profile-envelope kerning so zero-width glyphs still reserve real air. Cascades line -> label -> job (fallback 0.0 = pure envelope kerning); explicit 0.0 is honored. |
 | `text_color` | TextColor \| null | null (unset) | — | Stroke-color layer tag splitting otherwise-identical text into separate toolpaths (labels and text lines only; rejected at the job level; never cascades). Full name or case-insensitive single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); 'none' is the implicit default and cannot be specified. |
 | `width` | float \| null | null (unset) | >0 | Label width in inches (must be > 0). Cascades label -> job; must be defined at one level. |
 | `height` | float \| null | null (unset) | >0 | Label height in inches (must be > 0). Cascades label -> job; must be defined at one level. |
@@ -159,6 +165,8 @@ A single line of text content within a label.
 | `text_h_alignment` | TextHAlignment \| null | null (unset) | — | Horizontal text alignment: left, center, or right. |
 | `min_hole_margin` | float \| null | null (unset) | >=0 | Minimum hole margin in inches; hole margins will not shrink below this value during collision avoidance. |
 | `hole_text_collision_distance` | float \| null | null (unset) | >=0 | Minimum air gap in inches between engraved text and drill hole strokes, on top of the stroke floor 0.5 * (hole_cutter + text_cutter). |
+| `space_width_fraction` | float \| null | null (unset) | >=0 | Space advance as a fraction of the rendered text height (PLT-extracted fonts): a space advances space_width_fraction * text_height + character_spacing. Cascades line -> label -> job (fallback 0.3); explicit 0.0 is honored. |
+| `min_glyph_width` | float \| null | null (unset) | >=0 | Global minimum glyph advance width in inches (PLT-extracted fonts): clamps the profile-envelope kerning so zero-width glyphs still reserve real air. Cascades line -> label -> job (fallback 0.0 = pure envelope kerning); explicit 0.0 is honored. |
 | `text_color` | TextColor \| null | null (unset) | — | Stroke-color layer tag splitting otherwise-identical text into separate toolpaths (labels and text lines only; rejected at the job level; never cascades). Full name or case-insensitive single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); 'none' is the implicit default and cannot be specified. |
 | `text` | str | **required** | — | The text string to render (non-empty). |
 | `placeholder` | bool | `false` | — | Mark this line for selective replacement. When True, the line's text is replaced by the corresponding replacement-file item; its other attributes are preserved. Non-placeholder lines copy verbatim to every instance. Requires the parent label to declare replacement_text_file. |
@@ -291,9 +299,11 @@ always beats the config.
 | `DEFAULT_LINE_SPACING` | `'auto'` | Extra line spacing when unset at line/label/job level. |
 | `DEFAULT_MARGIN` | `0.125` | Label margin when unset at label/job level. |
 | `DEFAULT_MAX_H_COMPRESS` | `0.0` | 0.0 = horizontal compression disabled. Required from config-or-spec when a job-config is in play. |
+| `DEFAULT_MIN_GLYPH_WIDTH` | `0.0` | — |
 | `DEFAULT_MIN_HOLE_MARGIN` | `None` | None = collision avoidance may shrink hole_margin all the way to 0.0. Required from config-or-spec when a job-config is in play. |
 | `DEFAULT_PLATE_HEIGHT` | `16.0` | Auto-allocated (unbounded mode) default plate height when job-config plate_height is unset. Required from config when a job-config is in play and plates are undeclared. |
 | `DEFAULT_PLATE_WIDTH` | `24.0` | Auto-allocated (unbounded mode) default plate width when job-config plate_width is unset. Required from config when a job-config is in play and plates are undeclared. |
+| `DEFAULT_SPACE_WIDTH_FRACTION` | `0.3` | — |
 | `DEFAULT_TEXT_COLOR` | `'none'` | Implicit stroke-color layer of text that omits text_color (never cascades; a job-level text_color is rejected). 'none' cannot be specified explicitly. |
 | `DEFAULT_TEXT_HEIGHT` | `0.25` | Font height when unset at line/label/job level. |
 | `DEFAULT_TEXT_H_ALIGNMENT` | `'center'` | Horizontal alignment fallback when unset everywhere. |

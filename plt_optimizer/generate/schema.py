@@ -345,6 +345,21 @@ class TextAttributes(BaseModel):
             overlap). Cascades label -> job (and is accepted on text
             lines and plates for schema parity, where it is not applied
             at that level).
+        space_width_fraction: Optional space advance as a fraction of the
+            rendered text height (PLT-extracted fonts): a space advances
+            ``space_width_fraction * text_height + character_spacing``.
+            Defaults to ``0.3``; only ``None`` means unset (an explicit
+            ``0.0`` collapses the space to bare ``character_spacing``).
+            Cascades line -> label -> job (and is accepted on plates for
+            schema parity, where it is not applied at that level).
+        min_glyph_width: Optional global minimum glyph advance width in
+            inches for PLT-extracted fonts. The profile-envelope kerning
+            clamps the left glyph's right silhouette outward to this
+            floor, so zero-width glyphs (``!``, ``|``) still reserve real
+            air. Defaults to ``0.0`` (pure envelope kerning); only
+            ``None`` means unset. Cascades line -> label -> job (and is
+            accepted on plates for schema parity, where it is not applied
+            at that level).
         text_color: Optional stroke-color layer tag used to split
             otherwise-identical text into separate toolpaths (one HPGL
             ``SP`` layer and one PLT file per distinct color), so the
@@ -415,6 +430,27 @@ class TextAttributes(BaseModel):
             "Minimum air gap in inches between engraved text and drill "
             "hole strokes, on top of the stroke floor "
             "0.5 * (hole_cutter + text_cutter)."
+        ),
+    )
+    space_width_fraction: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Space advance as a fraction of the rendered text height "
+            "(PLT-extracted fonts): a space advances "
+            "space_width_fraction * text_height + character_spacing. "
+            "Cascades line -> label -> job (fallback 0.3); explicit 0.0 "
+            "is honored."
+        ),
+    )
+    min_glyph_width: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Global minimum glyph advance width in inches (PLT-extracted "
+            "fonts): clamps the profile-envelope kerning so zero-width "
+            "glyphs still reserve real air. Cascades line -> label -> job "
+            "(fallback 0.0 = pure envelope kerning); explicit 0.0 is honored."
         ),
     )
     text_color: Optional[TextColor] = Field(
@@ -821,7 +857,20 @@ class PlateSpec(BaseModel):
             labels are rendered once and cached before bin-packing, so a
             per-plate value is not currently applied during rendering;
             the effective value is resolved from the label -> job ->
-            default cascade.        layout: Optional per-plate fill-order override (``rows`` /
+            default cascade.
+        space_width_fraction: Optional space advance fraction. Accepted
+            for schema parity with the job/label ``space_width_fraction``
+            cascade. NOTE: labels are rendered once and cached before
+            bin-packing, so a per-plate value is not currently applied
+            during rendering; the effective value is resolved from the
+            line -> label -> job -> default cascade.
+        min_glyph_width: Optional global minimum glyph advance width in
+            inches. Accepted for schema parity with the job/label
+            ``min_glyph_width`` cascade. NOTE: labels are rendered once
+            and cached before bin-packing, so a per-plate value is not
+            currently applied during rendering; the effective value is
+            resolved from the line -> label -> job -> default cascade.
+        layout: Optional per-plate fill-order override (``rows`` /
             ``columns``). ``None`` (the default) inherits the job-level
             ``layout``. Unlike the other cascading fields, this one IS
             applied at packing time: when plates declare different modes,
@@ -893,6 +942,19 @@ class PlateSpec(BaseModel):
         default=None,
         ge=0.0,
         description="Minimum hole margin in inches (schema parity; not applied at plate level).",
+    )
+    space_width_fraction: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=("Space advance fraction (schema parity; not applied at plate level)."),
+    )
+    min_glyph_width: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Global minimum glyph advance width in inches (schema parity; "
+            "not applied at plate level)."
+        ),
     )
     hole_text_collision_distance: Optional[float] = Field(
         default=None,

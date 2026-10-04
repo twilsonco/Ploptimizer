@@ -108,6 +108,12 @@ class JobDefaults(BaseModel):
             inches between text and drill-hole strokes.
         max_h_compress: Default maximum horizontal compression fraction
             in ``[0.0, 1.0]``.
+        space_width_fraction: Default space advance fraction for
+            PLT-extracted fonts (space = fraction * text_height +
+            character_spacing). Unset falls back to 0.3.
+        min_glyph_width: Default global minimum glyph advance width in
+            inches for PLT-extracted fonts. Unset falls back to 0.0
+            (pure profile-envelope kerning).
         text_h_alignment: Default horizontal text alignment.
         holes: Default drill-hole list (injected at the job layer; group
             locations expand exactly like spec-provided holes).
@@ -205,6 +211,24 @@ class JobDefaults(BaseModel):
     )
     text_h_alignment: Optional[TextHAlignment] = Field(
         default=None, description="Default horizontal text alignment (job layer)."
+    )
+    space_width_fraction: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Default space advance fraction for PLT-extracted fonts (job "
+            "layer): a space advances fraction * text_height + "
+            "character_spacing. Unset falls back to 0.3."
+        ),
+    )
+    min_glyph_width: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Default global minimum glyph advance width in inches for "
+            "PLT-extracted fonts (job layer); clamps the profile-envelope "
+            "kerning for zero-width glyphs. Unset falls back to 0.0."
+        ),
     )
     holes: Optional[list[HoleSpec]] = Field(
         default=None,
@@ -305,6 +329,8 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "hole_text_collision_distance",
     "max_h_compress",
     "text_h_alignment",
+    "space_width_fraction",
+    "min_glyph_width",
     "allow_rotation",
     "text_chunk_mode",
     "layout",
