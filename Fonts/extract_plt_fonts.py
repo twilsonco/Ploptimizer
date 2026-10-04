@@ -111,7 +111,7 @@ UNITS_PER_INCH = 1000.0
 
 # Vertical samples per left/right profile envelope; overridable with
 # --envelope-samples.
-ENVELOPE_SAMPLES = 30
+ENVELOPE_SAMPLES = 60
 
 # Declared-vs-measured height drift above which a WARNING is logged. The
 # measured height is always stored unadjusted; this only flags likely
