@@ -77,9 +77,10 @@ JobSpec (job-level defaults)
   The window `kerning_window_fraction` (fraction of text height, default
   0.05) makes each envelope sample compare against the deepest opposing
   sample within ±half the window (staggered pokes count), then takes the
-  max *local mean* penetration — sustained closeness (`db`) kernes fully,
-  a localized poke (`AP`) is diluted and kernes less; `0.0` reproduces
-  the historical same-height maximum-penetration math exactly;
+  maximum of those windowed penetrations — the window can only widen the
+  advance relative to same-height kerning, never narrow it; `0.0`
+  reproduces the historical same-height maximum-penetration math
+  exactly;
   a space advances `space_width_fraction * text_height +
   character_spacing` and breaks kerning. A character the PLT font lacks
   raises `PltFontRenderError` at render → `LabelRenderError` (CLI
@@ -103,9 +104,9 @@ JobSpec (job-level defaults)
   `None` → **0.05**; only `None` means unset, an explicit `0.0` restores
   the historical same-height maximum-penetration kerning). Each envelope
   sample compares against the opposite silhouette within ±(half this
-  fraction) of the text height and the effective penetration smooths over
-  the same window, so staggered pokes count and localized closeness kernes
-  less than sustained closeness. Cascades line → label → job (accepted on
+  fraction) of the text height and the effective penetration is the worst
+  windowed penetration, so staggered pokes widen the advance (the window
+  never narrows it). Cascades line → label → job (accepted on
   plates for schema parity only); `job-config.json` supplies the shop
   default.
 - `max_h_compress`: Maximum horizontal compression fraction in [0, 1] (default

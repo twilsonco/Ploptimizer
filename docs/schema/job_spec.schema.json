@@ -192,7 +192,7 @@
             }
           ],
           "default": null,
-          "description": "Kerning window for PLT-extracted fonts as a fraction of the rendered text height in [0.0, 1.0]: each envelope sample compares against the opposite silhouette within +/- (half of this fraction) of the text height and the effective penetration smooths over the same window, so sustained closeness kernes fully while localized pokes kern less. Cascades line -> label -> job (fallback 0.05); explicit 0.0 is honored (= historical same-height kerning).",
+          "description": "Kerning window for PLT-extracted fonts as a fraction of the rendered text height in [0.0, 1.0]: each envelope sample compares against the opposite silhouette within +/- (half of this fraction) of the text height and the effective penetration is the worst windowed penetration, so staggered pokes widen the advance. Cascades line -> label -> job (fallback 0.05); explicit 0.0 is honored (= historical same-height kerning).",
           "title": "Kerning Window Fraction"
         },
         "text_color": {
@@ -807,7 +807,7 @@
             }
           ],
           "default": null,
-          "description": "Kerning window for PLT-extracted fonts as a fraction of the rendered text height in [0.0, 1.0]: each envelope sample compares against the opposite silhouette within +/- (half of this fraction) of the text height and the effective penetration smooths over the same window, so sustained closeness kernes fully while localized pokes kern less. Cascades line -> label -> job (fallback 0.05); explicit 0.0 is honored (= historical same-height kerning).",
+          "description": "Kerning window for PLT-extracted fonts as a fraction of the rendered text height in [0.0, 1.0]: each envelope sample compares against the opposite silhouette within +/- (half of this fraction) of the text height and the effective penetration is the worst windowed penetration, so staggered pokes widen the advance. Cascades line -> label -> job (fallback 0.05); explicit 0.0 is honored (= historical same-height kerning).",
           "title": "Kerning Window Fraction"
         },
         "text_color": {
@@ -994,7 +994,7 @@
         }
       ],
       "default": null,
-      "description": "Kerning window for PLT-extracted fonts as a fraction of the rendered text height in [0.0, 1.0]: each envelope sample compares against the opposite silhouette within +/- (half of this fraction) of the text height and the effective penetration smooths over the same window, so sustained closeness kernes fully while localized pokes kern less. Cascades line -> label -> job (fallback 0.05); explicit 0.0 is honored (= historical same-height kerning).",
+      "description": "Kerning window for PLT-extracted fonts as a fraction of the rendered text height in [0.0, 1.0]: each envelope sample compares against the opposite silhouette within +/- (half of this fraction) of the text height and the effective penetration is the worst windowed penetration, so staggered pokes widen the advance. Cascades line -> label -> job (fallback 0.05); explicit 0.0 is honored (= historical same-height kerning).",
       "title": "Kerning Window Fraction"
     },
     "text_color": {

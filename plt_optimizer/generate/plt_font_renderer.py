@@ -30,10 +30,9 @@ Layout contract:
      right-glyph silhouette sample within ``|y' - y| <= w``, so staggered
      pokes (the glyphs approach each other at slightly different heights)
      are still detected; and
-  2. the effective penetration is the maximum, over samples, of the mean
-     ``p`` within the same window -- closeness sustained along the height
-     (e.g. ``db``) earns the full tightening, while a localized poke
-     (e.g. ``AP``) is diluted by its neighbourhood and earns less.
+  2. the effective penetration is the maximum of those windowed
+     penetrations -- the window can only widen the advance relative to
+     same-height kerning, never narrow it.
 
   The origin-to-origin advance is the effective penetration plus the
   clearance::
@@ -93,7 +92,8 @@ MIN_GLYPH_WIDTH: float = 0.0
 # used when the caller does not cascade an explicit
 # ``kerning_window_fraction``. Each envelope sample compares against the
 # opposite silhouette within +/- (half of this fraction) of the text
-# height, and the effective penetration smooths over the same window.
+# height and the effective penetration is the worst (maximum) windowed
+# penetration, so staggered pokes can only widen the advance.
 # ``0.0`` reproduces the historical same-height kerning exactly.
 KERNING_WINDOW_FRACTION: float = 0.05
 
@@ -260,40 +260,6 @@ def _kerning_sample_heights(
     return sorted(heights)
 
 
-def _windowed_mean_max(values: Sequence[float], ys: Sequence[float], window: float) -> float:
-    """Maximum, over samples, of the mean ``values`` within ``window`` of ``y``.
-
-    For every sample ``k`` the mean of all samples ``j`` with
-    ``|ys[j] - ys[k]| <= window`` is computed, and the maximum of those
-    local means is returned. With ``window == 0`` the result is simply
-    ``max(values)`` (each sample averages only itself), reproducing the
-    historical same-height maximum-penetration kerning.
-
-    Args:
-        values: Sample values in ascending-``ys`` order.
-        ys: Strictly ascending sample heights (same length as ``values``).
-        window: Half-width of the smoothing window, in ``ys`` units.
-
-    Returns:
-        The maximum local mean; ``-inf`` when ``values`` is empty.
-    """
-    best = float("-inf")
-    for y_k in ys:
-        lo = 0
-        while ys[lo] < y_k - window:
-            lo += 1
-        hi = len(ys) - 1
-        while ys[hi] > y_k + window:
-            hi -= 1
-        total = 0.0
-        for index in range(lo, hi + 1):
-            total += values[index]
-        local_mean = total / (hi - lo + 1)
-        if local_mean > best:
-            best = local_mean
-    return best
-
-
 def kerning_offset(
     left: _GlyphGeometry,
     right: _GlyphGeometry,
@@ -308,11 +274,9 @@ def kerning_offset(
     sample of the right glyph's left silhouette within ``window_design``
     of its height, so staggered pokes -- the glyphs approaching each
     other at slightly different heights -- are detected too. The
-    effective offset is then the maximum, over samples, of the mean
-    penetration within the same window: closeness sustained along the
-    whole overlap (e.g. ``db``) earns the full tightening, while a
-    localized poke (e.g. ``AP``, close only at the very bottom) is
-    diluted by its neighbourhood and earns less. The clearance is NOT
+    effective offset is the maximum of those windowed penetrations (a
+    max of maxes): the window can only widen the advance relative to
+    same-height kerning, never narrow it. The clearance is NOT
     included -- the caller adds it in the output frame.
 
     Args:
@@ -320,8 +284,8 @@ def kerning_offset(
         right: The following (right) glyph geometry.
         min_glyph_width_design: Global minimum advance width in design
             units (``0.0`` = pure envelope kerning).
-        window_design: Half-width of the comparison/smoothing window in
-            design units (``0.0`` = historical same-height maximum
+        window_design: Half-width of the comparison window in design
+            units (``0.0`` = historical same-height maximum
             penetration).
 
     Returns:
@@ -358,9 +322,10 @@ def kerning_offset(
                     hi += 1
                 deepest = min(left_xs[lo : hi + 1])
                 penetrations.append(right_x - deepest)
-            # Stage 2: the maximum local mean dilutes localized pokes
-            # while sustained closeness keeps its full tightening.
-            return _windowed_mean_max(penetrations, ys, window_design)
+            # Stage 2: the worst windowed penetration. Each sample's
+            # window contains itself, so the max of the per-sample maxes
+            # is simply the global maximum of the stage-1 profile.
+            return max(penetrations)
     # No overlapping height (or missing envelopes): fall back to the left
     # glyph's bounding-box width, floored by the minimum width.
     return max(left_box[2] - left_box[0], min_glyph_width_design)

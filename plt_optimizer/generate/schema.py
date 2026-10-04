@@ -364,9 +364,9 @@ class TextAttributes(BaseModel):
             fonts, in ``[0.0, 1.0]``, as a fraction of the rendered text
             height. Each profile-envelope sample compares against the
             opposite silhouette within +/- (half of this fraction) of the
-            text height, and the effective penetration smooths over the
-            same window: sustained closeness (``db``) earns the full
-            tightening while a localized poke (``AP``) earns less.
+            text height, so staggered pokes (the glyphs approaching each
+            other at slightly different heights) are detected and can
+            only widen the advance.
             Defaults to ``0.05``; only ``None`` means unset (an explicit
             ``0.0`` reproduces the historical same-height maximum-
             penetration kerning). Cascades line -> label -> job (and is
@@ -474,8 +474,8 @@ class TextAttributes(BaseModel):
             "rendered text height in [0.0, 1.0]: each envelope sample "
             "compares against the opposite silhouette within +/- (half of "
             "this fraction) of the text height and the effective "
-            "penetration smooths over the same window, so sustained "
-            "closeness kernes fully while localized pokes kern less. "
+            "penetration is the worst windowed penetration, so staggered "
+            "pokes widen the advance. "
             "Cascades line -> label -> job (fallback 0.05); explicit 0.0 "
             "is honored (= historical same-height kerning)."
         ),

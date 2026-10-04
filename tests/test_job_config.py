@@ -571,9 +571,9 @@ class TestParseYamlWithJobConfig:
         assert job.max_h_compress == 0.7
         assert job.min_hole_margin == 0.15
         assert job.hole_text_collision_distance == 0.1
-        assert job.space_width_fraction == 0.3
+        assert job.space_width_fraction == 0.6
         assert job.min_glyph_width == 0.06
-        assert job.kerning_window_fraction == 0.05
+        assert job.kerning_window_fraction == 0.1
 
     def test_yaml_overrides_config(self) -> None:
         """Spec-declared values still win over the shipped config."""

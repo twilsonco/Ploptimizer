@@ -313,16 +313,16 @@ class TestLayoutMath:
         assert floored.bounds()[2] == pytest.approx(0.25, abs=1e-9)
 
     def test_kerning_window_fraction_threads_through(self, synth_lib: Path) -> None:
-        """The fraction reaches the kerning math and smooths the advance.
+        """The fraction reaches the kerning math and can widen the advance.
 
         C's right silhouette is ``0.5/1.0/0.5`` at ``y=0/0.5/1.0``; A's
         left silhouette is the diagonal ``x = y``. The same-height
         penetration profile is ``[0.5, 0.5, -0.5]`` (max 0.5, so A's origin
         lands at 0.5 and the line spans 1.5). A window of 0.5 (fraction
-        1.0) reaches past the sample spacing: stage 1 deepens the mid
-        sample to ``1.0 - 0.0 = 1.0`` giving ``[0.5, 1.0, 0.0]``, and stage
-        2's best local mean is ``(0.5 + 1.0) / 2 = 0.75`` -- the line
-        widens to 1.75.
+        1.0) reaches past the sample spacing: stage 1 pairs the mid poke
+        (x=1.0) with the y=0 silhouette (x=0.0), deepening it to 1.0 and
+        giving ``[0.5, 1.0, 0.0]`` -- the max of the windowed profile
+        keeps it whole, so the line widens to 2.0.
         """
         historical = _render(
             "CA",
@@ -347,7 +347,7 @@ class TestLayoutMath:
             kerning_window_fraction=1.0,
         )
         assert wide.bounds() is not None
-        assert wide.bounds()[2] == pytest.approx(1.75, abs=1e-9)
+        assert wide.bounds()[2] == pytest.approx(2.0, abs=1e-9)
 
     def test_cap_height_scaling(self, synth_lib: Path) -> None:
         """The reference glyph scales to exactly the target height."""
@@ -501,28 +501,27 @@ class TestEnvelopeHelpers:
             left=((0.4, 0.0), (0.4, 0.6), (0.0, 0.7), (0.4, 1.0)),
         )
         assert kerning_offset(left, right, window_design=0.0) == pytest.approx(0.6)
-        # Stage 1 pairs y=0.5 (x=1.0) with the y=0.7 poke (x=0.0) -> p=1.0;
-        # stage 2 smooths the profile [_, 1.0, 0.8, 0.6, _] to its best
-        # local mean (1.0 + 0.8 + 0.6) / 3.
-        assert kerning_offset(left, right, window_design=0.2) == pytest.approx(0.8)
+        # Stage 1 pairs y=0.5 (x=1.0) with the y=0.7 poke (x=0.0) -> p=1.0,
+        # and the max of the windowed profile keeps it whole.
+        assert kerning_offset(left, right, window_design=0.2) == pytest.approx(1.0)
 
-    def test_kerning_window_localized_poke_kerns_less_than_sustained(self) -> None:
-        """Sustained closeness keeps its full tightening; a poke is diluted.
+    def test_kerning_window_never_narrows_the_advance(self) -> None:
+        """The window only ever widens the advance, never loosens it.
 
-        Both pairs share the same same-height maximum penetration (1.0),
-        but the localized pair (``AP``-like: close only at one height) is
-        averaged down by its neighbourhood while the sustained pair
-        (``db``-like: close along the whole overlap) is untouched.
+        Against a flat opposing silhouette there is no staggered poke to
+        find, so the worst windowed penetration stays the same-height
+        worst case -- a localized poke (``AP``-like) and a sustained one
+        (``db``-like) both keep their full tightening.
         """
-        flat_right = ((0.0, 0.0), (0.0, 1.0))
+        flat_left = ((0.0, 0.0), (0.0, 1.0))
         localized = self._geometry((0.0, 0.0, 1.0, 1.0), right=((0.0, 0.0), (1.0, 0.5), (0.0, 1.0)))
         sustained = self._geometry((0.0, 0.0, 1.0, 1.0), right=((1.0, 0.0), (1.0, 1.0)))
-        receiving = self._geometry((0.0, 0.0, 0.4, 1.0), left=flat_right)
+        receiving = self._geometry((0.0, 0.0, 0.4, 1.0), left=flat_left)
         assert kerning_offset(localized, receiving) == pytest.approx(1.0)
         assert kerning_offset(sustained, receiving) == pytest.approx(1.0)
-        # Window 0.5: localized profile [0, 1, 0] -> best local mean 0.5;
-        # sustained profile [1, 1] -> stays 1.0.
-        assert kerning_offset(localized, receiving, window_design=0.5) == pytest.approx(0.5)
+        # Widening the window cannot dilute either pair: the maximum of the
+        # windowed penetrations is bounded below by the same-height maximum.
+        assert kerning_offset(localized, receiving, window_design=0.5) == pytest.approx(1.0)
         assert kerning_offset(sustained, receiving, window_design=0.5) == pytest.approx(1.0)
 
 

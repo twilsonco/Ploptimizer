@@ -76,7 +76,8 @@ DEFAULT_MIN_GLYPH_WIDTH: float = 0.0
 # Kerning window (fraction of the rendered text height, in [0.0, 1.0])
 # for PLT-extracted fonts. Each envelope sample compares against the
 # opposite silhouette within +/- (half of this fraction) of the text
-# height and the effective penetration smooths over the same window;
+# height and the effective penetration is the worst windowed
+# penetration, so staggered pokes widen the advance;
 # 0.0 reproduces the historical same-height maximum-penetration kerning.
 DEFAULT_KERNING_WINDOW_FRACTION: float = 0.05
 # Horizontal text alignment defaults to centering (existing behaviour).
@@ -272,12 +273,11 @@ class ResolvedTextLine:
             rendered text height in [0.0, 1.0] (PLT-extracted fonts):
             envelope samples compare against the opposite silhouette
             within +/- (half of this fraction) of the text height and the
-            effective penetration smooths over the same window, so
-            sustained closeness kernes fully while localized pokes kern
-            less. Cascaded line -> label -> job, default
-            ``DEFAULT_KERNING_WINDOW_FRACTION`` (0.05). Explicit ``0.0``
-            is honored (= historical same-height kerning); only ``None``
-            means unset.
+            effective penetration is the worst windowed penetration, so
+            staggered pokes widen the advance. Cascaded line -> label ->
+            job, default ``DEFAULT_KERNING_WINDOW_FRACTION`` (0.05).
+            Explicit ``0.0`` is honored (= historical same-height
+            kerning); only ``None`` means unset.
     """
 
     text: str

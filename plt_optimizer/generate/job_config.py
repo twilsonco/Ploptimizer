@@ -241,8 +241,8 @@ class JobDefaults(BaseModel):
         description=(
             "Default kerning window for PLT-extracted fonts (job layer) as "
             "a fraction of the rendered text height in [0.0, 1.0]; widens "
-            "the envelope comparison so staggered pokes count and "
-            "localized closeness kernes less. Unset falls back to 0.05."
+            "the envelope comparison so staggered pokes widen the "
+            "advance. Unset falls back to 0.05."
         ),
     )
     holes: Optional[list[HoleSpec]] = Field(

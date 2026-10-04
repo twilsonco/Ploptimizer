@@ -277,7 +277,7 @@
         }
       ],
       "default": null,
-      "description": "Default kerning window for PLT-extracted fonts (job layer) as a fraction of the rendered text height in [0.0, 1.0]; widens the envelope comparison so staggered pokes count and localized closeness kernes less. Unset falls back to 0.05.",
+      "description": "Default kerning window for PLT-extracted fonts (job layer) as a fraction of the rendered text height in [0.0, 1.0]; widens the envelope comparison so staggered pokes widen the advance. Unset falls back to 0.05.",
       "title": "Kerning Window Fraction"
     },
     "holes": {
