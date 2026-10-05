@@ -350,17 +350,21 @@ class TestRecipes:
         assert min(vertical_bottoms) == pytest.approx(300.0)
 
     def test_cent_bar_and_c_share_the_vertical_centre(self, derived: Dict[str, Any]) -> None:
-        # c: 0..600 high, shrunk to CENT_C_SCALE -> 360 tall; the bar is halved
-        # about its own centre and translated onto the c's centre, so both
-        # elements share one vertical centre (the midline after the lift).
+        # c: 500x600 shrunk CENT_C_SCALE -> 300 wide, 360 tall; the bar
+        # (1200 tall) is halved about its own centre (CENT_BAR_SCALE) and
+        # translated onto the c's centre, so both elements share one vertical
+        # centre (the midline after the lift).
+        c_w = 500.0 * gt.CENT_C_SCALE
+        bar_half = 1200.0 * gt.CENT_BAR_SCALE / 2.0
+        bar_x = c_w / 2.0
         box = _bbox(derived["\u00a2"])
-        assert box == pytest.approx((0.0, 200.0, 300.0, 800.0))
+        assert box == pytest.approx((0.0, 500.0 - bar_half, c_w, 500.0 + bar_half))
         document = PLTParser().parse_string(derived["\u00a2"]["glyph"])
         bar = [
             seg
             for path in document.stroke_paths
             for seg in path.segments
-            if abs(seg.start.x - seg.end.x) < 1e-9 and abs(seg.start.x - 150.0) < 1e-9
+            if abs(seg.start.x - seg.end.x) < 1e-9 and abs(seg.start.x - bar_x) < 1e-9
         ]
         assert len(bar) == 1
         bar_span = sorted([bar[0].start.y, bar[0].end.y])
@@ -371,7 +375,7 @@ class TestRecipes:
             for path in document.stroke_paths
             for seg in path.segments
             for coord in (seg.start, seg.end)
-            if abs(seg.start.x - seg.end.x) > 1e-9 or abs(coord.x - 300.0) < 1e-9
+            if abs(seg.start.x - seg.end.x) > 1e-9 or abs(coord.x - c_w) < 1e-9
         ]
         assert (min(c_ys) + max(c_ys)) / 2.0 == pytest.approx(500.0)
 
@@ -384,7 +388,10 @@ class TestRecipes:
         stretch = gt.NOT_EQUAL_EQUALS_STRETCH
         slash_scale = gt.NOT_EQUAL_SLASH_SCALE
         bar_tip = 500.0 * stretch
-        assert _bbox(derived["\u2260"]) == pytest.approx((0.0, -50.0, bar_tip, 650.0))
+        slash_half = 1000.0 * slash_scale / 2.0
+        assert _bbox(derived["\u2260"]) == pytest.approx(
+            (0.0, 300.0 - slash_half, bar_tip, 300.0 + slash_half)
+        )
         document = PLTParser().parse_string(derived["\u2260"]["glyph"])
         slash = [
             seg
@@ -436,15 +443,22 @@ class TestRecipes:
         # Mirror ! (0..1000) in y=0 -> -1000..0, then translate by
         # -INVERTED_EXCLAMATION_DESCENT * cap (= +800) -> -200..800, so the
         # glyph hangs 20% of cap below the baseline.
-        assert _bbox(derived["\u00a1"]) == pytest.approx((0.0, -200.0, 0.0, 800.0))
+        drop = -gt.INVERTED_EXCLAMATION_DESCENT * 1000.0
+        assert _bbox(derived["\u00a1"]) == pytest.approx((0.0, drop - 1000.0, 0.0, drop))
 
     def test_dagger_top_at_capline(self, derived: Dict[str, Any]) -> None:
-        # Stem -100..1100 halved-and-then-20%-smaller (0.4x) about centre ->
-        # 300..700, lifted to cap -> 520..1000.
-        assert _bbox(derived["\u2020"]) == pytest.approx((0.0, 520.0, 160.0, 1000.0))
+        # Stem -100..1100 halved-and-then-20%-smaller (DAGGER_SCALE) about
+        # centre -> 480 tall, lifted to cap -> 520..1000.
+        scale = gt.DAGGER_SCALE
+        assert _bbox(derived["\u2020"]) == pytest.approx(
+            (0.0, 1000.0 - 1200.0 * scale, 400.0 * scale, 1000.0)
+        )
 
     def test_double_dagger_top_at_capline(self, derived: Dict[str, Any]) -> None:
-        assert _bbox(derived["\u2021"]) == pytest.approx((0.0, 520.0, 160.0, 1000.0))
+        scale = gt.DAGGER_SCALE
+        assert _bbox(derived["\u2021"]) == pytest.approx(
+            (0.0, 1000.0 - 1200.0 * scale, 400.0 * scale, 1000.0)
+        )
         document = PLTParser().parse_string(derived["\u2021"]["glyph"])
         crosses = [
             seg.start.y
