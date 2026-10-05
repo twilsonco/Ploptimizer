@@ -90,8 +90,7 @@ SHOWCASE_LINES: Tuple[str, ...] = (
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
     "abcdefghijklmnopqrstuvwxyz",
     "1234567890 {[(|!@#$%^&*.,?:;)]}",
-    "- . 8 + _ c | = / ~ ? ! ^ < >",
-    "\u2013 \u2014 \u2022 \u221e \u00b1 \u00a2 \u2260 \u2248 \u2261 "
+    "Unicode: \u2013 \u2014 \u2022 \u221e \u00b1 \u00a2 \u2260 \u2248 \u2261 "
     "\u00bf \u00a1 \u2020 \u2021 \u2191 \u2193 \u2190 \u2192",
 )
 
@@ -236,6 +235,7 @@ def write_showcase_pdf(font_name: str, output_dir: Path) -> Path:
         output_path=output_path,
         title=f"Font showcase - {font_name}",
         simple_mode=True,
+        gridlines=False,
     )
     plt.close(fig)
     return output_path
