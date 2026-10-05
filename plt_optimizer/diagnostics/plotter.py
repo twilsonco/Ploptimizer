@@ -139,6 +139,7 @@ def plot_plt_document(
     rapid_travel_inches: Optional[float] = None,
     simple_mode: bool = False,
     is_structural: bool = False,
+    gridlines: bool = True,
 ) -> Figure:
     """Plot a complete PLT document with color-coded path segments.
 
@@ -169,6 +170,10 @@ def plot_plt_document(
             (``linewidth=1.0``, ``alpha=1.0``). Text-only and mixed
             (text + borders + holes) documents use the default. Has no effect
             outside simple mode.
+        gridlines: If True (the default), draw the major (1 in) and minor
+            (0.5 in) drafting gridlines. If False, the fixed inch-based tick
+            layout is kept (ticks and labels are unchanged) while both grid
+            layers are suppressed, giving a clean background for exports.
 
     Returns:
         The matplotlib Figure object.
@@ -367,8 +372,9 @@ def plot_plt_document(
         # Fixed drafting grid: major ticks/gridlines every inch, minor every 0.5in
         _apply_inch_tick_layout(ax)
         ax.legend(loc="upper right")
-        ax.grid(True, alpha=0.3)
-        ax.grid(which="minor", alpha=0.15)
+        if gridlines:
+            ax.grid(True, alpha=0.3)
+            ax.grid(which="minor", alpha=0.15)
 
         # Equal aspect ratio for accurate visualization
         ax.set_aspect("equal", adjustable="box")

@@ -1982,6 +1982,27 @@ class TestInchTickLayout:
         assert all(g.get_visible() for g in minor)
         plt.close(fig)
 
+    def test_gridlines_false_hides_both_layers_keeps_ticks(self) -> None:
+        """gridlines=False suppresses major/minor gridlines, keeps tick layout."""
+        fig = plot_plt_document(self._make_doc(), gridlines=False)
+        ax = fig.axes[0]
+        fig.canvas.draw()
+        major = ax.xaxis.get_gridlines() + ax.yaxis.get_gridlines()
+        minor = [t.gridline for t in ax.xaxis.minorTicks] + [
+            t.gridline for t in ax.yaxis.minorTicks
+        ]
+        assert len(major) > 0 and len(minor) > 0
+        assert all(not g.get_visible() for g in major)
+        assert all(not g.get_visible() for g in minor)
+        # The fixed inch-based tick layout is untouched.
+        for locs in (ax.xaxis.get_majorticklocs(), ax.yaxis.get_majorticklocs()):
+            assert len(locs) > 0
+            assert all(math.isclose(loc % 1.0, 0.0, abs_tol=1e-9) for loc in locs)
+        for locs in (ax.xaxis.get_minorticklocs(), ax.yaxis.get_minorticklocs()):
+            assert len(locs) > 0
+            assert all(math.isclose(loc % 0.5, 0.0, abs_tol=1e-9) for loc in locs)
+        plt.close(fig)
+
     def test_create_path_diagram_uses_inch_ticks(self) -> None:
         """create_path_diagram shares the fixed 1in/0.5in tick layout."""
         coords = [Coordinate(0, 0), Coordinate(5, 0), Coordinate(5, 3)]
