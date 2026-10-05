@@ -57,6 +57,10 @@ def _load_script() -> Any:
 
 script = _load_script()
 
+# Loading the script puts Fonts/ on sys.path (its own sibling import), so the
+# shared tuning constants are reachable for ratio assertions.
+import glyph_transforms as gt  # noqa: E402
+
 from plt_optimizer.core.models import (  # noqa: E402
     ArcSegment,
     Coordinate,
@@ -1131,14 +1135,14 @@ class TestDerivedGlyphs:
             assert len(entry["left_envelope"]) == script.ENVELOPE_SAMPLES
             assert entry["bounding_box"]["min_x"] == pytest.approx(0.0, abs=1e-6)
             PLTParser().parse_string(entry["glyph"])
-        # The en dash is exactly twice the hyphen's width, same height. The
-        # derived bbox is measured from the 4-decimal stored glyph string
-        # (the core parser rounds coordinates to 3 decimals), so the height
-        # comparison uses the storage precision floor.
+        # The en dash is exactly EN_DASH_SCALE x the hyphen's width, same
+        # height. The derived bbox is measured from the 4-decimal stored glyph
+        # string (the core parser rounds coordinates to 3 decimals), so the
+        # height comparison uses the storage precision floor.
         hyphen = characters["-"]["bounding_box"]
         dash = characters["\u2013"]["bounding_box"]
         assert dash["max_x"] - dash["min_x"] == pytest.approx(
-            2.0 * (hyphen["max_x"] - hyphen["min_x"]), rel=1e-3
+            gt.EN_DASH_SCALE * (hyphen["max_x"] - hyphen["min_x"]), rel=1e-3
         )
         assert dash["min_y"] == pytest.approx(hyphen["min_y"], abs=1e-3)
         assert dash["min_y"] == pytest.approx(dash["max_y"], abs=1e-9)

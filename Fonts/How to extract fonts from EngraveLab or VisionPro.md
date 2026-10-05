@@ -194,23 +194,28 @@ font gains these 17 keys after extraction:
 
 | Char | U+ | Recipe |
 | --- | --- | --- |
-| `–` | 2013 | hyphen stretched to 2× width |
-| `—` | 2014 | hyphen stretched to 3× width |
+| `–` | 2013 | hyphen stretched to `EN_DASH_SCALE`× width |
+| `—` | 2014 | hyphen stretched to `EM_DASH_SCALE`× width |
 | `•` | 2022 | period raised to the midline |
 | `∞` | 221E | numeral eight rotated 90° |
 | `±` | 00B1 | plus touching an underscore, centred on the midline |
-| `¢` | 00A2 | half-height bar through a 20%-smaller lowercase `c` |
-| `≠` | 2260 | 60%-shrunk slash centred on an equals sign |
+| `¢` | 00A2 | shortened bar centred through a `CENT_C_SCALE`-shrunk lowercase `c` |
+| `≠` | 2260 | `NOT_EQUAL_SLASH_SCALE`-shrunk slash centred on an equals sign |
 | `≈` | 2248 | two tildas stacked, centred |
 | `≡` | 2261 | three en dashes stacked, centred |
 | `¿` | 00BF | question mark rotated 180° |
-| `¡` | 00A1 | `!` mirrored in the baseline, descended 5% of cap |
-| `†` | 2020 | cross on a stem, shrunk to 40%, top at the cap line |
-| `‡` | 2021 | two crosses on a stem, shrunk to 40%, top at the cap line |
+| `¡` | 00A1 | `!` mirrored in the baseline, shifted by `INVERTED_EXCLAMATION_DESCENT` |
+| `†` | 2020 | cross on a stem, downscaled `DAGGER_SCALE`, top at the cap line |
+| `‡` | 2021 | two crosses on a stem, downscaled `DAGGER_SCALE`, top at the cap line |
 | `↑` | 2191 | caret centred on the stem's tip (heads share the top extreme) |
 | `↓` | 2193 | inverted caret centred on the stem's foot (shared bottom extreme) |
 | `←` | 2190 | `<` with its tip on the em dash's left end |
 | `→` | 2192 | `>` with its tip on the em dash's right end |
+
+The tuning constants live at the top of
+[`glyph_transforms.py`](glyph_transforms.py) (`EN_DASH_SCALE`, `CENT_C_SCALE`,
+`NOT_EQUAL_SLASH_SCALE`, `INVERTED_EXCLAMATION_DESCENT`, `DAGGER_SCALE`, ...)
+— tweak them there and re-run `--rebuild`.
 
 The cap line is the reference character's stored height and the midline is
 half of it, so the math symbols sit at the same optical height in every font.

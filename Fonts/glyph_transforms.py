@@ -1382,19 +1382,27 @@ def _plus_minus(context: DerivedContext) -> Sequence[GlyphElement]:
 
 
 def _cent(context: DerivedContext) -> Sequence[GlyphElement]:
-    """Cent sign: a 50%-shortened bar through a 20%-smaller lowercase c."""
+    """Cent sign: a shortened bar centred through a shrunken lowercase c.
+
+    The bar is halved about its *own* centre (which that scale leaves fixed)
+    and then translated so its centre lands exactly on the shrunken ``c``'s
+    centre: scaling about the ``c``'s centre instead would pin the pivot, not
+    the bar's centre, and leave the two vertically misaligned by half their
+    original centre gap.
+    """
     c_geometry = context.g("c")
     c_bounds = context.b("c")
     shrink_c = Affine.scaling(CENT_C_SCALE, CENT_C_SCALE, (center_x(c_bounds), center_y(c_bounds)))
     shrunken_c = GlyphElement(c_geometry, shrink_c)
     bar = context.g("|")
     bar_bounds = context.b("|")
-    c_shrunk = shrunken_c.bounds
-    pivot_x = center_x(c_shrunk)
-    pivot_y = center_y(c_shrunk)
-    shrink = Affine.scaling(1.0, CENT_BAR_SCALE, (pivot_x, pivot_y))
+    c_centre = (center_x(shrunken_c.bounds), center_y(shrunken_c.bounds))
+    bar_centre = (center_x(bar_bounds), center_y(bar_bounds))
+    shrink = Affine.scaling(1.0, CENT_BAR_SCALE, bar_centre)
     _require_similarity(bar, shrink)
-    place = shrink.then(Affine.translation(pivot_x - center_x(bar_bounds), 0.0))
+    place = shrink.then(
+        Affine.translation(c_centre[0] - bar_centre[0], c_centre[1] - bar_centre[1])
+    )
     elements = [shrunken_c, GlyphElement(bar, place)]
     return _lift_to_midline(elements, context.midline)
 
@@ -1536,13 +1544,23 @@ def _arrow_right(context: DerivedContext) -> Sequence[GlyphElement]:
 
 
 DERIVED_GLYPHS: Tuple[GlyphRecipe, ...] = (
-    GlyphRecipe("\u2013", ("-",), _en_dash, "hyphen stretched to 2x width"),
-    GlyphRecipe("\u2014", ("-",), _em_dash, "hyphen stretched to 3x width"),
+    GlyphRecipe("\u2013", ("-",), _en_dash, "hyphen stretched to EN_DASH_SCALE x width"),
+    GlyphRecipe("\u2014", ("-",), _em_dash, "hyphen stretched to EM_DASH_SCALE x width"),
     GlyphRecipe("\u2022", (".",), _bullet, "period raised to the midline"),
     GlyphRecipe("\u221e", ("8",), _infinity, "numeral eight rotated 90 degrees"),
     GlyphRecipe("\u00b1", ("+", "_"), _plus_minus, "plus touching an underscore, centred"),
-    GlyphRecipe("\u00a2", ("c", "|"), _cent, "half-height bar through a 20%-smaller lowercase c"),
-    GlyphRecipe("\u2260", ("=", "/"), _not_equal, "60%-shrunk slash centred on an equals sign"),
+    GlyphRecipe(
+        "\u00a2",
+        ("c", "|"),
+        _cent,
+        "shortened bar centred through a shrunken lowercase c",
+    ),
+    GlyphRecipe(
+        "\u2260",
+        ("=", "/"),
+        _not_equal,
+        "shrunk slash centred on an equals sign",
+    ),
     GlyphRecipe("\u2248", ("~",), _almost_equal, "two tildas stacked, centred"),
     GlyphRecipe("\u2261", ("-",), _identical, "three en dashes stacked, centred"),
     GlyphRecipe("\u00bf", ("?",), _inverted_question, "question mark rotated 180 degrees"),
@@ -1553,13 +1571,13 @@ DERIVED_GLYPHS: Tuple[GlyphRecipe, ...] = (
         "exclamation mark mirrored in the baseline, descended",
     ),
     GlyphRecipe(
-        "\u2020", ("-", "|"), _dagger_single, "cross on a stem, shrunk to 40%, top at cap line"
+        "\u2020", ("-", "|"), _dagger_single, "cross on a stem, downscaled, top at cap line"
     ),
     GlyphRecipe(
         "\u2021",
         ("-", "|"),
         _dagger_double,
-        "two crosses on a stem, shrunk to 40%, top at cap line",
+        "two crosses on a stem, downscaled, top at cap line",
     ),
     GlyphRecipe(
         "\u2191", ("|", "^"), _arrow_up, "caret centred on the stem's tip (shared top extreme)"

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import math
+import sys
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence, Tuple
 
@@ -37,6 +38,29 @@ from plt_optimizer.generate.plt_font_renderer import (
 )
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
 from plt_optimizer.generate.text_geometry import ArcSeg, LineSeg, Stroke, TextBlock
+
+
+def _load_glyph_transforms() -> Any:
+    """Import ``Fonts/glyph_transforms.py`` by path for its tuning constants.
+
+    The derived-glyph ratios asserted below follow the shared recipe constants,
+    so they stay valid when the shop retunes them.
+
+    Returns:
+        The loaded module.
+    """
+    import importlib.util
+
+    module_path = Path(__file__).resolve().parents[1] / "Fonts" / "glyph_transforms.py"
+    spec = importlib.util.spec_from_file_location("glyph_transforms", module_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault("glyph_transforms", module)
+    spec.loader.exec_module(module)
+    return module
+
+
+_gt = _load_glyph_transforms()
 
 
 @pytest.fixture(autouse=True)
@@ -898,13 +922,13 @@ class TestDerivedGlyphRendering:
         assert max_y > 0.0
 
     def test_en_dash_is_wider_than_hyphen(self) -> None:
-        """The derived en dash advances roughly twice the hyphen's width."""
+        """The derived en dash advances EN_DASH_SCALE x the hyphen's width."""
         hyphen = render_text_line_plt_font("-", 0.5, "Dino").bounds()
         dash = render_text_line_plt_font("\u2013", 0.5, "Dino").bounds()
         assert hyphen is not None and dash is not None
         hyphen_width = hyphen[2] - hyphen[0]
         dash_width = dash[2] - dash[0]
-        assert dash_width == pytest.approx(2.0 * hyphen_width, rel=1e-6)
+        assert dash_width == pytest.approx(_gt.EN_DASH_SCALE * hyphen_width, rel=1e-6)
 
     def test_bullet_sits_on_the_midline(self) -> None:
         """The derived bullet is centred on half the cap height."""
@@ -928,11 +952,18 @@ class TestDerivedGlyphRendering:
         assert bounds[1] == pytest.approx(0.0, abs=1e-6)
 
     def test_inverted_exclamation_descends(self) -> None:
-        """``\u00a1`` hangs below the baseline."""
+        """``\u00a1`` hangs below the baseline by the tuned descent."""
         block = render_text_line_plt_font("\u00a1", 0.5, "Dino")
         bounds = block.bounds()
         assert bounds is not None
-        assert bounds[3] < 0.0
+        # The recipe mirrors ! (0..cap) in the baseline then translates by
+        # -INVERTED_EXCLAMATION_DESCENT * cap, so the bottom sits at
+        # -(1 + descent) * cap in inches (cap == the rendered text height).
+        expected_bottom = -0.5 * (1.0 + _gt.INVERTED_EXCLAMATION_DESCENT)
+        # Dino's ``!`` measures 1000.58 units (not exactly the 1000-unit cap),
+        # so the rendered bottom drifts from the ideal by that ratio.
+        assert bounds[1] == pytest.approx(expected_bottom, rel=1e-2)
+        assert bounds[1] < 0.0
 
     def test_derived_glyphs_kern_against_letters(self) -> None:
         """Envelope kerning accepts derived silhouettes (finite advances)."""
