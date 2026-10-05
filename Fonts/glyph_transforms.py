@@ -104,8 +104,12 @@ CENT_BAR_SCALE: float = 0.5
 CENT_C_SCALE: float = 0.6
 
 # Not-equal: the forward slash's uniform downscale before superimposing, so
-# the slash crosses the bars instead of towering over them.
+# the slash crosses the bars instead of towering over them, and the equals
+# sign's horizontal stretch (about its own centre) widening the bars the
+# slash crosses, so the pair reads as one glyph instead of a narrow = with a
+# slash hanging off its sides.
 NOT_EQUAL_SLASH_SCALE: float = 0.7
+NOT_EQUAL_EQUALS_STRETCH: float = 1.4
 
 # Identical-to: bar pitch as a fraction of the cap height. The en dash is a
 # zero-height hairline, so the stack pitch cannot be derived from its bbox.
@@ -1411,10 +1415,15 @@ def _cent(context: DerivedContext) -> Sequence[GlyphElement]:
 
 
 def _not_equal(context: DerivedContext) -> Sequence[GlyphElement]:
-    """Not equal: a downscaled slash centred on an equals sign.
+    """Not equal: a downscaled slash centred on a horizontally stretched equals.
 
     The slash is shrunk uniformly so it crosses the bars instead of towering
-    over them, then both X- and Y-centres are shared before superimposing.
+    over them, and the equals sign is stretched horizontally about its own
+    centre (which that scale leaves fixed) so the bars extend past the slash's
+    crossing points. Both X- and Y-centres are then shared before
+    superimposing. The stretch is non-uniform, so the equality bars must be
+    line-only (true for the shipped fonts) - :func:`_require_similarity`
+    guards the arc case.
     """
     slash = context.g("/")
     slash_bounds = context.b("/")
@@ -1425,12 +1434,21 @@ def _not_equal(context: DerivedContext) -> Sequence[GlyphElement]:
     )
     shrunken = GlyphElement(slash, shrink)
     shrunken_bounds = shrunken.bounds
+    equals = context.g("=")
     equals_bounds = context.b("=")
-    place = Affine.translation(
-        center_x(equals_bounds) - center_x(shrunken_bounds),
-        center_y(equals_bounds) - center_y(shrunken_bounds),
+    stretch = Affine.scaling(
+        NOT_EQUAL_EQUALS_STRETCH,
+        1.0,
+        (center_x(equals_bounds), center_y(equals_bounds)),
     )
-    return [GlyphElement(context.g("=")), GlyphElement(slash, shrink.then(place))]
+    _require_similarity(equals, stretch)
+    stretched = GlyphElement(equals, stretch)
+    stretched_bounds = stretched.bounds
+    place = Affine.translation(
+        center_x(stretched_bounds) - center_x(shrunken_bounds),
+        center_y(stretched_bounds) - center_y(shrunken_bounds),
+    )
+    return [stretched, GlyphElement(slash, shrink.then(place))]
 
 
 def _almost_equal(context: DerivedContext) -> Sequence[GlyphElement]:
@@ -1562,7 +1580,7 @@ DERIVED_GLYPHS: Tuple[GlyphRecipe, ...] = (
         "\u2260",
         ("=", "/"),
         _not_equal,
-        "shrunk slash centred on an equals sign",
+        "shrunk slash centred on a horizontally stretched equals sign",
     ),
     GlyphRecipe("\u2248", ("~",), _almost_equal, "two tildas stacked, centred"),
     GlyphRecipe("\u2261", ("-",), _identical, "three en dashes stacked, centred"),

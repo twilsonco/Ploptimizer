@@ -200,7 +200,7 @@ font gains these 17 keys after extraction:
 | `∞` | 221E | numeral eight rotated 90° |
 | `±` | 00B1 | plus touching an underscore, centred on the midline |
 | `¢` | 00A2 | shortened bar centred through a `CENT_C_SCALE`-shrunk lowercase `c` |
-| `≠` | 2260 | `NOT_EQUAL_SLASH_SCALE`-shrunk slash centred on an equals sign |
+| `≠` | 2260 | `NOT_EQUAL_SLASH_SCALE`-shrunk slash centred on a `NOT_EQUAL_EQUALS_STRETCH`-stretched equals sign |
 | `≈` | 2248 | two tildas stacked, centred |
 | `≡` | 2261 | three en dashes stacked, centred |
 | `¿` | 00BF | question mark rotated 180° |
