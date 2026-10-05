@@ -92,8 +92,11 @@ CAP_HEIGHT_FALLBACK: float = 1000.0
 MIDLINE_FRACTION: float = 0.5
 
 # En dash / em dash width as a multiple of the hyphen's.
-EN_DASH_SCALE: float = 1.6
-EM_DASH_SCALE: float = 2.4
+EN_DASH_SCALE: float = 1.8
+EM_DASH_SCALE: float = 2.8
+
+# Arrow multiplier for hyphen length
+ARROW_HYPHEN_SCALE: float = 4.0
 
 # Cent sign: the vertical bar's shortened height as a fraction of its own,
 # and the additional uniform downscale applied to the lowercase c.
@@ -1524,7 +1527,7 @@ def _arrow(context: DerivedContext, head_base: str, head_on_left: bool) -> Seque
     union's maximal/minimal X, at the shaft's bar height), so head and body
     share one extreme and one point - no disconnected arrowhead.
     """
-    shaft = Affine.scaling(EM_DASH_SCALE, 1.0)
+    shaft = Affine.scaling(ARROW_HYPHEN_SCALE, 1.0)
     _require_similarity(context.g("-"), shaft)
     dash_bounds = shaft.map_bounds(context.b("-"))
     shift = Affine.translation(0.0, context.midline - center_y(dash_bounds))
