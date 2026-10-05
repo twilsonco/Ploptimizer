@@ -185,6 +185,54 @@ a self-contained `PU`/`PD`/`AA` string at 4-decimal precision. The space
 character is intentionally **not** in the file (nothing to cut); the
 downstream placement step handles character advance.
 
+### Derived Unicode glyphs
+
+EngraveLab / Vision Pro can only engrave the characters in `ascii.txt`, so
+the extractor **derives** the common typographic characters that ASCII bases
+can be built from, using [`glyph_transforms.py`](glyph_transforms.py). Each
+font gains these 17 keys after extraction:
+
+| Char | U+ | Recipe |
+| --- | --- | --- |
+| `–` | 2013 | hyphen stretched to 2× width |
+| `—` | 2014 | hyphen stretched to 3× width |
+| `•` | 2022 | period raised to the midline |
+| `∞` | 221E | numeral eight rotated 90° |
+| `±` | 00B1 | plus touching an underscore, centred on the midline |
+| `¢` | 00A2 | half-height bar through a lowercase `c` |
+| `≠` | 2260 | slash superimposed on an equals sign |
+| `≈` | 2248 | two tildas stacked, centred |
+| `≡` | 2261 | three en dashes stacked, centred |
+| `¿` | 00BF | question mark rotated 180° |
+| `¡` | 00A1 | `!` mirrored in the baseline, descended 10% of cap |
+| `†` | 2020 | cross on a stem, halved, top at the cap line |
+| `‡` | 2021 | two crosses on a stem, halved, top at the cap line |
+| `↑` | 2191 | caret on top of a vertical bar |
+| `↓` | 2193 | inverted caret under a vertical bar |
+| `←` | 2190 | `<` at the left of an em dash |
+| `→` | 2192 | `>` at the right of an em dash |
+
+The cap line is the reference character's stored height and the midline is
+half of it, so the math symbols sit at the same optical height in every font.
+Bounding boxes and both envelopes are **re-sampled from the transformed
+geometry** (a rotated glyph's silhouette comes from the source's top/bottom
+edges, so envelopes can never be mapped from the source's), which means the
+typesetter kerns derived glyphs exactly like engraved ones.
+
+Rules:
+
+- A derived key **never overwrites** an engraved key — a font that ever
+  engraves a real `–` keeps its own.
+- A glyph whose base character is missing (a reduced `--ascii-file`) is
+  skipped with a WARNING; the rest still derive.
+- Arc (`AA`) geometry is preserved: rotations keep sweep angles verbatim,
+  mirrors negate them, and a non-uniform scale of an arc-bearing base is
+  refused (an ellipse is not a circular arc) with a WARNING naming the
+  character.
+- The midline/cap reference lives in the font entry itself
+  (`reference_char` + its `bounding_box.max_y`), so `--rebuild` and merge
+  runs produce identical derived keys.
+
 ### Height drift
 
 The measured reference height is **always stored as measured** — the

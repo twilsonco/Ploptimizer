@@ -79,6 +79,15 @@ font part with underscores turned into spaces and title-cased
 (``heavy_engraving_0.5_E.plt`` -> ``"Heavy Engraving"``); use ``--font-name`` to
 override for a single file. Existing fonts in the JSON are preserved unless
 ``--rebuild`` is given.
+
+After extraction, each font gains the **derived Unicode glyphs** of
+``Fonts/glyph_transforms.py``: common typographic characters that cannot be
+engraved from ``Fonts/ascii.txt`` (``-`` -> ``–``/``—``, ``.`` -> ``•``,
+``8`` -> ``∞``, ``+``/``_`` -> ``±``, ...). They are built by transforming the
+just-extracted ASCII bases, with bounding box and envelopes re-sampled from the
+*transformed* geometry, and are merged in alongside the engraved keys. A
+derived key never overwrites an engraved one, and a glyph whose base character
+is missing is skipped with a WARNING.
 """
 
 from __future__ import annotations
@@ -95,13 +104,31 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:  # allow running as a plain script
     sys.path.insert(0, str(REPO_ROOT))
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:  # sibling module, same reason
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-from plt_optimizer.core.models import (  # noqa: E402
-    ArcSegment,
-    PLTDocument,
-    Segment,
-    StrokePath,
+# Shared geometry, formatting, swept-arc sampling and derived-glyph machinery
+# (documented in Fonts/glyph_transforms.py). ``arc_bounds``/``segment_bounds``
+# are re-exported for callers that reach them through this module.
+from glyph_transforms import (  # noqa: E402
+    Bounds,
+    angle_in_sweep,
+    arc_band_xs,
+    arc_bounds,  # noqa: F401
+    arc_xs_at,
+    band_envelopes,
+    derive_glyph_entries,
+    format_number,
+    interpolate_gaps,
+    line_band_xs,
+    path_bounds,
+    round_unit,
+    segment_bounds,  # noqa: F401
+    union_bounds,
 )
+
+from plt_optimizer.core.models import ArcSegment, PLTDocument, StrokePath  # noqa: E402
 from plt_optimizer.core.parser import ParseError, PLTParser  # noqa: E402
 
 logger = logging.getLogger("extract_plt_fonts")
@@ -134,9 +161,6 @@ REFERENCE_MATCH_TOLERANCE = 1e-3
 # Numerical slack (plotter units) for the geometric predicates (row/cluster
 # merging, envelope sampling).
 _EPS = 1e-9
-
-# Bounding-box type: (x_min, y_min, x_max, y_max) in plotter units.
-Bounds = Tuple[float, float, float, float]
 
 # One JSON entry per character, and per font.
 CharacterEntry = Dict[str, Any]
@@ -340,106 +364,6 @@ def parse_font_file_name(plt_path: Path) -> Tuple[str, float, str]:
     if len(reference_char) != 1:
         raise FontExtractionError(f"{usage}; reference character must be exactly one character")
     return name_part.replace("_", " ").title(), declared_height, reference_char
-
-
-def arc_bounds(arc: ArcSegment) -> Bounds:
-    """Return the bounding box of the arc's *swept* portion.
-
-    EngraveLab approximates many near-straight glyph strokes as huge-radius
-    best-fit arcs, so the arc's full circle dwarfs the actual cut. Measuring
-    only the swept extent (the two endpoints plus any cardinal angle the arc
-    passes through) keeps a glyph's footprint tight and lets adjacent
-    characters separate cleanly. A full-revolution arc still yields its whole
-    circle.
-
-    Args:
-        arc: The arc segment to measure.
-
-    Returns:
-        ``(x_min, y_min, x_max, y_max)`` in plotter units.
-    """
-    cx = arc.center.x
-    cy = arc.center.y
-    radius = arc.radius
-    theta_start = math.atan2(arc.start.y - cy, arc.start.x - cx)
-    theta_end = theta_start + math.radians(arc.sweep_angle)
-    lo, hi = min(theta_start, theta_end), max(theta_start, theta_end)
-
-    quarter = math.pi / 2.0
-    angles = [theta_start, theta_end]
-    k = math.floor(lo / quarter) - 1
-    while True:
-        cardinal = k * quarter
-        if cardinal > hi:
-            break
-        if cardinal >= lo:
-            angles.append(cardinal)
-        k += 1
-
-    xs = [cx + radius * math.cos(a) for a in angles]
-    ys = [cy + radius * math.sin(a) for a in angles]
-    return (min(xs), min(ys), max(xs), max(ys))
-
-
-def segment_bounds(segment: Segment) -> Bounds:
-    """Return the bounding box of one segment.
-
-    Arcs use their swept extent (see :func:`arc_bounds`); lines use their two
-    endpoints.
-
-    Args:
-        segment: The line or arc segment to measure.
-
-    Returns:
-        ``(x_min, y_min, x_max, y_max)`` in plotter units.
-    """
-    if isinstance(segment, ArcSegment):
-        return arc_bounds(segment)
-    return (
-        min(segment.start.x, segment.end.x),
-        min(segment.start.y, segment.end.y),
-        max(segment.start.x, segment.end.x),
-        max(segment.start.y, segment.end.y),
-    )
-
-
-def path_bounds(path: StrokePath) -> Bounds:
-    """Return the bounding box of one stroke path.
-
-    Args:
-        path: The path to measure (must contain at least one segment).
-
-    Returns:
-        ``(x_min, y_min, x_max, y_max)`` in plotter units.
-
-    Raises:
-        ValueError: If the path has no segments.
-    """
-    if not path.segments:
-        raise ValueError("Cannot bound a stroke path without segments")
-    return union_bounds([segment_bounds(seg) for seg in path.segments])
-
-
-def union_bounds(boxes: Sequence[Bounds]) -> Bounds:
-    """Return the union bounding box of non-empty boxes.
-
-    Args:
-        boxes: Boxes to merge (must be non-empty).
-
-    Returns:
-        ``(x_min, y_min, x_max, y_max)`` covering every input box.
-
-    Raises:
-        ValueError: If ``boxes`` is empty.
-    """
-    if not boxes:
-        raise ValueError("Cannot union an empty sequence of bounding boxes")
-    return (
-        min(b[0] for b in boxes),
-        min(b[1] for b in boxes),
-        max(b[2] for b in boxes),
-        max(b[3] for b in boxes),
-    )
 
 
 def merge_intervals(intervals: Sequence[Interval], threshold: float) -> List[Interval]:
@@ -869,21 +793,7 @@ def _format_number(value: float) -> str:
         Fixed-point string, e.g. ``"1234.5678"``. Negative zero is normalized
         to ``"0.0000"`` so the JSON stays free of ``-0.0000`` noise.
     """
-    text = f"{value:.4f}"
-    return "0.0000" if text == "-0.0000" else text
-
-
-def _round_unit(value: float) -> float:
-    """Round one stored coordinate to 6 decimals, normalizing negative zero.
-
-    Args:
-        value: Coordinate value.
-
-    Returns:
-        The rounded value.
-    """
-    rounded = round(value, 6)
-    return 0.0 if rounded == 0.0 else rounded
+    return format_number(value)
 
 
 def emit_glyph(paths: Sequence[StrokePath], transform: GlyphTransform) -> str:
@@ -941,149 +851,16 @@ def emit_glyph(paths: Sequence[StrokePath], transform: GlyphTransform) -> str:
     return ";".join(parts) + ";"
 
 
-def _angle_in_sweep(theta: float, theta_start: float, theta_end: float) -> bool:
-    """Return whether ``theta`` lies inside the arc's swept angular interval.
-
-    The swept set is the closed interval between the start and end angles (the
-    same convention :func:`arc_bounds` uses). Angles are tested modulo 2*pi so
-    arcs crossing the negative X axis work unchanged.
-
-    Args:
-        theta: Candidate angle, in radians.
-        theta_start: Arc start angle, in radians.
-        theta_end: Arc end angle, in radians.
-
-    Returns:
-        True when ``theta`` is swept by the arc.
-    """
-    lo, hi = min(theta_start, theta_end), max(theta_start, theta_end)
-    full_turn = 2.0 * math.pi
-    for shift in (-1.0, 0.0, 1.0):
-        shifted = theta + shift * full_turn
-        if lo - 1e-9 <= shifted <= hi + 1e-9:
-            return True
-    return False
-
-
-def _arc_xs_at(
-    center_x: float,
-    center_y: float,
-    radius: float,
-    theta_start: float,
-    theta_end: float,
-    y: float,
-) -> List[float]:
-    """Return the X values where a horizontal line crosses a swept arc.
-
-    The circle/line intersection is solved analytically (no chord flattening),
-    then each candidate is kept only if its angle is inside the swept interval.
-
-    Args:
-        center_x: Arc center X in normalized units.
-        center_y: Arc center Y in normalized units.
-        radius: Arc radius in normalized units.
-        theta_start: Arc start angle, in radians.
-        theta_end: Arc end angle, in radians.
-        y: Sample height.
-
-    Returns:
-        Zero, one (tangent) or two crossing X values.
-    """
-    if abs(radius) <= _EPS:
-        return []
-    delta_y = y - center_y
-    if abs(delta_y) > radius + _EPS:
-        return []
-    discriminant = radius * radius - delta_y * delta_y
-    if discriminant < 0.0:
-        return []
-    delta_x = math.sqrt(discriminant)
-    found: List[float] = []
-    for sign in (-1.0, 1.0):
-        if abs(delta_x) <= _EPS and found:
-            break  # tangent: the two candidates coincide
-        offset = sign * delta_x
-        if _angle_in_sweep(math.atan2(delta_y, offset), theta_start, theta_end):
-            found.append(center_x + offset)
-    return found
-
-
-def _line_band_xs(
-    line: Tuple[float, float, float, float], y_low: float, y_high: float
-) -> List[float]:
-    """Return the extreme X values of a segment's portion inside a Y band.
-
-    Args:
-        line: ``(x0, y0, x1, y1)`` in normalized units.
-        y_low: Lower band edge.
-        y_high: Upper band edge.
-
-    Returns:
-        The X values bounding the portion of the segment that lies within the
-        band: the two interpolated ends of the overlap, or both endpoints for a
-        horizontal segment inside the band (its full extent is in play). Empty
-        when the segment misses the band entirely.
-    """
-    x0, y0, x1, y1 = line
-    if abs(y1 - y0) <= _EPS:
-        return [x0, x1] if y_low - _EPS <= y0 <= y_high + _EPS else []
-    lo, hi = min(y0, y1), max(y0, y1)
-    low = max(lo, y_low)
-    high = min(hi, y_high)
-    if low > high + _EPS:
-        return []
-    scale = (x1 - x0) / (y1 - y0)
-    return [x0 + (low - y0) * scale, x0 + (high - y0) * scale]
-
-
-def _arc_band_xs(
-    center_x: float,
-    center_y: float,
-    radius: float,
-    theta_start: float,
-    theta_end: float,
-    y_low: float,
-    y_high: float,
-) -> List[float]:
-    """Return the extreme X values of a swept arc's portion inside a Y band.
-
-    The arc clipped to a horizontal strip breaks into pieces whose X extrema
-    can only occur at the piece endpoints (the band-edge crossings and any arc
-    endpoint inside the band) or at a swept X cardinal (``0``/``pi``, where
-    ``x = center_x +/- radius``). Collecting exactly those candidates yields the
-    band's true extremes analytically, with no chord flattening.
-
-    Only the *swept* portion is considered: EngraveLab approximates near-straight
-    glyph strokes as huge-radius best-fit arcs, so the full circle dwarfs the cut
-    and would inflate the envelope into neighbouring glyphs (the same rule
-    :func:`arc_bounds` enforces for bounding boxes).
-
-    Args:
-        center_x: Arc center X in normalized units.
-        center_y: Arc center Y in normalized units.
-        radius: Arc radius in normalized units.
-        theta_start: Arc start angle, in radians.
-        theta_end: Arc end angle, in radians.
-        y_low: Lower band edge.
-        y_high: Upper band edge.
-
-    Returns:
-        The candidate X values, empty when the arc misses the band entirely.
-    """
-    found: List[float] = []
-    for y in (y_low, y_high):
-        found.extend(_arc_xs_at(center_x, center_y, radius, theta_start, theta_end, y))
-    for theta in (theta_start, theta_end):
-        y = center_y + radius * math.sin(theta)
-        if y_low - _EPS <= y <= y_high + _EPS:
-            found.append(center_x + radius * math.cos(theta))
-    # The X cardinals (0/pi) sit at y == center_y, so they are in play only when
-    # the band contains the center line.
-    if y_low - _EPS <= center_y <= y_high + _EPS:
-        for cardinal in (0.0, math.pi):
-            if _angle_in_sweep(cardinal, theta_start, theta_end):
-                found.append(center_x + radius * math.cos(cardinal))
-    return found
+# The geometry, formatting and swept-arc sampling primitives live in
+# ``glyph_transforms`` so engraved and derived glyphs share one implementation;
+# these aliases preserve the historic private names used throughout this module
+# (and its tests).
+_angle_in_sweep = angle_in_sweep
+_arc_xs_at = arc_xs_at
+_line_band_xs = line_band_xs
+_arc_band_xs = arc_band_xs
+_interpolate_gaps = interpolate_gaps
+_round_unit = round_unit
 
 
 def _normalized_geometry(
@@ -1123,45 +900,6 @@ def _normalized_geometry(
     return lines, arcs
 
 
-def _interpolate_gaps(samples: Sequence[Optional[float]]) -> List[float]:
-    """Fill undefined envelope samples by linear interpolation.
-
-    A band that finds no glyph geometry at all (possible inside a bounding-box
-    hole, e.g. the open middle of a ``C``) takes the value interpolated between
-    the nearest defined samples on either side; when only one side is defined,
-    the value is clamped to it. At least one defined sample must exist.
-
-    Args:
-        samples: Per-height envelope X values, ``None`` where undefined.
-
-    Returns:
-        One value per input sample, with gaps filled.
-
-    Raises:
-        ValueError: If every sample is undefined.
-    """
-    defined = [index for index, value in enumerate(samples) if value is not None]
-    if not defined:
-        raise ValueError("Cannot interpolate an envelope with no defined samples")
-    filled: List[float] = []
-    for index, value in enumerate(samples):
-        if value is not None:
-            filled.append(value)
-            continue
-        below = max((i for i in defined if i < index), default=None)
-        above = min((i for i in defined if i > index), default=None)
-        if below is not None and above is not None:
-            low_value = samples[below] or 0.0
-            high_value = samples[above] or 0.0
-            weight = (index - below) / (above - below)
-            filled.append(low_value + (high_value - low_value) * weight)
-        else:
-            nearest = below if below is not None else above
-            assert nearest is not None  # guaranteed: `defined` is non-empty
-            filled.append(samples[nearest] or 0.0)
-    return filled
-
-
 def sample_envelopes(
     paths: Sequence[StrokePath],
     transform: GlyphTransform,
@@ -1170,24 +908,12 @@ def sample_envelopes(
 ) -> Tuple[List[List[float]], List[List[float]]]:
     """Extract the left and right profile envelopes of one glyph.
 
-    The glyph's vertical extent is divided into ``samples`` uniform *bands*
-    centred on a uniform height grid, and each sample records the extreme X of
-    *any* stroke geometry meeting its band ``[y_k - step/2, y_k + step/2]``
-    (clamped to the bounding box): the left envelope the smallest X, the right
-    envelope the largest. Banding is what makes the profile robust: EngraveLab
-    engraves horizontal bars as single zero-width strokes, and a
-    zero-thickness sample line is *guaranteed* to miss such a bar whenever its
-    height is not an exact multiple of the sample step (the Dino ``F`` middle
-    bar sits at y = 500.2923 while a 30-sample grid steps by 34.482759). Bands
-    tile the axis, so every point of every stroke falls in at least one band and
-    no hairline can slip through. Extremes are computed analytically from the
-    band-clipped geometry (:func:`_line_band_xs`, :func:`_arc_band_xs` - swept
-    arc extents only, no chord flattening), and the sampled silhouette can only
-    be *wider* than the exact same-height silhouette, never narrower.
-
-    A band that finds no geometry (possible only inside a bounding-box hole,
-    e.g. the open middle of a ``C``) is interpolated from its neighbours (see
-    :func:`_interpolate_gaps`).
+    Thin wrapper mapping the extractor's raw paths through ``transform`` and
+    handing them to the shared band-aggregated sampler
+    (:func:`glyph_transforms.band_envelopes`), which is documented in full.
+    Banding is what makes the profile robust against EngraveLab's zero-width
+    horizontal bars, and the extremes are analytic (swept arc extents only, no
+    chord flattening).
 
     Args:
         paths: The glyph's raw stroke paths.
@@ -1203,45 +929,8 @@ def sample_envelopes(
     Raises:
         ValueError: If ``samples`` is less than 2.
     """
-    if samples < 2:
-        raise ValueError("Envelope sampling requires at least 2 samples")
     lines, arcs = _normalized_geometry(paths, transform)
-    if not lines and not arcs:
-        return [], []
-
-    low_y, high_y = bounds[1], bounds[3]
-    span = high_y - low_y
-    if span <= _EPS:
-        heights = [low_y] * samples
-        half_step = 0.0
-    else:
-        step = span / (samples - 1)
-        heights = [low_y + index * step for index in range(samples)]
-        heights[-1] = high_y
-        half_step = step / 2.0
-
-    left_gaps: List[Optional[float]] = []
-    right_gaps: List[Optional[float]] = []
-    for y in heights:
-        band_low = max(low_y, y - half_step)
-        band_high = min(high_y, y + half_step)
-        crossings: List[float] = []
-        for line in lines:
-            crossings.extend(_line_band_xs(line, band_low, band_high))
-        for center_x, center_y, radius, theta_start, theta_end in arcs:
-            crossings.extend(
-                _arc_band_xs(
-                    center_x, center_y, radius, theta_start, theta_end, band_low, band_high
-                )
-            )
-        left_gaps.append(min(crossings) if crossings else None)
-        right_gaps.append(max(crossings) if crossings else None)
-
-    left = _interpolate_gaps(left_gaps)
-    right = _interpolate_gaps(right_gaps)
-    left_envelope = [[_round_unit(x), _round_unit(y)] for x, y in zip(left, heights)]
-    right_envelope = [[_round_unit(x), _round_unit(y)] for x, y in zip(right, heights)]
-    return left_envelope, right_envelope
+    return band_envelopes(lines, arcs, bounds, samples)
 
 
 def build_character_entry(
@@ -1691,7 +1380,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         logger.error("%s", e)
         return 1
     for extraction in extractions:
-        fonts[extraction.font_name] = extraction.entry
+        entry = extraction.entry
+        derived = derive_glyph_entries(
+            entry["characters"],
+            reference_char=entry["reference_char"],
+            envelope_samples=args.envelope_samples,
+            log=logger,
+        )
+        entry["characters"].update(derived)
+        logger.info("Derived %d Unicode glyph(s) for %r", len(derived), extraction.font_name)
+        fonts[extraction.font_name] = entry
     try:
         write_fonts_json(args.output, fonts, characters)
     except FontExtractionError as e:

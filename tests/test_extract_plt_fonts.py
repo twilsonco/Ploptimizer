@@ -1096,3 +1096,177 @@ class TestRealSheetIntegration:
         for character, char_entry in entry["characters"].items():
             assert char_entry["glyph"], f"empty glyph for {character!r}"
             parser.parse_string(char_entry["glyph"])
+
+
+class TestDerivedGlyphs:
+    """The derived-Unicode wiring: main() calls derive_glyph_entries per font."""
+
+    def test_main_derives_into_output(self, tmp_path: Path) -> None:
+        """The real Dino sheet gains all 17 derived keys, ASCII untouched."""
+        assert DINO_FRAMED_FIXTURE.exists(), "missing fixture tests_deps/dino_0.5_E.plt"
+        fonts_dir = tmp_path / "fonts"
+        fonts_dir.mkdir()
+        shutil.copy(DINO_FRAMED_FIXTURE, fonts_dir / "dino_0.5_E.plt")
+        out = tmp_path / "out.json"
+        rc = script.main(
+            [
+                "--fonts-dir",
+                str(fonts_dir),
+                "--ascii-file",
+                str(REPO_ROOT / "Fonts" / "ascii.txt"),
+                "--output",
+                str(out),
+            ]
+        )
+        assert rc == 0
+        data = json.loads(out.read_text(encoding="utf-8"))
+        characters = data["Dino"]["characters"]
+        # Every engraved ASCII key survives...
+        assert all(char in characters for char in ASCII_CHARS)
+        # ...and each derived character is present with a full entry.
+        for char in ("\u2013", "\u2014", "\u2022", "\u221e", "\u00b1", "\u2261"):
+            assert char in characters, f"missing derived {char!r}"
+            entry = characters[char]
+            assert set(entry) == {"bounding_box", "left_envelope", "right_envelope", "glyph"}
+            assert len(entry["left_envelope"]) == script.ENVELOPE_SAMPLES
+            assert entry["bounding_box"]["min_x"] == pytest.approx(0.0, abs=1e-6)
+            PLTParser().parse_string(entry["glyph"])
+        # The en dash is exactly twice the hyphen's width, same height. The
+        # derived bbox is measured from the 4-decimal stored glyph string
+        # (the core parser rounds coordinates to 3 decimals), so the height
+        # comparison uses the storage precision floor.
+        hyphen = characters["-"]["bounding_box"]
+        dash = characters["\u2013"]["bounding_box"]
+        assert dash["max_x"] - dash["min_x"] == pytest.approx(
+            2.0 * (hyphen["max_x"] - hyphen["min_x"]), rel=1e-3
+        )
+        assert dash["min_y"] == pytest.approx(hyphen["min_y"], abs=1e-3)
+        assert dash["min_y"] == pytest.approx(dash["max_y"], abs=1e-9)
+
+    def test_main_logs_derivation_count(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        fonts_dir = tmp_path / "fonts"
+        fonts_dir.mkdir()
+        shutil.copy(DINO_FRAMED_FIXTURE, fonts_dir / "dino_0.5_E.plt")
+        args = [
+            "--fonts-dir",
+            str(fonts_dir),
+            "--ascii-file",
+            str(REPO_ROOT / "Fonts" / "ascii.txt"),
+            "--output",
+            str(tmp_path / "out.json"),
+        ]
+        with caplog.at_level(logging.INFO, logger="extract_plt_fonts"):
+            assert script.main(args) == 0
+        assert any(
+            "Derived 17 Unicode glyph(s) for 'Dino'" in record.getMessage()
+            for record in caplog.records
+        )
+
+    def test_main_skips_recipes_without_bases(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A sheet engraved from a tiny character list derives nothing, loudly."""
+        fonts_dir = tmp_path / "fonts"
+        fonts_dir.mkdir()
+        (fonts_dir / "tiny_1_E.plt").write_text(
+            make_framed_sheet([["E", "A", "_"], ["E", "T", "g"]]), encoding="utf-8"
+        )
+        ascii_file = tmp_path / "ascii.txt"
+        ascii_file.write_text("E A _ E T g", encoding="utf-8")
+        out = tmp_path / "out.json"
+        with caplog.at_level(logging.WARNING, logger="extract_plt_fonts"):
+            rc = script.main(
+                [
+                    "--fonts-dir",
+                    str(fonts_dir),
+                    "--ascii-file",
+                    str(ascii_file),
+                    "--output",
+                    str(out),
+                ]
+            )
+        assert rc == 0
+        characters = json.loads(out.read_text(encoding="utf-8"))["Tiny"]["characters"]
+        assert sorted(characters) == ["A", "E", "T", "_", "g"]
+        warnings = [record.getMessage() for record in caplog.records]
+        assert any("Skipping derived character" in message for message in warnings)
+
+    def test_rebuild_refreshes_derived_glyphs(self, tmp_path: Path) -> None:
+        """Re-running over an existing library re-derives (no stale keys)."""
+        fonts_dir = tmp_path / "fonts"
+        fonts_dir.mkdir()
+        shutil.copy(DINO_FRAMED_FIXTURE, fonts_dir / "dino_0.5_E.plt")
+        out = tmp_path / "out.json"
+        args = [
+            "--fonts-dir",
+            str(fonts_dir),
+            "--ascii-file",
+            str(REPO_ROOT / "Fonts" / "ascii.txt"),
+            "--output",
+            str(out),
+        ]
+        assert script.main(args) == 0
+        first = json.loads(out.read_text(encoding="utf-8"))
+        assert script.main(args + ["--rebuild"]) == 0
+        second = json.loads(out.read_text(encoding="utf-8"))
+        assert second == first
+
+    def test_derived_never_overwrite_engraved(self, tmp_path: Path) -> None:
+        """A font that already carries a derived key keeps its own copy."""
+        fonts_dir = tmp_path / "fonts"
+        fonts_dir.mkdir()
+        shutil.copy(DINO_FRAMED_FIXTURE, fonts_dir / "dino_0.5_E.plt")
+        out = tmp_path / "out.json"
+        args = [
+            "--fonts-dir",
+            str(fonts_dir),
+            "--ascii-file",
+            str(REPO_ROOT / "Fonts" / "ascii.txt"),
+            "--output",
+            str(out),
+        ]
+        assert script.main(args) == 0
+        data = json.loads(out.read_text(encoding="utf-8"))
+        sentinel = {
+            "glyph": "SENTINEL",
+            "bounding_box": {},
+            "left_envelope": [],
+            "right_envelope": [],
+        }
+        data["Dino"]["characters"]["\u2013"] = sentinel
+        out.write_text(json.dumps(data), encoding="utf-8")
+        # Merge path: Dino is re-extracted, so the fresh copy replaces it.
+        assert script.main(args) == 0
+        merged = json.loads(out.read_text(encoding="utf-8"))
+        assert merged["Dino"]["characters"]["\u2013"]["glyph"] != "SENTINEL"
+
+    def test_writer_orders_derived_keys_last(self, tmp_path: Path) -> None:
+        """Non-ascii.txt keys are appended in code-point order."""
+        out = tmp_path / "fonts.json"
+        entry = {
+            "file_path": "x.plt",
+            "reference_char": "E",
+            "declared_height_in": 0.5,
+            "reference_char_height_in": 0.5,
+            "normalized_ref_height": 1.0,
+            "characters": {
+                "E": {"glyph": "e;", "bounding_box": {}, "left_envelope": [], "right_envelope": []},
+                "\u2013": {
+                    "glyph": "d;",
+                    "bounding_box": {},
+                    "left_envelope": [],
+                    "right_envelope": [],
+                },
+                "\u00a1": {
+                    "glyph": "i;",
+                    "bounding_box": {},
+                    "left_envelope": [],
+                    "right_envelope": [],
+                },
+            },
+        }
+        script.write_fonts_json(out, {"Dino": entry}, characters=["E"])
+        data = json.loads(out.read_text(encoding="utf-8"))
+        assert list(data["Dino"]["characters"]) == ["E", "\u00a1", "\u2013"]

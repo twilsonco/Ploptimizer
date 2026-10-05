@@ -882,3 +882,72 @@ class TestPltFontDemoExample:
         assert counts["dino_banner"] == 177
         assert counts["mixed_tag"] == 373
         assert counts["ttf_card"] == 0
+
+
+class TestDerivedGlyphRendering:
+    """The derived Unicode glyphs of the shipped library typeset like the rest."""
+
+    def test_derived_string_renders(self) -> None:
+        """A mixed ASCII/derived string renders non-empty and upright."""
+        block = render_text_line_plt_font("A\u2013B\u2014C", 0.5, "Dino")
+        bounds = block.bounds()
+        assert bounds is not None
+        min_x, _min_y, max_x, max_y = bounds
+        assert math.isclose(min_x, 0.0, abs_tol=1e-9)
+        assert max_x > min_x
+        assert max_y > 0.0
+
+    def test_en_dash_is_wider_than_hyphen(self) -> None:
+        """The derived en dash advances roughly twice the hyphen's width."""
+        hyphen = render_text_line_plt_font("-", 0.5, "Dino").bounds()
+        dash = render_text_line_plt_font("\u2013", 0.5, "Dino").bounds()
+        assert hyphen is not None and dash is not None
+        hyphen_width = hyphen[2] - hyphen[0]
+        dash_width = dash[2] - dash[0]
+        assert dash_width == pytest.approx(2.0 * hyphen_width, rel=1e-6)
+
+    def test_bullet_sits_on_the_midline(self) -> None:
+        """The derived bullet is centred on half the cap height."""
+        block = render_text_line_plt_font("\u2022", 0.5, "Dino")
+        bounds = block.bounds()
+        assert bounds is not None
+        centre = (bounds[1] + bounds[3]) / 2.0
+        assert centre == pytest.approx(0.25, rel=1e-3)  # midline of a 0.5 cap
+
+    def test_infinity_keeps_native_arcs(self) -> None:
+        """The rotated eight keeps its AA geometry end-to-end."""
+        block = render_text_line_plt_font("\u221e", 0.5, "Dino")
+        assert _count_arcs(block) > 0
+        assert "AA" in block.to_hpgl()
+
+    def test_inverted_question_lands_on_the_baseline(self) -> None:
+        """``\u00bf`` sits on the baseline like an upright glyph."""
+        block = render_text_line_plt_font("\u00bf", 0.5, "Dino")
+        bounds = block.bounds()
+        assert bounds is not None
+        assert bounds[1] == pytest.approx(0.0, abs=1e-6)
+
+    def test_inverted_exclamation_descends(self) -> None:
+        """``\u00a1`` hangs below the baseline."""
+        block = render_text_line_plt_font("\u00a1", 0.5, "Dino")
+        bounds = block.bounds()
+        assert bounds is not None
+        assert bounds[3] < 0.0
+
+    def test_derived_glyphs_kern_against_letters(self) -> None:
+        """Envelope kerning accepts derived silhouettes (finite advances)."""
+        block = render_text_line_plt_font("T\u2192A", 0.5, "Dino", cutter_diameter=0.04)
+        bounds = block.bounds()
+        assert bounds is not None
+        assert bounds[2] > bounds[0]
+        assert bounds[2] < 3.0  # sane advance, no runaway fallback
+
+    def test_all_derived_characters_render(self) -> None:
+        """Every derived key in the shipped library renders without raising."""
+        library_path = Path(__file__).resolve().parents[1] / "Fonts" / "plt_fonts.json"
+        library = json.loads(library_path.read_text(encoding="utf-8"))
+        derived = [char for char in library["Dino"]["characters"] if ord(char) > 0x7E]
+        assert len(derived) == 17
+        for char in derived:
+            block = render_text_line_plt_font(f"A{char}A", 0.4, "Dino")
+            assert block.strokes, f"derived {char!r} rendered nothing"
