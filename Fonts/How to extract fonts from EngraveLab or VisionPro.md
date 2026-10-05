@@ -199,18 +199,18 @@ font gains these 17 keys after extraction:
 | `•` | 2022 | period raised to the midline |
 | `∞` | 221E | numeral eight rotated 90° |
 | `±` | 00B1 | plus touching an underscore, centred on the midline |
-| `¢` | 00A2 | half-height bar through a lowercase `c` |
-| `≠` | 2260 | slash superimposed on an equals sign |
+| `¢` | 00A2 | half-height bar through a 20%-smaller lowercase `c` |
+| `≠` | 2260 | 60%-shrunk slash centred on an equals sign |
 | `≈` | 2248 | two tildas stacked, centred |
 | `≡` | 2261 | three en dashes stacked, centred |
 | `¿` | 00BF | question mark rotated 180° |
-| `¡` | 00A1 | `!` mirrored in the baseline, descended 10% of cap |
-| `†` | 2020 | cross on a stem, halved, top at the cap line |
-| `‡` | 2021 | two crosses on a stem, halved, top at the cap line |
-| `↑` | 2191 | caret on top of a vertical bar |
-| `↓` | 2193 | inverted caret under a vertical bar |
-| `←` | 2190 | `<` at the left of an em dash |
-| `→` | 2192 | `>` at the right of an em dash |
+| `¡` | 00A1 | `!` mirrored in the baseline, descended 5% of cap |
+| `†` | 2020 | cross on a stem, shrunk to 40%, top at the cap line |
+| `‡` | 2021 | two crosses on a stem, shrunk to 40%, top at the cap line |
+| `↑` | 2191 | caret centred on the stem's tip (heads share the top extreme) |
+| `↓` | 2193 | inverted caret centred on the stem's foot (shared bottom extreme) |
+| `←` | 2190 | `<` with its tip on the em dash's left end |
+| `→` | 2192 | `>` with its tip on the em dash's right end |
 
 The cap line is the reference character's stored height and the midline is
 half of it, so the math symbols sit at the same optical height in every font.

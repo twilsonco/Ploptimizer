@@ -345,24 +345,40 @@ class TestRecipes:
         # The plus's vertical stem bottoms out exactly on the underscore.
         assert min(vertical_bottoms) == pytest.approx(300.0)
 
-    def test_cent_bar_half_height_centred(self, derived: Dict[str, Any]) -> None:
-        # c: 0..600 high; bar: 1200 tall halved about the c centre -> 100..700,
-        # union 0..700 lifted to midline -> 150..850.
+    def test_cent_bar_half_height_over_shrunken_c(self, derived: Dict[str, Any]) -> None:
+        # c: 0..600 high, shrunk 20% -> 480 tall; bar: 1200 tall halved about
+        # the shrunk-c centre -> 600 tall; union 0..640 lifted to midline
+        # -> 180..820.
         box = _bbox(derived["\u00a2"])
-        assert box == pytest.approx((0.0, 150.0, 500.0, 850.0))
+        assert box == pytest.approx((0.0, 180.0, 400.0, 820.0))
         document = PLTParser().parse_string(derived["\u00a2"]["glyph"])
         bar = [
             seg
             for path in document.stroke_paths
             for seg in path.segments
-            if abs(seg.start.x - seg.end.x) < 1e-9 and abs(seg.start.x - 250.0) < 1e-9
+            if abs(seg.start.x - seg.end.x) < 1e-9 and abs(seg.start.x - 200.0) < 1e-9
         ]
         assert len(bar) == 1
-        assert sorted([bar[0].start.y, bar[0].end.y]) == pytest.approx([250.0, 850.0])
+        assert sorted([bar[0].start.y, bar[0].end.y]) == pytest.approx([220.0, 820.0])
 
     def test_not_equal_slash_over_equals(self, derived: Dict[str, Any]) -> None:
-        # Slash (600 wide) x-centred on '=' (500 wide) -> overhangs 50 each side.
-        assert _bbox(derived["\u2260"]) == pytest.approx((0.0, 0.0, 600.0, 1000.0))
+        # Slash (600x1000) shrunk 60% -> 360x600, centred on '=' (centre 250,300)
+        # -> slash spans (70,0)..(430,600); the equals sign is the wider glyph.
+        assert _bbox(derived["\u2260"]) == pytest.approx((0.0, 0.0, 500.0, 600.0))
+        document = PLTParser().parse_string(derived["\u2260"]["glyph"])
+        slash = [
+            seg
+            for path in document.stroke_paths
+            for seg in path.segments
+            if abs(seg.start.x - seg.end.x) > 1e-9 and abs(seg.start.y - seg.end.y) > 1e-9
+        ]
+        assert len(slash) == 1
+        # The slash shares the equals sign's vertical centre and stays inside.
+        seg = slash[0]
+        centre = (seg.start.y + seg.end.y) / 2.0
+        assert centre == pytest.approx(300.0)
+        assert min(seg.start.y, seg.end.y) == pytest.approx(0.0)
+        assert max(seg.start.y, seg.end.y) == pytest.approx(600.0)
 
     def test_almost_equal_stacks_tildas(self, derived: Dict[str, Any]) -> None:
         # Tilda 200 tall; copies centred at 600 and 400 -> union 300..700.
@@ -384,15 +400,16 @@ class TestRecipes:
         assert _bbox(derived["\u00bf"]) == pytest.approx((0.0, 0.0, 500.0, 1000.0))
 
     def test_inverted_exclamation_descends(self, derived: Dict[str, Any]) -> None:
-        # Mirror ! (0..1000) in y=0 -> -1000..0, descend 10% cap -> -1100..-100.
-        assert _bbox(derived["\u00a1"]) == pytest.approx((0.0, -1100.0, 0.0, -100.0))
+        # Mirror ! (0..1000) in y=0 -> -1000..0, descend 5% cap -> -1050..-50.
+        assert _bbox(derived["\u00a1"]) == pytest.approx((0.0, -1050.0, 0.0, -50.0))
 
     def test_dagger_top_at_capline(self, derived: Dict[str, Any]) -> None:
-        # Stem -100..1100 halved about centre -> 200..800, lifted to cap -> 400..1000.
-        assert _bbox(derived["\u2020"]) == pytest.approx((0.0, 400.0, 200.0, 1000.0))
+        # Stem -100..1100 halved-and-then-20%-smaller (0.4x) about centre ->
+        # 300..700, lifted to cap -> 520..1000.
+        assert _bbox(derived["\u2020"]) == pytest.approx((0.0, 520.0, 160.0, 1000.0))
 
     def test_double_dagger_top_at_capline(self, derived: Dict[str, Any]) -> None:
-        assert _bbox(derived["\u2021"]) == pytest.approx((0.0, 400.0, 200.0, 1000.0))
+        assert _bbox(derived["\u2021"]) == pytest.approx((0.0, 520.0, 160.0, 1000.0))
         document = PLTParser().parse_string(derived["\u2021"]["glyph"])
         crosses = [
             seg.start.y
@@ -403,16 +420,41 @@ class TestRecipes:
         assert len(crosses) == 2
 
     def test_arrow_up_caret_tops_stem(self, derived: Dict[str, Any]) -> None:
-        # Stem -100..1100; caret (400 tall) base at the stem tip -> -100..1500.
-        assert _bbox(derived["\u2191"]) == pytest.approx((0.0, -100.0, 600.0, 1500.0))
+        # Stem -100..1100; the caret's base centre lands on the stem's tip, so
+        # the head shares the stem's maximal y -> union -100..1100.
+        box = _bbox(derived["\u2191"])
+        assert box == pytest.approx((0.0, -100.0, 600.0, 1100.0))
+        document = PLTParser().parse_string(derived["\u2191"]["glyph"])
+        tips = [
+            coord.x
+            for path in document.stroke_paths
+            for seg in path.segments
+            for coord in (seg.start, seg.end)
+            if abs(coord.y - 1100.0) < 1e-9
+        ]
+        # The stem's tip and the caret's apex meet at one point (x = 300).
+        assert len(tips) >= 3
+        assert all(abs(coord - 300.0) < 1e-9 for coord in tips)
 
     def test_arrow_down_caret_under_stem(self, derived: Dict[str, Any]) -> None:
-        assert _bbox(derived["\u2193"]) == pytest.approx((0.0, -500.0, 600.0, 1100.0))
+        # The inverted caret's apex centre lands on the stem's foot -> -100..1100.
+        box = _bbox(derived["\u2193"])
+        assert box == pytest.approx((0.0, -100.0, 600.0, 1100.0))
+        document = PLTParser().parse_string(derived["\u2193"]["glyph"])
+        tips = [
+            coord.x
+            for path in document.stroke_paths
+            for seg in path.segments
+            for coord in (seg.start, seg.end)
+            if abs(coord.y + 100.0) < 1e-9
+        ]
+        assert len(tips) >= 3
+        assert all(abs(coord - 300.0) < 1e-9 for coord in tips)
 
     def test_arrow_left_chevron_leads(self, derived: Dict[str, Any]) -> None:
-        # Em dash 1200 + chevron 600 touching at x = 0 (re-anchored).
+        # Em dash 1200 with the chevron's tip on its left end (re-anchored).
         box = _bbox(derived["\u2190"])
-        assert box == pytest.approx((0.0, 100.0, 1800.0, 900.0))
+        assert box == pytest.approx((0.0, 100.0, 1200.0, 900.0))
         document = PLTParser().parse_string(derived["\u2190"]["glyph"])
         midline_xs = [
             coord.x
@@ -421,12 +463,24 @@ class TestRecipes:
             for coord in (seg.start, seg.end)
             if abs(coord.y - 500.0) < 1e-9
         ]
-        # The chevron's tip (its leftmost midline point) touches the shaft.
+        # The chevron's tip shares the shaft's left end (x = 0) at midline.
         assert min(midline_xs) == pytest.approx(0.0)
-        assert max(midline_xs) == pytest.approx(1800.0)
+        assert max(midline_xs) == pytest.approx(1200.0)
 
     def test_arrow_right_chevron_trails(self, derived: Dict[str, Any]) -> None:
-        assert _bbox(derived["\u2192"]) == pytest.approx((0.0, 100.0, 1800.0, 900.0))
+        box = _bbox(derived["\u2192"])
+        assert box == pytest.approx((0.0, 100.0, 1200.0, 900.0))
+        document = PLTParser().parse_string(derived["\u2192"]["glyph"])
+        midline_xs = [
+            coord.x
+            for path in document.stroke_paths
+            for seg in path.segments
+            for coord in (seg.start, seg.end)
+            if abs(coord.y - 500.0) < 1e-9
+        ]
+        # The chevron's tip shares the shaft's right end (x = 1200).
+        assert max(midline_xs) == pytest.approx(1200.0)
+        assert min(midline_xs) == pytest.approx(0.0)
 
     def test_all_recipes_re_emit_parseable_glyphs(self, derived: Dict[str, Any]) -> None:
         assert len(derived) == len(gt.DERIVED_GLYPHS)
