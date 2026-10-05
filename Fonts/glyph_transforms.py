@@ -92,24 +92,24 @@ CAP_HEIGHT_FALLBACK: float = 1000.0
 MIDLINE_FRACTION: float = 0.5
 
 # En dash / em dash width as a multiple of the hyphen's.
-EN_DASH_SCALE: float = 2.0
-EM_DASH_SCALE: float = 3.0
+EN_DASH_SCALE: float = 1.6
+EM_DASH_SCALE: float = 2.4
 
 # Cent sign: the vertical bar's shortened height as a fraction of its own,
 # and the additional uniform downscale applied to the lowercase c.
 CENT_BAR_SCALE: float = 0.5
-CENT_C_SCALE: float = 0.8
+CENT_C_SCALE: float = 0.6
 
 # Not-equal: the forward slash's uniform downscale before superimposing, so
 # the slash crosses the bars instead of towering over them.
-NOT_EQUAL_SLASH_SCALE: float = 0.6
+NOT_EQUAL_SLASH_SCALE: float = 0.7
 
 # Identical-to: bar pitch as a fraction of the cap height. The en dash is a
 # zero-height hairline, so the stack pitch cannot be derived from its bbox.
 IDENTICAL_PITCH_FRACTION: float = 0.25
 
 # Inverted exclamation mark: descent below the baseline, cap-height fraction.
-INVERTED_EXCLAMATION_DESCENT: float = 0.05
+INVERTED_EXCLAMATION_DESCENT: float = -0.8
 
 # Dagger / double dagger: cross positions (cap-height fractions measured up
 # from the baseline) and the uniform downscale applied afterwards.
