@@ -76,7 +76,7 @@ SHOWCASE_LINES: Tuple[str, ...] = (
     "The quick brown fox jumps over the lazy dog",
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
     "abcdefghijklmnopqrstuvwxyz",
-    "1234567890 {[(!@#$%^&*.,?:;)]}",
+    "1234567890 {[(|!@#$%^&*.,?:;)]}",
 )
 
 # Nominal label geometry (inches). The width is generous so the widest
