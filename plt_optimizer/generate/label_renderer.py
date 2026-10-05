@@ -1556,6 +1556,9 @@ def _render_line_block(
                 space_width_fraction=line.space_width_fraction,
                 min_glyph_width=line.min_glyph_width,
                 kerning_window_fraction=line.kerning_window_fraction,
+                kerning_penetration_scale=line.kerning_penetration_scale,
+                kerning_min_gap=line.kerning_min_gap,
+                fallback_advance_fraction=line.fallback_advance_fraction,
             )
             return block, (groups or None)
         block = render_text_line_plt_font(
@@ -1567,6 +1570,9 @@ def _render_line_block(
             space_width_fraction=line.space_width_fraction,
             min_glyph_width=line.min_glyph_width,
             kerning_window_fraction=line.kerning_window_fraction,
+            kerning_penetration_scale=line.kerning_penetration_scale,
+            kerning_min_gap=line.kerning_min_gap,
+            fallback_advance_fraction=line.fallback_advance_fraction,
         )
         return block, None
 

@@ -118,6 +118,15 @@ class JobDefaults(BaseModel):
             fonts, as a fraction of the rendered text height in
             ``[0.0, 1.0]``. Unset falls back to 0.05; 0.0 reproduces the
             historical same-height maximum-penetration kerning.
+        kerning_penetration_scale: Default multiplier on the detected
+            windowed penetration for PLT-extracted fonts. Unset falls
+            back to 1.0 (geometric).
+        kerning_min_gap: Default extra air in inches added to every
+            kerned pair advance for PLT-extracted fonts. Unset falls back
+            to 0.0.
+        fallback_advance_fraction: Default multiplier on the
+            bounding-box-width fallback advance for PLT-extracted pairs
+            without overlapping height. Unset falls back to 1.0.
         text_h_alignment: Default horizontal text alignment.
         holes: Default drill-hole list (injected at the job layer; group
             locations expand exactly like spec-provided holes).
@@ -245,6 +254,33 @@ class JobDefaults(BaseModel):
             "advance. Unset falls back to 0.05."
         ),
     )
+    kerning_penetration_scale: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Default kerning penetration multiplier for PLT-extracted "
+            "fonts (job layer); over-kerns tight pairs proportionally. "
+            "Unset falls back to 1.0."
+        ),
+    )
+    kerning_min_gap: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Default extra kerning air in inches added to every kerned "
+            "pair advance for PLT-extracted fonts (job layer). Unset "
+            "falls back to 0.0."
+        ),
+    )
+    fallback_advance_fraction: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Default fallback-advance multiplier for PLT-extracted glyph "
+            "pairs without overlapping height (job layer). Unset falls "
+            "back to 1.0."
+        ),
+    )
     holes: Optional[list[HoleSpec]] = Field(
         default=None,
         description="Default drill-hole list (job layer; group locations expand like spec holes).",
@@ -347,6 +383,9 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "space_width_fraction",
     "min_glyph_width",
     "kerning_window_fraction",
+    "kerning_penetration_scale",
+    "kerning_min_gap",
+    "fallback_advance_fraction",
     "allow_rotation",
     "text_chunk_mode",
     "layout",

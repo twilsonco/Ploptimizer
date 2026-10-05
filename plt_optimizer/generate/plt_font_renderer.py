@@ -34,19 +34,28 @@ Layout contract:
      penetrations -- the window can only widen the advance relative to
      same-height kerning, never narrow it.
 
-  The origin-to-origin advance is the effective penetration plus the
-  clearance::
+  The origin-to-origin advance is the (scaled) effective penetration plus
+  the clearance::
 
-      clearance = cutter_diameter + character_spacing
+      advance = penetration * kerning_penetration_scale
+              + cutter_diameter + character_spacing + kerning_min_gap
 
-  so a fully-close pair keeps exactly ``clearance`` of air at the
-tightest height. ``kerning_window_fraction = 0.0`` reproduces the
-  historical same-height maximum-penetration kerning exactly. A global
-  minimum glyph width (``min_glyph_width``, an absolute inch floor,
-  default ``0.0``) clamps the left silhouette outward so zero-width
-  glyphs (``!``, ``|``) still reserve real air. Glyph pairs without
-  overlapping height (or lacking envelopes) fall back to the left glyph's
-  bounding-box width, floored by ``min_glyph_width``.
+  so a fully-close pair keeps exactly that much air at its tightest
+  sampled height. Sampling spans the pair's overlapping height range
+  *extended by* ``w`` on both sides (clamped to the union of the two
+  bounding boxes), so a poke just outside the overlap is compared against
+  the opposing silhouette's nearest material instead of being missed.
+  ``kerning_penetration_scale`` (default ``1.0``) over- or under-weights
+  detected closeness; ``kerning_min_gap`` (an absolute inch floor,
+  default ``0.0``) adds uniform extra air to every kerned pair.
+  ``kerning_window_fraction = 0.0`` reproduces the historical same-height
+  maximum-penetration kerning exactly (with the other two at their
+  defaults). A global minimum glyph width (``min_glyph_width``, an
+  absolute inch floor, default ``0.0``) clamps the left silhouette
+  outward so zero-width glyphs (``!``, ``|``) still reserve real air.
+  Glyph pairs without overlapping height (or lacking envelopes) fall back
+  to the left glyph's bounding-box width, floored by ``min_glyph_width``
+  and scaled by ``fallback_advance_fraction`` (default ``1.0``).
 - A space character carries no glyph::
 
       space_advance = space_width_fraction * height + character_spacing
@@ -96,6 +105,23 @@ MIN_GLYPH_WIDTH: float = 0.0
 # penetration, so staggered pokes can only widen the advance.
 # ``0.0`` reproduces the historical same-height kerning exactly.
 KERNING_WINDOW_FRACTION: float = 0.05
+
+# Fallback multiplier on the detected windowed penetration, used when the
+# caller does not cascade an explicit ``kerning_penetration_scale``.
+# ``1.0`` = the geometric penetration; larger values over-kern tight pairs
+# proportionally (a detected 0.2" poke costs 0.3" of advance at 1.5).
+KERNING_PENETRATION_SCALE: float = 1.0
+
+# Fallback extra air in inches added to every kerned pair advance (on top
+# of the cutter + character-spacing clearance), used when the caller does
+# not cascade an explicit ``kerning_min_gap``. ``0.0`` = no extra gap.
+KERNING_MIN_GAP: float = 0.0
+
+# Fallback multiplier on the bounding-box-width fallback advance (pairs
+# without overlapping height, or lacking envelopes), used when the caller
+# does not cascade an explicit ``fallback_advance_fraction``.
+# ``1.0`` = the left glyph's own width.
+FALLBACK_ADVANCE_FRACTION: float = 1.0
 
 # Glyphs are stored in plotter units (1000 units per design inch).
 _UNITS_PER_INCH: float = 1000.0
@@ -241,15 +267,18 @@ def _kerning_sample_heights(
 ) -> List[float]:
     """Return the sorted sample heights used to evaluate a kerning pair.
 
-    The union of both envelopes' sample heights inside the overlap range,
-    plus the overlap endpoints themselves (so a silhouette extremum that
-    falls between samples is still measured).
+    The union of both envelopes' sample heights inside the sampling
+    range, plus the range endpoints themselves (so a silhouette extremum
+    that falls between samples is still measured). The caller passes the
+    overlapping height range extended by the kerning window (clamped to
+    the union of the two bounding boxes), so a poke just outside the
+    overlap is still compared.
 
     Args:
         left: Left glyph's right-envelope samples (design inches).
         right: Right glyph's left-envelope samples (design inches).
-        y_low: Lower bound of the overlapping height range.
-        y_high: Upper bound of the overlapping height range.
+        y_low: Lower bound of the sampling range.
+        y_high: Upper bound of the sampling range.
 
     Returns:
         Sorted list of heights within ``[y_low, y_high]``.
@@ -265,19 +294,26 @@ def kerning_offset(
     right: _GlyphGeometry,
     min_glyph_width_design: float = 0.0,
     window_design: float = 0.0,
+    penetration_scale: float = 1.0,
+    fallback_fraction: float = 1.0,
 ) -> float:
     """Design-unit origin-to-origin offset between two adjacent glyphs.
 
     Windowed profile-envelope kerning. Over the pair's overlapping height
-    range, each sample of the left glyph's right silhouette (floored by
-    the global minimum glyph width) is compared against the *deepest*
+    range -- extended by ``window_design`` on both sides and clamped to
+    the union of the two bounding boxes, so a poke just outside the
+    overlap is compared against the opposing silhouette's nearest
+    material -- each sample of the left glyph's right silhouette (floored
+    by the global minimum glyph width) is compared against the *deepest*
     sample of the right glyph's left silhouette within ``window_design``
     of its height, so staggered pokes -- the glyphs approaching each
     other at slightly different heights -- are detected too. The
     effective offset is the maximum of those windowed penetrations (a
     max of maxes): the window can only widen the advance relative to
-    same-height kerning, never narrow it. The clearance is NOT
-    included -- the caller adds it in the output frame.
+    same-height kerning, never narrow it. The maximum is multiplied by
+    ``penetration_scale`` (``1.0`` = the geometric penetration; note the
+    scale is linear, so a recessed negative maximum shrinks too). The
+    clearance is NOT included -- the caller adds it in the output frame.
 
     Args:
         left: The earlier (left) glyph geometry.
@@ -287,6 +323,11 @@ def kerning_offset(
         window_design: Half-width of the comparison window in design
             units (``0.0`` = historical same-height maximum
             penetration).
+        penetration_scale: Multiplier on the detected penetration
+            (``1.0`` = geometric).
+        fallback_fraction: Multiplier on the bounding-box-width fallback
+            used when the pair has no overlapping height (or lacks
+            envelopes).
 
     Returns:
         Offset in design units (multiply by the render scale, then add
@@ -297,10 +338,15 @@ def kerning_offset(
     y_low = max(left_box[1], right_box[1])
     y_high = min(left_box[3], right_box[3])
     if y_high >= y_low and left.right_envelope and right.left_envelope:
+        # Extend the sampling range by the window so edge pokes (just
+        # outside the overlap) compare against the opposing silhouette's
+        # nearest material; clamp to the union of the two bounding boxes.
+        s_low = max(y_low - window_design, min(left_box[1], right_box[1]))
+        s_high = min(y_high + window_design, max(left_box[3], right_box[3]))
         ys: List[float] = []
         right_xs: List[float] = []
         left_xs: List[float] = []
-        for y in _kerning_sample_heights(left.right_envelope, right.left_envelope, y_low, y_high):
+        for y in _kerning_sample_heights(left.right_envelope, right.left_envelope, s_low, s_high):
             right_x = interpolate_envelope(left.right_envelope, y)
             left_x = interpolate_envelope(right.left_envelope, y)
             if right_x is None or left_x is None:  # pragma: no cover - guards
@@ -325,10 +371,11 @@ def kerning_offset(
             # Stage 2: the worst windowed penetration. Each sample's
             # window contains itself, so the max of the per-sample maxes
             # is simply the global maximum of the stage-1 profile.
-            return max(penetrations)
+            return max(penetrations) * penetration_scale
     # No overlapping height (or missing envelopes): fall back to the left
-    # glyph's bounding-box width, floored by the minimum width.
-    return max(left_box[2] - left_box[0], min_glyph_width_design)
+    # glyph's bounding-box width, floored by the minimum width and scaled
+    # by the fallback fraction.
+    return max(left_box[2] - left_box[0], min_glyph_width_design) * fallback_fraction
 
 
 def _resolve_plt_font(
@@ -371,6 +418,9 @@ def render_text_line_plt_font_with_words(
     space_width_fraction: Optional[float] = None,
     min_glyph_width: Optional[float] = None,
     kerning_window_fraction: Optional[float] = None,
+    kerning_penetration_scale: Optional[float] = None,
+    kerning_min_gap: Optional[float] = None,
+    fallback_advance_fraction: Optional[float] = None,
     json_path: Optional[Path] = None,
     fonts_dir: Optional[Path] = None,
 ) -> Tuple[TextBlock, List[Tuple[str, List[int]]]]:
@@ -398,6 +448,15 @@ def render_text_line_plt_font_with_words(
             rendered text height in ``[0, 1]`` (``None`` falls back to
             :data:`KERNING_WINDOW_FRACTION`; ``0.0`` = historical
             same-height maximum-penetration kerning).
+        kerning_penetration_scale: Multiplier on the detected windowed
+            penetration (``None`` falls back to
+            :data:`KERNING_PENETRATION_SCALE`; ``1.0`` = geometric).
+        kerning_min_gap: Extra air in inches added to every kerned pair
+            advance on top of the clearance (``None`` falls back to
+            :data:`KERNING_MIN_GAP`).
+        fallback_advance_fraction: Multiplier on the bounding-box-width
+            fallback for pairs without overlapping height (``None`` falls
+            back to :data:`FALLBACK_ADVANCE_FRACTION`).
         json_path: Optional ``plt_fonts.json`` override (tests).
         fonts_dir: Optional Fonts root override (tests).
 
@@ -423,7 +482,8 @@ def render_text_line_plt_font_with_words(
     fonts = load_plt_fonts(Path(json_path) if json_path is not None else None)
     font_data = fonts[canonical]  # resolved above; presence guaranteed
     scale = target_height_inches / font_data.normalized_ref_height
-    clearance = cutter_diameter + character_spacing
+    min_gap_inches = KERNING_MIN_GAP if kerning_min_gap is None else kerning_min_gap
+    clearance = cutter_diameter + character_spacing + min_gap_inches
     space_fraction = SPACE_HEIGHT_FRACTION if space_width_fraction is None else space_width_fraction
     space_advance = space_fraction * target_height_inches + character_spacing
     min_width_inches = MIN_GLYPH_WIDTH if min_glyph_width is None else min_glyph_width
@@ -437,6 +497,16 @@ def render_text_line_plt_font_with_words(
     # frame the reference character is exactly ``normalized_ref_height``
     # tall (1.0 for v2 libraries), so the height fraction converts directly.
     window_design = 0.5 * window_fraction * font_data.normalized_ref_height
+    penetration_scale = (
+        KERNING_PENETRATION_SCALE
+        if kerning_penetration_scale is None
+        else kerning_penetration_scale
+    )
+    fallback_fraction = (
+        FALLBACK_ADVANCE_FRACTION
+        if fallback_advance_fraction is None
+        else fallback_advance_fraction
+    )
 
     words = text.split(" ")
 
@@ -465,7 +535,14 @@ def render_text_line_plt_font_with_words(
         for char in word:
             geometry = _glyph_entry(json_path_key, canonical, char)
             if previous is not None:
-                offset = kerning_offset(previous, geometry, min_width_design, window_design)
+                offset = kerning_offset(
+                    previous,
+                    geometry,
+                    min_width_design,
+                    window_design,
+                    penetration_scale,
+                    fallback_fraction,
+                )
                 cursor = previous_origin + offset * scale + clearance
             placed = geometry.block.scaled(scale).translate(cursor, 0.0)
             strokes.extend(placed.strokes)
@@ -485,6 +562,9 @@ def render_text_line_plt_font(
     space_width_fraction: Optional[float] = None,
     min_glyph_width: Optional[float] = None,
     kerning_window_fraction: Optional[float] = None,
+    kerning_penetration_scale: Optional[float] = None,
+    kerning_min_gap: Optional[float] = None,
+    fallback_advance_fraction: Optional[float] = None,
     json_path: Optional[Path] = None,
     fonts_dir: Optional[Path] = None,
 ) -> TextBlock:
@@ -509,6 +589,14 @@ def render_text_line_plt_font(
         kerning_window_fraction: Kerning window as a fraction of the
             rendered text height in ``[0, 1]`` (``None`` falls back to
             :data:`KERNING_WINDOW_FRACTION`).
+        kerning_penetration_scale: Multiplier on the detected windowed
+            penetration (``None`` falls back to
+            :data:`KERNING_PENETRATION_SCALE`).
+        kerning_min_gap: Extra air in inches added to every kerned pair
+            advance (``None`` falls back to :data:`KERNING_MIN_GAP`).
+        fallback_advance_fraction: Multiplier on the bounding-box-width
+            fallback (``None`` falls back to
+            :data:`FALLBACK_ADVANCE_FRACTION`).
         json_path: Optional ``plt_fonts.json`` override (tests).
         fonts_dir: Optional Fonts root override (tests).
 
@@ -527,6 +615,9 @@ def render_text_line_plt_font(
         space_width_fraction=space_width_fraction,
         min_glyph_width=min_glyph_width,
         kerning_window_fraction=kerning_window_fraction,
+        kerning_penetration_scale=kerning_penetration_scale,
+        kerning_min_gap=kerning_min_gap,
+        fallback_advance_fraction=fallback_advance_fraction,
         json_path=json_path,
         fonts_dir=fonts_dir,
     )

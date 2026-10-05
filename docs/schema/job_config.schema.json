@@ -59,7 +59,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "Configured default values from ``job-config.json``.\n\nEvery field is optional; ``None`` (missing or explicit JSON ``null``)\nmeans \"no configured default\". Field names and validation mirror the\ncorresponding :class:`~plt_optimizer.generate.schema.JobSpec` /\n:class:`~plt_optimizer.generate.schema.PlateSpec` fields. Unknown keys\nare rejected so typos in a shop config fail loudly.\n\nAttributes:\n    text_height: Default font height in inches.\n    font: Default font name selecting the glyph outlines (PLT-extracted\n        ``plt_fonts.json`` key or ``Fonts/`` TTF basename,\n        case-insensitive). Unset falls back to the schema default\n        (``ReliefSingleLineCAD-Regular``).\n    character_spacing: Default extra spacing between characters (in\n        inches). Unset falls back to the per-cutter derived default.\n    line_spacing: Default extra spacing between text lines in inches.\n    margin: Default label margin in inches.\n    h_margin: Default horizontal (left/right) margin in inches; falls\n        back to margin if unset.\n    v_margin: Default vertical (top/bottom) margin in inches; falls back\n        to margin if unset.\n    hole_margin: Default hole margin in inches.\n    min_hole_margin: Default collision-avoidance floor for the hole\n        margin in inches.\n    hole_text_collision_distance: Default engraved-stroke air gap in\n        inches between text and drill-hole strokes.\n    max_h_compress: Default maximum horizontal compression fraction\n        in ``[0.0, 1.0]``.\n    space_width_fraction: Default space advance fraction for\n        PLT-extracted fonts (space = fraction * text_height +\n        character_spacing). Unset falls back to 0.3.\n    min_glyph_width: Default global minimum glyph advance width in\n        inches for PLT-extracted fonts. Unset falls back to 0.0\n        (pure profile-envelope kerning).\n    kerning_window_fraction: Default kerning window for PLT-extracted\n        fonts, as a fraction of the rendered text height in\n        ``[0.0, 1.0]``. Unset falls back to 0.05; 0.0 reproduces the\n        historical same-height maximum-penetration kerning.\n    text_h_alignment: Default horizontal text alignment.\n    holes: Default drill-hole list (injected at the job layer; group\n        locations expand exactly like spec-provided holes).\n    hole_diameter: Default drill-hole diameter in inches, applied to\n        hole entries (config- or spec-provided) that omit\n        ``diameter``.\n    allow_rotation: Default bin-packing rotation permission.\n    text_chunk_mode: Default plate-space text optimization granularity.\n    layout: Default plate fill order.\n    plate_width: Default usable plate width in inches (plate layer).\n    plate_height: Default usable plate height in inches (plate layer).\n    left_clearance: Default plate left-edge clearance in inches\n        (injected at the job layer; cascades onto plates that omit it).\n    top_clearance: Default plate top-edge clearance in inches\n        (injected at the job layer; cascades onto plates that omit it).\n    auto_line_spacing_interline_to_top_bottom_ratio: Ratio controlling\n        inter-line spacing relative to top/bottom margins when auto line\n        spacing is enabled.\n    tool_options: Engraver tool options (header commands) metadata with\n        HPGL command prefixes, types, units, dual defaults, and bounds.",
+  "description": "Configured default values from ``job-config.json``.\n\nEvery field is optional; ``None`` (missing or explicit JSON ``null``)\nmeans \"no configured default\". Field names and validation mirror the\ncorresponding :class:`~plt_optimizer.generate.schema.JobSpec` /\n:class:`~plt_optimizer.generate.schema.PlateSpec` fields. Unknown keys\nare rejected so typos in a shop config fail loudly.\n\nAttributes:\n    text_height: Default font height in inches.\n    font: Default font name selecting the glyph outlines (PLT-extracted\n        ``plt_fonts.json`` key or ``Fonts/`` TTF basename,\n        case-insensitive). Unset falls back to the schema default\n        (``ReliefSingleLineCAD-Regular``).\n    character_spacing: Default extra spacing between characters (in\n        inches). Unset falls back to the per-cutter derived default.\n    line_spacing: Default extra spacing between text lines in inches.\n    margin: Default label margin in inches.\n    h_margin: Default horizontal (left/right) margin in inches; falls\n        back to margin if unset.\n    v_margin: Default vertical (top/bottom) margin in inches; falls back\n        to margin if unset.\n    hole_margin: Default hole margin in inches.\n    min_hole_margin: Default collision-avoidance floor for the hole\n        margin in inches.\n    hole_text_collision_distance: Default engraved-stroke air gap in\n        inches between text and drill-hole strokes.\n    max_h_compress: Default maximum horizontal compression fraction\n        in ``[0.0, 1.0]``.\n    space_width_fraction: Default space advance fraction for\n        PLT-extracted fonts (space = fraction * text_height +\n        character_spacing). Unset falls back to 0.3.\n    min_glyph_width: Default global minimum glyph advance width in\n        inches for PLT-extracted fonts. Unset falls back to 0.0\n        (pure profile-envelope kerning).\n    kerning_window_fraction: Default kerning window for PLT-extracted\n        fonts, as a fraction of the rendered text height in\n        ``[0.0, 1.0]``. Unset falls back to 0.05; 0.0 reproduces the\n        historical same-height maximum-penetration kerning.\n    kerning_penetration_scale: Default multiplier on the detected\n        windowed penetration for PLT-extracted fonts. Unset falls\n        back to 1.0 (geometric).\n    kerning_min_gap: Default extra air in inches added to every\n        kerned pair advance for PLT-extracted fonts. Unset falls back\n        to 0.0.\n    fallback_advance_fraction: Default multiplier on the\n        bounding-box-width fallback advance for PLT-extracted pairs\n        without overlapping height. Unset falls back to 1.0.\n    text_h_alignment: Default horizontal text alignment.\n    holes: Default drill-hole list (injected at the job layer; group\n        locations expand exactly like spec-provided holes).\n    hole_diameter: Default drill-hole diameter in inches, applied to\n        hole entries (config- or spec-provided) that omit\n        ``diameter``.\n    allow_rotation: Default bin-packing rotation permission.\n    text_chunk_mode: Default plate-space text optimization granularity.\n    layout: Default plate fill order.\n    plate_width: Default usable plate width in inches (plate layer).\n    plate_height: Default usable plate height in inches (plate layer).\n    left_clearance: Default plate left-edge clearance in inches\n        (injected at the job layer; cascades onto plates that omit it).\n    top_clearance: Default plate top-edge clearance in inches\n        (injected at the job layer; cascades onto plates that omit it).\n    auto_line_spacing_interline_to_top_bottom_ratio: Ratio controlling\n        inter-line spacing relative to top/bottom margins when auto line\n        spacing is enabled.\n    tool_options: Engraver tool options (header commands) metadata with\n        HPGL command prefixes, types, units, dual defaults, and bounds.",
   "properties": {
     "description": {
       "anyOf": [
@@ -279,6 +279,48 @@
       "default": null,
       "description": "Default kerning window for PLT-extracted fonts (job layer) as a fraction of the rendered text height in [0.0, 1.0]; widens the envelope comparison so staggered pokes widen the advance. Unset falls back to 0.05.",
       "title": "Kerning Window Fraction"
+    },
+    "kerning_penetration_scale": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default kerning penetration multiplier for PLT-extracted fonts (job layer); over-kerns tight pairs proportionally. Unset falls back to 1.0.",
+      "title": "Kerning Penetration Scale"
+    },
+    "kerning_min_gap": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default extra kerning air in inches added to every kerned pair advance for PLT-extracted fonts (job layer). Unset falls back to 0.0.",
+      "title": "Kerning Min Gap"
+    },
+    "fallback_advance_fraction": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default fallback-advance multiplier for PLT-extracted glyph pairs without overlapping height (job layer). Unset falls back to 1.0.",
+      "title": "Fallback Advance Fraction"
     },
     "holes": {
       "anyOf": [

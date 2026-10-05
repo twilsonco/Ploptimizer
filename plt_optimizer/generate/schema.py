@@ -372,6 +372,26 @@ class TextAttributes(BaseModel):
             penetration kerning). Cascades line -> label -> job (and is
             accepted on plates for schema parity, where it is not applied
             at that level).
+        kerning_penetration_scale: Optional multiplier on the detected
+            profile-envelope penetration for PLT-extracted fonts. ``1.0``
+            keeps the geometric penetration; ``>1.0`` over-kerns tight
+            pairs proportionally. Defaults to ``1.0``; only ``None`` means
+            unset. Cascades line -> label -> job (and is accepted on
+            plates for schema parity, where it is not applied at that
+            level).
+        kerning_min_gap: Optional extra air in inches added to every
+            kerned character pair advance for PLT-extracted fonts, on top
+            of the cutter-diameter + character-spacing clearance.
+            Defaults to ``0.0`` (no extra gap); only ``None`` means unset.
+            Cascades line -> label -> job (and is accepted on plates for
+            schema parity, where it is not applied at that level).
+        fallback_advance_fraction: Optional multiplier on the
+            bounding-box-width fallback advance used for PLT-extracted
+            glyph pairs without overlapping height (or lacking envelopes).
+            Defaults to ``1.0`` (the left glyph's own width); only ``None``
+            means unset. Cascades line -> label -> job (and is accepted on
+            plates for schema parity, where it is not applied at that
+            level).
         text_color: Optional stroke-color layer tag used to split
             otherwise-identical text into separate toolpaths (one HPGL
             ``SP`` layer and one PLT file per distinct color), so the
@@ -478,6 +498,37 @@ class TextAttributes(BaseModel):
             "pokes widen the advance. "
             "Cascades line -> label -> job (fallback 0.05); explicit 0.0 "
             "is honored (= historical same-height kerning)."
+        ),
+    )
+    kerning_penetration_scale: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Multiplier on the profile-envelope penetration detected for "
+            "PLT-extracted fonts: 1.0 keeps the geometric penetration, "
+            ">1.0 over-kerns tight pairs "
+            "proportionally. Cascades line -> label -> job (fallback 1.0); "
+            "explicit 0.0 is honored (ignores detected closeness entirely)."
+        ),
+    )
+    kerning_min_gap: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Extra air in inches added to every kerned character pair "
+            "advance (PLT-extracted fonts), on top of the cutter diameter "
+            "and character_spacing clearance. Cascades line -> label -> job "
+            "(fallback 0.0 = no extra gap); explicit 0.0 is honored."
+        ),
+    )
+    fallback_advance_fraction: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Multiplier on the bounding-box-width fallback advance used for "
+            "PLT-extracted glyph pairs without overlapping height (or "
+            "lacking envelopes). Cascades line -> label -> job (fallback "
+            "1.0 = the left glyph's own width); explicit 0.0 is honored."
         ),
     )
     text_color: Optional[TextColor] = Field(
@@ -903,6 +954,17 @@ class PlateSpec(BaseModel):
             once and cached before bin-packing, so a per-plate value is
             not currently applied during rendering; the effective value is
             resolved from the line -> label -> job -> default cascade.
+        kerning_penetration_scale: Optional penetration multiplier.
+            Accepted for schema parity with the job/label
+            ``kerning_penetration_scale`` cascade (not applied at plate
+            level).
+        kerning_min_gap: Optional extra kerning air in inches. Accepted
+            for schema parity with the job/label ``kerning_min_gap``
+            cascade (not applied at plate level).
+        fallback_advance_fraction: Optional fallback-advance multiplier.
+            Accepted for schema parity with the job/label
+            ``fallback_advance_fraction`` cascade (not applied at plate
+            level).
         layout: Optional per-plate fill-order override (``rows`` /
             ``columns``). ``None`` (the default) inherits the job-level
             ``layout``. Unlike the other cascading fields, this one IS
@@ -996,6 +1058,31 @@ class PlateSpec(BaseModel):
         description=(
             "Kerning window fraction as a fraction of the rendered text "
             "height (schema parity; not applied at plate level)."
+        ),
+    )
+    kerning_penetration_scale: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Kerning penetration multiplier applied to the detected "
+            "penetration (schema parity; not applied at plate level)."
+        ),
+    )
+    kerning_min_gap: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Extra kerning air in inches added to every kerned pair advance "
+            "(schema parity; not applied at plate level)."
+        ),
+    )
+    fallback_advance_fraction: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Fallback advance multiplier on the bounding-box width for pairs "
+            "without overlapping height (schema parity; not applied at plate "
+            "level)."
         ),
     )
     hole_text_collision_distance: Optional[float] = Field(

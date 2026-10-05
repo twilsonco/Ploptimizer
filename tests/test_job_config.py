@@ -40,6 +40,9 @@ _FULL_CONFIG: dict[str, Any] = {
     "space_width_fraction": 0.35,
     "min_glyph_width": 0.02,
     "kerning_window_fraction": 0.15,
+    "kerning_penetration_scale": 1.5,
+    "kerning_min_gap": 0.05,
+    "fallback_advance_fraction": 0.9,
     "plate_width": 24.0,
     "plate_height": 16.0,
     "left_clearance": 0.0,
@@ -135,9 +138,15 @@ class TestJobDefaultsModel:
         assert "space_width_fraction" not in REQUIRED_WHEN_UNCONFIGURED
         assert "min_glyph_width" not in REQUIRED_WHEN_UNCONFIGURED
         assert "kerning_window_fraction" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "kerning_penetration_scale" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "kerning_min_gap" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "fallback_advance_fraction" not in REQUIRED_WHEN_UNCONFIGURED
         assert JobDefaults().space_width_fraction is None
         assert JobDefaults().min_glyph_width is None
         assert JobDefaults().kerning_window_fraction is None
+        assert JobDefaults().kerning_penetration_scale is None
+        assert JobDefaults().kerning_min_gap is None
+        assert JobDefaults().fallback_advance_fraction is None
 
 
 class TestLoadJobConfig:
@@ -215,6 +224,9 @@ class TestApplyJobConfigDefaults:
         assert filled["space_width_fraction"] == 0.35
         assert filled["min_glyph_width"] == 0.02
         assert filled["kerning_window_fraction"] == 0.15
+        assert filled["kerning_penetration_scale"] == 1.5
+        assert filled["kerning_min_gap"] == 0.05
+        assert filled["fallback_advance_fraction"] == 0.9
 
     def test_yaml_values_win(self, tmp_path: Path) -> None:
         """Spec-declared values are never overridden by the config."""
@@ -574,6 +586,9 @@ class TestParseYamlWithJobConfig:
         assert job.space_width_fraction == 0.6
         assert job.min_glyph_width == 0.06
         assert job.kerning_window_fraction == 0.1
+        assert job.kerning_penetration_scale == 1.0
+        assert job.kerning_min_gap == 0.0
+        assert job.fallback_advance_fraction == 1.0
 
     def test_yaml_overrides_config(self) -> None:
         """Spec-declared values still win over the shipped config."""

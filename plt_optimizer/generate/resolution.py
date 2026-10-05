@@ -80,6 +80,15 @@ DEFAULT_MIN_GLYPH_WIDTH: float = 0.0
 # penetration, so staggered pokes widen the advance;
 # 0.0 reproduces the historical same-height maximum-penetration kerning.
 DEFAULT_KERNING_WINDOW_FRACTION: float = 0.05
+# Multiplier on the detected windowed penetration (PLT-extracted fonts).
+# 1.0 keeps the geometric penetration; >1.0 over-kerns tight pairs.
+DEFAULT_KERNING_PENETRATION_SCALE: float = 1.0
+# Extra air (inches) added to every kerned pair advance on top of the
+# cutter + character-spacing clearance. 0.0 = no extra gap.
+DEFAULT_KERNING_MIN_GAP: float = 0.0
+# Multiplier on the bounding-box-width fallback advance (no y-overlap or
+# missing envelopes). 1.0 = the left glyph's own width.
+DEFAULT_FALLBACK_ADVANCE_FRACTION: float = 1.0
 # Horizontal text alignment defaults to centering (existing behaviour).
 DEFAULT_TEXT_H_ALIGNMENT: str = "center"
 # Stroke-color layer tag default. ``"none"`` is the implicit color of
@@ -278,6 +287,21 @@ class ResolvedTextLine:
             job, default ``DEFAULT_KERNING_WINDOW_FRACTION`` (0.05).
             Explicit ``0.0`` is honored (= historical same-height
             kerning); only ``None`` means unset.
+        kerning_penetration_scale: Multiplier on the detected windowed
+            penetration (PLT-extracted fonts): 1.0 keeps the geometric
+            penetration, >1.0 over-kerns tight pairs. Cascaded line ->
+            label -> job, default ``DEFAULT_KERNING_PENETRATION_SCALE``
+            (1.0). Explicit ``0.0`` is honored; only ``None`` means unset.
+        kerning_min_gap: Extra air in inches added to every kerned pair
+            advance on top of the clearance (PLT-extracted fonts).
+            Cascaded line -> label -> job, default
+            ``DEFAULT_KERNING_MIN_GAP`` (0.0). Explicit ``0.0`` is honored;
+            only ``None`` means unset.
+        fallback_advance_fraction: Multiplier on the bounding-box-width
+            fallback advance for pairs without overlapping height (or
+            lacking envelopes). Cascaded line -> label -> job, default
+            ``DEFAULT_FALLBACK_ADVANCE_FRACTION`` (1.0). Explicit ``0.0``
+            is honored; only ``None`` means unset.
     """
 
     text: str
@@ -293,6 +317,9 @@ class ResolvedTextLine:
     space_width_fraction: float = DEFAULT_SPACE_WIDTH_FRACTION
     min_glyph_width: float = DEFAULT_MIN_GLYPH_WIDTH
     kerning_window_fraction: float = DEFAULT_KERNING_WINDOW_FRACTION
+    kerning_penetration_scale: float = DEFAULT_KERNING_PENETRATION_SCALE
+    kerning_min_gap: float = DEFAULT_KERNING_MIN_GAP
+    fallback_advance_fraction: float = DEFAULT_FALLBACK_ADVANCE_FRACTION
 
 
 @dataclass(frozen=True)
@@ -895,6 +922,35 @@ def _resolve_content(
         else:
             line_kerning_window_fraction = DEFAULT_KERNING_WINDOW_FRACTION
 
+        # Resolve the PLT-font kerning spacing knobs with the same
+        # explicit-None precedence (line -> label -> job -> default).
+        if line.kerning_penetration_scale is not None:
+            line_kerning_penetration_scale: float = line.kerning_penetration_scale
+        elif label_input.kerning_penetration_scale is not None:
+            line_kerning_penetration_scale = label_input.kerning_penetration_scale
+        elif job.kerning_penetration_scale is not None:
+            line_kerning_penetration_scale = job.kerning_penetration_scale
+        else:
+            line_kerning_penetration_scale = DEFAULT_KERNING_PENETRATION_SCALE
+
+        if line.kerning_min_gap is not None:
+            line_kerning_min_gap: float = line.kerning_min_gap
+        elif label_input.kerning_min_gap is not None:
+            line_kerning_min_gap = label_input.kerning_min_gap
+        elif job.kerning_min_gap is not None:
+            line_kerning_min_gap = job.kerning_min_gap
+        else:
+            line_kerning_min_gap = DEFAULT_KERNING_MIN_GAP
+
+        if line.fallback_advance_fraction is not None:
+            line_fallback_advance_fraction: float = line.fallback_advance_fraction
+        elif label_input.fallback_advance_fraction is not None:
+            line_fallback_advance_fraction = label_input.fallback_advance_fraction
+        elif job.fallback_advance_fraction is not None:
+            line_fallback_advance_fraction = job.fallback_advance_fraction
+        else:
+            line_fallback_advance_fraction = DEFAULT_FALLBACK_ADVANCE_FRACTION
+
         resolved_content.append(
             ResolvedTextLine(
                 text=line.text,
@@ -910,6 +966,9 @@ def _resolve_content(
                 space_width_fraction=line_space_width_fraction,
                 min_glyph_width=line_min_glyph_width,
                 kerning_window_fraction=line_kerning_window_fraction,
+                kerning_penetration_scale=line_kerning_penetration_scale,
+                kerning_min_gap=line_kerning_min_gap,
+                fallback_advance_fraction=line_fallback_advance_fraction,
             )
         )
     return resolved_content

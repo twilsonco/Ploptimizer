@@ -349,6 +349,36 @@ class TestLayoutMath:
         assert wide.bounds() is not None
         assert wide.bounds()[2] == pytest.approx(2.0, abs=1e-9)
 
+    def test_kerning_min_gap_threads_through(self, synth_lib: Path) -> None:
+        """``kerning_min_gap`` adds uniform air to every kerned pair."""
+        # Baseline CA: penetration 0.5, zero clearance -> total width 1.5.
+        baseline = _render("CA", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0)
+        gapped = _render(
+            "CA",
+            1.0,
+            synth_lib,
+            cutter_diameter=0.0,
+            character_spacing=0.0,
+            kerning_min_gap=0.25,
+        )
+        assert baseline.bounds() is not None and gapped.bounds() is not None
+        assert baseline.bounds()[2] == pytest.approx(1.5, abs=1e-9)
+        assert gapped.bounds()[2] == pytest.approx(1.75, abs=1e-9)
+
+    def test_kerning_penetration_scale_threads_through(self, synth_lib: Path) -> None:
+        """``kerning_penetration_scale`` over-kerns the detected penetration."""
+        # Baseline CA penetration 0.5; at 2.0 the advance doubles to 1.0.
+        scaled = _render(
+            "CA",
+            1.0,
+            synth_lib,
+            cutter_diameter=0.0,
+            character_spacing=0.0,
+            kerning_penetration_scale=2.0,
+        )
+        assert scaled.bounds() is not None
+        assert scaled.bounds()[2] == pytest.approx(2.0, abs=1e-9)
+
     def test_cap_height_scaling(self, synth_lib: Path) -> None:
         """The reference glyph scales to exactly the target height."""
         block = _render("A", 0.8, synth_lib)
@@ -524,6 +554,43 @@ class TestEnvelopeHelpers:
         assert kerning_offset(localized, receiving, window_design=0.5) == pytest.approx(1.0)
         assert kerning_offset(sustained, receiving, window_design=0.5) == pytest.approx(1.0)
 
+    def test_penetration_scale_scales_the_detected_maximum(self) -> None:
+        """``penetration_scale`` multiplies the detected penetration."""
+        left = self._geometry((0.0, 0.0, 1.0, 1.0), right=((0.0, 0.0), (1.0, 0.5), (0.0, 1.0)))
+        right = self._geometry((0.0, 0.0, 0.4, 1.0), left=((0.4, 0.0), (0.4, 1.0)))
+        # Same-height worst case: the y=0.5 poke (x=1.0) vs x=0.4 -> 0.6.
+        assert kerning_offset(left, right) == pytest.approx(0.6)
+        assert kerning_offset(left, right, penetration_scale=1.5) == pytest.approx(0.9)
+        assert kerning_offset(left, right, penetration_scale=0.0) == pytest.approx(0.0)
+
+    def test_extended_sampling_detects_edge_pokes(self) -> None:
+        """A poke just outside the y-overlap counts once the window spans it.
+
+        The left glyph (bbox height 1.0) pokes right at y=0.9 (x=1.0); the
+        right glyph only spans y in [0, 0.8] with a flat left silhouette at
+        x=0.4. Same-height sampling stops at the overlap top (y=0.8) and
+        misses the poke (max ~0.489); a 0.2 window extends sampling to
+        y=1.0, where the poke compares against the flat silhouette's
+        nearest material (x=0.4) for a full 0.6 penetration.
+        """
+        left = self._geometry((0.0, 0.0, 1.0, 1.0), right=((0.0, 0.0), (1.0, 0.9), (0.0, 1.0)))
+        right = self._geometry((0.0, 0.0, 0.4, 0.8), left=((0.4, 0.0), (0.4, 0.8)))
+        # Same-height: worst sample inside [0, 0.8] sits on the poke ramp at
+        # y=0.8 (x=8/9 vs the flat x=0.4 -> 22/45); the y=0.9 poke (x=1.0)
+        # is outside the overlap entirely.
+        assert kerning_offset(left, right, window_design=0.0) == pytest.approx(22.0 / 45.0)
+        # Window 0.2 reaches y=1.0: the y=0.9 poke (x=1.0) compares against
+        # the flat silhouette clamped to its nearest material (x=0.4).
+        assert kerning_offset(left, right, window_design=0.2) == pytest.approx(0.6)
+
+    def test_fallback_fraction_scales_no_overlap_advance(self) -> None:
+        """``fallback_fraction`` scales the bbox-width fallback advance."""
+        low = self._geometry((0.0, -1.0, 0.4, 0.0))
+        high = self._geometry((0.0, 0.5, 1.0, 1.5))
+        assert kerning_offset(low, high) == pytest.approx(0.4)
+        assert kerning_offset(low, high, fallback_fraction=1.5) == pytest.approx(0.6)
+        assert kerning_offset(low, high, fallback_fraction=0.0) == pytest.approx(0.0)
+
 
 class TestWordGroups:
     """with_words partitions strokes exactly by construction."""
@@ -676,6 +743,9 @@ class TestModuleHygiene:
         assert SPACE_HEIGHT_FRACTION == pytest.approx(0.3)
         assert MIN_GLYPH_WIDTH == pytest.approx(0.0)
         assert KERNING_WINDOW_FRACTION == pytest.approx(0.05)
+        assert plt_font_renderer.KERNING_PENETRATION_SCALE == pytest.approx(1.0)
+        assert plt_font_renderer.KERNING_MIN_GAP == pytest.approx(0.0)
+        assert plt_font_renderer.FALLBACK_ADVANCE_FRACTION == pytest.approx(1.0)
 
 
 def _resolved_line(text: str, font: str, height: float = 0.3) -> ResolvedTextLine:
@@ -723,6 +793,9 @@ class TestLabelRendererDispatch:
         assert calls["space_width_fraction"] == pytest.approx(0.3)
         assert calls["min_glyph_width"] == pytest.approx(0.0)
         assert calls["kerning_window_fraction"] == pytest.approx(0.05)
+        assert calls["kerning_penetration_scale"] == pytest.approx(1.0)
+        assert calls["kerning_min_gap"] == pytest.approx(0.0)
+        assert calls["fallback_advance_fraction"] == pytest.approx(1.0)
         assert block.strokes == _triangle_block().strokes
         assert groups is None  # line mode never requests word groups
 

@@ -9,9 +9,12 @@ from pydantic import ValidationError
 
 from plt_optimizer.generate.resolution import (
     DEFAULT_BOUNDARY_HOLE_CUTTER,
+    DEFAULT_FALLBACK_ADVANCE_FRACTION,
     DEFAULT_FONT,
     DEFAULT_HOLE_MARGIN,
     DEFAULT_HOLE_TEXT_COLLISION_DISTANCE,
+    DEFAULT_KERNING_MIN_GAP,
+    DEFAULT_KERNING_PENETRATION_SCALE,
     DEFAULT_KERNING_WINDOW_FRACTION,
     DEFAULT_LINE_SPACING,
     DEFAULT_MARGIN,
@@ -2070,3 +2073,73 @@ class TestKerningWindowFractionCascade:
             TextLine(text="X", kerning_window_fraction=1.01)
         with pytest.raises(ValueError):
             JobSpec(job_name="J", kerning_window_fraction=1.5)
+
+
+class TestKerningSpacingKnobCascades:
+    """The three spacing knobs cascade line -> label -> job -> default."""
+
+    def test_module_defaults_are_neutral(self) -> None:
+        """The shipped defaults leave the kerning math unchanged."""
+        assert DEFAULT_KERNING_PENETRATION_SCALE == 1.0
+        assert DEFAULT_KERNING_MIN_GAP == 0.0
+        assert DEFAULT_FALLBACK_ADVANCE_FRACTION == 1.0
+
+    @pytest.mark.parametrize(
+        "field",
+        ["kerning_penetration_scale", "kerning_min_gap", "fallback_advance_fraction"],
+    )
+    def test_cascade_precedence(self, field: str) -> None:
+        """Job fills the line; label beats job; line beats label; 0.0 wins."""
+
+        def resolve(**levels: float | None) -> float:
+            job_kwargs: dict[str, float | None] = {}
+            label_kwargs: dict[str, float | None] = {}
+            line_kwargs: dict[str, float | None] = {}
+            if "job" in levels:
+                job_kwargs[field] = levels["job"]
+            if "label" in levels:
+                label_kwargs[field] = levels["label"]
+            if "line" in levels:
+                line_kwargs[field] = levels["line"]
+            job = JobSpec(
+                job_name="J",
+                **job_kwargs,  # type: ignore[arg-type]
+                labels=[
+                    LabelSpec(
+                        id="lbl",
+                        width=2.0,
+                        height=1.0,
+                        **label_kwargs,  # type: ignore[arg-type]
+                        content=[TextLine(text="X", **line_kwargs)],  # type: ignore[arg-type]
+                    )
+                ],
+            )
+            return float(getattr(resolve_job_spec(job)[0].content[0], field))
+
+        # All levels omit -> module default (checked via the resolved value).
+        job = JobSpec(
+            job_name="J",
+            labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])],
+        )
+        defaults = {
+            "kerning_penetration_scale": DEFAULT_KERNING_PENETRATION_SCALE,
+            "kerning_min_gap": DEFAULT_KERNING_MIN_GAP,
+            "fallback_advance_fraction": DEFAULT_FALLBACK_ADVANCE_FRACTION,
+        }
+        assert math.isclose(getattr(resolve_job_spec(job)[0].content[0], field), defaults[field])
+        assert math.isclose(resolve(job=0.3), 0.3)
+        assert math.isclose(resolve(job=0.3, label=0.5), 0.5)
+        assert math.isclose(resolve(job=0.3, label=0.5, line=0.7), 0.7)
+        # An explicit 0.0 at the line is honored (only None means unset).
+        assert math.isclose(resolve(job=0.3, label=0.5, line=0.0), 0.0)
+
+    @pytest.mark.parametrize(
+        "field",
+        ["kerning_penetration_scale", "kerning_min_gap", "fallback_advance_fraction"],
+    )
+    def test_negative_rejected(self, field: str) -> None:
+        """The knobs are non-negative (ge=0.0) at every level."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", **{field: -0.1})  # type: ignore[arg-type]
+        with pytest.raises(ValidationError):
+            JobSpec(job_name="J", **{field: -0.1})  # type: ignore[arg-type]
