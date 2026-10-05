@@ -475,8 +475,11 @@ class TestEnvelopeSampling:
         assert len(left) == 11 and len(right) == 11
         assert left[0] == pytest.approx([0.0, 0.0])
         assert right[0] == pytest.approx([600.0, 0.0])
-        assert left[-1] == pytest.approx([300.0, 1000.0])
-        assert right[-1] == pytest.approx([300.0, 1000.0])
+        # Band sampling widens the extremes: the apex sample covers
+        # y in [950, 1000], where the edges reach x = 0.3 * 950 and
+        # 600 - 0.3 * 950.
+        assert left[-1] == pytest.approx([285.0, 1000.0])
+        assert right[-1] == pytest.approx([315.0, 1000.0])
         # Left edge moves right monotonically up the triangle.
         assert all(left[i][0] <= left[i + 1][0] + 1e-6 for i in range(len(left) - 1))
 
@@ -517,6 +520,136 @@ class TestEnvelopeSampling:
         paths, transform, bounds = self._triangle()
         with pytest.raises(ValueError, match="at least 2 samples"):
             script.sample_envelopes(paths, transform, bounds, 1)
+
+
+class TestBandEnvelopeSampling:
+    """Each envelope sample aggregates a band, so hairlines are never missed.
+
+    EngraveLab engraves a glyph's horizontal bars as *single* strokes of zero
+    width. Sampling a zero-thickness line at uniform heights mathematically
+    guarantees such a bar is missed whenever its height is not an exact multiple
+    of the sample step (the shipped Dino ``F`` middle bar sits at y = 500.2923
+    while the 30-sample step is 34.482759), which stored a phantom notch in the
+    right envelope. Every sample therefore covers the band
+    ``[y_k - step/2, y_k + step/2]`` and records the extreme X of *any* geometry
+    meeting that band.
+    """
+
+    # The Dino 'F' reproduced in the normalized frame: a spine, a top bar
+    # landing exactly on the bbox top, and an off-grid hairline middle bar.
+    _F_SPINE = ((0.0, 0.0), (0.0, 1000.0))
+    _F_TOP_BAR = ((0.0, 1000.0), (667.446168, 1000.0))
+    _F_MID_BAR = ((0.0, 500.2923), (555.816, 500.2923))
+
+    @staticmethod
+    def _paths(*lines: Tuple[Tuple[float, float], Tuple[float, float]]) -> List[StrokePath]:
+        """Build one pen-up-led stroke path per normalized line segment.
+
+        Args:
+            *lines: ``(start, end)`` normalized coordinate pairs (+Y up).
+
+        Returns:
+            Stroke paths in the *raw* device frame (+Y down, baseline 1000),
+            ready for the identity transform used by these tests.
+        """
+        paths: List[StrokePath] = []
+        for (x0, y0), (x1, y1) in lines:
+            start = Coordinate(x0, 1000.0 - y0)
+            end = Coordinate(x1, 1000.0 - y1)
+            paths.append(
+                StrokePath(
+                    pen_up_position=start,
+                    segments=(StrokeSegment(start, end, True),),
+                )
+            )
+        return paths
+
+    @staticmethod
+    def _identity() -> Any:
+        """The identity normalization (scale 1, origin 0, baseline 1000)."""
+        return script.GlyphTransform(scale=1.0, origin_x=0.0, baseline=1000.0)
+
+    def test_off_grid_hairline_is_captured(self) -> None:
+        """The Dino 'F' middle bar lands on the sample that covers its band."""
+        paths = self._paths(self._F_SPINE, self._F_TOP_BAR, self._F_MID_BAR)
+        left, right = script.sample_envelopes(
+            paths, self._identity(), (0.0, 0.0, 667.446168, 1000.0), 30
+        )
+        # Sample step 34.482759: y = 500.2923 falls in sample 15's band
+        # [500.0, 534.4828], and in no other band.
+        assert right[15][0] == pytest.approx(555.816, abs=1e-6)
+        assert right[14][0] == pytest.approx(0.0, abs=1e-6)
+        assert right[16][0] == pytest.approx(0.0, abs=1e-6)
+        # The top bar is still captured, and exactly two samples see material
+        # right of the spine (the historical bug stored only one). Coordinates
+        # round to 3 decimals in the parser models, hence the 1e-3 tolerance.
+        assert right[-1][0] == pytest.approx(667.446168, abs=1e-3)
+        assert sum(1 for point in right if point[0] > 1.0) == 2
+        # The spine is the only left-edge geometry at every height.
+        assert all(point[0] == pytest.approx(0.0, abs=1e-6) for point in left)
+
+    def test_bar_on_band_boundary_is_captured_by_both_neighbours(self) -> None:
+        """Bands tile the axis, so a boundary height belongs to both samples."""
+        paths = self._paths(self._F_SPINE, ((0.0, 500.0), (555.816, 500.0)))
+        _left, right = script.sample_envelopes(
+            paths, self._identity(), (0.0, 0.0, 555.816, 1000.0), 30
+        )
+        # y = 500.0 is exactly the shared edge of samples 14 and 15.
+        assert right[14][0] == pytest.approx(555.816, abs=1e-6)
+        assert right[15][0] == pytest.approx(555.816, abs=1e-6)
+
+    def test_band_extremes_never_narrow_exact_sampling(self) -> None:
+        """A band envelope is a conservative widening of the exact silhouette."""
+        paths, transform, bounds = TestEnvelopeSampling()._triangle()
+        _left, right = script.sample_envelopes(paths, transform, bounds, 11)
+        # The triangle's right edge is x = 600 - 0.3y; sample 5 sits at y = 500
+        # with band [450, 550], so the widest point of the band is its bottom.
+        assert right[5][0] == pytest.approx(600.0 - 0.3 * 450.0, abs=1e-6)
+        assert right[5][0] >= 450.0  # the exact same-height crossing
+        # The apex sample widens downward to the band's lower edge.
+        assert right[-1][0] == pytest.approx(600.0 - 0.3 * 950.0, abs=1e-6)
+
+    def test_arc_band_uses_swept_extremum_not_full_circle(self) -> None:
+        """A shallow huge-radius arc reports its swept tip, never its circle."""
+        # EngraveLab fits near-straight bars as huge-radius arcs: this one spans
+        # only 80..100 degrees of a radius-1000 circle, peaking at x = +-173.6
+        # while the full circle would reach +-1000.
+        lo, hi = math.radians(80.0), math.radians(100.0)
+        xs = script._arc_band_xs(0.0, 0.0, 1000.0, lo, hi, 900.0, 1000.0)
+        assert max(xs) == pytest.approx(1000.0 * math.cos(lo), abs=1e-6)
+        assert min(xs) == pytest.approx(-1000.0 * math.cos(lo), abs=1e-6)
+        assert max(xs) < 1000.0
+
+    def test_arc_band_clamps_to_the_band(self) -> None:
+        """The arc's band extremes come from the clamped band edges."""
+        # Right half circle, radius 100: within the band [10, 20] the widest
+        # point is the y = 10 edge (x = 99.4987), not the y = 0 equator (x = 100).
+        xs = script._arc_band_xs(0.0, 0.0, 100.0, -math.pi / 2.0, math.pi / 2.0, 10.0, 20.0)
+        assert max(xs) == pytest.approx(math.sqrt(100.0**2 - 10.0**2), abs=1e-6)
+        assert min(xs) == pytest.approx(math.sqrt(100.0**2 - 20.0**2), abs=1e-6)
+
+    def test_arc_outside_the_band_contributes_nothing(self) -> None:
+        """An arc entirely above the band is ignored."""
+        assert script._arc_band_xs(0.0, 0.0, 100.0, 0.0, math.pi, 500.0, 600.0) == []
+
+    def test_line_band_extremes(self) -> None:
+        """A slanted segment contributes its X at both ends of the overlap."""
+        line = (0.0, 0.0, 100.0, 100.0)
+        assert script._line_band_xs(line, 20.0, 40.0) == pytest.approx([20.0, 40.0])
+        # Fully outside the band -> no candidate.
+        assert script._line_band_xs(line, 200.0, 300.0) == []
+        # A horizontal bar inside the band yields both of its endpoints.
+        assert script._line_band_xs((5.0, 50.0, 77.0, 50.0), 40.0, 60.0) == [5.0, 77.0]
+
+    def test_dino_f_middle_bar_reaches_the_stored_envelope(self) -> None:
+        """The shipped Dino sheet cannot reproduce the phantom-notch bug."""
+        characters = script.load_characters(REPO_ROOT / "Fonts" / "ascii.txt")
+        entry = script.extract_font_file(DINO_FRAMED_FIXTURE, characters).entry
+        f_entry = entry["characters"]["F"]
+        right = f_entry["right_envelope"]
+        bar_tip = max(point[0] for point in right if point[1] < 900.0)
+        assert bar_tip > 100.0, "the middle bar vanished from the right envelope"
+        assert sum(1 for point in right if point[0] > 100.0) >= 2
 
 
 class TestMedian:

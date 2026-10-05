@@ -144,10 +144,16 @@ The script processes every `Fonts/PLT/*.plt` and, per sheet:
    `x = 0`, and **Y grows upward** — descenders (`g`, `j`, `p`, `_`, ...) get
    negative `y`. The raw sheets are engraved +Y-down, so this mirrors Y and
    negates every `AA` arc sweep.
-4. **Samples the profile envelopes**: each glyph's left and right silhouette
-   is recorded at 30 uniform heights (analytic line/arc intersections, no
-   chord flattening), giving the typesetter real air-gap profiles for tight
-   kerning instead of fixed advance widths.
+4. **Aggregates the profile envelopes**: each glyph's left and right silhouette
+   is recorded over 30 uniform vertical *bands* — every band covers half a
+   sampling step above and below its height and takes the extreme X of *any*
+   stroke meeting it (analytic line/arc intersections, no chord flattening).
+   Banding is essential: EngraveLab engraves horizontal bars as single
+   zero-width strokes, and a zero-thickness sample line systematically misses
+   them whenever the bar's height is not an exact multiple of the sample step
+   (e.g. a bar at y = 500.29 on a 34.48-unit grid). Bands tile the axis, so no
+   hairline can slip through, giving the typesetter real air-gap profiles for
+   tight kerning instead of fixed advance widths.
 5. **Merges** the result into [`plt_fonts.json`](plt_fonts.json) — existing
    fonts are preserved; only the fonts just extracted are replaced.
 
@@ -206,7 +212,7 @@ against 5%:
 | `--font-name NAME` | Explicit font key (requires exactly one input file; the height and reference char still come from the file name). |
 | `--row-threshold N` | Manual Y-gap row-split distance in plotter units. Only if the auto-search fails. |
 | `--cluster-threshold N` | Manual X-gap glyph-split distance in plotter units. Only if the auto-search fails. |
-| `--envelope-samples N` | Vertical samples per profile envelope (default 30). |
+| `--envelope-samples N` | Vertical bands per profile envelope (default 30); each band aggregates the geometry within half a sampling step of its height. |
 | `--rebuild` | Regenerate the JSON from scratch, dropping fonts whose `.plt` is gone. |
 
 ## Tips and troubleshooting

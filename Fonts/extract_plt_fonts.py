@@ -67,13 +67,18 @@ The result is merged into ``Fonts/plt_fonts.json``::
       }, ...
     }
 
-``left_envelope`` / ``right_envelope`` are the profile of the glyph sampled on
-a uniform vertical grid (:data:`ENVELOPE_SAMPLES` rows), which lets the
+``left_envelope`` / ``right_envelope`` are the profile of the glyph aggregated
+over :data:`ENVELOPE_SAMPLES` uniform vertical *bands*, which lets the
 typesetter kern tightly by measuring real air gaps instead of fixed advance
-widths. Font keys are the file-name font part with underscores turned into
-spaces and title-cased (``heavy_engraving_0.5_E.plt`` -> ``"Heavy
-Engraving"``); use ``--font-name`` to override for a single file. Existing
-fonts in the JSON are preserved unless ``--rebuild`` is given.
+widths. Each band spans half a sampling step above and below its height and
+records the extreme X of *any* stroke meeting it: a zero-thickness sample line
+would systematically miss the single-stroke hairlines EngraveLab uses for
+horizontal bars (the Dino ``F`` middle bar sits at y = 500.2923 while a 30-band
+grid steps by 34.482759), storing a phantom notch. Font keys are the file-name
+font part with underscores turned into spaces and title-cased
+(``heavy_engraving_0.5_E.plt`` -> ``"Heavy Engraving"``); use ``--font-name`` to
+override for a single file. Existing fonts in the JSON are preserved unless
+``--rebuild`` is given.
 """
 
 from __future__ import annotations
@@ -109,9 +114,10 @@ DEFAULT_ASCII_FILE = FONTS_DIR / "ascii.txt"
 # Plotter units per inch (the HPGL unit the sample sheets are engraved in).
 UNITS_PER_INCH = 1000.0
 
-# Vertical samples per left/right profile envelope; overridable with
+# Vertical bands per left/right profile envelope; each band aggregates the
+# geometry within half a sampling step of its height. Overridable with
 # --envelope-samples.
-ENVELOPE_SAMPLES = 60
+ENVELOPE_SAMPLES = 30
 
 # Declared-vs-measured height drift above which a WARNING is logged. The
 # measured height is always stored unadjusted; this only flags likely
@@ -959,27 +965,6 @@ def _angle_in_sweep(theta: float, theta_start: float, theta_end: float) -> bool:
     return False
 
 
-def _line_xs_at(line: Tuple[float, float, float, float], y: float) -> List[float]:
-    """Return the X values where a horizontal line crosses one polyline segment.
-
-    Args:
-        line: ``(x0, y0, x1, y1)`` in normalized units.
-        y: Sample height.
-
-    Returns:
-        Zero or one crossing for a slanted/vertical segment, or both endpoints
-        for a horizontal segment lying exactly on ``y`` (its full extent is
-        "on" the sample line).
-    """
-    x0, y0, x1, y1 = line
-    if abs(y1 - y0) <= _EPS:
-        return [x0, x1] if abs(y - y0) <= _EPS else []
-    lo, hi = min(y0, y1), max(y0, y1)
-    if y < lo - _EPS or y > hi + _EPS:
-        return []
-    return [x0 + (y - y0) * (x1 - x0) / (y1 - y0)]
-
-
 def _arc_xs_at(
     center_x: float,
     center_y: float,
@@ -1023,6 +1008,84 @@ def _arc_xs_at(
     return found
 
 
+def _line_band_xs(
+    line: Tuple[float, float, float, float], y_low: float, y_high: float
+) -> List[float]:
+    """Return the extreme X values of a segment's portion inside a Y band.
+
+    Args:
+        line: ``(x0, y0, x1, y1)`` in normalized units.
+        y_low: Lower band edge.
+        y_high: Upper band edge.
+
+    Returns:
+        The X values bounding the portion of the segment that lies within the
+        band: the two interpolated ends of the overlap, or both endpoints for a
+        horizontal segment inside the band (its full extent is in play). Empty
+        when the segment misses the band entirely.
+    """
+    x0, y0, x1, y1 = line
+    if abs(y1 - y0) <= _EPS:
+        return [x0, x1] if y_low - _EPS <= y0 <= y_high + _EPS else []
+    lo, hi = min(y0, y1), max(y0, y1)
+    low = max(lo, y_low)
+    high = min(hi, y_high)
+    if low > high + _EPS:
+        return []
+    scale = (x1 - x0) / (y1 - y0)
+    return [x0 + (low - y0) * scale, x0 + (high - y0) * scale]
+
+
+def _arc_band_xs(
+    center_x: float,
+    center_y: float,
+    radius: float,
+    theta_start: float,
+    theta_end: float,
+    y_low: float,
+    y_high: float,
+) -> List[float]:
+    """Return the extreme X values of a swept arc's portion inside a Y band.
+
+    The arc clipped to a horizontal strip breaks into pieces whose X extrema
+    can only occur at the piece endpoints (the band-edge crossings and any arc
+    endpoint inside the band) or at a swept X cardinal (``0``/``pi``, where
+    ``x = center_x +/- radius``). Collecting exactly those candidates yields the
+    band's true extremes analytically, with no chord flattening.
+
+    Only the *swept* portion is considered: EngraveLab approximates near-straight
+    glyph strokes as huge-radius best-fit arcs, so the full circle dwarfs the cut
+    and would inflate the envelope into neighbouring glyphs (the same rule
+    :func:`arc_bounds` enforces for bounding boxes).
+
+    Args:
+        center_x: Arc center X in normalized units.
+        center_y: Arc center Y in normalized units.
+        radius: Arc radius in normalized units.
+        theta_start: Arc start angle, in radians.
+        theta_end: Arc end angle, in radians.
+        y_low: Lower band edge.
+        y_high: Upper band edge.
+
+    Returns:
+        The candidate X values, empty when the arc misses the band entirely.
+    """
+    found: List[float] = []
+    for y in (y_low, y_high):
+        found.extend(_arc_xs_at(center_x, center_y, radius, theta_start, theta_end, y))
+    for theta in (theta_start, theta_end):
+        y = center_y + radius * math.sin(theta)
+        if y_low - _EPS <= y <= y_high + _EPS:
+            found.append(center_x + radius * math.cos(theta))
+    # The X cardinals (0/pi) sit at y == center_y, so they are in play only when
+    # the band contains the center line.
+    if y_low - _EPS <= center_y <= y_high + _EPS:
+        for cardinal in (0.0, math.pi):
+            if _angle_in_sweep(cardinal, theta_start, theta_end):
+                found.append(center_x + radius * math.cos(cardinal))
+    return found
+
+
 def _normalized_geometry(
     paths: Sequence[StrokePath],
     transform: GlyphTransform,
@@ -1063,10 +1126,10 @@ def _normalized_geometry(
 def _interpolate_gaps(samples: Sequence[Optional[float]]) -> List[float]:
     """Fill undefined envelope samples by linear interpolation.
 
-    A sampling line that misses the glyph entirely (it passed through a gap
-    between strokes) takes the value interpolated between the nearest defined
-    samples on either side; when only one side is defined, the value is clamped
-    to it. At least one defined sample must exist.
+    A band that finds no glyph geometry at all (possible inside a bounding-box
+    hole, e.g. the open middle of a ``C``) takes the value interpolated between
+    the nearest defined samples on either side; when only one side is defined,
+    the value is clamped to it. At least one defined sample must exist.
 
     Args:
         samples: Per-height envelope X values, ``None`` where undefined.
@@ -1107,12 +1170,23 @@ def sample_envelopes(
 ) -> Tuple[List[List[float]], List[List[float]]]:
     """Extract the left and right profile envelopes of one glyph.
 
-    The glyph's vertical extent is sampled on ``samples`` uniform heights and,
-    at each height, every polyline segment and swept arc is intersected
-    analytically with the horizontal sample line. The left envelope records the
-    smallest crossing X, the right envelope the largest, which gives the
-    typesetter a true air-gap profile instead of a fixed advance width. Heights
-    that miss the glyph entirely are interpolated from their neighbours (see
+    The glyph's vertical extent is divided into ``samples`` uniform *bands*
+    centred on a uniform height grid, and each sample records the extreme X of
+    *any* stroke geometry meeting its band ``[y_k - step/2, y_k + step/2]``
+    (clamped to the bounding box): the left envelope the smallest X, the right
+    envelope the largest. Banding is what makes the profile robust: EngraveLab
+    engraves horizontal bars as single zero-width strokes, and a
+    zero-thickness sample line is *guaranteed* to miss such a bar whenever its
+    height is not an exact multiple of the sample step (the Dino ``F`` middle
+    bar sits at y = 500.2923 while a 30-sample grid steps by 34.482759). Bands
+    tile the axis, so every point of every stroke falls in at least one band and
+    no hairline can slip through. Extremes are computed analytically from the
+    band-clipped geometry (:func:`_line_band_xs`, :func:`_arc_band_xs` - swept
+    arc extents only, no chord flattening), and the sampled silhouette can only
+    be *wider* than the exact same-height silhouette, never narrower.
+
+    A band that finds no geometry (possible only inside a bounding-box hole,
+    e.g. the open middle of a ``C``) is interpolated from its neighbours (see
     :func:`_interpolate_gaps`).
 
     Args:
@@ -1139,19 +1213,27 @@ def sample_envelopes(
     span = high_y - low_y
     if span <= _EPS:
         heights = [low_y] * samples
+        half_step = 0.0
     else:
         step = span / (samples - 1)
         heights = [low_y + index * step for index in range(samples)]
         heights[-1] = high_y
+        half_step = step / 2.0
 
     left_gaps: List[Optional[float]] = []
     right_gaps: List[Optional[float]] = []
     for y in heights:
+        band_low = max(low_y, y - half_step)
+        band_high = min(high_y, y + half_step)
         crossings: List[float] = []
         for line in lines:
-            crossings.extend(_line_xs_at(line, y))
+            crossings.extend(_line_band_xs(line, band_low, band_high))
         for center_x, center_y, radius, theta_start, theta_end in arcs:
-            crossings.extend(_arc_xs_at(center_x, center_y, radius, theta_start, theta_end, y))
+            crossings.extend(
+                _arc_band_xs(
+                    center_x, center_y, radius, theta_start, theta_end, band_low, band_high
+                )
+            )
         left_gaps.append(min(crossings) if crossings else None)
         right_gaps.append(max(crossings) if crossings else None)
 
@@ -1517,7 +1599,10 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--envelope-samples",
         type=int,
         default=ENVELOPE_SAMPLES,
-        help="Number of vertical samples per left/right profile envelope (default: %(default)s).",
+        help="Number of vertical bands per left/right profile envelope; each "
+        "band aggregates the geometry within half a sampling step of its "
+        "height, so single-stroke hairlines are never missed "
+        "(default: %(default)s).",
     )
     parser.add_argument(
         "--font-name",
