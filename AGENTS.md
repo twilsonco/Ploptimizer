@@ -87,7 +87,12 @@ JobSpec (job-level defaults)
   a space advances `space_width_fraction * text_height +
   character_spacing` and breaks kerning. A character the PLT font lacks
   raises `PltFontRenderError` at render → `LabelRenderError` (CLI
-  non-zero). List every valid name with
+  non-zero). Every v2 library font also carries 17 **derived Unicode
+  glyphs** (`–—•∞±¢≠≈≡¿¡†‡↑↓←→`) that `extract_plt_fonts.py` builds from
+  ASCII bases through `Fonts/glyph_transforms.py` (affine transforms with
+  arc-sweep rules; bounding box and envelopes re-sampled from the
+  transformed geometry), so they kern and render like engraved characters.
+  List every valid name with
   `python docs/schema/generate_schema_docs.py --show-fonts`.
 - `character_spacing`: Extra spacing between characters
 - `line_spacing`: Extra spacing between text lines
