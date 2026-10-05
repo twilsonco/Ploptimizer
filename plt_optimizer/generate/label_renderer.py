@@ -14,7 +14,7 @@ import logging
 import math
 import re
 import tempfile
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path
 from typing import Iterable, List, Mapping, NamedTuple, Optional, Sequence, Tuple
@@ -70,9 +70,25 @@ PLT_FOOTER: str = "SP;"
 _MARGIN_ADJUST_STEPS: int = 32
 _COMPRESSION_RESOLVE_STEPS: int = 16
 
-# A rendered text line's collision-relevant record: ``(line_index,
-# line_text, (x_min, y_min, x_max, y_max))`` in label-local coordinates.
-_LineEntry = Tuple[int, str, Tuple[float, float, float, float]]
+
+class _LineEntry(NamedTuple):
+    """A rendered text line's collision/compression-relevant record.
+
+    Attributes:
+        line_index: Index of the line in ``ResolvedLabel.content``.
+        line_text: The line's text (for collision reports).
+        bounds: ``(x_min, y_min, x_max, y_max)`` in label-local coordinates.
+        compression_scale: Effective horizontal scale applied to the line,
+            i.e. the collision-avoidance scale multiplied by the
+            margin-overflow scale (both ``1.0`` when untouched). ``1.0``
+            means the line rendered at its natural width; values below
+            report how far the emitted geometry was squeezed.
+    """
+
+    line_index: int
+    line_text: str
+    bounds: Tuple[float, float, float, float]
+    compression_scale: float = 1.0
 
 
 class TextChunkMode(str, Enum):
@@ -184,6 +200,13 @@ class RenderedLabel:
             into device coordinates and builds one routing node per chunk
             (skipping the parser/profiler entirely). Empty for labels with no
             rendered text.
+        compression_by_line: Mapping of line index to the *effective*
+            horizontal scale applied while rendering, i.e. the
+            collision-avoidance scale (Phase 3) multiplied by the
+            margin-overflow scale (``max_h_compress`` compression). Only
+            lines compressed below ``1.0`` are included; an empty dict
+            (the default) means every line rendered at its natural width.
+            Reporting-only: nothing downstream consumes it for geometry.
     """
 
     source_label: ResolvedLabel
@@ -197,6 +220,7 @@ class RenderedLabel:
     has_collisions: bool = False
     collision_detected: bool = False
     text_chunks: Tuple[TextChunkRecord, ...] = ()
+    compression_by_line: dict[int, float] = field(default_factory=dict)
 
 
 def _collision_threshold(label: ResolvedLabel, line_index: int) -> float:
@@ -256,8 +280,8 @@ def _detect_text_hole_collisions(
     Args:
         label: The resolved label providing hole positions, cutter
             diameters and the collision distance.
-        line_entries: Per-line ``(line_index, line_text, bounds)`` tuples
-            as returned by :func:`_render_text_local_with_bounds`.
+        line_entries: Per-line :class:`_LineEntry` records as returned by
+            :func:`_render_text_local_with_bounds`.
 
     Returns:
         One :class:`CollisionResult` per colliding (line, hole) pair.
@@ -270,7 +294,7 @@ def _detect_text_hole_collisions(
     shift_y = label.height / 2.0
     results: List[CollisionResult] = []
 
-    for line_index, line_text, bounds in line_entries:
+    for line_index, line_text, bounds, _scale in line_entries:
         threshold = _collision_threshold(label, line_index)
         x_min, y_min, x_max, y_max = bounds
         shifted: Tuple[float, float, float, float] = (
@@ -795,6 +819,15 @@ def _render_label_once(
         # Extract bounds from rendered PLT
         x_min, y_min, x_max, y_max = extract_bounds_from_plt(plt_content)
 
+        # Effective per-line horizontal scales (collision x margin),
+        # reporting-only. Lines left at natural width (scale 1.0) are
+        # omitted so the common case stays an empty dict.
+        compression_by_line = {
+            entry.line_index: entry.compression_scale
+            for entry in line_entries
+            if entry.compression_scale < 1.0
+        }
+
         rendered = RenderedLabel(
             source_label=label,
             plt_content=plt_content,
@@ -805,6 +838,7 @@ def _render_label_once(
             width=x_max - x_min,
             height=y_max - y_min,
             text_chunks=tuple(chunk_records),
+            compression_by_line=compression_by_line,
         )
         return rendered, line_entries
     finally:
@@ -1641,9 +1675,10 @@ def _render_positioned_lines(
     Returns:
         One ``(line_index, positioned_block, entry, word_groups)`` tuple per
         renderable line, in content order, where ``positioned_block`` is the
-        positioned :class:`TextBlock`, ``entry`` is its ``(line_index,
-        line_text, bounds)`` record in label-local coordinates (pre-export
-        anchor, block centered around y=0; bounds are swept-analytic), and
+        positioned :class:`TextBlock`, ``entry`` is its :class:`_LineEntry`
+        record (line index, text, bounds, and the effective horizontal
+        compression scale) in label-local coordinates (pre-export anchor,
+        block centered around y=0; bounds are swept-analytic), and
         ``word_groups`` is ``None`` in line mode or a list of ``(word_text,
         stroke_indices)`` pairs indexing ``positioned_block`` strokes in word
         order. The export pipeline vertically centers the block at
@@ -1674,6 +1709,7 @@ def _render_positioned_lines(
             float,
             str,
             Optional[List[Tuple[str, List[int]]]],
+            float,
         ]
     ] = []
     total_rendered_height = 0.0
@@ -1718,6 +1754,7 @@ def _render_positioned_lines(
                 line.max_h_compress,
                 line.text_h_alignment,
                 word_groups,
+                compression_scale,
             )
         )
         total_rendered_height += rendered_height
@@ -1729,14 +1766,15 @@ def _render_positioned_lines(
     # precedence: if the measured block (line heights + requested spacing)
     # overflows the inner area, shrink the spacing so margins win.
     spacings = [
-        line_spacing for _idx, _lc, _height, line_spacing, _mhc, _align, _wg in rendered_lines[:-1]
+        line_spacing
+        for _idx, _lc, _height, line_spacing, _mhc, _align, _wg, _cs in rendered_lines[:-1]
     ]
     # Vertical margin applies as-is; no cutter compensation needed since the
     # margin is user-specified and text already accounts for per-line cutter diameter
     # via horizontal compensation.
     available_height = label.height - (2 * v_margin)
     adjusted_spacings = fit_line_spacing_to_margins(
-        [height for _idx, _lc, height, _spacing, _mhc, _align, _wg in rendered_lines],
+        [height for _idx, _lc, height, _spacing, _mhc, _align, _wg, _cs in rendered_lines],
         spacings,
         available_height,
     )
@@ -1750,7 +1788,7 @@ def _render_positioned_lines(
             v_margin,
         )
     total_rendered_height = sum(
-        height for _idx, _lc, height, _spacing, _mhc, _align, _wg in rendered_lines
+        height for _idx, _lc, height, _spacing, _mhc, _align, _wg, _cs in rendered_lines
     ) + sum(adjusted_spacings)
 
     # Anchor the block so its vertical center sits at y = total / 2. The
@@ -1768,11 +1806,13 @@ def _render_positioned_lines(
         max_h_compress,
         text_h_alignment,
         word_groups,
+        collision_scale,
     ) in enumerate(rendered_lines):
         bounds = block.bounds()
         if bounds is None:  # pragma: no cover - measured in first pass
             continue
         line = label.content[line_index]
+        pre_margin_width = bounds[2] - bounds[0]
 
         # Margin precedence for width: compress over-wide lines so they
         # respect the inner content area (bounded by max_h_compress).
@@ -1795,6 +1835,14 @@ def _render_positioned_lines(
         min_x, _min_y, max_x, max_y = bounds
         rendered_width = max_x - min_x
 
+        # Effective per-line horizontal scale, recorded for reporting:
+        # the collision-avoidance scale (applied in the first pass) times
+        # the margin-overflow scale measured here. compress_x scales X only,
+        # so the width ratio is exactly the applied margin scale (1.0 when
+        # the line already fit or compression was disabled).
+        margin_scale = rendered_width / pre_margin_width if pre_margin_width > 0.0 else 1.0
+        effective_scale = collision_scale * margin_scale
+
         # Horizontal alignment within the available width: "left" anchors
         # the line's left-most point at the left margin, "right" anchors
         # the right-most point at the right margin, "center" centers it.
@@ -1813,15 +1861,16 @@ def _render_positioned_lines(
             (
                 line_index,
                 block,
-                (
-                    line_index,
-                    label.content[line_index].text,
-                    (
+                _LineEntry(
+                    line_index=line_index,
+                    line_text=label.content[line_index].text,
+                    bounds=(
                         min_x + x_offset,
                         bounds[1] + y_offset,
                         max_x + x_offset,
                         max_y + y_offset,
                     ),
+                    compression_scale=effective_scale,
                 ),
                 word_groups,
             )
@@ -1850,11 +1899,10 @@ def _render_text_local_with_bounds(
 
     Returns:
         A tuple ``(combined_lc, line_entries)`` where ``combined_lc`` holds
-        all rendered lines and ``line_entries`` is a list of
-        ``(line_index, line_text, bounds)`` tuples in label-local
-        coordinates (pre-export anchor, block centered around y=0). The
-        export pipeline vertically centers the block at ``height / 2``;
-        collision detection applies that shift itself.
+        all rendered lines and ``line_entries`` is a list of :class:`_LineEntry`
+        records in label-local coordinates (pre-export anchor, block centered
+        around y=0). The export pipeline vertically centers the block at
+        ``height / 2``; collision detection applies that shift itself.
     """
     text_lc = vp.LineCollection()
     line_entries: List[_LineEntry] = []

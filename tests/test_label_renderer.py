@@ -9,6 +9,7 @@ import pytest
 import vpype as vp
 
 from plt_optimizer.generate.label_renderer import (
+    RenderedLabel,
     _flip_y_coordinates_in_plt,
     _hole_circles_local,
     _render_text_local_with_bounds,
@@ -1070,6 +1071,80 @@ class TestHorizontalCompressionRendering:
 
         assert min(xs) >= margin - 0.02, f"Text breaches left margin: {min(xs):.3f}"
         assert max(xs) <= label.width - margin + 0.02, f"Text breaches right margin: {max(xs):.3f}"
+
+
+class TestCompressionByLineReporting:
+    """``RenderedLabel.compression_by_line`` reports the applied per-line scale."""
+
+    @staticmethod
+    def _label(max_h_compress: float) -> ResolvedLabel:
+        """One over-wide line on a 5x1.5in label with 0.15in margins."""
+        return _make_local_label(
+            [
+                _make_line(
+                    TestHorizontalCompressionRendering.LONG_TEXT,
+                    height=0.5,
+                    max_h_compress=max_h_compress,
+                )
+            ],
+            width=5.0,
+            height=1.5,
+            margin=0.15,
+        )
+
+    @staticmethod
+    def _text_width(rendered: RenderedLabel) -> float:
+        """Width in inches spanned by the rendered SP1 text layer."""
+        match = re.search(r"SP1;(.*?)(?:SP\d|$)", rendered.plt_content, re.DOTALL)
+        assert match is not None, "No text layer found in rendered PLT"
+        xs: list[float] = []
+        for coord_match in re.finditer(r"(?:PA|PU|PD)([\d,\-]+)", match.group(1)):
+            parts = coord_match.group(1).split(",")
+            for i in range(0, len(parts) - 1, 2):
+                xs.append(int(parts[i]) / 1000.0)
+        assert xs, "No text coordinates found"
+        return max(xs) - min(xs)
+
+    def test_margin_compression_is_reported(self) -> None:
+        """An over-wide compressed line must appear with its applied scale."""
+        rendered = render_label_to_plt(self._label(max_h_compress=0.5))
+
+        assert set(rendered.compression_by_line) == {0}
+        scale = rendered.compression_by_line[0]
+        assert 0.0 < scale < 1.0
+
+        # The reported scale must match the measured width ratio against the
+        # same label rendered with compression disabled (natural width).
+        natural = render_label_to_plt(self._label(max_h_compress=0.0))
+        assert scale == pytest.approx(
+            self._text_width(rendered) / self._text_width(natural), rel=1e-2
+        )
+
+    def test_uncompressed_label_reports_empty_dict(self) -> None:
+        """A label with compression disabled must report no compression at all."""
+        rendered = render_label_to_plt(self._label(max_h_compress=0.0))
+
+        assert rendered.compression_by_line == {}
+
+    def test_only_compressed_lines_are_reported(self) -> None:
+        """In a multi-line label only the over-wide line gets an entry."""
+        label = _make_local_label(
+            [
+                _make_line(
+                    TestHorizontalCompressionRendering.LONG_TEXT,
+                    height=0.5,
+                    max_h_compress=0.5,
+                ),
+                _make_line("FIRST", height=0.25, max_h_compress=0.5),
+            ],
+            width=5.0,
+            height=1.5,
+            margin=0.15,
+        )
+        rendered = render_label_to_plt(label)
+
+        assert set(rendered.compression_by_line) == {0}
+        assert rendered.compression_by_line[0] < 1.0
 
 
 class TestHorizontalTextAlignment:

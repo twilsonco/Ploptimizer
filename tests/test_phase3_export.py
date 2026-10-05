@@ -92,6 +92,33 @@ class TestExportAndOptimizePhase3:
         assert result.combined_by_plate
         assert not any("_all_" in p.stem for p in result.plt_paths)
 
+    def test_export_exposes_rendered_labels(self, tmp_path: Path) -> None:
+        """The export exposes the render cache keyed by label ID.
+
+        ``PerCutterExport.rendered_labels`` lets callers read per-line
+        ``compression_by_line`` and collision state without re-rendering.
+        """
+        job = parse_yaml("tests_deps/test123_spec.yaml")
+        resolved_labels = resolve_job_spec(job)
+
+        result = export_per_cutter_plts(
+            resolved_labels,
+            output_dir=tmp_path,
+            job_id="cachejob",
+            optimize=False,
+            plots=False,
+        )
+
+        assert result.rendered_labels
+        # Keyed by label ID: every unique resolved label id is present.
+        assert set(result.rendered_labels) == {label.id for label in resolved_labels}
+        for label_id, rendered in result.rendered_labels.items():
+            assert rendered.source_label.id == label_id
+            # The compression report is a per-line scale below 1.0 (or empty).
+            for line_index, scale in rendered.compression_by_line.items():
+                assert 0.0 <= scale < 1.0
+                assert 0 <= line_index < len(rendered.source_label.content)
+
     def test_export_per_cutter_no_default_plots_by_default(self, tmp_path: Path) -> None:
         """Color-coded *_default.pdf plots are opt-in; absent by default."""
         job = parse_yaml("tests_deps/test123_spec.yaml")

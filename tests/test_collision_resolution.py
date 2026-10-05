@@ -116,6 +116,9 @@ class TestMarginAdjustment:
         adjusted = rendered.source_label
         assert adjusted is not label
         assert 0.0 <= adjusted.hole_margin < label.hole_margin
+        # Margin-only avoidance leaves the text at natural width: the
+        # effective compression report stays empty.
+        assert rendered.compression_by_line == {}
         # The emitted PLT must come from the adjusted label: re-detecting
         # collisions on the adjusted geometry finds none.
         _lc, entries = _render_text_local_with_bounds(adjusted)
@@ -198,6 +201,13 @@ class TestCompressionFallback:
         floor = 1.0 - 0.7 - 1e-9
         for scale in adjusted.collision_compress_by_line.values():
             assert scale >= floor
+        # The render reports the *effective* per-line scale: the collision
+        # scale (no margin compression applies here, the line fits the
+        # margin box) for exactly the colliding lines.
+        assert set(rendered.compression_by_line) == set(adjusted.collision_compress_by_line)
+        for line_index, scale in rendered.compression_by_line.items():
+            assert scale == pytest.approx(adjusted.collision_compress_by_line[line_index])
+            assert 0.0 < scale < 1.0
 
     def test_compression_respects_max_h_compress_limit(self) -> None:
         """A budget smaller than required cannot resolve the collision.

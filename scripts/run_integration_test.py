@@ -48,6 +48,7 @@ GENERATE_DEFAULT_PLOTS = True
 from plt_optimizer.generate.job_config import JobConfig, load_job_config
 from plt_optimizer.generate.layout import generate_layout
 from plt_optimizer.generate.resolution import (
+    ResolvedLabel,
     resolve_job_spec,
 )
 from plt_optimizer.generate.schema import DEFAULT_LAYOUT_MODE, LayoutMode, parse_yaml
@@ -437,6 +438,62 @@ def phase_3_5_validate_coordinates(exported_paths: list[Path]) -> None:
 
 
 # ============================================================================
+# PHASE 3.6: COMPRESSION REPORT
+# ============================================================================
+def phase_3_6_compression_report(
+    resolved_labels: list[ResolvedLabel],
+    export_result: PerCutterExport,
+) -> None:
+    """Phase 3.6: Report the horizontal compression applied per text line.
+
+    Compression is a render-time effect (margin-overflow compression via
+    ``max_h_compress`` plus text-hole collision compression), so the
+    numbers come from the render cache the export step exposes on
+    ``PerCutterExport.rendered_labels`` (each
+    :class:`~plt_optimizer.generate.label_renderer.RenderedLabel` carries
+    ``compression_by_line``). The reported scale is the *effective*
+    per-line factor (collision scale x margin scale): ``1.000`` means the
+    line rendered at its natural width, ``0.870`` means the emitted
+    geometry is 87% of natural width (13.0% compressed).
+
+    Args:
+        resolved_labels: Resolved labels from Phase 2 (content order and
+            line text for the report).
+        export_result: The per-cutter export carrying the render cache.
+    """
+    print_separator("PHASE 3.6: COMPRESSION REPORT")
+
+    rendered_by_id = export_result.rendered_labels
+    if not rendered_by_id:
+        print("\u2139 No rendered labels available; compression report skipped.")
+        return
+
+    any_compression = False
+    for label in resolved_labels:
+        rendered = rendered_by_id.get(label.id)
+        if rendered is None:
+            continue
+        compression = rendered.compression_by_line
+        print(f"Label {label.id}:")
+        if not compression:
+            print("    all lines at natural width (no compression)")
+            continue
+        any_compression = True
+        for line_index, line in enumerate(label.content):
+            scale = compression.get(line_index, 1.0)
+            if scale >= 1.0:
+                continue
+            print(
+                f"    Line {line_index}: {line.text!r} "
+                f"scale {scale:.3f} ({(1.0 - scale) * 100.0:.1f}% compressed)"
+            )
+
+    print()
+    if not any_compression:
+        print("\u2713 No horizontal compression applied anywhere in this job.")
+
+
+# ============================================================================
 # PHASE 4: VISUALIZATION (Optional)
 # ============================================================================
 def phase_4_visualization(export_result: PerCutterExport, job_name: str = "") -> None:
@@ -548,6 +605,10 @@ def _run_single_spec(spec_override: Path | None) -> int:
 
         # Phase 3.5: Coordinate Validation (on the written per-cutter PLTs)
         phase_3_5_validate_coordinates(export_result.plt_paths)
+
+        # Phase 3.6: Applied horizontal compression report (render-time
+        # data from the export's render cache).
+        phase_3_6_compression_report(resolved_labels, export_result)
 
         # Phase 4: Visualization (optional)
         phase_4_visualization(export_result, job_name=job_name)

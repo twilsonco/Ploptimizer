@@ -192,6 +192,8 @@ line → label → job (accepted on plates for schema parity only).
   and `_render_text_lines_by_pen`) before centering.
 - Lines that already fit are never modified. If compression cannot fully
   resolve the overflow (limit too small), a WARNING is logged.
+- The *applied* per-line scale is reported (not stored on the schema) via
+  `RenderedLabel.compression_by_line` — see Applied Compression Reporting.
 
 ### Horizontal Text Alignment
 
@@ -249,9 +251,10 @@ intersection-invariant.
   avoidance action — margin reduction or collision compression — always logs
   at WARNING and names the label id plus the affected text line.)
 - **Phase 3 (opt-in via `max_h_compress`):** if margins cannot clear the
-  overlap, sweep a uniform horizontal compression (`collision_compress` on
-  `ResolvedLabel`, applied before margin-driven compression) up to the line
-  budget floor `1 - max_h_compress`. Stacks on top of the Phase 2 floor.
+  overlap, sweep a uniform horizontal compression
+  (`collision_compress_by_line` on `ResolvedLabel`, applied before
+  margin-driven compression) up to the line budget floor
+  `1 - max_h_compress`. Stacks on top of the Phase 2 floor.
 - **Failure semantics (only unavoidable collisions fail the job):** a
   collision that an enabled phase resolves logs its detections at WARNING
   (plus the avoidance action's own WARNING) and the render proceeds —
@@ -266,6 +269,31 @@ intersection-invariant.
   abort as a non-zero exit code.
 - Adjusted label clones propagate to downstream rendering via
   `RenderedLabel.source_label` (consumed by `layout.unroll_labels_with_rendered_bounds`).
+
+### Applied Compression Reporting
+
+Both compression mechanisms (margin-overflow and Phase 3 collision) are
+render-time effects: `resolve_job_spec()` only resolves the *budget*
+(`max_h_compress`), and `collision_compress_by_line` is empty until the
+renderer sets it. The *effective* per-line scale — collision scale ×
+margin scale, `1.0` = natural width — is measured during rendering and
+reported reporting-only (nothing downstream consumes it for geometry):
+
+- `_LineEntry` (label_renderer.py) is a `NamedTuple`
+  `(line_index, line_text, bounds, compression_scale)`; the margin scale is
+  measured in `_render_positioned_lines` by diffing the line's width across
+  the `compress_line_to_width()` call (`compress_x` scales X only, so the
+  width ratio is exact) and multiplied by the collision scale applied in
+  the first pass.
+- `RenderedLabel.compression_by_line: dict[int, float]` carries the
+  per-line scales; only lines below `1.0` are included, so the common
+  case is an empty dict. Populated by `_render_label_once`.
+- `PerCutterExport.rendered_labels: dict[str, RenderedLabel]` exposes the
+  layout render cache (keyed by label id) so CLI/script callers read
+  compression + collision state without re-rendering.
+- `scripts/run_integration_test.py` prints it as the **Phase 3.6:
+  COMPRESSION REPORT** section (per label, one line per compressed text
+  line: `Line N: '<text>' scale 0.870 (13.0% compressed)`).
 
 ### Job Specification Patterns
 

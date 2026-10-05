@@ -396,6 +396,12 @@ class PerCutterExport:
         default_pdf_paths: Color-coded ``*_default.pdf`` diagnostic plots
             with rapid-travel visualization (written only when
             ``default_plots`` was requested).
+        rendered_labels: The render cache keyed by label ID (each
+            :class:`~plt_optimizer.generate.label_renderer.RenderedLabel`
+            carries measured bounds, collision flags, and the effective
+            per-line ``compression_by_line`` scales). Reporting-only: lets
+            callers inspect applied horizontal compression and collision
+            state without re-rendering.
     """
 
     plt_paths: list[Path] = field(default_factory=list)
@@ -404,6 +410,7 @@ class PerCutterExport:
     output_dir: Path = field(default_factory=Path)
     job_id: str = "job"
     default_pdf_paths: list[Path] = field(default_factory=list)
+    rendered_labels: dict[str, RenderedLabel] = field(default_factory=dict)
 
 
 def _format_cutter(cutter_diameter: float) -> str:
@@ -641,7 +648,11 @@ def export_per_cutter_plts(
     plt_dir = output_dir / "plt"
     plt_dir.mkdir(parents=True, exist_ok=True)
 
-    result = PerCutterExport(output_dir=output_dir.resolve(), job_id=job_id)
+    result = PerCutterExport(
+        output_dir=output_dir.resolve(),
+        job_id=job_id,
+        rendered_labels=rendered_labels_map,
+    )
 
     # Plate-space optimization strategy (only built when optimizing):
     # ParallelEnsemble by default, NN2Opt under fast_mode -- mirroring the
