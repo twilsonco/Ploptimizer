@@ -55,10 +55,10 @@ class TestSafeFontFilename:
 
 
 class TestBuildShowcaseJob:
-    """The per-font JobSpec template carries the five-line sample block."""
+    """The per-font JobSpec template carries the seven-line sample block."""
 
     def test_font_name_is_first_line(self) -> None:
-        """Line 0 is the font name itself, followed by the four sample lines."""
+        """Line 0 is the font name itself, followed by the six sample lines."""
         job = script.build_showcase_job("Dino")
         assert isinstance(job, JobSpec)
         assert job.font == "Dino"

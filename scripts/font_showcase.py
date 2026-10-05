@@ -4,17 +4,27 @@
 For every font selectable in a job spec -- the PLT-extracted keys of
 ``Fonts/plt_fonts.json`` plus every ``*.ttf`` basename under ``Fonts/``
 (recursively), i.e. exactly :func:`plt_optimizer.generate.font_registry.font_name_choices` --
-this script renders a fixed five-line sample block and writes one
+this script renders a fixed seven-line sample block and writes one
 "simple"-mode outline PDF (the same black-outline styling the ``generate``
 pipeline uses for its preview PDFs) into the output directory.
 
-The five lines are the font name itself (rendered in the font being
+The seven lines are the font name itself (rendered in the font being
 showcased) followed by::
 
     The quick brown fox jumps over the lazy dog
     ABCDEFGHIJKLMNOPQRSTUVWXYZ
     abcdefghijklmnopqrstuvwxyz
     1234567890 {[(!@#$%^&*.,?:;)]}
+    - . 8 + _ c | = / ~ ? ! ^ < >
+    – — • ∞ ± ¢ ≠ ≈ ≡ ¿ ¡ † ‡ ↑ ↓ ← →
+
+The last two lines are the **derived-glyph pair** from
+``Fonts/glyph_transforms.py``: the ASCII base set on one line, then the 17
+derived Unicode characters built from those bases, so a showcase PDF shows
+both sides of every recipe side by side. The two lines have different lengths
+because ``-`` and ``|`` each feed several recipes. A TrueType font that lacks a
+derived codepoint renders that font's own ``.notdef`` glyph, which is exactly
+the coverage information a showcase is for.
 
 Each label is rendered directly through the label renderer (no bin-packing,
 no plate assembly, no PLT files) and plotted with
@@ -71,19 +81,27 @@ logger = logging.getLogger(__name__)
 # Default artifact location (repo-root relative so the CWD never matters).
 DEFAULT_OUTPUT_DIR: Path = REPO_ROOT / "test_output" / "font_showcase"
 
-# The fixed sample block rendered under the font-name line.
+# The fixed sample block rendered under the font-name line. The last two
+# lines are the derived-glyph pair (ASCII bases, then the derived Unicode
+# characters built from them by Fonts/glyph_transforms.py); the bases are in
+# DERIVED_GLYPHS order and deduplicated (- and | each feed several recipes).
 SHOWCASE_LINES: Tuple[str, ...] = (
     "The quick brown fox jumps over the lazy dog",
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
     "abcdefghijklmnopqrstuvwxyz",
     "1234567890 {[(|!@#$%^&*.,?:;)]}",
+    "- . 8 + _ c | = / ~ ? ! ^ < >",
+    "\u2013 \u2014 \u2022 \u221e \u00b1 \u00a2 \u2260 \u2248 \u2261 "
+    "\u00bf \u00a1 \u2020 \u2021 \u2191 \u2193 \u2190 \u2192",
 )
 
 # Nominal label geometry (inches). The width is generous so the widest
 # sample line fits uncompressed in most fonts; over-wide fonts trigger the
-# single widening re-render in :func:`render_showcase`.
+# single widening re-render in :func:`render_showcase`. The height stacks the
+# seven sample lines (the derived arrows overshoot the cap height, so the
+# auto line-spacing fit compresses spacing slightly to preserve the margins).
 LABEL_WIDTH: float = 12.0
-LABEL_HEIGHT: float = 3.0
+LABEL_HEIGHT: float = 4.5
 MARGIN: float = 0.25
 
 # The font-name header is drawn a touch larger than the sample lines.
