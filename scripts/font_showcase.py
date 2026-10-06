@@ -194,7 +194,10 @@ def render_showcase(font_name: str) -> RenderedLabel:
         ValueError: If the font name is unknown or rendering fails.
     """
     label = resolve_job_spec(build_showcase_job(font_name))[0]
-    rendered = render_label_to_plt(label)
+    # check_glyph_coverage=False: a TrueType font missing a sample codepoint
+    # must render its .notdef box (the coverage info a showcase reports),
+    # not abort the render. PLT fonts keep raising PltFontRenderError.
+    rendered = render_label_to_plt(label, check_glyph_coverage=False)
 
     text_width = _widest_text_width(rendered)
     needed_width = text_width + 2.0 * MARGIN
@@ -207,7 +210,7 @@ def render_showcase(font_name: str) -> RenderedLabel:
             needed_width,
         )
         label = resolve_job_spec(build_showcase_job(font_name, width=needed_width))[0]
-        rendered = render_label_to_plt(label)
+        rendered = render_label_to_plt(label, check_glyph_coverage=False)
     return rendered
 
 

@@ -151,6 +151,7 @@ class TestRenderLabelOnceLayerGuards:
             label: ResolvedLabel,
             pen_map: Optional[dict[tuple[float, str], int]] = None,
             chunk_mode: label_renderer.TextChunkMode = label_renderer.TextChunkMode.LINE,
+            **kwargs: object,
         ) -> tuple[
             dict[int, tuple[TextBlock, ...]],
             list[label_renderer._LineEntry],

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from pathlib import Path
 
@@ -14,7 +15,9 @@ from plt_optimizer.generate import ftext_renderer
 from plt_optimizer.generate.ftext_renderer import (
     CHORD_THRESHOLD_INCHES,
     DEFAULT_FONT_PATH,
+    FtextRenderError,
     _remove_closing_chords,
+    _reference_cap_height,
     _split_contours,
     render_text_line_ftext,
 )
@@ -149,6 +152,99 @@ class TestRenderTextLineFtext:
         for line in lc:
             if len(line) > 2:
                 assert abs(line[0] - line[-1]) < CHORD_THRESHOLD_INCHES
+
+
+class TestCapHeightReference:
+    """Regression: glyph size is a per-font constant, not a per-line ink box.
+
+    The historical renderer scaled *each line's own ink box* to the target
+    height, so every glyph on a line shrank whenever that line contained
+    descenders, ascenders, or tall punctuation (visible in multi-line labels:
+    identical text_height values engraved at visibly different glyph sizes).
+    Lines now scale by the font's fixed reference cap height (ink height of
+    "H"), mirroring the PLT family's reference-character contract.
+    """
+
+    def test_reference_cap_height_is_positive(self) -> None:
+        """The bundled font has a usable 'H' reference glyph."""
+        assert _reference_cap_height(DEFAULT_FONT_PATH) > 0.0
+
+    def test_caps_line_hits_target_height(self) -> None:
+        """A caps-only line's cap height equals the target exactly."""
+        target = 0.2
+        lc = render_text_line_ftext("H", target, DEFAULT_FONT_PATH)
+        bounds = lc.bounds()
+        assert bounds is not None
+        assert math.isclose(bounds[3], target, rel_tol=1e-9)
+
+    def test_descender_hangs_below_baseline(self) -> None:
+        """With a fixed cap reference, descenders extend below y=0."""
+        target = 0.5
+        lc = render_text_line_ftext("Hp", target, DEFAULT_FONT_PATH)
+        bounds = lc.bounds()
+        assert bounds is not None
+        # Cap top lands at the target; the descender goes below the baseline,
+        # so the ink box is TALLER than the target (the old code normalized
+        # the whole ink box down to it, shrinking every glyph on the line).
+        assert math.isclose(bounds[3], target, rel_tol=1e-9)
+        assert bounds[1] < -1e-9
+        assert (bounds[3] - bounds[1]) > target
+
+    def test_glyph_height_is_line_independent(self) -> None:
+        """The same glyph renders at the same size on any line.
+
+        Direct regression for the reported bug: the digit "0" measured
+        different heights on lines whose neighbours had descenders/ascenders.
+        """
+        target = 0.2
+
+        def first_contour_height(text: str) -> float:
+            # Contours follow text order, so contours[0] is the leading "0".
+            lc = render_text_line_ftext(text, target, DEFAULT_FONT_PATH)
+            assert not lc.is_empty()
+            first = np.asarray(next(iter(lc)))
+            return float(first.imag.max() - first.imag.min())
+
+        # "0" alone, in a descender line, and in a tall-punctuation line all
+        # render the digit at the cap height (digits sit on the baseline).
+        plain = first_contour_height("0")
+        descender = first_contour_height("0pg")
+        punctuation = first_contour_height("0(1)")
+        assert math.isclose(descender, plain, rel_tol=1e-6)
+        assert math.isclose(punctuation, plain, rel_tol=1e-6)
+        assert math.isclose(plain, target, rel_tol=0.05)
+
+    def test_fallback_normalizes_ink_box_and_warns(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A font without a usable 'H' keeps the old per-line behaviour + WARNING."""
+        monkeypatch.setattr(ftext_renderer, "_reference_cap_height", lambda path: 0.0)
+        with caplog.at_level(logging.WARNING, logger="plt_optimizer.generate.ftext_renderer"):
+            lc = render_text_line_ftext("Hp", 0.5, DEFAULT_FONT_PATH)
+        bounds = lc.bounds()
+        assert bounds is not None
+        # Per-line ink-box normalization: the ink box spans the target exactly.
+        assert math.isclose(bounds[3] - bounds[1], 0.5, rel_tol=1e-6)
+        assert "ink-box normalization" in caplog.text
+
+
+class TestMissingGlyphDetection:
+    """TTF parity with the PLT family's PltFontRenderError contract."""
+
+    def test_missing_glyph_raises(self) -> None:
+        """A character outside the font's cmap raises instead of engraving boxes."""
+        with pytest.raises(FtextRenderError, match="has no glyphs for"):
+            render_text_line_ftext("A\u2603", 0.5, DEFAULT_FONT_PATH)
+
+    def test_covered_text_does_not_raise(self) -> None:
+        """Normal text (including the em dash) passes the coverage probe."""
+        lc = render_text_line_ftext("ARC Flash Hazard \u2014 70E", 0.22, DEFAULT_FONT_PATH)
+        assert not lc.is_empty()
+
+    def test_whitespace_only_never_raises(self) -> None:
+        """Whitespace carries no glyphs and is exempt from the probe."""
+        lc = render_text_line_ftext("   ", 0.5, DEFAULT_FONT_PATH)
+        assert lc.is_empty()
 
 
 class TestRemoveClosingChords:

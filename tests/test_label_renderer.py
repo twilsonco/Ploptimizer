@@ -9,6 +9,7 @@ import pytest
 import vpype as vp
 
 from plt_optimizer.generate.label_renderer import (
+    LabelRenderError,
     RenderedLabel,
     _flip_y_coordinates_in_plt,
     _hole_circles_local,
@@ -307,6 +308,20 @@ def _make_local_label(
         holes=[],
         content=content,
     )
+
+
+class TestMissingGlyphMapping:
+    """A TTF missing a glyph must abort the label, naming label and line."""
+
+    def test_ttf_missing_glyph_raises_label_render_error(self) -> None:
+        """FtextRenderError maps to LabelRenderError with label/line context."""
+        label = _make_local_label([_make_line("SAFE"), _make_line("BAD \u2603 GLYPH")])
+        with pytest.raises(LabelRenderError) as excinfo:
+            _render_text_local(label)
+        message = str(excinfo.value)
+        assert "multi_line" in message
+        assert "text line 1" in message
+        assert "has no glyphs for" in message
 
 
 class TestMultiLineStacking:

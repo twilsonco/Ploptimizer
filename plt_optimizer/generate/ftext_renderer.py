@@ -27,21 +27,30 @@ origin, so we can drop it deterministically instead of guessing. Genuine loops
 
 Coordinate convention (matches matplotlib/plotter):
 
-- Baseline sits at y=0; glyphs extend upward into positive Y.
-- Output scales linearly with the requested point size, so we normalize to the
-  target toolpath height in inches. The result is drop-in compatible with the
-  rest of the label/plate layout pipeline (which works entirely in inches).
+- Baseline sits at y=0; glyphs extend upward into positive Y. Descenders
+  (``g``, ``p``, ``y``) extend below the baseline into negative Y.
+- Scale is a fixed per-font reference: the ink height of the reference glyph
+  ``"H"`` (the TrueType analogue of the PLT library's reference character)
+  equals the requested toolpath height exactly, on *every* text line. Scaling
+  each line by its own rendered ink box instead (the historical behaviour)
+  made every glyph on a line shrink whenever that line contained descenders,
+  ascenders, or tall punctuation, so identical ``text_height`` values produced
+  visibly different glyph sizes across lines. The result is drop-in compatible
+  with the rest of the label/plate layout pipeline (which works entirely in
+  inches).
 """
 
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 import numpy as np
 import vpype as vp
 from matplotlib.font_manager import FontProperties
+from matplotlib.ft2font import FT2Font
 from matplotlib.path import Path as MplPath
 from matplotlib.textpath import TextPath
 
@@ -70,6 +79,21 @@ DEFAULT_FONT_PATH: Path = (
 
 # Resolution factor used internally by TextPath when rasterizing glyph outlines.
 _FTEXT_RESOLUTION: int = 1024
+
+# The reference glyph whose ink height defines the per-font scale (the
+# TrueType analogue of the PLT library's reference character, e.g. "E").
+_REFERENCE_CHAR: str = "H"
+
+
+class FtextRenderError(ValueError):
+    """Raised when a TrueType font lacks glyphs required by a text line.
+
+    Mirrors :class:`plt_optimizer.generate.plt_font_renderer.PltFontRenderError`
+    for the TTF family: matplotlib silently substitutes the ``.notdef`` box
+    (a full-height rectangle) for characters a font does not cover, so glyph
+    coverage is probed up front and reported loudly instead of engraving
+    empty rectangles.
+    """
 
 
 def _split_contours(text_path: TextPath) -> list[np.ndarray]:
@@ -149,10 +173,120 @@ def _remove_closing_chords(lc: vp.LineCollection) -> vp.LineCollection:
     return cleaned
 
 
+@lru_cache(maxsize=16)
+def _reference_cap_height(font_path: Path) -> float:
+    """Return the raw-unit ink height of the reference glyph ``"H"``.
+
+    The cap height of ``"H"`` is a fixed per-font metric (the TrueType
+    analogue of the PLT library's reference character), so every text line of
+    a font renders at the same glyph scale regardless of the line's own ink
+    box.
+
+    Args:
+        font_path: Resolved ``.ttf`` file path.
+
+    Returns:
+        The reference glyph's ink height in raw :data:`_FTEXT_RESOLUTION`
+        units, or ``0.0`` when the font has no usable ``"H"`` glyph (callers
+        then fall back to per-line ink-box normalization).
+    """
+    try:
+        font_props = FontProperties(fname=str(font_path))
+        text_path = TextPath((0, 0), _REFERENCE_CHAR, prop=font_props, size=_FTEXT_RESOLUTION)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("cap-height probe failed for %s: %s", font_path, exc)
+        return 0.0
+    contours = _split_contours(text_path)
+    if not contours:
+        logger.warning("reference glyph %r produced no contours for %s", _REFERENCE_CHAR, font_path)
+        return 0.0
+    points = np.concatenate(contours)
+    height = float(points.imag.max() - points.imag.min())
+    if height <= 0.0:
+        logger.warning(
+            "reference glyph %r has non-positive height for %s", _REFERENCE_CHAR, font_path
+        )
+        return 0.0
+    return height
+
+
+def _normalization_scale(
+    font_path: Path,
+    raw_contours: List[np.ndarray],
+    target_height_inches: float,
+) -> float:
+    """Return the uniform scale from raw font units to inches for one line.
+
+    Primary path: ``target_height / cap_height("H")`` -- a fixed per-font
+    reference, so lines with descenders, ascenders, or tall punctuation no
+    longer shrink every glyph on the line. Fallback (a font without a usable
+    ``"H"``): the historical per-line ink-box normalization, logged at WARNING
+    because it reproduces the cross-line height drift.
+
+    Args:
+        font_path: Resolved ``.ttf`` file path.
+        raw_contours: The line's raw contours (font units, baseline at y=0);
+            used only by the fallback.
+        target_height_inches: Desired reference-glyph height in inches.
+
+    Returns:
+        The uniform scale factor.
+    """
+    cap_height = _reference_cap_height(font_path)
+    if cap_height > 0.0:
+        return target_height_inches / cap_height
+    if not raw_contours:
+        return 1.0
+    points = np.concatenate(raw_contours)
+    ink_height = float(points.imag.max() - points.imag.min())
+    if ink_height <= 0.0:
+        return 1.0
+    logger.warning(
+        "font %s has no usable reference glyph %r; falling back to per-line "
+        "ink-box normalization (glyph heights drift between text lines)",
+        font_path,
+        _REFERENCE_CHAR,
+    )
+    return target_height_inches / ink_height
+
+
+def _assert_glyph_coverage(font_path: Path, text: str) -> None:
+    """Raise :class:`FtextRenderError` when ``font_path`` lacks glyphs for ``text``.
+
+    matplotlib silently substitutes the ``.notdef`` box (a full-height
+    rectangle) for uncovered characters, so coverage is probed through the
+    font's character map before rendering (mirrors the PLT family's
+    ``PltFontRenderError`` contract). Whitespace is skipped. A failed probe
+    (unreadable font file) is logged and ignored -- rendering proceeds and
+    fails later in matplotlib if the font is truly broken.
+
+    Args:
+        font_path: Resolved ``.ttf`` file path.
+        text: The string about to be rendered.
+
+    Raises:
+        FtextRenderError: If one or more characters have no glyph in the font.
+    """
+    chars = [ch for ch in dict.fromkeys(text) if not ch.isspace()]
+    if not chars:
+        return
+    try:
+        font = FT2Font(str(font_path))
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("glyph coverage probe failed for %s: %s", font_path, exc)
+        return
+    missing = [ch for ch in chars if font.get_char_index(ord(ch)) == 0]
+    if missing:
+        listing = ", ".join(repr(ch) for ch in missing)
+        raise FtextRenderError(f"font {font_path.name!r} has no glyphs for: {listing}")
+
+
 def render_text_line_ftext(
     text: str,
     target_height_inches: float,
     font_path: Optional[Path] = None,
+    *,
+    check_glyph_coverage: bool = True,
 ) -> vp.LineCollection:
     """Render a single line of text with the Relief Single Line TTF font.
 
@@ -161,27 +295,43 @@ def render_text_line_ftext(
     open strokes (e.g. "1", "4", "7") render correctly while genuine loops are
     preserved. Normalizes orientation and scale so that:
 
-    - Glyphs are upright in plotter convention (baseline at y=0, +y upward).
-    - The total rendered bounds height equals ``target_height_inches``.
+    - Glyphs are upright in plotter convention (baseline at y=0, +y upward);
+      descenders (``g``, ``p``, ``y``) hang below the baseline.
+    - The font's reference cap height (the ink height of ``"H"``) equals
+      ``target_height_inches`` exactly on *every* line: glyph size is a
+      per-font constant, independent of the line's own ink box.
 
     Args:
         text: The string to render.
-        target_height_inches: Desired glyph height in inches.
+        target_height_inches: Desired reference-glyph (cap) height in inches.
         font_path: Optional path to the TTF font. Defaults to the bundled
             Relief Single Line CAD font.
+        check_glyph_coverage: When True (the default), characters the font
+            lacks raise :class:`FtextRenderError` instead of silently
+            engraving ``.notdef`` boxes. The font-showcase tool disables the
+            probe deliberately: rendering the ``.notdef`` box *is* the
+            coverage information a showcase reports.
 
     Returns:
         A vpype.LineCollection containing the rendered glyph outlines, or an
         empty collection if text is blank or rendering fails.
+
+    Raises:
+        FtextRenderError: If the font lacks a glyph for a character in
+            ``text`` and ``check_glyph_coverage`` is True (matplotlib would
+            silently engrave ``.notdef`` boxes).
     """
     if not text:
         return vp.LineCollection()
 
     resolved_font = font_path if font_path is not None else DEFAULT_FONT_PATH
+    if check_glyph_coverage:
+        _assert_glyph_coverage(resolved_font, text)
 
     try:
         # 1024 points per em keeps the raw geometry high-resolution; it scales
-        # linearly with size so normalization below yields exact target height.
+        # linearly with size so the reference normalization below yields the
+        # exact target cap height.
         font_props = FontProperties(fname=str(resolved_font))
         text_path = TextPath((0, 0), text, prop=font_props, size=_FTEXT_RESOLUTION)
     except Exception as exc:  # pragma: no cover - defensive
@@ -196,15 +346,10 @@ def render_text_line_ftext(
     for contour in contours:
         lc.append(contour)
 
-    bounds = lc.bounds()
-    if bounds is None:
-        return vp.LineCollection()
-
-    current_height = bounds[3] - bounds[1]
-    scale = target_height_inches / current_height if current_height > 0 else 1.0
+    scale = _normalization_scale(resolved_font, contours, target_height_inches)
 
     # matplotlib emits upright glyphs (baseline at y=0, +y up) in plotter
-    # convention. Apply uniform scaling to reach exactly the requested height.
+    # convention. Apply the uniform per-font scale; descenders land below y=0.
     scaled = vp.LineCollection()
     for line in lc:
         scaled.append(line * scale)
@@ -260,6 +405,13 @@ def _contour_signature(contour: np.ndarray) -> str:
     other (a word rendered standalone vs the same word inside a whole-line
     render) produce identical signatures.
 
+    Rounding is at 1e-5 inch (10 micro-inch) precision: 100x finer than the
+    plotter's 1/1000-inch unit and far below any real glyph-shape difference,
+    yet coarse enough that 1-ulp float noise in the scaled vertex products
+    (whole-line vertices carry a glyph-position translation the standalone
+    word render lacks, so their scaled offsets differ in the last ulp) cannot
+    straddle a rounding boundary and split a glyph's signature.
+
     Args:
         contour: Complex vertex array of one contour.
 
@@ -267,19 +419,21 @@ def _contour_signature(contour: np.ndarray) -> str:
         Stable string key for signature matching.
     """
     origin = contour[0]
-    offsets = np.round(contour - origin, 9)
-    return "|".join(f"{z.real:.9f}:{z.imag:.9f}" for z in offsets)
+    offsets = np.round(contour - origin, 5)
+    return "|".join(f"{z.real:.5f}:{z.imag:.5f}" for z in offsets)
 
 
 def render_text_line_ftext_with_words(
     text: str,
     target_height_inches: float,
     font_path: Optional[Path] = None,
+    *,
+    check_glyph_coverage: bool = True,
 ) -> Tuple[vp.LineCollection, List[Tuple[str, List[int]]]]:
     """Render a line of text and partition its contours by whitespace-delimited word.
 
     The whole line is rendered exactly as :func:`render_text_line_ftext`
-    (single matplotlib path, whole-line normalization scale, chord removal),
+    (single matplotlib path, per-font reference scale, chord removal),
     then each word is rendered standalone and its contours are matched into
     the whole-line render by translation-invariant vertex signatures. The
     returned word groups therefore *are* the whole-line contours partitioned
@@ -306,7 +460,12 @@ def render_text_line_ftext_with_words(
         ``contour_indices`` index into ``whole_lc`` in original contour
         order. ``word_groups`` is ``[]`` when grouping is unavailable.
     """
-    whole = render_text_line_ftext(text, target_height_inches, font_path=font_path)
+    whole = render_text_line_ftext(
+        text,
+        target_height_inches,
+        font_path=font_path,
+        check_glyph_coverage=check_glyph_coverage,
+    )
     if whole.is_empty():
         return whole, []
 
@@ -323,9 +482,7 @@ def render_text_line_ftext_with_words(
     raw_contours = _split_contours(raw_path)
     if not raw_contours:  # pragma: no cover - whole render already succeeded
         return whole, []
-    raw_pts = np.concatenate(raw_contours)
-    raw_height = float(raw_pts.imag.max() - raw_pts.imag.min())
-    scale = target_height_inches / raw_height if raw_height > 0 else 1.0
+    scale = _normalization_scale(resolved_font, raw_contours, target_height_inches)
 
     # Multimap of translation-invariant signatures over the whole-line
     # contours, consumed as words claim them (handles repeated glyphs).

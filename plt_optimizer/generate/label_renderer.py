@@ -24,6 +24,7 @@ import vpype as vp
 
 from plt_optimizer.generate.font_registry import FontNotFoundError, resolve_font
 from plt_optimizer.generate.ftext_renderer import (
+    FtextRenderError,
     render_text_line_ftext,
     render_text_line_ftext_with_words,
 )
@@ -593,6 +594,8 @@ def assert_no_collisions(rendered_labels: Iterable[RenderedLabel]) -> None:
 def render_label_to_plt(
     label: ResolvedLabel,
     pen_map: Optional[dict[tuple[float, str], int]] = None,
+    *,
+    check_glyph_coverage: bool = True,
 ) -> RenderedLabel:
     """Render a label independently to HPGL format and extract bounds.
 
@@ -641,6 +644,12 @@ def render_label_to_plt(
             historical text pen (``SP1``), preserving back-compatible
             single-pen output. Boundary lines always use ``SP2`` and drill
             holes ``SP3``.
+        check_glyph_coverage: When True (the default), a TrueType font
+            missing a glyph for a text line fails the render with
+            :class:`LabelRenderError` (see
+            :func:`plt_optimizer.generate.ftext_renderer.render_text_line_ftext`).
+            The font-showcase tool sets it False: rendering the ``.notdef``
+            box *is* the coverage information a showcase reports.
 
     Returns:
         RenderedLabel with rendered PLT content and measured bounds. When
@@ -654,7 +663,9 @@ def render_label_to_plt(
     Raises:
         ValueError: If bounds cannot be extracted from rendered PLT.
     """
-    rendered, line_entries = _render_label_once(label, pen_map=pen_map)
+    rendered, line_entries = _render_label_once(
+        label, pen_map=pen_map, check_glyph_coverage=check_glyph_coverage
+    )
     collisions = _detect_text_hole_collisions(label, line_entries)
     if not collisions:
         return rendered
@@ -674,7 +685,9 @@ def render_label_to_plt(
         )
         if margin_label is not None:
             _log_collisions(label, detected_collisions, level=logging.WARNING)
-            resolved_rendered, _ = _render_label_once(margin_label, pen_map=pen_map)
+            resolved_rendered, _ = _render_label_once(
+                margin_label, pen_map=pen_map, check_glyph_coverage=check_glyph_coverage
+            )
             return replace(resolved_rendered, collision_detected=True)
         # Margin alone cannot clear the collision; continue from the floor
         # margin so Phase 3 compression stacks on top of the maximum
@@ -706,7 +719,9 @@ def render_label_to_plt(
             # which may produce different bounds than the final _render_label_once,
             # so we must re-check with the actual rendered geometry.
             resolved_rendered, resolved_line_entries = _render_label_once(
-                compressed_label, pen_map=pen_map
+                compressed_label,
+                pen_map=pen_map,
+                check_glyph_coverage=check_glyph_coverage,
             )
             final_collisions = _detect_text_hole_collisions(compressed_label, resolved_line_entries)
             if not final_collisions:
@@ -733,7 +748,9 @@ def render_label_to_plt(
         # For diagnostics, create per-line compression map with the floor scale
         per_line_floor_compress = dict.fromkeys(range(len(base_label.content)), attempted_scale)
         final_label = replace(base_label, collision_compress_by_line=per_line_floor_compress)
-        _, final_entries = _render_text_local_with_bounds(final_label)
+        _, final_entries = _render_text_local_with_bounds(
+            final_label, check_glyph_coverage=check_glyph_coverage
+        )
         collisions = _detect_text_hole_collisions(final_label, final_entries)
         base_label = final_label
 
@@ -768,6 +785,8 @@ def _chunk_mode_of(label: ResolvedLabel) -> TextChunkMode:
 def _render_label_once(
     label: ResolvedLabel,
     pen_map: Optional[dict[tuple[float, str], int]] = None,
+    *,
+    check_glyph_coverage: bool = True,
 ) -> Tuple[RenderedLabel, List[_LineEntry]]:
     """Render a single label to PLT without collision resolution.
 
@@ -776,6 +795,8 @@ def _render_label_once(
         pen_map: Optional ``(cutter, color)-to-pen`` mapping for per-cutter
             text layers (see :func:`render_label_to_plt`). ``None`` puts
             all text on the historical text pen (``SP1``).
+        check_glyph_coverage: When True (the default), a TrueType font
+            missing a glyph fails the render.
 
     Returns:
         Tuple of the :class:`RenderedLabel` (with ``has_collisions`` left
@@ -791,7 +812,10 @@ def _render_label_once(
     # only when no pen_map is supplied, preserving the historical
     # single-pen output).
     text_pens, line_entries, chunk_records = _render_text_lines_by_pen(
-        label, pen_map, chunk_mode=_chunk_mode_of(label)
+        label,
+        pen_map,
+        chunk_mode=_chunk_mode_of(label),
+        check_glyph_coverage=check_glyph_coverage,
     )
 
     # Render boundary layer
@@ -1546,6 +1570,8 @@ def _apply_collision_compress(line_block: TextBlock, scale: float, context: str 
 def _render_line_block(
     line: ResolvedTextLine,
     chunk_mode: TextChunkMode,
+    *,
+    check_glyph_coverage: bool = True,
 ) -> Tuple[TextBlock, Optional[List[Tuple[str, List[int]]]]]:
     """Render one resolved text line to an arc-native :class:`TextBlock`.
 
@@ -1563,6 +1589,9 @@ def _render_line_block(
     Args:
         line: The resolved text line (font, height, cutter, spacing).
         chunk_mode: When ``WORD``, request per-word stroke groups.
+        check_glyph_coverage: When True (the default), a TrueType font missing
+            a glyph raises :class:`FtextRenderError`. The font-showcase tool
+            sets it False to render ``.notdef`` boxes as coverage info.
 
     Returns:
         ``(block, word_groups)`` where ``word_groups`` is ``None`` in line
@@ -1573,6 +1602,8 @@ def _render_line_block(
         PltFontRenderError: If a PLT font lacks a glyph (propagated from the
             PLT renderer; unknown font names are reported as
             :class:`PltFontRenderError` too).
+        FtextRenderError: If a TrueType font lacks a glyph (propagated from
+            the ftext renderer).
     """
     try:
         ref = resolve_font(line.font)
@@ -1616,6 +1647,7 @@ def _render_line_block(
             line.text,
             target_height_inches=line.toolpath_text_height,
             font_path=ref.path,
+            check_glyph_coverage=check_glyph_coverage,
         )
         block = block_from_linecollection(filtered_lc)
         # Contour indices map 1:1 onto strokes only when every contour
@@ -1627,6 +1659,7 @@ def _render_line_block(
         line.text,
         target_height_inches=line.toolpath_text_height,
         font_path=ref.path,
+        check_glyph_coverage=check_glyph_coverage,
     )
     return block_from_linecollection(filtered_lc), None
 
@@ -1634,6 +1667,8 @@ def _render_line_block(
 def _render_positioned_lines(
     label: ResolvedLabel,
     chunk_mode: TextChunkMode = TextChunkMode.LINE,
+    *,
+    check_glyph_coverage: bool = True,
 ) -> List[Tuple[int, TextBlock, _LineEntry, Optional[List[Tuple[str, List[int]]]]]]:
     """Render and position every text line of a label (shared core).
 
@@ -1671,6 +1706,8 @@ def _render_positioned_lines(
             whitespace-delimited word groups (stroke indices into the
             rendered block, exact by construction). ``LINE`` (the default)
             reports no word groups.
+        check_glyph_coverage: When True (the default), a TrueType font missing
+            a glyph fails the render (see :func:`_render_line_block`).
 
     Returns:
         One ``(line_index, positioned_block, entry, word_groups)`` tuple per
@@ -1718,8 +1755,10 @@ def _render_positioned_lines(
         # Render at the toolpath_text_height (cutter-compensated) in the
         # line's cascaded font. Both renderers return upright glyphs.
         try:
-            block, word_groups = _render_line_block(line, chunk_mode)
-        except PltFontRenderError as exc:
+            block, word_groups = _render_line_block(
+                line, chunk_mode, check_glyph_coverage=check_glyph_coverage
+            )
+        except (PltFontRenderError, FtextRenderError) as exc:
             raise LabelRenderError(
                 f"Label {label.id}: text line {line_index} ({line.text!r}) "
                 f"cannot be rendered: {exc}"
@@ -1887,6 +1926,8 @@ def _render_positioned_lines(
 
 def _render_text_local_with_bounds(
     label: ResolvedLabel,
+    *,
+    check_glyph_coverage: bool = True,
 ) -> Tuple[vp.LineCollection, List[_LineEntry]]:
     """Render text at local coordinates and report per-line bounds.
 
@@ -1896,6 +1937,8 @@ def _render_text_local_with_bounds(
 
     Args:
         label: The resolved label whose ``content`` should be rendered.
+        check_glyph_coverage: When True (the default), a TrueType font
+            missing a glyph fails the render.
 
     Returns:
         A tuple ``(combined_lc, line_entries)`` where ``combined_lc`` holds
@@ -1906,7 +1949,9 @@ def _render_text_local_with_bounds(
     """
     text_lc = vp.LineCollection()
     line_entries: List[_LineEntry] = []
-    for _line_index, positioned_block, entry, _wg in _render_positioned_lines(label):
+    for _line_index, positioned_block, entry, _wg in _render_positioned_lines(
+        label, check_glyph_coverage=check_glyph_coverage
+    ):
         text_lc.extend(positioned_block.to_vpype_polylines())
         line_entries.append(entry)
     return text_lc, line_entries
@@ -1916,6 +1961,8 @@ def _render_text_lines_by_pen(
     label: ResolvedLabel,
     pen_map: Optional[dict[tuple[float, str], int]] = None,
     chunk_mode: TextChunkMode = TextChunkMode.LINE,
+    *,
+    check_glyph_coverage: bool = True,
 ) -> Tuple[dict[int, Tuple[TextBlock, ...]], List[_LineEntry], List[TextChunkRecord]]:
     """Render text lines grouped onto per-cutter pen layers.
 
@@ -1932,6 +1979,8 @@ def _render_text_lines_by_pen(
             pen number.
         chunk_mode: Granularity of the returned chunk records (see
             :func:`_render_positioned_lines`).
+        check_glyph_coverage: When True (the default), a TrueType font
+            missing a glyph fails the render.
 
     Returns:
         Tuple of ``(pens, line_entries, chunk_records)`` where ``pens`` maps
@@ -1947,7 +1996,7 @@ def _render_text_lines_by_pen(
     line_entries: List[_LineEntry] = []
     chunk_records: List[TextChunkRecord] = []
     for line_index, positioned_block, entry, word_groups in _render_positioned_lines(
-        label, chunk_mode=chunk_mode
+        label, chunk_mode=chunk_mode, check_glyph_coverage=check_glyph_coverage
     ):
         pen = LAYER_TEXT
         if pen_map is not None and 0 <= line_index < len(label.content):

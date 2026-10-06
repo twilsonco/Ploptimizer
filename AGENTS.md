@@ -66,6 +66,17 @@ JobSpec (job-level defaults)
   `Fonts/**.ttf` basename (extension stripped, rendered through the
   matplotlib `ftext_renderer` path). Case-insensitive, canonicalized at
   validation (`font_registry.resolve_font`); unknown names are rejected.
+  TTF lines scale by a fixed per-font reference — the ink height of the
+  reference glyph `H` — so the cap height equals `text_height` on *every*
+  text line (glyph size is a per-font constant, independent of a line's own
+  ink box; descenders hang below the baseline, matching the PLT contract).
+  Scaling each line by its own rendered ink box (the historical behaviour)
+  shrank every glyph on a line containing descenders/ascenders/tall
+  punctuation, so identical `text_height` values engraved at visibly
+  different sizes across lines. A TTF lacking a glyph raises
+  `FtextRenderError` → `LabelRenderError` (parity with the PLT
+  `PltFontRenderError`); `scripts/font_showcase.py` opts out of that probe
+  (`check_glyph_coverage=False`) to render `.notdef` boxes as coverage info.
   Cascades line → label → job (default `ReliefSingleLineCAD-Regular`;
   accepted on plates for schema parity only). PLT fonts render from the v2
   library (baseline-normalized glyphs, +y up, ref char exactly 1000 units):
