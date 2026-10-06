@@ -134,8 +134,7 @@ class TestIdentityValidation:
         doc2 = parser.parse_string(output1)
 
         assert doc1.total_segments == doc2.total_segments, (
-            f"Segment count mismatch: {doc1.total_segments} vs "
-            f"{doc2.total_segments}"
+            f"Segment count mismatch: {doc1.total_segments} vs {doc2.total_segments}"
         )
 
     def test_empty_document_write(self) -> None:
@@ -302,8 +301,7 @@ class TestMetadataPreservation:
         )
 
         assert len(doc1.stroke_paths) == len(doc2.stroke_paths), (
-            f"Stroke path count mismatch: {len(doc1.stroke_paths)} vs "
-            f"{len(doc2.stroke_paths)}"
+            f"Stroke path count mismatch: {len(doc1.stroke_paths)} vs {len(doc2.stroke_paths)}"
         )
 
     def test_original_optimized_files_have_identical_metadata(self) -> None:
@@ -352,9 +350,7 @@ class TestMetadataPreservation:
             # Re-parse the optimized file
             doc_optimized_parsed = parser.parse_file(optimized_path)
 
-            assert len(doc_original.header_commands) == len(
-                doc_optimized_parsed.header_commands
-            ), (
+            assert len(doc_original.header_commands) == len(doc_optimized_parsed.header_commands), (
                 f"Header command count mismatch: {len(doc_original.header_commands)} vs "
                 f"{len(doc_optimized_parsed.header_commands)}"
             )
@@ -525,7 +521,9 @@ class TestMetadataPreservation:
                     zip(orig_path.segments, reparsed_path.segments)
                 ):
                     # Verify both segments are the same type (StrokeSegment or ArcSegment)
-                    assert isinstance(orig_seg, ArcSegment) == isinstance(reparsed_seg, ArcSegment), (
+                    assert isinstance(orig_seg, ArcSegment) == isinstance(
+                        reparsed_seg, ArcSegment
+                    ), (
                         f"Segment type mismatch in path {path_idx}, segment {seg_idx}: "
                         f"original={type(orig_seg).__name__}, output={type(reparsed_seg).__name__}"
                     )
@@ -629,3 +627,92 @@ class TestMetadataPreservation:
                 f"Rapid travel improvement {improvement_pct:.2f}% does not match expected 71.79%. "
                 f"Original: {original_rapid_distance:.1f}, Optimized: {optimized_rapid_distance:.1f}"
             )
+
+
+def _undirected_multiset(document: PLTDocument) -> list[tuple[float, float, float, float]]:
+    """Return every cutting segment as a sorted undirected endpoint tuple.
+
+    Reversal flips a segment's start/end, so comparing undirected endpoints
+    (min-corner, max-corner) is invariant under whole-chunk reversal. Arcs
+    are keyed by their undirected chord endpoints plus the sweep magnitude
+    (reversal negates the sign, never the magnitude).
+    """
+    items: list[tuple[float, float, float, float]] = []
+    for path in document.stroke_paths:
+        for segment in path.segments:
+            if isinstance(segment, ArcSegment):
+                key = (
+                    min(segment.start.x, segment.end.x),
+                    min(segment.start.y, segment.end.y),
+                    max(segment.start.x, segment.end.x),
+                    max(segment.start.y, segment.end.y),
+                    abs(segment.sweep_angle),
+                )
+            else:
+                key = (
+                    min(segment.start.x, segment.end.x),
+                    min(segment.start.y, segment.end.y),
+                    max(segment.start.x, segment.end.x),
+                    max(segment.start.y, segment.end.y),
+                )
+            items.append(key)
+    return sorted(items)
+
+
+class TestDirectionSweepIdentity:
+    """NoOp ordering + direction sweep must preserve cutting geometry.
+
+    The sweep only flips per-chunk traversal direction, so the *undirected*
+    multiset of cutting segments (and each arc's sweep magnitude) must be
+    identical before and after. This is the identity contract for the sweep
+    on real parsed fixtures, where the chunker (not the generator) builds the
+    blocks and pen-up positions come from the source ``PU`` commands.
+    """
+
+    @pytest.mark.parametrize(
+        "fixture",
+        [
+            # These fixtures make the NoOp-ordered sweep fire (flips > 0), so
+            # the multiset check exercises real per-chunk reversals.
+            "SFA3X611sheet1.plt",
+            "dino_0.5_E.plt",
+            "dino_word_sample.plt",
+        ],
+    )
+    def test_sweep_preserves_undirected_segments(self, fixture: str) -> None:
+        """NoOp + sweep keeps the undirected segment multiset byte-for-byte."""
+        from plt_optimizer.core.pipeline import optimize_and_reassemble
+        from plt_optimizer.core.optimizer import NoOpStrategy
+
+        deps_dir = Path(__file__).parent.parent / "tests_deps"
+        original_path = deps_dir / fixture
+        if not original_path.exists():
+            pytest.skip(f"Fixture not found: {original_path}")
+
+        parser = PLTParser()
+        doc_original = parser.parse_file(original_path)
+
+        profiler = Profiler()
+        profile_result = profiler.profile(doc_original)
+
+        chunker = Chunker(config=ChunkerConfig(threshold_multiplier=2.0))
+        blocks = chunker.chunk(
+            doc_original.stroke_paths,
+            profile_result.baseline_extent,
+            is_structural=profile_result.is_structural,
+        )
+        if not blocks:
+            pytest.skip("No blocks generated from file")
+
+        outcome = optimize_and_reassemble(
+            doc_original,
+            blocks,
+            NoOpStrategy(),
+            direction_sweep=True,
+        )
+
+        # The sweep must actually fire on these fixtures, otherwise the
+        # multiset comparison below would be vacuous.
+        assert outcome.direction_sweep_flips > 0
+
+        assert _undirected_multiset(outcome.optimized_doc) == _undirected_multiset(doc_original)

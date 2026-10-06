@@ -515,6 +515,25 @@ already knows each toolpath's kind, the `Profiler` is skipped entirely.
   under `--fast-mode` (mirrors the `optimize` CLI). `export_per_cutter_plts`
   takes `fast_mode` and `logger`; each layer logs baseline→optimized rapid
   travel at INFO.
+- **Direction sweep** (`core/direction_sweep.py`, always on): after the
+  strategy fixes the block (chunk) ORDER, `optimize_and_reassemble` re-picks
+  each block's forward/reverse traversal to minimise inter-chunk rapid travel,
+  alternating forward+backward greedy sweeps to a fixpoint (cap 10 passes,
+  kwarg `direction_sweep: bool = True` as the escape hatch). It runs post-unwrap
+  in the parent process (ensemble workers rebuild fake single-segment blocks),
+  is strictly monotone (the objective never increases; on the generate path the
+  emitted `rapid_distance()` is non-increasing since intra-chunk gaps are
+  reversal-invariant), and repairs the latent 2-opt staleness (2-opt reverses a
+  tour segment without flipping the `reversed` flags). Fires on generated
+  multi-line text layers (e.g. the seer wbuv plate: 140979→57734 units, 59%) and
+  on parsed fixtures under NoOp; on tours whose construction already picks
+  optimal directions it finds no gain and stays silent. When a pass is accepted
+  it logs INFO with BOTH metrics (inter-chunk + emitted rapid travel), appends
+  `direction_sweep=before->after (N passes, M flips)` to `method_notes`, and
+  populates the `OptimizationOutcome.direction_sweep_*` fields (all-or-nothing:
+  set only when `passes>0`); `vectorize._report` breaks the layer line into
+  `routing` (emitted baseline→emitted optimized, both intra+inter),
+  `inter-chunk` (strategy objective), and the `direction sweep` clause.
 - The post-write `_run_optimizer` (parse each file → profile → optimize) is
   **removed**; optimization now happens pre-write in plate space.
 

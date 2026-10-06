@@ -130,6 +130,47 @@ def _line_record(
     )
 
 
+def _multi_stroke_record(
+    spans: List[Tuple[Tuple[float, float], Tuple[float, float]]],
+    pen: int = 1,
+    line_index: int = 0,
+) -> TextChunkRecord:
+    """Build a chunk record of several *gapped* strokes (one per span).
+
+    Models a real text chunk: each stroke is its own path with pen-up at its
+    own first vertex, so the gaps between them are intra-chunk rapid travel.
+
+    Args:
+        spans: ``(start, end)`` inch pairs, one per stroke.
+        pen: Pen number for the record.
+        line_index: Source line index.
+
+    Returns:
+        A TextChunkRecord with one stroke per span.
+    """
+    strokes = tuple(
+        Stroke(
+            pen_up=complex(*start),
+            segments=(LineSeg(complex(*start), complex(*end)),),
+        )
+        for start, end in spans
+    )
+    points = [complex(*span[i]) for span in spans for i in (0, 1)]
+    return TextChunkRecord(
+        line_index=line_index,
+        word_index=None,
+        word_text="",
+        pen=pen,
+        blocks=(TextBlock(strokes=strokes),),
+        bounds=(
+            min(p.real for p in points),
+            min(p.imag for p in points),
+            max(p.real for p in points),
+            max(p.imag for p in points),
+        ),
+    )
+
+
 def block_from_points(points: List[Tuple[float, float]]) -> TextBlock:
     """Build a single-stroke polyline :class:`TextBlock` from inch vertices.
 
@@ -603,6 +644,76 @@ class TestOptimizeTextLayer:
         assert undirected(opt_segs) == undirected(raw_segs)
         assert result.outcome.optimized_distance <= result.baseline_distance + 1e-6
 
+    def test_emitted_rapid_travel_never_increases(self) -> None:
+        """The direction sweep cannot lengthen the emitted file's travel.
+
+        Multi-stroke chunks exercise intra-chunk travel: whole-chunk reversal
+        leaves those gaps invariant, so the emitted metric moves only with the
+        inter-chunk gaps the sweep optimises.
+        """
+        from plt_optimizer.core.parser import PLTParser
+
+        label = _make_label()
+        records = (
+            _multi_stroke_record(
+                [((0.0, 0.0), (0.4, 0.0)), ((0.9, 0.0), (1.3, 0.0)), ((1.8, 0.0), (2.2, 0.0))]
+            ),
+            _multi_stroke_record(
+                [((0.2, 0.5), (0.6, 0.5)), ((1.1, 0.5), (1.5, 0.5))],
+                line_index=1,
+            ),
+        )
+        rendered = _make_rendered(records, label=label)
+        packed = [_packed("t", 0.0, 0.0)]
+
+        raw = emit_layer_document(
+            [
+                path
+                for block in build_text_blocks(packed, {"t": rendered}, 1)
+                for path in block.paths
+            ]
+        )
+        raw_travel = PLTParser().parse_string(raw).rapid_distance()
+
+        result = optimize_text_layer(
+            packed, {"t": rendered}, pen=1, strategy_factory=_fast_strategy
+        )
+        assert result is not None
+        opt_travel = PLTParser().parse_string(result.content).rapid_distance()
+        assert opt_travel <= raw_travel + 1e-6
+
+    def test_sweep_reported_on_outcome(self) -> None:
+        """A layer whose chunks gain from reversal reports the sweep.
+
+        Five single-stroke chunks chosen (by random search over the real
+        NearestNeighbor + 2-Opt path) so the strategy leaves a stale direction
+        flag: the sweep reverses one chunk and cuts inter-chunk travel by
+        ~14% (1135.248 -> 979.359 plotter units).
+        """
+        label = _make_label()
+        spans = [
+            ((0.226, 0.852), (0.758, 0.852)),
+            ((1.204, 0.669), (0.208, 0.669)),
+            ((0.413, 0.894), (0.000, 0.894)),
+            ((1.536, 0.419), (1.910, 0.419)),
+            ((1.590, 0.536), (1.529, 0.536)),
+        ]
+        records = tuple(_line_record(list(span), line_index=i) for i, span in enumerate(spans))
+        rendered = _make_rendered(records, label=label)
+        result = optimize_text_layer(
+            [_packed("t", 0.0, 0.0)],
+            {"t": rendered},
+            pen=1,
+            strategy_factory=_fast_strategy,
+        )
+        assert result is not None
+        outcome = result.outcome
+        assert outcome.direction_sweep_passes == 1
+        assert outcome.direction_sweep_flips == 1
+        assert outcome.direction_sweep_travel_before == pytest.approx(1135.2477, abs=1e-3)
+        assert outcome.direction_sweep_travel_after == pytest.approx(979.3592, abs=1e-3)
+        assert "direction_sweep=" in outcome.method_notes
+
 
 class TestOptimizeStructuralLayer:
     """Borders+holes routing entry point."""
@@ -635,3 +746,20 @@ class TestOptimizeStructuralLayer:
         assert result is not None
         assert "PU100,100;PD100,100" in result.content
         assert "AA50,100,-90" in result.content
+
+    def test_sweep_preserves_arc_magnitudes(self) -> None:
+        """Reversal negates an arc's sweep sign but never its magnitude."""
+        import re as _re
+
+        content = (
+            "IN;PA;PU0,0;PD1000,0;PU100,100;PD100,100;"
+            "AA50,100,-90;AA50,100,-90;AA50,100,-90;AA50,100,-90;SP;"
+        )
+        result = optimize_structural_layer(content, _fast_strategy)
+        assert result is not None
+
+        sweeps = [
+            abs(float(match)) for match in _re.findall(r"AA50,100,(-?[\d.]+)", result.content)
+        ]
+        assert len(sweeps) == 4
+        assert all(math.isclose(sweep, 90.0) for sweep in sweeps)

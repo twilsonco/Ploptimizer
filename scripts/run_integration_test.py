@@ -58,6 +58,7 @@ from plt_optimizer.generate.vectorize import (
     export_per_cutter_plts,
     write_default_plots,
 )
+from plt_optimizer.utils.logging import TextLogger
 
 
 def load_tool_inventory(inventory_path: Path) -> tuple[list[float], float | None]:
@@ -356,6 +357,15 @@ def phase_3_vectorization_and_export(
             f"DEBUG: job_config.defaults.tool_options exists: {hasattr(job_config.defaults, 'tool_options')}"
         )
 
+    # A TextLogger mirrors the generate CLI's topology (console +
+    # logs_generate/generate.log) so the per-layer rapid-travel reports —
+    # baseline -> optimized, the routing/inter-chunk breakdown, and the
+    # direction-sweep INFO line — surface in the integration run.
+    # propagate=False: the script's root basicConfig handler would print
+    # every record a second time.
+    export_logger = TextLogger(log_file=REPO_ROOT / "logs_generate" / "generate.log")
+    export_logger.logger.propagate = False
+
     export_result = export_per_cutter_plts(
         resolved_labels,
         provided_plates,
@@ -370,6 +380,7 @@ def phase_3_vectorization_and_export(
         default_plate_clearance=default_plate_clearance,
         job_spec=job_spec,
         job_config=job_config,
+        logger=export_logger,
     )
 
     print("\n--- EXPORT RESULTS ---\n")
@@ -627,18 +638,14 @@ def _run_single_spec(spec_override: Path | None) -> int:
             "       [<plate>_][<material>_]<cutter>[_<color>]_txt_<job>.plt: "
             "one file per text layer"
         )
-        print(
-            "       [<plate>_][<material>_]<cutter>_bh_<job>.plt: borders + "
-            "drill holes together"
-        )
+        print("       [<plate>_][<material>_]<cutter>_bh_<job>.plt: borders + drill holes together")
         print(
             "       (plate number only when a material spans several sheets; "
             "material tag only when set)"
         )
         print("   - pdf/: simple-outline previews")
         print(
-            "       [<plate>_][<material>_]all_<job>.pdf: combined text + "
-            "borders + holes per plate"
+            "       [<plate>_][<material>_]all_<job>.pdf: combined text + borders + holes per plate"
         )
         if GENERATE_DEFAULT_PLOTS:
             print("       *_default.pdf: color-coded toolpath with rapid travel")

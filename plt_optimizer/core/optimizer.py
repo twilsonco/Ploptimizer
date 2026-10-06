@@ -95,6 +95,80 @@ class OptimizationResult:
         return len(self.traverse_order)
 
 
+def build_block_connections(
+    blocks: List[MacroBlock],
+    traverse_order: List[BlockTraverseState],
+    initial_pos: Optional[Tuple[float, float]],
+) -> Tuple[BlockConnection, ...]:
+    """Build the connection list from a traverse order.
+
+    Module-level so that post-processing passes (e.g. the direction sweep) can
+    rebuild connections with exactly the same math the strategies use.
+
+    Args:
+        blocks: All macro blocks.
+        traverse_order: Optimized traversal order.
+        initial_pos: Starting position before first block. Accepted for call
+            symmetry; the initial move is intentionally *not* a connection.
+
+    Returns:
+        Tuple of BlockConnections between consecutive blocks.
+    """
+    del initial_pos  # Intentionally unused; see note in the loop below.
+
+    connections: List[BlockConnection] = []
+
+    # Build a lookup map from block_id to MacroBlock for correct indexing
+    block_by_id: Dict[int, MacroBlock] = {b.block_id: b for b in blocks}
+
+    for i, state in enumerate(traverse_order):
+        target_block = block_by_id[state.block_id]
+
+        # Determine entry and exit coordinates based on reversal
+        if state.reversed:
+            actual_entrance = (target_block.exit.x, target_block.exit.y)
+        else:
+            actual_entrance = (target_block.entrance.x, target_block.entrance.y)
+
+        if i > 0 and traverse_order[i - 1].block_id != state.block_id:
+            # Connect from previous block's exit to current block's entrance
+            prev_state = traverse_order[i - 1]
+            travel_dist = math.sqrt(
+                (actual_entrance[0] - prev_state.exit[0]) ** 2
+                + (actual_entrance[1] - prev_state.exit[1]) ** 2
+            )
+
+            connections.append(
+                BlockConnection(
+                    source_block_id=prev_state.block_id,
+                    target_block_id=state.block_id,
+                    travel_distance=travel_dist,
+                    entry_at_source=prev_state.exit,
+                    entry_at_target=actual_entrance,
+                )
+            )
+        # Note: connections from initial_pos to first block are not included here;
+        # they are tracked separately via total_travel_distance calculation.
+
+    return tuple(connections)
+
+
+def sum_travel_distance(connections: Tuple[BlockConnection, ...]) -> float:
+    """Sum the inter-block travel distance of a connection tuple.
+
+    This is the objective every strategy reports as
+    ``OptimizationResult.total_travel_distance``: the jump from the initial
+    position to the first block is excluded.
+
+    Args:
+        connections: Connections built by :func:`build_block_connections`.
+
+    Returns:
+        Total inter-block rapid travel distance.
+    """
+    return sum(c.travel_distance for c in connections if c.source_block_id >= 0)
+
+
 class OptimizationStrategy(ABC):
     """Abstract base class for optimization strategies.
 
@@ -180,6 +254,9 @@ class OptimizationStrategy(ABC):
     ) -> Tuple[BlockConnection, ...]:
         """Build the connection list from a traverse order.
 
+        Thin delegate to :func:`build_block_connections`, kept as a method for
+        the existing strategy call sites and test seams.
+
         Args:
             blocks: All macro blocks.
             traverse_order: Optimized traversal order.
@@ -188,41 +265,7 @@ class OptimizationStrategy(ABC):
         Returns:
             Tuple of BlockConnections between consecutive blocks.
         """
-        connections: List[BlockConnection] = []
-
-        # Build a lookup map from block_id to MacroBlock for correct indexing
-        block_by_id: Dict[int, MacroBlock] = {b.block_id: b for b in blocks}
-
-        for i, state in enumerate(traverse_order):
-            target_block = block_by_id[state.block_id]
-
-            # Determine entry and exit coordinates based on reversal
-            if state.reversed:
-                actual_entrance = (target_block.exit.x, target_block.exit.y)
-            else:
-                actual_entrance = (target_block.entrance.x, target_block.entrance.y)
-
-            if i > 0 and traverse_order[i - 1].block_id != state.block_id:
-                # Connect from previous block's exit to current block's entrance
-                prev_state = traverse_order[i - 1]
-                travel_dist = math.sqrt(
-                    (actual_entrance[0] - prev_state.exit[0]) ** 2
-                    + (actual_entrance[1] - prev_state.exit[1]) ** 2
-                )
-
-                connections.append(
-                    BlockConnection(
-                        source_block_id=prev_state.block_id,
-                        target_block_id=state.block_id,
-                        travel_distance=travel_dist,
-                        entry_at_source=prev_state.exit,
-                        entry_at_target=actual_entrance,
-                    )
-                )
-            # Note: connections from initial_pos to first block are not included here;
-            # they are tracked separately via total_travel_distance calculation.
-
-        return tuple(connections)
+        return build_block_connections(blocks, traverse_order, initial_pos)
 
 
 class NoOpStrategy(OptimizationStrategy):

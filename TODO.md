@@ -4,13 +4,14 @@
   - [ ] Bold text support: will result in emboldened text being a different "color" so that a thicker cutter can be used. For PLT fonts, change color and adjust spacing/kerning accordingly. For TTF fonts, change color and bold variant of the font if available; otherwise treat similar to PLT font.
   - [ ] Specify different font for different parts of a label text line. (e.g. using wingdings symbols in a text line).
     - [ ] Maybe support mixed PLT/TTF fonts?
-  - [ ] Superscript/subscript support: allows parts of the text to be raised or lowered relative to the baseline, typically for mathematical or chemical notation.
-- [x] PLT font kerning not perfect yet. In ADK test job
-  - the following character pairs have too much spacing: "la", "il", "la", "lt", "In", "io", "ic", "(3", "ly", "fe", "ll"
-    -  Interesting to note that these are one-sided: e.g. "ta" is too wide but "at" is not. "fe" is too wide but "ef" is not. "(3" is too wide but "3)" is not (not a perfect comparison).
-  - the following character pairs have too little spacing: ",4"
+  - [ ] Baseline adjustment; e.g. superscript/subscript, or arbitrary floating-point adjustment of baseline (where 0 is the current baseline and 1 is the capline).
 - [ ] Include line spacing values in stdout COMPRESSION REPORT during label generation
 - [ ] Allow `line_spacing` to be specified at the text level, which determines the spacing *below* the line for which it is specified.
-- [ ] When optimizing, perform a simple additional optimization that considered the stroke direction of chunks (characters) to check if each chunk should have its strokes reversed in order to decrease travel distance between chuncks. (especially important for generated toolpaths from job spec yaml files)
+- [x] When optimizing, perform a simple additional optimization that considered the stroke direction of chunks (characters) to check if each chunk should have its strokes reversed in order to decrease travel distance between chunks. (especially important for generated toolpaths from job spec yaml files)
 - [ ] When reassembling after optimization, if the end of one stroke is coincident with the beginning of the next, remove intermediate tool up commands.
 - [ ] Investigate what other knobs/parameters exist for `rectpack` that could be exposed to the user for better control over the packing algorithm. (For packing labels on the plate during label generation.)
+- [ ] Add a new optional field `cutter_size` that cascades job -> label -> text line, that allows the desired cutter to be specified. Text height needs to adjust based on the specified cutter. Do not add job-config.json counterpart. If omitted, default's to automatic cutter selection based on specified text height (current behavior).
+- [ ] Add a new optional bool field `cutter_downsize` (also add to job-config.json default `true`) that cascades job -> label -> text line, which, if set to true, allows the *automatic* cutter size to be reduced to accommodate horizontal text compression. This is overridden by any explicitly specified `cutter_size`. 
+  - The way `cutter_auto_downsize` will work is based on the percent horizontal compression of a text line relative to its original width. 
+  - For example, consider a text line whose height would normally call for a 0.1" cutter, and the next smallest cutter in our inventory is 0.08", i.e. 80% of the cutter size compared to the 0.1" cutter. If the text line compression is closer to 80% than to 100%, then we decrease the cutter width to 0.08" *and adjust the text height accordingly*. e.g. if compressed to 89%, we'd use the 0.08" cutter, but if compression is ≥ 90%, we'd stick with the original cutter size in this case.
+  - Note that this creates the potential for the cutter size to switch back and forth. e.g. if a smaller cutter is used in response to horizontal compression, the subsequent change in text height could result in the amount of compression *decreasing*, which would then spur a return to the original cutter size, and so on. This is not allowed: once a cutter size has been downsized due to horizontal compression, it cannot be increased again within the same text line.

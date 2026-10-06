@@ -858,11 +858,27 @@ def export_per_cutter_plts(
         if logger is None:
             return
         outcome = optimization.outcome
+        # Compare emitted rapid travel (intra + inter) on both sides so the
+        # A -> B pair is apples-to-apples; `optimized_distance` is the
+        # strategies' inter-chunk-only metric and is reported separately.
+        emitted_after = outcome.optimized_doc.rapid_distance()
+        parts = [
+            f"routing {optimization.baseline_distance:.3f} -> {emitted_after:.3f}",
+            f"inter-chunk {outcome.optimized_distance:.3f}",
+        ]
+        if outcome.direction_sweep_travel_before is not None:
+            parts.append(
+                "direction sweep "
+                f"{outcome.direction_sweep_travel_before:.3f} -> "
+                f"{outcome.direction_sweep_travel_after:.3f} in "
+                f"{outcome.direction_sweep_passes} pass(es), "
+                f"{outcome.direction_sweep_flips} flip(s)"
+            )
         logger.info(
             f"Plate {layer}: optimized {optimization.node_count} node(s) via "
             f"{outcome.method_name} -- rapid travel "
-            f"{optimization.baseline_distance:.3f} -> "
-            f"{outcome.optimized_distance:.3f} plotter units"
+            f"{optimization.baseline_distance:.3f} -> {emitted_after:.3f} "
+            f"plotter units ({', '.join(parts)})"
         )
 
     # Phase 3: Assemble each plate in memory, then split by pen group.

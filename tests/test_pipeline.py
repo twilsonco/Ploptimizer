@@ -261,10 +261,17 @@ class TestOptimizeAndReassemble:
             doc, blocks, NoOpStrategy(), engine_factory=_EnsembleEngine
         )
         assert outcome.method_name == "Genetic Algorithm"
-        assert outcome.optimized_distance == 42.0
+        # The winning result's synthetic 42.0 is replaced by the direction
+        # sweep's geometry-derived total: the two 5-unit blocks re-enter
+        # forward-to-forward for a 10.0 inter-chunk gap.
+        assert outcome.optimized_distance == pytest.approx(10.0)
         assert "NoOp (Baseline): 42.000 (improvement=N/A)" in outcome.method_notes
         assert "Genetic Algorithm: 42.000 (improvement=25.00%)" in outcome.method_notes
         assert outcome.ensemble_benchmarks == (bench_none, bench_val)
+        # Benchmark rows keep their pre-sweep distances; the sweep is reported
+        # separately in the notes.
+        assert "direction_sweep=" in outcome.method_notes
+        assert outcome.direction_sweep_passes >= 1
 
     def test_ensemble_benchmarks_logged_at_info(self, caplog: pytest.LogCaptureFixture) -> None:
         """Provided logger receives the benchmark table at INFO level."""
@@ -340,5 +347,239 @@ class TestOptimizeAndReassemble:
         outcome = optimize_and_reassemble(
             doc, blocks, NoOpStrategy(), reassembler_factory=_StubReassembler
         )
-        assert calls == [2]
+        # Two runs through the seam: the direction sweep improves this tour, so
+        # it first reassembles the pre-sweep result to measure emitted travel,
+        # then reassembles the swept result.
+        assert calls == [2, 2]
         assert outcome.optimized_doc is doc
+
+    def test_direction_sweep_disabled_reproduces_strategy_result(self) -> None:
+        """direction_sweep=False keeps the winning result byte-for-byte."""
+        doc = _make_doc(n_paths=2)
+        blocks = self._blocks()
+
+        outcome = optimize_and_reassemble(doc, blocks, NoOpStrategy(), direction_sweep=False)
+
+        # Blocks at x=0 and x=10, 5 tall: entering block 1 forward costs the
+        # hypotenuse 11.180, exactly what the strategy reports with the sweep
+        # off (the sweep would reverse it to a 10.0 gap).
+        assert outcome.optimized_distance == pytest.approx(11.180339887498949)
+        assert outcome.direction_sweep_travel_before is None
+        assert outcome.direction_sweep_travel_after is None
+        assert outcome.direction_sweep_emitted_before is None
+        assert outcome.direction_sweep_emitted_after is None
+        assert outcome.direction_sweep_passes == 0
+        assert outcome.direction_sweep_flips == 0
+        assert "direction_sweep=" not in outcome.method_notes
+
+
+class TestDirectionSweepIntegration:
+    """The post-TSP chunk direction sweep inside optimize_and_reassemble."""
+
+    def _stale_blocks(self) -> List[MacroBlock]:
+        """Three blocks where block 1 is far away and block 2 sits near block 0.
+
+        Entering block 1 at its exit (reversed) is much cheaper than entering
+        at its entrance, so a tour carrying ``reversed=False`` there is stale.
+        """
+        doc = _make_doc(n_paths=3)
+        blocks = [
+            MacroBlock(
+                block_id=i,
+                paths=(path,),
+                entrance=path.segments[0].start,
+                exit=path.segments[0].end,
+            )
+            for i, path in enumerate(doc.stroke_paths)
+        ]
+        # Move block 2 far away and block 1 near the origin's right side.
+        blocks[2] = MacroBlock(
+            block_id=2,
+            paths=(
+                StrokePath(
+                    pen_up_position=Coordinate(x=1000.0, y=0.0),
+                    segments=(
+                        StrokeSegment(
+                            start=Coordinate(x=1000.0, y=0.0),
+                            end=Coordinate(x=1000.0, y=5.0),
+                            is_cutting=True,
+                        ),
+                    ),
+                ),
+            ),
+            entrance=Coordinate(x=1000.0, y=0.0),
+            exit=Coordinate(x=1000.0, y=5.0),
+        )
+        blocks[1] = MacroBlock(
+            block_id=1,
+            paths=(
+                StrokePath(
+                    pen_up_position=Coordinate(x=30.0, y=0.0),
+                    segments=(
+                        StrokeSegment(
+                            start=Coordinate(x=30.0, y=0.0),
+                            end=Coordinate(x=11.0, y=0.0),
+                            is_cutting=True,
+                        ),
+                    ),
+                ),
+            ),
+            entrance=Coordinate(x=30.0, y=0.0),
+            exit=Coordinate(x=11.0, y=0.0),
+        )
+        return blocks
+
+    def _stale_result(self, blocks: List[MacroBlock]) -> OptimizationResult:
+        """Chronological tour with block 1 left forward (the stale flag)."""
+        traverse = tuple(
+            BlockTraverseState(
+                block_id=b.block_id,
+                reversed=False,
+                entrance=b.entrance.as_tuple(),
+                exit=b.exit.as_tuple(),
+            )
+            for b in blocks
+        )
+        return OptimizationResult(
+            traverse_order=traverse,
+            connections=(),
+            total_travel_distance=999.0,
+            initial_position=(0.0, 0.0),
+        )
+
+    class _StubEngine:
+        def __init__(self, result: OptimizationResult) -> None:
+            self._result = result
+
+        def optimize(self, blocks: List[MacroBlock]) -> OptimizationResult:
+            return self._result
+
+    def test_stale_direction_flags_are_repaired(self) -> None:
+        """The sweep fixes directions a strategy left stale after reordering."""
+        doc = _make_doc(n_paths=3)
+        blocks = self._stale_blocks()
+        stub = self._stale_result(blocks)
+        engine = self._StubEngine(stub)
+
+        swept = optimize_and_reassemble(
+            doc, blocks, NoOpStrategy(), engine_factory=lambda **_: engine
+        )
+        plain = optimize_and_reassemble(
+            doc,
+            blocks,
+            NoOpStrategy(),
+            engine_factory=lambda **_: engine,
+            direction_sweep=False,
+        )
+
+        assert swept.direction_sweep_passes >= 1
+        assert swept.direction_sweep_flips >= 1
+        assert swept.optimized_distance < plain.optimized_distance
+        # The reassembled document's own rapid travel matches the reported
+        # emitted metric.
+        assert swept.optimized_doc.rapid_distance() == pytest.approx(
+            swept.direction_sweep_emitted_after
+        )
+
+    def test_method_notes_and_fields_report_the_sweep(self) -> None:
+        doc = _make_doc(n_paths=3)
+        blocks = self._stale_blocks()
+        engine = self._StubEngine(self._stale_result(blocks))
+
+        outcome = optimize_and_reassemble(
+            doc, blocks, NoOpStrategy(), engine_factory=lambda **_: engine
+        )
+
+        assert outcome.direction_sweep_travel_before is not None
+        assert outcome.direction_sweep_travel_after is not None
+        assert outcome.direction_sweep_travel_after <= outcome.direction_sweep_travel_before
+        assert outcome.direction_sweep_emitted_before is not None
+        assert outcome.direction_sweep_emitted_after is not None
+        assert "direction_sweep=" in outcome.method_notes
+        assert "passes" in outcome.method_notes and "flips" in outcome.method_notes
+
+    def test_sweep_logged_at_info_with_prefix(self, caplog: pytest.LogCaptureFixture) -> None:
+        from plt_optimizer.utils.logging import TextLogger
+
+        doc = _make_doc(n_paths=3)
+        blocks = self._stale_blocks()
+        engine = self._StubEngine(self._stale_result(blocks))
+        logger = TextLogger(name="plt_optimizer_test_sweep")
+
+        with caplog.at_level(logging.DEBUG, logger="plt_optimizer_test_sweep"):
+            optimize_and_reassemble(
+                doc,
+                blocks,
+                NoOpStrategy(),
+                engine_factory=lambda **_: engine,
+                logger=logger,
+                log_prefix="[job7]",
+            )
+
+        combined = "\n".join(r.getMessage() for r in caplog.records)
+        assert "[job7] Direction sweep: inter-chunk" in combined
+        assert "emitted rapid travel" in combined
+
+    def test_sweep_is_silent_without_a_logger(self, caplog: pytest.LogCaptureFixture) -> None:
+        """No logger supplied -> no INFO output (headless hot-watch path)."""
+        doc = _make_doc(n_paths=3)
+        blocks = self._stale_blocks()
+        engine = self._StubEngine(self._stale_result(blocks))
+
+        with caplog.at_level(logging.INFO, logger="plt_optimizer"):
+            optimize_and_reassemble(doc, blocks, NoOpStrategy(), engine_factory=lambda **_: engine)
+
+        combined = "\n".join(r.getMessage() for r in caplog.records)
+        assert "Direction sweep" not in combined
+
+    def test_no_improvement_leaves_outcome_clean(self) -> None:
+        """A tour with nothing to gain reports no sweep and adds no notes."""
+        doc = _make_doc(n_paths=2)
+        # A collinear run: forward-forward is already optimal at both blocks.
+        blocks = [
+            MacroBlock(
+                block_id=0,
+                paths=(
+                    StrokePath(
+                        pen_up_position=Coordinate(x=0.0, y=0.0),
+                        segments=(
+                            StrokeSegment(
+                                start=Coordinate(x=0.0, y=0.0),
+                                end=Coordinate(x=10.0, y=0.0),
+                                is_cutting=True,
+                            ),
+                        ),
+                    ),
+                ),
+                entrance=Coordinate(x=0.0, y=0.0),
+                exit=Coordinate(x=10.0, y=0.0),
+            ),
+            MacroBlock(
+                block_id=1,
+                paths=(
+                    StrokePath(
+                        pen_up_position=Coordinate(x=11.0, y=0.0),
+                        segments=(
+                            StrokeSegment(
+                                start=Coordinate(x=11.0, y=0.0),
+                                end=Coordinate(x=21.0, y=0.0),
+                                is_cutting=True,
+                            ),
+                        ),
+                    ),
+                ),
+                entrance=Coordinate(x=11.0, y=0.0),
+                exit=Coordinate(x=21.0, y=0.0),
+            ),
+        ]
+
+        outcome = optimize_and_reassemble(doc, blocks, NoOpStrategy())
+
+        assert outcome.direction_sweep_passes == 0
+        assert outcome.direction_sweep_flips == 0
+        # Nothing to gain -> the sweep reports nothing at all.
+        assert outcome.direction_sweep_travel_before is None
+        assert outcome.direction_sweep_travel_after is None
+        assert outcome.direction_sweep_emitted_before is None
+        assert outcome.direction_sweep_emitted_after is None
+        assert "direction_sweep=" not in outcome.method_notes

@@ -1,8 +1,11 @@
 """Tests for the per-cutter Phase 3 export pipeline."""
 
+import logging
 import re
 from pathlib import Path
 from typing import Optional
+
+import pytest
 
 from plt_optimizer.generate.layout import LayoutMode
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
@@ -314,9 +317,7 @@ class TestExportAndOptimizePhase3:
         assert any(name.endswith("0.040_txt_complex.plt") for name in text_files)
         # The two colored files are *additional* toolpaths: each carries only
         # its own layer's strokes on a single pen.
-        black_file = next(
-            p for p in result.plt_paths if p.name.endswith("0.040_k_txt_complex.plt")
-        )
+        black_file = next(p for p in result.plt_paths if p.name.endswith("0.040_k_txt_complex.plt"))
         magenta_file = next(
             p for p in result.plt_paths if p.name.endswith("0.040_m_txt_complex.plt")
         )
@@ -642,6 +643,81 @@ class TestExportTextColorSplit:
             assert re.search(r"(?:PU|PD)\d", content)
 
 
+class TestLayerReport:
+    """The per-layer rapid-travel INFO line emitted by the export."""
+
+    @staticmethod
+    def _multiline_label() -> ResolvedLabel:
+        """A four-line label whose tour leaves a chunk worth reversing.
+
+        Hand-picked (random search over the real NearestNeighbor + 2-Opt
+        path) so the plate-space sweep fires: inter-chunk travel drops
+        1427.785 -> 1403.864 and emitted travel 6391.220 -> 6367.300.
+        """
+        return ResolvedLabel(
+            id="lbl",
+            count=1,
+            width=3.0,
+            height=1.6,
+            margin=0.0,
+            h_margin=0.0,
+            v_margin=0.0,
+            material=None,
+            content=[
+                ResolvedTextLine(
+                    text=text,
+                    nominal_text_height=0.4,
+                    toolpath_text_height=0.38,
+                    cutter_diameter=0.03,
+                    character_spacing=0.0,
+                    line_spacing=0.05,
+                )
+                for text in ("QOW", "TQZ", "Q", "TOWLX")
+            ],
+        )
+
+    def test_report_compares_emitted_travel_and_names_the_sweep(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The line compares emitted-vs-emitted and names the sweep stage.
+
+        The historical line compared the emitted baseline (intra + inter)
+        against the strategies' inter-chunk-only metric, which under-reported
+        the optimized side by the whole intra-chunk total.
+        """
+        from plt_optimizer.utils.logging import TextLogger
+
+        logger = TextLogger(name="plt_optimizer_test_report", log_file=tmp_path / "r.log")
+        with caplog.at_level(logging.INFO, logger="plt_optimizer_test_report"):
+            export_per_cutter_plts(
+                [self._multiline_label()],
+                output_dir=tmp_path,
+                job_id="rep",
+                optimize=True,
+                fast_mode=True,
+                plots=False,
+                logger=logger,
+            )
+
+        lines = [
+            r.getMessage()
+            for r in caplog.records
+            if "rapid travel" in r.getMessage() and r.getMessage().startswith("Plate ")
+        ]
+        assert lines, "expected a per-layer rapid-travel report"
+        # Text layers are reported as "Plate <n> text <cutter>: ...".
+        text_lines = [line for line in lines if " text " in line.split(":")[0]]
+        assert text_lines, lines
+        line = text_lines[0]
+        # Emitted (intra + inter) on both sides of the arrow.
+        match = re.search(r"rapid travel ([\d.]+) -> ([\d.]+) plotter units", line)
+        assert match, line
+        assert float(match.group(2)) <= float(match.group(1)) + 1e-6
+        # The two stages are broken out explicitly.
+        assert "routing " in line and "inter-chunk " in line
+        assert "direction sweep " in line
+
+
 class TestFormatTextLayer:
     """Unit tests for the (cutter, color) file-name formatter."""
 
@@ -711,9 +787,7 @@ class TestTextColorDemoExample:
             "0.045_m_txt_demo.plt",
             "0.045_txt_demo.plt",
         ]
-        assert [p.name for p in result.plt_paths if "_bh_" in p.name] == [
-            "0.015_bh_demo.plt"
-        ]
+        assert [p.name for p in result.plt_paths if "_bh_" in p.name] == ["0.015_bh_demo.plt"]
         # Each text file carries only its own layer's strokes: the three
         # color layers occupy pairwise-disjoint cutting coordinates (the
         # per-cutter files carry no SP selects to key on).
