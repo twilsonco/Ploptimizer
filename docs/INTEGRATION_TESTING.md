@@ -218,10 +218,10 @@ test_output/integration_test/
 
 File-name layout: `[<2-digit plate>_][<material>_]<cutter>[_<color>]_<kind>_<job_id>.<ext>`
 where `kind` is `txt` (text) or `bh` (borders+holes) and `cutter` is the
-diameter in inches (3-decimal). The plate number appears only on multi-plate
-jobs; the material tag (sanitized, e.g. `wbuv`) appears only for
-material-declared output. With a spec override, the same tree appears under
-`test_output/integration_test/<spec-stem>/`.
+diameter in inches (3-decimal). The plate number appears only when a material
+spans more than one plate; the material tag (sanitized, e.g. `wbuv`) appears
+only for material-declared output. With a spec override, the same tree appears
+under `test_output/integration_test/<spec-stem>/`.
 
 Note: Phase 3 runs the export with `optimize=False` — travel optimization of
 the assembled plates is intentionally left to the separate `optimize` pipeline.

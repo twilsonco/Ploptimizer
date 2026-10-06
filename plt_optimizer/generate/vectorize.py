@@ -25,9 +25,10 @@ Example:
 from __future__ import annotations
 
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Sequence
+from typing import TYPE_CHECKING, Mapping, Optional, Sequence
 
 if TYPE_CHECKING:
     from plt_optimizer.generate.job_config import JobConfig
@@ -57,6 +58,7 @@ from plt_optimizer.generate.schema import (
     LayoutMode,
     PlateSpec,
     TextColor,
+    material_key,
 )
 from plt_optimizer.utils.logging import TextLogger
 
@@ -494,21 +496,46 @@ def _format_material_tag(material: Optional[str]) -> str:
     return re.sub(r"[^0-9a-zA-Z]", "", material) or "x"
 
 
+def _material_plate_counts(materials: Mapping[int, Optional[str]]) -> dict[int, int]:
+    """Count how many plates share each plate's material group.
+
+    The plate number in file names disambiguates sheets *within* a
+    material group (the material tag already separates groups), so a
+    plate only needs its number when its group spans multiple plates.
+    Material-agnostic plates (``None``) form one group, reproducing the
+    historical all-plates-count rule.
+
+    Args:
+        materials: Plate number to resolved material name mapping (see
+            :attr:`PerCutterExport.material_by_plate`).
+
+    Returns:
+        Mapping of plate number to the size of its material group
+        (>= 1 for every key of ``materials``).
+    """
+    group_keys = {plate_no: material_key(material) for plate_no, material in materials.items()}
+    totals = Counter(group_keys.values())
+    return {plate_no: totals[key] for plate_no, key in group_keys.items()}
+
+
 def _format_plate_prefix(
     plate_number: int,
-    plate_count: int,
+    material_plate_count: int,
     material: Optional[str] = None,
 ) -> str:
     """Build the leading ``[<plate>_][<material>_]`` file-name prefix.
 
-    The plate number is omitted for single-plate jobs, so its presence
-    doubles as the signal that a job produced more than one sheet. The
-    material tag follows (see :func:`_format_material_tag`) and is omitted
-    for material-agnostic plates.
+    The plate number is omitted when the plate's material group spans a
+    single sheet, so its presence doubles as the signal that the material
+    needs more than one plate. The material tag follows (see
+    :func:`_format_material_tag`) and is omitted for material-agnostic
+    plates, whose whole job forms one group (so multi-plate
+    material-agnostic jobs keep their plate numbers).
 
     Args:
         plate_number: 1-based plate index.
-        plate_count: Total number of plates in the export.
+        material_plate_count: Number of plates sharing this plate's
+            material group.
         material: The plate's resolved material name, or ``None``.
 
     Returns:
@@ -516,7 +543,7 @@ def _format_plate_prefix(
         ``"wbuv_"`` or ``"02_wbuv_"``.
     """
     parts: list[str] = []
-    if plate_count > 1:
+    if material_plate_count > 1:
         parts.append(_format_plate_number(plate_number))
     material_tag = _format_material_tag(material)
     if material_tag:
@@ -536,8 +563,8 @@ class _StemParts:
     """Parsed components of a per-cutter PLT file-name stem.
 
     Attributes:
-        plate: Plate-number token (``"02"``), or ``None`` for single-plate
-            jobs.
+        plate: Plate-number token (``"02"``), or ``None`` when the plate's
+            material spans a single sheet.
         material: Material tag token (``"wbuv"``), or ``None``.
         cutter: Cutter-diameter token (``"0.040"``), or ``None``.
         kind: Layer kind (``"txt"`` / ``"bh"``), or ``None`` when the stem
@@ -686,11 +713,14 @@ def export_per_cutter_plts(
       material).
     - The leading ``[<plate>_][<material>_]`` prefix is built by
       :func:`_format_plate_prefix`: the 1-based packing-order plate number
-      (zero-padded to two digits) is **omitted for single-plate jobs**, so
-      its presence signals a multi-sheet job; the sanitized material tag
+      (zero-padded to two digits) is **omitted whenever the plate's
+      material group spans a single sheet**, so its presence signals that
+      *this material* needs more than one plate; the sanitized material tag
       (e.g. ``wb(uv)`` -> ``wbuv``) is omitted for material-agnostic
-      plates. The cutter precedes the kind token so the tool size is
-      visible before the text/structural distinction.
+      plates. Material-agnostic plates form one group, so multi-sheet
+      material-less jobs always keep their plate numbers. The cutter
+      precedes the kind token so the tool size is visible before the
+      text/structural distinction.
     - The combined per-plate PLT is assembled **in memory only** (never
       written) and exposed via :attr:`PerCutterExport.combined_by_plate`;
       when ``plots`` is enabled it also drives the combined
@@ -838,13 +868,15 @@ def export_per_cutter_plts(
     # Phase 3: Assemble each plate in memory, then split by pen group.
     # Files are named [<plate>_][<material>_]<cutter>_<kind>_<job_id>: the
     # plate number (1-based packing-order index, 2-digit padded) is
-    # omitted for single-plate jobs, and the sanitized material tag follows
-    # (see _format_plate_prefix).
-    plate_count = len(packed_plates)
+    # omitted whenever the plate's material group spans a single sheet,
+    # and the sanitized material tag follows (see _format_plate_prefix).
+    result.material_by_plate = {
+        plate_no: plate.material for plate_no, plate in enumerate(packed_plates, start=1)
+    }
+    plate_counts = _material_plate_counts(result.material_by_plate)
     for plate_no, plate in enumerate(packed_plates, start=1):
-        prefix = _format_plate_prefix(plate_no, plate_count, plate.material)
+        prefix = _format_plate_prefix(plate_no, plate_counts[plate_no], plate.material)
         plate_str = prefix.rstrip("_") or f"{plate_no:02d}"
-        result.material_by_plate[plate_no] = plate.material
         combined = assemble_plt_from_rendered_labels(plate, rendered_labels_map)
         result.combined_by_plate[plate_no] = combined
 
@@ -974,6 +1006,7 @@ def _write_simple_plots(
 
     parser = PLTParser()
     pdf_paths: list[Path] = []
+    combined_counts = _material_plate_counts(result.material_by_plate)
 
     for plt_path in result.plt_paths:
         document = parser.parse_file(plt_path)
@@ -1001,7 +1034,7 @@ def _write_simple_plots(
         document = parser.parse_string(combined)
         prefix = _format_plate_prefix(
             plate_no,
-            len(result.combined_by_plate),
+            combined_counts.get(plate_no, len(result.combined_by_plate)),
             result.material_by_plate.get(plate_no),
         )
         pdf_path = pdf_dir / f"{prefix}all_{job_id}.pdf"
@@ -1085,11 +1118,12 @@ def write_default_plots(
         pdf_paths.append(pdf_path)
 
     if include_combined:
+        combined_counts = _material_plate_counts(result.material_by_plate)
         for plate_no, combined in result.combined_by_plate.items():
             document = parser.parse_string(combined)
             prefix = _format_plate_prefix(
                 plate_no,
-                len(result.combined_by_plate),
+                combined_counts.get(plate_no, len(result.combined_by_plate)),
                 result.material_by_plate.get(plate_no),
             )
             pdf_path = pdf_dir / f"{prefix}all_{job_id}_default.pdf"

@@ -801,8 +801,10 @@ the required-when-unconfigured gate, see section 6), `--fast-mode` (plate-space
 routing via `NearestNeighbor2Opt` instead of the default `ParallelEnsemble`). File names:
 `[<2-digit plate>_][<material>_]<cutter>[_<color>]_{txt|bh}_<job_id>.<plt|pdf>`
 plus combined `[<2-digit plate>_][<material>_]all_<job_id>.pdf`. The plate
-number appears only on multi-plate jobs (its presence signals more than one
-sheet); the material tag appears only for material-declared output.
+number appears only when a material spans more than one plate (its presence
+signals that *this material* needs multiple sheets; material-less plates form
+one group, so multi-sheet material-less jobs always keep their numbers); the
+material tag appears only for material-declared output.
 Simple-outline PDFs style strokes by toolpath kind:
 purely structural (`bh`) plots use `linewidth=2.0`/`alpha=0.3`; text and mixed
 combined (`all`) plots use `linewidth=1.0`/`alpha=1.0` (via

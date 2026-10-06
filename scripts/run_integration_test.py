@@ -304,8 +304,8 @@ def phase_3_vectorization_and_export(
     - text -> one ``[<plate>_][<material>_]<cutter>[_<color>]_txt_<job_id>.plt``
       per plate and (cutter, stroke-color) layer; colored layers gain a
       1-letter tag, colorless jobs keep the cutter-only name. The plate
-      number is omitted for single-plate jobs and the sanitized material
-      tag is omitted for material-agnostic plates
+      number is omitted whenever the plate's material spans a single sheet
+      and the sanitized material tag is omitted for material-agnostic plates
     - the combined per-plate PLT stays in memory only (returned in
       ``combined_by_plate`` for the Phase 4 color plots)
 
@@ -631,7 +631,10 @@ def _run_single_spec(spec_override: Path | None) -> int:
             "       [<plate>_][<material>_]<cutter>_bh_<job>.plt: borders + "
             "drill holes together"
         )
-        print("       (plate number only on multi-plate jobs; material tag only when set)")
+        print(
+            "       (plate number only when a material spans several sheets; "
+            "material tag only when set)"
+        )
         print("   - pdf/: simple-outline previews")
         print(
             "       [<plate>_][<material>_]all_<job>.pdf: combined text + "

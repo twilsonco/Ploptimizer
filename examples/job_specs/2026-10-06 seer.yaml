@@ -47,7 +47,7 @@ job:
     - id: 7x5.33 placards
       material: wb(uv)
       width: 7
-      height: 5.33
+      height: 4
       text_height: 1
       replacement_text_file: 2026-10-06 seer 7x5.33.txt
       holes:

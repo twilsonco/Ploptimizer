@@ -2,17 +2,19 @@
 
 import re
 from pathlib import Path
+from typing import Optional
 
 from plt_optimizer.generate.layout import LayoutMode
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
 from plt_optimizer.generate.resolution import resolve_job_spec
-from plt_optimizer.generate.schema import parse_yaml
+from plt_optimizer.generate.schema import PlateSpec, parse_yaml
 from plt_optimizer.generate.vectorize import (
     PerCutterExport,
     _format_material_tag,
     _format_plate_prefix,
     _format_text_layer,
     _is_structural_stem,
+    _material_plate_counts,
     _parse_plt_stem,
     export_per_cutter_plts,
 )
@@ -357,6 +359,7 @@ def _label(
     width: float = 3.0,
     height: float = 1.0,
     count: int = 1,
+    material: Optional[str] = None,
 ) -> ResolvedLabel:
     """Build a minimal ``ResolvedLabel`` for export tests."""
     return ResolvedLabel(
@@ -367,6 +370,7 @@ def _label(
         margin=0.0,
         h_margin=0.0,
         v_margin=0.0,
+        material=material,
         content=[
             ResolvedTextLine(
                 text="X",
@@ -740,15 +744,36 @@ class TestPlateFilenameFormatting:
         # Fully sanitized-empty values never produce a dangling separator.
         assert _format_material_tag("---") == "x"
 
-    def test_single_plate_job_omits_plate_number(self) -> None:
-        """One plate -> no plate prefix (its presence signals multi-sheet)."""
+    def test_single_plate_material_omits_plate_number(self) -> None:
+        """One plate for a material -> no plate prefix (material tag suffices)."""
         assert _format_plate_prefix(1, 1) == ""
         assert _format_plate_prefix(1, 1, "wb") == "wb_"
+        # A material-less job is a single group, so a lone sheet is bare.
+        assert _format_plate_prefix(2, 1) == ""
 
-    def test_multi_plate_job_includes_plate_number(self) -> None:
-        """Multi-plate jobs keep the padded plate number first."""
+    def test_multi_plate_material_includes_plate_number(self) -> None:
+        """A material spanning several plates keeps the padded plate number."""
         assert _format_plate_prefix(2, 3) == "02_"
         assert _format_plate_prefix(2, 3, "wb(uv)") == "02_wbuv_"
+
+    def test_material_plate_counts_groups_by_material(self) -> None:
+        """Plate numbers are scoped to a material group, not the whole job.
+
+        Two `wb` plates and one `wb(uv)` plate: the uv sheet is uniquely
+        identified by its material tag, so it needs no plate number, while
+        the two wb sheets must be numbered to stay distinct.
+        """
+        counts = _material_plate_counts({1: "wb", 2: "wb(uv)", 3: "WB"})
+        assert counts == {1: 2, 2: 1, 3: 2}
+        assert _format_plate_prefix(1, counts[1], "wb") == "01_wb_"
+        assert _format_plate_prefix(2, counts[2], "wb(uv)") == "wbuv_"
+        assert _format_plate_prefix(3, counts[3], "WB") == "03_WB_"
+
+    def test_material_plate_counts_treats_null_as_one_group(self) -> None:
+        """Material-agnostic plates share one group, keeping plate numbers."""
+        counts = _material_plate_counts({1: None, 2: None})
+        assert counts == {1: 2, 2: 2}
+        assert _format_plate_prefix(2, counts[2]) == "02_"
 
     def test_stem_round_trip(self) -> None:
         """Every generated shape parses back to its components."""
@@ -798,10 +823,10 @@ class TestMaterialDemoExample:
 
     The fixture is the hand-crafted mixed-stock demo: two materials, one
     plate each, plus a magenta text layer on the uv sheet. It pins the
-    full material-tagged filename scheme
-    (``[<plate>_][<material>_]<cutter>[_<color>]_<kind>_<job>.plt``),
-    including the plate numbers that appear because the job spans two
-    plates.
+    material-tagged filename scheme
+    (``[<plate>_][<material>_]<cutter>[_<color>]_<kind>_<job>.plt``):
+    because each material spans exactly one plate, the material tag alone
+    identifies every sheet and the plate numbers are omitted.
     """
 
     def _export(self, tmp_path: Path) -> PerCutterExport:
@@ -820,27 +845,89 @@ class TestMaterialDemoExample:
         )
 
     def test_fixture_exports_material_tagged_names(self, tmp_path: Path) -> None:
-        """Every file carries its plate number and sanitized material tag."""
+        """Every file carries its sanitized material tag and no plate number."""
         result = self._export(tmp_path)
         assert sorted(p.name for p in result.plt_paths) == [
-            "01_wb_0.015_bh_demo.plt",
-            "01_wb_0.045_txt_demo.plt",
-            "02_wbuv_0.015_bh_demo.plt",
-            "02_wbuv_0.045_m_txt_demo.plt",
-            "02_wbuv_0.045_txt_demo.plt",
+            "wb_0.015_bh_demo.plt",
+            "wb_0.045_txt_demo.plt",
+            "wbuv_0.015_bh_demo.plt",
+            "wbuv_0.045_m_txt_demo.plt",
+            "wbuv_0.045_txt_demo.plt",
         ]
         assert result.material_by_plate == {1: "wb", 2: "wb(uv)"}
         for path in result.plt_paths:
             parts = _parse_plt_stem(path.stem)
-            expected_material = result.material_by_plate[int(parts.plate or "0")]
-            assert parts.material == _format_material_tag(expected_material)
+            # One plate per material -> the material tag is unambiguous, so
+            # the plate number is omitted entirely.
+            assert parts.plate is None
+            assert parts.material in {"wb", "wbuv"}
 
     def test_fixture_materials_never_share_a_file(self, tmp_path: Path) -> None:
         """Each material's sheets get their own text layers, never merged."""
         result = self._export(tmp_path)
         # The wb sheet has a single colorless text layer; the uv sheet has
         # two (colorless placards + magenta deep-engraved placards).
-        wb_txt = [p for p in result.plt_paths if p.name == "01_wb_0.045_txt_demo.plt"]
-        uv_txt = [p for p in result.plt_paths if p.name.startswith("02_wbuv_0.045")]
+        wb_txt = [p for p in result.plt_paths if p.name == "wb_0.045_txt_demo.plt"]
+        uv_txt = [p for p in result.plt_paths if p.name.startswith("wbuv_0.045")]
         assert len(wb_txt) == 1
         assert len(uv_txt) == 2  # plain + magenta deep layer
+
+
+class TestPlateNumberScoping:
+    """Plate numbers are scoped to a material group, not the whole job."""
+
+    def test_plate_number_scoped_to_material_group(self, tmp_path: Path) -> None:
+        """Only a material spanning several sheets keeps its plate numbers.
+
+        Two `wb` sheets plus one `wb(uv)` sheet: the uv output is uniquely
+        named by its material tag, while the two wb sheets must be numbered
+        to stay distinct.
+        """
+        result = export_per_cutter_plts(
+            [
+                _label(label_id="wb", count=12, material="wb"),
+                _label(label_id="uv", count=2, material="wb(uv)"),
+            ],
+            provided_plates=[
+                PlateSpec(id="wb1", width=6.0, height=4.0, material="wb"),
+                PlateSpec(id="wb2", width=6.0, height=4.0, material="wb"),
+                PlateSpec(id="uv1", width=24.0, height=16.0, material="wb(uv)"),
+            ],
+            output_dir=tmp_path,
+            job_id="scoped",
+            optimize=False,
+            plots=False,
+            layout=LayoutMode.ROWS,
+            allow_rotation=False,
+        )
+        uv = [p for p in result.plt_paths if p.name.startswith("wbuv_")]
+        wb = [p for p in result.plt_paths if p.name[:2].isdigit()]
+        assert wb, "wb labels must overflow onto both wb sheets"
+        assert {p.name.split("_")[0] for p in wb} >= {"01", "02"}
+        assert uv, "wb(uv) labels must export"
+        # The single uv sheet is identified by its material tag alone.
+        assert all(_parse_plt_stem(p.stem).plate is None for p in uv)
+
+    def test_combined_pdfs_follow_the_same_scoping(self, tmp_path: Path) -> None:
+        """Combined previews name sheets by material, numbering only groups
+        that span several plates."""
+        result = export_per_cutter_plts(
+            [
+                _label(label_id="wb", count=12, material="wb"),
+                _label(label_id="uv", count=2, material="wb(uv)"),
+            ],
+            provided_plates=[
+                PlateSpec(id="wb1", width=6.0, height=4.0, material="wb"),
+                PlateSpec(id="wb2", width=6.0, height=4.0, material="wb"),
+                PlateSpec(id="uv1", width=24.0, height=16.0, material="wb(uv)"),
+            ],
+            output_dir=tmp_path,
+            job_id="scoped",
+            optimize=False,
+            plots=True,
+            layout=LayoutMode.ROWS,
+            allow_rotation=False,
+        )
+        combined = sorted(p.name for p in result.pdf_paths if "all_" in p.name)
+        assert any(name.startswith("wbuv_all_") for name in combined), combined
+        assert any(name[:2].isdigit() and "_wb_all_" in name for name in combined), combined
