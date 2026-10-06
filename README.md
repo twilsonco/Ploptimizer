@@ -61,11 +61,16 @@ plt-optimizer generate spec.yaml -o out/ --no-plots
 Runs the three-phase generation pipeline (label resolution with cutter compensation → bounds-aware bin packing → per-label rendering/assembly) and writes:
 
 ```
-out/plt/01_txt_0.030_<job_id>.plt    # one file per text cutter (plate 01)
-out/plt/01_bh_0.015_<job_id>.plt     # borders + drill holes together (plate 01)
-out/pdf/01_txt_0.030_<job_id>.pdf    # simple-outline previews (--no-plots skips)
+out/plt/0.030_txt_<job_id>.plt       # one file per text cutter
+out/plt/0.015_bh_<job_id>.plt        # borders + drill holes together
+out/pdf/0.030_txt_<job_id>.pdf       # simple-outline previews (--no-plots skips)
 out/pdf/01_all_<job_id>.pdf          # combined preview per plate
 ```
+
+File names read `[<plate>_][<material>_]<cutter>[_<color>]_<kind>_<job_id>`:
+the 2-digit plate number appears only on multi-plate jobs (its presence
+signals more than one sheet), and the sanitized material tag (e.g. `wbuv`)
+appears only when the job declares a `material`.
 
 Cutter sizes come from `tools.json` (`--tools` to point elsewhere) and job-spec defaults from `job-config.json` (`--job-config` to point elsewhere). Keep one `tools.json` + `job-config.json` pair per engraver/toolset and swap them with the two flags. The config supplies the top-most (job/plate) layer defaults — e.g. `max_h_compress`, `hole_margin`, `min_hole_margin`, `hole_text_collision_distance`, `plate_width`/`plate_height`, `left_clearance`/`top_clearance` — and any of these configured nowhere becomes a required job-spec field. The `plates:` section is optional: a spec that omits it packs onto default sheets sized by the config's `plate_width`/`plate_height`, overflowing onto as many sheets as needed. Text–hole collisions are treated as unacceptable output: the job aborts with a non-zero exit code so the spec can be revised. See [`docs/INTEGRATION_TESTING.md`](docs/INTEGRATION_TESTING.md) for the full pipeline walkthrough and [`AGENTS.md`](AGENTS.md) (section 6) for the YAML job-spec schema. Example specs live in [`examples/`](examples/).
 

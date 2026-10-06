@@ -243,6 +243,7 @@ def phase_2_resolution_and_layout(
         print(f"\nPlate {plate.plate_id}:")
         print(f'  Dimensions: {plate.width}" x {plate.height}"')
         print(f'  Clearances: left={plate.left_clearance}", top={plate.top_clearance}"')
+        print(f"  Material: {plate.material if plate.material is not None else '(unset)'}")
         print(f"  Labels packed: {len(plate.labels)}")
         for packed_label in plate.labels:
             print(f"    - {packed_label.label_id}")
@@ -298,10 +299,13 @@ def phase_3_vectorization_and_export(
     assembles the per-label PLT content at packed positions and splits the
     assembly by CUTTER:
 
-    - borders + holes -> one ``<plate>_bh_<cutter>_<job_id>.plt`` per plate
-    - text -> one ``<plate>_txt_<cutter>[_<color>]_<job_id>.plt`` per plate
-      and (cutter, stroke-color) layer; colored layers gain a 1-letter
-      suffix, colorless jobs keep the cutter-only name
+    - borders + holes -> one ``[<plate>_][<material>_]<cutter>_bh_<job_id>.plt``
+      per plate
+    - text -> one ``[<plate>_][<material>_]<cutter>[_<color>]_txt_<job_id>.plt``
+      per plate and (cutter, stroke-color) layer; colored layers gain a
+      1-letter tag, colorless jobs keep the cutter-only name. The plate
+      number is omitted for single-plate jobs and the sanitized material
+      tag is omitted for material-agnostic plates
     - the combined per-plate PLT stays in memory only (returned in
       ``combined_by_plate`` for the Phase 4 color plots)
 
@@ -619,10 +623,20 @@ def _run_single_spec(spec_override: Path | None) -> int:
         print("Comparison:")
         print("1. Inspect the generated artifacts under the output directory:")
         print("   - plt/: per-cutter toolpath files")
-        print("       <plate>_txt_<cutter>[_<color>]_<job>.plt: one file per text layer")
-        print("       <plate>_bh_<cutter>_<job>.plt: borders + drill holes together")
+        print(
+            "       [<plate>_][<material>_]<cutter>[_<color>]_txt_<job>.plt: "
+            "one file per text layer"
+        )
+        print(
+            "       [<plate>_][<material>_]<cutter>_bh_<job>.plt: borders + "
+            "drill holes together"
+        )
+        print("       (plate number only on multi-plate jobs; material tag only when set)")
         print("   - pdf/: simple-outline previews")
-        print("       <plate>_all_<job>.pdf: combined text + borders + holes per plate")
+        print(
+            "       [<plate>_][<material>_]all_<job>.pdf: combined text + "
+            "borders + holes per plate"
+        )
         if GENERATE_DEFAULT_PLOTS:
             print("       *_default.pdf: color-coded toolpath with rapid travel")
         print()

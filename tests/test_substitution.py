@@ -736,6 +736,50 @@ class TestPlateLevelReplacementExpansion:
         assert by_id["p1_0000"].plate_id == "p1"
         assert by_id["p1_0001"].plate_id == "p1"
 
+    def test_generated_labels_inherit_plate_material(self, tmp_path: Path) -> None:
+        """Plate-level files stamp the plate's material onto generated labels.
+
+        The plate -> label cascade can only happen at expansion (labels
+        resolve before plate assignment), so a plate declaring
+        ``material`` must propagate it to the labels it synthesizes.
+        """
+        _write(tmp_path / "p1.txt", "AAA\nBBB\n")
+        yaml_path = tmp_path / "job.yaml"
+        yaml_path.write_text(
+            "job:\n"
+            "  job_name: Plate Mat\n"
+            "  width: 3.0\n"
+            "  height: 1.0\n"
+            "  text_height: 0.75\n"
+            "  material: wb\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 16.0\n"
+            "      material: wb(uv)\n"
+            "      replacement_text_file: p1.txt\n"
+            "    - id: p2\n"
+            "      width: 24.0\n"
+            "      height: 16.0\n"
+            "  labels:\n"
+            "    - id: static\n"
+            "      content:\n"
+            "        - text: HELLO\n",
+            encoding="utf-8",
+        )
+        job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
+        assert job.labels is not None
+        by_id = {lbl.id: lbl for lbl in job.labels}
+        # p1 declares wb(uv); its generated labels inherit it (overriding
+        # the job-level wb). The static label keeps None (resolves to job wb).
+        assert by_id["p1_0000"].material == "wb(uv)"
+        assert by_id["p1_0001"].material == "wb(uv)"
+        assert by_id["static"].material is None
+        resolved = resolve_job_spec(job)
+        resolved_by_id = {lbl.id: lbl for lbl in resolved}
+        assert resolved_by_id["p1_0000"].material == "wb(uv)"
+        assert resolved_by_id["static"].material == "wb"
+
     def test_root_content_is_template_not_label(self, tmp_path: Path) -> None:
         """Root-level content templates plate labels instead of adding one."""
         _write(tmp_path / "p1.txt", "AAA\n")

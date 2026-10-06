@@ -1,0 +1,37 @@
+# 2026-10-06
+# SEER 2963 Equip. Labels
+job:
+  job_name: SEER 2963
+  font: dino
+  tool_options:
+    cutting_velocity: 0.4
+    spindle_speed: 16000
+  
+  labels:
+    - id: 3-line placards
+      width: 7
+      height: 4
+      text_height: 1
+      replacement_text_file: 2026-10-06 seer 7x5.33.txt
+      holes:
+        - location: sides
+      content:
+        - text: "AHU2"
+          placeholder: true
+        - text: "MFG. 04/2013"
+        - text: "Ckt 1: 70lbs. R407C"
+          placeholder: true
+    - id: 6-line placard
+      width: 8
+      height: 8
+      text_height: 1
+      h_margin: 0.5
+      holes:
+        - location: sides
+      content:
+        - text: "AHU1"
+        - text: "MFG. 01/2015"
+        - text: "Ckt 1: 68lbs. R407C"
+        - text: "Ckt 2: 64lbs. R407C"
+        - text: "Ckt 3: 90lbs. R407C"
+        - text: "Ckt 4: 95lbs. R407C"

@@ -11,8 +11,8 @@
 # expose a different material layer color (EngraveLab/Vision Pro workflow).
 #
 # Export names: the colorless layer keeps the historical
-# ``01_txt_<cutter>_<job>.plt`` name; colored layers gain their 1-letter
-# suffix (``01_txt_<cutter>_k_<job>.plt``, ``..._m_...``).
+# ``0.045_txt_<job>.plt`` name; colored layers gain their 1-letter
+# suffix (``0.045_k_txt_<job>.plt``, ``..._m_txt_...``).
 #
 # Run with: python run_integration_test.py tests_deps/text_color_demo_job.yaml
 job:

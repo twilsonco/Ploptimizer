@@ -1622,6 +1622,7 @@ def _render_line_block(
                 min_glyph_width=line.min_glyph_width,
                 kerning_window_fraction=line.kerning_window_fraction,
                 kerning_penetration_scale=line.kerning_penetration_scale,
+                kerning_recession_scale=line.kerning_recession_scale,
                 kerning_min_gap=line.kerning_min_gap,
                 fallback_advance_fraction=line.fallback_advance_fraction,
             )
@@ -1636,6 +1637,7 @@ def _render_line_block(
             min_glyph_width=line.min_glyph_width,
             kerning_window_fraction=line.kerning_window_fraction,
             kerning_penetration_scale=line.kerning_penetration_scale,
+            kerning_recession_scale=line.kerning_recession_scale,
             kerning_min_gap=line.kerning_min_gap,
             fallback_advance_fraction=line.fallback_advance_fraction,
         )

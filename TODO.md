@@ -1,13 +1,15 @@
-- [ ] EngraveLab/VisionPro font extraction
-  - [x] Initial version w/ origin-centered storage of font glyphs
-  - [x] Typesettings using origin-centered font glyphs
-  - [x] Integration into full toolpath generation pipeline
-  - [x] Redo extraction/storage to include baseline/ascender/descender/bbox/profile envelopes for proper kerning, spacing, and vertical placement
-  - [x] Extraction script needs to
-    - [x] Get baseline-capline reference character from end of font file name, `<font name>_<font height inches>_<reference character>`
-    - [x] Change to allow for multi-row extraction of font glyphs (initial version required that all glyphs be in a single row). `ascii.txt` file reflects the multi-row layout which will be assumed to be the layout of font plt files.
-    - [x] Verify correct row extraction using assumption that each row contains the expected characters as defined in `ascii.txt`, in addition to starting and ending with the reference character.
-    - [x] Verify reference character by locating it in the extracted glyphs (order defined by `ascii.txt`), then confirm that it matches the reference characters at the beginning and end of each row.
-    - [x] Extract each character's relative position to the baseline and capline, as well as its bounding box and profile envelope.
-    - [x] Include this new information in the `plt-fonts.json` file. Record the reference character used, the path to the font plt file, the text height extracted from the font plt file, text height as computed from the reference character, scaled text height of stored glyphs (1 inch) and then each character's glyph (HPGL scaled commands, bounding box, profile envelope, and other necessary metadata).
-  - [x] Update typesetting and toolpath generation to utilize the enhanced font metadata for improved kerning, spacing, and vertical placement
+- [ ] Multi-stroke font support
+- [ ] HTML syntax support in label text contents:
+  - [ ] Italicization: performs transform of HPGL characters for PLT fonts (with appropriate adjustments to spacing/kerning), or uses TTF italics.
+  - [ ] Bold text support: will result in emboldened text being a different "color" so that a thicker cutter can be used. For PLT fonts, change color and adjust spacing/kerning accordingly. For TTF fonts, change color and bold variant of the font if available; otherwise treat similar to PLT font.
+  - [ ] Specify different font for different parts of a label text line. (e.g. using wingdings symbols in a text line).
+    - [ ] Maybe support mixed PLT/TTF fonts?
+  - [ ] Superscript/subscript support: allows parts of the text to be raised or lowered relative to the baseline, typically for mathematical or chemical notation.
+- [x] PLT font kerning not perfect yet. In ADK test job
+  - the following character pairs have too much spacing: "la", "il", "la", "lt", "In", "io", "ic", "(3", "ly", "fe", "ll"
+    -  Interesting to note that these are one-sided: e.g. "ta" is too wide but "at" is not. "fe" is too wide but "ef" is not. "(3" is too wide but "3)" is not (not a perfect comparison).
+  - the following character pairs have too little spacing: ",4"
+- [ ] Include line spacing values in stdout COMPRESSION REPORT during label generation
+- [ ] Allow `line_spacing` to be specified at the text level, which determines the spacing *below* the line for which it is specified.
+- [ ] When optimizing, perform a simple additional optimization that considered the stroke direction of chunks (characters) to check if each chunk should have its strokes reversed in order to decrease travel distance between chuncks. (especially important for generated toolpaths from job spec yaml files)
+- [ ] When reassembling after optimization, if the end of one stroke is coincident with the beginning of the next, remove intermediate tool up commands.

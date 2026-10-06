@@ -254,9 +254,9 @@ job:
     #     three layer kinds at once: abbreviation ("k" -> black), full name
     #     ("magenta"), and the implicit untagged "none" default. Export writes
     #     one PLT per (cutter, color) layer: the colored layers gain a
-    #     1-letter suffix (``*_txt_0.040_k_*.plt`` / ``*_txt_0.040_m_*.plt``)
-    #     while the none layer keeps the historical cutter-only name
-    #     (``*_txt_0.040_*.plt``). text_color is line/label-local and never
+    #     1-letter suffix (``*_0.040_k_txt_*.plt`` / ``*_0.040_m_txt_*.plt``)
+    #     while the none layer keeps the plain cutter-first name
+    #     (``*_0.040_txt_*.plt``). text_color is line/label-local and never
     #     cascades from the job level.
     - id: color_split_tag
       count: 2

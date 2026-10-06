@@ -56,6 +56,7 @@ they are no longer auto-sized from rendered content.
 | `min_glyph_width` | float \| null | null (unset) | >=0 | Global minimum glyph advance width in inches (PLT-extracted fonts): clamps the profile-envelope kerning so zero-width glyphs still reserve real air. Cascades line -> label -> job (fallback 0.0 = pure envelope kerning); explicit 0.0 is honored. |
 | `kerning_window_fraction` | float \| null | null (unset) | >=0 <=1 | Kerning window for PLT-extracted fonts as a fraction of the rendered text height in [0.0, 1.0]: each envelope sample compares against the opposite silhouette within +/- (half of this fraction) of the text height and the effective penetration is the worst windowed penetration, so staggered pokes widen the advance. Cascades line -> label -> job (fallback 0.05); explicit 0.0 is honored (= historical same-height kerning). |
 | `kerning_penetration_scale` | float \| null | null (unset) | >=0 | Multiplier on the profile-envelope penetration detected for PLT-extracted fonts: 1.0 keeps the geometric penetration, >1.0 over-kerns tight pairs proportionally. Cascades line -> label -> job (fallback 1.0); explicit 0.0 is honored (ignores detected closeness entirely). |
+| `kerning_recession_scale` | float \| null | null (unset) | >=0 | Multiplier on a *recessed* (negative) profile-envelope penetration for PLT-extracted fonts: 1.0 keeps the geometric recession (the historical linear behaviour, where lowering kerning_penetration_scale also pulled gapped pairs closer), 0.0 makes a recessed pair advance by nothing beyond the min_glyph_width floor. Cascades line -> label -> job (fallback 1.0); explicit 0.0 is honored. |
 | `kerning_min_gap` | float \| null | null (unset) | >=0 | Extra air in inches added to every kerned character pair advance (PLT-extracted fonts), on top of the cutter diameter and character_spacing clearance. Cascades line -> label -> job (fallback 0.0 = no extra gap); explicit 0.0 is honored. |
 | `fallback_advance_fraction` | float \| null | null (unset) | >=0 | Multiplier on the bounding-box-width fallback advance used for PLT-extracted glyph pairs without overlapping height (or lacking envelopes). Cascades line -> label -> job (fallback 1.0 = the left glyph's own width); explicit 0.0 is honored. |
 | `text_color` | TextColor \| null | null (unset) | — | Stroke-color layer tag splitting otherwise-identical text into separate toolpaths (labels and text lines only; rejected at the job level; never cascades). Full name or case-insensitive single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); 'none' is the implicit default and cannot be specified. |
@@ -66,6 +67,7 @@ they are no longer auto-sized from rendered content.
 | `v_margin` | float \| null | null (unset) | >=0 | Vertical margin in inches (top and bottom edges); cascades label -> job; falls back to margin if unset. |
 | `hole_margin` | float \| null | null (unset) | >=0 | Distance from hole edge to label edge in inches (label -> job, fallback 0.1875). |
 | `holes` | list[HoleSpec] \| null | null (unset) | — | Drill holes; a label value replaces the job-level list entirely (an empty list suppresses holes). 'corners'/'sides' expand to members. |
+| `material` | str \| null | null (unset) | — | Stock material name (free-form, e.g. 'wb' or 'wb(uv)'); cascades job -> label. Labels sharing a material pack together and a plate never mixes materials. Comparison trims whitespace and ignores case; unset (null) labels pack with the job-level material. |
 | `job_name` | str | **required** | — | Human-readable name for this job. |
 | `plates` | list[PlateSpec] \| null | null (unset) | — | Plate (material sheet) definitions. Omit for unbounded mode: auto-allocated default_plate_{i} sheets (24x16 unless job-config plate_width/plate_height override). |
 | `labels` | list[LabelSpec] \| null | null (unset) | — | Explicit label list. Mutually exclusive with root-level content and a job-level replacement_text_file. |
@@ -105,10 +107,12 @@ Specification for a plate (material sheet) to cut labels from.
 | `min_glyph_width` | float \| null | null (unset) | >=0 | Global minimum glyph advance width in inches (schema parity; not applied at plate level). |
 | `kerning_window_fraction` | float \| null | null (unset) | >=0 <=1 | Kerning window fraction as a fraction of the rendered text height (schema parity; not applied at plate level). |
 | `kerning_penetration_scale` | float \| null | null (unset) | >=0 | Kerning penetration multiplier applied to the detected penetration (schema parity; not applied at plate level). |
+| `kerning_recession_scale` | float \| null | null (unset) | >=0 | Kerning recession multiplier applied to a negative (recessed) detected penetration (schema parity; not applied at plate level). |
 | `kerning_min_gap` | float \| null | null (unset) | >=0 | Extra kerning air in inches added to every kerned pair advance (schema parity; not applied at plate level). |
 | `fallback_advance_fraction` | float \| null | null (unset) | >=0 | Fallback advance multiplier on the bounding-box width for pairs without overlapping height (schema parity; not applied at plate level). |
 | `hole_text_collision_distance` | float \| null | null (unset) | >=0 | Minimum engraved-stroke air gap in inches (schema parity; not applied at plate level). |
 | `layout` | LayoutMode \| null | null (unset) | — | Per-plate fill-order override (None = inherit the job layout). |
+| `material` | str \| null | null (unset) | — | Stock material this plate is cut from (free-form, e.g. 'wb' or 'wb(uv)'); cascades job -> plate (an explicit plate value wins). A plate carries exactly one material: labels whose material matches pack onto it and no other material shares it. A plate that omits material (null) is claimed by one material group. Comparison trims whitespace and ignores case. |
 | `replacement_text_file` | str \| null | null (unset) | — | Path to an EngraveLab/Vision Pro-style replacement text file. Each line produces one label packed onto this plate only. |
 | `replacement_text_delimiter` | str \| null | null (unset) | — | Single-character delimiter separating text items within a replacement file line (default ';'). |
 
@@ -146,6 +150,7 @@ A label may be defined in one of two ways:
 | `min_glyph_width` | float \| null | null (unset) | >=0 | Global minimum glyph advance width in inches (PLT-extracted fonts): clamps the profile-envelope kerning so zero-width glyphs still reserve real air. Cascades line -> label -> job (fallback 0.0 = pure envelope kerning); explicit 0.0 is honored. |
 | `kerning_window_fraction` | float \| null | null (unset) | >=0 <=1 | Kerning window for PLT-extracted fonts as a fraction of the rendered text height in [0.0, 1.0]: each envelope sample compares against the opposite silhouette within +/- (half of this fraction) of the text height and the effective penetration is the worst windowed penetration, so staggered pokes widen the advance. Cascades line -> label -> job (fallback 0.05); explicit 0.0 is honored (= historical same-height kerning). |
 | `kerning_penetration_scale` | float \| null | null (unset) | >=0 | Multiplier on the profile-envelope penetration detected for PLT-extracted fonts: 1.0 keeps the geometric penetration, >1.0 over-kerns tight pairs proportionally. Cascades line -> label -> job (fallback 1.0); explicit 0.0 is honored (ignores detected closeness entirely). |
+| `kerning_recession_scale` | float \| null | null (unset) | >=0 | Multiplier on a *recessed* (negative) profile-envelope penetration for PLT-extracted fonts: 1.0 keeps the geometric recession (the historical linear behaviour, where lowering kerning_penetration_scale also pulled gapped pairs closer), 0.0 makes a recessed pair advance by nothing beyond the min_glyph_width floor. Cascades line -> label -> job (fallback 1.0); explicit 0.0 is honored. |
 | `kerning_min_gap` | float \| null | null (unset) | >=0 | Extra air in inches added to every kerned character pair advance (PLT-extracted fonts), on top of the cutter diameter and character_spacing clearance. Cascades line -> label -> job (fallback 0.0 = no extra gap); explicit 0.0 is honored. |
 | `fallback_advance_fraction` | float \| null | null (unset) | >=0 | Multiplier on the bounding-box-width fallback advance used for PLT-extracted glyph pairs without overlapping height (or lacking envelopes). Cascades line -> label -> job (fallback 1.0 = the left glyph's own width); explicit 0.0 is honored. |
 | `text_color` | TextColor \| null | null (unset) | — | Stroke-color layer tag splitting otherwise-identical text into separate toolpaths (labels and text lines only; rejected at the job level; never cascades). Full name or case-insensitive single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); 'none' is the implicit default and cannot be specified. |
@@ -156,6 +161,7 @@ A label may be defined in one of two ways:
 | `v_margin` | float \| null | null (unset) | >=0 | Vertical margin in inches (top and bottom edges); cascades label -> job; falls back to margin if unset. |
 | `hole_margin` | float \| null | null (unset) | >=0 | Distance from hole edge to label edge in inches (label -> job, fallback 0.1875). |
 | `holes` | list[HoleSpec] \| null | null (unset) | — | Drill holes; a label value replaces the job-level list entirely (an empty list suppresses holes). 'corners'/'sides' expand to members. |
+| `material` | str \| null | null (unset) | — | Stock material name (free-form, e.g. 'wb' or 'wb(uv)'); cascades job -> label. Labels sharing a material pack together and a plate never mixes materials. Comparison trims whitespace and ignores case; unset (null) labels pack with the job-level material. |
 | `id` | str | **required** | — | Unique identifier for this label specification. |
 | `count` | int | `1` | >=1 | Number of instances to produce (must be >= 1). |
 | `content` | list[TextLine] \| null | null (unset) | — | Text lines to render. Required unless replacement_text_file is provided. |
@@ -181,6 +187,7 @@ A single line of text content within a label.
 | `min_glyph_width` | float \| null | null (unset) | >=0 | Global minimum glyph advance width in inches (PLT-extracted fonts): clamps the profile-envelope kerning so zero-width glyphs still reserve real air. Cascades line -> label -> job (fallback 0.0 = pure envelope kerning); explicit 0.0 is honored. |
 | `kerning_window_fraction` | float \| null | null (unset) | >=0 <=1 | Kerning window for PLT-extracted fonts as a fraction of the rendered text height in [0.0, 1.0]: each envelope sample compares against the opposite silhouette within +/- (half of this fraction) of the text height and the effective penetration is the worst windowed penetration, so staggered pokes widen the advance. Cascades line -> label -> job (fallback 0.05); explicit 0.0 is honored (= historical same-height kerning). |
 | `kerning_penetration_scale` | float \| null | null (unset) | >=0 | Multiplier on the profile-envelope penetration detected for PLT-extracted fonts: 1.0 keeps the geometric penetration, >1.0 over-kerns tight pairs proportionally. Cascades line -> label -> job (fallback 1.0); explicit 0.0 is honored (ignores detected closeness entirely). |
+| `kerning_recession_scale` | float \| null | null (unset) | >=0 | Multiplier on a *recessed* (negative) profile-envelope penetration for PLT-extracted fonts: 1.0 keeps the geometric recession (the historical linear behaviour, where lowering kerning_penetration_scale also pulled gapped pairs closer), 0.0 makes a recessed pair advance by nothing beyond the min_glyph_width floor. Cascades line -> label -> job (fallback 1.0); explicit 0.0 is honored. |
 | `kerning_min_gap` | float \| null | null (unset) | >=0 | Extra air in inches added to every kerned character pair advance (PLT-extracted fonts), on top of the cutter diameter and character_spacing clearance. Cascades line -> label -> job (fallback 0.0 = no extra gap); explicit 0.0 is honored. |
 | `fallback_advance_fraction` | float \| null | null (unset) | >=0 | Multiplier on the bounding-box-width fallback advance used for PLT-extracted glyph pairs without overlapping height (or lacking envelopes). Cascades line -> label -> job (fallback 1.0 = the left glyph's own width); explicit 0.0 is honored. |
 | `text_color` | TextColor \| null | null (unset) | — | Stroke-color layer tag splitting otherwise-identical text into separate toolpaths (labels and text lines only; rejected at the job level; never cascades). Full name or case-insensitive single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); 'none' is the implicit default and cannot be specified. |
@@ -315,6 +322,7 @@ always beats the config.
 | `DEFAULT_H_MARGIN` | `None` | — |
 | `DEFAULT_KERNING_MIN_GAP` | `0.0` | — |
 | `DEFAULT_KERNING_PENETRATION_SCALE` | `1.0` | — |
+| `DEFAULT_KERNING_RECESSION_SCALE` | `1.0` | — |
 | `DEFAULT_KERNING_WINDOW_FRACTION` | `0.05` | — |
 | `DEFAULT_LINE_SPACING` | `'auto'` | Extra line spacing when unset at line/label/job level. |
 | `DEFAULT_MARGIN` | `0.125` | Label margin when unset at label/job level. |
@@ -355,7 +363,7 @@ bounds with a WARNING logged if clamped.
 
 | Key | Command | Type | Units | Text Default | Borders/Holes Default |
 |---|---|---|---|---|---|
-| `cutting_velocity` | `VS` | float | in/sec [0.05–3.0] | 0.8 | 0.8 |
+| `cutting_velocity` | `VS` | float | in/sec [0.05–3.0] | 1.5 | 0.8 |
 | `dwell_time` | `ZO124,` | int | milliseconds [10–1000] | 50 | 50 |
 | `plunge_velocity` | `VZ` | float | in/sec [0.1–3.0] | 2.0 | 2.0 |
 | `proximity` | `ZO104,` | bool | on/off | True | True |

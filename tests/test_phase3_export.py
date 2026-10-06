@@ -9,7 +9,11 @@ from plt_optimizer.generate.resolution import resolve_job_spec
 from plt_optimizer.generate.schema import parse_yaml
 from plt_optimizer.generate.vectorize import (
     PerCutterExport,
+    _format_material_tag,
+    _format_plate_prefix,
     _format_text_layer,
+    _is_structural_stem,
+    _parse_plt_stem,
     export_per_cutter_plts,
 )
 
@@ -42,14 +46,16 @@ class TestExportAndOptimizePhase3:
 
         # test123 uses a single 0.5in text height (ideal cutter 0.06in,
         # no inventory snapping) plus borders. Names are
-        # <plate number>_<kind>_<cutter>_<job_id>.plt (2-digit plate).
+        # [<plate>_][<material>_]<cutter>_<kind>_<job_id>.plt and this job
+        # packs onto one material-less plate, so both prefixes are omitted.
         names = sorted(p.name for p in exported_paths)
-        assert any(name.startswith("01_txt_0.060_") for name in names)
-        assert any(name.startswith("01_bh_0.015_") for name in names)
+        assert any(name.startswith("0.060_txt_") for name in names)
+        assert any(name.startswith("0.015_bh_") for name in names)
         # The combined PLT is never written to disk.
         assert not any("_all_" in name for name in names)
-        # Every file leads with the padded plate number and ends with the job id.
-        assert all(name.startswith("01_") for name in names)
+        # Single-plate jobs carry NO plate number (its presence is the
+        # multi-sheet signal); every file ends with the job id.
+        assert all(not name.startswith("01_") for name in names)
         assert all(name.endswith("_job123.plt") for name in names)
 
     def test_export_phase3_no_plots_by_default(self, tmp_path: Path) -> None:
@@ -86,8 +92,9 @@ class TestExportAndOptimizePhase3:
         # One PDF per PLT (same stem).
         for plt_path in result.plt_paths:
             assert f"{plt_path.stem}.pdf" in pdf_names
-        # One combined <plate>_all_<job_id>.pdf per plate.
-        assert any(name.endswith("_all_plotjob.pdf") for name in pdf_names)
+        # One combined [<plate>_][<material>_]all_<job_id>.pdf per plate
+        # (single material-less plate -> the bare `all_` name).
+        assert any(name.endswith("all_plotjob.pdf") for name in pdf_names)
         # Combined content is exposed in memory, never written as PLT.
         assert result.combined_by_plate
         assert not any("_all_" in p.stem for p in result.plt_paths)
@@ -157,8 +164,9 @@ class TestExportAndOptimizePhase3:
         # One color plot per written PLT (same stem + _default).
         for plt_path in result.plt_paths:
             assert f"{plt_path.stem}_default.pdf" in names
-        # Combined color plot mirrors the <plate>_all_<job_id>.pdf name.
-        assert any("_all_dp_" in name and name.endswith("_default.pdf") for name in names)
+        # Combined color plot mirrors the [<plate>_][<material>_]all_<job_id>.pdf
+        # name (single material-less plate -> `all_dp.pdf`).
+        assert any("all_dp_" in name and name.endswith("_default.pdf") for name in names)
         assert all(p.parent == tmp_path / "pdf" for p in result.default_pdf_paths)
         # Opt-in plots are tracked separately from the simple previews.
         assert result.pdf_paths == []
@@ -217,8 +225,10 @@ class TestExportAndOptimizePhase3:
         # Borders+holes files are structural; text files are not.
         assert any("_bh_" in name and flag for name, flag in by_name.items())
         assert any("_txt_" in name and not flag for name, flag in by_name.items())
-        # Combined per-plate plots mix layers and stay non-structural.
-        all_plots = [flag for name, flag in by_name.items() if "_all_" in name]
+        # Combined per-plate plots mix layers and stay non-structural. The
+        # combined name is `[<plate>_][<material>_]all_<job_id>.pdf`, so it
+        # leads with the `all_` token (no plate prefix for a single plate).
+        all_plots = [flag for name, flag in by_name.items() if name.startswith("all_")]
         assert all_plots and not any(all_plots)
         # The fake never saves; PDFs are tracked as usual.
         assert result.pdf_paths
@@ -245,9 +255,8 @@ class TestExportAndOptimizePhase3:
     def test_export_per_cutter_multi_cutter_naming(self, tmp_path: Path) -> None:
         """Distinct text cutters produce one text file per cutter diameter.
 
-        Color-suffixed layers (``..._txt_<cutter>_<color>_<job>.plt``) keep
-        the cutter at name index 2, so the tag extraction below covers both
-        tagged and untagged text files.
+        Parsing goes through :func:`_parse_plt_stem` so the optional plate
+        and material prefixes stay irrelevant to the cutter extraction.
         """
         job = parse_yaml("tests_deps/complex_test_job.yaml")
         resolved_labels = resolve_job_spec(job)
@@ -262,12 +271,13 @@ class TestExportAndOptimizePhase3:
         )
 
         text_files = [p.name for p in result.plt_paths if "_txt_" in p.name]
-        # Name shape: <plate>_txt_<cutter>_<job_id>.plt (job_id has no '_').
-        cutter_tags = {name.split("_")[2] for name in text_files}
+        # Name shape: [<plate>_][<material>_]<cutter>[_<color>]_txt_<job_id>.plt
+        cutter_tags = {_parse_plt_stem(name).cutter for name in text_files}
         # complex_test_job exercises at least three distinct text cutters.
         assert len(cutter_tags) >= 3
         # Every tag is a 3-decimal inch string.
         for tag in cutter_tags:
+            assert tag is not None
             major, _, minor = tag.partition(".")
             assert major.isdigit() and len(minor) == 3
 
@@ -293,20 +303,20 @@ class TestExportAndOptimizePhase3:
         )
 
         text_files = sorted(p.name for p in result.plt_paths if "_txt_" in p.name)
-        # The colored layers appear as additional suffixed files (the plate
+        # The colored layers appear as additional tagged files (the plate
         # prefix depends on where the packer places the label, so match on
         # the suffix).
-        assert any(name.endswith("_txt_0.040_k_complex.plt") for name in text_files)
-        assert any(name.endswith("_txt_0.040_m_complex.plt") for name in text_files)
-        # The implicit "none" layer keeps the historical cutter-only name.
-        assert any(name.endswith("_txt_0.040_complex.plt") for name in text_files)
+        assert any(name.endswith("0.040_k_txt_complex.plt") for name in text_files)
+        assert any(name.endswith("0.040_m_txt_complex.plt") for name in text_files)
+        # The implicit "none" layer keeps the bare cutter-only tag.
+        assert any(name.endswith("0.040_txt_complex.plt") for name in text_files)
         # The two colored files are *additional* toolpaths: each carries only
         # its own layer's strokes on a single pen.
         black_file = next(
-            p for p in result.plt_paths if p.name.endswith("_txt_0.040_k_complex.plt")
+            p for p in result.plt_paths if p.name.endswith("0.040_k_txt_complex.plt")
         )
         magenta_file = next(
-            p for p in result.plt_paths if p.name.endswith("_txt_0.040_m_complex.plt")
+            p for p in result.plt_paths if p.name.endswith("0.040_m_txt_complex.plt")
         )
         black_content = black_file.read_text(encoding="utf-8")
         magenta_content = magenta_file.read_text(encoding="utf-8")
@@ -467,8 +477,10 @@ class TestExportWithoutPlates:
             default_plate_size=(48.0, 40.0),
         )
 
-        small_plates = {p.name.split("_")[0] for p in small.plt_paths}
-        large_plates = {p.name.split("_")[0] for p in large.plt_paths}
+        # The plate token is absent for single-plate jobs, present per sheet
+        # for multi-plate ones, so it counts sheets exactly.
+        small_plates = {_parse_plt_stem(p.stem).plate for p in small.plt_paths}
+        large_plates = {_parse_plt_stem(p.stem).plate for p in large.plt_paths}
         assert len(small_plates) > 1
         assert len(large_plates) == 1
 
@@ -560,10 +572,11 @@ class TestExportTextColorSplit:
         )
 
         text_names = sorted(p.name for p in result.plt_paths if "_txt_" in p.name)
-        # (cutter, color) sort order: black -> pen 1, magenta -> pen 4.
+        # (cutter, color) sort order: black -> pen 1, magenta -> pen 4. A
+        # single material-less plate carries no prefix at all.
         assert text_names == [
-            "01_txt_0.060_k_clr.plt",
-            "01_txt_0.060_m_clr.plt",
+            "0.060_k_txt_clr.plt",
+            "0.060_m_txt_clr.plt",
         ]
         # Each file carries only its own layer's strokes: the two color
         # layers occupy disjoint cutting coordinates (no SP selects remain
@@ -590,10 +603,10 @@ class TestExportTextColorSplit:
             plots=False,
         )
         bh_names = [p.name for p in result.plt_paths if "_bh_" in p.name]
-        assert bh_names == ["01_bh_0.015_clr.plt"]
+        assert bh_names == ["0.015_bh_clr.plt"]
 
     def test_colorless_export_names_are_unchanged(self, tmp_path: Path) -> None:
-        """Jobs without colors keep the historical cutter-only names."""
+        """Jobs without colors keep the bare cutter-only text tag."""
         result = export_per_cutter_plts(
             [_label()],
             output_dir=tmp_path,
@@ -602,7 +615,7 @@ class TestExportTextColorSplit:
             plots=False,
         )
         text_names = sorted(p.name for p in result.plt_paths if "_txt_" in p.name)
-        assert text_names == ["01_txt_0.030_plain.plt"]
+        assert text_names == ["0.030_txt_plain.plt"]
 
     def test_colored_export_optimizes_each_color_layer(self, tmp_path: Path) -> None:
         """Optimized export routes and writes both color layers separately."""
@@ -616,8 +629,8 @@ class TestExportTextColorSplit:
         )
         text_names = sorted(p.name for p in result.plt_paths if "_txt_" in p.name)
         assert text_names == [
-            "01_txt_0.060_k_opt.plt",
-            "01_txt_0.060_m_opt.plt",
+            "0.060_k_txt_opt.plt",
+            "0.060_m_txt_opt.plt",
         ]
         for name in text_names:
             content = (tmp_path / "plt" / name).read_text(encoding="utf-8")
@@ -688,12 +701,15 @@ class TestTextColorDemoExample:
         )
         text_names = sorted(p.name for p in result.plt_paths if "_txt_" in p.name)
         # Single 0.375in text height -> one cutter (0.045) split three ways.
+        # One material-less plate -> no plate/material prefix.
         assert text_names == [
-            "01_txt_0.045_demo.plt",
-            "01_txt_0.045_k_demo.plt",
-            "01_txt_0.045_m_demo.plt",
+            "0.045_k_txt_demo.plt",
+            "0.045_m_txt_demo.plt",
+            "0.045_txt_demo.plt",
         ]
-        assert [p.name for p in result.plt_paths if "_bh_" in p.name] == ["01_bh_0.015_demo.plt"]
+        assert [p.name for p in result.plt_paths if "_bh_" in p.name] == [
+            "0.015_bh_demo.plt"
+        ]
         # Each text file carries only its own layer's strokes: the three
         # color layers occupy pairwise-disjoint cutting coordinates (the
         # per-cutter files carry no SP selects to key on).
@@ -710,3 +726,121 @@ class TestTextColorDemoExample:
             assert first, "text file carries no cutting geometry"
             for second in points_per_file[i + 1 :]:
                 assert first.isdisjoint(second), "color layers share coordinates"
+
+
+class TestPlateFilenameFormatting:
+    """Unit tests for the [<plate>_][<material>_]<cutter>_<kind> naming."""
+
+    def test_material_tag_sanitizes(self) -> None:
+        """Free-form material names become filesystem-safe tags."""
+        assert _format_material_tag(None) == ""
+        assert _format_material_tag("wb") == "wb"
+        assert _format_material_tag("wb(uv)") == "wbuv"
+        assert _format_material_tag("3-layer black") == "3layerblack"
+        # Fully sanitized-empty values never produce a dangling separator.
+        assert _format_material_tag("---") == "x"
+
+    def test_single_plate_job_omits_plate_number(self) -> None:
+        """One plate -> no plate prefix (its presence signals multi-sheet)."""
+        assert _format_plate_prefix(1, 1) == ""
+        assert _format_plate_prefix(1, 1, "wb") == "wb_"
+
+    def test_multi_plate_job_includes_plate_number(self) -> None:
+        """Multi-plate jobs keep the padded plate number first."""
+        assert _format_plate_prefix(2, 3) == "02_"
+        assert _format_plate_prefix(2, 3, "wb(uv)") == "02_wbuv_"
+
+    def test_stem_round_trip(self) -> None:
+        """Every generated shape parses back to its components."""
+        cases = {
+            "0.040_txt_job": (None, None, "0.040", "txt", None),
+            "0.040_m_txt_job": (None, None, "0.040", "txt", "m"),
+            "0.015_bh_job": (None, None, "0.015", "bh", None),
+            "wbuv_0.040_txt_job": (None, "wbuv", "0.040", "txt", None),
+            "wbuv_0.015_bh_job": (None, "wbuv", "0.015", "bh", None),
+            "02_wbuv_0.040_k_txt_job": ("02", "wbuv", "0.040", "txt", "k"),
+            "02_0.040_txt_job": ("02", None, "0.040", "txt", None),
+            "02_0.015_bh_job": ("02", None, "0.015", "bh", None),
+        }
+        for stem, (plate, material, cutter, kind, color) in cases.items():
+            parts = _parse_plt_stem(stem)
+            assert (parts.plate, parts.material, parts.cutter, parts.kind, parts.color) == (
+                plate,
+                material,
+                cutter,
+                kind,
+                color,
+            ), stem
+
+    def test_structural_detection_is_prefix_agnostic(self) -> None:
+        """The bh kind is found regardless of plate/material prefixes."""
+        assert _is_structural_stem("0.015_bh_job")
+        assert _is_structural_stem("wbuv_0.015_bh_job")
+        assert _is_structural_stem("02_wbuv_0.015_bh_job")
+        assert not _is_structural_stem("02_wbuv_0.040_txt_job")
+        # Stems outside the scheme are treated as non-structural.
+        assert not _is_structural_stem("readme")
+
+    def test_plot_title_includes_material(self) -> None:
+        """Titles name the cutter, the kind and the material tag."""
+        from plt_optimizer.generate.vectorize import _build_plot_title
+
+        base = _build_plot_title("Job", Path("plt/0.040_txt_job.plt"), text_height=0.5)
+        assert base == "Job 0.5 text (0.040 cutter)"
+        tagged = _build_plot_title("Job", Path("plt/wbuv_0.015_bh_job.plt"))
+        assert tagged == "Job borders and holes (0.015 cutter) [wbuv]"
+        unknown = _build_plot_title("Job", Path("plt/mystery.plt"))
+        assert unknown == "Job mystery"
+
+
+class TestMaterialDemoExample:
+    """Regression tests for tests_deps/material_demo_job.yaml.
+
+    The fixture is the hand-crafted mixed-stock demo: two materials, one
+    plate each, plus a magenta text layer on the uv sheet. It pins the
+    full material-tagged filename scheme
+    (``[<plate>_][<material>_]<cutter>[_<color>]_<kind>_<job>.plt``),
+    including the plate numbers that appear because the job spans two
+    plates.
+    """
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the material demo job with plotting disabled."""
+        from plt_optimizer.generate.schema import parse_yaml
+
+        job = parse_yaml(Path("tests_deps/material_demo_job.yaml"))
+        labels = resolve_job_spec(job)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="demo",
+            optimize=False,
+            plots=False,
+        )
+
+    def test_fixture_exports_material_tagged_names(self, tmp_path: Path) -> None:
+        """Every file carries its plate number and sanitized material tag."""
+        result = self._export(tmp_path)
+        assert sorted(p.name for p in result.plt_paths) == [
+            "01_wb_0.015_bh_demo.plt",
+            "01_wb_0.045_txt_demo.plt",
+            "02_wbuv_0.015_bh_demo.plt",
+            "02_wbuv_0.045_m_txt_demo.plt",
+            "02_wbuv_0.045_txt_demo.plt",
+        ]
+        assert result.material_by_plate == {1: "wb", 2: "wb(uv)"}
+        for path in result.plt_paths:
+            parts = _parse_plt_stem(path.stem)
+            expected_material = result.material_by_plate[int(parts.plate or "0")]
+            assert parts.material == _format_material_tag(expected_material)
+
+    def test_fixture_materials_never_share_a_file(self, tmp_path: Path) -> None:
+        """Each material's sheets get their own text layers, never merged."""
+        result = self._export(tmp_path)
+        # The wb sheet has a single colorless text layer; the uv sheet has
+        # two (colorless placards + magenta deep-engraved placards).
+        wb_txt = [p for p in result.plt_paths if p.name == "01_wb_0.045_txt_demo.plt"]
+        uv_txt = [p for p in result.plt_paths if p.name.startswith("02_wbuv_0.045")]
+        assert len(wb_txt) == 1
+        assert len(uv_txt) == 2  # plain + magenta deep layer

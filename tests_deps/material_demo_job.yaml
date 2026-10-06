@@ -1,0 +1,49 @@
+# Material-partitioned packing demo job for the PLT-Optimizer generate pipeline.
+#
+# One job, two stock materials: the job-level `material: wb` covers the tag
+# labels, and the placard labels override it with `wb(uv)`. Each plate declares
+# the material it is cut from, so the packer runs one pass per material and the
+# two label groups never share a sheet (a plate carries exactly one material).
+# The deep-engraved placards additionally carry `text_color: magenta`, so the
+# uv sheet exercises the full filename scheme
+# (`<material>_<cutter>_<color>_txt_<job>.plt`).
+#
+# Pinned by tests/test_layout.py::TestMaterialDemoExample (grouping +
+# per-plate material regression) and
+# tests/test_phase3_export.py::TestMaterialDemoExample (material-tagged
+# output file names).
+#
+# Run with: python scripts/run_integration_test.py tests_deps/material_demo_job.yaml
+job:
+  job_name: Material Demo - Mixed Stock Batch
+  layout: rows
+  width: 3.0
+  height: 1.0
+  margin: 0.15
+  text_height: 0.35
+  material: wb
+  plates:
+    - id: scrap_wb
+      width: 12.0
+      height: 8.0
+      material: wb
+    - id: scrap_uv
+      width: 12.0
+      height: 8.0
+      material: wb(uv)
+  labels:
+    - id: wb_tag
+      count: 8
+      content:
+        - text: "WB TAG"
+    - id: uv_placard
+      material: wb(uv)
+      count: 2
+      content:
+        - text: "UV PLACARD"
+    - id: uv_placard_deep
+      material: wb(uv)
+      text_color: magenta
+      count: 2
+      content:
+        - text: "UV DEEP"

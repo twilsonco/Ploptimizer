@@ -144,6 +144,10 @@ def _write_library(root: Path, characters: Dict[str, Dict[str, Any]]) -> Path:
 #      AA arc (the parser opens arcs from a PD, matching extracted fonts).
 #   x: short diagonal (0,0)->(500,500) for relative-size checks.
 #   g: descender diagonal (0,-500)->(500,500) (hangs below the baseline).
+#   T: thin vertical bar 0.1 wide, full height (right silhouette x=0.1) for
+#      the advance-floor cap (a thin glyph's floor is capped by its width).
+#   R: far-right vertical bar at x=0.95..1.0 (left silhouette x=0.95) so an
+#      "A" before it barely penetrates (max p=0.05), below the floor.
 _SYNTH_CHARACTERS: Dict[str, Dict[str, Any]] = {
     "A": _v2_entry(
         "PU0,0;PD1000,1000;",
@@ -174,6 +178,18 @@ _SYNTH_CHARACTERS: Dict[str, Dict[str, Any]] = {
         (0, -500, 500, 500),
         [(0, -500), (500, 500)],
         [(0, -500), (500, 500)],
+    ),
+    "T": _v2_entry(
+        "PU0,0;PD0,1000;PU100,0;PD100,1000;",
+        (0, 0, 100, 1000),
+        [(0, 0), (0, 1000)],
+        [(100, 0), (100, 1000)],
+    ),
+    "R": _v2_entry(
+        "PU950,0;PD950,1000;PU1000,0;PD1000,1000;",
+        (950, 0, 1000, 1000),
+        [(950, 0), (950, 1000)],
+        [(1000, 0), (1000, 1000)],
     ),
 }
 
@@ -316,25 +332,57 @@ class TestLayoutMath:
         assert bounds is not None
         assert bounds[2] == pytest.approx(1.0 + 0.3 + 0.02 + 1.0, abs=1e-9)
 
-    def test_min_glyph_width_floors_zero_width_kerning(self, synth_lib: Path) -> None:
-        """``min_glyph_width`` clamps the left silhouette outward."""
-        # Zero-width B pair: pure envelope kerning stacks them at the
-        # clearance; a 0.25 floor forces a full 0.25 advance.
-        tight = _render("BB", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0)
+    def test_min_glyph_width_floors_advance_capped_by_glyph_width(self, synth_lib: Path) -> None:
+        """``min_glyph_width`` floors the advance, capped by the left width.
+
+        ``T`` is a thin 0.1-wide bar; a 0.25 floor is capped by T's own
+        width so the pair advances by 0.1 (not 0.25), and a 0.0 floor lets
+        the (negative) penetration floor at 0.0. This is the fix for the
+        historical silhouette clamp, which inflated every thin-left-glyph
+        pair to the full floor and made it scale-insensitive.
+        """
+        tight = _render("TR", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0)
         floored = _render(
-            "BB", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0, min_glyph_width=0.25
+            "TR", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0, min_glyph_width=0.25
         )
         assert tight.bounds() is not None and floored.bounds() is not None
-        assert tight.bounds()[2] == pytest.approx(0.0, abs=1e-9)
-        assert floored.bounds()[2] == pytest.approx(0.25, abs=1e-9)
+        # R spans [0.95, 1.0] from its origin; T sits at 0.
+        # 0.0 floor: advance max(-0.85, 0.0) = 0.0 -> R right edge at 1.0.
+        assert tight.bounds()[2] == pytest.approx(1.0, abs=1e-9)
+        # 0.25 floor capped by T's 0.1 width -> advance 0.1 -> R right at 1.1.
+        assert floored.bounds()[2] == pytest.approx(1.1, abs=1e-9)
 
-    def test_min_glyph_width_is_absolute_inches(self, synth_lib: Path) -> None:
-        """The floor is an absolute inch value, independent of text height."""
+    def test_zero_width_glyph_floors_at_zero(self, synth_lib: Path) -> None:
+        """A zero-width left glyph floors at 0.0 (relies on the clearance).
+
+        ``B`` is zero-width, so ``min(left_width, floor)`` is 0.0 for any
+        floor; its stroke-to-stroke air comes from the clearance term, not
+        the floor.
+        """
         floored = _render(
-            "BB", 2.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0, min_glyph_width=0.25
+            "BB", 1.0, synth_lib, cutter_diameter=0.02, character_spacing=0.0, min_glyph_width=0.25
         )
         assert floored.bounds() is not None
-        assert floored.bounds()[2] == pytest.approx(0.25, abs=1e-9)
+        # Advance 0.0 + clearance 0.02; the second B is zero-width.
+        assert floored.bounds()[2] == pytest.approx(0.02, abs=1e-9)
+
+    def test_min_glyph_width_is_absolute_inches(self, synth_lib: Path) -> None:
+        """The floor is an absolute inch value when the glyph is wide enough.
+
+        ``A`` (1.0 wide) is wider than the 0.25 floor at both heights, so
+        the floor binds and the advance is 0.25in independent of height.
+        """
+        low = _render(
+            "AR", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0, min_glyph_width=0.25
+        )
+        high = _render(
+            "AR", 2.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0, min_glyph_width=0.25
+        )
+        assert low.bounds() is not None and high.bounds() is not None
+        # The floor advance is 0.25in at BOTH heights (absolute); R's own
+        # extent scales with the height, so the right edge is advance + extent.
+        assert low.bounds()[2] == pytest.approx(0.25 + 1.0, abs=1e-9)
+        assert high.bounds()[2] == pytest.approx(0.25 + 2.0, abs=1e-9)
 
     def test_kerning_window_fraction_threads_through(self, synth_lib: Path) -> None:
         """The fraction reaches the kerning math and can widen the advance.
@@ -491,8 +539,10 @@ class TestEnvelopeHelpers:
         # At y=1.0: right_x=1.0, left_x=0.0 -> penetration 1.0.
         assert kerning_offset(left, right) == pytest.approx(1.0)
 
-    def test_kerning_offset_min_width_clamps(self) -> None:
-        """The minimum width clamps a zero right silhouette outward."""
+    def test_kerning_offset_min_width_floors_capped_by_left_width(self) -> None:
+        """The floor is capped by the left glyph's own bbox width."""
+        # Zero-width glyph: min(0.0, floor) == 0.0, so the floor never
+        # inflates a zero-width pair (its air comes from the clearance).
         zero = _GlyphGeometry(
             block=TextBlock.empty(),
             bounding_box=(0.0, 0.0, 0.0, 1.0),
@@ -500,7 +550,75 @@ class TestEnvelopeHelpers:
             right_envelope=((0.0, 0.0), (0.0, 1.0)),
         )
         assert kerning_offset(zero, zero, min_glyph_width_design=0.0) == pytest.approx(0.0)
-        assert kerning_offset(zero, zero, min_glyph_width_design=0.25) == pytest.approx(0.25)
+        assert kerning_offset(zero, zero, min_glyph_width_design=0.25) == pytest.approx(0.0)
+
+        # Thin (0.1-wide) left glyph with a fully recessed right glyph: the
+        # advance floors at the left glyph's own width, not the full floor.
+        thin = _GlyphGeometry(
+            block=TextBlock.empty(),
+            bounding_box=(0.0, 0.0, 0.1, 1.0),
+            left_envelope=((0.0, 0.0), (0.0, 1.0)),
+            right_envelope=((0.1, 0.0), (0.1, 1.0)),
+        )
+        far = _GlyphGeometry(
+            block=TextBlock.empty(),
+            bounding_box=(0.95, 0.0, 1.0, 1.0),
+            left_envelope=((0.95, 0.0), (0.95, 1.0)),
+            right_envelope=((1.0, 0.0), (1.0, 1.0)),
+        )
+        assert kerning_offset(thin, far, min_glyph_width_design=0.25) == pytest.approx(0.1)
+
+        # Wide (1.0) left glyph: the full 0.25 floor binds (below its width).
+        wide = _GlyphGeometry(
+            block=TextBlock.empty(),
+            bounding_box=(0.0, 0.0, 1.0, 1.0),
+            left_envelope=((0.0, 0.0), (0.0, 1.0)),
+            right_envelope=((0.0, 0.0), (0.0, 1.0)),
+        )
+        assert kerning_offset(wide, far, min_glyph_width_design=0.25) == pytest.approx(0.25)
+
+    def test_kerning_offset_recession_scale(self) -> None:
+        """A recessed pair scales by ``recession_scale``, not the penetration dial.
+
+        The thin/far pair has penetration -0.85 (fully recessed). The
+        penetration scale must not touch it; the recession scale does, and
+        the non-negative floor keeps the advance >= 0.
+        """
+        thin = _GlyphGeometry(
+            block=TextBlock.empty(),
+            bounding_box=(0.0, 0.0, 0.1, 1.0),
+            left_envelope=((0.0, 0.0), (0.0, 1.0)),
+            right_envelope=((0.1, 0.0), (0.1, 1.0)),
+        )
+        far = _GlyphGeometry(
+            block=TextBlock.empty(),
+            bounding_box=(0.95, 0.0, 1.0, 1.0),
+            left_envelope=((0.95, 0.0), (0.95, 1.0)),
+            right_envelope=((1.0, 0.0), (1.0, 1.0)),
+        )
+        # Default recession 1.0: -0.85, floored up to the 0.0 floor -> 0.0.
+        assert kerning_offset(thin, far, penetration_scale=0.5) == pytest.approx(0.0)
+        # Recession 2.0 deepens the recess (-1.7) but the floor keeps 0.0.
+        assert kerning_offset(
+            thin, far, penetration_scale=0.5, recession_scale=2.0
+        ) == pytest.approx(0.0)
+        # A positive-penetration pair ignores the recession scale entirely.
+        diagonal = _GlyphGeometry(
+            block=TextBlock.empty(),
+            bounding_box=(0.0, 0.0, 1.0, 1.0),
+            left_envelope=((0.0, 0.0), (1.0, 1.0)),
+            right_envelope=((0.0, 0.0), (1.0, 1.0)),
+        )
+        spine = _GlyphGeometry(
+            block=TextBlock.empty(),
+            bounding_box=(0.0, 0.0, 0.0, 1.0),
+            left_envelope=((0.0, 0.0), (0.0, 1.0)),
+            right_envelope=((0.0, 0.0), (0.0, 1.0)),
+        )
+        # Penetration 1.0 at the shared top; recession scale is irrelevant.
+        assert kerning_offset(
+            diagonal, spine, penetration_scale=0.5, recession_scale=3.0
+        ) == pytest.approx(0.5)
 
     def test_kerning_offset_no_overlap_falls_back_to_width(self) -> None:
         """Glyphs without overlapping height advance by the left bbox width."""

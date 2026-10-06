@@ -41,6 +41,7 @@ _FULL_CONFIG: dict[str, Any] = {
     "min_glyph_width": 0.02,
     "kerning_window_fraction": 0.15,
     "kerning_penetration_scale": 1.5,
+    "kerning_recession_scale": 0.0,
     "kerning_min_gap": 0.05,
     "fallback_advance_fraction": 0.9,
     "plate_width": 24.0,
@@ -103,6 +104,11 @@ class TestJobDefaultsModel:
         with pytest.raises(ValidationError):
             JobDefaults(**{"text_color": "magenta"})  # type: ignore
 
+    def test_material_is_not_a_config_field(self) -> None:
+        """material is a per-job decision, not a shop-level default."""
+        with pytest.raises(ValidationError):
+            JobDefaults(**{"material": "wb"})  # type: ignore
+
     def test_description_key_allowed(self) -> None:
         """A free-form description (like tools.json) is accepted."""
         assert JobDefaults(**_FULL_CONFIG, description="shop A").description == "shop A"
@@ -139,12 +145,14 @@ class TestJobDefaultsModel:
         assert "min_glyph_width" not in REQUIRED_WHEN_UNCONFIGURED
         assert "kerning_window_fraction" not in REQUIRED_WHEN_UNCONFIGURED
         assert "kerning_penetration_scale" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "kerning_recession_scale" not in REQUIRED_WHEN_UNCONFIGURED
         assert "kerning_min_gap" not in REQUIRED_WHEN_UNCONFIGURED
         assert "fallback_advance_fraction" not in REQUIRED_WHEN_UNCONFIGURED
         assert JobDefaults().space_width_fraction is None
         assert JobDefaults().min_glyph_width is None
         assert JobDefaults().kerning_window_fraction is None
         assert JobDefaults().kerning_penetration_scale is None
+        assert JobDefaults().kerning_recession_scale is None
         assert JobDefaults().kerning_min_gap is None
         assert JobDefaults().fallback_advance_fraction is None
 
@@ -191,9 +199,7 @@ class TestLoadJobConfig:
         with pytest.raises(JobConfigError, match="max_h_compress"):
             load_job_config(path)
 
-    def test_unreadable_file_raises(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_unreadable_file_raises(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """An OSError while reading is wrapped in JobConfigError."""
         path = _write_config(tmp_path, _FULL_CONFIG)
 
@@ -225,6 +231,7 @@ class TestApplyJobConfigDefaults:
         assert filled["min_glyph_width"] == 0.02
         assert filled["kerning_window_fraction"] == 0.15
         assert filled["kerning_penetration_scale"] == 1.5
+        assert filled["kerning_recession_scale"] == 0.0
         assert filled["kerning_min_gap"] == 0.05
         assert filled["fallback_advance_fraction"] == 0.9
 
@@ -587,6 +594,7 @@ class TestParseYamlWithJobConfig:
         assert job.min_glyph_width == 0.06
         assert job.kerning_window_fraction == 0.15
         assert job.kerning_penetration_scale == 1.0
+        assert job.kerning_recession_scale == 0.0
         assert job.kerning_min_gap == 0.02
         assert job.fallback_advance_fraction == 1.0
 

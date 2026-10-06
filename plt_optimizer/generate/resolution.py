@@ -70,8 +70,8 @@ DEFAULT_MAX_H_COMPRESS: float = 0.0
 # character_spacing``.
 DEFAULT_SPACE_WIDTH_FRACTION: float = 0.3
 # Global minimum glyph advance width (inches) for PLT-extracted fonts.
-# The profile-envelope kerning clamps the left glyph's right silhouette
-# outward to this floor; 0.0 means pure envelope kerning.
+# The profile-envelope kerning floors each pair's advance at this value,
+# capped by the left glyph's own width; 0.0 means pure envelope kerning.
 DEFAULT_MIN_GLYPH_WIDTH: float = 0.0
 # Kerning window (fraction of the rendered text height, in [0.0, 1.0])
 # for PLT-extracted fonts. Each envelope sample compares against the
@@ -83,6 +83,12 @@ DEFAULT_KERNING_WINDOW_FRACTION: float = 0.05
 # Multiplier on the detected windowed penetration (PLT-extracted fonts).
 # 1.0 keeps the geometric penetration; >1.0 over-kerns tight pairs.
 DEFAULT_KERNING_PENETRATION_SCALE: float = 1.0
+# Multiplier on a *recessed* (negative) detected penetration (PLT-extracted
+# fonts). 1.0 keeps the geometric recession (the historical linear
+# behaviour); 0.0 makes a recessed pair advance by nothing beyond the
+# min_glyph_width floor, so the penetration dial only tightens pairs whose
+# silhouettes overlap.
+DEFAULT_KERNING_RECESSION_SCALE: float = 1.0
 # Extra air (inches) added to every kerned pair advance on top of the
 # cutter + character-spacing clearance. 0.0 = no extra gap.
 DEFAULT_KERNING_MIN_GAP: float = 0.0
@@ -272,9 +278,11 @@ class ResolvedTextLine:
             ``DEFAULT_SPACE_WIDTH_FRACTION`` (0.3). Explicit ``0.0`` is
             honored; only ``None`` means unset.
         min_glyph_width: Global minimum glyph advance width in inches
-            (PLT-extracted fonts): the profile-envelope kerning clamps the
-            left glyph's right silhouette outward to this floor so
-            zero-width glyphs still reserve real air. Cascaded line ->
+            (PLT-extracted fonts): the profile-envelope kerning floors
+            each pair's advance at this value, capped by the left glyph's
+            own width, so zero-width glyphs still reserve real air without
+            thin-glyph pairs being inflated past their own silhouette.
+            Cascaded line ->
             label -> job, default ``DEFAULT_MIN_GLYPH_WIDTH`` (0.0 = pure
             envelope kerning). Explicit ``0.0`` is honored; only ``None``
             means unset.
@@ -291,6 +299,12 @@ class ResolvedTextLine:
             penetration (PLT-extracted fonts): 1.0 keeps the geometric
             penetration, >1.0 over-kerns tight pairs. Cascaded line ->
             label -> job, default ``DEFAULT_KERNING_PENETRATION_SCALE``
+            (1.0). Explicit ``0.0`` is honored; only ``None`` means unset.
+        kerning_recession_scale: Multiplier on a *recessed* (negative)
+            detected penetration (PLT-extracted fonts): 1.0 keeps the
+            geometric recession, 0.0 makes a recessed pair advance by
+            nothing beyond the ``min_glyph_width`` floor. Cascaded line ->
+            label -> job, default ``DEFAULT_KERNING_RECESSION_SCALE``
             (1.0). Explicit ``0.0`` is honored; only ``None`` means unset.
         kerning_min_gap: Extra air in inches added to every kerned pair
             advance on top of the clearance (PLT-extracted fonts).
@@ -318,6 +332,7 @@ class ResolvedTextLine:
     min_glyph_width: float = DEFAULT_MIN_GLYPH_WIDTH
     kerning_window_fraction: float = DEFAULT_KERNING_WINDOW_FRACTION
     kerning_penetration_scale: float = DEFAULT_KERNING_PENETRATION_SCALE
+    kerning_recession_scale: float = DEFAULT_KERNING_RECESSION_SCALE
     kerning_min_gap: float = DEFAULT_KERNING_MIN_GAP
     fallback_advance_fraction: float = DEFAULT_FALLBACK_ADVANCE_FRACTION
 
@@ -375,6 +390,13 @@ class ResolvedLabel:
             expansion). Pinned labels pack exclusively onto that plate,
             which then accepts no other labels. ``None`` (the default)
             packs normally across all plates.
+        material: Stock material name this label must be cut from (from
+            the ``material`` cascade, label -> job). Labels sharing a
+            material pack together and a plate never mixes materials (see
+            :func:`plt_optimizer.generate.layout.generate_layout`).
+            ``None`` (the default) means unset: the label groups with the
+            job-level material, and a job without materials packs exactly
+            like a single material group.
     """
 
     id: str
@@ -393,6 +415,7 @@ class ResolvedLabel:
     hole_cutter_diameter: float = DEFAULT_BOUNDARY_HOLE_CUTTER
     text_chunk_mode: str = "line"
     plate_id: Optional[str] = None
+    material: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -933,6 +956,15 @@ def _resolve_content(
         else:
             line_kerning_penetration_scale = DEFAULT_KERNING_PENETRATION_SCALE
 
+        if line.kerning_recession_scale is not None:
+            line_kerning_recession_scale: float = line.kerning_recession_scale
+        elif label_input.kerning_recession_scale is not None:
+            line_kerning_recession_scale = label_input.kerning_recession_scale
+        elif job.kerning_recession_scale is not None:
+            line_kerning_recession_scale = job.kerning_recession_scale
+        else:
+            line_kerning_recession_scale = DEFAULT_KERNING_RECESSION_SCALE
+
         if line.kerning_min_gap is not None:
             line_kerning_min_gap: float = line.kerning_min_gap
         elif label_input.kerning_min_gap is not None:
@@ -967,6 +999,7 @@ def _resolve_content(
                 min_glyph_width=line_min_glyph_width,
                 kerning_window_fraction=line_kerning_window_fraction,
                 kerning_penetration_scale=line_kerning_penetration_scale,
+                kerning_recession_scale=line_kerning_recession_scale,
                 kerning_min_gap=line_kerning_min_gap,
                 fallback_advance_fraction=line_fallback_advance_fraction,
             )
@@ -1057,6 +1090,14 @@ def _resolve_label(
     # LabelSpec.plate_id); a root-level job has no plate_id attribute.
     label_plate_id: Optional[str] = getattr(label_input, "plate_id", None)
 
+    # Stock material (cascades label -> job; both tiers carry the field, so
+    # a root-level job masquerading as a label resolves to its own value).
+    # ``None`` stays ``None``: unset labels group with the job-level material
+    # at packing time, and a fully unset job packs exactly like before.
+    label_material: Optional[str] = (
+        label_input.material if label_input.material is not None else job.material
+    )
+
     # Resolve text lines with cutter compensation
     resolved_content = _resolve_content(label_input, job, available_cutters, tolerance_factor)
 
@@ -1116,6 +1157,7 @@ def _resolve_label(
         hole_cutter_diameter=hole_cutter,
         text_chunk_mode=label_text_chunk_mode,
         plate_id=label_plate_id,
+        material=label_material,
     )
 
 

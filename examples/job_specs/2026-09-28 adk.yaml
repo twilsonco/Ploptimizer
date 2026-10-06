@@ -8,6 +8,8 @@ job:
   height: 4.0
   text_height: 0.22
   line_spacing: 0.3
+  font: dino
+  h_margin: 0.25
   content:
     - text: "!!! WARNING !!!"
       text_height: 0.5

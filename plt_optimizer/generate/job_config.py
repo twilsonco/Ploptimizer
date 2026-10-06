@@ -112,7 +112,10 @@ class JobDefaults(BaseModel):
             PLT-extracted fonts (space = fraction * text_height +
             character_spacing). Unset falls back to 0.3.
         min_glyph_width: Default global minimum glyph advance width in
-            inches for PLT-extracted fonts. Unset falls back to 0.0
+            inches for PLT-extracted fonts. The profile-envelope kerning
+            floors each pair's advance at this value, capped by the left
+            glyph's own width, so zero-width glyphs still reserve real air.
+            Unset falls back to 0.0
             (pure profile-envelope kerning).
         kerning_window_fraction: Default kerning window for PLT-extracted
             fonts, as a fraction of the rendered text height in
@@ -121,6 +124,10 @@ class JobDefaults(BaseModel):
         kerning_penetration_scale: Default multiplier on the detected
             windowed penetration for PLT-extracted fonts. Unset falls
             back to 1.0 (geometric).
+        kerning_recession_scale: Default multiplier on a *recessed*
+            (negative) detected penetration for PLT-extracted fonts.
+            Unset falls back to 1.0 (geometric); 0.0 makes a recessed
+            pair advance by nothing beyond the min_glyph_width floor.
         kerning_min_gap: Default extra air in inches added to every
             kerned pair advance for PLT-extracted fonts. Unset falls back
             to 0.0.
@@ -263,6 +270,16 @@ class JobDefaults(BaseModel):
             "Unset falls back to 1.0."
         ),
     )
+    kerning_recession_scale: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Default kerning recession multiplier for PLT-extracted fonts "
+            "(job layer); scales a negative (recessed) detected "
+            "penetration. Unset falls back to 1.0; 0.0 makes a recessed "
+            "pair advance by nothing beyond the min_glyph_width floor."
+        ),
+    )
     kerning_min_gap: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -384,6 +401,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "min_glyph_width",
     "kerning_window_fraction",
     "kerning_penetration_scale",
+    "kerning_recession_scale",
     "kerning_min_gap",
     "fallback_advance_fraction",
     "allow_rotation",

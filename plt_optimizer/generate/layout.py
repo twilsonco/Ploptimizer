@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 from dataclasses import dataclass, field, replace
 from typing import Mapping, Optional, Sequence
 
@@ -40,6 +41,7 @@ from plt_optimizer.generate.schema import (
     DEFAULT_LAYOUT_MODE,
     LayoutMode,
     PlateSpec,
+    material_key,
 )
 
 logger = logging.getLogger(__name__)
@@ -103,6 +105,11 @@ class PackedPlate:
             inches (see :attr:`PlateSpec.left_clearance`). Defaults to 0.0.
         top_clearance: Unused material height along the top edge in
             inches (see :attr:`PlateSpec.top_clearance`). Defaults to 0.0.
+        material: Stock material name this plate is cut from (see
+            :attr:`PlateSpec.material`). Labels are partitioned by
+            material at packing time, so a plate carries at most one
+            material (``None`` = unset/material-agnostic). Defaults to
+            ``None``.
         labels: List of labels placed on this plate.
     """
 
@@ -111,6 +118,7 @@ class PackedPlate:
     height: float
     left_clearance: float = 0.0
     top_clearance: float = 0.0
+    material: Optional[str] = None
     labels: list[PackedLabel] = field(default_factory=list)
 
 
@@ -258,6 +266,8 @@ def _extract_packed_plates(
     *,
     transpose: bool = False,
     clearances: Optional[Mapping[str, tuple[float, float]]] = None,
+    material: Optional[str] = None,
+    materials: Optional[Mapping[str, Optional[str]]] = None,
 ) -> list[PackedPlate]:
     """Translate ``rectpack`` results into typed ``PackedPlate`` objects.
 
@@ -275,6 +285,16 @@ def _extract_packed_plates(
             every placement is shifted by that pair (in real plate space,
             after any transpose mapping). Bins missing from the mapping
             get zero clearance.
+        material: Stock material name stamped onto every produced plate
+            (see :attr:`PackedPlate.material`). The packing passes run
+            per material group, so all plates produced by one pass share
+            the group's material. ``None`` (the default) leaves plates
+            material-agnostic.
+        materials: Optional mapping of bin id to the plate's own declared
+            material spelling. Constrained-mode passes use it so each
+            plate keeps its own spelling (a `wb(uv)` plate carrying
+            `WB(UV)` labels reports `wb(uv)`); bins missing from the
+            mapping fall back to ``material``.
 
     When ``transpose`` is set, each plate's instance ids are re-assigned
     onto the packed slots in text-oriented reading order before returning
@@ -287,6 +307,7 @@ def _extract_packed_plates(
         Empty bins (from auto-allocation) are discarded.
     """
     clearance_map: Mapping[str, tuple[float, float]] = clearances or {}
+    material_map: Mapping[str, Optional[str]] = materials or {}
     final_plates: list[PackedPlate] = []
     # Global pre-pack content-order index per instance id (4th rid element),
     # consumed by the reader-order reassignment in the transposed frame.
@@ -298,6 +319,7 @@ def _extract_packed_plates(
             continue
 
         left_clearance, top_clearance = clearance_map.get(bin_obj.bid, (0.0, 0.0))
+        bin_material = material_map.get(bin_obj.bid, material)
         if transpose:
             # The packer's bin was offered as (height, width); report the
             # real plate dimensions.
@@ -307,6 +329,7 @@ def _extract_packed_plates(
                 height=bin_obj.width,
                 left_clearance=left_clearance,
                 top_clearance=top_clearance,
+                material=bin_material,
             )
         else:
             plate = PackedPlate(
@@ -315,6 +338,7 @@ def _extract_packed_plates(
                 height=bin_obj.height,
                 left_clearance=left_clearance,
                 top_clearance=top_clearance,
+                material=bin_material,
             )
 
         for rect in bin_obj:
@@ -657,6 +681,8 @@ def _pack_group(
     allow_rotation: bool,
     layout: LayoutMode,
     clearances: Optional[Mapping[str, tuple[float, float]]] = None,
+    material: Optional[str] = None,
+    materials: Optional[Mapping[str, Optional[str]]] = None,
 ) -> list[PackedPlate]:
     """Pack rectangles onto one group of same-mode plates and extract plates.
 
@@ -673,6 +699,12 @@ def _pack_group(
         clearances: Optional bin-id to ``(left_clearance, top_clearance)``
             mapping applied to placements (see
             :func:`_extract_packed_plates`).
+        material: Stock material stamped onto every produced plate (see
+            :attr:`PackedPlate.material`). ``None`` (the default) keeps
+            plates material-agnostic.
+        materials: Optional bin-id to declared-material-spelling mapping
+            (falls back to ``material``); lets constrained-mode passes
+            keep each plate's own spelling.
 
     Returns:
         The non-empty ``PackedPlate`` objects produced by this packing pass.
@@ -687,6 +719,8 @@ def _pack_group(
         packer,
         transpose=layout == LayoutMode.COLUMNS,
         clearances=clearances,
+        material=material,
+        materials=materials,
     )
 
 
@@ -695,6 +729,7 @@ def _resolve_plate_groups(
     job_layout: LayoutMode,
     n_rectangles: int,
     default_plate_size: Optional[tuple[float, float]] = None,
+    bin_id_prefix: str = "",
 ) -> list[tuple[list[tuple[float, float, str]], LayoutMode]]:
     """Group plates into sequential same-mode packing passes.
 
@@ -718,6 +753,12 @@ def _resolve_plate_groups(
             auto-allocated unbounded bins (from ``job-config.json``
             ``plate_width`` / ``plate_height``). ``None`` uses
             :data:`DEFAULT_PLATE_WIDTH` x :data:`DEFAULT_PLATE_HEIGHT`.
+        bin_id_prefix: Prefix for auto-allocated bin ids (unbounded mode).
+            Material partitioning runs one unbounded pass per material
+            group, and each pass prefixes its bins (see
+            :func:`_material_bin_prefix`) so the material is identifiable
+            from the bin id and ids stay unique across groups. The empty
+            default reproduces the historical ``default_plate_{i}`` naming.
 
     Returns:
         Declaration-ordered ``(bin_specs, layout)`` groups.
@@ -728,7 +769,12 @@ def _resolve_plate_groups(
             DEFAULT_PLATE_HEIGHT,
         )
         default_bins = [
-            (default_width, default_height, f"default_plate_{i + 1}") for i in range(n_rectangles)
+            (
+                default_width,
+                default_height,
+                f"{bin_id_prefix}default_plate_{i + 1}",
+            )
+            for i in range(n_rectangles)
         ]
         return [(default_bins, job_layout)]
 
@@ -822,6 +868,122 @@ def _split_pinned_entries(
     return pinned
 
 
+def _split_material_entries(
+    entries: list[_RectEntry],
+) -> dict[Optional[str], list[_RectEntry]]:
+    """Group rectangle entries by their label's resolved material.
+
+    Labels declare a stock material via ``ResolvedLabel.material`` (the
+    ``material`` cascade, label -> job). Labels sharing a material pack
+    together and a plate never mixes materials, so the packing passes run
+    one pass per material group. Keys are the case-insensitive
+    :func:`~plt_optimizer.generate.schema.material_key` of the material
+    (``None`` = unset); insertion order preserves content order, which
+    also fixes the claim order for material-less plates.
+
+    Args:
+        entries: Real-space ``(pack_width, pack_height, rid)`` tuples.
+
+    Returns:
+        Mapping of material key to that group's entries, in first-
+        declaration order (empty input yields an empty mapping).
+    """
+    groups: dict[Optional[str], list[_RectEntry]] = {}
+    for entry in entries:
+        key = material_key(entry[2][1].material)
+        groups.setdefault(key, []).append(entry)
+    return groups
+
+
+def _group_display_material(entries: Sequence[_RectEntry]) -> Optional[str]:
+    """Return the first-declared spelling of a material group.
+
+    Grouping is case-insensitive, so the group's *display* name (stamped
+    onto packed plates and quoted in errors) is the first non-null
+    spelling seen in content order.
+
+    Args:
+        entries: The group's ``(pack_width, pack_height, rid)`` tuples.
+
+    Returns:
+        The first declared material spelling, or ``None`` when the group
+        is material-less.
+    """
+    for entry in entries:
+        if entry[2][1].material is not None:
+            return entry[2][1].material
+    return None
+
+
+def _material_bin_prefix(material: Optional[str]) -> str:
+    """Build the unbounded auto-bin id prefix for one material group.
+
+    Each material group runs its own unbounded pass over a fresh pool of
+    auto-allocated bins; prefixing the ids with the sanitized material
+    keeps them unique across groups and identifiable in reports.
+    Material-less groups keep the historical ``default_plate_{i}`` naming
+    (empty prefix).
+
+    Args:
+        material: The group's display material, or ``None`` (unset).
+
+    Returns:
+        Prefix ending in an underscore (e.g. ``"wbuv_"``), or ``""``.
+    """
+    if material is None:
+        return ""
+    sanitized = re.sub(r"[^0-9a-zA-Z]", "", material) or "x"
+    return f"{sanitized}_"
+
+
+def _claim_plates_by_material(
+    plates: Sequence[PlateSpec],
+    material_groups: Mapping[Optional[str], list[_RectEntry]],
+) -> dict[Optional[str], list[PlateSpec]]:
+    """Partition a pool of unpinned plates into per-material pools.
+
+    A plate declaring ``material`` joins exactly that group's pool; a
+    plate whose declared material matches no label group stays unused
+    (WARNING). Material-less plates are distributed across the groups
+    that have entries, each plate joining the group with the fewest
+    plates claimed so far (content order breaks ties): a plate carries
+    exactly one material, so a claimed plate accepts no other group, and
+    spreading the pool keeps every material group from starving. A single
+    group therefore claims the entire pool, exactly like the historical
+    no-material behaviour.
+
+    Args:
+        plates: Unpinned plates in declaration order.
+        material_groups: Content-ordered material-key to entries mapping
+            from :func:`_split_material_entries`.
+
+    Returns:
+        Mapping of material key to the plates claimed by that group
+        (declaration order preserved within each pool).
+    """
+    claimed: dict[Optional[str], list[PlateSpec]] = {key: [] for key in material_groups}
+    unclaimed: list[PlateSpec] = []
+    for plate in plates:
+        key = material_key(plate.material)
+        if key is None:
+            unclaimed.append(plate)
+        elif key in claimed:
+            claimed[key].append(plate)
+        else:
+            logger.warning(
+                "Plate '%s' declares material '%s' that no label uses; the plate stays unused.",
+                plate.id,
+                plate.material,
+            )
+    for plate in unclaimed:
+        target = min(
+            (key for key, entries in material_groups.items() if entries),
+            key=lambda key: len(claimed[key]),
+        )
+        claimed[target].append(plate)
+    return claimed
+
+
 def _pack_pinned_entries(
     pinned: Mapping[str, list[_RectEntry]],
     provided_plates: Optional[list[PlateSpec]],
@@ -873,12 +1035,31 @@ def _pack_pinned_entries(
         entries = pinned.get(plate.id)
         if not entries:
             continue
+        plate_key = material_key(plate.material)
+        if plate_key is not None:
+            conflicts = sorted(
+                {
+                    label_material
+                    for entry in entries
+                    if (label_material := entry[2][1].material) is not None
+                    and material_key(label_material) != plate_key
+                }
+            )
+            if conflicts:
+                raise LayoutFitError(
+                    f"Labels pinned to plate '{plate.id}' (material "
+                    f"'{plate.material}') carry conflicting material(s): "
+                    f"{', '.join(conflicts)}. A plate carries exactly one "
+                    "material: match the label materials to the plate or "
+                    "remove the pinning."
+                )
         plates = _pack_group(
             entries,
             [(plate.width, plate.height, plate.id)],
             allow_rotation,
             plate.layout or layout,
             clearances,
+            material=plate.material,
         )
         placed_ids = {packed.label_id for packed_plate in plates for packed in packed_plate.labels}
         leftover = [entry for entry in entries if entry[2][0] not in placed_ids]
@@ -901,13 +1082,19 @@ def _pack_entries_with_pinners(
     default_plate_size: Optional[tuple[float, float]],
     default_plate_clearance: Optional[tuple[float, float]],
 ) -> tuple[list[PackedPlate], list[_RectEntry]]:
-    """Pack entries honoring plate pinning, then normal packing.
+    """Pack entries honoring plate pinning, then material-partitioned packing.
 
     Pinned entries (see :func:`_split_pinned_entries`) pack first,
     exclusively onto their declaring plates; those plates are then
     removed from the pool so unpinned labels never share them. The
-    unpinned remainder packs exactly like the historical one-pass
-    behaviour (constrained groups or unbounded auto-allocation).
+    unpinned remainder is partitioned by ``ResolvedLabel.material`` (see
+    :func:`_split_material_entries`) and each material group packs in its
+    own pass: in constrained mode the plates are partitioned per material
+    (see :func:`_claim_plates_by_material`) so a plate carries exactly one
+    material; in unbounded mode each group auto-allocates its own bin pool
+    (material-prefixed ``default_plate_{i}`` ids). A job without materials
+    has exactly one ``None`` group, whose pass is bit-identical to the
+    historical one-pass behaviour.
 
     Args:
         rect_with_rid: All ``(pack_width, pack_height, rid)`` tuples.
@@ -920,26 +1107,24 @@ def _pack_entries_with_pinners(
 
     Returns:
         ``(packed_plates, leftover)`` where packed plates are pinned
-        plates first (declaration order) followed by the normal packing
-        result, and leftover holds only unpinned entries no plate could
-        place. Pinned-fit failures raise directly.
+        plates first (declaration order) followed by the material-group
+        packing results (group order, then plate order within a group),
+        and leftover holds only unpinned entries no plate could place.
+        Pinned-fit failures raise directly.
 
     Raises:
         LayoutFitError: If pinning is impossible (undeclared/absent
-            plates) or pinned labels do not fit their plates.
+            plates), pinned labels do not fit their plates, a material
+            group has no plate to pack onto, or a material group overflows
+            its claimed plates.
     """
     pinned = _split_pinned_entries(rect_with_rid)
     is_constrained = provided_plates is not None and len(provided_plates) > 0
 
-    groups = _resolve_plate_groups(
-        provided_plates, layout, len(rect_with_rid), default_plate_size=default_plate_size
-    )
-    clearances = _plate_clearances(provided_plates)
-    if not is_constrained:
-        clearances = _default_clearance_map(groups, default_plate_clearance)
+    all_clearances = _plate_clearances(provided_plates)
 
     pinned_plates = _pack_pinned_entries(
-        pinned, provided_plates, allow_rotation, layout, clearances
+        pinned, provided_plates, allow_rotation, layout, all_clearances
     )
 
     unpinned_entries = (
@@ -949,31 +1134,87 @@ def _pack_entries_with_pinners(
     )
     unpinned_plates: list[PackedPlate] = []
     leftover: list[_RectEntry] = []
-    if unpinned_entries:
-        if provided_plates is not None and is_constrained:
-            unpinned_provided: Optional[list[PlateSpec]] = [
-                plate for plate in provided_plates if plate.id not in pinned
-            ]
-            if not unpinned_provided:
+    if not unpinned_entries:
+        return pinned_plates + unpinned_plates, leftover
+
+    if is_constrained:
+        assert provided_plates is not None
+        unpinned_provided: Optional[list[PlateSpec]] = [
+            plate for plate in provided_plates if plate.id not in pinned
+        ]
+        assert unpinned_provided is not None
+        if not unpinned_provided:
+            raise LayoutFitError(
+                "Every declared plate is pinned to replacement-generated "
+                f"label(s) but {len(unpinned_entries)} unpinned label(s) "
+                "remain: declare an additional (unpinned) plate."
+            )
+        material_groups = _split_material_entries(unpinned_entries)
+        pools = _claim_plates_by_material(unpinned_provided, material_groups)
+        for key, entries in material_groups.items():
+            pool = pools[key]
+            if not pool:
+                display = _group_display_material(entries)
                 raise LayoutFitError(
-                    "Every declared plate is pinned to replacement-generated "
-                    f"label(s) but {len(unpinned_entries)} unpinned label(s) "
-                    "remain: declare an additional (unpinned) plate."
+                    f"{len(entries)} label(s) with material '{display}' have "
+                    "no plate to pack onto: every declared plate belongs to "
+                    "another material (materials never share a plate). "
+                    "Declare an additional plate for this material."
                 )
-        else:
-            unpinned_provided = provided_plates
-        unpinned_groups = _resolve_plate_groups(
-            unpinned_provided,
-            layout,
-            len(unpinned_entries),
-            default_plate_size=default_plate_size,
-        )
-        unpinned_plates, leftover = _pack_groups(
-            unpinned_entries,
-            unpinned_groups,
-            allow_rotation=allow_rotation,
-            clearances=clearances,
-        )
+            groups = _resolve_plate_groups(pool, layout, len(entries))
+            # Each plate keeps its own declared material spelling; plates
+            # that omitted it (claimed material-less) report the group's
+            # first-declared spelling.
+            group_display = _group_display_material(entries)
+            pool_materials: dict[str, Optional[str]] = {
+                plate.id: (plate.material if plate.material is not None else group_display)
+                for plate in pool
+            }
+            plates, group_leftover = _pack_groups(
+                entries,
+                groups,
+                allow_rotation=allow_rotation,
+                clearances=all_clearances,
+                material=group_display,
+                materials=pool_materials,
+            )
+            if group_leftover:
+                display = _group_display_material(entries)
+                if display is None:
+                    # Material-less group: propagate the leftover so the
+                    # callers raise the historical generic fit error
+                    # (bit-identical behaviour for jobs without materials).
+                    leftover.extend(group_leftover)
+                else:
+                    raise LayoutFitError(
+                        f"Could only fit {len(entries) - len(group_leftover)} of "
+                        f"{len(entries)} label(s) with material '{display}' on "
+                        f"its plate(s) ({', '.join(plate.id for plate in pool)}). "
+                        "Materials never share a plate: specify larger or "
+                        "additional plates for this material."
+                    )
+            unpinned_plates.extend(plates)
+    else:
+        material_groups = _split_material_entries(unpinned_entries)
+        for _key, entries in material_groups.items():
+            display = _group_display_material(entries)
+            groups = _resolve_plate_groups(
+                None,
+                layout,
+                len(entries),
+                default_plate_size=default_plate_size,
+                bin_id_prefix=_material_bin_prefix(display),
+            )
+            clearances = _default_clearance_map(groups, default_plate_clearance)
+            plates, group_leftover = _pack_groups(
+                entries,
+                groups,
+                allow_rotation=allow_rotation,
+                clearances=clearances,
+                material=display,
+            )
+            unpinned_plates.extend(plates)
+            leftover.extend(group_leftover)
 
     return pinned_plates + unpinned_plates, leftover
 
@@ -1012,6 +1253,8 @@ def _pack_groups(
     groups: list[tuple[list[tuple[float, float, str]], LayoutMode]],
     allow_rotation: bool,
     clearances: Optional[Mapping[str, tuple[float, float]]] = None,
+    material: Optional[str] = None,
+    materials: Optional[Mapping[str, Optional[str]]] = None,
 ) -> tuple[list[PackedPlate], list[_RectEntry]]:
     """Pack rectangles through sequential same-mode plate groups.
 
@@ -1028,6 +1271,11 @@ def _pack_groups(
         allow_rotation: Whether rotated candidates are considered.
         clearances: Optional bin-id to ``(left_clearance, top_clearance)``
             mapping (see :func:`_plate_clearances`).
+        material: Stock material stamped onto every produced plate (see
+            :attr:`PackedPlate.material`). ``None`` (the default) keeps
+            plates material-agnostic.
+        materials: Optional bin-id to declared-material-spelling mapping
+            forwarded to :func:`_pack_group`.
 
     Returns:
         A tuple of ``(packed_plates, leftover_rectangles)`` where
@@ -1040,7 +1288,15 @@ def _pack_groups(
     for bin_specs, group_layout in groups:
         if not remaining or not bin_specs:
             continue
-        plates = _pack_group(remaining, bin_specs, allow_rotation, group_layout, clearances)
+        plates = _pack_group(
+            remaining,
+            bin_specs,
+            allow_rotation,
+            group_layout,
+            clearances,
+            material,
+            materials,
+        )
         if not plates:
             continue
         placed_ids = {packed.label_id for plate in plates for packed in plate.labels}

@@ -281,6 +281,48 @@ class LayoutMode(str, Enum):
 DEFAULT_LAYOUT_MODE: LayoutMode = LayoutMode.COLUMNS
 
 
+def normalize_material(value: Optional[str]) -> Optional[str]:
+    """Normalize a ``material`` name (shared by every level declaring it).
+
+    Trims surrounding whitespace and rejects whitespace-only values. The
+    first-declared spelling is preserved for display; grouping uses
+    :func:`material_key` (case-insensitive).
+
+    Args:
+        value: The declared material name, or ``None`` (unset).
+
+    Returns:
+        The trimmed material name, or ``None`` when unset.
+
+    Raises:
+        ValueError: If the value is whitespace-only.
+    """
+    if value is None:
+        return None
+    trimmed = value.strip()
+    if not trimmed:
+        raise ValueError("'material' cannot be empty or whitespace-only")
+    return trimmed
+
+
+def material_key(value: Optional[str]) -> Optional[str]:
+    """Return the case-insensitive grouping key for a ``material`` name.
+
+    Two materials are considered the same when their keys match: the value
+    is trimmed and case-folded (``"WB(UV)"`` and ``"wb(uv)"`` group
+    together). ``None`` (unset) maps to ``None``.
+
+    Args:
+        value: A normalized material name, or ``None`` (unset).
+
+    Returns:
+        The case-folded key, or ``None`` when unset.
+    """
+    if value is None:
+        return None
+    return value.strip().casefold()
+
+
 class TextAttributes(BaseModel):
     """Attributes that can cascade down to individual text lines.
 
@@ -354,9 +396,11 @@ class TextAttributes(BaseModel):
             schema parity, where it is not applied at that level).
         min_glyph_width: Optional global minimum glyph advance width in
             inches for PLT-extracted fonts. The profile-envelope kerning
-            clamps the left glyph's right silhouette outward to this
-            floor, so zero-width glyphs (``!``, ``|``) still reserve real
-            air. Defaults to ``0.0`` (pure envelope kerning); only
+            floors each pair's advance at this value, capped by the left
+            glyph's own bounding-box width, so zero-width glyphs (``!``,
+            ``|``) still reserve real air without inflating thin-glyph
+            pairs past their own silhouette.
+            Defaults to ``0.0`` (pure envelope kerning); only
             ``None`` means unset. Cascades line -> label -> job (and is
             accepted on plates for schema parity, where it is not applied
             at that level).
@@ -379,6 +423,17 @@ class TextAttributes(BaseModel):
             unset. Cascades line -> label -> job (and is accepted on
             plates for schema parity, where it is not applied at that
             level).
+        kerning_recession_scale: Optional multiplier on a *recessed*
+            (negative) detected profile-envelope penetration for
+            PLT-extracted fonts. ``1.0`` keeps the geometric recession
+            (the historical linear behaviour, where lowering
+            ``kerning_penetration_scale`` also pulled gapped pairs
+            closer); ``0.0`` makes a recessed pair advance by nothing
+            beyond the ``min_glyph_width`` floor, so the penetration dial
+            only tightens pairs whose silhouettes overlap. Defaults to
+            ``1.0``; only ``None`` means unset. Cascades line -> label ->
+            job (and is accepted on plates for schema parity, where it is
+            not applied at that level).
         kerning_min_gap: Optional extra air in inches added to every
             kerned character pair advance for PLT-extracted fonts, on top
             of the cutter-diameter + character-spacing clearance.
@@ -511,6 +566,19 @@ class TextAttributes(BaseModel):
             "explicit 0.0 is honored (ignores detected closeness entirely)."
         ),
     )
+    kerning_recession_scale: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Multiplier on a *recessed* (negative) profile-envelope "
+            "penetration for PLT-extracted fonts: 1.0 keeps the geometric "
+            "recession (the historical linear behaviour, where lowering "
+            "kerning_penetration_scale also pulled gapped pairs closer), "
+            "0.0 makes a recessed pair advance by nothing beyond the "
+            "min_glyph_width floor. Cascades line -> label -> job "
+            "(fallback 1.0); explicit 0.0 is honored."
+        ),
+    )
     kerning_min_gap: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -617,6 +685,13 @@ class LabelAttributes(TextAttributes):
         holes: Optional list of hole specifications. Group locations
             (``corners`` / ``sides``) are expanded in place into their
             atomic member holes at validation time.
+        material: Optional stock material name (free-form string, e.g.
+            ``"wb"`` or ``"wb(uv)"``). Cascades job -> label (and job ->
+            plate, see :class:`PlateSpec`); ``None`` (the default) means
+            unset. Labels are grouped by material at packing time: labels
+            sharing a material pack together and a plate never mixes
+            materials. Comparison is case-insensitive and
+            whitespace-trimmed; the first-declared spelling is kept.
     """
 
     width: Optional[float] = Field(
@@ -667,6 +742,31 @@ class LabelAttributes(TextAttributes):
             "(an empty list suppresses holes). 'corners'/'sides' expand to members."
         ),
     )
+    material: Optional[str] = Field(
+        default=None,
+        description=(
+            "Stock material name (free-form, e.g. 'wb' or 'wb(uv)'); cascades "
+            "job -> label. Labels sharing a material pack together and a plate "
+            "never mixes materials. Comparison trims whitespace and ignores "
+            "case; unset (null) labels pack with the job-level material."
+        ),
+    )
+
+    @field_validator("material")
+    @classmethod
+    def _normalize_material(cls, value: Optional[str]) -> Optional[str]:
+        """Normalize the cascading ``material`` field.
+
+        Args:
+            value: The declared material name, or ``None`` (unset).
+
+        Returns:
+            The trimmed material name, or ``None`` when unset.
+
+        Raises:
+            ValueError: If the value is whitespace-only.
+        """
+        return normalize_material(value)
 
     @field_validator("holes", mode="after")
     @classmethod
@@ -784,6 +884,13 @@ class LabelSpec(LabelAttributes):
             :func:`plt_optimizer.generate.substitution.expand_job_spec`);
             it may also be declared directly to pin a static label to a
             specific sheet.
+        material: Optional stock material name (inherited from
+            :class:`LabelAttributes`). Cascades job -> label; labels
+            sharing a material pack together and never share a plate with
+            a different material. A plate-level ``replacement_text_file``
+            stamps the declaring plate's material onto its synthesized
+            labels (see
+            :func:`plt_optimizer.generate.substitution.expand_job_spec`).
     """
 
     id: str = Field(description="Unique identifier for this label specification.")
@@ -958,6 +1065,10 @@ class PlateSpec(BaseModel):
             Accepted for schema parity with the job/label
             ``kerning_penetration_scale`` cascade (not applied at plate
             level).
+        kerning_recession_scale: Optional recession multiplier. Accepted
+            for schema parity with the job/label
+            ``kerning_recession_scale`` cascade (not applied at plate
+            level).
         kerning_min_gap: Optional extra kerning air in inches. Accepted
             for schema parity with the job/label ``kerning_min_gap``
             cascade (not applied at plate level).
@@ -971,6 +1082,15 @@ class PlateSpec(BaseModel):
             applied at packing time: when plates declare different modes,
             same-mode plates pack in one sequential pass and leftovers
             cascade to the next group in declaration order.
+        material: Optional stock material name this plate is cut from
+            (free-form, e.g. ``"wb"``). Cascades job -> plate (an explicit
+            plate value wins; an explicit ``null`` counts as unset). Unlike
+            the parity-only fields, this one IS applied at packing time:
+            labels are partitioned by material and each material group
+            packs only onto plates claiming that material, so a plate
+            never mixes materials. A plate that omits material is claimed
+            by one material group (material-less plates spread across the
+            groups). Comparison trims whitespace and ignores case.
         replacement_text_file: Optional path to an EngraveLab/Vision
             Pro-style replacement text file (resolved relative to the job
             YAML directory unless absolute) whose lines each produce one
@@ -1068,6 +1188,14 @@ class PlateSpec(BaseModel):
             "penetration (schema parity; not applied at plate level)."
         ),
     )
+    kerning_recession_scale: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Kerning recession multiplier applied to a negative (recessed) "
+            "detected penetration (schema parity; not applied at plate level)."
+        ),
+    )
     kerning_min_gap: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -1095,6 +1223,17 @@ class PlateSpec(BaseModel):
     layout: Optional[LayoutMode] = Field(
         default=None,
         description="Per-plate fill-order override (None = inherit the job layout).",
+    )
+    material: Optional[str] = Field(
+        default=None,
+        description=(
+            "Stock material this plate is cut from (free-form, e.g. 'wb' or "
+            "'wb(uv)'); cascades job -> plate (an explicit plate value wins). "
+            "A plate carries exactly one material: labels whose material "
+            "matches pack onto it and no other material shares it. A plate "
+            "that omits material (null) is claimed by one material group. "
+            "Comparison trims whitespace and ignores case."
+        ),
     )
     replacement_text_file: Optional[str] = Field(
         default=None,
@@ -1146,6 +1285,22 @@ class PlateSpec(BaseModel):
             return None
         return normalize_font_name(value)
 
+    @field_validator("material")
+    @classmethod
+    def _normalize_material(cls, value: Optional[str]) -> Optional[str]:
+        """Normalize the plate ``material`` field like the cascading one.
+
+        Args:
+            value: The declared material name, or ``None`` (unset).
+
+        Returns:
+            The trimmed material name, or ``None`` when unset.
+
+        Raises:
+            ValueError: If the value is whitespace-only.
+        """
+        return normalize_material(value)
+
     @model_validator(mode="after")
     def _validate_replacement_fields(self) -> PlateSpec:
         """Enforce the plate-level replacement-file contract.
@@ -1173,16 +1328,18 @@ class PlateSpec(BaseModel):
         counts as unset: dropping the key lets the plate fall through to
         the job-level ``left_clearance`` / ``top_clearance`` cascade (see
         :meth:`JobSpec._apply_job_level_clearances`) or its own ``0.0``
-        default.
+        default. The same rule applies to ``material``: an explicit
+        ``null`` falls through to the job-level cascade (see
+        :meth:`JobSpec._apply_job_level_materials`) or stays unset.
 
         Args:
             data: Raw input mapping (or any other input, passed through).
 
         Returns:
-            The mapping with null clearance keys removed.
+            The mapping with null clearance/material keys removed.
         """
         if isinstance(data, dict):
-            for key in ("left_clearance", "top_clearance"):
+            for key in ("left_clearance", "top_clearance", "material"):
                 if data.get(key) is None:
                     data = {k: v for k, v in data.items() if k != key}
         return data
@@ -1407,6 +1564,31 @@ class JobSpec(LabelAttributes):
             if self.top_clearance is not None and "top_clearance" not in plate.model_fields_set:
                 fill["top_clearance"] = self.top_clearance
             updated_plates.append(plate.model_copy(update=fill) if fill else plate)
+        self.plates = updated_plates
+        return self
+
+    @model_validator(mode="after")
+    def _apply_job_level_materials(self) -> JobSpec:
+        """Cascade the job-level ``material`` onto plates that omit it.
+
+        Mirrors :meth:`_apply_job_level_clearances`: an explicit plate
+        value always wins (an explicit ``null`` counts as unset, see
+        :meth:`PlateSpec._drop_null_clearances`); plates that omit
+        ``material`` inherit the job-level value when set. Without a
+        job-level value, plates keep ``None`` (material-agnostic), so
+        existing specs are unaffected.
+
+        Returns:
+            Self for method chaining.
+        """
+        if self.plates is None or self.material is None:
+            return self
+        updated_plates: list[PlateSpec] = []
+        for plate in self.plates:
+            if "material" not in plate.model_fields_set:
+                updated_plates.append(plate.model_copy(update={"material": self.material}))
+            else:
+                updated_plates.append(plate)
         self.plates = updated_plates
         return self
 

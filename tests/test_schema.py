@@ -31,6 +31,8 @@ from plt_optimizer.generate.schema import (
     TextColor,
     TextHAlignment,
     TextLine,
+    material_key,
+    normalize_material,
     parse_yaml,
 )
 
@@ -1544,3 +1546,158 @@ class TestLabelPlateIdReference:
                 job_name="J",
                 labels=[LabelSpec(id="l1", width=2.0, height=1.0, content=[TextLine(text="X")], plate_id="p1")],
             )
+
+
+class TestMaterialField:
+    """The cascading ``material`` field (job -> plate -> label)."""
+
+    @staticmethod
+    def _job(plates: list[PlateSpec], **kwargs: object) -> JobSpec:
+        """Build a minimal job with the given plates and job-level overrides."""
+        return JobSpec(
+            job_name="Material Job",
+            width=2.0,
+            height=1.0,
+            plates=plates,
+            labels=[LabelSpec(id="l1", width=2.0, height=1.0, content=[TextLine(text="X")])],
+            **kwargs,  # type: ignore[arg-type]
+        )
+
+    def test_defaults_to_none_everywhere(self) -> None:
+        """Job, label and plate all default material to None (unset)."""
+        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        assert job.material is None
+        assert LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")]).material is None
+        assert PlateSpec(id="p", width=24.0, height=16.0).material is None
+
+    def test_inherited_on_label_and_job_tiers_only(self) -> None:
+        """material lives on LabelAttributes (label + job), never on TextLine."""
+        assert "material" in LabelAttributes.model_fields
+        assert "material" in JobSpec.model_fields
+        assert "material" in PlateSpec.model_fields
+        assert "material" not in TextLine.model_fields
+        assert "material" not in TextAttributes.model_fields
+
+    def test_free_form_strings_accepted(self) -> None:
+        """Any non-empty string is a valid material (no vocabulary)."""
+        for value in ("wb", "wb(uv)", "3-layer black", "ALUMINUM 0.060"):
+            label = LabelSpec(
+                id="l", width=2.0, height=1.0, content=[TextLine(text="X")], material=value
+            )
+            assert label.material == value
+
+    def test_whitespace_trimmed(self) -> None:
+        """Surrounding whitespace is trimmed at validation."""
+        label = LabelSpec(
+            id="l", width=2.0, height=1.0, content=[TextLine(text="X")], material="  wb  "
+        )
+        assert label.material == "wb"
+
+    def test_blank_material_rejected(self) -> None:
+        """Empty / whitespace-only material is a validation error."""
+        for value in ("", "   ", "\t"):
+            with pytest.raises(ValidationError, match="whitespace-only"):
+                LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")], material=value)
+            with pytest.raises(ValidationError, match="whitespace-only"):
+                PlateSpec(id="p", width=24.0, height=16.0, material=value)
+
+    def test_job_value_cascades_to_plates_omitting_it(self) -> None:
+        """Plates without an explicit material inherit the job-level value."""
+        job = self._job([PlateSpec(id="p1", width=24.0, height=16.0)], material="wb")
+        assert job.plates is not None
+        assert job.plates[0].material == "wb"
+
+    def test_explicit_plate_material_wins(self) -> None:
+        """An explicit plate material always beats the job-level value."""
+        job = self._job(
+            [
+                PlateSpec(id="p1", width=24.0, height=16.0, material="wb(uv)"),
+                PlateSpec(id="p2", width=24.0, height=16.0),
+            ],
+            material="wb",
+        )
+        assert job.plates is not None
+        assert job.plates[0].material == "wb(uv)"
+        assert job.plates[1].material == "wb"
+
+    def test_plate_null_material_inherits_job_value(self) -> None:
+        """An explicit plate ``null`` material is unset semantics: inherit."""
+        job = JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            material="wb",
+            plates=[{"id": "p1", "width": 24.0, "height": 16.0, "material": None}],
+            labels=[LabelSpec(id="l1", width=2.0, height=1.0, content=[TextLine(text="X")])],
+        )
+        assert job.plates is not None
+        assert job.plates[0].material == "wb"
+
+    def test_no_job_material_keeps_plate_unset(self) -> None:
+        """Without a job-level material, plates stay material-agnostic."""
+        job = self._job([PlateSpec(id="p1", width=24.0, height=16.0)])
+        assert job.plates is not None
+        assert job.plates[0].material is None
+
+    def test_input_plates_are_not_mutated(self) -> None:
+        """The job -> plate cascade copies plates instead of mutating input."""
+        plate = PlateSpec(id="p1", width=24.0, height=16.0)
+        self._job([plate], material="wb")
+        assert plate.material is None
+
+    def test_parse_yaml_materials(self, tmp_path: Path) -> None:
+        """Job- and label-level materials survive a YAML round trip."""
+        spec = tmp_path / "job.yaml"
+        spec.write_text(
+            """
+job:
+  job_name: Materials
+  width: 3.0
+  height: 1.0
+  material: wb
+  plates:
+    - id: p1
+      width: 24.0
+      height: 16.0
+    - id: p2
+      width: 24.0
+      height: 16.0
+      material: wb(uv)
+  labels:
+    - id: plain
+      content:
+        - text: A
+    - id: uv
+      material: wb(uv)
+      content:
+        - text: B
+""",
+            encoding="utf-8",
+        )
+        job = parse_yaml(spec)
+        assert job.material == "wb"
+        assert job.plates is not None
+        assert [p.material for p in job.plates] == ["wb", "wb(uv)"]
+        assert job.labels is not None
+        assert job.labels[0].material is None
+        assert job.labels[1].material == "wb(uv)"
+
+
+class TestMaterialHelpers:
+    """Unit tests for the shared material normalization helpers."""
+
+    def test_normalize_material(self) -> None:
+        """normalize_material trims and passes None through."""
+        assert normalize_material(None) is None
+        assert normalize_material(" wb(uv) ") == "wb(uv)"
+
+    def test_normalize_material_rejects_blank(self) -> None:
+        """Blank values raise (they would create anonymous groups)."""
+        with pytest.raises(ValueError, match="whitespace-only"):
+            normalize_material("   ")
+
+    def test_material_key_is_case_insensitive(self) -> None:
+        """Grouping keys trim and case-fold; None maps to None."""
+        assert material_key(" WB(UV) ") == material_key("wb(uv)")
+        assert material_key(None) is None
+        assert material_key("wb") != material_key("wb(uv)")

@@ -83,9 +83,15 @@ JobSpec (job-level defaults)
   glyphs anchor on the baseline (descenders hang below), the reference
   character scales to exactly `text_height`, and adjacent glyphs inside a
   word are **profile-envelope kerned** — origin-to-origin advance =
-  windowed silhouette penetration × `kerning_penetration_scale` +
-  clearance `cutter_diameter + character_spacing + kerning_min_gap` (no
-  fixed height fudge). The window `kerning_window_fraction` (fraction of
+  `max(scaled penetration, advance floor)` + clearance
+  `cutter_diameter + character_spacing + kerning_min_gap` (no fixed height
+  fudge). The scaled penetration is the windowed silhouette penetration ×
+  `kerning_penetration_scale` when non-negative, × `kerning_recession_scale`
+  when negative (a recessed pair); the advance floor is
+  `min(left glyph width, min_glyph_width)`, so a tight pair can never be
+  kerned below the left glyph's own width (zero-width glyphs floor at 0.0
+  and get their air from the clearance). The window
+  `kerning_window_fraction` (fraction of
   text height, default 0.05) makes each envelope sample compare against
   the deepest opposing sample within ±half the window (staggered pokes
   count), then takes the maximum of those windowed penetrations — the
@@ -114,8 +120,10 @@ JobSpec (job-level defaults)
   schema parity only); `job-config.json` supplies the shop default.
 - `min_glyph_width`: Global minimum glyph advance width in inches for PLT
   fonts (`ge=0.0`, default `None` → **0.0** = pure envelope kerning). The
-  envelope kerning clamps the left glyph's right silhouette outward to this
-  floor so zero-width glyphs (`!`, `|`) still reserve real air. Cascades
+  envelope kerning floors each pair's advance at this value, **capped by
+  the left glyph's own bounding-box width** (`min(left_width, floor)`), so
+  a thin glyph is never pushed past its own extent and a zero-width glyph
+  (`!`, `|`) floors at 0.0 (its air comes from the clearance). Cascades
   line → label → job (accepted on plates for schema parity only);
   `job-config.json` supplies the shop default.
 - `kerning_window_fraction`: Profile-envelope kerning window for PLT fonts
@@ -129,10 +137,21 @@ JobSpec (job-level defaults)
   plates for schema parity only); `job-config.json` supplies the shop
   default.
 - `kerning_penetration_scale`: Multiplier on the detected windowed
-  penetration for PLT fonts (`ge=0.0`, default `None` → **1.0** =
-  geometric; `>1.0` over-kerns tight pairs proportionally, e.g. a
-  detected 0.2" poke costs 0.3" of advance at 1.5). Cascades
-  line → label → job (accepted on plates for schema parity only);
+  penetration for PLT fonts, applied only to **non-negative** penetration
+  (`ge=0.0`, default `None` → **1.0** = geometric; `>1.0` over-kerns tight
+  pairs proportionally, e.g. a detected 0.2" poke costs 0.3" of advance at
+  1.5). Recessed (negative-penetration) pairs use `kerning_recession_scale`
+  instead, so tightening tight pairs never pulls gapped pairs together.
+  Cascades line → label → job (accepted on plates for schema parity only);
+  `job-config.json` supplies the shop default.
+- `kerning_recession_scale`: Multiplier on the detected windowed
+  penetration for PLT fonts, applied only to **negative** penetration —
+  pairs whose silhouettes are recessed (a gap, e.g. `,4`) (`ge=0.0`,
+  default `None` → **1.0** = geometric; `0.0` neutralises recessed pairs to
+  bare clearance, `>1.0` pushes them further apart). The advance floor
+  `min(left_width, min_glyph_width)` keeps the result non-negative, so a
+  recessed pair's origin never moves left of the left glyph's width.
+  Cascades line → label → job (accepted on plates for schema parity only);
   `job-config.json` supplies the shop default.
 - `kerning_min_gap`: Extra air in inches added to every kerned pair
   advance for PLT fonts, on top of the `cutter_diameter +
@@ -500,7 +519,10 @@ already knows each toolpath's kind, the `Profiler` is skipped entirely.
   **removed**; optimization now happens pre-write in plate space.
 
 ### Cascading Resolution
-When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.15), `space_width_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.3), `min_glyph_width` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `kerning_window_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.05), `kerning_penetration_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_min_gap` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `fallback_advance_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0).
+When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.15), `space_width_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.3), `min_glyph_width` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `kerning_window_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.05), `kerning_penetration_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_recession_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_min_gap` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `fallback_advance_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0). `material` cascades label → job (and plate →
+job via the clearance-style plate cascade): an explicit label/plate value wins,
+an explicit `null` counts as unset, and empty-after-trim strings are validation
+errors.
 
 ### Stroke-Color Toolpath Splitting (`text_color`)
 
@@ -521,9 +543,9 @@ by a `JobSpec` validator. It is also absent from `PlateSpec` and
   that tuple: smallest layer keeps SP1, rest SP4+ (SP2/SP3 reserved). Jobs
   without colors produce the historical cutter-only assignment bit-identically.
 - `export_per_cutter_plts` writes one text file per `(cutter, color)` pen;
-  colored layers gain their 1-letter suffix (`01_txt_0.040_m_<job>.plt`),
-  colorless jobs keep the historical names. The `bh` structural file is
-  never tagged.
+  colored layers gain their 1-letter suffix (`0.040_m_txt_<job>.plt`),
+  colorless jobs keep the plain cutter-first names. The `bh` structural file
+  is never tagged.
 
 ### Bin-Packing Rotation (`allow_rotation`)
 `JobSpec.allow_rotation` (bool, default `True`) lets the `rectpack` bin
@@ -653,6 +675,44 @@ behaviour. `_plate_clearances` builds the per-bin-id `(left, top)` map
 (omitting all-zero plates) that `_pack_groups` → `_pack_group` →
 `_extract_packed_plates` threads through.
 
+### Material Partitioned Packing (`material`)
+
+`material` (free-form string, default `null`) groups labels by the stock they
+are cut from, so one job YAML can carry a mixed-material batch. Declared on
+`LabelAttributes` (cascades label → job, inherited by `LabelSpec` and
+`JobSpec`; NOT on `TextLine`/`TextAttributes`) and on `PlateSpec` (cascades
+plate → job like the clearances; an explicit plate `null` counts as unset).
+`normalize_material` trims and rejects empty/whitespace-only names; matching
+uses `material_key` (trim + casefold) while the first-declared spelling is kept
+for display. Not a `job-config.json` key — per-job decision only.
+
+- `PackedPlate.material` carries the plate's material out of the layout engine;
+  `_split_material_entries` groups entries by material key (insertion order =
+  content order) and `_pack_entries_with_pinners` runs **one packing pass per
+  material**: materials never share a plate.
+- Constrained mode: plates declaring `material` join exactly their group's pool
+  (`_claim_plates_by_material`); a declared material no label uses leaves the
+  plate unused (WARNING); material-less plates spread across the groups
+  (fewest-claimed first, declaration order as tie-break) so no group starves.
+  A group with no pool aborts with `LayoutFitError` ("no plate to pack onto"),
+  a group that overflows its pool aborts with "Materials never share a plate"
+  (no partial leftover propagates). Pinned labels whose materials conflict
+  with their plate's material abort ("carry conflicting material").
+- Unbounded mode: one auto-allocated bin pool per material,
+  `<sanitized>_default_plate_{i}` (sanitized = `[^0-9A-Za-z]` stripped; the
+  display material is the group's first-declared spelling).
+- Plate-level `replacement_text_file` labels inherit the declaring plate's
+  material at expansion (`substitution`), the only point where the plate →
+  label direction is applied (labels resolve before plate assignment).
+- Output filenames gain the material tag (see §7): `wbuv_0.045_txt_<job>.plt`.
+- A material-less job is one `None` group: bit-identical to the historical
+  single-pass packing (constrained leftovers keep the generic error, unbounded
+  bins keep `default_plate_{i}` ids).
+- Example fixture: `tests_deps/material_demo_job.yaml` (pinned by
+  `tests/test_layout.py::TestMaterialDemoExample` and
+  `tests/test_phase3_export.py::TestMaterialDemoExample`) — two materials, one
+  plate each, plus a magenta deep-engraved layer on the uv sheet.
+
 ### Integration Points
 - `parse_yaml(file_path)` returns a `JobSpec` ready for downstream bin-packing and rendering pipelines
 - `expand_job_spec(job, yaml_path)` (substitution.py) must run immediately after `parse_yaml()` before `resolve_job_spec()` to flatten replacement-driven labels
@@ -672,6 +732,7 @@ top-most layer:
   `margin`, `hole_margin`, `min_hole_margin`, `hole_text_collision_distance`,
   `max_h_compress`, `text_h_alignment`, `space_width_fraction`,
   `min_glyph_width`, `kerning_window_fraction`, `kerning_penetration_scale`,
+  `kerning_recession_scale`,
   `kerning_min_gap`, `fallback_advance_fraction`, `holes`, `allow_rotation`,
   `text_chunk_mode`, `layout`) fill missing **job-level** keys; the existing
   label -> job cascade then works unchanged and YAML values always win (an
@@ -738,8 +799,11 @@ rapid-travel plots), `--tools` (default `tools.json`; missing file → ideal
 cutters), `--job-config` (default `job-config.json`; top-layer job defaults and
 the required-when-unconfigured gate, see section 6), `--fast-mode` (plate-space
 routing via `NearestNeighbor2Opt` instead of the default `ParallelEnsemble`). File names:
-`<2-digit plate>_{txt|bh}_<cutter>_<job_id>.<plt|pdf>` plus combined
-`<plate>_all_<job_id>.pdf`. Simple-outline PDFs style strokes by toolpath kind:
+`[<2-digit plate>_][<material>_]<cutter>[_<color>]_{txt|bh}_<job_id>.<plt|pdf>`
+plus combined `[<2-digit plate>_][<material>_]all_<job_id>.pdf`. The plate
+number appears only on multi-plate jobs (its presence signals more than one
+sheet); the material tag appears only for material-declared output.
+Simple-outline PDFs style strokes by toolpath kind:
 purely structural (`bh`) plots use `linewidth=2.0`/`alpha=0.3`; text and mixed
 combined (`all`) plots use `linewidth=1.0`/`alpha=1.0` (via
 `plot_plt_document(..., is_structural=...)`). Logs go to `./logs_generate/generate.log`.

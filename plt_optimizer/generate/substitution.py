@@ -56,7 +56,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from plt_optimizer.generate.schema import JobSpec, LabelSpec, PlateSpec, TextLine
 
@@ -389,9 +389,15 @@ def _expand_plate_level_replacements(job: JobSpec, base_dir: Path) -> JobSpec:
             replacement_text_delimiter=plate.replacement_text_delimiter,
         )
         instances = expand_label_with_replacements(template, base_dir)
-        generated.extend(
-            instance.model_copy(update={"plate_id": plate.id}) for instance in instances
-        )
+        # Pinned labels inherit the declaring plate's material (the one true
+        # plate -> label cascade: labels resolve before plate assignment, so
+        # the plate tier can only be applied here). The job -> plate cascade
+        # already filled plate.material, so an unset plate material means the
+        # job value, which the label -> job cascade would resolve to anyway.
+        plate_update: dict[str, Any] = {"plate_id": plate.id}
+        if plate.material is not None:
+            plate_update["material"] = plate.material
+        generated.extend(instance.model_copy(update=plate_update) for instance in instances)
         logger.info(
             "Plate '%s': replacement file produced %d pinned label(s).",
             plate.id,

@@ -1,0 +1,60 @@
+# 2026-10-06
+# SEER 2963 Equip. Labels
+job:
+  job_name: SEER 2963
+  font: dino
+  material: wb
+  
+  labels:
+    - id: case tags
+      width: 3
+      height: 1
+      text_height: 0.75
+      replacement_text_file: 2026-10-06 seer 1x3.txt
+      holes:
+        - location: sides
+    - id: alarm placard
+      width: 10
+      height: 2
+      text_height: 0.5
+      content:
+        - text: "REFRIGERATION ALARM"
+        - text: "CONTACT STORE MANAGER"
+    - id: equipment labels
+      count: 6
+      width: 4
+      height: 2
+      text_height: 1.25
+      holes:
+        - location: sides
+      content:
+        - text: "R507"
+    - id: 8x8 placard
+      material: wb(uv)
+      width: 8
+      height: 8
+      text_height: 1
+      h_margin: 0.5
+      holes:
+        - location: sides
+      content:
+        - text: "AHU1"
+        - text: "MFG. 01/2015"
+        - text: "Ckt 1: 68lbs. R407C"
+        - text: "Ckt 2: 64lbs. R407C"
+        - text: "Ckt 3: 90lbs. R407C"
+        - text: "Ckt 4: 95lbs. R407C"
+    - id: 7x5.33 placards
+      material: wb(uv)
+      width: 7
+      height: 5.33
+      text_height: 1
+      replacement_text_file: 2026-10-06 seer 7x5.33.txt
+      holes:
+        - location: sides
+      content:
+        - text: "AHU2"
+          placeholder: true
+        - text: "Mfg. 04/2013"
+        - text: "Ckt 1: 70lbs. R407C"
+          placeholder: true

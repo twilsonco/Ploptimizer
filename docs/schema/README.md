@@ -182,6 +182,7 @@ always wins at its level. Precedence per attribute:
 | `holes` | label (replaces job list entirely; `[]` suppresses) → job → config | none |
 | `layout`, `allow_rotation`, `text_chunk_mode` | job → config | `columns` / `true` / `line` |
 | `layout` (per plate) | plate → job → config | — |
+| `material` | label → job; plate → job | `null` (unset) |
 | `left_clearance`, `top_clearance` | plate → job → config | 0.0 |
 | plate `width`/`height` | plate → config (`plate_width`/`plate_height`) | 24×16 (unbounded auto-allocation only) |
 
@@ -209,6 +210,13 @@ entries that omit it).
   sequential same-mode groups.
 - **`allow_rotation` (default true)**: labels rotate 90° CW only when it
   strictly improves used area; ties keep all-horizontal.
+- **`material` (default null)**: free-form stock name grouping labels into
+  independent packing passes — labels sharing a material pack together and
+  a plate carries exactly one material (matching is trim + casefold; the
+  first-declared spelling wins for display). Material-less plates spread
+  across the material groups; material-less jobs pack in one pass exactly
+  as before. Unbounded mode allocates one auto-bin pool per material
+  (`<material>_default_plate_{i}`). Not a `job-config.json` key.
 - **Per-plate typographic fields** (`hole_margin`, `max_h_compress`,
   `text_h_alignment`, `min_hole_margin`, `hole_text_collision_distance`) are
   accepted on plates for schema parity but **not applied** at plate level —

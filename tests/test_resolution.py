@@ -15,6 +15,7 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_HOLE_TEXT_COLLISION_DISTANCE,
     DEFAULT_KERNING_MIN_GAP,
     DEFAULT_KERNING_PENETRATION_SCALE,
+    DEFAULT_KERNING_RECESSION_SCALE,
     DEFAULT_KERNING_WINDOW_FRACTION,
     DEFAULT_LINE_SPACING,
     DEFAULT_MARGIN,
@@ -627,8 +628,7 @@ class TestResolvedDataclasses:
     def test_default_factories(self) -> None:
         """ResolvedLabel should have empty default lists."""
         label = ResolvedLabel(
-            id="x", count=1, width=1.0, height=1.0, margin=0.1,
-            h_margin=0.1, v_margin=0.1
+            id="x", count=1, width=1.0, height=1.0, margin=0.1, h_margin=0.1, v_margin=0.1
         )
         assert label.holes == []
         assert label.content == []
@@ -1466,8 +1466,7 @@ class TestMinHoleMarginCascade:
     def test_resolved_label_defaults(self) -> None:
         """Manually constructed ResolvedLabel defaults for the new fields."""
         label = ResolvedLabel(
-            id="x", count=1, width=1.0, height=1.0, margin=0.1,
-            h_margin=0.1, v_margin=0.1
+            id="x", count=1, width=1.0, height=1.0, margin=0.1, h_margin=0.1, v_margin=0.1
         )
         assert label.min_hole_margin is None
         assert label.collision_compress_by_line == {}  # Empty dict means no per-line compression
@@ -1561,8 +1560,7 @@ class TestHoleTextCollisionDistanceCascade:
     def test_resolved_label_defaults(self) -> None:
         """Manually constructed ResolvedLabel defaults for the new fields."""
         label = ResolvedLabel(
-            id="x", count=1, width=1.0, height=1.0, margin=0.1,
-            h_margin=0.1, v_margin=0.1
+            id="x", count=1, width=1.0, height=1.0, margin=0.1, h_margin=0.1, v_margin=0.1
         )
         assert math.isclose(label.hole_text_collision_distance, 0.15)
         assert math.isclose(label.hole_cutter_diameter, DEFAULT_BOUNDARY_HOLE_CUTTER)
@@ -1729,8 +1727,14 @@ class TestBuildCutterPenMap:
             ),
         ]
         label = ResolvedLabel(
-            id="colors", count=1, width=2.0, height=1.0, margin=0.1,
-            h_margin=0.1, v_margin=0.1, content=content
+            id="colors",
+            count=1,
+            width=2.0,
+            height=1.0,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+            content=content,
         )
         pen_map = build_cutter_pen_map([label])
         assert len(pen_map) == 3
@@ -1783,8 +1787,7 @@ class TestTextChunkModeCascade:
     def test_resolved_label_defaults_to_line(self) -> None:
         """Manually constructed ResolvedLabel defaults to 'line'."""
         label = ResolvedLabel(
-            id="x", count=1, width=1.0, height=1.0, margin=0.1,
-            h_margin=0.1, v_margin=0.1
+            id="x", count=1, width=1.0, height=1.0, margin=0.1, h_margin=0.1, v_margin=0.1
         )
         assert label.text_chunk_mode == "line"
 
@@ -1806,9 +1809,7 @@ class TestSpaceWidthFractionCascade:
             ],
         )
         label = resolve_job_spec(job)[0]
-        assert math.isclose(
-            label.content[0].space_width_fraction, DEFAULT_SPACE_WIDTH_FRACTION
-        )
+        assert math.isclose(label.content[0].space_width_fraction, DEFAULT_SPACE_WIDTH_FRACTION)
 
     def test_job_value_used_when_label_omits(self) -> None:
         """Job-level value cascades to the line."""
@@ -2081,12 +2082,18 @@ class TestKerningSpacingKnobCascades:
     def test_module_defaults_are_neutral(self) -> None:
         """The shipped defaults leave the kerning math unchanged."""
         assert DEFAULT_KERNING_PENETRATION_SCALE == 1.0
+        assert DEFAULT_KERNING_RECESSION_SCALE == 1.0
         assert DEFAULT_KERNING_MIN_GAP == 0.0
         assert DEFAULT_FALLBACK_ADVANCE_FRACTION == 1.0
 
     @pytest.mark.parametrize(
         "field",
-        ["kerning_penetration_scale", "kerning_min_gap", "fallback_advance_fraction"],
+        [
+            "kerning_penetration_scale",
+            "kerning_recession_scale",
+            "kerning_min_gap",
+            "fallback_advance_fraction",
+        ],
     )
     def test_cascade_precedence(self, field: str) -> None:
         """Job fills the line; label beats job; line beats label; 0.0 wins."""
@@ -2123,6 +2130,7 @@ class TestKerningSpacingKnobCascades:
         )
         defaults = {
             "kerning_penetration_scale": DEFAULT_KERNING_PENETRATION_SCALE,
+            "kerning_recession_scale": DEFAULT_KERNING_RECESSION_SCALE,
             "kerning_min_gap": DEFAULT_KERNING_MIN_GAP,
             "fallback_advance_fraction": DEFAULT_FALLBACK_ADVANCE_FRACTION,
         }
@@ -2135,7 +2143,12 @@ class TestKerningSpacingKnobCascades:
 
     @pytest.mark.parametrize(
         "field",
-        ["kerning_penetration_scale", "kerning_min_gap", "fallback_advance_fraction"],
+        [
+            "kerning_penetration_scale",
+            "kerning_recession_scale",
+            "kerning_min_gap",
+            "fallback_advance_fraction",
+        ],
     )
     def test_negative_rejected(self, field: str) -> None:
         """The knobs are non-negative (ge=0.0) at every level."""
@@ -2143,3 +2156,64 @@ class TestKerningSpacingKnobCascades:
             TextLine(text="X", **{field: -0.1})  # type: ignore[arg-type]
         with pytest.raises(ValidationError):
             JobSpec(job_name="J", **{field: -0.1})  # type: ignore[arg-type]
+
+
+class TestMaterialCascade:
+    """material must cascade label -> job -> None (no default)."""
+
+    def test_default_is_none(self) -> None:
+        """Unset material resolves to None (material-agnostic)."""
+        job = JobSpec(
+            job_name="M",
+            labels=[
+                LabelSpec(id="lbl", count=1, width=2.0, height=1.0, content=[TextLine(text="X")]),
+            ],
+        )
+        assert resolve_job_spec(job)[0].material is None
+
+    def test_job_value_cascades(self) -> None:
+        """Job-level material applies to every label that omits it."""
+        job = JobSpec(
+            job_name="M",
+            material="wb",
+            labels=[
+                LabelSpec(id="lbl", count=1, width=2.0, height=1.0, content=[TextLine(text="X")]),
+            ],
+        )
+        assert resolve_job_spec(job)[0].material == "wb"
+
+    def test_label_overrides_job(self) -> None:
+        """A label-level material wins over the job-level value."""
+        job = JobSpec(
+            job_name="M",
+            material="wb",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    count=1,
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X")],
+                    material="wb(uv)",
+                ),
+            ],
+        )
+        assert resolve_job_spec(job)[0].material == "wb(uv)"
+
+    def test_root_level_job_cascades(self) -> None:
+        """Root-level single-label jobs carry their own material."""
+        job = JobSpec(
+            job_name="M",
+            material="wb",
+            width=2.0,
+            height=1.0,
+            content=[TextLine(text="X")],
+        )
+        assert resolve_job_spec(job)[0].material == "wb"
+
+    def test_resolved_label_defaults_to_none(self) -> None:
+        """Manually constructed ResolvedLabel defaults material to None."""
+        label = ResolvedLabel(
+            id="x", count=1, width=1.0, height=1.0, margin=0.1, h_margin=0.1, v_margin=0.1
+        )
+        assert label.material is None

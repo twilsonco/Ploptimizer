@@ -190,8 +190,10 @@ Uses the production export path, `export_per_cutter_plts()`:
   `plt_content`, so rotated labels turn 90° clockwise as a unit).
 - Bin-packs labels onto plates using their **rendered** bounds.
 - Assembles each plate in memory and splits the assembly **by cutter**:
-  - borders + drill holes → one `<plate>_bh_<cutter>_<job_id>.plt` per plate
-  - text → one `<plate>_txt_<cutter>_<job_id>.plt` per plate and cutter diameter
+  - borders + drill holes → one `[<plate>_][<material>_]<cutter>_bh_<job_id>.plt`
+    per plate
+  - text → one `[<plate>_][<material>_]<cutter>[_<color>]_txt_<job_id>.plt` per
+    plate and cutter diameter
 - The combined per-plate PLT stays in memory only (used for the combined PDF
   preview and optional color plots).
 - Text–hole collisions that avoidance resolves (hole-margin reduction
@@ -206,18 +208,20 @@ Outputs land in `test_output/integration_test/`:
 ```
 test_output/integration_test/
 ├── plt/
-│   ├── 01_txt_0.060_Test_123_-_Single_Column.plt    # one per text cutter
-│   └── 01_bh_0.015_Test_123_-_Single_Column.plt     # borders + holes together
+│   ├── 0.060_txt_Test_123_-_Single_Column.plt    # one per text cutter
+│   └── 0.015_bh_Test_123_-_Single_Column.plt     # borders + holes together
 └── pdf/
-    ├── 01_txt_0.060_Test_123_-_Single_Column.pdf    # simple-outline previews
-    ├── 01_bh_0.015_Test_123_-_Single_Column.pdf
-    └── 01_all_Test_123_-_Single_Column.pdf          # combined per plate
+    ├── 0.060_txt_Test_123_-_Single_Column.pdf    # simple-outline previews
+    ├── 0.015_bh_Test_123_-_Single_Column.pdf
+    └── all_Test_123_-_Single_Column.pdf          # combined per plate
 ```
 
-File-name layout: `<2-digit plate>_<kind>_<cutter>_<job_id>.<ext>` where `kind`
-is `text` or `bh` (borders+holes) and `cutter` is the diameter in inches
-(3-decimal for text, 3-decimal for bh). With a spec override, the same tree
-appears under `test_output/integration_test/<spec-stem>/`.
+File-name layout: `[<2-digit plate>_][<material>_]<cutter>[_<color>]_<kind>_<job_id>.<ext>`
+where `kind` is `txt` (text) or `bh` (borders+holes) and `cutter` is the
+diameter in inches (3-decimal). The plate number appears only on multi-plate
+jobs; the material tag (sanitized, e.g. `wbuv`) appears only for
+material-declared output. With a spec override, the same tree appears under
+`test_output/integration_test/<spec-stem>/`.
 
 Note: Phase 3 runs the export with `optimize=False` — travel optimization of
 the assembled plates is intentionally left to the separate `optimize` pipeline.
@@ -228,7 +232,7 @@ Parses every exported PLT and asserts all `PA`/`PU`/`PD` coordinates are
 non-negative, printing the X/Y ranges (plotter units and inches) per file:
 
 ```
-✓ 01_bh_0.015_Test_123_-_Single_Column.plt:
+✓ 0.015_bh_Test_123_-_Single_Column.plt:
     X range: [       0,    19000] (0.000, 19.000 inches)
     Y range: [       0,     2000] (0.000,  2.000 inches)
     Coordinates valid: all X≥0, all Y≥0 ✓
@@ -237,7 +241,7 @@ non-negative, printing the X/Y ranges (plotter units and inches) per file:
 ### Phase 4 — Visualization (Optional, opt-in)
 
 The simple-outline PDF previews (one per per-cutter PLT plus one combined
-`<plate>_all_<job_id>.pdf` per plate) are already written by Phase 3. Phase 4
+`[<plate>_][<material>_]all_<job_id>.pdf` per plate) are already written by Phase 3. Phase 4
 adds the **color-coded** `*_default.pdf` diagnostic plots (cumulative-distance
 toolpath with rapid-travel visualization) via `write_default_plots()`, one per
 per-cutter PLT. The combined per-plate default plot (text + borders/holes
@@ -267,11 +271,12 @@ After a run:
 - [ ] Final line: `✓ Pipeline executed successfully` (exit code 0)
 
 ### Generated Files (`test_output/integration_test/`)
-- [ ] `plt/` contains one `<plate>_bh_<cutter>_<job>.plt` per plate and one
-      `<plate>_txt_<cutter>[_<color>]_<job>.plt` per plate/cutter diameter
-      (colored text layers gain a 1-letter suffix, e.g. `_txt_0.040_k_`)
+- [ ] `plt/` contains one `[<plate>_][<material>_]<cutter>_bh_<job>.plt` per plate
+      and one `[<plate>_][<material>_]<cutter>[_<color>]_txt_<job>.plt` per
+      plate/cutter diameter (colored text layers gain a 1-letter suffix, e.g.
+      `0.040_k_txt_`)
 - [ ] `pdf/` contains a matching simple-outline PDF per PLT plus one
-      `<plate>_all_<job>.pdf` combined preview per plate
+      `[<plate>_][<material>_]all_<job>.pdf` combined preview per plate
 - [ ] No text bleeds over label boundaries; drill holes sit at their specified
       locations with the resolved `hole_margin`
 
@@ -353,7 +358,7 @@ uv run pytest tests/ -v
 uv run plt-optimizer generate tests_deps/test123_spec.yaml -o out/ --no-plots
 
 # Optimization pipeline on an exported PLT
-uv run plt-optimizer optimize out/plt/01_txt_0.060_Test_123_-_Single_Column.plt
+uv run plt-optimizer optimize out/plt/0.060_txt_Test_123_-_Single_Column.plt
 ```
 
 ## Integration Points Verified
