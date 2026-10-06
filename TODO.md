@@ -13,3 +13,4 @@
 - [ ] Allow `line_spacing` to be specified at the text level, which determines the spacing *below* the line for which it is specified.
 - [ ] When optimizing, perform a simple additional optimization that considered the stroke direction of chunks (characters) to check if each chunk should have its strokes reversed in order to decrease travel distance between chuncks. (especially important for generated toolpaths from job spec yaml files)
 - [ ] When reassembling after optimization, if the end of one stroke is coincident with the beginning of the next, remove intermediate tool up commands.
+- [ ] Investigate what other knobs/parameters exist for `rectpack` that could be exposed to the user for better control over the packing algorithm. (For packing labels on the plate during label generation.)
