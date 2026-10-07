@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from plt_optimizer.generate.resolution import (
     DEFAULT_BOUNDARY_HOLE_CUTTER,
+    DEFAULT_CUTTER_SIZE,
     DEFAULT_FALLBACK_ADVANCE_FRACTION,
     DEFAULT_FONT,
     DEFAULT_HOLE_MARGIN,
@@ -27,6 +28,7 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_TEXT_H_ALIGNMENT,
     DEFAULT_TEXT_HEIGHT,
     IDEAL_CUTTER_MAP,
+    CutterSizeError,
     ResolvedHoleSpec,
     ResolvedLabel,
     ResolvedTextLine,
@@ -2156,6 +2158,125 @@ class TestKerningSpacingKnobCascades:
             TextLine(text="X", **{field: -0.1})  # type: ignore[arg-type]
         with pytest.raises(ValidationError):
             JobSpec(job_name="J", **{field: -0.1})  # type: ignore[arg-type]
+
+
+class TestCutterSizeCascade:
+    """cutter_size cascades line -> label -> job -> auto (None default)."""
+
+    @staticmethod
+    def _job(**levels: float | None) -> JobSpec:
+        """Build a single-line job applying cutter_size at the given levels."""
+        job_kwargs: dict[str, float | None] = {}
+        label_kwargs: dict[str, float | None] = {}
+        line_kwargs: dict[str, float | None] = {}
+        if "job" in levels:
+            job_kwargs["cutter_size"] = levels["job"]
+        if "label" in levels:
+            label_kwargs["cutter_size"] = levels["label"]
+        if "line" in levels:
+            line_kwargs["cutter_size"] = levels["line"]
+        return JobSpec(
+            job_name="J",
+            text_height=0.5,
+            **job_kwargs,  # type: ignore[arg-type]
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    **label_kwargs,  # type: ignore[arg-type]
+                    content=[TextLine(text="X", **line_kwargs)],  # type: ignore[arg-type]
+                )
+            ],
+        )
+
+    def test_default_module_constant_is_none(self) -> None:
+        """The shipped default keeps automatic cutter selection."""
+        assert DEFAULT_CUTTER_SIZE is None
+
+    def test_auto_selection_when_all_omit(self) -> None:
+        """All levels omitting keeps the height-based cutter and cutter_size None."""
+        line = resolve_job_spec(self._job())[0].content[0]
+        assert line.cutter_size is None
+        assert math.isclose(line.cutter_diameter, get_cutter_diameter(0.5))
+        assert math.isclose(line.toolpath_text_height, 0.5 - get_cutter_diameter(0.5))
+
+    def test_job_value_used_when_label_omits(self) -> None:
+        """Job-level cutter_size overrides the height-based lookup."""
+        line = resolve_job_spec(self._job(job=0.09))[0].content[0]
+        assert math.isclose(line.cutter_size, 0.09)
+        assert math.isclose(line.cutter_diameter, 0.09)
+        assert math.isclose(line.toolpath_text_height, 0.5 - 0.09)
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level cutter_size beats the job-level value."""
+        line = resolve_job_spec(self._job(job=0.09, label=0.06))[0].content[0]
+        assert math.isclose(line.cutter_diameter, 0.06)
+
+    def test_line_overrides_label(self) -> None:
+        """Line-level cutter_size beats the label-level value."""
+        line = resolve_job_spec(self._job(job=0.09, label=0.06, line=0.045))[0].content[0]
+        assert math.isclose(line.cutter_diameter, 0.045)
+
+    def test_nominal_text_height_unchanged(self) -> None:
+        """An explicit cutter never changes the nominal height (vertical fit)."""
+        line = resolve_job_spec(self._job(line=0.09))[0].content[0]
+        assert math.isclose(line.nominal_text_height, 0.5)
+
+    def test_character_spacing_fallback_uses_explicit_cutter(self) -> None:
+        """The omitted character_spacing fallback tracks the resolved cutter."""
+        line = resolve_job_spec(self._job(line=0.09))[0].content[0]
+        assert math.isclose(line.character_spacing, 0.09 * 1.5)
+
+    def test_snaps_down_to_inventory(self) -> None:
+        """An off-inventory cutter snaps to the next size down."""
+        job = self._job(line=0.05)
+        line = resolve_job_spec(job, available_cutters=[0.03, 0.045, 0.06])[0].content[0]
+        assert math.isclose(line.cutter_diameter, 0.045)
+        assert math.isclose(line.cutter_size, 0.05)
+
+    def test_snaps_up_when_no_smaller_tool(self, caplog: pytest.LogCaptureFixture) -> None:
+        """With no smaller tool the cutter snaps up, logging a WARNING."""
+        with caplog.at_level("WARNING"):
+            line = resolve_job_spec(self._job(line=0.005), available_cutters=[0.02, 0.03])[
+                0
+            ].content[0]
+        assert math.isclose(line.cutter_diameter, 0.02)
+        assert "snapped" in caplog.text
+
+    def test_no_inventory_uses_verbatim(self) -> None:
+        """Without an inventory the requested cutter is used exactly."""
+        line = resolve_job_spec(self._job(line=0.05))[0].content[0]
+        assert math.isclose(line.cutter_diameter, 0.05)
+
+    def test_cutter_at_or_above_height_raises(self) -> None:
+        """A cutter >= text_height leaves no material and aborts the job."""
+        with pytest.raises(CutterSizeError, match="no material to engrave"):
+            resolve_job_spec(self._job(line=0.5))
+        with pytest.raises(CutterSizeError, match="no material to engrave"):
+            resolve_job_spec(self._job(line=0.75))
+
+    def test_mixed_explicit_and_auto_lines(self) -> None:
+        """A label can mix an explicit-cutter line with an auto-selected one."""
+        job = JobSpec(
+            job_name="J",
+            text_height=0.5,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=4.0,
+                    height=2.0,
+                    content=[
+                        TextLine(text="A", cutter_size=0.09),
+                        TextLine(text="B"),
+                    ],
+                )
+            ],
+        )
+        content = resolve_job_spec(job)[0].content
+        assert math.isclose(content[0].cutter_diameter, 0.09)
+        assert content[1].cutter_size is None
+        assert math.isclose(content[1].cutter_diameter, get_cutter_diameter(0.5))
 
 
 class TestMaterialCascade:

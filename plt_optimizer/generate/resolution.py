@@ -34,6 +34,17 @@ from plt_optimizer.generate.schema import JobSpec, LabelSpec
 
 logger = logging.getLogger(__name__)
 
+
+class CutterSizeError(ValueError):
+    """Raised when an explicit ``cutter_size`` cannot be applied to a line.
+
+    The text toolpath height is ``text_height - cutter_size``; a cutter at
+    or above the line's nominal text height leaves no material to engrave
+    (a zero or negative toolpath height), so the job aborts instead of
+    emitting degenerate glyphs.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Global fallback constants
 # ---------------------------------------------------------------------------
@@ -97,6 +108,13 @@ DEFAULT_KERNING_MIN_GAP: float = 0.0
 DEFAULT_FALLBACK_ADVANCE_FRACTION: float = 1.0
 # Horizontal text alignment defaults to centering (existing behaviour).
 DEFAULT_TEXT_H_ALIGNMENT: str = "center"
+# Explicit cutter diameter (inches) override. ``None`` (the default) means
+# unset: the cutter is auto-selected from the nominal text height via
+# ``IDEAL_CUTTER_MAP`` (current behaviour). When set, the requested diameter
+# is snapped to the shop inventory (next size down, else next size up) and
+# the toolpath height is recomputed as ``text_height - cutter_size``.
+# There is deliberately no job-config.json counterpart to this field.
+DEFAULT_CUTTER_SIZE: Optional[float] = None
 # Stroke-color layer tag default. ``"none"`` is the implicit color of
 # every line that omits ``text_color``; it never cascades (the field is
 # label/line-local by design, see schema.TextColor) and the resolution
@@ -316,6 +334,16 @@ class ResolvedTextLine:
             lacking envelopes). Cascaded line -> label -> job, default
             ``DEFAULT_FALLBACK_ADVANCE_FRACTION`` (1.0). Explicit ``0.0``
             is honored; only ``None`` means unset.
+        cutter_size: The explicit cutter diameter in inches requested for
+            this line (cascaded line -> label -> job), verbatim as declared,
+            or ``None`` when unset. ``None`` means the cutter was
+            auto-selected from ``nominal_text_height`` via
+            :func:`get_cutter_diameter` (``cutter_size`` is then ``None``
+            while :attr:`cutter_diameter` carries the auto-selected tool);
+            when set, :attr:`cutter_diameter` carries the inventory-snapped
+            value (equal to it when no inventory is in play) and
+            :attr:`toolpath_text_height` is ``nominal_text_height -
+            cutter_diameter``. Default ``DEFAULT_CUTTER_SIZE`` (``None``).
     """
 
     text: str
@@ -335,6 +363,7 @@ class ResolvedTextLine:
     kerning_recession_scale: float = DEFAULT_KERNING_RECESSION_SCALE
     kerning_min_gap: float = DEFAULT_KERNING_MIN_GAP
     fallback_advance_fraction: float = DEFAULT_FALLBACK_ADVANCE_FRACTION
+    cutter_size: Optional[float] = DEFAULT_CUTTER_SIZE
 
 
 @dataclass(frozen=True)
@@ -808,12 +837,21 @@ def _resolve_content(
     job: JobSpec,
     available_cutters: Optional[list[float]] = None,
     tolerance_factor: float = 3.0,
+    label_id: str = "",
 ) -> list[ResolvedTextLine]:
     """Resolve text lines with cutter compensation applied.
 
     Cascades values from line -> label -> job -> default, then determines
     the appropriate cutter diameter and subtracts it from the nominal
     height to produce the toolpath height.
+
+    An explicit ``cutter_size`` (cascaded line -> label -> job) overrides
+    the automatic height-based selection: the requested diameter is snapped
+    to ``available_cutters`` (next size down, else next size up) and the
+    nominal height is kept as the user's intent, so only the toolpath
+    height (``nominal_height - cutter_size``) changes. When the explicit
+    cutter leaves no material to engrave (toolpath height <= 0),
+    :class:`CutterSizeError` is raised.
 
     Args:
         label_input: The label (or root-level job) being processed.
@@ -823,22 +861,64 @@ def _resolve_content(
             available tool.
         tolerance_factor: The multiplier used to decide between narrower and
             wider cutters. See ``get_cutter_diameter`` for details.
+        label_id: Identifier used in WARNING/ERROR messages (the label
+            owning the lines being resolved).
 
     Returns:
         A list of fully resolved text lines with cutter compensation.
+
+    Raises:
+        CutterSizeError: If an explicit ``cutter_size`` is greater than or
+            equal to the line's nominal text height (no material left to
+            engrave).
     """
     resolved_content: list[ResolvedTextLine] = []
     content = label_input.content
     assert content is not None, "label_input.content must not be None"
-    for line in content:
+    for line_index, line in enumerate(content):
         # Resolve nominal height through the inheritance cascade
         nominal_height = (
             line.text_height or label_input.text_height or job.text_height or DEFAULT_TEXT_HEIGHT
         )
 
-        # Determine cutter and compensate for toolpath
-        cutter_dia = get_cutter_diameter(nominal_height, available_cutters, tolerance_factor)
-        toolpath_height = nominal_height - cutter_dia
+        # Resolve the explicit cutter override with the same explicit-None
+        # precedence (line -> label -> job -> unset). Deliberately no
+        # job-config.json tier: the field has no shop-level default.
+        if line.cutter_size is not None:
+            line_cutter_size: Optional[float] = line.cutter_size
+        elif label_input.cutter_size is not None:
+            line_cutter_size = label_input.cutter_size
+        elif job.cutter_size is not None:
+            line_cutter_size = job.cutter_size
+        else:
+            line_cutter_size = DEFAULT_CUTTER_SIZE
+
+        # Determine cutter and compensate for toolpath. An explicit cutter
+        # replaces the height-based lookup, snapped to the shop inventory
+        # (next size down, else next size up); an unset value keeps the
+        # automatic selection from the nominal height (current behaviour).
+        if line_cutter_size is not None:
+            cutter_dia = snap_boundary_hole_cutter(line_cutter_size, available_cutters)
+            if not math.isclose(cutter_dia, line_cutter_size, abs_tol=1e-9):
+                logger.warning(
+                    "Label %s line %d: requested cutter_size %.4fin is not in "
+                    "the shop inventory; snapped to %.4fin.",
+                    label_id,
+                    line_index,
+                    line_cutter_size,
+                    cutter_dia,
+                )
+            toolpath_height = nominal_height - cutter_dia
+            if toolpath_height <= 0.0:
+                raise CutterSizeError(
+                    f"label {label_id!r} line {line_index} ({line.text!r}): "
+                    f"cutter_size {cutter_dia:g}in leaves no material to "
+                    f"engrave (text_height {nominal_height:g}in); cutter_size "
+                    f"must be smaller than text_height"
+                )
+        else:
+            cutter_dia = get_cutter_diameter(nominal_height, available_cutters, tolerance_factor)
+            toolpath_height = nominal_height - cutter_dia
 
         # Resolve spacing (kerning can now dynamically rely on cutter_dia if omitted)
         char_spacing = (
@@ -1002,6 +1082,7 @@ def _resolve_content(
                 kerning_recession_scale=line_kerning_recession_scale,
                 kerning_min_gap=line_kerning_min_gap,
                 fallback_advance_fraction=line_fallback_advance_fraction,
+                cutter_size=line_cutter_size,
             )
         )
     return resolved_content
@@ -1099,7 +1180,9 @@ def _resolve_label(
     )
 
     # Resolve text lines with cutter compensation
-    resolved_content = _resolve_content(label_input, job, available_cutters, tolerance_factor)
+    resolved_content = _resolve_content(
+        label_input, job, available_cutters, tolerance_factor, label_id
+    )
 
     # Resolve holes
     resolved_holes = _resolve_holes(label_input, job)

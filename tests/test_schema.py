@@ -780,9 +780,21 @@ class TestJobLevelClearances:
     def test_negative_rejected(self) -> None:
         """Both job-level clearance fields enforce ge=0.0."""
         with pytest.raises(ValidationError):
-            JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")], left_clearance=-0.1)
+            JobSpec(
+                job_name="J",
+                width=2.0,
+                height=1.0,
+                content=[TextLine(text="X")],
+                left_clearance=-0.1,
+            )
         with pytest.raises(ValidationError):
-            JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")], top_clearance=-0.1)
+            JobSpec(
+                job_name="J",
+                width=2.0,
+                height=1.0,
+                content=[TextLine(text="X")],
+                top_clearance=-0.1,
+            )
 
     def test_job_value_cascades_to_plates_omitting_them(self) -> None:
         """Plates without explicit clearances inherit the job-level pair."""
@@ -914,7 +926,12 @@ class TestMaxHCompress:
         """max_h_compress defaults to None (inherit from parent)."""
         assert TextLine(text="X").max_h_compress is None
         assert LabelSpec(id="lbl", content=[TextLine(text="X")]).max_h_compress is None
-        assert JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]).max_h_compress is None
+        assert (
+            JobSpec(
+                job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]
+            ).max_h_compress
+            is None
+        )
 
     def test_explicit_zero_is_accepted(self) -> None:
         """max_h_compress=0.0 (compression disabled) is a valid explicit value."""
@@ -973,7 +990,12 @@ class TestTextHAlignment:
         """text_h_alignment defaults to None (inherit from parent)."""
         assert TextLine(text="X").text_h_alignment is None
         assert LabelSpec(id="lbl", content=[TextLine(text="X")]).text_h_alignment is None
-        assert JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]).text_h_alignment is None
+        assert (
+            JobSpec(
+                job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]
+            ).text_h_alignment
+            is None
+        )
 
     def test_invalid_value_rejected(self) -> None:
         """Values outside the enum must fail validation."""
@@ -982,7 +1004,9 @@ class TestTextHAlignment:
 
     def test_inherited_on_all_levels(self) -> None:
         """LabelSpec and JobSpec expose the field via the attribute mixins."""
-        label = LabelSpec(id="lbl", width=2.0, height=1.0, text_h_alignment="left", content=[TextLine(text="X")])
+        label = LabelSpec(
+            id="lbl", width=2.0, height=1.0, text_h_alignment="left", content=[TextLine(text="X")]
+        )
         assert label.text_h_alignment is TextHAlignment.LEFT
         job = JobSpec(
             job_name="J",
@@ -1095,7 +1119,9 @@ class TestTextColor:
     def test_job_level_rejected(self) -> None:
         """A job-level text_color is rejected unconditionally."""
         with pytest.raises(ValidationError):
-            JobSpec(job_name="J", width=2.0, height=1.0, text_color="red", content=[TextLine(text="X")])
+            JobSpec(
+                job_name="J", width=2.0, height=1.0, text_color="red", content=[TextLine(text="X")]
+            )
         with pytest.raises(ValidationError):
             JobSpec(
                 job_name="J",
@@ -1157,7 +1183,9 @@ class TestFontField:
         """font defaults to None (the resolution layer applies the default)."""
         assert TextLine(text="X").font is None
         assert LabelSpec(id="lbl", content=[TextLine(text="X")]).font is None
-        assert JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]).font is None
+        assert (
+            JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]).font is None
+        )
 
     def test_plt_font_canonicalized(self) -> None:
         """A PLT-extracted font key canonicalizes case-insensitively."""
@@ -1261,14 +1289,21 @@ class TestMinHoleMargin:
         assert math.isclose(TextLine(text="X", min_hole_margin=0.05).min_hole_margin, 0.05)
         label = LabelSpec(id="lbl", min_hole_margin=0.1, content=[TextLine(text="X")])
         assert math.isclose(label.min_hole_margin, 0.1)
-        job = JobSpec(job_name="J", width=2.0, height=1.0, min_hole_margin=0.2, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="J", width=2.0, height=1.0, min_hole_margin=0.2, content=[TextLine(text="X")]
+        )
         assert math.isclose(job.min_hole_margin, 0.2)
 
     def test_default_is_none(self) -> None:
         """min_hole_margin defaults to None (no floor; inherit from parent)."""
         assert TextLine(text="X").min_hole_margin is None
         assert LabelSpec(id="lbl", content=[TextLine(text="X")]).min_hole_margin is None
-        assert JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]).min_hole_margin is None
+        assert (
+            JobSpec(
+                job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]
+            ).min_hole_margin
+            is None
+        )
 
     def test_explicit_zero_is_accepted(self) -> None:
         """min_hole_margin=0.0 (shrink to tangent) is a valid explicit value."""
@@ -1313,7 +1348,13 @@ class TestHoleTextCollisionDistance:
         assert math.isclose(line.hole_text_collision_distance, 0.2)
         label = LabelSpec(id="lbl", hole_text_collision_distance=0.3, content=[TextLine(text="X")])
         assert math.isclose(label.hole_text_collision_distance, 0.3)
-        job = JobSpec(job_name="J", width=2.0, height=1.0, hole_text_collision_distance=0.4, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            hole_text_collision_distance=0.4,
+            content=[TextLine(text="X")],
+        )
         assert math.isclose(job.hole_text_collision_distance, 0.4)
 
     def test_default_is_none(self) -> None:
@@ -1357,6 +1398,64 @@ class TestHoleTextCollisionDistance:
                 left_clearance=0.25,
                 top_clearance=0.25,
                 hole_text_collision_distance=-0.1,
+            )
+
+
+class TestCutterSize:
+    """Tests for the cutter_size explicit-cutter field."""
+
+    def test_inherited_on_all_levels(self) -> None:
+        """TextLine, LabelSpec and JobSpec expose cutter_size."""
+        line = TextLine(text="X", cutter_size=0.03)
+        assert math.isclose(line.cutter_size, 0.03)
+        label = LabelSpec(id="lbl", cutter_size=0.045, content=[TextLine(text="X")])
+        assert math.isclose(label.cutter_size, 0.045)
+        job = JobSpec(
+            job_name="J", width=2.0, height=1.0, cutter_size=0.06, content=[TextLine(text="X")]
+        )
+        assert math.isclose(job.cutter_size, 0.06)
+
+    def test_default_is_none(self) -> None:
+        """cutter_size defaults to None (auto selection from text_height)."""
+        assert TextLine(text="X").cutter_size is None
+        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).cutter_size is None
+        assert (
+            JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]).cutter_size
+            is None
+        )
+
+    def test_zero_rejected(self) -> None:
+        """cutter_size=0.0 is invalid: a cutter must be strictly positive (gt=0.0)."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", cutter_size=0.0)
+
+    def test_negative_rejected(self) -> None:
+        """Negative values must be rejected by the gt=0.0 constraint."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", cutter_size=-0.1)
+
+    def test_plate_accepts_field_for_parity(self) -> None:
+        """PlateSpec should accept the field for schema parity."""
+        plate = PlateSpec(
+            id="plate_1",
+            width=24.0,
+            height=12.0,
+            left_clearance=0.25,
+            top_clearance=0.25,
+            cutter_size=0.03,
+        )
+        assert math.isclose(plate.cutter_size, 0.03)
+
+    def test_plate_rejects_non_positive(self) -> None:
+        """PlateSpec must enforce the > 0.0 range too."""
+        with pytest.raises(ValidationError):
+            PlateSpec(
+                id="plate_1",
+                width=24.0,
+                height=12.0,
+                left_clearance=0.25,
+                top_clearance=0.25,
+                cutter_size=0.0,
             )
 
 
@@ -1525,7 +1624,11 @@ class TestLabelPlateIdReference:
         job = JobSpec(
             job_name="J",
             plates=[PlateSpec(id="p1", width=24.0, height=16.0)],
-            labels=[LabelSpec(id="l1", width=2.0, height=1.0, content=[TextLine(text="X")], plate_id="p1")],
+            labels=[
+                LabelSpec(
+                    id="l1", width=2.0, height=1.0, content=[TextLine(text="X")], plate_id="p1"
+                )
+            ],
         )
         assert job.labels is not None
         assert job.labels[0].plate_id == "p1"
@@ -1536,7 +1639,15 @@ class TestLabelPlateIdReference:
             JobSpec(
                 job_name="J",
                 plates=[PlateSpec(id="p1", width=24.0, height=16.0)],
-                labels=[LabelSpec(id="l1", width=2.0, height=1.0, content=[TextLine(text="X")], plate_id="nope")],
+                labels=[
+                    LabelSpec(
+                        id="l1",
+                        width=2.0,
+                        height=1.0,
+                        content=[TextLine(text="X")],
+                        plate_id="nope",
+                    )
+                ],
             )
 
     def test_reference_without_plates_rejected(self) -> None:
@@ -1544,7 +1655,11 @@ class TestLabelPlateIdReference:
         with pytest.raises(ValidationError, match="does not reference a declared plate"):
             JobSpec(
                 job_name="J",
-                labels=[LabelSpec(id="l1", width=2.0, height=1.0, content=[TextLine(text="X")], plate_id="p1")],
+                labels=[
+                    LabelSpec(
+                        id="l1", width=2.0, height=1.0, content=[TextLine(text="X")], plate_id="p1"
+                    )
+                ],
             )
 
 
@@ -1567,7 +1682,9 @@ class TestMaterialField:
         """Job, label and plate all default material to None (unset)."""
         job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
         assert job.material is None
-        assert LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")]).material is None
+        assert (
+            LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")]).material is None
+        )
         assert PlateSpec(id="p", width=24.0, height=16.0).material is None
 
     def test_inherited_on_label_and_job_tiers_only(self) -> None:
@@ -1597,7 +1714,9 @@ class TestMaterialField:
         """Empty / whitespace-only material is a validation error."""
         for value in ("", "   ", "\t"):
             with pytest.raises(ValidationError, match="whitespace-only"):
-                LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")], material=value)
+                LabelSpec(
+                    id="l", width=2.0, height=1.0, content=[TextLine(text="X")], material=value
+                )
             with pytest.raises(ValidationError, match="whitespace-only"):
                 PlateSpec(id="p", width=24.0, height=16.0, material=value)
 

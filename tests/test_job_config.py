@@ -109,6 +109,11 @@ class TestJobDefaultsModel:
         with pytest.raises(ValidationError):
             JobDefaults(**{"material": "wb"})  # type: ignore
 
+    def test_cutter_size_is_not_a_config_field(self) -> None:
+        """cutter_size is a per-job/per-line choice, not a shop default."""
+        with pytest.raises(ValidationError):
+            JobDefaults(**{"cutter_size": 0.03})  # type: ignore
+
     def test_description_key_allowed(self) -> None:
         """A free-form description (like tools.json) is accepted."""
         assert JobDefaults(**_FULL_CONFIG, description="shop A").description == "shop A"
@@ -148,6 +153,7 @@ class TestJobDefaultsModel:
         assert "kerning_recession_scale" not in REQUIRED_WHEN_UNCONFIGURED
         assert "kerning_min_gap" not in REQUIRED_WHEN_UNCONFIGURED
         assert "fallback_advance_fraction" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "cutter_size" not in REQUIRED_WHEN_UNCONFIGURED
         assert JobDefaults().space_width_fraction is None
         assert JobDefaults().min_glyph_width is None
         assert JobDefaults().kerning_window_fraction is None

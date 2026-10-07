@@ -1,0 +1,40 @@
+# Fixture for the explicit `cutter_size` field (job -> label -> text line).
+#
+# The job omits cutter_size, so the "auto" label keeps automatic cutter
+# selection from text_height (0.5in -> ideal cutter 0.06in). The other labels
+# exercise the label- and line-level overrides. No plate declares a material
+# and the job packs onto a single sheet, so emitted names carry no plate or
+# material prefix: [<cutter>]_txt_<job>.plt per distinct cutter + one bh file.
+job:
+  job_name: Cutter Size Demo
+
+  width: 3.0
+  height: 1.0
+  margin: 0.1
+  text_height: 0.5
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # No cutter_size anywhere -> auto selection from text_height (0.06in).
+    - id: auto_cutter
+      content:
+        - text: "AUTO"
+
+    # Label-level cutter_size overrides the height-based lookup (0.045in).
+    - id: label_cutter
+      cutter_size: 0.045
+      content:
+        - text: "LABEL"
+
+    # Line-level cutter_size beats the label value (0.03in); the second line
+    # inherits the label's 0.045in.
+    - id: line_cutter
+      cutter_size: 0.045
+      content:
+        - text: "LINE"
+          cutter_size: 0.03
+        - text: "INHERIT"

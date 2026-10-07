@@ -280,6 +280,7 @@ def run(args: argparse.Namespace) -> int:
     # Lazy heavy imports (see module docstring note in the top-level imports).
     from plt_optimizer.generate.label_renderer import LabelRenderError
     from plt_optimizer.generate.layout import LayoutFitError
+    from plt_optimizer.generate.resolution import CutterSizeError
     from plt_optimizer.generate.vectorize import export_per_cutter_plts
 
     try:
@@ -316,6 +317,11 @@ def run(args: argparse.Namespace) -> int:
         return 1
     except LayoutFitError as e:
         text_logger.error(f"Layout failed: {e}")
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    except CutterSizeError as e:
+        # An explicit cutter_size leaves no material to engrave.
+        text_logger.error(f"Cutter size invalid: {e}")
         print(f"Error: {e}", file=sys.stderr)
         return 1
     except (OSError, ValueError) as e:

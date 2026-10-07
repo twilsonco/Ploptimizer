@@ -221,7 +221,8 @@ def phase_2_resolution_and_layout(
         for i, line in enumerate(label.content):
             print(f"    Line {i}: '{line.text}'")
             print(f'      Nominal height: {line.nominal_text_height}"')
-            print(f'      Cutter diameter: {line.cutter_diameter}"')
+            cutter_tag = " (explicit)" if line.cutter_size is not None else ""
+            print(f'      Cutter diameter: {line.cutter_diameter}"{cutter_tag}')
             print(f'      Toolpath height: {line.toolpath_text_height}"')
         print()
 

@@ -79,6 +79,10 @@ _FALLBACK_NOTES: dict[str, str] = {
     "play (the shop job-config.json currently sets 0.1).",
     "DEFAULT_BOUNDARY_HOLE_CUTTER": "Boundary/hole cutter diameter feeding the collision stroke "
     "floor; tools.json boundary_hole_cutter_size overrides it.",
+    "DEFAULT_CUTTER_SIZE": "None = the text cutter is auto-selected from text_height "
+    "(IDEAL_CUTTER_MAP + inventory snapping). An explicit cutter_size (line/label/job, no "
+    "job-config tier) overrides the lookup: it snaps to the inventory (next size down, else "
+    "up) and the toolpath height becomes text_height - cutter_size.",
     "DEFAULT_MAX_H_COMPRESS": "0.0 = horizontal compression disabled. Required from config-or-"
     "spec when a job-config is in play.",
     "DEFAULT_TEXT_H_ALIGNMENT": "Horizontal alignment fallback when unset everywhere.",

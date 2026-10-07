@@ -174,6 +174,7 @@ always wins at its level. Precedence per attribute:
 | Attribute | Cascade order | Fallback |
 |---|---|---|
 | `text_height`, `character_spacing`, `line_spacing`, `max_h_compress`, `text_h_alignment` | line → label → job → config | see fallback table in `JOB_SPEC.md` |
+| `cutter_size` | line → label → job (no config tier) | `null` = auto-select from `text_height` |
 | `text_color` | line → label (never job/plate/config) | `none` (implicit) |
 | `width`, `height` | label → job → auto-size from rendered content | — |
 | `margin` | label → job → config | 0.125 |
@@ -218,9 +219,19 @@ entries that omit it).
   as before. Unbounded mode allocates one auto-bin pool per material
   (`<material>_default_plate_{i}`). Not a `job-config.json` key.
 - **Per-plate typographic fields** (`hole_margin`, `max_h_compress`,
-  `text_h_alignment`, `min_hole_margin`, `hole_text_collision_distance`) are
-  accepted on plates for schema parity but **not applied** at plate level —
-  labels render once before packing.
+  `text_h_alignment`, `min_hole_margin`, `hole_text_collision_distance`,
+  `cutter_size`) are accepted on plates for schema parity but **not applied**
+  at plate level — labels render once before packing.
+- **`cutter_size` (default null)**: an explicit cutter diameter (inches)
+  overriding the automatic height→cutter lookup. The requested diameter is
+  snapped to `tools.json` `available_cutters` (next size down, else next up,
+  WARNING-logged when it moves); the nominal `text_height` is kept as the
+  user's intent and the rendered toolpath height becomes
+  `text_height - cutter_size` (so vertical fit math is unaffected). A cutter
+  at or above the line's `text_height` aborts the job (`CutterSizeError`,
+  non-zero exit). Each distinct cutter — explicit or auto — becomes its own
+  per-cutter text layer/PLT file. Omitting it keeps automatic selection
+  (current behaviour). Not a `job-config.json` key.
 - **Text–hole collision avoidance** (3 phases): always-on detection →
   opt-in `min_hole_margin` sweep → opt-in `max_h_compress` compression.
   Unresolved collisions fail the job (`LabelRenderError`, non-zero exit).

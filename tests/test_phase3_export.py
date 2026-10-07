@@ -1,6 +1,7 @@
 """Tests for the per-cutter Phase 3 export pipeline."""
 
 import logging
+import math
 import re
 from pathlib import Path
 from typing import Optional
@@ -8,9 +9,13 @@ from typing import Optional
 import pytest
 
 from plt_optimizer.generate.layout import LayoutMode
-from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
-from plt_optimizer.generate.resolution import resolve_job_spec
-from plt_optimizer.generate.schema import PlateSpec, parse_yaml
+from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine, resolve_job_spec
+from plt_optimizer.generate.schema import (
+    LabelSpec,
+    PlateSpec,
+    TextLine,
+    parse_yaml,
+)
 from plt_optimizer.generate.vectorize import (
     PerCutterExport,
     _format_material_tag,
@@ -950,6 +955,81 @@ class TestMaterialDemoExample:
         uv_txt = [p for p in result.plt_paths if p.name.startswith("wbuv_0.045")]
         assert len(wb_txt) == 1
         assert len(uv_txt) == 2  # plain + magenta deep layer
+
+
+class TestCutterSizeDemoExample:
+    """Regression tests for tests_deps/cutter_size_job.yaml.
+
+    The fixture mixes an auto-selected cutter (0.5in text -> 0.06in) with a
+    label-level override (0.045in) and a line-level override (0.03in). It
+    pins that an explicit ``cutter_size`` produces its own per-cutter text
+    layer/file, exactly like a height-driven cutter, and that the nominal
+    text height (hence the vertical fit) is untouched.
+    """
+
+    def _resolve(self) -> list[ResolvedLabel]:
+        """Resolve the cutter-size demo fixture."""
+        job = parse_yaml(Path("tests_deps/cutter_size_job.yaml"))
+        return resolve_job_spec(job)
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the cutter-size demo job with plotting disabled."""
+        job = parse_yaml(Path("tests_deps/cutter_size_job.yaml"))
+        labels = resolve_job_spec(job)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="cs",
+            optimize=False,
+            plots=False,
+        )
+
+    def test_resolution_applies_explicit_cutters(self) -> None:
+        """Explicit cutters replace the lookup; nominal height is untouched."""
+        by_id = {label.id: label for label in self._resolve()}
+
+        auto = by_id["auto_cutter"].content[0]
+        assert auto.cutter_size is None
+        assert math.isclose(auto.cutter_diameter, 0.06)
+
+        label_line = by_id["label_cutter"].content[0]
+        assert math.isclose(label_line.cutter_size, 0.045)
+        assert math.isclose(label_line.cutter_diameter, 0.045)
+        assert math.isclose(label_line.toolpath_text_height, 0.5 - 0.045)
+
+        line, inherited = by_id["line_cutter"].content
+        assert math.isclose(line.cutter_diameter, 0.03)
+        assert math.isclose(inherited.cutter_diameter, 0.045)
+        # The nominal height drives vertical fit and never changes.
+        for resolved in (auto, label_line, line, inherited):
+            assert math.isclose(resolved.nominal_text_height, 0.5)
+
+    def test_fixture_exports_one_file_per_explicit_cutter(self, tmp_path: Path) -> None:
+        """Each distinct cutter (explicit or auto) becomes its own text file."""
+        result = self._export(tmp_path)
+        assert sorted(p.name for p in result.plt_paths) == [
+            "0.015_bh_cs.plt",
+            "0.030_txt_cs.plt",  # line-level cutter_size
+            "0.045_txt_cs.plt",  # label-level cutter_size (+ inherited line)
+            "0.060_txt_cs.plt",  # automatic selection from text_height
+        ]
+
+    def test_cutter_at_text_height_aborts_the_job(self) -> None:
+        """A cutter >= text_height raises CutterSizeError (no material left)."""
+        from plt_optimizer.generate.resolution import CutterSizeError
+
+        job = parse_yaml(Path("tests_deps/cutter_size_job.yaml"))
+        job.labels = [
+            LabelSpec(
+                id="too_big",
+                width=3.0,
+                height=1.0,
+                content=[TextLine(text="X", cutter_size=0.5)],
+            )
+        ]
+        with pytest.raises(CutterSizeError, match="no material to engrave"):
+            resolve_job_spec(job)
 
 
 class TestPlateNumberScoping:

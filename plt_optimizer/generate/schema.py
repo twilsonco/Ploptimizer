@@ -447,6 +447,19 @@ class TextAttributes(BaseModel):
             means unset. Cascades line -> label -> job (and is accepted on
             plates for schema parity, where it is not applied at that
             level).
+        cutter_size: Optional cutter diameter in inches to use for the text
+            instead of the tool auto-selected from ``text_height``. When set,
+            the requested diameter is snapped to the shop inventory
+            (``tools.json`` ``available_cutters``: next size down, else next
+            size up) and the rendered toolpath height is recomputed as
+            ``text_height - cutter_size`` (the nominal ``text_height`` itself
+            is untouched, so vertical fit math is unaffected). ``None`` (the
+            default) means unset: the cutter is chosen automatically from
+            ``text_height`` (current behaviour). Must be ``> 0``; a value at
+            or above the line's ``text_height`` is a resolution error. There
+            is deliberately **no** ``job-config.json`` counterpart. Cascades
+            line -> label -> job (and is accepted on plates for schema
+            parity, where it is not applied at that level).
         text_color: Optional stroke-color layer tag used to split
             otherwise-identical text into separate toolpaths (one HPGL
             ``SP`` layer and one PLT file per distinct color), so the
@@ -597,6 +610,20 @@ class TextAttributes(BaseModel):
             "PLT-extracted glyph pairs without overlapping height (or "
             "lacking envelopes). Cascades line -> label -> job (fallback "
             "1.0 = the left glyph's own width); explicit 0.0 is honored."
+        ),
+    )
+    cutter_size: Optional[float] = Field(
+        default=None,
+        gt=0.0,
+        description=(
+            "Cutter diameter in inches to use for this text instead of the "
+            "tool auto-selected from text_height. Snapped to the shop "
+            "inventory (tools.json available_cutters: next size down, else "
+            "next size up); the rendered toolpath height becomes "
+            "text_height - cutter_size. Omit (null) to keep automatic "
+            "cutter selection from text_height. Must be > 0 and below the "
+            "line's text_height. No job-config.json counterpart. Cascades "
+            "line -> label -> job."
         ),
     )
     text_color: Optional[TextColor] = Field(
@@ -1076,6 +1103,9 @@ class PlateSpec(BaseModel):
             Accepted for schema parity with the job/label
             ``fallback_advance_fraction`` cascade (not applied at plate
             level).
+        cutter_size: Optional cutter diameter in inches. Accepted for schema
+            parity with the job/label ``cutter_size`` cascade (not applied at
+            plate level).
         layout: Optional per-plate fill-order override (``rows`` /
             ``columns``). ``None`` (the default) inherits the job-level
             ``layout``. Unlike the other cascading fields, this one IS
@@ -1211,6 +1241,14 @@ class PlateSpec(BaseModel):
             "Fallback advance multiplier on the bounding-box width for pairs "
             "without overlapping height (schema parity; not applied at plate "
             "level)."
+        ),
+    )
+    cutter_size: Optional[float] = Field(
+        default=None,
+        gt=0.0,
+        description=(
+            "Cutter diameter in inches overriding automatic selection "
+            "(schema parity; not applied at plate level)."
         ),
     )
     hole_text_collision_distance: Optional[float] = Field(
