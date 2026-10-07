@@ -175,6 +175,7 @@ always wins at its level. Precedence per attribute:
 |---|---|---|
 | `text_height`, `character_spacing`, `line_spacing`, `max_h_compress`, `text_h_alignment` | line → label → job → config | see fallback table in `JOB_SPEC.md` |
 | `cutter_size` | line → label → job (no config tier) | `null` = auto-select from `text_height` |
+| `cutter_downsize`, `max_cutter_downsizes` | line → label → job → config | `true` / `1` |
 | `text_color` | line → label (never job/plate/config) | `none` (implicit) |
 | `width`, `height` | label → job → auto-size from rendered content | — |
 | `margin` | label → job → config | 0.125 |
@@ -220,8 +221,9 @@ entries that omit it).
   (`<material>_default_plate_{i}`). Not a `job-config.json` key.
 - **Per-plate typographic fields** (`hole_margin`, `max_h_compress`,
   `text_h_alignment`, `min_hole_margin`, `hole_text_collision_distance`,
-  `cutter_size`) are accepted on plates for schema parity but **not applied**
-  at plate level — labels render once before packing.
+  `cutter_size`, `cutter_downsize`, `max_cutter_downsizes`) are accepted on
+  plates for schema parity but **not applied** at plate level — labels render
+  once before packing.
 - **`cutter_size` (default null)**: an explicit cutter diameter (inches)
   overriding the automatic height→cutter lookup. The requested diameter is
   snapped to `tools.json` `available_cutters` (next size down, else next up,
@@ -232,6 +234,22 @@ entries that omit it).
   non-zero exit). Each distinct cutter — explicit or auto — becomes its own
   per-cutter text layer/PLT file. Omitting it keeps automatic selection
   (current behaviour). Not a `job-config.json` key.
+- **`cutter_downsize` (default true) + `max_cutter_downsizes` (default 1)**:
+  compression-driven cutter reduction. When a text line's *effective*
+  horizontal scale (margin × collision compression) falls below the midpoint
+  between the current automatic cutter and the next smaller
+  `tools.json` `available_cutters` rung — e.g. 0.100in current, 0.080in next:
+  scale < 0.90 downsizes to 0.080in — the line's cutter drops one rung and
+  the toolpath height grows to `text_height - smaller_cutter` (nominal
+  `text_height` kept). At most `max_cutter_downsizes` rungs per line
+  (`0` = disabled); each step re-measures the re-rendered line, and the
+  ladder is strictly one-way (a line never regains a larger cutter). Requires
+  a cutter inventory (no `tools.json` → no reduction) and a compression
+  budget (`max_h_compress > 0`); an explicit `cutter_size` is never reduced.
+  The reduced cutter flows into the pen map, so the downsized line lands in
+  its own per-cutter PLT file; the change is WARNING-logged at render time
+  and reported in the layout report (`cutter 0.060in -> 0.045in`).
+  `job-config.json` supplies the shop defaults.
 - **Text–hole collision avoidance** (3 phases): always-on detection →
   opt-in `min_hole_margin` sweep → opt-in `max_h_compress` compression.
   Unresolved collisions fail the job (`LabelRenderError`, non-zero exit).

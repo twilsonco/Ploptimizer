@@ -115,11 +115,26 @@ DEFAULT_TEXT_H_ALIGNMENT: str = "center"
 # the toolpath height is recomputed as ``text_height - cutter_size``.
 # There is deliberately no job-config.json counterpart to this field.
 DEFAULT_CUTTER_SIZE: Optional[float] = None
+# Permission for the compression-driven cutter reduction (see
+# ``plt_optimizer.generate.cutter_downsize``). ``True`` (the default) lets the
+# pipeline swap the *automatic* cutter for the next smaller inventory tool
+# when a line is compressed past the midpoint toward it; an explicit
+# ``cutter_size`` overrides the mechanism entirely.
+DEFAULT_CUTTER_DOWNSIZE: bool = True
+# How many successive downsizings one text line may apply (1 = at most one
+# size down, 0 = disabled). Each step re-measures the line because a smaller
+# cutter renders wider, which can justify a further step.
+DEFAULT_MAX_CUTTER_DOWNSIZES: int = 1
 # Stroke-color layer tag default. ``"none"`` is the implicit color of
 # every line that omits ``text_color``; it never cascades (the field is
 # label/line-local by design, see schema.TextColor) and the resolution
 # engine never reads a job-level value (the schema rejects one).
 DEFAULT_TEXT_COLOR: str = "none"
+
+# Float tolerance guarding the downsize midpoint comparison: a scale exactly
+# at the midpoint keeps the current cutter (the rule is "compressed to 89%
+# takes the smaller tool, >= 90% keeps the original").
+_DOWNSIZE_SCALE_TOLERANCE: float = 1e-12
 
 # ---------------------------------------------------------------------------
 # Cutter lookup table and inventory matching
@@ -236,6 +251,66 @@ def snap_boundary_hole_cutter(
     return min(available_inventory)  # No smaller tool: next size up
 
 
+def next_smaller_cutter(
+    current: float,
+    available_inventory: Optional[list[float]] = None,
+) -> Optional[float]:
+    """Find the next smaller cutter in the shop inventory.
+
+    The compression-driven cutter reduction walks the inventory one step at a
+    time, so the ladder is the shop's real tool list: an empty inventory means
+    there is nothing to snap to and the mechanism is a no-op (the ideal-cutter
+    ladder is deliberately *not* used -- downsizing to a tool the shop does
+    not own would produce output it cannot run).
+
+    Args:
+        current: The cutter diameter currently in use, in inches.
+        available_inventory: Shop cutter diameters in inches (``None`` or
+            empty disables the mechanism).
+
+    Returns:
+        The largest inventory diameter strictly below ``current``, or ``None``
+        when the inventory is empty or ``current`` is already the smallest (or
+        smaller than every) tool.
+    """
+    if not available_inventory:
+        return None
+    strictly_smaller = [
+        c for c in available_inventory if c < current and not math.isclose(c, current, abs_tol=1e-9)
+    ]
+    return max(strictly_smaller) if strictly_smaller else None
+
+
+def should_downsize_cutter(
+    effective_scale: float,
+    current_cutter: float,
+    next_cutter: float,
+) -> bool:
+    """Decide whether a compressed line should swap to a smaller cutter.
+
+    The rule is the midpoint between the current cutter and the next smaller
+    one: the smaller tool is used when the line's effective horizontal scale
+    is *closer to* ``next_cutter / current_cutter`` than to ``1.0``. With a
+    0.1in cutter and a 0.08in next size (ratio 0.8) the midpoint is 0.9, so a
+    line compressed to 89% takes the 0.08in tool while a line at 90% keeps the
+    0.1in tool (a tie keeps the current cutter).
+
+    Args:
+        effective_scale: The line's effective horizontal scale in ``(0, 1]``
+            (collision-avoidance scale x margin-overflow scale).
+        current_cutter: Cutter diameter currently in use, in inches.
+        next_cutter: Candidate smaller cutter diameter, in inches.
+
+    Returns:
+        ``True`` when the smaller cutter should be adopted.
+    """
+    if current_cutter <= 0.0 or next_cutter <= 0.0:
+        return False
+    ratio = next_cutter / current_cutter
+    midpoint = (1.0 + ratio) / 2.0
+    return effective_scale < midpoint - _DOWNSIZE_SCALE_TOLERANCE
+
+
 # ---------------------------------------------------------------------------
 # Strictly typed target dataclasses
 # ---------------------------------------------------------------------------
@@ -344,6 +419,17 @@ class ResolvedTextLine:
             value (equal to it when no inventory is in play) and
             :attr:`toolpath_text_height` is ``nominal_text_height -
             cutter_diameter``. Default ``DEFAULT_CUTTER_SIZE`` (``None``).
+        cutter_downsize: Whether the compression-driven cutter reduction may
+            act on this line (cascaded line -> label -> job, default
+            ``DEFAULT_CUTTER_DOWNSIZE`` (``True``)). Consumed by
+            :mod:`plt_optimizer.generate.cutter_downsize` after rendering,
+            where the effective horizontal scale is measurable; an explicit
+            :attr:`cutter_size` disables the mechanism for the line.
+            Explicit ``False`` is honored; only ``None`` means unset.
+        max_cutter_downsizes: Ceiling on the number of successive cutter
+            downsizings applied to this line (cascaded line -> label -> job,
+            default ``DEFAULT_MAX_CUTTER_DOWNSIZES`` (1)). ``0`` disables the
+            mechanism. Explicit ``0`` is honored; only ``None`` means unset.
     """
 
     text: str
@@ -364,6 +450,8 @@ class ResolvedTextLine:
     kerning_min_gap: float = DEFAULT_KERNING_MIN_GAP
     fallback_advance_fraction: float = DEFAULT_FALLBACK_ADVANCE_FRACTION
     cutter_size: Optional[float] = DEFAULT_CUTTER_SIZE
+    cutter_downsize: bool = DEFAULT_CUTTER_DOWNSIZE
+    max_cutter_downsizes: int = DEFAULT_MAX_CUTTER_DOWNSIZES
 
 
 @dataclass(frozen=True)
@@ -399,6 +487,16 @@ class ResolvedLabel:
             lines not in the dict use scale ``1.0`` (uncompressed). Set by
             the renderer via ``dataclasses.replace``; never sourced from the
             YAML schema.
+        cutter_downsize_by_line: Mapping of line index to the ``(original,
+            final)`` cutter diameters in inches for lines whose *automatic*
+            cutter was reduced by the compression-driven cutter reduction
+            (see :mod:`plt_optimizer.generate.cutter_downsize`). An empty
+            dict (the default) means no line was downsized. Each entry's
+            ``final`` cutter is strictly below its ``original`` (the swap is
+            one-way: a downsized cutter is never enlarged again within the
+            same line), and the line's :attr:`ResolvedTextLine.toolpath_text_height`
+            already reflects the final cutter. Set by the export pre-pass via
+            ``dataclasses.replace``; never sourced from the YAML schema.
         hole_text_collision_distance: Minimum air gap in inches kept
             between the engraved text stroke and the engraved drill-hole
             stroke (cascaded label -> job, default ``0.15``). Combined
@@ -440,6 +538,7 @@ class ResolvedLabel:
     content: list[ResolvedTextLine] = field(default_factory=list)
     min_hole_margin: Optional[float] = None
     collision_compress_by_line: dict[int, float] = field(default_factory=dict)
+    cutter_downsize_by_line: dict[int, tuple[float, float]] = field(default_factory=dict)
     hole_text_collision_distance: float = DEFAULT_HOLE_TEXT_COLLISION_DISTANCE
     hole_cutter_diameter: float = DEFAULT_BOUNDARY_HOLE_CUTTER
     text_chunk_mode: str = "line"
@@ -1063,6 +1162,30 @@ def _resolve_content(
         else:
             line_fallback_advance_fraction = DEFAULT_FALLBACK_ADVANCE_FRACTION
 
+        # Resolve the compression-driven cutter reduction permission with the
+        # same explicit-None precedence (line -> label -> job -> default) so an
+        # intentional ``False`` (opt-out) is honored instead of falling through
+        # to a parent value.
+        if line.cutter_downsize is not None:
+            line_cutter_downsize: bool = line.cutter_downsize
+        elif label_input.cutter_downsize is not None:
+            line_cutter_downsize = label_input.cutter_downsize
+        elif job.cutter_downsize is not None:
+            line_cutter_downsize = job.cutter_downsize
+        else:
+            line_cutter_downsize = DEFAULT_CUTTER_DOWNSIZE
+
+        # Resolve the downsizing step budget with the same precedence; an
+        # intentional ``0`` (mechanism disabled) is honored.
+        if line.max_cutter_downsizes is not None:
+            line_max_cutter_downsizes: int = line.max_cutter_downsizes
+        elif label_input.max_cutter_downsizes is not None:
+            line_max_cutter_downsizes = label_input.max_cutter_downsizes
+        elif job.max_cutter_downsizes is not None:
+            line_max_cutter_downsizes = job.max_cutter_downsizes
+        else:
+            line_max_cutter_downsizes = DEFAULT_MAX_CUTTER_DOWNSIZES
+
         resolved_content.append(
             ResolvedTextLine(
                 text=line.text,
@@ -1083,6 +1206,8 @@ def _resolve_content(
                 kerning_min_gap=line_kerning_min_gap,
                 fallback_advance_fraction=line_fallback_advance_fraction,
                 cutter_size=line_cutter_size,
+                cutter_downsize=line_cutter_downsize,
+                max_cutter_downsizes=line_max_cutter_downsizes,
             )
         )
     return resolved_content

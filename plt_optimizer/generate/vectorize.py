@@ -692,6 +692,7 @@ def export_per_cutter_plts(
     default_plate_clearance: Optional[tuple[float, float]] = None,
     job_spec: Optional[JobSpec] = None,
     job_config: Optional[JobConfig] = None,
+    available_cutters: Optional[list[float]] = None,
 ) -> PerCutterExport:
     """Export plates as per-cutter PLT files (and optional simple PDFs).
 
@@ -780,6 +781,15 @@ def export_per_cutter_plts(
         job_config: Optional JobConfig with tool_options metadata (command
             strings, dual defaults, bounds). Required when ``job_spec`` is
             provided; ignored otherwise.
+        available_cutters: Optional shop cutter inventory (inches, from
+            ``tools.json``). When provided, enables the compression-driven
+            cutter reduction pre-pass (see
+            :func:`plt_optimizer.generate.cutter_downsize.apply_compression_cutter_downsize`):
+            labels whose text lines were horizontally compressed swap their
+            *automatic* cutter for the next smaller inventory tool **before**
+            the pen map is built, so layers and file names reflect the final
+            tools. ``None`` (the default) disables the pre-pass (every label
+            exports exactly as before).
 
     Returns:
         A :class:`PerCutterExport` with written PLT paths, PDF paths, and
@@ -797,6 +807,15 @@ def export_per_cutter_plts(
     # identical to ``generate_layout``'s own unbounded behaviour.
     if provided_plates is not None and len(provided_plates) == 0:
         provided_plates = None
+
+    # Compression-driven cutter reduction (pre-pass): render-measure the
+    # labels once and downsize the *automatic* cutters of compressed lines
+    # BEFORE the pen map / packing / rendering consume them, so the per-cutter
+    # layers, PLT file names, kerning clearance and collision stroke floor all
+    # see the final tools. No-op (same list) without an inventory.
+    from plt_optimizer.generate.cutter_downsize import apply_compression_cutter_downsize
+
+    resolved_labels = apply_compression_cutter_downsize(resolved_labels, available_cutters)
 
     # Pen == (cutter, color): assign one HPGL pen per distinct text
     # cutter/color layer so the assembled plate can be split into

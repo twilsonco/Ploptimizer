@@ -33,6 +33,7 @@ def _label(
     *,
     compression: dict[int, float] | None = None,
     spacing: dict[int, float] | None = None,
+    downsizes: dict[int, tuple[float, float]] | None = None,
 ) -> tuple[ResolvedLabel, RenderedLabel]:
     """Build a (resolved, rendered) pair carrying the given render-time maps."""
     resolved = ResolvedLabel(
@@ -45,6 +46,7 @@ def _label(
         v_margin=0.1,
         holes=[],
         content=lines,
+        cutter_downsize_by_line=dict(downsizes or {}),
     )
     rendered = RenderedLabel(
         source_label=resolved,
@@ -174,6 +176,48 @@ class TestFullMode:
         lines = format_layout_report([r1, r2], {"a": d1, "b": d2}, full=True)
 
         assert [line for line in lines if line.startswith("Label ")] == ["Label a:", "Label b:"]
+
+
+class TestCutterDownsizeFindings:
+    """The compression-driven cutter reduction prints as its own finding."""
+
+    def test_downsize_is_a_finding(self) -> None:
+        """A downsized line prints the original -> final cutter pair."""
+        resolved, rendered = _label("l1", [_line("WIDE"), _line("B")], downsizes={0: (0.06, 0.045)})
+
+        lines = format_layout_report([resolved], {"l1": rendered})
+
+        assert lines == [
+            "Label l1:",
+            "    Line 0: 'WIDE' cutter 0.060in -> 0.045in (downsized for compression)",
+        ]
+        assert has_layout_findings([resolved], {"l1": rendered})
+
+    def test_downsize_and_compression_print_together(self) -> None:
+        """A compressed line that also downsized prints both lines, scale first."""
+        resolved, rendered = _label(
+            "l1",
+            [_line("WIDE"), _line("B")],
+            compression={0: 0.85},
+            downsizes={0: (0.06, 0.045)},
+        )
+
+        lines = format_layout_report([resolved], {"l1": rendered})
+
+        assert lines == [
+            "Label l1:",
+            "    Line 0: 'WIDE' scale 0.850 (15.0% compressed)",
+            "    Line 0: 'WIDE' cutter 0.060in -> 0.045in (downsized for compression)",
+        ]
+
+    def test_downsize_only_line_prints_without_compression_map(self) -> None:
+        """The downsized scale map is rebuilt on re-render, so the downsize
+        finding must print even when compression_by_line is empty."""
+        resolved, rendered = _label("l1", [_line("A"), _line("WIDE")], downsizes={1: (0.09, 0.06)})
+
+        lines = format_layout_report([resolved], {"l1": rendered}, full=True)
+
+        assert "    Line 1: 'WIDE' cutter 0.090in -> 0.060in (downsized for compression)" in lines
 
 
 class TestEmptyInputs:

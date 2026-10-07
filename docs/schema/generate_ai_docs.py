@@ -83,6 +83,12 @@ _FALLBACK_NOTES: dict[str, str] = {
     "(IDEAL_CUTTER_MAP + inventory snapping). An explicit cutter_size (line/label/job, no "
     "job-config tier) overrides the lookup: it snaps to the inventory (next size down, else "
     "up) and the toolpath height becomes text_height - cutter_size.",
+    "DEFAULT_CUTTER_DOWNSIZE": "True = the automatic cutter may be reduced one rung per "
+    "allowed step when a text line is horizontally compressed past the midpoint between the "
+    "current cutter and the next smaller inventory cutter (requires tools.json inventory; an "
+    "explicit cutter_size disables it).",
+    "DEFAULT_MAX_CUTTER_DOWNSIZES": "Maximum number of cutter downsizings per text line "
+    "(0 = disabled). Cascades line/label/job; job-config supplies the shop default.",
     "DEFAULT_MAX_H_COMPRESS": "0.0 = horizontal compression disabled. Required from config-or-"
     "spec when a job-config is in play.",
     "DEFAULT_TEXT_H_ALIGNMENT": "Horizontal alignment fallback when unset everywhere.",

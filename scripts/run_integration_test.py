@@ -293,6 +293,7 @@ def phase_3_vectorization_and_export(
     default_plate_clearance: tuple[float, float] | None = None,
     job_spec: object | None = None,
     job_config: object | None = None,
+    available_cutters: list[float] | None = None,
 ) -> PerCutterExport:
     """Phase 3: Export per-cutter PLT files using the clean Phase 3 pipeline.
 
@@ -335,6 +336,8 @@ def phase_3_vectorization_and_export(
             unbounded bins (from ``job-config.json``).
         default_plate_clearance: ``(left, top)`` edge clearance applied to
             every auto-allocated unbounded bin (from ``job-config.json``).
+        available_cutters: Shop cutter inventory (``tools.json``); enables the
+            compression-driven cutter reduction pre-pass when provided.
 
     Returns:
         The :class:`PerCutterExport` with written PLT/PDF paths and the
@@ -383,6 +386,7 @@ def phase_3_vectorization_and_export(
         job_spec=job_spec,
         job_config=job_config,
         logger=export_logger,
+        available_cutters=available_cutters,
     )
 
     print("\n--- EXPORT RESULTS ---\n")
@@ -602,6 +606,7 @@ def _run_single_spec(spec_override: Path | None) -> int:
             default_plate_clearance,
             job,
             job_config,
+            available_cutters=inventory,
         )
 
         # Phase 3.5: Coordinate Validation (on the written per-cutter PLTs)

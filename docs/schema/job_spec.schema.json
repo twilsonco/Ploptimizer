@@ -265,6 +265,33 @@
           "description": "Cutter diameter in inches to use for this text instead of the tool auto-selected from text_height. Snapped to the shop inventory (tools.json available_cutters: next size down, else next size up); the rendered toolpath height becomes text_height - cutter_size. Omit (null) to keep automatic cutter selection from text_height. Must be > 0 and below the line's text_height. No job-config.json counterpart. Cascades line -> label -> job.",
           "title": "Cutter Size"
         },
+        "cutter_downsize": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Allow the automatically selected cutter to be reduced when the text line is horizontally compressed: a line squeezed past the midpoint toward the next smaller inventory tool swaps to it and re-renders at text_height - smaller_cutter. One-way (a downsized cutter is never enlarged again within the same line) and fully overridden by an explicit cutter_size. Requires a tools.json available_cutters inventory. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "title": "Cutter Downsize"
+        },
+        "max_cutter_downsizes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum number of successive cutter downsizings applied to one text line (0 disables the mechanism, 1 = at most one size down). Each step re-measures the line, since a smaller cutter renders wider. Cascades line -> label -> job (fallback 1); explicit 0 is honored.",
+          "title": "Max Cutter Downsizes"
+        },
         "text_color": {
           "anyOf": [
             {
@@ -474,7 +501,7 @@
       "type": "string"
     },
     "PlateSpec": {
-      "description": "Specification for a plate (material sheet) to cut labels from.\n\nAttributes:\n    id: Unique identifier for this plate specification.\n    width: Usable width of the plate in inches (the area available to\n        the packer). The material's right edge sits at\n        ``left_clearance + width``.\n    height: Usable height of the plate in inches (the area available to\n        the packer). The material's bottom edge sits at\n        ``top_clearance + height``.\n    left_clearance: Unused material width along the plate's left edge\n        in inches; shifts the usable area rightward. Defaults to 0.0.\n        Bottom and right clearances need no fields: the material always\n        extends to ``left_clearance + width`` on the right and\n        ``top_clearance + height`` at the bottom.\n    top_clearance: Unused material height along the plate's top edge in\n        inches; shifts the usable area downward (labels stay flush with\n        the bottom edge). Defaults to 0.0.\n    h_margin: Optional horizontal margin in inches. Accepted for schema\n        parity with the job/label ``h_margin`` cascade. NOTE: labels\n        are rendered once and cached before bin-packing (and a single\n        label may span multiple plates), so a per-plate value is not\n        currently applied during rendering; the effective value is\n        resolved from the label -> job -> default cascade.\n    v_margin: Optional vertical margin in inches. Accepted for schema\n        parity with the job/label ``v_margin`` cascade. NOTE: labels\n        are rendered once and cached before bin-packing (and a single\n        label may span multiple plates), so a per-plate value is not\n        currently applied during rendering; the effective value is\n        resolved from the label -> job -> default cascade.\n    hole_margin: Optional hole margin in inches. Accepted for schema\n        parity with the job/label ``hole_margin`` cascade. NOTE: labels\n        are rendered once and cached before bin-packing (and a single\n        label may span multiple plates), so a per-plate value is not\n        currently applied during rendering; the effective value is\n        resolved from the label -> job -> default cascade.\n    max_h_compress: Optional maximum horizontal compression fraction.\n        Accepted for schema parity with the job/label ``max_h_compress``\n        cascade. NOTE: labels are rendered once and cached before\n        bin-packing (and a single label may span multiple plates), so a\n        per-plate value is not currently applied during rendering; the\n        effective value is resolved from the label -> job -> default\n        cascade.\n    text_h_alignment: Optional horizontal text alignment. Accepted for\n        schema parity with the job/label ``text_h_alignment`` cascade.\n        NOTE: labels are rendered once and cached before bin-packing\n        (and a single label may span multiple plates), so a per-plate\n        value is not currently applied during rendering; the effective\n        value is resolved from the label -> job -> default cascade.\n    min_hole_margin: Optional minimum hole margin in inches. Accepted\n        for schema parity with the job/label ``min_hole_margin``\n        cascade. NOTE: labels are rendered once and cached before\n        bin-packing (and a single label may span multiple plates), so\n        a per-plate value is not currently applied during rendering;\n        the effective value is resolved from the label -> job ->\n        default cascade.\n    hole_text_collision_distance: Optional minimum engraved-stroke\n        air gap in inches. Accepted for schema parity with the\n        job/label ``hole_text_collision_distance`` cascade. NOTE:\n        labels are rendered once and cached before bin-packing, so a\n        per-plate value is not currently applied during rendering;\n        the effective value is resolved from the label -> job ->\n        default cascade.\n    space_width_fraction: Optional space advance fraction. Accepted\n        for schema parity with the job/label ``space_width_fraction``\n        cascade. NOTE: labels are rendered once and cached before\n        bin-packing, so a per-plate value is not currently applied\n        during rendering; the effective value is resolved from the\n        line -> label -> job -> default cascade.\n    min_glyph_width: Optional global minimum glyph advance width in\n        inches. Accepted for schema parity with the job/label\n        ``min_glyph_width`` cascade. NOTE: labels are rendered once\n        and cached before bin-packing, so a per-plate value is not\n        currently applied during rendering; the effective value is\n        resolved from the line -> label -> job -> default cascade.\n    kerning_window_fraction: Optional kerning window fraction in\n        ``[0.0, 1.0]``. Accepted for schema parity with the job/label\n        ``kerning_window_fraction`` cascade. NOTE: labels are rendered\n        once and cached before bin-packing, so a per-plate value is\n        not currently applied during rendering; the effective value is\n        resolved from the line -> label -> job -> default cascade.\n    kerning_penetration_scale: Optional penetration multiplier.\n        Accepted for schema parity with the job/label\n        ``kerning_penetration_scale`` cascade (not applied at plate\n        level).\n    kerning_recession_scale: Optional recession multiplier. Accepted\n        for schema parity with the job/label\n        ``kerning_recession_scale`` cascade (not applied at plate\n        level).\n    kerning_min_gap: Optional extra kerning air in inches. Accepted\n        for schema parity with the job/label ``kerning_min_gap``\n        cascade (not applied at plate level).\n    fallback_advance_fraction: Optional fallback-advance multiplier.\n        Accepted for schema parity with the job/label\n        ``fallback_advance_fraction`` cascade (not applied at plate\n        level).\n    cutter_size: Optional cutter diameter in inches. Accepted for schema\n        parity with the job/label ``cutter_size`` cascade (not applied at\n        plate level).\n    layout: Optional per-plate fill-order override (``rows`` /\n        ``columns``). ``None`` (the default) inherits the job-level\n        ``layout``. Unlike the other cascading fields, this one IS\n        applied at packing time: when plates declare different modes,\n        same-mode plates pack in one sequential pass and leftovers\n        cascade to the next group in declaration order.\n    material: Optional stock material name this plate is cut from\n        (free-form, e.g. ``\"wb\"``). Cascades job -> plate (an explicit\n        plate value wins; an explicit ``null`` counts as unset). Unlike\n        the parity-only fields, this one IS applied at packing time:\n        labels are partitioned by material and each material group\n        packs only onto plates claiming that material, so a plate\n        never mixes materials. A plate that omits material is claimed\n        by one material group (material-less plates spread across the\n        groups). Comparison trims whitespace and ignores case.\n    replacement_text_file: Optional path to an EngraveLab/Vision\n        Pro-style replacement text file (resolved relative to the job\n        YAML directory unless absolute) whose lines each produce one\n        label generated *onto this plate only*. Label dimensions and\n        typography (``width`` / ``height`` / ``text_height`` / ...) are\n        NOT plate fields: they come from the job-level cascade. The\n        plate's usable ``width``/``height`` still describe the pack\n        area.\n    replacement_text_delimiter: Single special or whitespace character\n        separating text items within a replacement file line. Defaults\n        to ``\";\"``. Requires ``replacement_text_file``.",
+      "description": "Specification for a plate (material sheet) to cut labels from.\n\nAttributes:\n    id: Unique identifier for this plate specification.\n    width: Usable width of the plate in inches (the area available to\n        the packer). The material's right edge sits at\n        ``left_clearance + width``.\n    height: Usable height of the plate in inches (the area available to\n        the packer). The material's bottom edge sits at\n        ``top_clearance + height``.\n    left_clearance: Unused material width along the plate's left edge\n        in inches; shifts the usable area rightward. Defaults to 0.0.\n        Bottom and right clearances need no fields: the material always\n        extends to ``left_clearance + width`` on the right and\n        ``top_clearance + height`` at the bottom.\n    top_clearance: Unused material height along the plate's top edge in\n        inches; shifts the usable area downward (labels stay flush with\n        the bottom edge). Defaults to 0.0.\n    h_margin: Optional horizontal margin in inches. Accepted for schema\n        parity with the job/label ``h_margin`` cascade. NOTE: labels\n        are rendered once and cached before bin-packing (and a single\n        label may span multiple plates), so a per-plate value is not\n        currently applied during rendering; the effective value is\n        resolved from the label -> job -> default cascade.\n    v_margin: Optional vertical margin in inches. Accepted for schema\n        parity with the job/label ``v_margin`` cascade. NOTE: labels\n        are rendered once and cached before bin-packing (and a single\n        label may span multiple plates), so a per-plate value is not\n        currently applied during rendering; the effective value is\n        resolved from the label -> job -> default cascade.\n    hole_margin: Optional hole margin in inches. Accepted for schema\n        parity with the job/label ``hole_margin`` cascade. NOTE: labels\n        are rendered once and cached before bin-packing (and a single\n        label may span multiple plates), so a per-plate value is not\n        currently applied during rendering; the effective value is\n        resolved from the label -> job -> default cascade.\n    max_h_compress: Optional maximum horizontal compression fraction.\n        Accepted for schema parity with the job/label ``max_h_compress``\n        cascade. NOTE: labels are rendered once and cached before\n        bin-packing (and a single label may span multiple plates), so a\n        per-plate value is not currently applied during rendering; the\n        effective value is resolved from the label -> job -> default\n        cascade.\n    text_h_alignment: Optional horizontal text alignment. Accepted for\n        schema parity with the job/label ``text_h_alignment`` cascade.\n        NOTE: labels are rendered once and cached before bin-packing\n        (and a single label may span multiple plates), so a per-plate\n        value is not currently applied during rendering; the effective\n        value is resolved from the label -> job -> default cascade.\n    min_hole_margin: Optional minimum hole margin in inches. Accepted\n        for schema parity with the job/label ``min_hole_margin``\n        cascade. NOTE: labels are rendered once and cached before\n        bin-packing (and a single label may span multiple plates), so\n        a per-plate value is not currently applied during rendering;\n        the effective value is resolved from the label -> job ->\n        default cascade.\n    hole_text_collision_distance: Optional minimum engraved-stroke\n        air gap in inches. Accepted for schema parity with the\n        job/label ``hole_text_collision_distance`` cascade. NOTE:\n        labels are rendered once and cached before bin-packing, so a\n        per-plate value is not currently applied during rendering;\n        the effective value is resolved from the label -> job ->\n        default cascade.\n    space_width_fraction: Optional space advance fraction. Accepted\n        for schema parity with the job/label ``space_width_fraction``\n        cascade. NOTE: labels are rendered once and cached before\n        bin-packing, so a per-plate value is not currently applied\n        during rendering; the effective value is resolved from the\n        line -> label -> job -> default cascade.\n    min_glyph_width: Optional global minimum glyph advance width in\n        inches. Accepted for schema parity with the job/label\n        ``min_glyph_width`` cascade. NOTE: labels are rendered once\n        and cached before bin-packing, so a per-plate value is not\n        currently applied during rendering; the effective value is\n        resolved from the line -> label -> job -> default cascade.\n    kerning_window_fraction: Optional kerning window fraction in\n        ``[0.0, 1.0]``. Accepted for schema parity with the job/label\n        ``kerning_window_fraction`` cascade. NOTE: labels are rendered\n        once and cached before bin-packing, so a per-plate value is\n        not currently applied during rendering; the effective value is\n        resolved from the line -> label -> job -> default cascade.\n    kerning_penetration_scale: Optional penetration multiplier.\n        Accepted for schema parity with the job/label\n        ``kerning_penetration_scale`` cascade (not applied at plate\n        level).\n    kerning_recession_scale: Optional recession multiplier. Accepted\n        for schema parity with the job/label\n        ``kerning_recession_scale`` cascade (not applied at plate\n        level).\n    kerning_min_gap: Optional extra kerning air in inches. Accepted\n        for schema parity with the job/label ``kerning_min_gap``\n        cascade (not applied at plate level).\n    fallback_advance_fraction: Optional fallback-advance multiplier.\n        Accepted for schema parity with the job/label\n        ``fallback_advance_fraction`` cascade (not applied at plate\n        level).\n    cutter_size: Optional cutter diameter in inches. Accepted for schema\n        parity with the job/label ``cutter_size`` cascade (not applied at\n        plate level).\n    cutter_downsize: Optional compression-driven cutter reduction flag.\n        Accepted for schema parity with the job/label ``cutter_downsize``\n        cascade (not applied at plate level).\n    max_cutter_downsizes: Optional cap on cutter downsizing steps.\n        Accepted for schema parity with the job/label\n        ``max_cutter_downsizes`` cascade (not applied at plate level).\n    layout: Optional per-plate fill-order override (``rows`` /\n        ``columns``). ``None`` (the default) inherits the job-level\n        ``layout``. Unlike the other cascading fields, this one IS\n        applied at packing time: when plates declare different modes,\n        same-mode plates pack in one sequential pass and leftovers\n        cascade to the next group in declaration order.\n    material: Optional stock material name this plate is cut from\n        (free-form, e.g. ``\"wb\"``). Cascades job -> plate (an explicit\n        plate value wins; an explicit ``null`` counts as unset). Unlike\n        the parity-only fields, this one IS applied at packing time:\n        labels are partitioned by material and each material group\n        packs only onto plates claiming that material, so a plate\n        never mixes materials. A plate that omits material is claimed\n        by one material group (material-less plates spread across the\n        groups). Comparison trims whitespace and ignores case.\n    replacement_text_file: Optional path to an EngraveLab/Vision\n        Pro-style replacement text file (resolved relative to the job\n        YAML directory unless absolute) whose lines each produce one\n        label generated *onto this plate only*. Label dimensions and\n        typography (``width`` / ``height`` / ``text_height`` / ...) are\n        NOT plate fields: they come from the job-level cascade. The\n        plate's usable ``width``/``height`` still describe the pack\n        area.\n    replacement_text_delimiter: Single special or whitespace character\n        separating text items within a replacement file line. Defaults\n        to ``\";\"``. Requires ``replacement_text_file``.",
       "properties": {
         "id": {
           "description": "Unique identifier for this plate specification.",
@@ -715,6 +742,33 @@
           "default": null,
           "description": "Cutter diameter in inches overriding automatic selection (schema parity; not applied at plate level).",
           "title": "Cutter Size"
+        },
+        "cutter_downsize": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Compression-driven cutter reduction permission (schema parity; not applied at plate level).",
+          "title": "Cutter Downsize"
+        },
+        "max_cutter_downsizes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum number of cutter downsizing steps (schema parity; not applied at plate level).",
+          "title": "Max Cutter Downsizes"
         },
         "hole_text_collision_distance": {
           "anyOf": [
@@ -1046,6 +1100,33 @@
           "description": "Cutter diameter in inches to use for this text instead of the tool auto-selected from text_height. Snapped to the shop inventory (tools.json available_cutters: next size down, else next size up); the rendered toolpath height becomes text_height - cutter_size. Omit (null) to keep automatic cutter selection from text_height. Must be > 0 and below the line's text_height. No job-config.json counterpart. Cascades line -> label -> job.",
           "title": "Cutter Size"
         },
+        "cutter_downsize": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Allow the automatically selected cutter to be reduced when the text line is horizontally compressed: a line squeezed past the midpoint toward the next smaller inventory tool swaps to it and re-renders at text_height - smaller_cutter. One-way (a downsized cutter is never enlarged again within the same line) and fully overridden by an explicit cutter_size. Requires a tools.json available_cutters inventory. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "title": "Cutter Downsize"
+        },
+        "max_cutter_downsizes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum number of successive cutter downsizings applied to one text line (0 disables the mechanism, 1 = at most one size down). Each step re-measures the line, since a smaller cutter renders wider. Cascades line -> label -> job (fallback 1); explicit 0 is honored.",
+          "title": "Max Cutter Downsizes"
+        },
         "text_color": {
           "anyOf": [
             {
@@ -1302,6 +1383,33 @@
       "default": null,
       "description": "Cutter diameter in inches to use for this text instead of the tool auto-selected from text_height. Snapped to the shop inventory (tools.json available_cutters: next size down, else next size up); the rendered toolpath height becomes text_height - cutter_size. Omit (null) to keep automatic cutter selection from text_height. Must be > 0 and below the line's text_height. No job-config.json counterpart. Cascades line -> label -> job.",
       "title": "Cutter Size"
+    },
+    "cutter_downsize": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Allow the automatically selected cutter to be reduced when the text line is horizontally compressed: a line squeezed past the midpoint toward the next smaller inventory tool swaps to it and re-renders at text_height - smaller_cutter. One-way (a downsized cutter is never enlarged again within the same line) and fully overridden by an explicit cutter_size. Requires a tools.json available_cutters inventory. Cascades line -> label -> job (fallback true); explicit false is honored.",
+      "title": "Cutter Downsize"
+    },
+    "max_cutter_downsizes": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Maximum number of successive cutter downsizings applied to one text line (0 disables the mechanism, 1 = at most one size down). Each step re-measures the line, since a smaller cutter renders wider. Cascades line -> label -> job (fallback 1); explicit 0 is honored.",
+      "title": "Max Cutter Downsizes"
     },
     "text_color": {
       "anyOf": [

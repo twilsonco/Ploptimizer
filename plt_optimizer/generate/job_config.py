@@ -141,6 +141,11 @@ class JobDefaults(BaseModel):
             hole entries (config- or spec-provided) that omit
             ``diameter``.
         allow_rotation: Default bin-packing rotation permission.
+        cutter_downsize: Default compression-driven cutter reduction
+            permission. Unset falls back to True.
+        max_cutter_downsizes: Default ceiling on successive cutter
+            downsizings per text line. Unset falls back to 1; 0 disables
+            the mechanism.
         text_chunk_mode: Default plate-space text optimization granularity.
         layout: Default plate fill order.
         plate_width: Default usable plate width in inches (plate layer).
@@ -313,6 +318,21 @@ class JobDefaults(BaseModel):
     allow_rotation: Optional[bool] = Field(
         default=None, description="Default bin-packing rotation permission (job layer)."
     )
+    cutter_downsize: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Default compression-driven cutter reduction permission (job "
+            "layer; cascades line -> label -> job)."
+        ),
+    )
+    max_cutter_downsizes: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Default ceiling on successive cutter downsizings per text line "
+            "(job layer; 0 disables the mechanism, 1 = at most one size down)."
+        ),
+    )
     text_chunk_mode: Optional[Literal["line", "word"]] = Field(
         default=None, description="Default plate-space text optimization granularity."
     )
@@ -404,6 +424,8 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "kerning_recession_scale",
     "kerning_min_gap",
     "fallback_advance_fraction",
+    "cutter_downsize",
+    "max_cutter_downsizes",
     "allow_rotation",
     "text_chunk_mode",
     "layout",

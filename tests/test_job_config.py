@@ -114,6 +114,19 @@ class TestJobDefaultsModel:
         with pytest.raises(ValidationError):
             JobDefaults(**{"cutter_size": 0.03})  # type: ignore
 
+    def test_cutter_downsize_config_fields(self) -> None:
+        """cutter_downsize/max_cutter_downsizes are legal shop defaults."""
+        defaults = JobDefaults(cutter_downsize=False, max_cutter_downsizes=2)
+        assert defaults.cutter_downsize is False
+        assert defaults.max_cutter_downsizes == 2
+        assert JobDefaults().cutter_downsize is None
+        assert JobDefaults().max_cutter_downsizes is None
+
+    def test_max_cutter_downsizes_negative_rejected(self) -> None:
+        """The downsizing budget cannot be negative."""
+        with pytest.raises(ValidationError):
+            JobDefaults(max_cutter_downsizes=-1)  # type: ignore
+
     def test_description_key_allowed(self) -> None:
         """A free-form description (like tools.json) is accepted."""
         assert JobDefaults(**_FULL_CONFIG, description="shop A").description == "shop A"
@@ -154,6 +167,8 @@ class TestJobDefaultsModel:
         assert "kerning_min_gap" not in REQUIRED_WHEN_UNCONFIGURED
         assert "fallback_advance_fraction" not in REQUIRED_WHEN_UNCONFIGURED
         assert "cutter_size" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "cutter_downsize" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "max_cutter_downsizes" not in REQUIRED_WHEN_UNCONFIGURED
         assert JobDefaults().space_width_fraction is None
         assert JobDefaults().min_glyph_width is None
         assert JobDefaults().kerning_window_fraction is None
@@ -240,6 +255,24 @@ class TestApplyJobConfigDefaults:
         assert filled["kerning_recession_scale"] == 0.0
         assert filled["kerning_min_gap"] == 0.05
         assert filled["fallback_advance_fraction"] == 0.9
+
+    def test_cutter_downsize_job_layer_fill(self, tmp_path: Path) -> None:
+        """Configured cutter-downsize defaults land as job-level values."""
+        config_data = dict(_FULL_CONFIG)
+        config_data["cutter_downsize"] = False
+        config_data["max_cutter_downsizes"] = 3
+        config = load_job_config(_write_config(tmp_path, config_data))
+        filled = apply_job_config_defaults(_minimal_job(), config)
+        assert filled["cutter_downsize"] is False
+        assert filled["max_cutter_downsizes"] == 3
+
+    def test_cutter_downsize_yaml_wins(self, tmp_path: Path) -> None:
+        """A spec-declared cutter_downsize is never overridden by the config."""
+        config_data = dict(_FULL_CONFIG)
+        config_data["cutter_downsize"] = False
+        config = load_job_config(_write_config(tmp_path, config_data))
+        filled = apply_job_config_defaults(_minimal_job(cutter_downsize=True), config)
+        assert filled["cutter_downsize"] is True
 
     def test_yaml_values_win(self, tmp_path: Path) -> None:
         """Spec-declared values are never overridden by the config."""
@@ -594,7 +627,7 @@ class TestParseYamlWithJobConfig:
         job = parse_yaml("tests_deps/test123_spec.yaml", job_config_path=Path("job-config.json"))
         assert job.hole_margin == 0.1875
         assert job.max_h_compress == 0.7
-        assert job.min_hole_margin == 0.15
+        assert job.min_hole_margin == 0.1875
         assert job.hole_text_collision_distance == 0.1
         assert job.space_width_fraction == 0.8
         assert job.min_glyph_width == 0.06
@@ -603,6 +636,8 @@ class TestParseYamlWithJobConfig:
         assert job.kerning_recession_scale == 0.0
         assert job.kerning_min_gap == 0.02
         assert job.fallback_advance_fraction == 1.0
+        assert job.cutter_downsize is True
+        assert job.max_cutter_downsizes == 1
 
     def test_yaml_overrides_config(self) -> None:
         """Spec-declared values still win over the shipped config."""

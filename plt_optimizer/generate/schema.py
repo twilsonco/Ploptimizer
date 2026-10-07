@@ -460,6 +460,26 @@ class TextAttributes(BaseModel):
             is deliberately **no** ``job-config.json`` counterpart. Cascades
             line -> label -> job (and is accepted on plates for schema
             parity, where it is not applied at that level).
+        cutter_downsize: Optional permission to *reduce* the automatically
+            selected cutter when the rendered line has to be compressed
+            horizontally. When enabled (the default), a line whose effective
+            horizontal scale falls below the midpoint between its current
+            cutter and the next smaller inventory tool swaps to that smaller
+            tool and re-renders at ``text_height - smaller_cutter`` (the
+            nominal ``text_height`` stays the user's intent). The swap is
+            one-way: a downsized cutter is never enlarged again within the
+            same line. An explicit ``cutter_size`` at any level overrides
+            this entirely. Defaults to ``True``; only ``None`` means unset.
+            Cascades line -> label -> job (and is accepted on plates for
+            schema parity, where it is not applied at that level).
+        max_cutter_downsizes: Optional ceiling on how many successive cutter
+            downsizings :attr:`cutter_downsize` may apply to one text line
+            (``0`` disables the mechanism, ``1`` = at most one size down).
+            Each step re-measures the line, because a smaller cutter renders
+            *wider* and can justify a further step. Defaults to ``1``; only
+            ``None`` means unset. Cascades line -> label -> job (and is
+            accepted on plates for schema parity, where it is not applied at
+            that level).
         text_color: Optional stroke-color layer tag used to split
             otherwise-identical text into separate toolpaths (one HPGL
             ``SP`` layer and one PLT file per distinct color), so the
@@ -624,6 +644,30 @@ class TextAttributes(BaseModel):
             "cutter selection from text_height. Must be > 0 and below the "
             "line's text_height. No job-config.json counterpart. Cascades "
             "line -> label -> job."
+        ),
+    )
+    cutter_downsize: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Allow the automatically selected cutter to be reduced when the "
+            "text line is horizontally compressed: a line squeezed past the "
+            "midpoint toward the next smaller inventory tool swaps to it and "
+            "re-renders at text_height - smaller_cutter. One-way (a downsized "
+            "cutter is never enlarged again within the same line) and fully "
+            "overridden by an explicit cutter_size. Requires a tools.json "
+            "available_cutters inventory. Cascades line -> label -> job "
+            "(fallback true); explicit false is honored."
+        ),
+    )
+    max_cutter_downsizes: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Maximum number of successive cutter downsizings applied to one "
+            "text line (0 disables the mechanism, 1 = at most one size down). "
+            "Each step re-measures the line, since a smaller cutter renders "
+            "wider. Cascades line -> label -> job (fallback 1); explicit 0 is "
+            "honored."
         ),
     )
     text_color: Optional[TextColor] = Field(
@@ -1106,6 +1150,12 @@ class PlateSpec(BaseModel):
         cutter_size: Optional cutter diameter in inches. Accepted for schema
             parity with the job/label ``cutter_size`` cascade (not applied at
             plate level).
+        cutter_downsize: Optional compression-driven cutter reduction flag.
+            Accepted for schema parity with the job/label ``cutter_downsize``
+            cascade (not applied at plate level).
+        max_cutter_downsizes: Optional cap on cutter downsizing steps.
+            Accepted for schema parity with the job/label
+            ``max_cutter_downsizes`` cascade (not applied at plate level).
         layout: Optional per-plate fill-order override (``rows`` /
             ``columns``). ``None`` (the default) inherits the job-level
             ``layout``. Unlike the other cascading fields, this one IS
@@ -1249,6 +1299,20 @@ class PlateSpec(BaseModel):
         description=(
             "Cutter diameter in inches overriding automatic selection "
             "(schema parity; not applied at plate level)."
+        ),
+    )
+    cutter_downsize: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Compression-driven cutter reduction permission (schema parity; "
+            "not applied at plate level)."
+        ),
+    )
+    max_cutter_downsizes: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Maximum number of cutter downsizing steps (schema parity; not applied at plate level)."
         ),
     )
     hole_text_collision_distance: Optional[float] = Field(

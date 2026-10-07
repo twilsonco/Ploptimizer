@@ -200,8 +200,26 @@ JobSpec (job-level defaults)
   cutter, explicit or auto, becomes its own per-cutter text layer/PLT file
   (`cutter_diameter` is already per-line end-to-end, so `build_cutter_pen_map`,
   `label_renderer._render_text_lines_by_pen` and `export_per_cutter_plts` need
-  no change). See also the sibling TODO `cutter_downsize` (render-time
-  downsize driven by horizontal compression — not yet implemented).
+  no change). See also the sibling `cutter_downsize` (render-time downsize
+  driven by horizontal compression — implemented, see below).
+- `cutter_downsize`: Boolean gate for compression-driven cutter reduction
+  (`default None` → **true**). When true, a text line whose *effective*
+  horizontal compression scale (margin scale × collision scale, measured at
+  render time) falls below the midpoint between the current **automatic**
+  cutter and the next smaller `tools.json` `available_cutters` rung drops the
+  line's cutter one rung (e.g. 0.100in current, 0.080in next: midpoint 0.90,
+  so scale < 0.90 triggers, ≥ 0.90 keeps). The toolpath height grows to
+  `text_height - smaller_cutter` (nominal `text_height` kept as user intent,
+  matching the `cutter_size` contract). An explicit `cutter_size` disables
+  the reduction for that line. Cascades line → label → job → default
+  (plate parity only); `job-config.json` supplies the shop default.
+- `max_cutter_downsizes`: Maximum number of cutter downsizings per text line
+  (`ge=0`, default `None` → **1**). Each step re-measures the re-rendered
+  line (the new cutter changes the compression), and the ladder is strictly
+  one-way — a line never regains a larger cutter within the same render
+  (monotonicity: no oscillation). `0` disables the mechanism entirely.
+  Cascades line → label → job → default (plate parity only);
+  `job-config.json` supplies the shop default.
 
 **LabelAttributes** (extends TextAttributes, cascades to LabelSpec only):
 - `width`: Label width in inches; must be defined at label or job level (required; no longer auto-sized).
@@ -243,6 +261,59 @@ line → label → job (accepted on plates for schema parity only).
   resolve the overflow (limit too small), a WARNING is logged.
 - The *applied* per-line scale is reported (not stored on the schema) via
   `RenderedLabel.compression_by_line` — see Applied Layout Reporting.
+
+### Compression-Driven Cutter Downsizing (`cutter_downsize`)
+
+A line that must be squeezed horizontally is a line the automatic cutter is
+too fat for. `cutter_downsize` (default **true**) + `max_cutter_downsizes`
+(default **1**) let the export pipeline reduce the line's **automatic**
+cutter when its *effective* horizontal scale (margin scale × collision
+scale) falls below the midpoint between the current cutter and the next
+smaller `tools.json` `available_cutters` rung (0.100in current, 0.080in
+next: midpoint 0.90 — scale 0.89 triggers, 0.90 keeps; the tie keeps the
+current tool). The toolpath height grows to `text_height - smaller_cutter`
+(nominal `text_height` kept as user intent, matching the `cutter_size`
+contract). An explicit `cutter_size` disables the reduction for that line.
+Both fields cascade line → label → job → `job-config.json` default (plate
+parity only); `max_cutter_downsizes: 0` disables the mechanism.
+
+- `plt_optimizer/generate/cutter_downsize.py` runs as an **export pre-pass**
+  (`apply_compression_cutter_downsize`) inside
+  `vectorize.export_per_cutter_plts`, *before* `build_cutter_pen_map`: it
+  renders each label once through an injectable `ScaleProbe` (default:
+  lazy-imported `render_label_to_plt`, reading
+  `RenderedLabel.compression_by_line`), and emits adjusted `ResolvedLabel`
+  clones (`dataclasses.replace`, mirroring the collision-avoidance pattern)
+  carrying the reduced cutter + grown toolpath height +
+  `ResolvedLabel.cutter_downsize_by_line` (line index → (original, final)).
+  The pen map, per-cutter layers and PLT file names therefore all see the
+  tool actually used (the downsized line lands in its own file).
+- **Monotone step loop:** each step swaps one rung and re-measures the
+  re-rendered line (a smaller cutter renders *wider* — bigger toolpath
+  height and wider kerning clearance — which can deepen the compression and
+  justify a further step, up to the budget). The cutter strictly decreases
+  every step and a line never regains a larger cutter within the same render
+  (no oscillation); a step whose candidate cutter leaves no material
+  (`nominal - candidate <= 0`) is refused.
+- **Scope guards (free no-ops):** no `available_cutters` inventory (the
+  ladder is the shop's real tool list); no eligible line; every line's
+  `max_h_compress` budget `0.0` (both compression mechanisms need budget
+  > 0). `export_per_cutter_plts` gains an `available_cutters` kwarg
+  (default `None` ⇒ pre-pass inert ⇒ historical output bit-identical); the
+  CLI and integration runner thread the `tools.json` inventory in.
+- Pure math lives in resolution.py (matplotlib-free): `next_smaller_cutter`
+  (largest inventory rung strictly below current) and
+  `should_downsize_cutter` (midpoint rule, `1e-12` tie guard).
+- Each swap logs a WARNING naming the label id, line index, text, scale and
+  both cutters; the layout report (`layout_report.py`) prints a per-line
+  `cutter 0.060in -> 0.045in (downsized for compression)` finding.
+- Accepted staleness: `_resolve_auto_line_spacing` / `_fit_content_to_margins`
+  size vertical spacing against the *original* toolpath height; the
+  render-time `fit_line_spacing_to_margins` re-clamp preserves the margins.
+- Example fixture: `tests_deps/cutter_downsize_job.yaml` (pinned by
+  `tests/test_phase3_export.py::TestCutterDownsizeDemoExample`) — one
+  downsized line (0.06→0.045), one fitting line, one explicit-cutter line
+  (never reduced) and one `cutter_downsize: false` opt-out.
 
 ### Horizontal Text Alignment
 
@@ -323,7 +394,10 @@ intersection-invariant.
 
 Two render-time typography effects change what is engraved without
 appearing in the YAML spec, and both are measured during rendering and
-reported reporting-only (nothing downstream consumes them for geometry):
+reported reporting-only (nothing downstream consumes them for geometry).
+A third finding — the compression-driven cutter downsize (see
+Compression-Driven Cutter Downsizing) — is reported from
+`ResolvedLabel.cutter_downsize_by_line` set by the export pre-pass:
 
 **Horizontal compression.** Both compression mechanisms (margin-overflow
 and Phase 3 collision) are render-time effects: `resolve_job_spec()` only
@@ -365,13 +439,15 @@ the value actually used for stacking, so it is what the report shows.
   gates compact output. The module is pure Python (pipeline types are
   `TYPE_CHECKING`-only imports), so it is unit-testable without
   matplotlib and safe on the CLI's lazy-import path. A *finding* is a
-  compressed line (scale < 1.0) or a spacing gap that deviates from the
-  requested value (compared with `math.isclose`).
+  compressed line (scale < 1.0), a spacing gap that deviates from the
+  requested value (compared with `math.isclose`), or a downsized cutter
+  (`source_label.cutter_downsize_by_line` non-empty).
 - `scripts/run_integration_test.py` prints the full report (`full=True`)
   as the **Phase 3.6: LAYOUT REPORT** section (per label, one line per
   compressed text line: `Line N: '<text>' scale 0.870 (13.0%
-  compressed)`, and one per gap: `Line N: '<text>' spacing below
-  0.120in (requested 0.162in)`).
+  compressed)`, one per gap: `Line N: '<text>' spacing below
+  0.120in (requested 0.162in)`, and one per reduced tool: `Line N:
+  '<text>' cutter 0.060in -> 0.045in (downsized for compression)`).
 - The `generate` CLI prints the same report after the file summaries
   (`Layout report:` header), **compact by default** (only labels with
   findings) and **full under `-v`**; it is skipped silently when the
@@ -652,7 +728,7 @@ already knows each toolpath's kind, the `Profiler` is skipped entirely.
   **removed**; optimization now happens pre-write in plate space.
 
 ### Cascading Resolution
-When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.15), `space_width_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.3), `min_glyph_width` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `kerning_window_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.05), `kerning_penetration_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_recession_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_min_gap` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `fallback_advance_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0). `cutter_size` (explicit-`None` precedence line → label → job → auto-select; no config tier, `gt=0.0` so an explicit `0.0` is a validation error, not a cascade value). `material` cascades label → job (and plate →
+When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.15), `space_width_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.3), `min_glyph_width` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `kerning_window_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.05), `kerning_penetration_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_recession_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_min_gap` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `fallback_advance_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `cutter_downsize` (explicit `false` is honored; only `None` means unset, falling back to the config or true) and `max_cutter_downsizes` (explicit 0 is honored; only `None` means unset, falling back to the config or 1). `cutter_size` (explicit-`None` precedence line → label → job → auto-select; no config tier, `gt=0.0` so an explicit `0.0` is a validation error, not a cascade value). `material` cascades label → job (and plate →
 job via the clearance-style plate cascade): an explicit label/plate value wins,
 an explicit `null` counts as unset, and empty-after-trim strings are validation
 errors.
@@ -866,7 +942,8 @@ top-most layer:
   `max_h_compress`, `text_h_alignment`, `space_width_fraction`,
   `min_glyph_width`, `kerning_window_fraction`, `kerning_penetration_scale`,
   `kerning_recession_scale`,
-  `kerning_min_gap`, `fallback_advance_fraction`, `holes`, `allow_rotation`,
+  `kerning_min_gap`, `fallback_advance_fraction`, `cutter_downsize`,
+  `max_cutter_downsizes`, `holes`, `allow_rotation`,
   `text_chunk_mode`, `layout`) fill missing **job-level** keys; the existing
   label -> job cascade then works unchanged and YAML values always win (an
   explicit YAML `null` counts as unset; `holes: []` suppression is a value).

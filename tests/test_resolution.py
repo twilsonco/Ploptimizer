@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from plt_optimizer.generate.resolution import (
     DEFAULT_BOUNDARY_HOLE_CUTTER,
+    DEFAULT_CUTTER_DOWNSIZE,
     DEFAULT_CUTTER_SIZE,
     DEFAULT_FALLBACK_ADVANCE_FRACTION,
     DEFAULT_FONT,
@@ -20,6 +21,7 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_KERNING_WINDOW_FRACTION,
     DEFAULT_LINE_SPACING,
     DEFAULT_MARGIN,
+    DEFAULT_MAX_CUTTER_DOWNSIZES,
     DEFAULT_MAX_H_COMPRESS,
     DEFAULT_MIN_GLYPH_WIDTH,
     DEFAULT_MIN_HOLE_MARGIN,
@@ -37,7 +39,9 @@ from plt_optimizer.generate.resolution import (
     compute_horizontal_scale,
     fit_line_spacing_to_margins,
     get_cutter_diameter,
+    next_smaller_cutter,
     resolve_job_spec,
+    should_downsize_cutter,
     snap_boundary_hole_cutter,
 )
 from plt_optimizer.generate.schema import (
@@ -2277,6 +2281,177 @@ class TestCutterSizeCascade:
         assert math.isclose(content[0].cutter_diameter, 0.09)
         assert content[1].cutter_size is None
         assert math.isclose(content[1].cutter_diameter, get_cutter_diameter(0.5))
+
+
+class TestCutterDownsizeCascade:
+    """cutter_downsize cascades line -> label -> job -> True (explicit-None)."""
+
+    @staticmethod
+    def _job(**levels: bool | None) -> JobSpec:
+        """Build a single-line job applying cutter_downsize at the given levels."""
+        job_kwargs: dict[str, bool | None] = {}
+        label_kwargs: dict[str, bool | None] = {}
+        line_kwargs: dict[str, bool | None] = {}
+        if "job" in levels:
+            job_kwargs["cutter_downsize"] = levels["job"]
+        if "label" in levels:
+            label_kwargs["cutter_downsize"] = levels["label"]
+        if "line" in levels:
+            line_kwargs["cutter_downsize"] = levels["line"]
+        return JobSpec(
+            job_name="J",
+            text_height=0.5,
+            **job_kwargs,  # type: ignore[arg-type]
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    **label_kwargs,  # type: ignore[arg-type]
+                    content=[TextLine(text="X", **line_kwargs)],  # type: ignore[arg-type]
+                )
+            ],
+        )
+
+    def test_default_module_constant_is_true(self) -> None:
+        """The shipped default enables the compression-driven reduction."""
+        assert DEFAULT_CUTTER_DOWNSIZE is True
+
+    def test_default_resolves_true(self) -> None:
+        """All levels omitting resolves to the True fallback."""
+        line = resolve_job_spec(self._job())[0].content[0]
+        assert line.cutter_downsize is True
+
+    def test_job_false_used_when_label_omits(self) -> None:
+        """Job-level False cascades to labels and lines that omit the field."""
+        line = resolve_job_spec(self._job(job=False))[0].content[0]
+        assert line.cutter_downsize is False
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level True beats the job-level False."""
+        line = resolve_job_spec(self._job(job=False, label=True))[0].content[0]
+        assert line.cutter_downsize is True
+
+    def test_line_overrides_label(self) -> None:
+        """Line-level False beats the label-level True."""
+        line = resolve_job_spec(self._job(job=True, label=True, line=False))[0].content[0]
+        assert line.cutter_downsize is False
+
+
+class TestMaxCutterDownsizesCascade:
+    """max_cutter_downsizes cascades line -> label -> job -> 1 (explicit-None)."""
+
+    @staticmethod
+    def _job(**levels: int | None) -> JobSpec:
+        """Build a single-line job applying max_cutter_downsizes at the given levels."""
+        job_kwargs: dict[str, int | None] = {}
+        label_kwargs: dict[str, int | None] = {}
+        line_kwargs: dict[str, int | None] = {}
+        if "job" in levels:
+            job_kwargs["max_cutter_downsizes"] = levels["job"]
+        if "label" in levels:
+            label_kwargs["max_cutter_downsizes"] = levels["label"]
+        if "line" in levels:
+            line_kwargs["max_cutter_downsizes"] = levels["line"]
+        return JobSpec(
+            job_name="J",
+            text_height=0.5,
+            **job_kwargs,  # type: ignore[arg-type]
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    **label_kwargs,  # type: ignore[arg-type]
+                    content=[TextLine(text="X", **line_kwargs)],  # type: ignore[arg-type]
+                )
+            ],
+        )
+
+    def test_default_module_constant_is_one(self) -> None:
+        """The shipped default allows exactly one downsizing step."""
+        assert DEFAULT_MAX_CUTTER_DOWNSIZES == 1
+
+    def test_default_resolves_one(self) -> None:
+        """All levels omitting resolves to the 1 fallback."""
+        line = resolve_job_spec(self._job())[0].content[0]
+        assert line.max_cutter_downsizes == 1
+
+    def test_explicit_zero_is_honored(self) -> None:
+        """An explicit 0 (mechanism disabled) never falls through to a parent."""
+        line = resolve_job_spec(self._job(job=3, line=0))[0].content[0]
+        assert line.max_cutter_downsizes == 0
+
+    def test_job_value_used_when_label_omits(self) -> None:
+        """Job-level budget cascades to labels and lines that omit the field."""
+        line = resolve_job_spec(self._job(job=2))[0].content[0]
+        assert line.max_cutter_downsizes == 2
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level budget beats the job-level value."""
+        line = resolve_job_spec(self._job(job=2, label=0))[0].content[0]
+        assert line.max_cutter_downsizes == 0
+
+    def test_line_overrides_label(self) -> None:
+        """Line-level budget beats the label-level value."""
+        line = resolve_job_spec(self._job(job=1, label=2, line=3))[0].content[0]
+        assert line.max_cutter_downsizes == 3
+
+
+class TestNextSmallerCutter:
+    """next_smaller_cutter walks the shop inventory one step down."""
+
+    def test_empty_inventory_returns_none(self) -> None:
+        """No inventory means no ladder: the mechanism is a no-op."""
+        assert next_smaller_cutter(0.1, None) is None
+        assert next_smaller_cutter(0.1, []) is None
+
+    def test_returns_largest_strictly_smaller(self) -> None:
+        """The next step is the biggest tool below the current one."""
+        assert next_smaller_cutter(0.1, [0.03, 0.045, 0.06, 0.09, 0.125]) == 0.09
+        assert next_smaller_cutter(0.062, [0.03, 0.045, 0.06, 0.09]) == 0.06
+
+    def test_exact_match_counts_as_current_not_smaller(self) -> None:
+        """A tool equal to the current cutter (within tolerance) is skipped."""
+        assert next_smaller_cutter(0.06, [0.03, 0.06, 0.09]) == 0.03
+        assert next_smaller_cutter(0.06, [0.0600000001, 0.09]) is None
+
+    def test_smallest_tool_returns_none(self) -> None:
+        """The smallest tool has no step down."""
+        assert next_smaller_cutter(0.03, [0.03, 0.045, 0.06]) is None
+
+    def test_below_all_tools_returns_none(self) -> None:
+        """A cutter smaller than every tool has no step down."""
+        assert next_smaller_cutter(0.01, [0.03, 0.045]) is None
+
+
+class TestShouldDownsizeCutter:
+    """should_downsize_cutter applies the midpoint rule from the TODO."""
+
+    def test_below_midpoint_downsizes(self) -> None:
+        """0.1in cutter, 0.08in next size: 89% compression takes the smaller tool."""
+        assert should_downsize_cutter(0.89, 0.1, 0.08) is True
+
+    def test_at_midpoint_keeps_current(self) -> None:
+        """Exactly at the midpoint (90%) keeps the original cutter."""
+        assert should_downsize_cutter(0.90, 0.1, 0.08) is False
+
+    def test_above_midpoint_keeps_current(self) -> None:
+        """Compression closer to 100% keeps the original cutter."""
+        assert should_downsize_cutter(0.95, 0.1, 0.08) is False
+
+    def test_heavily_compressed_downsizes(self) -> None:
+        """Deep compression always takes the smaller tool."""
+        assert should_downsize_cutter(0.5, 0.1, 0.08) is True
+
+    def test_natural_width_keeps_current(self) -> None:
+        """An uncompressed line (scale 1.0) never changes cutters."""
+        assert should_downsize_cutter(1.0, 0.1, 0.08) is False
+
+    def test_non_positive_cutters_never_downsize(self) -> None:
+        """Degenerate cutter diameters are rejected defensively."""
+        assert should_downsize_cutter(0.1, 0.0, 0.0) is False
+        assert should_downsize_cutter(0.1, 0.1, 0.0) is False
 
 
 class TestMaterialCascade:

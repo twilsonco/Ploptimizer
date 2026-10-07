@@ -1032,6 +1032,90 @@ class TestCutterSizeDemoExample:
             resolve_job_spec(job)
 
 
+class TestCutterDownsizeDemoExample:
+    """Regression tests for tests_deps/cutter_downsize_job.yaml.
+
+    The fixture compresses four labels under ``max_h_compress: 0.5``: one
+    crosses the 0.06 -> 0.045 midpoint and downsizes, one fits (untouched),
+    one carries an explicit ``cutter_size`` (never reduced), and one opts out
+    via ``cutter_downsize: false``. It pins that the reduction happens in the
+    export pre-pass -- *before* the pen map is built -- so the downsized
+    cutter drives its own per-cutter text file, and that the pre-pass is a
+    complete no-op without a cutter inventory.
+    """
+
+    _INVENTORY = [0.03, 0.045, 0.06, 0.09, 0.125]
+    _SPEC = Path("tests_deps/cutter_downsize_job.yaml")
+
+    def _export(self, tmp_path: Path, inventory: Optional[list[float]]) -> PerCutterExport:
+        """Export the demo job with plotting disabled against ``inventory``."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job, available_cutters=inventory)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="cd",
+            optimize=False,
+            plots=False,
+            available_cutters=inventory,
+        )
+
+    def test_compressed_line_downsizes_one_step(self, tmp_path: Path) -> None:
+        """The compressed line swaps 0.06in for 0.045in and re-renders taller."""
+        result = self._export(tmp_path, self._INVENTORY)
+        downsize = result.rendered_labels["compressed"].source_label.cutter_downsize_by_line
+        assert list(downsize) == [0]
+        original, final = downsize[0]
+        assert math.isclose(original, 0.06)
+        assert math.isclose(final, 0.045)
+
+        line = result.rendered_labels["compressed"].source_label.content[0]
+        assert math.isclose(line.cutter_diameter, 0.045)
+        # Nominal height is the user's intent; only the toolpath grows.
+        assert math.isclose(line.nominal_text_height, 0.5)
+        assert math.isclose(line.toolpath_text_height, 0.5 - 0.045)
+
+    def test_untouched_labels_keep_their_automatic_cutter(self, tmp_path: Path) -> None:
+        """Fitting, explicit-cutter and opted-out lines are never reduced."""
+        result = self._export(tmp_path, self._INVENTORY)
+
+        fits = result.rendered_labels["fits"].source_label
+        assert fits.cutter_downsize_by_line == {}
+        assert math.isclose(fits.content[0].cutter_diameter, 0.06)
+
+        explicit = result.rendered_labels["explicit"].source_label
+        assert explicit.cutter_downsize_by_line == {}
+        assert math.isclose(explicit.content[0].cutter_diameter, 0.09)
+
+        opted_out = result.rendered_labels["opted_out"].source_label
+        assert opted_out.cutter_downsize_by_line == {}
+        assert math.isclose(opted_out.content[0].cutter_diameter, 0.06)
+        # The opt-out line compresses exactly like the downsized one did.
+        assert result.rendered_labels["opted_out"].compression_by_line
+
+    def test_downsized_cutter_gets_its_own_file(self, tmp_path: Path) -> None:
+        """The pen map sees the reduced cutter, so a 0.045in text file appears."""
+        result = self._export(tmp_path, self._INVENTORY)
+        assert sorted(p.name for p in result.plt_paths) == [
+            "0.030_bh_cd.plt",  # boundary/hole cutter 0.015 snapped up to 0.030
+            "0.045_txt_cd.plt",  # compressed line, downsized from 0.060
+            "0.060_txt_cd.plt",  # fits + opted_out lines
+            "0.090_txt_cd.plt",  # explicit cutter_size
+        ]
+
+    def test_pre_pass_is_a_noop_without_inventory(self, tmp_path: Path) -> None:
+        """No tools.json inventory means no ladder: output stays historical."""
+        result = self._export(tmp_path, None)
+        assert sorted(p.name for p in result.plt_paths) == [
+            "0.015_bh_cd.plt",
+            "0.060_txt_cd.plt",
+            "0.090_txt_cd.plt",
+        ]
+        for rendered in result.rendered_labels.values():
+            assert rendered.source_label.cutter_downsize_by_line == {}
+
+
 class TestPlateNumberScoping:
     """Plate numbers are scoped to a material group, not the whole job."""
 

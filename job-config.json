@@ -13,6 +13,8 @@
   "kerning_recession_scale": 0.0,
   "kerning_min_gap": 0.02,
   "fallback_advance_fraction": 1.0,
+  "cutter_downsize": true,
+  "max_cutter_downsizes": 1,
   "plate_width": 24.0,
   "plate_height": 16.0,
   "left_clearance": 0.0,

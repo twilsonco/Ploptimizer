@@ -6,6 +6,11 @@ what is engraved without appearing in the YAML spec:
 - **Horizontal compression** (:attr:`RenderedLabel.compression_by_line`):
   the effective per-line scale (collision-avoidance scale x margin-overflow
   scale) applied while rendering.
+- **Cutter downsizing**
+  (:attr:`plt_optimizer.generate.resolution.ResolvedLabel.cutter_downsize_by_line`
+  on the rendered label's ``source_label``): the automatic cutter a
+  compressed line was reduced to, by the compression-driven cutter reduction
+  pre-pass.
 - **Vertical line spacing** (:attr:`RenderedLabel.line_spacing_by_line`):
   the effective gap *below* each line, after
   :func:`plt_optimizer.generate.resolution.fit_line_spacing_to_margins`
@@ -66,23 +71,29 @@ def _spacing_deviation(requested: float, effective: float) -> bool:
 
 def _label_findings(
     rendered: RenderedLabel,
-) -> list[tuple[int, str, float | None, float | None, float | None]]:
-    """Collect the per-line findings (compression / spacing deviation) of a label.
+) -> list[tuple[int, str, float | None, float | None, float | None, tuple[float, float] | None]]:
+    """Collect the per-line findings (compression / spacing / downsize) of a label.
 
     Args:
         rendered: The rendered label carrying the render-time maps plus the
-            (possibly adjusted) source label with the requested spacing.
+            (possibly adjusted) source label with the requested spacing and
+            any compression-driven cutter downsizes.
 
     Returns:
-        One ``(line_index, line_text, scale, requested, effective)`` tuple
-        per finding, in content order. ``scale`` is set (below ``1.0``)
-        only for compressed lines; ``requested``/``effective`` are set only
-        for spacing gaps that deviate from the requested value.
+        One ``(line_index, line_text, scale, requested, effective,
+        downsize)`` tuple per finding, in content order. ``scale`` is set
+        (below ``1.0``) only for compressed lines; ``requested``/``effective``
+        are set only for spacing gaps that deviate from the requested value;
+        ``downsize`` is the ``(original, final)`` cutter pair only for lines
+        whose automatic cutter was reduced.
     """
     content = rendered.source_label.content
-    findings: list[tuple[int, str, float | None, float | None, float | None]] = []
+    downsizes = rendered.source_label.cutter_downsize_by_line
+    findings: list[
+        tuple[int, str, float | None, float | None, float | None, tuple[float, float] | None]
+    ] = []
     for line_index in sorted(
-        set(rendered.compression_by_line) | set(rendered.line_spacing_by_line)
+        set(rendered.compression_by_line) | set(rendered.line_spacing_by_line) | set(downsizes)
     ):
         if line_index >= len(content):  # pragma: no cover - defensive
             continue
@@ -92,7 +103,8 @@ def _label_findings(
         effective = rendered.line_spacing_by_line.get(line_index)
         requested = float(line.line_spacing)
         deviates = effective is not None and _spacing_deviation(requested, effective)
-        if not compressed and not deviates:
+        downsize = downsizes.get(line_index)
+        if not compressed and not deviates and downsize is None:
             continue
         findings.append(
             (
@@ -101,6 +113,7 @@ def _label_findings(
                 scale if compressed else None,
                 float(requested) if deviates else None,
                 effective if deviates else None,
+                downsize,
             )
         )
     return findings
@@ -127,7 +140,8 @@ def _label_lines(
     content = rendered.source_label.content
     findings = _label_findings(rendered)
     finding_by_index = {
-        index: (scale, requested, effective) for index, _t, scale, requested, effective in findings
+        index: (scale, requested, effective, downsize)
+        for index, _t, scale, requested, effective, downsize in findings
     }
 
     if not full and not findings:
@@ -141,11 +155,17 @@ def _label_lines(
     for line_index, line in enumerate(content):
         entry = finding_by_index.get(line_index)
         if entry is not None:
-            scale, requested, effective = entry
+            scale, requested, effective, downsize = entry
             if scale is not None:
                 lines.append(
                     f"    Line {line_index}: {line.text!r} "
                     f"scale {scale:.3f} ({(1.0 - scale) * 100.0:.1f}% compressed)"
+                )
+            if downsize is not None:
+                original, final = downsize
+                lines.append(
+                    f"    Line {line_index}: {line.text!r} "
+                    f"cutter {original:.3f}in -> {final:.3f}in (downsized for compression)"
                 )
             if effective is not None:
                 lines.append(

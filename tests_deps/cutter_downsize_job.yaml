@@ -1,0 +1,59 @@
+# Fixture for the compression-driven cutter reduction (`cutter_downsize`).
+#
+# The job enables horizontal compression (max_h_compress) so an over-wide line
+# is squeezed to fit the label margins. When a line is squeezed past the
+# midpoint toward the next smaller tool, its *automatic* cutter drops one
+# inventory size and re-renders taller (text_height - smaller_cutter).
+#
+# Inventory used by the tests: [0.03, 0.045, 0.06, 0.09, 0.125].
+# 0.5in text auto-selects the 0.06in cutter, so the next size down is 0.045in
+# (ratio 0.75, midpoint 0.875): a line compressed below 87.5% width takes it.
+# The default budget (max_cutter_downsizes: 1) allows exactly one step.
+#
+# No plate declares a material and the job packs onto one sheet, so emitted
+# names carry no plate/material prefix: [<cutter>]_txt_<job>.plt per distinct
+# cutter plus one bh file.
+job:
+  job_name: Cutter Downsize Demo
+
+  width: 3.0
+  height: 1.2
+  margin: 0.1
+  text_height: 0.5
+
+  # Allow over-wide lines to be compressed by up to 50% of their natural
+  # width. Lines that already fit are never touched, so the `fits` label below
+  # keeps its automatic cutter.
+  max_h_compress: 0.5
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. Compressed to ~86% width (below the 0.06 -> 0.045 midpoint of 87.5%):
+    #    the automatic 0.06in cutter drops to 0.045in.
+    - id: compressed
+      content:
+        - text: "LONG TEXT"
+
+    # 2. Short line: fits the inner area, never compresses, keeps 0.06in.
+    - id: fits
+      content:
+        - text: "OK"
+
+    # 3. Explicit cutter_size overrides the mechanism entirely: this line is
+    #    compressed hard, but an explicit tool is a human decision and is
+    #    never reduced automatically.
+    - id: explicit
+      cutter_size: 0.09
+      content:
+        - text: "EXPLICIT CUTTER"
+
+    # 4. Opt-out: cutter_downsize false keeps the automatic cutter under the
+    #    same compression that moves label 1.
+    - id: opted_out
+      cutter_downsize: false
+      content:
+        - text: "LONG TEXT"
