@@ -13,6 +13,7 @@ job:
   content:
     - text: "!!! WARNING !!!"
       text_height: 0.5
+      line_spacing: 0.4
     - text: "ARC Flash Hazard — Refer to NFPA 70E"
     - text: "Failure to comply can result in death or injury"
     - text: "amps"
