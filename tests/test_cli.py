@@ -1337,6 +1337,114 @@ class TestGenerateRun:
         assert "Generated 1 default plot(s):" in captured.out
         assert f"  {default_pdf}" in captured.out
 
+    # ------------------------------------------------------------------
+    # run(): LAYOUT REPORT (compression + line spacing)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _export_with_rendered(
+        plt_path: Path,
+        *,
+        compression: dict[int, float] | None = None,
+        spacing: dict[int, float] | None = None,
+    ) -> object:
+        """Build a fake export factory returning one rendered label per resolved label.
+
+        The fake mirrors the real render-cache contract: ``rendered_labels``
+        keyed by label id, each carrying the given render-time maps on a
+        :class:`RenderedLabel` built from the resolved label.
+        """
+        from plt_optimizer.generate.label_renderer import RenderedLabel
+        from plt_optimizer.generate.vectorize import PerCutterExport
+
+        def _fake_export(*args: Any, **kwargs: Any) -> PerCutterExport:
+            resolved_labels = args[0]
+            rendered = {
+                label.id: RenderedLabel(
+                    source_label=label,
+                    plt_content="IN;PA;SP;",
+                    x_min=0.0,
+                    y_min=0.0,
+                    x_max=label.width,
+                    y_max=label.height,
+                    width=label.width,
+                    height=label.height,
+                    compression_by_line=dict(compression or {}),
+                    line_spacing_by_line=dict(spacing or {}),
+                )
+                for label in resolved_labels
+            }
+            return PerCutterExport(plt_paths=[plt_path], rendered_labels=rendered)
+
+        return _fake_export
+
+    def test_layout_report_compact_prints_spacing_finding(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A clamped spacing gap prints in the compact CLI report."""
+        from plt_optimizer.cli.generate import run
+
+        plt_path = tmp_path / "plt" / "0.060_txt_job.plt"
+        monkeypatch.setattr(
+            "plt_optimizer.generate.vectorize.export_per_cutter_plts",
+            self._export_with_rendered(plt_path, spacing={0: 0.2}),
+        )
+        spec_file = self._write_spec(tmp_path)
+        args = self._args(spec_file)
+
+        assert run(args) == 0
+        captured = capsys.readouterr()
+        assert "Layout report:" in captured.out
+        assert "Label l1:" in captured.out
+        assert "spacing below 0.200in (requested 0.000in)" in captured.out
+
+    def test_layout_report_quiet_when_untouched(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Compact mode prints no report at all for a clean job."""
+        from plt_optimizer.cli.generate import run
+
+        plt_path = tmp_path / "plt" / "0.060_txt_job.plt"
+        monkeypatch.setattr(
+            "plt_optimizer.generate.vectorize.export_per_cutter_plts",
+            self._export_with_rendered(plt_path),
+        )
+        spec_file = self._write_spec(tmp_path)
+        args = self._args(spec_file)
+
+        assert run(args) == 0
+        captured = capsys.readouterr()
+        assert "Layout report:" not in captured.out
+
+    def test_layout_report_verbose_prints_full_table(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Verbose mode prints the full table, including untouched labels."""
+        from plt_optimizer.cli.generate import run
+
+        plt_path = tmp_path / "plt" / "0.060_txt_job.plt"
+        monkeypatch.setattr(
+            "plt_optimizer.generate.vectorize.export_per_cutter_plts",
+            self._export_with_rendered(plt_path),
+        )
+        spec_file = self._write_spec(tmp_path)
+        args = self._args(spec_file, verbose=True)
+
+        assert run(args) == 0
+        captured = capsys.readouterr()
+        assert "Layout report:" in captured.out
+        assert "Label l1:" in captured.out
+        assert "all lines at natural width / spacing" in captured.out
+
     def test_layout_field_forwarded_to_export(
         self,
         tmp_path: Path,

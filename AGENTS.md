@@ -223,7 +223,7 @@ line → label → job (accepted on plates for schema parity only).
 - Lines that already fit are never modified. If compression cannot fully
   resolve the overflow (limit too small), a WARNING is logged.
 - The *applied* per-line scale is reported (not stored on the schema) via
-  `RenderedLabel.compression_by_line` — see Applied Compression Reporting.
+  `RenderedLabel.compression_by_line` — see Applied Layout Reporting.
 
 ### Horizontal Text Alignment
 
@@ -300,30 +300,64 @@ intersection-invariant.
 - Adjusted label clones propagate to downstream rendering via
   `RenderedLabel.source_label` (consumed by `layout.unroll_labels_with_rendered_bounds`).
 
-### Applied Compression Reporting
+### Applied Layout Reporting
 
-Both compression mechanisms (margin-overflow and Phase 3 collision) are
-render-time effects: `resolve_job_spec()` only resolves the *budget*
-(`max_h_compress`), and `collision_compress_by_line` is empty until the
-renderer sets it. The *effective* per-line scale — collision scale ×
-margin scale, `1.0` = natural width — is measured during rendering and
-reported reporting-only (nothing downstream consumes it for geometry):
+Two render-time typography effects change what is engraved without
+appearing in the YAML spec, and both are measured during rendering and
+reported reporting-only (nothing downstream consumes them for geometry):
+
+**Horizontal compression.** Both compression mechanisms (margin-overflow
+and Phase 3 collision) are render-time effects: `resolve_job_spec()` only
+resolves the *budget* (`max_h_compress`), and `collision_compress_by_line`
+is empty until the renderer sets it. The *effective* per-line scale —
+collision scale × margin scale, `1.0` = natural width — is measured during
+rendering.
+
+**Vertical line spacing.** The requested `line_spacing` (resolved to a
+float by `resolution`, `"auto"` already expanded) is clamped at render
+time by `fit_line_spacing_to_margins` to preserve the vertical margins
+(the *effective* gap can be smaller than requested). The effective gap is
+the value actually used for stacking, so it is what the report shows.
 
 - `_LineEntry` (label_renderer.py) is a `NamedTuple`
-  `(line_index, line_text, bounds, compression_scale)`; the margin scale is
-  measured in `_render_positioned_lines` by diffing the line's width across
-  the `compress_line_to_width()` call (`compress_x` scales X only, so the
-  width ratio is exact) and multiplied by the collision scale applied in
-  the first pass.
+  `(line_index, line_text, bounds, compression_scale, line_spacing)`; the
+  margin scale is measured in `_render_positioned_lines` by diffing the
+  line's width across the `compress_line_to_width()` call (`compress_x`
+  scales X only, so the width ratio is exact) and multiplied by the
+  collision scale applied in the first pass; `line_spacing` is the
+  effective gap *below* the line (`adjusted_spacings[i]`), `None` on the
+  last renderable line (n-1 gaps for n lines). ⚠️ Adding a field to
+  `_LineEntry` requires updating the tuple-unpack in
+  `_detect_text_hole_collisions`.
 - `RenderedLabel.compression_by_line: dict[int, float]` carries the
   per-line scales; only lines below `1.0` are included, so the common
-  case is an empty dict. Populated by `_render_label_once`.
+  case is an empty dict. `RenderedLabel.line_spacing_by_line:
+  dict[int, float]` carries **every** effective gap, keyed by the upper
+  line's content index (the last line has no entry); the requested value
+  is read from `source_label.content[i].line_spacing` (the adjusted clone,
+  so collision-phase clones report correctly). Both populated by
+  `_render_label_once`; single-line labels yield empty dicts.
 - `PerCutterExport.rendered_labels: dict[str, RenderedLabel]` exposes the
   layout render cache (keyed by label id) so CLI/script callers read
-  compression + collision state without re-rendering.
-- `scripts/run_integration_test.py` prints it as the **Phase 3.6:
-  COMPRESSION REPORT** section (per label, one line per compressed text
-  line: `Line N: '<text>' scale 0.870 (13.0% compressed)`).
+  compression + spacing + collision state without re-rendering.
+- `plt_optimizer/generate/layout_report.py` is the **single source of
+  truth** for the report text: `format_layout_report(resolved_labels,
+  rendered_by_id, full=...)` returns the lines, `has_layout_findings(...)`
+  gates compact output. The module is pure Python (pipeline types are
+  `TYPE_CHECKING`-only imports), so it is unit-testable without
+  matplotlib and safe on the CLI's lazy-import path. A *finding* is a
+  compressed line (scale < 1.0) or a spacing gap that deviates from the
+  requested value (compared with `math.isclose`).
+- `scripts/run_integration_test.py` prints the full report (`full=True`)
+  as the **Phase 3.6: LAYOUT REPORT** section (per label, one line per
+  compressed text line: `Line N: '<text>' scale 0.870 (13.0%
+  compressed)`, and one per gap: `Line N: '<text>' spacing below
+  0.120in (requested 0.162in)`).
+- The `generate` CLI prints the same report after the file summaries
+  (`Layout report:` header), **compact by default** (only labels with
+  findings) and **full under `-v`**; it is skipped silently when the
+  render cache is empty. This is the CLI's only per-label stdout beyond
+  its summary blocks (see §7).
 
 ### Job Specification Patterns
 

@@ -86,12 +86,17 @@ class _LineEntry(NamedTuple):
             margin-overflow scale (both ``1.0`` when untouched). ``1.0``
             means the line rendered at its natural width; values below
             report how far the emitted geometry was squeezed.
+        line_spacing: Effective vertical gap *below* this line, in inches
+            (the render-time, margin-clamped spacing actually used for
+            stacking). ``None`` on the last renderable line, which has no
+            gap after it.
     """
 
     line_index: int
     line_text: str
     bounds: Tuple[float, float, float, float]
     compression_scale: float = 1.0
+    line_spacing: Optional[float] = None
 
 
 class TextChunkMode(str, Enum):
@@ -219,6 +224,16 @@ class RenderedLabel:
             lines compressed below ``1.0`` are included; an empty dict
             (the default) means every line rendered at its natural width.
             Reporting-only: nothing downstream consumes it for geometry.
+        line_spacing_by_line: Mapping of line index to the *effective*
+            vertical gap below that line, in inches -- the render-time
+            spacing actually used for stacking, after
+            :func:`fit_line_spacing_to_margins` clamped it to preserve the
+            vertical margins. Keyed by the line the gap sits *below*; the
+            last renderable line has no entry (n-1 gaps for n lines).
+            All gaps are included, so the requested-vs-effective delta is
+            computed by consumers against the source label's per-line
+            ``line_spacing``. Reporting-only (single-line labels yield an
+            empty dict): nothing downstream consumes it for geometry.
     """
 
     source_label: ResolvedLabel
@@ -233,6 +248,7 @@ class RenderedLabel:
     collision_detected: bool = False
     text_chunks: Tuple[TextChunkRecord, ...] = ()
     compression_by_line: dict[int, float] = field(default_factory=dict)
+    line_spacing_by_line: dict[int, float] = field(default_factory=dict)
 
 
 def _collision_threshold(label: ResolvedLabel, line_index: int) -> float:
@@ -306,7 +322,7 @@ def _detect_text_hole_collisions(
     shift_y = label.height / 2.0
     results: List[CollisionResult] = []
 
-    for line_index, line_text, bounds, _scale in line_entries:
+    for line_index, line_text, bounds, _scale, _spacing in line_entries:
         threshold = _collision_threshold(label, line_index)
         x_min, y_min, x_max, y_max = bounds
         shifted: Tuple[float, float, float, float] = (
@@ -863,6 +879,17 @@ def _render_label_once(
             if entry.compression_scale < 1.0
         }
 
+        # Effective per-line vertical gaps (render-time, margin-clamped
+        # spacing below each line), reporting-only. All gaps are recorded
+        # -- keyed by the upper line's content index -- so consumers can
+        # diff them against the requested spacing. The last renderable
+        # line has no gap (``None``) and is omitted.
+        line_spacing_by_line = {
+            entry.line_index: entry.line_spacing
+            for entry in line_entries
+            if entry.line_spacing is not None
+        }
+
         rendered = RenderedLabel(
             source_label=label,
             plt_content=plt_content,
@@ -874,6 +901,7 @@ def _render_label_once(
             height=y_max - y_min,
             text_chunks=tuple(chunk_records),
             compression_by_line=compression_by_line,
+            line_spacing_by_line=line_spacing_by_line,
         )
         return rendered, line_entries
     finally:
@@ -2021,6 +2049,7 @@ def _render_positioned_lines(
                         max_y + y_offset,
                     ),
                     compression_scale=effective_scale,
+                    line_spacing=adjusted_spacings[i] if i < len(adjusted_spacings) else None,
                 ),
                 word_groups,
                 glyph_groups,

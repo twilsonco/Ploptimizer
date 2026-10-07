@@ -5,7 +5,7 @@
   - [ ] Specify different font for different parts of a label text line. (e.g. using wingdings symbols in a text line).
     - [ ] Maybe support mixed PLT/TTF fonts?
   - [ ] Baseline adjustment; e.g. superscript/subscript, or arbitrary floating-point adjustment of baseline (where 0 is the current baseline and 1 is the capline).
-- [ ] Include line spacing values in stdout COMPRESSION REPORT during label generation
+- [x] Include line spacing values in stdout COMPRESSION REPORT during label generation (report renamed LAYOUT REPORT; requested + effective spacing per gap, shared formatter `generate/layout_report.py` used by the `generate` CLI and integration runner Phase 3.6)
 - [ ] Allow `line_spacing` to be specified at the text level, which determines the spacing *below* the line for which it is specified.
 - [x] When optimizing, perform a simple additional optimization that considered the stroke direction of chunks (characters) to check if each chunk should have its strokes reversed in order to decrease travel distance between chunks. (especially important for generated toolpaths from job spec yaml files)
 - [x] Within each generated text chunk, decide per *glyph* whether to reverse its strokes to cut the rapid travel *inside* the chunk (the direction sweep reverses whole chunks and leaves intra-chunk gaps invariant, which is the majority of generated-text travel). Generate-path only: the renderers know the per-glyph stroke partition, so the optimal per-glyph forward/reversed assignment is a 2-state chain DP with the glyph order and chunk endpoints pinned (monotone; parsed PLTs stay byte-identical).

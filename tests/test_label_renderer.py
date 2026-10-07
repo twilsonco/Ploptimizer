@@ -41,6 +41,7 @@ def _make_line(
     height: float = 0.3,
     max_h_compress: float = 0.0,
     text_h_alignment: str = "center",
+    line_spacing: float = 0.0,
 ) -> ResolvedTextLine:
     """Build a ResolvedTextLine with cutter compensation applied."""
     cutter_dia = 0.03
@@ -50,7 +51,7 @@ def _make_line(
         toolpath_text_height=height - cutter_dia,
         cutter_diameter=cutter_dia,
         character_spacing=0.0,
-        line_spacing=0.0,
+        line_spacing=line_spacing,
         max_h_compress=max_h_compress,
         text_h_alignment=text_h_alignment,
     )
@@ -1159,6 +1160,85 @@ class TestCompressionByLineReporting:
 
         assert set(rendered.compression_by_line) == {0}
         assert rendered.compression_by_line[0] < 1.0
+
+
+class TestLineSpacingByLineReporting:
+    """``RenderedLabel.line_spacing_by_line`` reports the effective per-gap spacing."""
+
+    def test_explicit_spacing_is_reported(self) -> None:
+        """Unclamped spacing must be recorded verbatim, keyed by the upper line."""
+        label = _make_local_label(
+            [_make_line("FIRST", height=0.3, line_spacing=0.2), _make_line("SECOND", height=0.3)],
+            width=4.0,
+            height=2.0,
+            margin=0.1,
+        )
+        rendered = render_label_to_plt(label)
+
+        # Two lines -> exactly one gap, keyed on the upper line (index 0).
+        assert set(rendered.line_spacing_by_line) == {0}
+        assert rendered.line_spacing_by_line[0] == pytest.approx(0.2)
+
+    def test_margin_clamp_records_effective_spacing(self) -> None:
+        """A render-time margin clamp must record the reduced (effective) gap."""
+        label = _make_local_label(
+            [_make_line("FIRST", height=0.3, line_spacing=1.0), _make_line("SECOND", height=0.3)],
+            width=4.0,
+            height=1.0,
+            margin=0.1,
+        )
+        rendered = render_label_to_plt(label)
+
+        # Inner height 0.8in cannot host two 0.27in ink lines (0.3in nominal
+        # minus the 0.03in cutter) plus 1.0in spacing: the proportional clamp
+        # leaves (1.0 - 0.74) / 1.0 = 0.26, and the report carries the
+        # effective value, not the requested one.
+        assert set(rendered.line_spacing_by_line) == {0}
+        assert rendered.line_spacing_by_line[0] == pytest.approx(0.26)
+
+    def test_single_line_has_no_spacing_entries(self) -> None:
+        """One line has no gap below it: the map stays empty."""
+        label = _make_local_label([_make_line("ONLY", height=0.3, line_spacing=0.5)])
+        rendered = render_label_to_plt(label)
+
+        assert rendered.line_spacing_by_line == {}
+
+    def test_three_lines_report_two_gaps(self) -> None:
+        """n renderable lines produce exactly n-1 gaps keyed 0..n-2."""
+        label = _make_local_label(
+            [
+                _make_line("ONE", height=0.2, line_spacing=0.1),
+                _make_line("TWO", height=0.2, line_spacing=0.15),
+                _make_line("THREE", height=0.2),
+            ],
+            width=4.0,
+            height=2.0,
+            margin=0.1,
+        )
+        rendered = render_label_to_plt(label)
+
+        assert set(rendered.line_spacing_by_line) == {0, 1}
+        assert rendered.line_spacing_by_line[0] == pytest.approx(0.1)
+        assert rendered.line_spacing_by_line[1] == pytest.approx(0.15)
+
+    def test_blank_line_gap_keys_on_upper_renderable_line(self) -> None:
+        """With a skipped blank line, the gap keys on the upper renderable line."""
+        label = _make_local_label(
+            [
+                _make_line("A", height=0.2, line_spacing=0.1),
+                _make_line("", height=0.2, line_spacing=0.3),
+                _make_line("B", height=0.2),
+            ],
+            width=4.0,
+            height=2.0,
+            margin=0.1,
+        )
+        rendered = render_label_to_plt(label)
+
+        # The blank line renders nothing, so A and B are adjacent renderable
+        # lines: one gap (A's requested 0.1) keyed on A's content index.
+        assert set(rendered.line_spacing_by_line) == {0}
+        assert rendered.line_spacing_by_line[0] == pytest.approx(0.1)
 
 
 class TestHorizontalTextAlignment:

@@ -44,6 +44,7 @@ from typing import Optional, Tuple
 # remain importable on Python 3.8 / Windows 7 where matplotlib cannot be
 # installed (see AGENTS.md section 7).
 from plt_optimizer.generate.job_config import JobConfig, load_job_config
+from plt_optimizer.generate.layout_report import format_layout_report
 from plt_optimizer.generate.resolution import resolve_job_spec
 from plt_optimizer.generate.schema import JobSpec, parse_yaml
 from plt_optimizer.generate.substitution import SubstitutionError, expand_job_spec
@@ -333,4 +334,20 @@ def run(args: argparse.Namespace) -> int:
         print(f"Generated {len(export_result.default_pdf_paths)} default plot(s):")
         for path in export_result.default_pdf_paths:
             print(f"  {path}")
+
+    # LAYOUT REPORT: render-time typography effects (horizontal
+    # compression, margin-clamped line spacing). Compact by default --
+    # only labels with findings print -- the full per-line table is a
+    # verbose-mode affordance. Shared formatter with the integration
+    # runner (scripts/run_integration_test.py Phase 3.6) keeps both
+    # surfaces in sync.
+    report = format_layout_report(
+        resolved_labels,
+        export_result.rendered_labels,
+        full=args.verbose,
+    )
+    if report:
+        print("Layout report:")
+        for line in report:
+            print(line)
     return 0

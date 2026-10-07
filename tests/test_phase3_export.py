@@ -130,6 +130,11 @@ class TestExportAndOptimizePhase3:
             for line_index, scale in rendered.compression_by_line.items():
                 assert 0.0 <= scale < 1.0
                 assert 0 <= line_index < len(rendered.source_label.content)
+            # The spacing report carries every effective gap (non-negative),
+            # keyed by the upper line of the gap (never the last line).
+            for line_index, spacing in rendered.line_spacing_by_line.items():
+                assert spacing >= 0.0
+                assert 0 <= line_index < len(rendered.source_label.content) - 1
 
     def test_export_per_cutter_no_default_plots_by_default(self, tmp_path: Path) -> None:
         """Color-coded *_default.pdf plots are opt-in; absent by default."""
