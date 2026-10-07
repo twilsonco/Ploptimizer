@@ -645,6 +645,7 @@ def optimize_text_layer(
     logger: Optional[TextLogger] = None,
     log_prefix: str = "",
     intra_sweep: bool = True,
+    merge_coincident: bool = True,
 ) -> Optional[PlateOptimization]:
     """Optimize one plate's text layer in plate (device) space.
 
@@ -660,6 +661,10 @@ def optimize_text_layer(
             sweeps each chunk's per-glyph stroke directions after the
             inter-chunk routing (see
             :func:`plt_optimizer.core.glyph_sweep.sweep_glyph_directions`).
+        merge_coincident: When True (the default), the pipeline stitches
+            tip-to-tail strokes after reassembly so the redundant tool-up
+            between them disappears from the emitted layer (see
+            :func:`plt_optimizer.core.path_merger.merge_coincident_paths`).
 
     Returns:
         The :class:`PlateOptimization`, or ``None`` when the layer has no
@@ -682,6 +687,7 @@ def optimize_text_layer(
         log_prefix=log_prefix,
         intra_sweep=intra_sweep,
         glyph_groups_by_block=glyph_groups_by_block,
+        merge_coincident=merge_coincident,
     )
     content = emit_layer_document(outcome.optimized_doc.stroke_paths)
     return PlateOptimization(
@@ -697,6 +703,7 @@ def optimize_structural_layer(
     strategy_factory: StrategyFactory,
     logger: Optional[TextLogger] = None,
     log_prefix: str = "",
+    merge_coincident: bool = True,
 ) -> Optional[PlateOptimization]:
     """Optimize a plate's borders+holes layer (known-structural content).
 
@@ -707,9 +714,14 @@ def optimize_structural_layer(
 
     Args:
         plt_content: Extracted borders+holes HPGL content of one plate.
-        strategy_factory: Builds the strategy for the run.
+        strategy_factory: Builds the strategy for the run (see
+            :data:`StrategyFactory`).
         logger: Optional logger forwarded to the pipeline helper.
         log_prefix: Prefix for log messages.
+        merge_coincident: When True (the default), the pipeline stitches
+            tip-to-tail strokes after reassembly so the redundant tool-up
+            between them disappears from the emitted layer (see
+            :func:`plt_optimizer.core.path_merger.merge_coincident_paths`).
 
     Returns:
         The :class:`PlateOptimization`, or ``None`` when the layer has no
@@ -741,6 +753,7 @@ def optimize_structural_layer(
         strategy_factory(baseline_distance),
         logger=logger,
         log_prefix=log_prefix,
+        merge_coincident=merge_coincident,
     )
     content = emit_layer_document(outcome.optimized_doc.stroke_paths)
     return PlateOptimization(

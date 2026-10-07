@@ -882,6 +882,11 @@ def export_per_cutter_plts(
                 f"{outcome.intra_sweep_groups} group(s), "
                 f"{outcome.intra_sweep_flips} flip(s)"
             )
+        if outcome.merged_paths_before is not None and outcome.merges_applied > 0:
+            parts.append(
+                f"path merge {outcome.merged_paths_before} -> "
+                f"{outcome.merged_paths_after} in {outcome.merges_applied} merge(s)"
+            )
         logger.info(
             f"Plate {layer}: optimized {optimization.node_count} node(s) via "
             f"{outcome.method_name} -- rapid travel "

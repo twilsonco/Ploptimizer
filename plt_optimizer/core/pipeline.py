@@ -41,6 +41,7 @@ from plt_optimizer.core.optimizer import (
     ParallelEnsembleOptimizationResult,
     StrategyBenchmarkResult,
 )
+from plt_optimizer.core.path_merger import MergeResult, merge_coincident_paths
 from plt_optimizer.core.profiler import ProfileResult
 from plt_optimizer.core.reassembler import Reassembler
 from plt_optimizer.core.stroke_simplifier import simplify_overlapping_strokes
@@ -108,6 +109,14 @@ class OptimizationOutcome:
             when the sweep did not improve.
         intra_sweep_groups: Glyph groups considered by the sweep.
         intra_sweep_flips: Glyph groups re-traced in reverse.
+        merged_paths_before: Segment-bearing paths in the pre-merge emission, or
+            ``None`` when the merge was disabled (see ``merge_coincident``).
+            When the merge ran and found nothing to do, this equals
+            :attr:`merged_paths_after`.
+        merged_paths_after: Segment-bearing paths in :attr:`optimized_doc` when
+            the merge ran (``None`` when it was disabled).
+        merges_applied: Tip-to-tail junctions collapsed by the merge (0 when
+            nothing merged or the merge was disabled).
     """
 
     optimized_doc: PLTDocument
@@ -127,6 +136,9 @@ class OptimizationOutcome:
     intra_sweep_emitted_after: Optional[float] = None
     intra_sweep_groups: int = 0
     intra_sweep_flips: int = 0
+    merged_paths_before: Optional[int] = None
+    merged_paths_after: Optional[int] = None
+    merges_applied: int = 0
 
 
 def preprocess_document(
@@ -321,6 +333,7 @@ def optimize_and_reassemble(
     direction_sweep: bool = True,
     intra_sweep: bool = True,
     glyph_groups_by_block: Optional[Mapping[int, Tuple[Tuple[int, ...], ...]]] = None,
+    merge_coincident: bool = True,
 ) -> OptimizationOutcome:
     """Optimize pre-built blocks and reassemble the document.
 
@@ -357,6 +370,12 @@ def optimize_and_reassemble(
             pipeline's renderers. ``None`` (the default: parsed PLTs have no
             glyph knowledge) disables the intra sweep entirely, keeping the
             parsed path byte-identical.
+        merge_coincident: Stitch tip-to-tail strokes in the reassembled document
+            so the redundant tool-up between them disappears (default ``True``).
+            The merge is metric-neutral -- it removes PU commands, paths, and
+            bytes, never rapid travel -- and preserves the undirected segment
+            multiset. Disable to reproduce the pre-merge emission exactly
+            (test/escape-hatch seam).
 
     Returns:
         An :class:`OptimizationOutcome` with the reassembled document and
@@ -482,6 +501,30 @@ def optimize_and_reassemble(
         document, blocks, result_for_reassembly, intra_chunk_results=intra_results
     )
 
+    # Coincident-stroke merge: last stage, so the emitted-travel measurements
+    # below (and every consumer of optimized_doc) describe what is written.
+    # The merge is metric-neutral, so it never disturbs the sweep metrics.
+    merge_report: Optional[MergeResult] = None
+    if merge_coincident:
+        merge_report = merge_coincident_paths(optimized_doc.stroke_paths)
+        if merge_report.merges > 0:
+            optimized_doc = PLTDocument(
+                header_commands=optimized_doc.header_commands,
+                stroke_paths=list(merge_report.paths),
+                footer_commands=optimized_doc.footer_commands,
+            )
+            if logger is not None:
+                logger.info(
+                    f"{prefix}Merged coincident strokes: "
+                    f"{merge_report.paths_before} -> {merge_report.paths_after} "
+                    f"path(s) ({merge_report.merges} tool-up(s) removed)"
+                )
+            method_notes = (
+                f"{method_notes}; merge="
+                f"{merge_report.paths_before}->{merge_report.paths_after} "
+                f"({merge_report.merges} merge(s))"
+            )
+
     emitted_after: Optional[float] = None
     if sweep_report is not None:
         emitted_after = optimized_doc.rapid_distance()
@@ -539,4 +582,7 @@ def optimize_and_reassemble(
         intra_sweep_emitted_after=intra_emitted_after,
         intra_sweep_groups=intra_report.groups if intra_report is not None else 0,
         intra_sweep_flips=intra_report.flips if intra_report is not None else 0,
+        merged_paths_before=merge_report.paths_before if merge_report is not None else None,
+        merged_paths_after=merge_report.paths_after if merge_report is not None else None,
+        merges_applied=merge_report.merges if merge_report is not None else 0,
     )

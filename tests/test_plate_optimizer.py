@@ -928,6 +928,86 @@ class TestOptimizeTextLayer:
         assert result.outcome.intra_sweep_travel_before is None
         assert "intra_sweep=" not in result.outcome.method_notes
 
+    def test_coincident_strokes_merge_and_drop_their_tool_up(self) -> None:
+        """Tip-to-tail strokes emit as one path, so the file loses a PU.
+
+        Two touching strokes plus one far stroke: the touching pair merges
+        into a single continuous cut, removing the pen-up/pen-down pair
+        between them. Emitted rapid travel and the cutting geometry are
+        unchanged -- the win is purely the tool-up (and the bytes it costs).
+        """
+        label = _make_label()
+        record = _multi_stroke_record(
+            [((0.0, 0.0), (0.5, 0.0)), ((0.5, 0.0), (1.0, 0.0)), ((2.0, 0.5), (2.5, 0.5))]
+        )
+        rendered = _make_rendered((record,), label=label)
+        packed = [_packed("t", 0.0, 0.0)]
+
+        raw = emit_layer_document(
+            [p for b in build_text_blocks(packed, {"t": rendered}, 1) for p in b.paths]
+        )
+        result = optimize_text_layer(
+            packed, {"t": rendered}, pen=1, strategy_factory=_fast_strategy
+        )
+        assert result is not None
+
+        # Every path is PU-led, so the PU count is the path count.
+        assert raw.count("PU") == 3
+        assert result.content.count("PU") == 2
+        assert result.outcome.merges_applied == 1
+        assert "merge=" in result.outcome.method_notes
+
+        # Geometry and rapid travel are preserved; only the tool-up is gone.
+        from plt_optimizer.core.parser import PLTParser
+
+        raw_doc = PLTParser().parse_string(raw)
+        opt_doc = PLTParser().parse_string(result.content)
+
+        def undirected(doc: object) -> list:
+            return sorted(
+                (
+                    min(round(s.start.x), round(s.end.x)),
+                    min(round(s.start.y), round(s.end.y)),
+                    max(round(s.start.x), round(s.end.x)),
+                    max(round(s.start.y), round(s.end.y)),
+                )
+                for p in doc.stroke_paths  # type: ignore[attr-defined]
+                for s in p.segments
+            )
+
+        assert undirected(opt_doc) == undirected(raw_doc)
+        assert opt_doc.rapid_distance() == pytest.approx(raw_doc.rapid_distance(), abs=1e-3)
+
+    def test_merge_escape_hatch_keeps_every_tool_up(self) -> None:
+        """``merge_coincident=False`` emits the unmerged (PU-per-stroke) layer."""
+        label = _make_label()
+        record = _multi_stroke_record(
+            [((0.0, 0.0), (0.5, 0.0)), ((0.5, 0.0), (1.0, 0.0)), ((2.0, 0.5), (2.5, 0.5))]
+        )
+        rendered = _make_rendered((record,), label=label)
+        packed = [_packed("t", 0.0, 0.0)]
+
+        raw = emit_layer_document(
+            [p for b in build_text_blocks(packed, {"t": rendered}, 1) for p in b.paths]
+        )
+        merged = optimize_text_layer(
+            packed, {"t": rendered}, pen=1, strategy_factory=_fast_strategy
+        )
+        plain = optimize_text_layer(
+            packed,
+            {"t": rendered},
+            pen=1,
+            strategy_factory=_fast_strategy,
+            merge_coincident=False,
+        )
+        assert merged is not None and plain is not None
+
+        assert merged.outcome.merges_applied == 1
+        assert plain.outcome.merges_applied == 0
+        assert plain.outcome.merged_paths_before is None
+        assert "merge=" not in plain.outcome.method_notes
+        assert plain.content.count("PU") == raw.count("PU")
+
 
 class TestOptimizeStructuralLayer:
     """Borders+holes routing entry point."""

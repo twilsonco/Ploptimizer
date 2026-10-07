@@ -599,6 +599,36 @@ already knows each toolpath's kind, the `Profiler` is skipped entirely.
   `intra_sweep=before->after (N flips)` to `method_notes`, populates the
   `OptimizationOutcome.intra_sweep_*` fields (all-or-nothing: set only when
   `flips>0`), and `vectorize._report` adds the `intra sweep` clause.
+- **Coincident-stroke merge** (`core/path_merger.py`, always on, final stage):
+  after reassembly, consecutive paths whose junction is tip-to-tail stitch into
+  one continuous cut, so the redundant tool-up between them disappears. The
+  predicate is the writer's own PU-suppression test
+  (`PLTWriter._format_stroke_path`, same `COORD_TOLERANCE` = 1e-3): merge
+  `tail → head` only when `tail.segments[-1].end` is within tolerance of BOTH
+  `head.pen_up_position` (when set) and `head.segments[0].start`, so every
+  genuine rapid survives — including arc-native glyph plunges
+  (`PU x,y;PD;AA…`). Collapsing is transitive (a run of N tip-to-tail paths
+  becomes one path carrying the run's first `pen_up_position`), order-preserving,
+  and segment-less paths pass through verbatim as barriers. The transform is
+  **metric-neutral**: a merged junction contributes ~0 to
+  `PLTDocument.rapid_distance()`, so the win is PU count, path count, and bytes
+  — not rapid travel (the undirected segment multiset and cutting distance are
+  invariant). It makes the writer's long-standing suppression a real document
+  transform, which is what the **generate** path needed: `emit_layer_document`
+  emits every path PU-led and kept every tool-up (the integration bh layer
+  merges 10 → 3 paths); the parsed path's emitted files are unchanged because
+  the writer already collapsed those PUs. Runs in the parent after the sweeps
+  (kwarg `merge_coincident: bool = True` as the escape hatch, threaded through
+  `plate_optimizer.optimize_text_layer` / `optimize_structural_layer`), so the
+  sweeps' `emitted_before` measurements stay pre-merge while `emitted_after`
+  describes what is written. On merges it logs INFO, appends
+  `merge=before->after (N merge(s))` to `method_notes`, populates
+  `OptimizationOutcome.merged_paths_before/after` + `merges_applied` (the counts
+  are set whenever the merge *ran*, unlike the sweeps' all-or-nothing fields —
+  `merges_applied=0` with non-None counts means "ran, nothing to do"), and
+  `vectorize._report` adds the `path merge` clause. Deliberately NOT inside
+  `Reassembler.reassemble` (which stays a pure traversal applier, keeping its
+  path-count tests and the direct-caller NoOp byte identity intact).
 - The post-write `_run_optimizer` (parse each file → profile → optimize) is
   **removed**; optimization now happens pre-write in plate space.
 

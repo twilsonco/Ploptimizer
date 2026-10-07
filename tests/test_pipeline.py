@@ -786,3 +786,172 @@ class TestIntraSweepIntegration:
         assert outcome.intra_sweep_flips == 0
         assert outcome.intra_sweep_travel_before is None
         assert "intra_sweep=" not in outcome.method_notes
+
+
+class TestCoincidentMergeIntegration:
+    """The coincident-stroke merge inside optimize_and_reassemble."""
+
+    def _tip_to_tail_blocks(self) -> List[MacroBlock]:
+        """Three single-path blocks; blocks 0 and 1 form a tip-to-tail run.
+
+        Block 0 ends at ``(10, 0)`` where block 1's pen-up and first cut both
+        sit, so the tool-up between them is a zero-distance move. Block 2 is
+        a genuine rapid away and must stay its own path.
+        """
+        paths = (
+            _hpath(0.0, 10.0),
+            _vpath(10.0, 0.0, 10.0),
+            _hpath(50.0, 60.0),
+        )
+        return [
+            MacroBlock(
+                block_id=i,
+                paths=(path,),
+                entrance=path.segments[0].start,
+                exit=path.segments[-1].end,
+            )
+            for i, path in enumerate(paths)
+        ]
+
+    def test_merge_collapses_junction_and_reports(self) -> None:
+        """The tip-to-tail pair becomes one path; rapid travel is unchanged."""
+        blocks = self._tip_to_tail_blocks()
+        doc = _make_doc(n_paths=0)
+
+        outcome = optimize_and_reassemble(doc, blocks, NoOpStrategy(), direction_sweep=False)
+
+        assert outcome.merges_applied == 1
+        assert outcome.merged_paths_before == 3
+        assert outcome.merged_paths_after == 2
+        assert len(outcome.optimized_doc.stroke_paths) == 2
+        assert "merge=3->2 (1 merge(s))" in outcome.method_notes
+
+        merged = outcome.optimized_doc.stroke_paths[0]
+        # The run keeps the FIRST path's pen-up target and both segments.
+        assert merged.pen_up_position == Coordinate(x=0.0, y=0.0)
+        assert len(merged.segments) == 2
+        # The untouched rapid path keeps its own pen-up.
+        assert outcome.optimized_doc.stroke_paths[1].pen_up_position == Coordinate(x=50.0, y=0.0)
+
+    def test_merge_is_metric_neutral(self) -> None:
+        """Removing the tool-up moves no rapid travel."""
+        blocks = self._tip_to_tail_blocks()
+        doc = _make_doc(n_paths=0)
+
+        merged = optimize_and_reassemble(doc, blocks, NoOpStrategy(), direction_sweep=False)
+        plain = optimize_and_reassemble(
+            doc, blocks, NoOpStrategy(), direction_sweep=False, merge_coincident=False
+        )
+
+        assert merged.optimized_doc.rapid_distance() == pytest.approx(
+            plain.optimized_doc.rapid_distance()
+        )
+
+        # Cutting geometry is preserved: same undirected segment multiset.
+        def spans(doc: PLTDocument) -> list:
+            return sorted(
+                (
+                    min(s.start.x, s.end.x),
+                    min(s.start.y, s.end.y),
+                    max(s.start.x, s.end.x),
+                    max(s.start.y, s.end.y),
+                )
+                for p in doc.stroke_paths
+                for s in p.segments
+            )
+
+        assert spans(merged.optimized_doc) == spans(plain.optimized_doc)
+
+    def test_escape_hatch_reproduces_pre_merge_output(self) -> None:
+        """``merge_coincident=False`` keeps every path and reports nothing."""
+        blocks = self._tip_to_tail_blocks()
+        doc = _make_doc(n_paths=0)
+
+        outcome = optimize_and_reassemble(
+            doc,
+            blocks,
+            NoOpStrategy(),
+            direction_sweep=False,
+            merge_coincident=False,
+        )
+
+        assert outcome.merges_applied == 0
+        assert outcome.merged_paths_before is None
+        assert outcome.merged_paths_after is None
+        assert "merge=" not in outcome.method_notes
+        assert len(outcome.optimized_doc.stroke_paths) == 3
+
+    def test_silent_when_nothing_merges(self) -> None:
+        """A document of genuine rapids reports the counts and no note."""
+        doc = _make_doc(n_paths=3)
+        blocks = [
+            MacroBlock(
+                block_id=i,
+                paths=(path,),
+                entrance=path.segments[0].start,
+                exit=path.segments[-1].end,
+            )
+            for i, path in enumerate(doc.stroke_paths)
+        ]
+
+        outcome = optimize_and_reassemble(doc, blocks, NoOpStrategy(), direction_sweep=False)
+
+        # _make_doc spaces its paths 10 units apart: no coincident junction.
+        assert outcome.merges_applied == 0
+        assert outcome.merged_paths_before == 3
+        assert outcome.merged_paths_after == 3
+        assert "merge=" not in outcome.method_notes
+        assert len(outcome.optimized_doc.stroke_paths) == 3
+
+    def test_merge_runs_after_the_direction_sweep(self) -> None:
+        """The swept tour's tip-to-tail junction merges, inside emitted_after.
+
+        Block 1 is stale (entering at its exit is cheaper), so the sweep flips
+        it; the reversal lands its exit exactly on block 2's pen-up, which the
+        merge then collapses. ``direction_sweep_emitted_after`` measures the
+        merged document, proving the merge is the final stage.
+        """
+        paths = (
+            StrokePath(
+                pen_up_position=Coordinate(x=0.0, y=0.0),
+                segments=(
+                    StrokeSegment(Coordinate(x=0.0, y=0.0), Coordinate(x=0.0, y=10.0), True),
+                ),
+            ),
+            StrokePath(
+                pen_up_position=Coordinate(x=100.0, y=20.0),
+                segments=(
+                    StrokeSegment(Coordinate(x=100.0, y=20.0), Coordinate(x=100.0, y=10.0), True),
+                ),
+            ),
+            StrokePath(
+                pen_up_position=Coordinate(x=100.0, y=20.0),
+                segments=(
+                    StrokeSegment(Coordinate(x=100.0, y=20.0), Coordinate(x=100.0, y=30.0), True),
+                ),
+            ),
+        )
+        blocks = [
+            MacroBlock(
+                block_id=i,
+                paths=(path,),
+                entrance=path.segments[0].start,
+                exit=path.segments[-1].end,
+            )
+            for i, path in enumerate(paths)
+        ]
+
+        outcome = optimize_and_reassemble(
+            _make_doc(n_paths=0), blocks, NoOpStrategy(), direction_sweep=True
+        )
+
+        assert outcome.direction_sweep_flips == 1
+        assert outcome.merges_applied == 1
+        assert len(outcome.optimized_doc.stroke_paths) == 2
+        # Pre-sweep emission: (0,10)->(100,20) + (100,10)->(100,20).
+        assert outcome.direction_sweep_emitted_before == pytest.approx(
+            math.hypot(100.0, 10.0) + 10.0
+        )
+        # Post-sweep + post-merge emission: one 100-unit rapid remains.
+        assert outcome.direction_sweep_emitted_after == pytest.approx(100.0)
+        assert outcome.optimized_doc.rapid_distance() == pytest.approx(100.0)

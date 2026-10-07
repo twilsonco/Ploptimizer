@@ -776,3 +776,101 @@ class TestDirectionSweepIdentity:
         assert outcome.direction_sweep_flips > 0
 
         assert _undirected_multiset(outcome.optimized_doc) == _undirected_multiset(doc_original)
+
+
+class TestCoincidentMergeIdentity:
+    """The coincident-stroke merge must preserve geometry and rapid travel.
+
+    The merge stitches tip-to-tail paths into continuous cuts, so the
+    *undirected* multiset of cutting segments must be identical before and
+    after, and the emitted rapid travel (which counts the merged junction as
+    a ~0 gap) must be unchanged. The win is purely path/PU count. These
+    fixtures make the NN2Opt-ordered merge fire (merges > 0) so the checks
+    exercise real stitching.
+    """
+
+    @pytest.mark.parametrize(
+        "fixture",
+        [
+            # Routed tip-to-tail junctions appear on these fixtures under
+            # NearestNeighbor2Opt, so the merge fires (merges > 0).
+            "1x3 half inch letters holes1.plt",
+            "2026-07-10 SW0914 1230sheet0.plt",
+            "SFA3X611sheet1.plt",
+        ],
+    )
+    def test_merge_preserves_segments_and_rapid_travel(self, fixture: str) -> None:
+        """NN2Opt + merge keeps the segment multiset and rapid travel."""
+        from plt_optimizer.core.optimizer import NearestNeighbor2OptStrategy
+        from plt_optimizer.core.pipeline import optimize_and_reassemble
+
+        deps_dir = Path(__file__).parent.parent / "tests_deps"
+        original_path = deps_dir / fixture
+        if not original_path.exists():
+            pytest.skip(f"Fixture not found: {original_path}")
+
+        parser = PLTParser()
+        doc_original = parser.parse_file(original_path)
+
+        profiler = Profiler()
+        profile_result = profiler.profile(doc_original)
+
+        chunker = Chunker(config=ChunkerConfig(threshold_multiplier=2.0))
+        blocks = chunker.chunk(
+            doc_original.stroke_paths,
+            profile_result.baseline_extent,
+            is_structural=profile_result.is_structural,
+        )
+        if not blocks:
+            pytest.skip("No blocks generated from file")
+
+        merged = optimize_and_reassemble(doc_original, blocks, NearestNeighbor2OptStrategy())
+        plain = optimize_and_reassemble(
+            doc_original, blocks, NearestNeighbor2OptStrategy(), merge_coincident=False
+        )
+
+        # The merge must actually fire, otherwise the checks are vacuous.
+        assert merged.merges_applied > 0
+        assert merged.merged_paths_after == merged.merged_paths_before - merged.merges_applied
+        assert len(merged.optimized_doc.stroke_paths) < len(plain.optimized_doc.stroke_paths)
+
+        # Cutting geometry is untouched; rapid travel is metric-neutral.
+        assert _undirected_multiset(merged.optimized_doc) == _undirected_multiset(
+            plain.optimized_doc
+        )
+        assert merged.optimized_doc.rapid_distance() == pytest.approx(
+            plain.optimized_doc.rapid_distance(), abs=1e-6
+        )
+
+    def test_escape_hatch_reproduces_unmerged_document(self) -> None:
+        """``merge_coincident=False`` keeps every reassembled path."""
+        from plt_optimizer.core.optimizer import NearestNeighbor2OptStrategy
+        from plt_optimizer.core.pipeline import optimize_and_reassemble
+
+        deps_dir = Path(__file__).parent.parent / "tests_deps"
+        original_path = deps_dir / "1x3 half inch letters holes1.plt"
+        if not original_path.exists():
+            pytest.skip(f"Fixture not found: {original_path}")
+
+        parser = PLTParser()
+        doc_original = parser.parse_file(original_path)
+        profile_result = Profiler().profile(doc_original)
+        blocks = Chunker(config=ChunkerConfig(threshold_multiplier=2.0)).chunk(
+            doc_original.stroke_paths,
+            profile_result.baseline_extent,
+            is_structural=profile_result.is_structural,
+        )
+
+        plain = optimize_and_reassemble(
+            doc_original,
+            blocks,
+            NearestNeighbor2OptStrategy(),
+            merge_coincident=False,
+        )
+
+        assert plain.merges_applied == 0
+        assert plain.merged_paths_before is None
+        assert plain.merged_paths_after is None
+        assert "merge=" not in plain.method_notes
+        # Path-per-block: the reassembled document is untouched.
+        assert len(plain.optimized_doc.stroke_paths) == sum(len(block.paths) for block in blocks)
