@@ -194,6 +194,10 @@ class PLTParser:
 
             elif cmd.startswith("PU") or cmd.startswith("PD"):
                 new_pen_state = PenState.DOWN if cmd.startswith("PD") else PenState.UP
+                # Pen state as of the *previous* command; the arc branches below
+                # run after ``pen_state`` is flipped, so they need this snapshot
+                # to detect a UP -> DOWN transition at a bare ``PD;``.
+                prev_pen_state = pen_state
                 coords, next_i = self._extract_coordinates(cmd, i, tokens)
 
                 rest_after_pupd = cmd[2:] if len(cmd) > 2 else ""
@@ -219,6 +223,14 @@ class PLTParser:
 
                     last_position = coord
 
+                # A bare ``PD;`` (no coordinates) that lowers the pen marks a
+                # pen-up -> pen-down transition at the current position: the arc
+                # that follows must open a fresh ``StrokePath`` so the rapid
+                # travel into this position survives as the new path's
+                # ``pen_up_position`` (arc-native glyph emission is
+                # ``PU x,y;PD;AA...``). ``pen_state`` is already flipped here,
+                # so the transition is detected via ``prev_pen_state``.
+                pen_transitioned = new_pen_state == PenState.DOWN and prev_pen_state == PenState.UP
                 pen_state = new_pen_state
                 i += 1
 
@@ -230,7 +242,7 @@ class PLTParser:
                         arc_type, params_str, last_position
                     )
                     if arc_segment is not None:
-                        if pen_state == PenState.UP or current_path is None:
+                        if pen_state == PenState.UP or pen_transitioned or current_path is None:
                             current_path = StrokePath(
                                 pen_up_position=last_position,
                                 segments=(arc_segment,),
@@ -257,7 +269,7 @@ class PLTParser:
                             arc_type, params_str, last_position
                         )
                         if arc_segment is not None:
-                            if pen_state == PenState.UP or current_path is None:
+                            if pen_state == PenState.UP or pen_transitioned or current_path is None:
                                 current_path = StrokePath(
                                     pen_up_position=last_position,
                                     segments=(arc_segment,),

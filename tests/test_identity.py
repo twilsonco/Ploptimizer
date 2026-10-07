@@ -267,6 +267,66 @@ class TestEdgeCases:
         assert len(doc.footer_commands) == 1
 
 
+class TestArcNativeRoundTrip:
+    """Round-trip identity for arc-native glyph emission (``PU x,y;PD;AA...``).
+
+    Arc-native fonts emit every arc-only glyph as a pen-up move to the glyph
+    start, a bare ``PD;`` and one or more ``AA`` arcs. The parser must record
+    the pen-up as a fresh :class:`StrokePath` boundary; the writer must then
+    re-emit the ``PU`` (dropping it is the historical identity failure: the
+    arc chain silently merged into the previous glyph, erasing the rapid
+    travel from the round-tripped document).
+    """
+
+    ARC_NATIVE_HPGL = (
+        "IN;VS0.50;PA;"
+        "PU0,0;PD1000,0;"
+        "PU2000,0;PD;AA2500,500,90;PD;AA3000,500,90;"
+        "PU4000,0;PD5000,0;"
+        "SP;"
+    )
+
+    def test_arc_native_roundtrip_preserves_paths_and_rapids(self) -> None:
+        """Parse -> write -> parse keeps 3 paths, pen-ups and rapid travel."""
+        parser = PLTParser()
+        writer = PLTWriter()
+
+        doc1 = parser.parse_string(self.ARC_NATIVE_HPGL)
+        assert len(doc1.stroke_paths) == 3
+        arc_path = doc1.stroke_paths[1]
+        assert arc_path.pen_up_position is not None
+        assert math.isclose(arc_path.pen_up_position.x, 2000.0, abs_tol=1e-9)
+
+        output = writer.write_string(doc1)
+        doc2 = parser.parse_string(output)
+
+        assert len(doc2.stroke_paths) == 3
+        arc_path2 = doc2.stroke_paths[1]
+        assert arc_path2.pen_up_position is not None
+        assert math.isclose(arc_path2.pen_up_position.x, 2000.0, abs_tol=1e-9)
+        assert math.isclose(arc_path2.pen_up_position.y, 0.0, abs_tol=1e-9)
+
+        # The rapid travels into the arc glyph survive the round-trip.
+        assert math.isclose(doc1.rapid_distance(), doc2.rapid_distance(), abs_tol=1e-6)
+        assert doc1.rapid_distance() > 0.0
+
+        is_valid, errors = writer.validate_output(doc1, output)
+        assert is_valid, f"Arc-native round-trip validation failed: {errors}"
+
+    def test_arc_native_writer_reemits_pen_up(self) -> None:
+        """The writer emits the pen-up move into an arc-led path verbatim."""
+        parser = PLTParser()
+        writer = PLTWriter()
+
+        doc = parser.parse_string(self.ARC_NATIVE_HPGL)
+        output = writer.write_string(doc)
+
+        # The arc glyph's pen-up (2000,0) must appear as a PU command in the
+        # output; before the parser fix the arc merged into the previous
+        # path and the PU was lost entirely.
+        assert "PU2000.000,0.000;" in output
+
+
 class TestMetadataPreservation:
     """Tests for metadata preservation through parse-write cycles."""
 

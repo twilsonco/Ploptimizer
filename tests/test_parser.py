@@ -860,6 +860,121 @@ class TestArcSegmentInStrokePath:
                 assert path.cutting_distance > arc_seg.chord_length
 
 
+class TestBarePdArcPathSplit:
+    """Tests for the pen-transition path split at a bare ``PD;`` before arcs.
+
+    Arc-native glyph emission is ``PU x,y;PD;AA cx,cy,sweep;...``: the bare
+    ``PD;`` lowers the pen at ``(x,y)``, so the following arc must open a
+    fresh :class:`StrokePath` carrying ``(x,y)`` as ``pen_up_position``.
+    Merging the arc into the previous path (the historical bug) erased the
+    rapid travel into the glyph from both the parsed document and every
+    consumer (plotter, ``rapid_distance()``, chunking).
+    """
+
+    def test_bare_pd_arc_after_pu_opens_new_path(self) -> None:
+        """A bare ``PD;`` after a PU opens a new path at the PU target."""
+        content = "PU0,0;PD10,0;PU20,0;PD;AA25,5,90;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        assert len(doc.stroke_paths) == 2
+        first, second = doc.stroke_paths
+        assert isinstance(first.segments[0], StrokeSegment)
+        assert second.pen_up_position is not None
+        assert math.isclose(second.pen_up_position.x, 20.0, abs_tol=1e-9)
+        assert math.isclose(second.pen_up_position.y, 0.0, abs_tol=1e-9)
+        assert isinstance(second.segments[0], ArcSegment)
+        assert math.isclose(second.segments[0].start.x, 20.0, abs_tol=1e-9)
+        assert math.isclose(second.segments[0].start.y, 0.0, abs_tol=1e-9)
+
+    def test_bare_pd_arc_transition_rapid_distance_counted(self) -> None:
+        """The rapid travel into an arc glyph is counted by ``rapid_distance``."""
+        content = "PU0,0;PD10,0;PU20,0;PD;AA25,5,90;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        # First path ends at (10,0); the arc glyph's pen-up is (20,0).
+        assert math.isclose(doc.rapid_distance(), 10.0, abs_tol=1e-9)
+
+    def test_bare_pd_arc_chain_stays_in_one_path(self) -> None:
+        """Consecutive ``PD;AA`` pairs with no PU between stay in one path.
+
+        This is the arc-glyph-internal chain (every arc-native font emits
+        ``PDx,y;PD;AA...;PD;AA...`` per glyph): only the UP -> DOWN
+        transition at the leading bare ``PD;`` opens a path, the following
+        DOWN -> DOWN bare ``PD;`` commands extend it.
+        """
+        content = "PU0,0;PD;AA5,5,90;PD;AA10,5,90;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        assert len(doc.stroke_paths) == 1
+        path = doc.stroke_paths[0]
+        assert len(path.segments) == 2
+        assert all(isinstance(seg, ArcSegment) for seg in path.segments)
+
+    def test_arc_glyph_sequence_rapid_distance_counts_every_glyph(self) -> None:
+        """A polyline glyph, an arc glyph, then a polyline glyph: 3 paths.
+
+        Mirrors the emitted per-glyph structure of arc-native text layers so
+        the inter-glyph rapids (the ones missing from diagnostic plots) are
+        all present in the parsed document.
+        """
+        content = "PU0,0;PD10,0;PU20,0;PD;AA25,5,90;PD;AA30,5,90;PU40,0;PD50,0;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        assert len(doc.stroke_paths) == 3
+        arc_path = doc.stroke_paths[1]
+        assert arc_path.pen_up_position is not None
+        assert math.isclose(arc_path.pen_up_position.x, 20.0, abs_tol=1e-9)
+        assert len(arc_path.segments) == 2
+
+        # Rapid 1: (10,0) -> (20,0) = 10. Rapid 2: arc-chain end (35,5) ->
+        # (40,0) = sqrt(50). The arc ends follow from the AA geometry.
+        arc_end = arc_path.segments[-1].end
+        assert math.isclose(arc_end.x, 35.0, abs_tol=1e-6)
+        assert math.isclose(arc_end.y, 5.0, abs_tol=1e-6)
+        expected = 10.0 + math.hypot(40.0 - arc_end.x, 0.0 - arc_end.y)
+        assert math.isclose(doc.rapid_distance(), expected, abs_tol=1e-6)
+
+    def test_arc_in_same_token_transition_opens_new_path(self) -> None:
+        """The compound ``PDAA...`` token honors the same pen-transition split."""
+        content = "PU0,0;PD10,0;PU20,0;PDAA25,5,90;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        assert len(doc.stroke_paths) == 2
+        second = doc.stroke_paths[1]
+        assert second.pen_up_position is not None
+        assert math.isclose(second.pen_up_position.x, 20.0, abs_tol=1e-9)
+        assert isinstance(second.segments[0], ArcSegment)
+
+    def test_pd_no_coords_arc_mid_path_stays_merged(self) -> None:
+        """Regression pin: ``PD;AA`` with the pen already DOWN extends the path.
+
+        ``PU0,0;PD100,0;PD;AA...`` never lifted the pen between ``PD100,0``
+        and the bare ``PD;``, so the arc belongs to the same path (no rapid
+        travel exists to preserve). This is the behavior the coverage tests
+        in :mod:`tests.test_parser` rely on and must not change.
+        """
+        content = "PU0,0;PD100,0;PD;AA500,500,90;"
+        parser = PLTParser()
+
+        doc = parser.parse_string(content)
+
+        assert len(doc.stroke_paths) == 1
+        path = doc.stroke_paths[0]
+        assert len(path.segments) == 2
+        assert isinstance(path.segments[0], StrokeSegment)
+        assert isinstance(path.segments[1], ArcSegment)
+
+
 class TestParserBranchesCoverage:
     """Additional tests to cover missing branches in parser.py."""
 
