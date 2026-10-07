@@ -27,9 +27,11 @@ from plt_optimizer.generate.plate_optimizer import (
     _LabelTransform,
     _rapid_distance,
     _record_paths,
+    _record_paths_with_glyphs,
     _stroke_to_path,
     _transform_point,
     build_text_blocks,
+    build_text_blocks_with_glyphs,
     emit_layer_document,
     optimize_structural_layer,
     optimize_text_layer,
@@ -168,6 +170,35 @@ def _multi_stroke_record(
             max(p.real for p in points),
             max(p.imag for p in points),
         ),
+    )
+
+
+def _glyph_record(
+    spans: List[Tuple[Tuple[float, float], Tuple[float, float]]],
+    glyph_groups: Tuple[Tuple[int, ...], ...],
+    pen: int = 1,
+    line_index: int = 0,
+) -> TextChunkRecord:
+    """Build a chunk record with one stroke per span plus a glyph partition.
+
+    Args:
+        spans: ``(start, end)`` inch pairs, one stroke per span.
+        glyph_groups: Stroke-index groups (indices into ``spans``).
+        pen: Pen number for the record.
+        line_index: Source line index.
+
+    Returns:
+        A TextChunkRecord carrying ``glyph_groups`` verbatim.
+    """
+    record = _multi_stroke_record(spans, pen=pen, line_index=line_index)
+    return TextChunkRecord(
+        line_index=record.line_index,
+        word_index=record.word_index,
+        word_text=record.word_text,
+        pen=record.pen,
+        blocks=record.blocks,
+        bounds=record.bounds,
+        glyph_groups=glyph_groups,
     )
 
 
@@ -517,6 +548,108 @@ class TestBuildTextBlocks:
         assert [b.block_id for b in blocks] == [0, 1, 2, 3]
 
 
+class TestRecordPathsWithGlyphs:
+    """``_record_paths_with_glyphs`` remaps glyph groups onto surviving paths."""
+
+    def _transform(self) -> _LabelTransform:
+        return _LabelTransform(shift=0.0, flip_span=1000, rot_y_max=1000, rot_x_min=0)
+
+    def test_groups_remap_onto_path_indices(self) -> None:
+        """Contiguous stroke groups map 1:1 when nothing is dropped."""
+        record = _glyph_record(
+            [((0.0, 0.0), (1.0, 0.0)), ((2.0, 0.0), (3.0, 0.0)), ((4.0, 0.0), (5.0, 0.0))],
+            glyph_groups=((0,), (1, 2)),
+        )
+
+        paths, groups = _record_paths_with_glyphs(
+            self._transform(), record, rotated=False, dx_units=0, dy_units=0
+        )
+
+        assert len(paths) == 3
+        assert groups == ((0,), (1, 2))
+
+    def test_dropped_strokes_shrink_their_group(self) -> None:
+        """An empty stroke drops out of its glyph group; empty groups vanish."""
+        record = TextChunkRecord(
+            line_index=0,
+            word_index=None,
+            word_text="",
+            pen=1,
+            blocks=(
+                TextBlock(
+                    strokes=(
+                        Stroke(pen_up=0.5 + 0.5j, segments=()),  # stroke 0: empty
+                        Stroke(pen_up=0.0 + 0.0j, segments=(LineSeg(0j, 1 + 0j),)),
+                        Stroke(pen_up=2.0 + 0.0j, segments=(LineSeg(2 + 0j, 3 + 0j),)),
+                    )
+                ),
+            ),
+            bounds=(0.0, 0.0, 3.0, 0.0),
+            glyph_groups=((0,), (1,), (2,)),
+        )
+
+        paths, groups = _record_paths_with_glyphs(
+            self._transform(), record, rotated=False, dx_units=0, dy_units=0
+        )
+
+        assert len(paths) == 2
+        # The empty stroke's group is gone; the survivors renumber to 0, 1.
+        assert groups == ((0,), (1,))
+
+    def test_record_without_groups_returns_empty_partition(self) -> None:
+        """Records with no glyph knowledge keep the historical behaviour."""
+        record = _multi_stroke_record([((0.0, 0.0), (1.0, 0.0)), ((2.0, 0.0), (3.0, 0.0))])
+
+        paths, groups = _record_paths_with_glyphs(
+            self._transform(), record, rotated=False, dx_units=0, dy_units=0
+        )
+
+        assert len(paths) == 2
+        assert groups == ()
+
+
+class TestBuildTextBlocksWithGlyphs:
+    """``build_text_blocks_with_glyphs`` keys glyph groups by block id."""
+
+    def test_only_blocks_with_groups_join_the_map(self) -> None:
+        """A group-less chunk is absent from the map; ids stay aligned."""
+        label = _make_label()
+        records = (
+            _line_record([(0.0, 0.0), (1.0, 0.0)]),  # block 0: no groups
+            _glyph_record(
+                [((0.0, 0.5), (1.0, 0.5)), ((2.0, 0.5), (3.0, 0.5))],
+                glyph_groups=((0,), (1,)),
+                line_index=1,
+            ),  # block 1: groups
+        )
+        rendered = _make_rendered(records, label=label)
+
+        blocks, groups_by_block = build_text_blocks_with_glyphs(
+            [_packed("t", 0.0, 0.0)], {"t": rendered}, pen=1
+        )
+
+        assert [b.block_id for b in blocks] == [0, 1]
+        assert set(groups_by_block) == {1}
+        assert groups_by_block[1] == ((0,), (1,))
+
+    def test_wrapper_matches_glyph_free_builder(self) -> None:
+        """The historical wrapper returns identical blocks."""
+        label = _make_label()
+        records = (
+            _glyph_record(
+                [((0.0, 0.0), (1.0, 0.0)), ((2.0, 0.0), (3.0, 0.0))],
+                glyph_groups=((0,), (1,)),
+            ),
+        )
+        rendered = _make_rendered(records, label=label)
+        packed = [_packed("t", 0.0, 0.0)]
+
+        plain = build_text_blocks(packed, {"t": rendered}, pen=1)
+        blocks, _ = build_text_blocks_with_glyphs(packed, {"t": rendered}, pen=1)
+
+        assert blocks == plain
+
+
 class TestEmitLayerDocument:
     """Integer-unit HPGL emission (pen-select-free per-cutter framing)."""
 
@@ -713,6 +846,87 @@ class TestOptimizeTextLayer:
         assert outcome.direction_sweep_travel_before == pytest.approx(1135.2477, abs=1e-3)
         assert outcome.direction_sweep_travel_after == pytest.approx(979.3592, abs=1e-3)
         assert "direction_sweep=" in outcome.method_notes
+
+    def test_intra_sweep_flips_glyphs_and_shrinks_emitted_travel(self) -> None:
+        """A chunk whose middle glyph wants reversing reports the intra sweep.
+
+        One chunk of three single-stroke glyphs (the flip fixture): the middle
+        glyph is traced right-to-left, so reversing it shortens both adjacent
+        gaps. The inter-chunk tour is a single node (no gain there), so the
+        entire emitted-travel drop is the intra sweep's doing.
+        """
+        from plt_optimizer.core.parser import PLTParser
+
+        label = _make_label()
+        record = _glyph_record(
+            [((0.0, 0.0), (0.1, 0.0)), ((0.2, 0.0), (0.12, 0.0)), ((0.3, 0.0), (0.4, 0.0))],
+            glyph_groups=((0,), (1,), (2,)),
+        )
+        rendered = _make_rendered((record,), label=label)
+        packed = [_packed("t", 0.0, 0.0)]
+
+        result = optimize_text_layer(
+            packed, {"t": rendered}, pen=1, strategy_factory=_fast_strategy
+        )
+        assert result is not None
+        outcome = result.outcome
+        assert outcome.intra_sweep_flips == 1
+        assert outcome.intra_sweep_groups == 3
+        assert outcome.intra_sweep_travel_after < outcome.intra_sweep_travel_before
+        assert "intra_sweep=" in outcome.method_notes
+
+        raw = emit_layer_document(
+            [p for b in build_text_blocks(packed, {"t": rendered}, 1) for p in b.paths]
+        )
+        raw_travel = PLTParser().parse_string(raw).rapid_distance()
+        opt_travel = PLTParser().parse_string(result.content).rapid_distance()
+        # The intra gain flows one-for-one into the emitted file.
+        assert opt_travel < raw_travel - 1e-6
+        assert opt_travel == pytest.approx(outcome.intra_sweep_emitted_after, abs=1e-3)
+
+    def test_intra_sweep_escape_hatch_reproduces_pre_sweep_output(self) -> None:
+        """``intra_sweep=False`` emits the pre-sweep (chronological) layer."""
+        label = _make_label()
+        record = _glyph_record(
+            [((0.0, 0.0), (0.1, 0.0)), ((0.2, 0.0), (0.12, 0.0)), ((0.3, 0.0), (0.4, 0.0))],
+            glyph_groups=((0,), (1,), (2,)),
+        )
+        rendered = _make_rendered((record,), label=label)
+        packed = [_packed("t", 0.0, 0.0)]
+
+        swept = optimize_text_layer(packed, {"t": rendered}, pen=1, strategy_factory=_fast_strategy)
+        plain = optimize_text_layer(
+            packed,
+            {"t": rendered},
+            pen=1,
+            strategy_factory=_fast_strategy,
+            intra_sweep=False,
+        )
+        assert swept is not None and plain is not None
+        assert swept.outcome.intra_sweep_flips == 1
+        assert plain.outcome.intra_sweep_flips == 0
+        assert plain.outcome.intra_sweep_travel_before is None
+        assert "intra_sweep=" not in plain.outcome.method_notes
+        assert plain.content == emit_layer_document(
+            [p for b in build_text_blocks(packed, {"t": rendered}, 1) for p in b.paths]
+        )
+
+    def test_glyph_free_layer_reports_no_intra_sweep(self) -> None:
+        """A layer with no glyph partition reports nothing intra."""
+        label = _make_label()
+        records = (
+            _line_record([(0.0, 0.0), (1.0, 0.0)]),
+            _line_record([(0.2, 0.5), (1.2, 0.5)], line_index=1),
+        )
+        rendered = _make_rendered(records, label=label)
+
+        result = optimize_text_layer(
+            [_packed("t", 0.0, 0.0)], {"t": rendered}, pen=1, strategy_factory=_fast_strategy
+        )
+        assert result is not None
+        assert result.outcome.intra_sweep_flips == 0
+        assert result.outcome.intra_sweep_travel_before is None
+        assert "intra_sweep=" not in result.outcome.method_notes
 
 
 class TestOptimizeStructuralLayer:

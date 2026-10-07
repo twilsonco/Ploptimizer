@@ -74,7 +74,7 @@ class Reassembler:
         original_document: PLTDocument,
         blocks: List[MacroBlock],
         optimization_result: OptimizationResult,
-        intra_chunk_results: Optional[List[IntraChunkResult]] = None,
+        intra_chunk_results: Optional[List[Optional[IntraChunkResult]]] = None,
     ) -> PLTDocument:
         """Reconstruct an optimized PLTDocument from MacroBlocks.
 
@@ -85,6 +85,7 @@ class Reassembler:
             intra_chunk_results: Optional list of IntraChunkResult, one per block
                 in original block order. If provided, paths within each block are
                 reordered/reversed according to the intra-chunk optimization.
+                A ``None`` entry keeps that block's chronological traversal.
 
         Returns:
             A new PLTDocument with strokes in optimized sequence.
@@ -102,7 +103,9 @@ class Reassembler:
         if intra_chunk_results is not None:
             for i, b in enumerate(blocks):
                 if i < len(intra_chunk_results):
-                    intra_map[b.block_id] = intra_chunk_results[i]
+                    entry = intra_chunk_results[i]
+                    if entry is not None:
+                        intra_map[b.block_id] = entry
 
         # Reconstruct optimized stroke paths
         optimized_paths: List[StrokePath] = []
@@ -160,24 +163,71 @@ class Reassembler:
             original_path = paths[path_state.path_index]
             if not original_path.segments:
                 continue
-
-            if path_state.reversed:
-                reversed_segments = self._reverse_segment_order(original_path)
-                new_pen_up: Optional[Coordinate] = (
-                    reversed_segments[0].start
-                    if reversed_segments
-                    else original_path.pen_up_position
-                )
-                reordered_paths.append(
-                    StrokePath(
-                        pen_up_position=new_pen_up,
-                        segments=tuple(reversed_segments),
-                    )
-                )
-            else:
-                reordered_paths.append(original_path)
+            reordered_paths.append(self._emit_path_in_direction(original_path, path_state.reversed))
 
         return reordered_paths
+
+    def _emit_path_in_direction(
+        self,
+        path: StrokePath,
+        is_reversed: bool,
+    ) -> StrokePath:
+        """Return one path traced in the requested direction.
+
+        Forward returns the path untouched. Reversed swaps every segment's
+        start/end (negating arc sweeps) and re-anchors ``pen_up_position`` to
+        the new first segment's start, so the emitted path begins where its
+        traversal begins.
+
+        Args:
+            path: The path to emit.
+            is_reversed: ``True`` to trace the path backwards.
+
+        Returns:
+            The emitted path (the original object when forward).
+        """
+        if not is_reversed:
+            return path
+
+        reversed_segments = self._reverse_segment_order(path)
+        new_pen_up: Optional[Coordinate] = (
+            reversed_segments[0].start if reversed_segments else path.pen_up_position
+        )
+        return StrokePath(pen_up_position=new_pen_up, segments=tuple(reversed_segments))
+
+    def _reverse_intra_order(
+        self,
+        paths: Tuple[StrokePath, ...],
+        intra_result: IntraChunkResult,
+    ) -> List[StrokePath]:
+        """Traverse an intra-chunk optimized tour backwards.
+
+        Reversing a traversal composes two operations: visiting the paths in
+        the opposite sequence *and* tracing each one in the opposite
+        direction. Flipping every path relative to its intra-chunk direction
+        keeps the block's geometric entrance at ``block.exit`` (the contract
+        :class:`~plt_optimizer.core.optimizer.BlockTraverseState` makes to the
+        inter-block router) and keeps every ``pen_up_position`` pointing at
+        the traversal's own start.
+
+        Args:
+            paths: Original tuple of stroke paths.
+            intra_result: Intra-chunk optimization result for this block.
+
+        Returns:
+            Reversed traversal of the intra-chunk optimized tour.
+        """
+        reversed_paths: List[StrokePath] = []
+
+        for path_state in reversed(intra_result.traverse_order):
+            original_path = paths[path_state.path_index]
+            if not original_path.segments:  # pragma: no cover - defensive
+                continue
+            reversed_paths.append(
+                self._emit_path_in_direction(original_path, not path_state.reversed)
+            )
+
+        return reversed_paths
 
     def _reverse_block_paths(
         self,
@@ -188,7 +238,12 @@ class Reassembler:
 
         When a block must be traversed in reverse (right-to-left), we need to:
         1. Reverse the sequence of StrokePaths within the block
-        2. For each StrokePath, reverse the segment order if not already optimized
+        2. Reverse the segment order of every StrokePath
+
+        With an intra-chunk result, (1) and (2) apply to the *optimized*
+        tour: the sequence is the intra order reversed and every path's
+        direction is flipped relative to the direction the intra sweep gave
+        it (see :meth:`_reverse_intra_order`).
 
         Args:
             paths: Original tuple of stroke paths.
@@ -200,8 +255,7 @@ class Reassembler:
         if intra_result is None:
             return self._reverse_paths_simple(paths)
 
-        reordered = self._apply_intra_chunk_order(paths, intra_result)
-        return list(reversed(reordered))
+        return self._reverse_intra_order(paths, intra_result)
 
     def _reverse_segment_order(self, path: StrokePath) -> List[Segment]:
         """Reverse the order of segments within a path and swap coordinates.

@@ -1,0 +1,13 @@
+# 2026-10-06
+# SEER 2963 Equip. Labels
+job:
+  job_name: SEER 2963
+  
+  labels:
+    - id: alarm placard
+      width: 10
+      height: 2
+      text_height: 0.5
+      content:
+        - text: "REFRIGERATION ALARM"
+        - text: "CONTACT STORE MANAGER"

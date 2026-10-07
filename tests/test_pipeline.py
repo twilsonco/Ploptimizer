@@ -8,6 +8,7 @@ Ensemble unwrapping, benchmark logging, and method naming/notes).
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any, List
 
 import pytest
@@ -583,3 +584,205 @@ class TestDirectionSweepIntegration:
         assert outcome.direction_sweep_emitted_before is None
         assert outcome.direction_sweep_emitted_after is None
         assert "direction_sweep=" not in outcome.method_notes
+
+
+def _vpath(x: float, y0: float, y1: float) -> StrokePath:
+    """One straight cutting path from ``(x, y0)`` to ``(x, y1)``, pen-up at start."""
+    start = Coordinate(x=x, y=y0)
+    end = Coordinate(x=x, y=y1)
+    return StrokePath(pen_up_position=start, segments=(StrokeSegment(start, end, True),))
+
+
+def _hpath(x0: float, x1: float) -> StrokePath:
+    """One straight cutting path from ``(x0, 0)`` to ``(x1, 0)``, pen-up at start."""
+    start = Coordinate(x=x0, y=0.0)
+    end = Coordinate(x=x1, y=0.0)
+    return StrokePath(pen_up_position=start, segments=(StrokeSegment(start, end, True),))
+
+
+class TestIntraSweepIntegration:
+    """The intra-chunk glyph direction sweep inside optimize_and_reassemble."""
+
+    def _blocks(self) -> List[MacroBlock]:
+        """Block 0: three single-path glyphs where the middle wants reversing.
+
+        Glyph gaps forward: (1,0)->(2,0) = 1.0 and (1.2,0)->(3,0) = 1.8,
+        total 2.8. Reversing the middle glyph: (1,0)->(1.2,0) = 0.2 and
+        (2,0)->(3,0) = 1.0, total 1.2.
+        Block 1's path enters forward at (10,1) (gap sqrt(37) from block 0's
+        exit (4,0)) and reversed at (10,0) (gap 6.0), so the direction sweep
+        flips it while the glyph sweep leaves it alone.
+        """
+        glyph_paths = (
+            _hpath(0.0, 1.0),
+            _hpath(2.0, 1.2),
+            _hpath(3.0, 4.0),
+        )
+        block0 = MacroBlock(
+            block_id=0,
+            paths=glyph_paths,
+            entrance=Coordinate(x=0.0, y=0.0),
+            exit=Coordinate(x=4.0, y=0.0),
+        )
+        block1 = MacroBlock(
+            block_id=1,
+            paths=(_vpath(10.0, 1.0, 0.0),),
+            entrance=Coordinate(x=10.0, y=1.0),
+            exit=Coordinate(x=10.0, y=0.0),
+        )
+        return [block0, block1]
+
+    def _chronological_result(self, blocks: List[MacroBlock]) -> OptimizationResult:
+        """The all-forward chronological tour (no inter-chunk gain to find)."""
+        traverse = tuple(
+            BlockTraverseState(
+                block_id=b.block_id,
+                reversed=False,
+                entrance=b.entrance.as_tuple(),
+                exit=b.exit.as_tuple(),
+            )
+            for b in blocks
+        )
+        return OptimizationResult(
+            traverse_order=traverse,
+            connections=(),
+            total_travel_distance=7.0,
+            initial_position=(0.0, 0.0),
+        )
+
+    class _StubEngine:
+        def __init__(self, result: OptimizationResult) -> None:
+            self._result = result
+
+        def optimize(self, blocks: List[MacroBlock]) -> OptimizationResult:
+            return self._result
+
+    def _run(self, **kwargs: Any) -> OptimizationOutcome:
+        blocks = self._blocks()
+        engine = self._StubEngine(self._chronological_result(blocks))
+        doc = _make_doc(n_paths=0)
+        kwargs.setdefault("direction_sweep", False)
+        return optimize_and_reassemble(
+            doc, blocks, NoOpStrategy(), engine_factory=lambda **_: engine, **kwargs
+        )
+
+    def test_sweep_flips_the_glyph_and_reports_the_gain(self) -> None:
+        """The middle glyph flips; intra drops 2.8 -> 1.2, emitted follows."""
+        outcome = self._run(glyph_groups_by_block={0: ((0,), (1,), (2,))})
+
+        assert outcome.intra_sweep_flips == 1
+        assert outcome.intra_sweep_groups == 3
+        assert outcome.intra_sweep_travel_before == pytest.approx(2.8)
+        assert outcome.intra_sweep_travel_after == pytest.approx(1.2)
+        # Emitted: intra 2.8 + inter (4,0)->(10,1) = sqrt(37) baseline; the
+        # sweep's gain flows one-for-one into the emitted rapid travel.
+        inter = math.sqrt(37.0)
+        assert outcome.intra_sweep_emitted_before == pytest.approx(2.8 + inter)
+        assert outcome.intra_sweep_emitted_after == pytest.approx(1.2 + inter)
+        assert outcome.optimized_doc.rapid_distance() == pytest.approx(
+            outcome.intra_sweep_emitted_after
+        )
+        assert "intra_sweep=2.800->1.200 (1 flips)" in outcome.method_notes
+
+    def test_disabled_by_default_without_glyph_groups(self) -> None:
+        """No glyph knowledge (the parsed-PLT path) -> zero intra reporting."""
+        outcome = self._run()
+
+        assert outcome.intra_sweep_flips == 0
+        assert outcome.intra_sweep_groups == 0
+        assert outcome.intra_sweep_travel_before is None
+        assert outcome.intra_sweep_emitted_after is None
+        assert "intra_sweep=" not in outcome.method_notes
+        # The emission is the plain chronological one.
+        assert outcome.optimized_doc.rapid_distance() == pytest.approx(2.8 + math.sqrt(37.0))
+
+    def test_escape_hatch_reproduces_pre_sweep_output(self) -> None:
+        """``intra_sweep=False`` keeps the grouped emission byte-identical."""
+        groups = {0: ((0,), (1,), (2,))}
+        swept = self._run(glyph_groups_by_block=groups)
+        plain = self._run(glyph_groups_by_block=groups, intra_sweep=False)
+
+        assert plain.intra_sweep_flips == 0
+        assert plain.intra_sweep_travel_before is None
+        assert "intra_sweep=" not in plain.method_notes
+        assert plain.optimized_doc.rapid_distance() == swept.intra_sweep_emitted_before
+
+    def test_composes_with_the_direction_sweep_monotonically(self) -> None:
+        """With both sweeps on, the emitted travel never exceeds the baseline.
+
+        The direction sweep flips block 1 (entering at its exit (10,1) is
+        free), the glyph sweep flips the middle glyph; the composition enters
+        block 1 reversed and leaves the swept block's endpoints untouched.
+        """
+        groups = {0: ((0,), (1,), (2,))}
+        baseline = self._run(glyph_groups_by_block=groups, intra_sweep=False)
+        composed = self._run(glyph_groups_by_block=groups, direction_sweep=True)
+
+        assert composed.direction_sweep_flips >= 1
+        assert composed.intra_sweep_flips == 1
+        assert composed.optimized_doc.rapid_distance() <= baseline.optimized_doc.rapid_distance()
+        assert "direction_sweep=" in composed.method_notes
+        assert "intra_sweep=" in composed.method_notes
+
+    def test_blocks_without_groups_keep_chronological_paths(self) -> None:
+        """Block 1 (no groups) emits its single path untouched, forward."""
+        outcome = self._run(glyph_groups_by_block={0: ((0,), (1,), (2,))})
+
+        emitted = outcome.optimized_doc.stroke_paths
+        assert len(emitted) == 4
+        # Block 1's path is last and unchanged (starts at x=10).
+        assert emitted[-1].segments[0].start.x == 10.0
+
+    def test_sweep_logged_at_info_with_prefix(self, caplog: pytest.LogCaptureFixture) -> None:
+        from plt_optimizer.utils.logging import TextLogger
+
+        logger = TextLogger(name="plt_optimizer_test_intra")
+        blocks = self._blocks()
+        engine = self._StubEngine(self._chronological_result(blocks))
+
+        with caplog.at_level(logging.DEBUG, logger="plt_optimizer_test_intra"):
+            optimize_and_reassemble(
+                _make_doc(n_paths=0),
+                blocks,
+                NoOpStrategy(),
+                engine_factory=lambda **_: engine,
+                logger=logger,
+                log_prefix="[job9]",
+                glyph_groups_by_block={0: ((0,), (1,), (2,))},
+            )
+
+        combined = "\n".join(r.getMessage() for r in caplog.records)
+        assert "[job9] Intra-chunk glyph sweep: intra" in combined
+        assert "glyph group(s)" in combined
+        assert "emitted rapid travel" in combined
+
+    def test_sweep_is_silent_without_a_logger(self, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level(logging.INFO, logger="plt_optimizer"):
+            self._run(glyph_groups_by_block={0: ((0,), (1,), (2,))})
+
+        combined = "\n".join(r.getMessage() for r in caplog.records)
+        assert "Intra-chunk glyph sweep" not in combined
+
+    def test_no_improvement_leaves_outcome_clean(self) -> None:
+        """Groups with nothing to gain report nothing and add no notes."""
+        blocks = self._blocks()
+        # A collinear chain: every glyph's forward gaps are already optimal.
+        blocks[0] = MacroBlock(
+            block_id=0,
+            paths=(_vpath(0.0, 0.0, 1.0), _vpath(2.0, 0.0, 1.0)),
+            entrance=Coordinate(x=0.0, y=0.0),
+            exit=Coordinate(x=2.0, y=1.0),
+        )
+        engine = self._StubEngine(self._chronological_result(blocks))
+
+        outcome = optimize_and_reassemble(
+            _make_doc(n_paths=0),
+            blocks,
+            NoOpStrategy(),
+            engine_factory=lambda **_: engine,
+            glyph_groups_by_block={0: ((0,), (1,))},
+        )
+
+        assert outcome.intra_sweep_flips == 0
+        assert outcome.intra_sweep_travel_before is None
+        assert "intra_sweep=" not in outcome.method_notes

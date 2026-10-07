@@ -28,10 +28,12 @@ imports, and no syntax newer than 3.8 at runtime.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Mapping, Optional, Sequence, Tuple
 
 from plt_optimizer.core.chunker import Chunker, ChunkerConfig, MacroBlock
 from plt_optimizer.core.direction_sweep import sweep_tour_directions
+from plt_optimizer.core.glyph_sweep import sweep_glyph_directions
+from plt_optimizer.core.intra_chunk_optimizer import IntraChunkResult
 from plt_optimizer.core.models import PLTDocument
 from plt_optimizer.core.optimizer import (
     OptimizationStrategy,
@@ -92,6 +94,20 @@ class OptimizationOutcome:
             improvement.
         direction_sweep_passes: Sweeps accepted by the direction sweep.
         direction_sweep_flips: Blocks whose traversal direction changed.
+        intra_sweep_travel_before: Intra-chunk (inside-text-chunk) rapid
+            travel entering the glyph direction sweep, or ``None`` when the
+            sweep did not improve any chunk (or was disabled / had no glyph
+            groups).
+        intra_sweep_travel_after: Intra-chunk travel after the glyph
+            direction sweep, or ``None`` when the sweep did not improve.
+        intra_sweep_emitted_before: ``rapid_distance()`` of the emission
+            without the glyph sweep, or ``None`` when the sweep did not
+            improve.
+        intra_sweep_emitted_after: ``rapid_distance()`` of
+            :attr:`optimized_doc` including the glyph sweep, or ``None``
+            when the sweep did not improve.
+        intra_sweep_groups: Glyph groups considered by the sweep.
+        intra_sweep_flips: Glyph groups re-traced in reverse.
     """
 
     optimized_doc: PLTDocument
@@ -105,6 +121,12 @@ class OptimizationOutcome:
     direction_sweep_emitted_after: Optional[float] = None
     direction_sweep_passes: int = 0
     direction_sweep_flips: int = 0
+    intra_sweep_travel_before: Optional[float] = None
+    intra_sweep_travel_after: Optional[float] = None
+    intra_sweep_emitted_before: Optional[float] = None
+    intra_sweep_emitted_after: Optional[float] = None
+    intra_sweep_groups: int = 0
+    intra_sweep_flips: int = 0
 
 
 def preprocess_document(
@@ -203,6 +225,70 @@ def chunk_document(
 
 
 @dataclass(frozen=True)
+class _IntraSweepReport:
+    """Measurements taken when the glyph direction sweep improved a chunk.
+
+    Attributes:
+        travel_before: Intra-chunk rapid travel of the chronological
+            (all-forward) traversal, summed over swept blocks.
+        travel_after: Intra-chunk rapid travel of the swept traversal.
+        emitted_before: ``rapid_distance()`` of the emission without the
+            glyph sweep.
+        groups: Glyph groups considered.
+        flips: Glyph groups re-traced in reverse.
+        gain_percent: Percentage improvement on the intra-chunk objective.
+    """
+
+    travel_before: float
+    travel_after: float
+    emitted_before: float
+    groups: int
+    flips: int
+    gain_percent: float
+
+
+def _run_intra_sweep(
+    blocks: Sequence[MacroBlock],
+    glyph_groups_by_block: Mapping[int, Tuple[Tuple[int, ...], ...]],
+) -> Tuple[List[Optional[IntraChunkResult]], float, float, int, int]:
+    """Sweep every block's glyph directions once.
+
+    Args:
+        blocks: The blocks in positional order (the order the Reassembler
+            expects ``intra_chunk_results`` in).
+        glyph_groups_by_block: Per-glyph path groups keyed by ``block_id``.
+            Blocks absent from the map keep their chronological traversal.
+
+    Returns:
+        ``(results, travel_before, travel_after, groups, flips)`` where
+        ``results[i]`` is block ``i``'s :class:`IntraChunkResult` (``None``
+        keeps the block's chronological order), and the travel totals are
+        the intra-chunk rapid travel before (chronological) and after
+        (swept), summed over the swept blocks.
+    """
+    results: List[Optional[IntraChunkResult]] = []
+    travel_before = 0.0
+    travel_after = 0.0
+    groups = 0
+    flips = 0
+    for block in blocks:
+        groups_for_block = glyph_groups_by_block.get(block.block_id)
+        if not groups_for_block:
+            results.append(None)
+            continue
+        sweep = sweep_glyph_directions(block.paths, groups_for_block)
+        groups += sweep.groups
+        if sweep.flips > 0:
+            results.append(sweep.result)
+            flips += sweep.flips
+            travel_before += sweep.travel_before
+            travel_after += sweep.travel_after
+        else:
+            results.append(None)
+    return results, travel_before, travel_after, groups, flips
+
+
+@dataclass(frozen=True)
 class _DirectionSweepReport:
     """Measurements taken when the direction sweep improved the tour.
 
@@ -233,6 +319,8 @@ def optimize_and_reassemble(
     logger: Optional[TextLogger] = None,
     log_prefix: str = "",
     direction_sweep: bool = True,
+    intra_sweep: bool = True,
+    glyph_groups_by_block: Optional[Mapping[int, Tuple[Tuple[int, ...], ...]]] = None,
 ) -> OptimizationOutcome:
     """Optimize pre-built blocks and reassemble the document.
 
@@ -257,6 +345,18 @@ def optimize_and_reassemble(
             which is a deterministic, non-increasing improvement on the
             inter-chunk objective. Disable to reproduce pre-sweep output
             exactly (test/escape-hatch seam).
+        intra_sweep: Run the intra-chunk glyph direction sweep after the
+            inter-chunk routing (default ``True``). Requires
+            ``glyph_groups_by_block``; blocks without glyph groups keep
+            their chronological traversal. The sweep pins each swept block's
+            entrance/exit, so the inter-chunk tour stays exactly valid and
+            the emitted rapid travel is non-increasing. Disable to reproduce
+            pre-sweep output exactly (test/escape-hatch seam).
+        glyph_groups_by_block: Per-glyph path groups keyed by ``block_id``
+            (indices into each block's ``paths``), produced by the generate
+            pipeline's renderers. ``None`` (the default: parsed PLTs have no
+            glyph knowledge) disables the intra sweep entirely, keeping the
+            parsed path byte-identical.
 
     Returns:
         An :class:`OptimizationOutcome` with the reassembled document and
@@ -345,7 +445,42 @@ def optimize_and_reassemble(
                 f"({sweep.passes} passes, {sweep.flips} flips)"
             )
 
-    optimized_doc = reassembler.reassemble(document, blocks, result_for_reassembly)
+    # Intra-chunk glyph direction sweep: runs after the inter-chunk routing
+    # is final (block order + directions), pins every swept block's
+    # entrance/exit, and only re-traces glyphs inside chunks -- so the
+    # inter-chunk objective above is untouched and the emitted travel moves
+    # by exactly the intra-chunk gain.
+    intra_report: Optional[_IntraSweepReport] = None
+    intra_results: Optional[List[Optional[IntraChunkResult]]] = None
+    if intra_sweep and glyph_groups_by_block:
+        results, intra_before, intra_after, intra_groups, intra_flips = _run_intra_sweep(
+            blocks, glyph_groups_by_block
+        )
+        if intra_flips > 0:
+            emitted_before_intra = reassembler.reassemble(
+                document, blocks, result_for_reassembly
+            ).rapid_distance()
+            # intra_before > intra_after >= 0 whenever a chunk improved, so
+            # the ratio below can never divide by zero.
+            intra_gain = (intra_before - intra_after) / intra_before * 100.0
+            intra_report = _IntraSweepReport(
+                travel_before=intra_before,
+                travel_after=intra_after,
+                emitted_before=emitted_before_intra,
+                groups=intra_groups,
+                flips=intra_flips,
+                gain_percent=intra_gain,
+            )
+            intra_results = results
+            method_notes = (
+                f"{method_notes}; intra_sweep="
+                f"{intra_before:.3f}->{intra_after:.3f} "
+                f"({intra_flips} flips)"
+            )
+
+    optimized_doc = reassembler.reassemble(
+        document, blocks, result_for_reassembly, intra_chunk_results=intra_results
+    )
 
     emitted_after: Optional[float] = None
     if sweep_report is not None:
@@ -358,6 +493,19 @@ def optimize_and_reassemble(
                 f"{sweep_report.passes} pass(es), {sweep_report.flips} reversal(s)); "
                 f"emitted rapid travel {sweep_report.emitted_before:.3f} -> "
                 f"{emitted_after:.3f}"
+            )
+
+    intra_emitted_after: Optional[float] = None
+    if intra_report is not None:
+        intra_emitted_after = optimized_doc.rapid_distance()
+        if logger is not None:
+            logger.info(
+                f"{prefix}Intra-chunk glyph sweep: intra "
+                f"{intra_report.travel_before:.3f} -> {intra_report.travel_after:.3f} "
+                f"({intra_report.gain_percent:.2f}% improvement, "
+                f"{intra_report.groups} glyph group(s), {intra_report.flips} reversal(s)); "
+                f"emitted rapid travel {intra_report.emitted_before:.3f} -> "
+                f"{intra_emitted_after:.3f}"
             )
 
     if logger is not None:
@@ -381,4 +529,14 @@ def optimize_and_reassemble(
         direction_sweep_emitted_after=emitted_after,
         direction_sweep_passes=sweep_report.passes if sweep_report is not None else 0,
         direction_sweep_flips=sweep_report.flips if sweep_report is not None else 0,
+        intra_sweep_travel_before=(
+            intra_report.travel_before if intra_report is not None else None
+        ),
+        intra_sweep_travel_after=(intra_report.travel_after if intra_report is not None else None),
+        intra_sweep_emitted_before=(
+            intra_report.emitted_before if intra_report is not None else None
+        ),
+        intra_sweep_emitted_after=intra_emitted_after,
+        intra_sweep_groups=intra_report.groups if intra_report is not None else 0,
+        intra_sweep_flips=intra_report.flips if intra_report is not None else 0,
     )

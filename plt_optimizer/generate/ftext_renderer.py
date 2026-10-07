@@ -522,3 +522,123 @@ def render_text_line_ftext_with_words(
         groups.append((word, indices))
 
     return whole, groups
+
+
+def glyph_groups_for_line(
+    text: str,
+    font_path: Optional[Path],
+    contour_count: int,
+) -> List[Tuple[str, List[int]]]:
+    """Partition a line's contours per character by per-glyph contour counts.
+
+    matplotlib's :class:`TextPath` emits contours glyph-major (left-to-right,
+    each glyph's contours contiguous), so slicing the whole-line contour
+    sequence by each character's standalone contour count (a per-font
+    constant, see :func:`_glyph_contour_count`) partitions it per character
+    exactly. Spaces contribute no contours and no group.
+
+    Args:
+        text: The rendered line's text.
+        font_path: The TTF font used (``None`` = bundled default).
+        contour_count: Number of contours in the whole-line render.
+
+    Returns:
+        One ``(char, contour_indices)`` pair per non-space character in text
+        order, indices into the whole-line contour sequence. Empty list when
+        the per-character counts do not sum to ``contour_count`` (unexpected
+        font/pathology case) -- callers then treat the line as
+        glyph-group-less.
+    """
+    resolved_font = font_path if font_path is not None else DEFAULT_FONT_PATH
+    chars = [ch for ch in text if ch != " "]
+    counts = [_glyph_contour_count(resolved_font, ch) for ch in chars]
+    if sum(counts) != contour_count:
+        logger.warning(
+            "ftext glyph grouping: per-glyph contour counts (%d) do not sum to "
+            "the whole-line contour count (%d); rendering without glyph groups",
+            sum(counts),
+            contour_count,
+        )
+        return []
+
+    glyph_groups: List[Tuple[str, List[int]]] = []
+    pos = 0
+    for ch, count in zip(chars, counts):
+        glyph_groups.append((ch, list(range(pos, pos + count))))
+        pos += count
+    return glyph_groups
+
+
+@lru_cache(maxsize=4096)
+def _glyph_contour_count(font_path: Path, character: str) -> int:
+    """Return how many contours the font renders for one character.
+
+    A single-line TTF encodes each glyph as a fixed number of contours (one
+    per engraved stroke, plus counters), and matplotlib's :class:`TextPath`
+    emits them contiguously in glyph order, so per-character counts slice a
+    whole-line render into per-glyph groups. The count is a per-font
+    constant, cached per ``(font, character)``.
+
+    Args:
+        font_path: Resolved ``.ttf`` file path.
+        character: The single character to probe.
+
+    Returns:
+        Raw contour count for the glyph (``0`` for blank glyphs such as the
+        space).
+    """
+    font_props = FontProperties(fname=str(font_path))
+    text_path = TextPath((0, 0), character, prop=font_props, size=_FTEXT_RESOLUTION)
+    return len(_split_contours(text_path))
+
+
+def render_text_line_ftext_with_glyphs(
+    text: str,
+    target_height_inches: float,
+    font_path: Optional[Path] = None,
+    *,
+    check_glyph_coverage: bool = True,
+) -> Tuple[
+    vp.LineCollection,
+    List[Tuple[str, List[int]]],
+    List[Tuple[str, List[int]]],
+]:
+    """Render a line of text and partition its contours by word and by glyph.
+
+    The whole line renders exactly as :func:`render_text_line_ftext` and the
+    word groups come from :func:`render_text_line_ftext_with_words`. Glyph
+    groups exploit the fact that matplotlib emits contours glyph-major
+    (left-to-right, each glyph's contours contiguous): each character's
+    standalone contour count (see :func:`_glyph_contour_count`) is a
+    per-font constant, so slicing the whole-line contours by those counts
+    partitions them per character exactly -- the slice membership is verified
+    by the sum check below.
+
+    Args:
+        text: The string to render.
+        target_height_inches: Desired glyph height in inches.
+        font_path: Optional path to the TTF font. Defaults to the bundled
+            Relief Single Line CAD font.
+        check_glyph_coverage: When True (the default), a character the font
+            lacks raises :class:`FtextRenderError`.
+
+    Returns:
+        ``(whole_lc, word_groups, glyph_groups)`` where ``whole_lc`` and
+        ``word_groups`` are identical to
+        :func:`render_text_line_ftext_with_words` output, and
+        ``glyph_groups`` lists one ``(char, contour_indices)`` pair per
+        non-space character in text order (indices into ``whole_lc``).
+        ``glyph_groups`` is ``[]`` when the per-character counts do not sum
+        to the whole-line contour count (unexpected font/pathology case);
+        the caller should then treat the line as glyph-group-less.
+    """
+    whole, word_groups = render_text_line_ftext_with_words(
+        text,
+        target_height_inches,
+        font_path,
+        check_glyph_coverage=check_glyph_coverage,
+    )
+    if whole.is_empty():
+        return whole, word_groups, []
+
+    return whole, word_groups, glyph_groups_for_line(text, font_path, len(whole))

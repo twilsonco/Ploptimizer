@@ -34,6 +34,7 @@ from plt_optimizer.generate.plt_font_renderer import (
     interpolate_envelope,
     kerning_offset,
     render_text_line_plt_font,
+    render_text_line_plt_font_with_glyphs,
     render_text_line_plt_font_with_words,
 )
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
@@ -769,6 +770,59 @@ class TestWordGroups:
         assert groups == [("", []), ("", []), ("", [])]
 
 
+class TestGlyphGroups:
+    """with_glyphs partitions strokes per character, exact by construction."""
+
+    def test_glyph_groups_partition_strokes(self, synth_lib: Path) -> None:
+        """Every stroke belongs to exactly one glyph group, in text order."""
+        block, _words, glyphs = render_text_line_plt_font_with_glyphs(
+            "ABA", 0.5, "Test", json_path=synth_lib
+        )
+        assert [char for char, _indices in glyphs] == ["A", "B", "A"]
+        all_indices = [i for _char, indices in glyphs for i in indices]
+        assert sorted(all_indices) == list(range(len(block.strokes)))
+        for _char, indices in glyphs:
+            assert indices == sorted(indices)
+
+    def test_multi_stroke_glyph_owns_a_contiguous_slice(self, synth_lib: Path) -> None:
+        """A two-stroke glyph (``T``) gets one group of two stroke indices."""
+        _block, _words, glyphs = render_text_line_plt_font_with_glyphs(
+            "TA", 0.5, "Test", json_path=synth_lib
+        )
+        assert glyphs[0][0] == "T"
+        assert len(glyphs[0][1]) == 2
+        assert glyphs[0][1] == [0, 1]
+        assert glyphs[1] == ("A", [2])
+
+    def test_space_contributes_no_group(self, synth_lib: Path) -> None:
+        """Spaces advance the cursor but own no strokes and no group."""
+        block, _words, glyphs = render_text_line_plt_font_with_glyphs(
+            "A B", 0.5, "Test", json_path=synth_lib
+        )
+        assert [char for char, _indices in glyphs] == ["A", "B"]
+        all_indices = [i for _char, indices in glyphs for i in indices]
+        assert sorted(all_indices) == list(range(len(block.strokes)))
+
+    def test_empty_text(self, synth_lib: Path) -> None:
+        """Empty input yields an empty block and no glyph groups."""
+        block, _words, glyphs = render_text_line_plt_font_with_glyphs(
+            "", 0.5, "Test", json_path=synth_lib
+        )
+        assert block.is_empty()
+        assert glyphs == []
+
+    def test_with_words_wrapper_matches_the_glyph_renderer(self, synth_lib: Path) -> None:
+        """The word wrapper returns the identical block and word groups."""
+        block_w, words_w = render_text_line_plt_font_with_words(
+            "A B A", 0.5, "Test", json_path=synth_lib
+        )
+        block_g, words_g, _glyphs = render_text_line_plt_font_with_glyphs(
+            "A B A", 0.5, "Test", json_path=synth_lib
+        )
+        assert block_g.to_hpgl() == block_w.to_hpgl()
+        assert words_g == words_w
+
+
 class TestCompressionInteraction:
     """Horizontal compression flattens arcs with a bounded chord error."""
 
@@ -925,7 +979,9 @@ class TestLabelRendererDispatch:
             return _triangle_block()
 
         monkeypatch.setattr(label_renderer, "render_text_line_plt_font", fake_render)
-        block, groups = _render_line_block(_resolved_line("AB", "dino"), TextChunkMode.LINE)
+        block, groups, _glyphs = _render_line_block(
+            _resolved_line("AB", "dino"), TextChunkMode.LINE
+        )
         assert calls["text"] == "AB"
         assert calls["font_name"] == "Dino"  # canonical, not the raw input
         assert calls["target_height_inches"] == pytest.approx(0.27)
@@ -950,7 +1006,9 @@ class TestLabelRendererDispatch:
             return _triangle_block(), [("AB", [0])]
 
         monkeypatch.setattr(label_renderer, "render_text_line_plt_font_with_words", fake_with_words)
-        _block, groups = _render_line_block(_resolved_line("AB", "Dino"), TextChunkMode.WORD)
+        _block, groups, _glyphs = _render_line_block(
+            _resolved_line("AB", "Dino"), TextChunkMode.WORD
+        )
         assert groups == [("AB", [0])]
 
     def test_unknown_font_becomes_render_error(self) -> None:

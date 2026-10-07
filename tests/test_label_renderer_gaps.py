@@ -201,9 +201,7 @@ class TestRenderLabelOnceTerminator:
 
         monkeypatch.setattr(label_renderer, "_export_to_plt_with_postprocessing", fake_export)
 
-    def test_sp_footer_is_kept_without_percent(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_sp_footer_is_kept_without_percent(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A bare ``SP;`` footer is kept verbatim; no ``%`` is appended."""
         self._patch_export(monkeypatch, "IN;PA;SP1;PU0,0;PD1000,1000;SP;")
         rendered = render_label_to_plt(_label(content=[]))
@@ -212,9 +210,7 @@ class TestRenderLabelOnceTerminator:
         assert "%" not in rendered.plt_content
         assert rendered.width == pytest.approx(1.0, abs=1e-9)
 
-    def test_surrounding_whitespace_is_stripped(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_surrounding_whitespace_is_stripped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Leading/trailing whitespace is stripped, content otherwise kept."""
         self._patch_export(monkeypatch, "\n  IN;PA;SP1;PU0,0;PD1000,1000;SP;  \n")
         rendered = render_label_to_plt(_label(content=[]))
@@ -397,9 +393,75 @@ class TestRenderLineBlockWordFallback:
             character_spacing=0.0,
             line_spacing=0.0,
         )
-        block, groups = _render_line_block(line, label_renderer.TextChunkMode.WORD)
+        block, groups, glyph_groups = _render_line_block(line, label_renderer.TextChunkMode.WORD)
         assert groups is None
+        # The 1:1 contour/stroke guard voids the glyph partition too.
+        assert glyph_groups == ()
         assert len(block.strokes) == 1
+
+    def test_line_mode_dropped_contour_disables_glyph_groups(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """LINE mode: a contour lost in adaptation voids the glyph partition."""
+        lc = vp.LineCollection()
+        lc.append(np.array([0 + 0j, 1 + 1j]))
+        # append() filters degenerate arrays, so inject the lone vertex raw.
+        lc._lines.append(np.array([2 + 2j]))
+
+        def fake_ftext(*args: object, **kwargs: object) -> vp.LineCollection:
+            return lc
+
+        monkeypatch.setattr(label_renderer, "render_text_line_ftext", fake_ftext)
+        line = ResolvedTextLine(
+            text="AB",
+            nominal_text_height=0.3,
+            toolpath_text_height=0.27,
+            cutter_diameter=0.03,
+            character_spacing=0.0,
+            line_spacing=0.0,
+        )
+        block, groups, glyph_groups = _render_line_block(line, label_renderer.TextChunkMode.LINE)
+        assert groups is None
+        assert glyph_groups == ()
+        assert len(block.strokes) == 1
+
+
+class TestValidatedGlyphGroups:
+    """The partition guard: usable only on an exact 1:1 stroke cover."""
+
+    def test_missing_pairs_yield_empty(self) -> None:
+        """``None``/empty pairs mean no partition."""
+        assert label_renderer._validated_glyph_groups(None, 3) == ()
+        assert label_renderer._validated_glyph_groups([], 3) == ()
+
+    def test_exact_cover_is_accepted(self) -> None:
+        """A disjoint full cover converts to index tuples in text order."""
+        pairs = [("A", [0, 1]), ("B", [2])]
+        assert label_renderer._validated_glyph_groups(pairs, 3) == ((0, 1), (2,))
+
+    def test_duplicate_index_voids_the_partition(self) -> None:
+        """A stroke claimed twice is not an exact cover."""
+        pairs = [("A", [0]), ("B", [0, 1])]
+        assert label_renderer._validated_glyph_groups(pairs, 2) == ()
+
+    def test_missing_index_voids_the_partition(self) -> None:
+        """A stroke no group claims is not an exact cover."""
+        pairs = [("A", [0])]
+        assert label_renderer._validated_glyph_groups(pairs, 2) == ()
+
+
+class TestWordLocalGlyphGroups:
+    """Line-level glyph groups re-expressed in one word's stroke frame."""
+
+    def test_indices_remap_into_the_word_frame(self) -> None:
+        """A glyph's line indices map onto the word's local positions."""
+        glyph_groups = ((0, 1), (2, 3), (4,))
+        word_indices = [2, 3]
+        assert label_renderer._word_local_glyph_groups(glyph_groups, word_indices) == ((0, 1),)
+
+    def test_empty_partition_stays_empty(self) -> None:
+        """No line-level groups -> no word-level groups."""
+        assert label_renderer._word_local_glyph_groups((), [0, 1]) == ()
 
 
 class TestCenterTextLayerDefensive:
@@ -408,7 +470,9 @@ class TestCenterTextLayerDefensive:
     @staticmethod
     def _label_for_centering() -> ResolvedLabel:
         """Label whose expected text center is y=500 plotter units."""
-        return ResolvedLabel(id="centering", count=1, width=2.0, height=1.0, margin=0.1, h_margin=0.1, v_margin=0.1)
+        return ResolvedLabel(
+            id="centering", count=1, width=2.0, height=1.0, margin=0.1, h_margin=0.1, v_margin=0.1
+        )
 
     def test_malformed_coordinate_tokens_are_survivable(self, tmp_path: Path) -> None:
         """Unparsable Y tokens are skipped in detection and left intact.
@@ -484,9 +548,7 @@ class TestRenderPositionedLinesSkipGuards:
 
         assert entries == []
 
-    def test_empty_rendered_line_is_not_recorded(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_empty_rendered_line_is_not_recorded(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A line that renders to a fully empty block gets no entry."""
 
         def factory() -> vp.LineCollection:

@@ -4,7 +4,6 @@ import logging
 import math
 import re
 
-import numpy as np
 import pytest
 import vpype as vp
 
@@ -1459,3 +1458,26 @@ class TestTextChunkRecords:
         rendered = render_label_to_plt(label)
         assert len(rendered.text_chunks) == 1
         assert rendered.text_chunks[0].word_index is None
+
+    def test_line_mode_records_carry_glyph_groups(self) -> None:
+        """LINE-mode records partition their strokes per character exactly."""
+        label = self._label([_make_line("HELLO WORLD", height=0.4)])
+        rendered = render_label_to_plt(label)
+        (record,) = rendered.text_chunks
+        stroke_count = sum(len(block.strokes) for block in record.blocks)
+        flat = [i for group in record.glyph_groups for i in group]
+        # Every stroke belongs to exactly one glyph group.
+        assert sorted(flat) == list(range(stroke_count))
+        # One group per non-space character, in text order.
+        assert len(record.glyph_groups) == len("HELLOWORLD")
+
+    def test_word_mode_records_carry_word_local_glyph_groups(self) -> None:
+        """WORD-mode glyph groups index the word's own stroke frame."""
+        label = self._label([_make_line("AB CD", height=0.4)], text_chunk_mode="word")
+        rendered = render_label_to_plt(label)
+        assert [r.word_text for r in rendered.text_chunks] == ["AB", "CD"]
+        for record in rendered.text_chunks:
+            stroke_count = sum(len(block.strokes) for block in record.blocks)
+            flat = [i for group in record.glyph_groups for i in group]
+            assert sorted(flat) == list(range(stroke_count))
+            assert len(record.glyph_groups) == 2  # two glyphs per word

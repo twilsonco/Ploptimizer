@@ -414,13 +414,56 @@ def _record_paths(
     Returns:
         Non-empty paths of the record, in block/stroke order.
     """
-    paths = [
-        _stroke_to_path(transform, stroke, rotated, dx_units, dy_units)
-        for block in record.blocks
-        for stroke in block.strokes
-        if not stroke.is_empty
-    ]
-    return tuple(path for path in paths if path.segments)
+    paths, _glyph_groups = _record_paths_with_glyphs(transform, record, rotated, dx_units, dy_units)
+    return paths
+
+
+def _record_paths_with_glyphs(
+    transform: _LabelTransform,
+    record: TextChunkRecord,
+    rotated: bool,
+    dx_units: int,
+    dy_units: int,
+) -> Tuple[Tuple[StrokePath, ...], Tuple[Tuple[int, ...], ...]]:
+    """Convert a chunk record into device paths, remapping its glyph groups.
+
+    Same conversion as :func:`_record_paths`, additionally translating the
+    record's per-glyph stroke groups (indices into the record's flattened
+    stroke sequence) into path indices. Strokes dropped by the conversion
+    (empty strokes / segment-less paths) drop out of their glyph group, and
+    glyph groups left empty by dropping are removed.
+
+    Args:
+        transform: The label's :class:`_LabelTransform`.
+        record: The chunk record (line- or word-level).
+        rotated: Whether the packer placed this label sideways.
+        dx_units: Slot translation X in plotter units.
+        dy_units: Slot translation Y in plotter units.
+
+    Returns:
+        ``(paths, glyph_groups)`` where ``paths`` are the record's non-empty
+        paths in block/stroke order and ``glyph_groups`` lists, per glyph,
+        the indices (into ``paths``) of that glyph's paths. Empty tuple when
+        the record carries no glyph partition.
+    """
+    paths: List[StrokePath] = []
+    stroke_to_path: Dict[int, int] = {}
+    stroke_index = 0
+    for block in record.blocks:
+        for stroke in block.strokes:
+            if not stroke.is_empty:
+                path = _stroke_to_path(transform, stroke, rotated, dx_units, dy_units)
+                if path.segments:
+                    stroke_to_path[stroke_index] = len(paths)
+                    paths.append(path)
+            stroke_index += 1
+
+    glyph_groups: List[Tuple[int, ...]] = []
+    for group in record.glyph_groups:
+        mapped = tuple(stroke_to_path[i] for i in group if i in stroke_to_path)
+        if mapped:
+            glyph_groups.append(mapped)
+    return tuple(paths), tuple(glyph_groups)
 
 
 def _rapid_distance(paths: Sequence[StrokePath]) -> float:
@@ -456,7 +499,34 @@ def build_text_blocks(
         MacroBlocks (one per chunk) with device-unit entrance/exit.
         Empty when the layer has no chunks.
     """
+    blocks, _glyph_groups = build_text_blocks_with_glyphs(packed_labels, rendered_labels_map, pen)
+    return blocks
+
+
+def build_text_blocks_with_glyphs(
+    packed_labels: Sequence[PackedLabel],
+    rendered_labels_map: Dict[str, RenderedLabel],
+    pen: int,
+) -> Tuple[List[MacroBlock], Dict[int, Tuple[Tuple[int, ...], ...]]]:
+    """Build the text routing nodes plus their per-block glyph partitions.
+
+    Same blocks as :func:`build_text_blocks`, additionally returning the
+    per-glyph path groups needed by the intra-chunk glyph direction sweep,
+    keyed by ``block_id``. Blocks whose chunk carries no glyph partition are
+    absent from the map.
+
+    Args:
+        packed_labels: Labels placed on the plate.
+        rendered_labels_map: Cache of rendered labels by label ID.
+        pen: The cutter pen whose chunks form this layer.
+
+    Returns:
+        ``(blocks, glyph_groups_by_block)``: the routing nodes (one per
+        chunk, device-unit entrance/exit) and, for each block with a glyph
+        partition, the per-glyph tuples of indices into that block's paths.
+    """
     blocks: List[MacroBlock] = []
+    glyph_groups_by_block: Dict[int, Tuple[Tuple[int, ...], ...]] = {}
     for packed_label in packed_labels:
         rendered = rendered_labels_map.get(packed_label.source_label.id)
         if rendered is None or not rendered.text_chunks:
@@ -467,20 +537,25 @@ def build_text_blocks(
         for record in rendered.text_chunks:
             if record.pen != pen:
                 continue
-            paths = _record_paths(transform, record, packed_label.rotated, dx_units, dy_units)
+            paths, glyph_groups = _record_paths_with_glyphs(
+                transform, record, packed_label.rotated, dx_units, dy_units
+            )
             if not paths:
                 continue
             first = paths[0].segments[0]
             last = paths[-1].segments[-1]
+            block_id = len(blocks)
             blocks.append(
                 MacroBlock(
-                    block_id=len(blocks),
+                    block_id=block_id,
                     paths=paths,
                     entrance=first.start,
                     exit=last.end,
                 )
             )
-    return blocks
+            if glyph_groups:
+                glyph_groups_by_block[block_id] = glyph_groups
+    return blocks, glyph_groups_by_block
 
 
 def _format_point(x: int, y: int) -> str:
@@ -569,6 +644,7 @@ def optimize_text_layer(
     strategy_factory: StrategyFactory,
     logger: Optional[TextLogger] = None,
     log_prefix: str = "",
+    intra_sweep: bool = True,
 ) -> Optional[PlateOptimization]:
     """Optimize one plate's text layer in plate (device) space.
 
@@ -580,12 +656,18 @@ def optimize_text_layer(
             :data:`StrategyFactory`).
         logger: Optional logger forwarded to the pipeline helper.
         log_prefix: Prefix for log messages.
+        intra_sweep: When True (the default), the pipeline additionally
+            sweeps each chunk's per-glyph stroke directions after the
+            inter-chunk routing (see
+            :func:`plt_optimizer.core.glyph_sweep.sweep_glyph_directions`).
 
     Returns:
         The :class:`PlateOptimization`, or ``None`` when the layer has no
         chunks to route.
     """
-    blocks = build_text_blocks(packed_labels, rendered_labels_map, pen)
+    blocks, glyph_groups_by_block = build_text_blocks_with_glyphs(
+        packed_labels, rendered_labels_map, pen
+    )
     if not blocks:
         return None
 
@@ -598,6 +680,8 @@ def optimize_text_layer(
         strategy_factory(baseline_distance),
         logger=logger,
         log_prefix=log_prefix,
+        intra_sweep=intra_sweep,
+        glyph_groups_by_block=glyph_groups_by_block,
     )
     content = emit_layer_document(outcome.optimized_doc.stroke_paths)
     return PlateOptimization(

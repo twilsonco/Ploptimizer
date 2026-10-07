@@ -16,8 +16,8 @@ from plt_optimizer.generate.ftext_renderer import (
     CHORD_THRESHOLD_INCHES,
     DEFAULT_FONT_PATH,
     FtextRenderError,
-    _remove_closing_chords,
     _reference_cap_height,
+    _remove_closing_chords,
     _split_contours,
     render_text_line_ftext,
 )
@@ -378,6 +378,58 @@ class TestRenderTextLineFtextDegeneratePaths:
         lc = render_text_line_ftext("X", 1.0, DEFAULT_FONT_PATH)
         assert isinstance(lc, vp.LineCollection)
         assert lc.is_empty()
+
+
+class TestGlyphGroupsForLine:
+    """Per-glyph contour partitioning (glyph-major slicing by per-char counts)."""
+
+    def test_counts_partition_the_whole_line_exactly(self) -> None:
+        """Per-character counts sum to the render's contour count exactly."""
+        whole, _words = ftext_renderer.render_text_line_ftext_with_words(
+            "REFRIGERATION", 0.5, DEFAULT_FONT_PATH
+        )
+        glyphs = ftext_renderer.glyph_groups_for_line(
+            "REFRIGERATION", DEFAULT_FONT_PATH, len(whole)
+        )
+        assert [char for char, _indices in glyphs] == list("REFRIGERATION")
+        all_indices = [i for _char, indices in glyphs for i in indices]
+        assert sorted(all_indices) == list(range(len(whole)))
+        assert len(all_indices) == len(set(all_indices))
+
+    def test_space_contributes_no_group(self) -> None:
+        """Spaces own no contours and no group."""
+        counts = sum(ftext_renderer._glyph_contour_count(DEFAULT_FONT_PATH, ch) for ch in "AB")
+        glyphs = ftext_renderer.glyph_groups_for_line("A B", DEFAULT_FONT_PATH, counts)
+        assert [char for char, _indices in glyphs] == ["A", "B"]
+
+    def test_count_mismatch_returns_empty_with_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A count/render mismatch disables grouping and logs a WARNING."""
+        with caplog.at_level(logging.WARNING):
+            glyphs = ftext_renderer.glyph_groups_for_line("AB", DEFAULT_FONT_PATH, 99999)
+        assert glyphs == []
+        assert "glyph grouping" in caplog.text
+
+    def test_with_glyphs_matches_with_words_geometry(self) -> None:
+        """The glyph-aware renderer returns the identical whole-line render."""
+        whole_w, words_w = ftext_renderer.render_text_line_ftext_with_words(
+            "AB CD", 0.5, DEFAULT_FONT_PATH
+        )
+        whole_g, words_g, glyphs_g = ftext_renderer.render_text_line_ftext_with_glyphs(
+            "AB CD", 0.5, DEFAULT_FONT_PATH
+        )
+        assert [np.asarray(c).tolist() for c in whole_g] == [
+            np.asarray(c).tolist() for c in whole_w
+        ]
+        assert words_g == words_w
+        assert [char for char, _ in glyphs_g] == list("ABCD")
+
+    def test_empty_text(self) -> None:
+        """Empty input yields an empty collection and no glyph groups."""
+        whole, _words, glyphs = ftext_renderer.render_text_line_ftext_with_glyphs("", 0.25)
+        assert whole.is_empty()
+        assert glyphs == []
 
 
 class TestRenderTextLineFtextWithWords:

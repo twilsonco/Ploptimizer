@@ -60,10 +60,10 @@ class TestReassembler:
         block2 = _make_block(1, [path2])
 
         traverse_order = [
-            BlockTraverseState(block_id=0, reversed=False,
-                             entrance=(0.0, 0.0), exit=(100.0, 0.0)),
-            BlockTraverseState(block_id=1, reversed=False,
-                             entrance=(200.0, 0.0), exit=(300.0, 0.0)),
+            BlockTraverseState(block_id=0, reversed=False, entrance=(0.0, 0.0), exit=(100.0, 0.0)),
+            BlockTraverseState(
+                block_id=1, reversed=False, entrance=(200.0, 0.0), exit=(300.0, 0.0)
+            ),
         ]
         optimization_result = OptimizationResult(
             traverse_order=tuple(traverse_order),
@@ -86,8 +86,9 @@ class TestReassembler:
         doc = PLTDocument(header_commands=[], stroke_paths=[], footer_commands=[])
 
         traverse_order = [
-            BlockTraverseState(block_id=0, reversed=False,
-                             entrance=(10.0, 20.0), exit=(30.0, 40.0)),
+            BlockTraverseState(
+                block_id=0, reversed=False, entrance=(10.0, 20.0), exit=(30.0, 40.0)
+            ),
         ]
         optimization_result = OptimizationResult(
             traverse_order=tuple(traverse_order),
@@ -113,10 +114,10 @@ class TestReassembler:
 
         # Block 1 reversed: should traverse from exit to entrance
         traverse_order = [
-            BlockTraverseState(block_id=0, reversed=True,
-                             entrance=(100.0, 0.0), exit=(0.0, 0.0)),
-            BlockTraverseState(block_id=1, reversed=False,
-                             entrance=(150.0, 0.0), exit=(250.0, 0.0)),
+            BlockTraverseState(block_id=0, reversed=True, entrance=(100.0, 0.0), exit=(0.0, 0.0)),
+            BlockTraverseState(
+                block_id=1, reversed=False, entrance=(150.0, 0.0), exit=(250.0, 0.0)
+            ),
         ]
         optimization_result = OptimizationResult(
             traverse_order=tuple(traverse_order),
@@ -143,8 +144,7 @@ class TestReassembler:
 
         # Reference block_id=99 which doesn't exist
         traverse_order = [
-            BlockTraverseState(block_id=99, reversed=False,
-                             entrance=(0.0, 0.0), exit=(100.0, 0.0)),
+            BlockTraverseState(block_id=99, reversed=False, entrance=(0.0, 0.0), exit=(100.0, 0.0)),
         ]
         optimization_result = OptimizationResult(
             traverse_order=tuple(traverse_order),
@@ -228,8 +228,7 @@ class TestMetricsCalculator:
     def test_calculate_optimized_travel_distance(self) -> None:
         """Test calculating optimized travel distance from result."""
         traverse_order = [
-            BlockTraverseState(block_id=0, reversed=False,
-                             entrance=(0.0, 0.0), exit=(10.0, 0.0)),
+            BlockTraverseState(block_id=0, reversed=False, entrance=(0.0, 0.0), exit=(10.0, 0.0)),
         ]
         optimization_result = OptimizationResult(
             traverse_order=tuple(traverse_order),
@@ -268,8 +267,7 @@ class TestMetricsCalculator:
     def test_log_metrics_does_not_crash(self) -> None:
         """Test that log_metrics handles various inputs gracefully."""
         traverse_order = [
-            BlockTraverseState(block_id=0, reversed=False,
-                             entrance=(0.0, 0.0), exit=(10.0, 0.0)),
+            BlockTraverseState(block_id=0, reversed=False, entrance=(0.0, 0.0), exit=(10.0, 0.0)),
         ]
         optimization_result = OptimizationResult(
             traverse_order=tuple(traverse_order),
@@ -322,17 +320,20 @@ class TestApplyIntraChunkOrder:
         # Reverse first path
         intra_result = IntraChunkResult(
             traverse_order=(
-                PathTraverseState(path_index=0, reversed=True,
-                                 entrance=(30.0, 40.0), exit=(10.0, 20.0)),
-                PathTraverseState(path_index=1, reversed=False,
-                                 entrance=(100.0, 0.0), exit=(200.0, 0.0)),
+                PathTraverseState(
+                    path_index=0, reversed=True, entrance=(30.0, 40.0), exit=(10.0, 20.0)
+                ),
+                PathTraverseState(
+                    path_index=1, reversed=False, entrance=(100.0, 0.0), exit=(200.0, 0.0)
+                ),
             ),
             total_internal_distance=60.0,
         )
 
         traverse_order = [
-            BlockTraverseState(block_id=0, reversed=False,
-                             entrance=(10.0, 20.0), exit=(200.0, 0.0)),
+            BlockTraverseState(
+                block_id=0, reversed=False, entrance=(10.0, 20.0), exit=(200.0, 0.0)
+            ),
         ]
         optimization_result = OptimizationResult(
             traverse_order=tuple(traverse_order),
@@ -342,8 +343,9 @@ class TestApplyIntraChunkOrder:
         )
 
         reassembler = Reassembler()
-        result_doc = reassembler.reassemble(doc, [block], optimization_result,
-                                            intra_chunk_results=[intra_result])
+        result_doc = reassembler.reassemble(
+            doc, [block], optimization_result, intra_chunk_results=[intra_result]
+        )
 
         # First path should have new pen_up at the (now) first segment start
         first_path = result_doc.stroke_paths[0]
@@ -368,17 +370,18 @@ class TestApplyIntraChunkOrder:
         # Reverse second path via intra-chunk optimization
         intra_result = IntraChunkResult(
             traverse_order=(
-                PathTraverseState(path_index=0, reversed=False,
-                                 entrance=(0.0, 0.0), exit=(100.0, 0.0)),
-                PathTraverseState(path_index=1, reversed=True,
-                                 entrance=(250.0, 0.0), exit=(150.0, 0.0)),
+                PathTraverseState(
+                    path_index=0, reversed=False, entrance=(0.0, 0.0), exit=(100.0, 0.0)
+                ),
+                PathTraverseState(
+                    path_index=1, reversed=True, entrance=(250.0, 0.0), exit=(150.0, 0.0)
+                ),
             ),
             total_internal_distance=50.0,
         )
 
         traverse_order = [
-            BlockTraverseState(block_id=0, reversed=False,
-                             entrance=(0.0, 0.0), exit=(250.0, 0.0)),
+            BlockTraverseState(block_id=0, reversed=False, entrance=(0.0, 0.0), exit=(250.0, 0.0)),
         ]
         optimization_result = OptimizationResult(
             traverse_order=tuple(traverse_order),
@@ -388,8 +391,9 @@ class TestApplyIntraChunkOrder:
         )
 
         reassembler = Reassembler()
-        result_doc = reassembler.reassemble(doc, [block], optimization_result,
-                                            intra_chunk_results=[intra_result])
+        result_doc = reassembler.reassemble(
+            doc, [block], optimization_result, intra_chunk_results=[intra_result]
+        )
 
         assert len(result_doc.stroke_paths) == 2
         # Second path should be reversed: start at (250,0), end at (150,0)
@@ -419,17 +423,18 @@ class TestApplyIntraChunkOrder:
 
         intra_result = IntraChunkResult(
             traverse_order=(
-                PathTraverseState(path_index=0, reversed=False,
-                                 entrance=(0.0, 0.0), exit=(0.0, 0.0)),
-                PathTraverseState(path_index=1, reversed=False,
-                                 entrance=(0.0, 0.0), exit=(100.0, 0.0)),
+                PathTraverseState(
+                    path_index=0, reversed=False, entrance=(0.0, 0.0), exit=(0.0, 0.0)
+                ),
+                PathTraverseState(
+                    path_index=1, reversed=False, entrance=(0.0, 0.0), exit=(100.0, 0.0)
+                ),
             ),
             total_internal_distance=0.0,
         )
 
         traverse_order = [
-            BlockTraverseState(block_id=0, reversed=False,
-                             entrance=(0.0, 0.0), exit=(100.0, 0.0)),
+            BlockTraverseState(block_id=0, reversed=False, entrance=(0.0, 0.0), exit=(100.0, 0.0)),
         ]
         optimization_result = OptimizationResult(
             traverse_order=tuple(traverse_order),
@@ -439,8 +444,9 @@ class TestApplyIntraChunkOrder:
         )
 
         reassembler = Reassembler()
-        result_doc = reassembler.reassemble(doc, [block], optimization_result,
-                                            intra_chunk_results=[intra_result])
+        result_doc = reassembler.reassemble(
+            doc, [block], optimization_result, intra_chunk_results=[intra_result]
+        )
 
         # Only non-empty path should appear
         assert len(result_doc.stroke_paths) == 1
@@ -470,10 +476,12 @@ class TestReverseBlockPathsWithIntraResult:
         # to take the else branch (lines 201-202)
         intra_result = IntraChunkResult(
             traverse_order=(
-                PathTraverseState(path_index=1, reversed=False,
-                                 entrance=(150.0, 0.0), exit=(250.0, 0.0)),
-                PathTraverseState(path_index=0, reversed=False,
-                                 entrance=(0.0, 0.0), exit=(100.0, 0.0)),
+                PathTraverseState(
+                    path_index=1, reversed=False, entrance=(150.0, 0.0), exit=(250.0, 0.0)
+                ),
+                PathTraverseState(
+                    path_index=0, reversed=False, entrance=(0.0, 0.0), exit=(100.0, 0.0)
+                ),
             ),
             total_internal_distance=50.0,
         )
@@ -537,17 +545,18 @@ class TestReassembleWithIntraChunkResults:
         # Only provide one intra_chunk_result for two blocks
         intra_result1 = IntraChunkResult(
             traverse_order=(
-                PathTraverseState(path_index=0, reversed=False,
-                                 entrance=(0.0, 0.0), exit=(100.0, 0.0)),
+                PathTraverseState(
+                    path_index=0, reversed=False, entrance=(0.0, 0.0), exit=(100.0, 0.0)
+                ),
             ),
             total_internal_distance=0.0,
         )
 
         traverse_order = [
-            BlockTraverseState(block_id=0, reversed=False,
-                             entrance=(0.0, 0.0), exit=(100.0, 0.0)),
-            BlockTraverseState(block_id=1, reversed=False,
-                             entrance=(200.0, 0.0), exit=(300.0, 0.0)),
+            BlockTraverseState(block_id=0, reversed=False, entrance=(0.0, 0.0), exit=(100.0, 0.0)),
+            BlockTraverseState(
+                block_id=1, reversed=False, entrance=(200.0, 0.0), exit=(300.0, 0.0)
+            ),
         ]
         optimization_result = OptimizationResult(
             traverse_order=tuple(traverse_order),
@@ -558,12 +567,195 @@ class TestReassembleWithIntraChunkResults:
 
         reassembler = Reassembler()
         result_doc = reassembler.reassemble(
-            doc, [block1, block2], optimization_result,
-            intra_chunk_results=[intra_result1]  # Only one for two blocks
+            doc,
+            [block1, block2],
+            optimization_result,
+            intra_chunk_results=[intra_result1],  # Only one for two blocks
         )
 
         # Should still work - second block has no intra-chunk result
         assert len(result_doc.stroke_paths) == 2
+
+
+class TestReverseIntraOrderComposition:
+    """Tests for the block-reversal + intra-chunk direction composition.
+
+    Reversing a block that carries an intra-chunk result must compose two
+    operations: visit the paths in the opposite sequence *and* trace each one
+    in the opposite direction. Flipping every path relative to its intra-chunk
+    direction keeps the geometric entrance at ``block.exit`` (the contract the
+    inter-block router relies on) and every ``pen_up_position`` at its own
+    traversal start.
+    """
+
+    def test_block_reversal_flips_sequence_and_every_direction(self) -> None:
+        """A reversed block flips both the order and each path's direction."""
+        from plt_optimizer.core.intra_chunk_optimizer import (
+            IntraChunkResult,
+            PathTraverseState,
+        )
+
+        path0 = _make_simple_path((0, 0), (100, 0))
+        path1 = _make_simple_path((150, 0), (250, 0))
+        # Chronological all-forward tour (what a sweep with no flips yields):
+        # entrance (0,0) == block.entrance, exit (250,0) == block.exit.
+        intra_result = IntraChunkResult(
+            traverse_order=(
+                PathTraverseState(
+                    path_index=0, reversed=False, entrance=(0.0, 0.0), exit=(100.0, 0.0)
+                ),
+                PathTraverseState(
+                    path_index=1, reversed=False, entrance=(150.0, 0.0), exit=(250.0, 0.0)
+                ),
+            ),
+            total_internal_distance=50.0,
+        )
+
+        reassembler = Reassembler()
+        result = reassembler._reverse_block_paths((path0, path1), intra_result)
+
+        # Reversed sequence of [0 fwd, 1 fwd] is [1, 0], each flipped:
+        # path1 traced (250,0)->(150,0), then path0 traced (100,0)->(0,0).
+        assert len(result) == 2
+        assert (result[0].segments[0].start.x, result[0].segments[0].end.x) == (250.0, 150.0)
+        assert (result[1].segments[0].start.x, result[1].segments[0].end.x) == (100.0, 0.0)
+        # The tour enters at block.exit (250,0) and leaves at block.entrance
+        # (0,0), so the inter-block router's reversal contract holds.
+        assert result[0].segments[0].start.x == 250.0
+        assert result[-1].segments[-1].end.x == 0.0
+
+    def test_block_reversal_composes_with_a_flipped_glyph(self) -> None:
+        """A glyph the sweep already reversed is emitted forward when the
+        whole block is reversed (double flip == forward)."""
+        from plt_optimizer.core.intra_chunk_optimizer import (
+            IntraChunkResult,
+            PathTraverseState,
+        )
+
+        path0 = _make_simple_path((0, 0), (100, 0))
+        path1 = _make_simple_path((150, 0), (250, 0))
+        # Sweep reversed path1 (traced backwards: entrance 250, exit 150).
+        intra_result = IntraChunkResult(
+            traverse_order=(
+                PathTraverseState(
+                    path_index=0, reversed=False, entrance=(0.0, 0.0), exit=(100.0, 0.0)
+                ),
+                PathTraverseState(
+                    path_index=1, reversed=True, entrance=(250.0, 0.0), exit=(150.0, 0.0)
+                ),
+            ),
+            total_internal_distance=50.0,
+        )
+
+        reassembler = Reassembler()
+        result = reassembler._reverse_block_paths((path0, path1), intra_result)
+
+        # Reversed sequence: path1 (flip -> not reversed == forward) then
+        # path0 (flip -> reversed).
+        assert len(result) == 2
+        # path1 forward: traced from (150,0) to (250,0).
+        assert (result[0].segments[0].start.x, result[0].segments[0].end.x) == (150.0, 250.0)
+        # path0 reversed: traced from (100,0) to (0,0).
+        assert (result[1].segments[0].start.x, result[1].segments[0].end.x) == (100.0, 0.0)
+
+    def test_reversed_pen_up_anchors_at_traversal_start(self) -> None:
+        """Every emitted path's pen-up sits at its own first segment start."""
+        from plt_optimizer.core.intra_chunk_optimizer import (
+            IntraChunkResult,
+            PathTraverseState,
+        )
+
+        path0 = _make_simple_path((0, 0), (100, 0))
+        path1 = _make_simple_path((150, 0), (250, 0))
+        intra_result = IntraChunkResult(
+            traverse_order=(
+                PathTraverseState(
+                    path_index=0, reversed=False, entrance=(0.0, 0.0), exit=(100.0, 0.0)
+                ),
+                PathTraverseState(
+                    path_index=1, reversed=False, entrance=(150.0, 0.0), exit=(250.0, 0.0)
+                ),
+            ),
+            total_internal_distance=50.0,
+        )
+
+        reassembler = Reassembler()
+        result = reassembler._reverse_block_paths((path0, path1), intra_result)
+
+        for emitted in result:
+            assert emitted.pen_up_position is not None
+            assert emitted.pen_up_position == emitted.segments[0].start
+
+    def test_reversed_arc_glyph_negates_sweep(self) -> None:
+        """Reversing a block with an arc glyph negates the arc's sweep angle."""
+        from plt_optimizer.core.intra_chunk_optimizer import (
+            IntraChunkResult,
+            PathTraverseState,
+        )
+        from plt_optimizer.core.models import ArcSegment
+
+        arc = StrokePath(
+            pen_up_position=Coordinate(x=0.0, y=0.0),
+            segments=(
+                ArcSegment(
+                    start=Coordinate(x=0.0, y=0.0),
+                    end=Coordinate(x=100.0, y=0.0),
+                    center=Coordinate(x=50.0, y=0.0),
+                    sweep_angle=180.0,
+                    is_cutting=True,
+                ),
+            ),
+        )
+        intra_result = IntraChunkResult(
+            traverse_order=(
+                PathTraverseState(
+                    path_index=0, reversed=False, entrance=(0.0, 0.0), exit=(100.0, 0.0)
+                ),
+            ),
+            total_internal_distance=0.0,
+        )
+
+        reassembler = Reassembler()
+        result = reassembler._reverse_block_paths((arc,), intra_result)
+
+        seg = result[0].segments[0]
+        assert isinstance(seg, ArcSegment)
+        assert seg.sweep_angle == -180.0
+        # Radius preserved (a rotation, not a reflection).
+        assert seg.radius == 50.0
+
+
+class TestIntraMapNoneEntries:
+    """``reassemble`` skips ``None`` intra entries (chronological fallback)."""
+
+    def test_none_entry_keeps_block_chronological(self) -> None:
+        """A ``None`` intra slot leaves that block's paths in stored order."""
+        path0 = _make_simple_path((0, 0), (100, 0))
+        path1 = _make_simple_path((200, 0), (300, 0))
+        block0 = _make_block(0, [path0])
+        block1 = _make_block(1, [path1])
+        doc = PLTDocument(header_commands=[], stroke_paths=[], footer_commands=[])
+        result = OptimizationResult(
+            traverse_order=(
+                BlockTraverseState(
+                    block_id=0, reversed=False, entrance=(0.0, 0.0), exit=(100.0, 0.0)
+                ),
+                BlockTraverseState(
+                    block_id=1, reversed=False, entrance=(200.0, 0.0), exit=(300.0, 0.0)
+                ),
+            ),
+            connections=(),
+            total_travel_distance=100.0,
+            initial_position=None,
+        )
+
+        reassembler = Reassembler()
+        # First block has no intra result (None), second has none at all.
+        out = reassembler.reassemble(
+            doc, [block0, block1], result, intra_chunk_results=[None, None]
+        )
+
+        assert [p.segments[0].start.x for p in out.stroke_paths] == [0.0, 200.0]
 
 
 class TestReversePathsSimple:
@@ -645,8 +837,7 @@ class TestLogMetricsWithOptimizedDoc:
         doc = parser.parse_string("IN;PU0,0;PD100,0;SP;")
 
         traverse_order = [
-            BlockTraverseState(block_id=0, reversed=False,
-                             entrance=(0.0, 0.0), exit=(100.0, 0.0)),
+            BlockTraverseState(block_id=0, reversed=False, entrance=(0.0, 0.0), exit=(100.0, 0.0)),
         ]
         optimization_result = OptimizationResult(
             traverse_order=tuple(traverse_order),

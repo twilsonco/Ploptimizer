@@ -874,6 +874,14 @@ def export_per_cutter_plts(
                 f"{outcome.direction_sweep_passes} pass(es), "
                 f"{outcome.direction_sweep_flips} flip(s)"
             )
+        if outcome.intra_sweep_travel_before is not None:
+            parts.append(
+                "intra sweep "
+                f"{outcome.intra_sweep_travel_before:.3f} -> "
+                f"{outcome.intra_sweep_travel_after:.3f} in "
+                f"{outcome.intra_sweep_groups} group(s), "
+                f"{outcome.intra_sweep_flips} flip(s)"
+            )
         logger.info(
             f"Plate {layer}: optimized {optimization.node_count} node(s) via "
             f"{outcome.method_name} -- rapid travel "

@@ -534,6 +534,37 @@ already knows each toolpath's kind, the `Profiler` is skipped entirely.
   set only when `passes>0`); `vectorize._report` breaks the layer line into
   `routing` (emitted baseline→emitted optimized, both intra+inter),
   `inter-chunk` (strategy objective), and the `direction sweep` clause.
+- **Intra-chunk glyph sweep** (`core/glyph_sweep.py`, always on, generate path
+  only): the direction sweep reverses whole chunks, which leaves the rapid
+  travel *inside* a chunk exactly invariant — and on generated text that
+  intra-chunk share is the majority of the emitted travel. The renderers know
+  which strokes belong to which character, so `TextChunkRecord.glyph_groups`
+  carries the per-glyph stroke partition (PLT: contiguous by construction from
+  the `_walk_line` cursor walk; TTF: glyph-major contour slicing by cached
+  per-char contour counts, `glyph_groups_for_line`),
+  `plate_optimizer.build_text_blocks_with_glyphs` remaps it onto device paths,
+  and `optimize_and_reassemble` (kwargs `intra_sweep: bool = True` +
+  `glyph_groups_by_block`) runs `sweep_glyph_directions` per chunk **after**
+  the inter-chunk routing is final: with the chronological glyph order fixed
+  and the chunk entrance/exit pinned (the group owning the first traced path
+  enters forward, the one owning the last exits forward), the optimal
+  per-glyph forward/reversed assignment is a shortest path through a 2-state
+  chain, solved exactly by DP in O(glyphs); ties resolve to forward and the
+  all-forward traversal is always feasible, so the sweep is monotone and the
+  inter-chunk tour (strategy + direction sweep) stays exactly valid. All of a
+  glyph's strokes flip together (stroke order reverses, every segment is
+  traced backwards, arc sweeps negate — the Reassembler's
+  `reassemble(..., intra_chunk_results=)` applies it; `None` entries keep the
+  chronological order, and block-level reversal composes by flipping both the
+  sequence and every direction). Parsed PLTs (optimize/watch) carry no glyph
+  knowledge, so the parsed path stays byte-identical. Fires on generated text:
+  the seer intrachunk TTF spec drops emitted rapid travel 13% (16 glyph
+  flips); polyline cutting is bit-exact, arc-native fonts re-approximate
+  reversed arcs (the direction sweep's pre-existing trade-off, ~0.003" here).
+  On improvement it logs INFO (intra + emitted rapid travel), appends
+  `intra_sweep=before->after (N flips)` to `method_notes`, populates the
+  `OptimizationOutcome.intra_sweep_*` fields (all-or-nothing: set only when
+  `flips>0`), and `vectorize._report` adds the `intra sweep` clause.
 - The post-write `_run_optimizer` (parse each file → profile → optimize) is
   **removed**; optimization now happens pre-write in plate space.
 

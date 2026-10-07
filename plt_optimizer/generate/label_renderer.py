@@ -17,7 +17,7 @@ import tempfile
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path
-from typing import Iterable, List, Mapping, NamedTuple, Optional, Sequence, Tuple
+from typing import Any, Iterable, List, Mapping, NamedTuple, Optional, Sequence, Tuple
 
 import numpy as np
 import vpype as vp
@@ -25,6 +25,7 @@ import vpype as vp
 from plt_optimizer.generate.font_registry import FontNotFoundError, resolve_font
 from plt_optimizer.generate.ftext_renderer import (
     FtextRenderError,
+    glyph_groups_for_line,
     render_text_line_ftext,
     render_text_line_ftext_with_words,
 )
@@ -36,6 +37,7 @@ from plt_optimizer.generate.geometry import (
 from plt_optimizer.generate.plt_font_renderer import (
     PltFontRenderError,
     render_text_line_plt_font,
+    render_text_line_plt_font_with_glyphs,
     render_text_line_plt_font_with_words,
 )
 from plt_optimizer.generate.resolution import (
@@ -132,6 +134,14 @@ class TextChunkRecord:
             plate-space export pipeline).
         bounds: ``(x_min, y_min, x_max, y_max)`` of :attr:`blocks` (swept-
             analytic: arcs contribute their swept extent, never a full circle).
+        glyph_groups: Stroke indices into the flattened :attr:`blocks`
+            sequence, one tuple per rendered character in text order (spaces
+            contribute no strokes and no group). Populated when the renderer
+            can partition the line's strokes per character exactly; empty
+            when the partition is unavailable (degenerate fonts, dropped
+            contours). Consumed by the plate-space intra-chunk glyph sweep,
+            which reverses whole glyphs (stroke order + tracing direction)
+            to cut intra-chunk rapid travel.
     """
 
     line_index: int
@@ -140,6 +150,7 @@ class TextChunkRecord:
     pen: int
     blocks: Tuple[TextBlock, ...]
     bounds: Tuple[float, float, float, float]
+    glyph_groups: Tuple[Tuple[int, ...], ...] = ()
 
     @property
     def contours(self) -> Tuple[np.ndarray, ...]:
@@ -1567,12 +1578,71 @@ def _apply_collision_compress(line_block: TextBlock, scale: float, context: str 
     return line_block.compress_x(scale, context=context)
 
 
+def _validated_glyph_groups(
+    pairs: Optional[Sequence[Tuple[str, Sequence[int]]]],
+    stroke_count: int,
+) -> Tuple[Tuple[int, ...], ...]:
+    """Validate a per-glyph stroke partition against the rendered stroke count.
+
+    The partition is usable only when every stroke belongs to exactly one
+    glyph group (the union of the groups is exactly ``range(stroke_count)``).
+    Compression and translation preserve stroke counts 1:1, so a partition
+    valid on the raw render stays valid on the positioned block.
+
+    Args:
+        pairs: ``(char, stroke_indices)`` pairs in text order, or ``None``.
+        stroke_count: Number of strokes in the rendered block.
+
+    Returns:
+        One index tuple per glyph, in text order. Empty tuple when the
+        partition is missing or does not cover every stroke exactly once.
+    """
+    if not pairs:
+        return ()
+    flat = [index for _char, indices in pairs for index in indices]
+    if sorted(flat) != list(range(stroke_count)):
+        return ()
+    return tuple(tuple(indices) for _char, indices in pairs)
+
+
+def _word_local_glyph_groups(
+    glyph_groups: Tuple[Tuple[int, ...], ...],
+    word_indices: Sequence[int],
+) -> Tuple[Tuple[int, ...], ...]:
+    """Re-express line-level glyph groups in one word's stroke frame.
+
+    Glyph groups never cross a word boundary (the renderers build words
+    contiguously), so a glyph belongs to the word owning its indices; the
+    indices are remapped into the word's local stroke order.
+
+    Args:
+        glyph_groups: Line-level glyph groups (indices into the line's
+            strokes).
+        word_indices: The word's stroke indices, in stroke order.
+
+    Returns:
+        Glyph groups with indices into ``word_indices`` (the word block's
+        stroke order). Glyphs with no index in this word are skipped.
+    """
+    local_of = {index: pos for pos, index in enumerate(word_indices)}
+    groups: List[Tuple[int, ...]] = []
+    for indices in glyph_groups:
+        local = [local_of[i] for i in indices if i in local_of]
+        if local:
+            groups.append(tuple(local))
+    return tuple(groups)
+
+
 def _render_line_block(
     line: ResolvedTextLine,
     chunk_mode: TextChunkMode,
     *,
     check_glyph_coverage: bool = True,
-) -> Tuple[TextBlock, Optional[List[Tuple[str, List[int]]]]]:
+) -> Tuple[
+    TextBlock,
+    Optional[List[Tuple[str, List[int]]]],
+    Tuple[Tuple[int, ...], ...],
+]:
     """Render one resolved text line to an arc-native :class:`TextBlock`.
 
     Dispatches on the line's cascaded ``font``:
@@ -1594,9 +1664,14 @@ def _render_line_block(
             sets it False to render ``.notdef`` boxes as coverage info.
 
     Returns:
-        ``(block, word_groups)`` where ``word_groups`` is ``None`` in line
-        mode (or when word grouping is unavailable) and otherwise lists one
-        ``(word_text, stroke_indices)`` pair per whitespace-delimited segment.
+        ``(block, word_groups, glyph_groups)`` where ``word_groups`` is
+        ``None`` in line mode (or when word grouping is unavailable) and
+        otherwise lists one ``(word_text, stroke_indices)`` pair per
+        whitespace-delimited segment, and ``glyph_groups`` lists one stroke-
+        index tuple per rendered character in text order (empty tuple when
+        the per-character partition is unavailable). Glyph groups are
+        requested in both chunk modes: they drive the plate-space intra-chunk
+        glyph direction sweep, which is independent of chunk granularity.
 
     Raises:
         PltFontRenderError: If a PLT font lacks a glyph (propagated from the
@@ -1610,38 +1685,43 @@ def _render_line_block(
     except FontNotFoundError as exc:
         raise PltFontRenderError(str(exc)) from exc
 
+    # The rendered geometry always comes from the historical renderer call
+    # (bit-identical output), and the per-glyph partition is recovered from
+    # the same (text, font, metrics) inputs: the PLT walk is deterministic and
+    # its glyph groups are exact by construction, and the TTF partition slices
+    # the whole-line contours by cached per-glyph contour counts. Both are
+    # validated against the rendered stroke count, so a stubbed/mismatched
+    # renderer simply yields no glyph groups (no intra-chunk sweep).
+    plt_kwargs: dict[str, Any] = {
+        "target_height_inches": line.toolpath_text_height,
+        "font_name": ref.name,
+        "cutter_diameter": line.cutter_diameter,
+        "character_spacing": line.character_spacing,
+        "space_width_fraction": line.space_width_fraction,
+        "min_glyph_width": line.min_glyph_width,
+        "kerning_window_fraction": line.kerning_window_fraction,
+        "kerning_penetration_scale": line.kerning_penetration_scale,
+        "kerning_recession_scale": line.kerning_recession_scale,
+        "kerning_min_gap": line.kerning_min_gap,
+        "fallback_advance_fraction": line.fallback_advance_fraction,
+    }
+
     if ref.kind == "plt":
         if chunk_mode is TextChunkMode.WORD:
-            block, groups = render_text_line_plt_font_with_words(
-                line.text,
-                target_height_inches=line.toolpath_text_height,
-                font_name=ref.name,
-                cutter_diameter=line.cutter_diameter,
-                character_spacing=line.character_spacing,
-                space_width_fraction=line.space_width_fraction,
-                min_glyph_width=line.min_glyph_width,
-                kerning_window_fraction=line.kerning_window_fraction,
-                kerning_penetration_scale=line.kerning_penetration_scale,
-                kerning_recession_scale=line.kerning_recession_scale,
-                kerning_min_gap=line.kerning_min_gap,
-                fallback_advance_fraction=line.fallback_advance_fraction,
+            block, groups = render_text_line_plt_font_with_words(line.text, **plt_kwargs)
+            _walk, _word_pairs, glyph_pairs = render_text_line_plt_font_with_glyphs(
+                line.text, **plt_kwargs
             )
-            return block, (groups or None)
-        block = render_text_line_plt_font(
-            line.text,
-            target_height_inches=line.toolpath_text_height,
-            font_name=ref.name,
-            cutter_diameter=line.cutter_diameter,
-            character_spacing=line.character_spacing,
-            space_width_fraction=line.space_width_fraction,
-            min_glyph_width=line.min_glyph_width,
-            kerning_window_fraction=line.kerning_window_fraction,
-            kerning_penetration_scale=line.kerning_penetration_scale,
-            kerning_recession_scale=line.kerning_recession_scale,
-            kerning_min_gap=line.kerning_min_gap,
-            fallback_advance_fraction=line.fallback_advance_fraction,
+            return (
+                block,
+                (groups or None),
+                _validated_glyph_groups(glyph_pairs, len(block.strokes)),
+            )
+        block = render_text_line_plt_font(line.text, **plt_kwargs)
+        _walk, _word_pairs, glyph_pairs = render_text_line_plt_font_with_glyphs(
+            line.text, **plt_kwargs
         )
-        return block, None
+        return block, None, _validated_glyph_groups(glyph_pairs, len(block.strokes))
 
     # TrueType family: the historical ftext path, adapted to TextBlock.
     if chunk_mode is TextChunkMode.WORD:
@@ -1655,15 +1735,22 @@ def _render_line_block(
         # Contour indices map 1:1 onto strokes only when every contour
         # survived adaptation; otherwise fall back to whole-line chunking.
         if groups and len(block.strokes) == len(filtered_lc):
-            return block, groups
-        return block, None
+            pairs = glyph_groups_for_line(line.text, ref.path, len(filtered_lc))
+            return block, groups, _validated_glyph_groups(pairs, len(block.strokes))
+        return block, None, ()
     filtered_lc = render_text_line_ftext(
         line.text,
         target_height_inches=line.toolpath_text_height,
         font_path=ref.path,
         check_glyph_coverage=check_glyph_coverage,
     )
-    return block_from_linecollection(filtered_lc), None
+    block = block_from_linecollection(filtered_lc)
+    # Glyph groups slice the whole-line contours by per-glyph contour
+    # counts; valid only while every contour survived adaptation (1:1).
+    if len(block.strokes) == len(filtered_lc):
+        pairs = glyph_groups_for_line(line.text, ref.path, len(filtered_lc))
+        return block, None, _validated_glyph_groups(pairs, len(block.strokes))
+    return block, None, ()
 
 
 def _render_positioned_lines(
@@ -1671,7 +1758,15 @@ def _render_positioned_lines(
     chunk_mode: TextChunkMode = TextChunkMode.LINE,
     *,
     check_glyph_coverage: bool = True,
-) -> List[Tuple[int, TextBlock, _LineEntry, Optional[List[Tuple[str, List[int]]]]]]:
+) -> List[
+    Tuple[
+        int,
+        TextBlock,
+        _LineEntry,
+        Optional[List[Tuple[str, List[int]]]],
+        Tuple[Tuple[int, ...], ...],
+    ]
+]:
     """Render and position every text line of a label (shared core).
 
     NOTE: The absolute vertical anchor is irrelevant because the export
@@ -1712,16 +1807,19 @@ def _render_positioned_lines(
             a glyph fails the render (see :func:`_render_line_block`).
 
     Returns:
-        One ``(line_index, positioned_block, entry, word_groups)`` tuple per
-        renderable line, in content order, where ``positioned_block`` is the
-        positioned :class:`TextBlock`, ``entry`` is its :class:`_LineEntry`
-        record (line index, text, bounds, and the effective horizontal
-        compression scale) in label-local coordinates (pre-export anchor,
-        block centered around y=0; bounds are swept-analytic), and
-        ``word_groups`` is ``None`` in line mode or a list of ``(word_text,
-        stroke_indices)`` pairs indexing ``positioned_block`` strokes in word
-        order. The export pipeline vertically centers the block at
-        ``height / 2``; collision detection applies that shift itself.
+        One ``(line_index, positioned_block, entry, word_groups,
+        glyph_groups)`` tuple per renderable line, in content order, where
+        ``positioned_block`` is the positioned :class:`TextBlock`, ``entry``
+        is its :class:`_LineEntry` record (line index, text, bounds, and the
+        effective horizontal compression scale) in label-local coordinates
+        (pre-export anchor, block centered around y=0; bounds are
+        swept-analytic), ``word_groups`` is ``None`` in line mode or a list
+        of ``(word_text, stroke_indices)`` pairs indexing
+        ``positioned_block`` strokes in word order, and ``glyph_groups``
+        lists one stroke-index tuple per rendered character (indices into
+        ``positioned_block`` strokes; empty when unavailable). The export
+        pipeline vertically centers the block at ``height / 2``; collision
+        detection applies that shift itself.
 
     Raises:
         LabelRenderError: If a line's font cannot render its text (missing
@@ -1749,6 +1847,7 @@ def _render_positioned_lines(
             str,
             Optional[List[Tuple[str, List[int]]]],
             float,
+            Tuple[Tuple[int, ...], ...],
         ]
     ] = []
     total_rendered_height = 0.0
@@ -1757,7 +1856,7 @@ def _render_positioned_lines(
         # Render at the toolpath_text_height (cutter-compensated) in the
         # line's cascaded font. Both renderers return upright glyphs.
         try:
-            block, word_groups = _render_line_block(
+            block, word_groups, glyph_groups = _render_line_block(
                 line, chunk_mode, check_glyph_coverage=check_glyph_coverage
             )
         except (PltFontRenderError, FtextRenderError) as exc:
@@ -1796,6 +1895,7 @@ def _render_positioned_lines(
                 line.text_h_alignment,
                 word_groups,
                 compression_scale,
+                glyph_groups,
             )
         )
         total_rendered_height += rendered_height
@@ -1808,14 +1908,14 @@ def _render_positioned_lines(
     # overflows the inner area, shrink the spacing so margins win.
     spacings = [
         line_spacing
-        for _idx, _lc, _height, line_spacing, _mhc, _align, _wg, _cs in rendered_lines[:-1]
+        for _idx, _lc, _height, line_spacing, _mhc, _align, _wg, _cs, _gg in rendered_lines[:-1]
     ]
     # Vertical margin applies as-is; no cutter compensation needed since the
     # margin is user-specified and text already accounts for per-line cutter diameter
     # via horizontal compensation.
     available_height = label.height - (2 * v_margin)
     adjusted_spacings = fit_line_spacing_to_margins(
-        [height for _idx, _lc, height, _spacing, _mhc, _align, _wg, _cs in rendered_lines],
+        [height for _idx, _lc, height, _spacing, _mhc, _align, _wg, _cs, _gg in rendered_lines],
         spacings,
         available_height,
     )
@@ -1829,7 +1929,7 @@ def _render_positioned_lines(
             v_margin,
         )
     total_rendered_height = sum(
-        height for _idx, _lc, height, _spacing, _mhc, _align, _wg, _cs in rendered_lines
+        height for _idx, _lc, height, _spacing, _mhc, _align, _wg, _cs, _gg in rendered_lines
     ) + sum(adjusted_spacings)
 
     # Anchor the block so its vertical center sits at y = total / 2. The
@@ -1838,7 +1938,15 @@ def _render_positioned_lines(
     current_y = total_rendered_height / 2.0
 
     # Second pass: position each line, stacked top-to-bottom (+y up).
-    positioned: List[Tuple[int, TextBlock, _LineEntry, Optional[List[Tuple[str, List[int]]]]]] = []
+    positioned: List[
+        Tuple[
+            int,
+            TextBlock,
+            _LineEntry,
+            Optional[List[Tuple[str, List[int]]]],
+            Tuple[Tuple[int, ...], ...],
+        ]
+    ] = []
     for i, (
         line_index,
         block,
@@ -1848,6 +1956,7 @@ def _render_positioned_lines(
         text_h_alignment,
         word_groups,
         collision_scale,
+        glyph_groups,
     ) in enumerate(rendered_lines):
         bounds = block.bounds()
         if bounds is None:  # pragma: no cover - measured in first pass
@@ -1914,6 +2023,7 @@ def _render_positioned_lines(
                     compression_scale=effective_scale,
                 ),
                 word_groups,
+                glyph_groups,
             )
         )
 
@@ -1951,7 +2061,7 @@ def _render_text_local_with_bounds(
     """
     text_lc = vp.LineCollection()
     line_entries: List[_LineEntry] = []
-    for _line_index, positioned_block, entry, _wg in _render_positioned_lines(
+    for _line_index, positioned_block, entry, _wg, _gg in _render_positioned_lines(
         label, check_glyph_coverage=check_glyph_coverage
     ):
         text_lc.extend(positioned_block.to_vpype_polylines())
@@ -1997,7 +2107,7 @@ def _render_text_lines_by_pen(
     pens: dict[int, List[TextBlock]] = {}
     line_entries: List[_LineEntry] = []
     chunk_records: List[TextChunkRecord] = []
-    for line_index, positioned_block, entry, word_groups in _render_positioned_lines(
+    for line_index, positioned_block, entry, word_groups, glyph_groups in _render_positioned_lines(
         label, chunk_mode=chunk_mode, check_glyph_coverage=check_glyph_coverage
     ):
         pen = LAYER_TEXT
@@ -2021,6 +2131,7 @@ def _render_text_lines_by_pen(
                         pen=pen,
                         blocks=(word_block,),
                         bounds=word_bounds if word_bounds is not None else entry[2],
+                        glyph_groups=_word_local_glyph_groups(glyph_groups, indices),
                     )
                 )
         else:
@@ -2032,6 +2143,7 @@ def _render_text_lines_by_pen(
                     pen=pen,
                     blocks=(positioned_block,),
                     bounds=entry[2],
+                    glyph_groups=glyph_groups,
                 )
             )
     return (

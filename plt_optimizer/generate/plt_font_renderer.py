@@ -454,7 +454,7 @@ def _resolve_plt_font(
     return ref.name
 
 
-def render_text_line_plt_font_with_words(
+def _walk_line(
     text: str,
     target_height_inches: float,
     font_name: str,
@@ -469,8 +469,12 @@ def render_text_line_plt_font_with_words(
     fallback_advance_fraction: Optional[float] = None,
     json_path: Optional[Path] = None,
     fonts_dir: Optional[Path] = None,
-) -> Tuple[TextBlock, List[Tuple[str, List[int]]]]:
-    """Render a text line in a PLT-extracted font, partitioned by word.
+) -> Tuple[
+    TextBlock,
+    List[Tuple[str, List[int]]],
+    List[Tuple[str, List[int]]],
+]:
+    """Render a PLT-extracted font line, partitioned by word and by glyph.
 
     The cursor walk builds each word's strokes contiguously, so the word
     groups are exact by construction (no signature matching, no drift):
@@ -512,14 +516,17 @@ def render_text_line_plt_font_with_words(
         fonts_dir: Optional Fonts root override (tests).
 
     Returns:
-        ``(block, word_groups)`` where ``block`` is the positioned
-        :class:`TextBlock` (first glyph's left edge at x=0, every glyph
-        anchored on its baseline at y=0 -- descenders reach below it --
-        and the reference character exactly ``target_height_inches`` tall
-        for non-blank text) and ``word_groups`` lists one ``(word_text,
-        stroke_indices)`` pair per whitespace-delimited segment in text
-        order (blank segments yield empty index lists). Blank input yields
-        an empty block and ``[]``.
+        ``(block, word_groups, glyph_groups)`` where ``block`` is the
+        positioned :class:`TextBlock` (first glyph's left edge at x=0,
+        every glyph anchored on its baseline at y=0 -- descenders reach
+        below it -- and the reference character exactly
+        ``target_height_inches`` tall for non-blank text), ``word_groups``
+        lists one ``(word_text, stroke_indices)`` pair per
+        whitespace-delimited segment in text order (blank segments yield
+        empty index lists), and ``glyph_groups`` lists one
+        ``(char, stroke_indices)`` pair per non-space character in text
+        order. Both partitions are contiguous and exact by construction.
+        Blank input yields an empty block and two empty lists.
 
     Raises:
         PltFontRenderError: If the font is unknown/not a PLT font, or a
@@ -527,7 +534,7 @@ def render_text_line_plt_font_with_words(
     """
     canonical = _resolve_plt_font(font_name, json_path, fonts_dir)
     if not text:
-        return TextBlock.empty(), []
+        return TextBlock.empty(), [], []
 
     json_path_key = str(json_path) if json_path is not None else ""
     fonts = load_plt_fonts(Path(json_path) if json_path is not None else None)
@@ -573,6 +580,7 @@ def render_text_line_plt_font_with_words(
     # construction (the stored left edge is x = 0).
     strokes: List[Stroke] = []
     word_groups: List[Tuple[str, List[int]]] = []
+    glyph_groups: List[Tuple[str, List[int]]] = []
     cursor = 0.0
     previous: Optional[_GlyphGeometry] = None
     previous_origin = 0.0
@@ -588,6 +596,7 @@ def render_text_line_plt_font_with_words(
         start_index = len(strokes)
         for char in word:
             geometry = _glyph_entry(json_path_key, canonical, char)
+            char_start = len(strokes)
             if previous is not None:
                 offset = kerning_offset(
                     previous,
@@ -601,11 +610,171 @@ def render_text_line_plt_font_with_words(
                 cursor = previous_origin + offset * scale + clearance
             placed = geometry.block.scaled(scale).translate(cursor, 0.0)
             strokes.extend(placed.strokes)
+            glyph_groups.append((char, list(range(char_start, len(strokes)))))
             previous_origin = cursor
             previous = geometry
         word_groups.append((word, list(range(start_index, len(strokes)))))
 
-    return TextBlock(strokes=tuple(strokes)), word_groups
+    return TextBlock(strokes=tuple(strokes)), word_groups, glyph_groups
+
+
+def render_text_line_plt_font_with_words(
+    text: str,
+    target_height_inches: float,
+    font_name: str,
+    cutter_diameter: float = 0.0,
+    character_spacing: float = 0.0,
+    space_width_fraction: Optional[float] = None,
+    min_glyph_width: Optional[float] = None,
+    kerning_window_fraction: Optional[float] = None,
+    kerning_penetration_scale: Optional[float] = None,
+    kerning_recession_scale: Optional[float] = None,
+    kerning_min_gap: Optional[float] = None,
+    fallback_advance_fraction: Optional[float] = None,
+    json_path: Optional[Path] = None,
+    fonts_dir: Optional[Path] = None,
+) -> Tuple[TextBlock, List[Tuple[str, List[int]]]]:
+    """Render a text line in a PLT-extracted font, partitioned by word.
+
+    Thin wrapper over :func:`_walk_line` discarding glyph groups (word
+    groups are exact by construction -- see there).
+
+    Args:
+        text: The string to render.
+        target_height_inches: Desired reference-character (cap) height in
+            inches; the whole line scales uniformly from it.
+        font_name: PLT-extracted font name (case-insensitive).
+        cutter_diameter: Resolved text cutter diameter in inches; part of
+            the kerning clearance so engraved strokes never bleed together.
+        character_spacing: Extra user spacing between characters in inches.
+        space_width_fraction: Space advance as a fraction of
+            ``target_height_inches`` (``None`` falls back to
+            :data:`SPACE_HEIGHT_FRACTION`).
+        min_glyph_width: Global minimum glyph advance width in inches
+            flooring the kerning advance, capped by the left glyph's own
+            width (``None`` falls back to :data:`MIN_GLYPH_WIDTH`;
+            ``0.0`` = pure envelope kerning).
+        kerning_window_fraction: Kerning window as a fraction of the
+            rendered text height in ``[0, 1]`` (``None`` falls back to
+            :data:`KERNING_WINDOW_FRACTION`; ``0.0`` = historical
+            same-height maximum-penetration kerning).
+        kerning_penetration_scale: Multiplier on the detected windowed
+            penetration (``None`` falls back to
+            :data:`KERNING_PENETRATION_SCALE`; ``1.0`` = geometric).
+        kerning_recession_scale: Multiplier on a *recessed* (negative)
+            detected penetration (``None`` falls back to
+            :data:`KERNING_RECESSION_SCALE`; ``1.0`` = geometric, ``0.0``
+            = a recessed pair advances by nothing beyond the floor).
+        kerning_min_gap: Extra air in inches added to every kerned pair
+            advance on top of the clearance (``None`` falls back to
+            :data:`KERNING_MIN_GAP`).
+        fallback_advance_fraction: Multiplier on the bounding-box-width
+            fallback for pairs without overlapping height (``None`` falls
+            back to :data:`FALLBACK_ADVANCE_FRACTION`).
+        json_path: Optional ``plt_fonts.json`` override (tests).
+        fonts_dir: Optional Fonts root override (tests).
+
+    Returns:
+        ``(block, word_groups)`` with the semantics documented on
+        :func:`_walk_line`.
+
+    Raises:
+        PltFontRenderError: If the font is unknown/not a PLT font, or a
+            character has no glyph in the font.
+    """
+    block, word_groups, _glyph_groups = _walk_line(
+        text,
+        target_height_inches,
+        font_name,
+        cutter_diameter,
+        character_spacing,
+        space_width_fraction,
+        min_glyph_width,
+        kerning_window_fraction,
+        kerning_penetration_scale,
+        kerning_recession_scale,
+        kerning_min_gap,
+        fallback_advance_fraction,
+        json_path,
+        fonts_dir,
+    )
+    return block, word_groups
+
+
+def render_text_line_plt_font_with_glyphs(
+    text: str,
+    target_height_inches: float,
+    font_name: str,
+    cutter_diameter: float = 0.0,
+    character_spacing: float = 0.0,
+    space_width_fraction: Optional[float] = None,
+    min_glyph_width: Optional[float] = None,
+    kerning_window_fraction: Optional[float] = None,
+    kerning_penetration_scale: Optional[float] = None,
+    kerning_recession_scale: Optional[float] = None,
+    kerning_min_gap: Optional[float] = None,
+    fallback_advance_fraction: Optional[float] = None,
+    json_path: Optional[Path] = None,
+    fonts_dir: Optional[Path] = None,
+) -> Tuple[
+    TextBlock,
+    List[Tuple[str, List[int]]],
+    List[Tuple[str, List[int]]],
+]:
+    """Render a text line in a PLT-extracted font, partitioned by glyph too.
+
+    Public wrapper over :func:`_walk_line` exposing the per-glyph stroke
+    partition alongside the word partition. Glyph groups are exact by
+    construction: the cursor walk appends each character's strokes
+    contiguously, so glyph ``k`` owns a contiguous slice of the returned
+    block's strokes (spaces contribute no strokes and no group).
+
+    Args:
+        text: The string to render.
+        target_height_inches: Desired reference-character (cap) height in
+            inches; the whole line scales uniformly from it.
+        font_name: PLT-extracted font name (case-insensitive).
+        cutter_diameter: Resolved text cutter diameter in inches.
+        character_spacing: Extra user spacing between characters in inches.
+        space_width_fraction: Space advance fraction (``None`` = default).
+        min_glyph_width: Minimum glyph advance width in inches
+            (``None`` = default).
+        kerning_window_fraction: Kerning window fraction
+            (``None`` = default).
+        kerning_penetration_scale: Penetration multiplier
+            (``None`` = default).
+        kerning_recession_scale: Recession multiplier (``None`` = default).
+        kerning_min_gap: Extra kerned-pair air in inches
+            (``None`` = default).
+        fallback_advance_fraction: No-overlap fallback multiplier
+            (``None`` = default).
+        json_path: Optional ``plt_fonts.json`` override (tests).
+        fonts_dir: Optional Fonts root override (tests).
+
+    Returns:
+        ``(block, word_groups, glyph_groups)`` with the semantics
+        documented on :func:`_walk_line`.
+
+    Raises:
+        PltFontRenderError: If the font is unknown/not a PLT font, or a
+            character has no glyph in the font.
+    """
+    return _walk_line(
+        text,
+        target_height_inches,
+        font_name,
+        cutter_diameter,
+        character_spacing,
+        space_width_fraction,
+        min_glyph_width,
+        kerning_window_fraction,
+        kerning_penetration_scale,
+        kerning_recession_scale,
+        kerning_min_gap,
+        fallback_advance_fraction,
+        json_path,
+        fonts_dir,
+    )
 
 
 def render_text_line_plt_font(
