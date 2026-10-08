@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from plt_optimizer.generate.resolution import (
     DEFAULT_BOUNDARY_HOLE_CUTTER,
     DEFAULT_CUTTER_DOWNSIZE,
+    DEFAULT_CUTTER_DOWNSIZE_GLOBAL,
     DEFAULT_CUTTER_SIZE,
     DEFAULT_FALLBACK_ADVANCE_FRACTION,
     DEFAULT_FONT,
@@ -2396,6 +2397,61 @@ class TestMaxCutterDownsizesCascade:
         """Line-level budget beats the label-level value."""
         line = resolve_job_spec(self._job(job=1, label=2, line=3))[0].content[0]
         assert line.max_cutter_downsizes == 3
+
+
+class TestCutterDownsizeGlobalCascade:
+    """cutter_downsize_global cascades line -> label -> job -> True (explicit-None)."""
+
+    @staticmethod
+    def _job(**levels: bool | None) -> JobSpec:
+        """Build a single-line job applying cutter_downsize_global at the given levels."""
+        job_kwargs: dict[str, bool | None] = {}
+        label_kwargs: dict[str, bool | None] = {}
+        line_kwargs: dict[str, bool | None] = {}
+        if "job" in levels:
+            job_kwargs["cutter_downsize_global"] = levels["job"]
+        if "label" in levels:
+            label_kwargs["cutter_downsize_global"] = levels["label"]
+        if "line" in levels:
+            line_kwargs["cutter_downsize_global"] = levels["line"]
+        return JobSpec(
+            job_name="J",
+            text_height=0.5,
+            **job_kwargs,  # type: ignore[arg-type]
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    **label_kwargs,  # type: ignore[arg-type]
+                    content=[TextLine(text="X", **line_kwargs)],  # type: ignore[arg-type]
+                )
+            ],
+        )
+
+    def test_default_module_constant_is_true(self) -> None:
+        """The shipped default enables per-label downsize sharing."""
+        assert DEFAULT_CUTTER_DOWNSIZE_GLOBAL is True
+
+    def test_default_resolves_true(self) -> None:
+        """All levels omitting resolves to the True fallback."""
+        line = resolve_job_spec(self._job())[0].content[0]
+        assert line.cutter_downsize_global is True
+
+    def test_job_false_used_when_label_omits(self) -> None:
+        """Job-level False cascades to labels and lines that omit the field."""
+        line = resolve_job_spec(self._job(job=False))[0].content[0]
+        assert line.cutter_downsize_global is False
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level True beats the job-level False."""
+        line = resolve_job_spec(self._job(job=False, label=True))[0].content[0]
+        assert line.cutter_downsize_global is True
+
+    def test_line_overrides_label(self) -> None:
+        """Line-level False beats the label-level True."""
+        line = resolve_job_spec(self._job(job=True, label=True, line=False))[0].content[0]
+        assert line.cutter_downsize_global is False
 
 
 class TestNextSmallerCutter:

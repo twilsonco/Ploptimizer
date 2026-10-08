@@ -220,6 +220,23 @@ JobSpec (job-level defaults)
   (monotonicity: no oscillation). `0` disables the mechanism entirely.
   Cascades line → label → job → default (plate parity only);
   `job-config.json` supplies the shop default.
+- `cutter_downsize_global`: Boolean gate for **per-label sharing** of
+  compression-driven cutter downsizes (`default None` → **true**). When a
+  text line's compression triggers a cutter swap, every other *eligible* line
+  of the same `text_height` **within the same label** receives the trigger's
+  final cutter directly (the midpoint trigger check is bypassed for
+  receivers — a sibling's trigger is their trigger), then each receiver
+  continues its own one-way step loop; the group converges to the smallest
+  final cutter among its members, so one label engraves one text size with
+  one tool. Lines with an explicit `cutter_size`, `cutter_downsize: false`,
+  `max_cutter_downsizes: 0`, `max_h_compress: 0.0`, or
+  `cutter_downsize_global: false` are never touched — in either direction
+  (such a line neither shares its own downsize nor receives a sibling's).
+  Sharing is always per-label: setting the option at the job level simply
+  enables it for every label (plate = parity-only, like every render-affecting
+  field — plate identity does not exist when the export pre-pass runs).
+  Cascades line → label → job → default (plate parity only);
+  `job-config.json` supplies the shop default.
 
 **LabelAttributes** (extends TextAttributes, cascades to LabelSpec only):
 - `width`: Label width in inches; must be defined at label or job level (required; no longer auto-sized).
@@ -307,6 +324,21 @@ parity only); `max_cutter_downsizes: 0` disables the mechanism.
 - Each swap logs a WARNING naming the label id, line index, text, scale and
   both cutters; the layout report (`layout_report.py`) prints a per-line
   `cutter 0.060in -> 0.045in (downsized for compression)` finding.
+- **Per-label sharing (`cutter_downsize_global`, default true):**
+  `apply_compression_cutter_downsize` runs a fixpoint pass per label after the
+  per-line reduce loop (`_share_downsizes`): each `nominal_text_height` group
+  containing a sharing trigger converges to the group's smallest final
+  cutter; receivers get the shared cutter applied directly (seed step,
+  midpoint check bypassed, toolpath floor still enforced), consume one unit
+  of their own budget, and continue their own monotone loop — a receiver
+  whose compression deepens below the shared tool lowers the group minimum
+  and the pass repeats. Termination: every step strictly decreases some
+  line's cutter on a finite ladder within each line's budget. Propagated
+  swaps land in the same `cutter_downsize_by_line` map (original = the
+  receiver's pre-swap tool), so the pen map, per-cutter layers, PLT file
+  names and the layout report see them for free; each propagation logs a
+  WARNING naming the label id, line index, text and both cutters. The flag
+  rides resolved lines, so no export/CLI threading changes are needed.
 - Accepted staleness: `_resolve_auto_line_spacing` / `_fit_content_to_margins`
   size vertical spacing against the *original* toolpath height; the
   render-time `fit_line_spacing_to_margins` re-clamp preserves the margins.
@@ -728,7 +760,7 @@ already knows each toolpath's kind, the `Profiler` is skipped entirely.
   **removed**; optimization now happens pre-write in plate space.
 
 ### Cascading Resolution
-When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.15), `space_width_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.3), `min_glyph_width` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `kerning_window_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.05), `kerning_penetration_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_recession_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_min_gap` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `fallback_advance_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `cutter_downsize` (explicit `false` is honored; only `None` means unset, falling back to the config or true) and `max_cutter_downsizes` (explicit 0 is honored; only `None` means unset, falling back to the config or 1). `cutter_size` (explicit-`None` precedence line → label → job → auto-select; no config tier, `gt=0.0` so an explicit `0.0` is a validation error, not a cascade value). `material` cascades label → job (and plate →
+When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.15), `space_width_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.3), `min_glyph_width` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `kerning_window_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.05), `kerning_penetration_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_recession_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_min_gap` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `fallback_advance_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `cutter_downsize` (explicit `false` is honored; only `None` means unset, falling back to the config or true), `max_cutter_downsizes` (explicit 0 is honored; only `None` means unset, falling back to the config or 1) and `cutter_downsize_global` (explicit `false` is honored; only `None` means unset, falling back to the config or true). `cutter_size` (explicit-`None` precedence line → label → job → auto-select; no config tier, `gt=0.0` so an explicit `0.0` is a validation error, not a cascade value). `material` cascades label → job (and plate →
 job via the clearance-style plate cascade): an explicit label/plate value wins,
 an explicit `null` counts as unset, and empty-after-trim strings are validation
 errors.
@@ -943,7 +975,7 @@ top-most layer:
   `min_glyph_width`, `kerning_window_fraction`, `kerning_penetration_scale`,
   `kerning_recession_scale`,
   `kerning_min_gap`, `fallback_advance_fraction`, `cutter_downsize`,
-  `max_cutter_downsizes`, `holes`, `allow_rotation`,
+  `max_cutter_downsizes`, `cutter_downsize_global`, `holes`, `allow_rotation`,
   `text_chunk_mode`, `layout`) fill missing **job-level** keys; the existing
   label -> job cascade then works unchanged and YAML values always win (an
   explicit YAML `null` counts as unset; `holes: []` suppression is a value).

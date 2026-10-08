@@ -15,6 +15,7 @@
   "fallback_advance_fraction": 1.0,
   "cutter_downsize": true,
   "max_cutter_downsizes": 1,
+  "cutter_downsize_global": true,
   "plate_width": 24.0,
   "plate_height": 16.0,
   "left_clearance": 0.0,

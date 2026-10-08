@@ -670,6 +670,21 @@ class TextAttributes(BaseModel):
             "honored."
         ),
     )
+    cutter_downsize_global: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Share a compression-driven cutter downsize across the text lines "
+            "of one label: when a line's compression triggers a swap to a "
+            "smaller inventory tool, every other eligible line of the same "
+            "text_height in the same label receives the same swap (then each "
+            "continues its own one-way step loop). Lines with an explicit "
+            "cutter_size, cutter_downsize false, max_cutter_downsizes 0, or a "
+            "zero max_h_compress budget are never touched. Setting the option "
+            "at the job level enables it for every label; sharing is always "
+            "per-label. Cascades line -> label -> job (fallback true); "
+            "explicit false is honored."
+        ),
+    )
     text_color: Optional[TextColor] = Field(
         default=None,
         description=(
@@ -1313,6 +1328,13 @@ class PlateSpec(BaseModel):
         ge=0,
         description=(
             "Maximum number of cutter downsizing steps (schema parity; not applied at plate level)."
+        ),
+    )
+    cutter_downsize_global: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Per-label sharing of compression-driven cutter downsizes "
+            "(schema parity; not applied at plate level)."
         ),
     )
     hole_text_collision_distance: Optional[float] = Field(

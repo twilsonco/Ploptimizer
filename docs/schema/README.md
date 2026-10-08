@@ -175,7 +175,7 @@ always wins at its level. Precedence per attribute:
 |---|---|---|
 | `text_height`, `character_spacing`, `line_spacing`, `max_h_compress`, `text_h_alignment` | line → label → job → config | see fallback table in `JOB_SPEC.md` |
 | `cutter_size` | line → label → job (no config tier) | `null` = auto-select from `text_height` |
-| `cutter_downsize`, `max_cutter_downsizes` | line → label → job → config | `true` / `1` |
+| `cutter_downsize`, `max_cutter_downsizes`, `cutter_downsize_global` | line → label → job → config | `true` / `1` / `true` |
 | `text_color` | line → label (never job/plate/config) | `none` (implicit) |
 | `width`, `height` | label → job → auto-size from rendered content | — |
 | `margin` | label → job → config | 0.125 |
@@ -221,9 +221,9 @@ entries that omit it).
   (`<material>_default_plate_{i}`). Not a `job-config.json` key.
 - **Per-plate typographic fields** (`hole_margin`, `max_h_compress`,
   `text_h_alignment`, `min_hole_margin`, `hole_text_collision_distance`,
-  `cutter_size`, `cutter_downsize`, `max_cutter_downsizes`) are accepted on
-  plates for schema parity but **not applied** at plate level — labels render
-  once before packing.
+  `cutter_size`, `cutter_downsize`, `max_cutter_downsizes`,
+  `cutter_downsize_global`) are accepted on plates for schema parity but
+  **not applied** at plate level — labels render once before packing.
 - **`cutter_size` (default null)**: an explicit cutter diameter (inches)
   overriding the automatic height→cutter lookup. The requested diameter is
   snapped to `tools.json` `available_cutters` (next size down, else next up,
@@ -250,6 +250,21 @@ entries that omit it).
   its own per-cutter PLT file; the change is WARNING-logged at render time
   and reported in the layout report (`cutter 0.060in -> 0.045in`).
   `job-config.json` supplies the shop defaults.
+- **`cutter_downsize_global` (default true)**: per-label sharing of
+  compression-driven cutter downsizes. When a line's compression triggers a
+  swap, every other *eligible* line of the same `text_height` **within the
+  same label** receives the same swap (the midpoint trigger check is bypassed
+  for receivers — a sibling's trigger is their trigger), then each receiver
+  continues its own one-way step loop; the group converges to the smallest
+  final cutter among its members, so one label engraves one text size with
+  one tool. Lines with an explicit `cutter_size`, `cutter_downsize: false`,
+  `max_cutter_downsizes: 0`, `max_h_compress: 0.0`, or
+  `cutter_downsize_global: false` are never touched (in either direction:
+  such a line neither shares its own downsize nor receives a sibling's).
+  Sharing is always per-label — setting the option at the job level simply
+  enables it for every label. WARNING-logged per propagated line and
+  reported in the layout report like a trigger downsize. `job-config.json`
+  supplies the shop default.
 - **Text–hole collision avoidance** (3 phases): always-on detection →
   opt-in `min_hole_margin` sweep → opt-in `max_h_compress` compression.
   Unresolved collisions fail the job (`LabelRenderError`, non-zero exit).

@@ -1,0 +1,54 @@
+# Fixture for per-label sharing of compression-driven cutter downsizes
+# (`cutter_downsize_global`, default true).
+#
+# When one text line's horizontal compression triggers a cutter swap, every
+# other eligible line of the SAME text_height WITHIN THE SAME LABEL receives
+# the same swap, so one label engraves one text size with one tool.
+#
+# Inventory used by the tests: [0.03, 0.045, 0.06, 0.09, 0.125].
+# 0.5in text auto-selects the 0.06in cutter; the next size down is 0.045in
+# (ratio 0.75, midpoint 0.875): a line compressed below 87.5% width takes it.
+#
+# No plate declares a material and the job packs onto one sheet, so emitted
+# names carry no plate/material prefix: [<cutter>]_txt_<job>.plt per distinct
+# cutter plus one bh file.
+job:
+  job_name: Cutter Downsize Global Demo
+
+  width: 3.0
+  height: 1.2
+  margin: 0.1
+  text_height: 0.5
+
+  # Compression budget for the over-wide lines (see the sibling fixture
+  # cutter_downsize_job.yaml for the per-line mechanics).
+  max_h_compress: 0.5
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. Two lines of the same text_height: "LONG TEXT" compresses past the
+    #    0.06 -> 0.045 midpoint and triggers the swap; "OK" fits naturally
+    #    and RECEIVES the shared 0.045in cutter (one tool for the label).
+    - id: shared
+      content:
+        - text: "LONG TEXT"
+        - text: "OK"
+
+    # 2. Sharing is per-label: this label's fitting line keeps its automatic
+    #    0.06in cutter even though label `shared` downsized at the same
+    #    text_height.
+    - id: other_label
+      content:
+        - text: "OK"
+
+    # 3. Opt-out: with cutter_downsize_global false the trigger line still
+    #    downsizes (0.06 -> 0.045) but its fitting sibling keeps 0.06in.
+    - id: opted_out
+      cutter_downsize_global: false
+      content:
+        - text: "LONG TEXT"
+        - text: "OK"

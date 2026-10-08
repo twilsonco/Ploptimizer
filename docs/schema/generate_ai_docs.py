@@ -89,6 +89,12 @@ _FALLBACK_NOTES: dict[str, str] = {
     "explicit cutter_size disables it).",
     "DEFAULT_MAX_CUTTER_DOWNSIZES": "Maximum number of cutter downsizings per text line "
     "(0 = disabled). Cascades line/label/job; job-config supplies the shop default.",
+    "DEFAULT_CUTTER_DOWNSIZE_GLOBAL": "True = a compression-driven cutter downsize is shared "
+    "across the label: every other eligible line of the same text_height in the same label "
+    "receives the trigger's final cutter (then each continues its own one-way loop; the group "
+    "converges to the smallest). Explicit cutter_size / cutter_downsize false / "
+    "max_cutter_downsizes 0 / max_h_compress 0.0 lines are never touched. Cascades "
+    "line/label/job; job-config supplies the shop default.",
     "DEFAULT_MAX_H_COMPRESS": "0.0 = horizontal compression disabled. Required from config-or-"
     "spec when a job-config is in play.",
     "DEFAULT_TEXT_H_ALIGNMENT": "Horizontal alignment fallback when unset everywhere.",

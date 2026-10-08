@@ -125,6 +125,11 @@ DEFAULT_CUTTER_DOWNSIZE: bool = True
 # size down, 0 = disabled). Each step re-measures the line because a smaller
 # cutter renders wider, which can justify a further step.
 DEFAULT_MAX_CUTTER_DOWNSIZES: int = 1
+# Per-label sharing of compression-driven cutter downsizes. ``True`` (the
+# default) propagates a trigger line's final cutter to every other eligible
+# line of the same nominal text height *within the same label* (sharing is
+# always per-label; the job tier only enables the option for its labels).
+DEFAULT_CUTTER_DOWNSIZE_GLOBAL: bool = True
 # Stroke-color layer tag default. ``"none"`` is the implicit color of
 # every line that omits ``text_color``; it never cascades (the field is
 # label/line-local by design, see schema.TextColor) and the resolution
@@ -430,6 +435,15 @@ class ResolvedTextLine:
             downsizings applied to this line (cascaded line -> label -> job,
             default ``DEFAULT_MAX_CUTTER_DOWNSIZES`` (1)). ``0`` disables the
             mechanism. Explicit ``0`` is honored; only ``None`` means unset.
+        cutter_downsize_global: Whether a compression-driven cutter downsize
+            is shared across the lines of the label (cascaded line -> label
+            -> job, default ``DEFAULT_CUTTER_DOWNSIZE_GLOBAL`` (``True``)).
+            When a trigger line swaps to a smaller tool, every other
+            *eligible* line of the same ``nominal_text_height`` in the same
+            label receives the same swap; a line with this flag ``False``
+            neither shares its own downsize nor receives a sibling's.
+            Consumed by :mod:`plt_optimizer.generate.cutter_downsize`.
+            Explicit ``False`` is honored; only ``None`` means unset.
     """
 
     text: str
@@ -452,6 +466,7 @@ class ResolvedTextLine:
     cutter_size: Optional[float] = DEFAULT_CUTTER_SIZE
     cutter_downsize: bool = DEFAULT_CUTTER_DOWNSIZE
     max_cutter_downsizes: int = DEFAULT_MAX_CUTTER_DOWNSIZES
+    cutter_downsize_global: bool = DEFAULT_CUTTER_DOWNSIZE_GLOBAL
 
 
 @dataclass(frozen=True)
@@ -1186,6 +1201,17 @@ def _resolve_content(
         else:
             line_max_cutter_downsizes = DEFAULT_MAX_CUTTER_DOWNSIZES
 
+        # Resolve the per-label downsize-sharing flag with the same
+        # precedence; an intentional ``False`` (per-line behaviour) is honored.
+        if line.cutter_downsize_global is not None:
+            line_cutter_downsize_global: bool = line.cutter_downsize_global
+        elif label_input.cutter_downsize_global is not None:
+            line_cutter_downsize_global = label_input.cutter_downsize_global
+        elif job.cutter_downsize_global is not None:
+            line_cutter_downsize_global = job.cutter_downsize_global
+        else:
+            line_cutter_downsize_global = DEFAULT_CUTTER_DOWNSIZE_GLOBAL
+
         resolved_content.append(
             ResolvedTextLine(
                 text=line.text,
@@ -1208,6 +1234,7 @@ def _resolve_content(
                 cutter_size=line_cutter_size,
                 cutter_downsize=line_cutter_downsize,
                 max_cutter_downsizes=line_max_cutter_downsizes,
+                cutter_downsize_global=line_cutter_downsize_global,
             )
         )
     return resolved_content

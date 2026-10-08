@@ -1116,6 +1116,80 @@ class TestCutterDownsizeDemoExample:
             assert rendered.source_label.cutter_downsize_by_line == {}
 
 
+class TestCutterDownsizeGlobalDemoExample:
+    """Regression tests for tests_deps/cutter_downsize_global_job.yaml.
+
+    The fixture pins ``cutter_downsize_global`` (default true): a trigger
+    line's swap is shared with the fitting siblings of the same text height
+    *inside the same label*, while other labels and opted-out labels keep
+    their per-line behaviour.
+    """
+
+    _INVENTORY = [0.03, 0.045, 0.06, 0.09, 0.125]
+    _SPEC = Path("tests_deps/cutter_downsize_global_job.yaml")
+
+    def _export(self, tmp_path: Path, inventory: Optional[list[float]]) -> PerCutterExport:
+        """Export the demo job with plotting disabled against ``inventory``."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job, available_cutters=inventory)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="cdg",
+            optimize=False,
+            plots=False,
+            available_cutters=inventory,
+        )
+
+    def test_fitting_sibling_receives_the_shared_cutter(self, tmp_path: Path) -> None:
+        """The trigger's swap lands on its fitting same-height sibling."""
+        result = self._export(tmp_path, self._INVENTORY)
+        shared = result.rendered_labels["shared"].source_label
+        assert sorted(shared.cutter_downsize_by_line) == [0, 1]
+        for index in (0, 1):
+            original, final = shared.cutter_downsize_by_line[index]
+            assert math.isclose(original, 0.06)
+            assert math.isclose(final, 0.045)
+        for line in shared.content:
+            assert math.isclose(line.cutter_diameter, 0.045)
+            assert math.isclose(line.nominal_text_height, 0.5)
+            assert math.isclose(line.toolpath_text_height, 0.5 - 0.045)
+
+    def test_sharing_never_crosses_the_label_boundary(self, tmp_path: Path) -> None:
+        """A fitting line in another label keeps its automatic cutter."""
+        result = self._export(tmp_path, self._INVENTORY)
+        other = result.rendered_labels["other_label"].source_label
+        assert other.cutter_downsize_by_line == {}
+        assert math.isclose(other.content[0].cutter_diameter, 0.06)
+
+    def test_opt_out_label_stays_per_line(self, tmp_path: Path) -> None:
+        """cutter_downsize_global false: the trigger downsizes, siblings don't."""
+        result = self._export(tmp_path, self._INVENTORY)
+        opted_out = result.rendered_labels["opted_out"].source_label
+        assert list(opted_out.cutter_downsize_by_line) == [0]
+        original, final = opted_out.cutter_downsize_by_line[0]
+        assert math.isclose(original, 0.06)
+        assert math.isclose(final, 0.045)
+        assert math.isclose(opted_out.content[0].cutter_diameter, 0.045)
+        assert math.isclose(opted_out.content[1].cutter_diameter, 0.06)
+
+    def test_shared_cutter_gets_its_own_file(self, tmp_path: Path) -> None:
+        """The pen map sees the shared cutter, so 0.045/0.060 files split as expected."""
+        result = self._export(tmp_path, self._INVENTORY)
+        assert sorted(p.name for p in result.plt_paths) == [
+            "0.030_bh_cdg.plt",  # boundary/hole cutter 0.015 snapped up to 0.030
+            "0.045_txt_cdg.plt",  # shared label (both lines) + opted_out trigger
+            "0.060_txt_cdg.plt",  # other_label + opted_out sibling
+        ]
+
+    def test_pre_pass_is_a_noop_without_inventory(self, tmp_path: Path) -> None:
+        """No tools.json inventory means no ladder: nothing shares."""
+        result = self._export(tmp_path, None)
+        for rendered in result.rendered_labels.values():
+            assert rendered.source_label.cutter_downsize_by_line == {}
+
+
 class TestPlateNumberScoping:
     """Plate numbers are scoped to a material group, not the whole job."""
 

@@ -333,6 +333,14 @@ class JobDefaults(BaseModel):
             "(job layer; 0 disables the mechanism, 1 = at most one size down)."
         ),
     )
+    cutter_downsize_global: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Default per-label sharing of compression-driven cutter downsizes "
+            "(job layer; a trigger line's swap applies to every eligible line "
+            "of the same text_height in the same label)."
+        ),
+    )
     text_chunk_mode: Optional[Literal["line", "word"]] = Field(
         default=None, description="Default plate-space text optimization granularity."
     )
@@ -426,6 +434,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "fallback_advance_fraction",
     "cutter_downsize",
     "max_cutter_downsizes",
+    "cutter_downsize_global",
     "allow_rotation",
     "text_chunk_mode",
     "layout",

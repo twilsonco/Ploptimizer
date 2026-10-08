@@ -1560,6 +1560,49 @@ class TestMaxCutterDownsizes:
             )
 
 
+class TestCutterDownsizeGlobal:
+    """Tests for the cutter_downsize_global per-label sharing field."""
+
+    def test_inherited_on_all_levels(self) -> None:
+        """TextLine, LabelSpec and JobSpec expose cutter_downsize_global."""
+        assert TextLine(text="X", cutter_downsize_global=False).cutter_downsize_global is False
+        label = LabelSpec(id="lbl", cutter_downsize_global=False, content=[TextLine(text="X")])
+        assert label.cutter_downsize_global is False
+        job = JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            cutter_downsize_global=False,
+            content=[TextLine(text="X")],
+        )
+        assert job.cutter_downsize_global is False
+        # The opt-in direction works on every level too.
+        assert TextLine(text="X", cutter_downsize_global=True).cutter_downsize_global is True
+
+    def test_default_is_none(self) -> None:
+        """Schema default is None (unset); resolution applies the True fallback."""
+        assert TextLine(text="X").cutter_downsize_global is None
+        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).cutter_downsize_global is None
+        assert (
+            JobSpec(
+                job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]
+            ).cutter_downsize_global
+            is None
+        )
+
+    def test_plate_accepts_field_for_parity(self) -> None:
+        """PlateSpec should accept the field for schema parity."""
+        plate = PlateSpec(
+            id="plate_1",
+            width=24.0,
+            height=12.0,
+            left_clearance=0.25,
+            top_clearance=0.25,
+            cutter_downsize_global=False,
+        )
+        assert plate.cutter_downsize_global is False
+
+
 class TestJobLevelReplacementFile:
     """Job-level ``replacement_text_file`` (labels section optional)."""
 

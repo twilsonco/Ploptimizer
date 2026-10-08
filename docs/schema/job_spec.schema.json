@@ -292,6 +292,19 @@
           "description": "Maximum number of successive cutter downsizings applied to one text line (0 disables the mechanism, 1 = at most one size down). Each step re-measures the line, since a smaller cutter renders wider. Cascades line -> label -> job (fallback 1); explicit 0 is honored.",
           "title": "Max Cutter Downsizes"
         },
+        "cutter_downsize_global": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Share a compression-driven cutter downsize across the text lines of one label: when a line's compression triggers a swap to a smaller inventory tool, every other eligible line of the same text_height in the same label receives the same swap (then each continues its own one-way step loop). Lines with an explicit cutter_size, cutter_downsize false, max_cutter_downsizes 0, or a zero max_h_compress budget are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "title": "Cutter Downsize Global"
+        },
         "text_color": {
           "anyOf": [
             {
@@ -770,6 +783,19 @@
           "description": "Maximum number of cutter downsizing steps (schema parity; not applied at plate level).",
           "title": "Max Cutter Downsizes"
         },
+        "cutter_downsize_global": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Per-label sharing of compression-driven cutter downsizes (schema parity; not applied at plate level).",
+          "title": "Cutter Downsize Global"
+        },
         "hole_text_collision_distance": {
           "anyOf": [
             {
@@ -1127,6 +1153,19 @@
           "description": "Maximum number of successive cutter downsizings applied to one text line (0 disables the mechanism, 1 = at most one size down). Each step re-measures the line, since a smaller cutter renders wider. Cascades line -> label -> job (fallback 1); explicit 0 is honored.",
           "title": "Max Cutter Downsizes"
         },
+        "cutter_downsize_global": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Share a compression-driven cutter downsize across the text lines of one label: when a line's compression triggers a swap to a smaller inventory tool, every other eligible line of the same text_height in the same label receives the same swap (then each continues its own one-way step loop). Lines with an explicit cutter_size, cutter_downsize false, max_cutter_downsizes 0, or a zero max_h_compress budget are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "title": "Cutter Downsize Global"
+        },
         "text_color": {
           "anyOf": [
             {
@@ -1410,6 +1449,19 @@
       "default": null,
       "description": "Maximum number of successive cutter downsizings applied to one text line (0 disables the mechanism, 1 = at most one size down). Each step re-measures the line, since a smaller cutter renders wider. Cascades line -> label -> job (fallback 1); explicit 0 is honored.",
       "title": "Max Cutter Downsizes"
+    },
+    "cutter_downsize_global": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Share a compression-driven cutter downsize across the text lines of one label: when a line's compression triggers a swap to a smaller inventory tool, every other eligible line of the same text_height in the same label receives the same swap (then each continues its own one-way step loop). Lines with an explicit cutter_size, cutter_downsize false, max_cutter_downsizes 0, or a zero max_h_compress budget are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades line -> label -> job (fallback true); explicit false is honored.",
+      "title": "Cutter Downsize Global"
     },
     "text_color": {
       "anyOf": [
