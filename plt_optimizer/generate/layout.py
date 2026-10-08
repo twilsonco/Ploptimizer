@@ -1511,11 +1511,32 @@ def generate_layout_with_bounds(
                 DEFAULT_PLATE_WIDTH,
                 DEFAULT_PLATE_HEIGHT,
             )
-            raise LayoutFitError(
-                "A rendered label's dimensions exceed the maximum plate size of "
-                f"{max_width}x{max_height} in either "
-                "orientation."
+
+            # Build a detailed error message showing which dimensions failed for each label
+            oversized_details = []
+            for w, h, (r_id, _, _, _) in leftover:
+                if w > max_width and h > max_height:
+                    detail = (
+                        f"Label '{r_id}': {w:.1f}\"W × {h:.1f}\"H exceeds both width and height "
+                        f'(max {max_width:.1f}"W × {max_height:.1f}"H)'
+                    )
+                elif w > max_width:
+                    detail = (
+                        f"Label '{r_id}': {w:.1f}\"W × {h:.1f}\"H exceeds max width "
+                        f'({max_width:.1f}"W × {max_height:.1f}"H)'
+                    )
+                else:  # h > max_height
+                    detail = (
+                        f"Label '{r_id}': {w:.1f}\"W × {h:.1f}\"H exceeds max height "
+                        f'({max_width:.1f}"W × {max_height:.1f}"H)'
+                    )
+                oversized_details.append(detail)
+
+            error_msg = (
+                "Rendered label(s) exceed the maximum plate size in both orientations:\n"
+                + "\n".join(oversized_details)
             )
+            raise LayoutFitError(error_msg)
 
     # Return both the plates and the rendered labels cache for Phase 3
     return packed_plates, rendered_labels

@@ -558,7 +558,7 @@ class TextBlock:
                 )
             )
         if flattened_any:
-            logger.warning(
+            logger.debug(
                 "Text arcs flattened to polylines during horizontal compression%s "
                 "(chord error <= %gin); compression and native arcs are mutually "
                 "exclusive.",
