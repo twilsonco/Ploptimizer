@@ -1,0 +1,13 @@
+# 2026-09-28
+# Coolsys Walmart 5168
+job:
+  job_name: Coolsys Walmart 5168
+  width: 24
+  height: 16
+  text_height: 2
+  optimize_line_content: true
+  optimize_line_content_max_lines: 7
+  font: dino
+  v_margin: 0.3
+  content:
+    - text: "ALWAYS CHARGE SECONDARY CO2 SYSTEM THROUGH A FILTER DRIER. DO NOT TRAP LIQUID BY CLOSING CHARGING STATION AND ISOLATION VALVES WHILE SERVICING. ALWAYS VACUUM CHARGING LINE AFTER CHARGING IS COMPLETE. CHARGE SECONDARY CO2 SYSTEM WITH 99.9% PURE OR HIGHER FOOD AND BEVERAGE GRADE CO2."
