@@ -1781,6 +1781,36 @@ def _render_line_block(
     return block, None, ()
 
 
+def measure_line_natural_width(line: ResolvedTextLine) -> float:
+    """Measure one resolved text line's natural rendered width in inches.
+
+    Renders the line standalone (no label margins, no compression, no
+    alignment -- the raw glyph run) and returns its bounding-box width.
+    Consumed by the line-content reflow pre-pass
+    (:mod:`plt_optimizer.generate.line_content`) to compare candidate word
+    partitions; the measurement uses the same renderer dispatch as the label
+    render path, so widths match what the label engraves.
+
+    Args:
+        line: The resolved text line to measure.
+
+    Returns:
+        The rendered width in inches (``0.0`` for a line with no geometry).
+
+    Raises:
+        LabelRenderError: If the line's font cannot render its text (missing
+            glyph, unknown font), naming the line.
+    """
+    try:
+        block, _word_groups, _glyph_groups = _render_line_block(line, TextChunkMode.LINE)
+    except (PltFontRenderError, FtextRenderError) as exc:
+        raise LabelRenderError(f"text line ({line.text!r}) cannot be rendered: {exc}") from exc
+    bounds = block.bounds()
+    if bounds is None:
+        return 0.0
+    return bounds[2] - bounds[0]
+
+
 def _render_positioned_lines(
     label: ResolvedLabel,
     chunk_mode: TextChunkMode = TextChunkMode.LINE,

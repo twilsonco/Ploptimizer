@@ -253,6 +253,30 @@ JobSpec (job-level defaults)
   identity does not exist when the export pre-pass runs). Cascades line →
   label → job → default (plate parity only); `job-config.json` supplies the
   shop default.
+- `optimize_line_content`: Boolean gate for **word-level line-content reflow**
+  (`default None` → **false**). When true, the text of the enabled lines may be
+  redistributed across the consecutive lines that also enable it so the group's
+  lines reach equal rendered width (distance, not character count) — whole
+  words move up/down, word order is never changed, only the line breaks (the
+  LaTeX paragraph-fill behaviour). Consecutive enabled lines form one
+  independent group; a disabled line breaks the group, and a word may travel
+  across the whole group (not just one line). Optimizing the **pre-compression**
+  widths is the same objective as minimizing the compression the label needs.
+  Implemented as `plt_optimizer/generate/line_content.py::apply_line_content_reflow`,
+  an **export pre-pass running FIRST** (before `apply_compression_cutter_downsize`
+  and `apply_global_h_compress`, so those see the reflowed text) via the shared
+  lazy `LineWidthProbe` (default `label_renderer.measure_line_natural_width`);
+  it emits `ResolvedLabel` clones carrying the reflowed `content`. The
+  repartition is the linear-partition problem solved exactly by DP: cut the
+  concatenated word sequence into one contiguous segment per group line (every
+  line keeps ≥1 word), minimizing the widest segment, tie-broken by the sum of
+  squared widths. Segment widths use each line's own typography (per-word
+  renders + a per-typography space advance, measured from the line's own text
+  when it has two words). Scope guards (free no-ops): no enabled line; every
+  enabled run is a single line; a run contains a blank line or has fewer words
+  than lines. Each moved line logs an INFO with the label id, line index and
+  before/after text. Cascades line → label → job → default (plate parity only);
+  `job-config.json` supplies the shop default.
 
 **LabelAttributes** (extends TextAttributes, cascades to LabelSpec only):
 - `width`: Label width in inches; must be defined at label or job level (required; no longer auto-sized).
@@ -410,6 +434,55 @@ receives a sibling's).
 - Example fixture: `tests_deps/h_compress_global_job.yaml` (pinned by
   `tests/test_phase3_export.py::TestHCompressGlobalDemoExample`) — a shared
   label, a per-label boundary, and an opted-out label.
+
+### Word-Level Line-Content Reflow (`optimize_line_content`)
+
+An over-wide line is a line the label's other lines can help: `optimize_line_content`
+(default **false**) lets the export pipeline move **whole words** between the
+consecutive lines that enable it, so the group's lines reach equal rendered
+width (equal *distance*, not equal character count) and the label needs less
+horizontal compression. Word order is never changed — only the line breaks move,
+exactly like LaTeX paragraph filling. Cascades line → label → job →
+`job-config.json` default (plate parity only); `false` opts a line out (a
+disabled line breaks the group into independent neighbours).
+
+- `plt_optimizer/generate/line_content.py` runs as an **export pre-pass**
+  (`apply_line_content_reflow`) inside `vectorize.export_per_cutter_plts`,
+  *first* — before `apply_compression_cutter_downsize` and
+  `apply_global_h_compress`, so both compression mechanisms see the reflowed
+  text and measure the reflowed widths. Equalizing the **pre-compression**
+  widths is the same objective as minimizing the compression the label needs.
+  It emits `ResolvedLabel` clones (`dataclasses.replace`) carrying the reflowed
+  `content`; untouched labels keep their object identity.
+- **Groups:** maximal runs of consecutive enabled lines (`_reflow_groups`);
+  a disabled line breaks a run, a run of one line is a no-op, and a word may
+  travel across the whole group (not just one line).
+- **DP repartition** (`_partition_words`): the linear-partition problem solved
+  exactly — cut the concatenated word sequence into one contiguous segment per
+  group line (every line keeps ≥1 word), minimizing the widest segment,
+  tie-broken by the sum of squared widths. O(words² × lines). Segment width
+  (`_partition_cost`) = Σ per-word widths + (count − 1) × space advance, using
+  each line's own typography; kerning never crosses a word boundary, so the
+  concatenation is exact for PLT fonts.
+- **Width probe:** `LineWidthProbe = Callable[[ResolvedTextLine], float]`,
+  injectable for tests; the default lazily imports
+  `label_renderer.measure_line_natural_width` (whole-line render bbox width),
+  keeping matplotlib out of module scope. Space advances are measured per
+  typography by rendering a line's own first two words and subtracting the
+  standalone widths (exact for PLT, matches matplotlib shaping for TTF),
+  falling back to `space_width_fraction * toolpath_text_height +
+  character_spacing`. Word widths are cached per typography.
+- **Scope guards (free no-ops):** no enabled line; every enabled run is a
+  single line; a run contains a blank line or has fewer words than lines
+  (infeasible — every line must keep one word).
+- Each moved line logs an INFO naming the label id, line index and the
+  before/after text. The reflow is invisible to the layout report (the text
+  itself changed, no scale/cutter finding), so no reporting field is needed.
+- Example fixture: `tests_deps/optimize_line_content_job.yaml` (pinned by
+  `tests/test_phase3_export.py::TestOptimizeLineContentDemoExample`) — a
+  reflowed label (zero compression), its opted-out twin (authored split,
+  compresses), a disabled middle line splitting a label into independent
+  groups, and a four-line group pulling words down to the last line.
 
 ### Horizontal Text Alignment
 
@@ -824,7 +897,7 @@ already knows each toolpath's kind, the `Profiler` is skipped entirely.
   **removed**; optimization now happens pre-write in plate space.
 
 ### Cascading Resolution
-When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.15), `space_width_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.3), `min_glyph_width` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `kerning_window_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.05), `kerning_penetration_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_recession_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_min_gap` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `fallback_advance_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `cutter_downsize` (explicit `false` is honored; only `None` means unset, falling back to the config or true), `max_cutter_downsizes` (explicit 0 is honored; only `None` means unset, falling back to the config or 1) and `cutter_downsize_global` (explicit `false` is honored; only `None` means unset, falling back to the config or true) and `h_compress_global` (explicit `true` is honored; only `None` means unset, falling back to the config or false). `cutter_size` (explicit-`None` precedence line → label → job → auto-select; no config tier, `gt=0.0` so an explicit `0.0` is a validation error, not a cascade value). `material` cascades label → job (and plate →
+When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.15), `space_width_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.3), `min_glyph_width` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `kerning_window_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.05), `kerning_penetration_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_recession_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_min_gap` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `fallback_advance_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `cutter_downsize` (explicit `false` is honored; only `None` means unset, falling back to the config or true), `max_cutter_downsizes` (explicit 0 is honored; only `None` means unset, falling back to the config or 1) and `cutter_downsize_global` (explicit `false` is honored; only `None` means unset, falling back to the config or true) and `h_compress_global` (explicit `true` is honored; only `None` means unset, falling back to the config or false) and `optimize_line_content` (explicit `true` is honored; only `None` means unset, falling back to the config or false). `cutter_size` (explicit-`None` precedence line → label → job → auto-select; no config tier, `gt=0.0` so an explicit `0.0` is a validation error, not a cascade value). `material` cascades label → job (and plate →
 job via the clearance-style plate cascade): an explicit label/plate value wins,
 an explicit `null` counts as unset, and empty-after-trim strings are validation
 errors.
@@ -1039,7 +1112,8 @@ top-most layer:
   `min_glyph_width`, `kerning_window_fraction`, `kerning_penetration_scale`,
   `kerning_recession_scale`,
   `kerning_min_gap`, `fallback_advance_fraction`, `cutter_downsize`,
-  `max_cutter_downsizes`, `cutter_downsize_global`, `h_compress_global`, `holes`, `allow_rotation`,
+  `max_cutter_downsizes`, `cutter_downsize_global`, `h_compress_global`,
+  `optimize_line_content`, `holes`, `allow_rotation`,
   `text_chunk_mode`, `layout`) fill missing **job-level** keys; the existing
   label -> job cascade then works unchanged and YAML values always win (an
   explicit YAML `null` counts as unset; `holes: []` suppression is a value).

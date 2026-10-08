@@ -349,6 +349,15 @@ class JobDefaults(BaseModel):
             "of the same text_height in the same label)."
         ),
     )
+    optimize_line_content: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Default word-level line-content reflow permission (job layer; "
+            "consecutive enabled text lines redistribute their words to "
+            "equalize rendered width, minimizing horizontal compression). "
+            "Unset falls back to False."
+        ),
+    )
     text_chunk_mode: Optional[Literal["line", "word"]] = Field(
         default=None, description="Default plate-space text optimization granularity."
     )
@@ -444,6 +453,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "max_cutter_downsizes",
     "cutter_downsize_global",
     "h_compress_global",
+    "optimize_line_content",
     "allow_rotation",
     "text_chunk_mode",
     "layout",

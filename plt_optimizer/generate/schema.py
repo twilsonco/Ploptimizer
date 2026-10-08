@@ -480,6 +480,20 @@ class TextAttributes(BaseModel):
             ``None`` means unset. Cascades line -> label -> job (and is
             accepted on plates for schema parity, where it is not applied at
             that level).
+        optimize_line_content: Optional permission to redistribute this
+            line's words across the consecutive lines that also enable the
+            option. When enabled, whole words move between the enabled lines
+            of the group (word order is never changed -- only the line
+            breaks) so the group's lines reach equal rendered width,
+            minimizing the horizontal compression the label would otherwise
+            need. Consecutive enabled lines form one independent
+            optimization group; a disabled line breaks the group. Consumed
+            by :mod:`plt_optimizer.generate.line_content` as an export
+            pre-pass running *before* the cutter-reduction and shared-
+            compression pre-passes, so those see the reflowed text.
+            Defaults to ``False``; only ``None`` means unset. Cascades
+            line -> label -> job (and is accepted on plates for schema
+            parity, where it is not applied at that level).
         text_color: Optional stroke-color layer tag used to split
             otherwise-identical text into separate toolpaths (one HPGL
             ``SP`` layer and one PLT file per distinct color), so the
@@ -697,6 +711,21 @@ class TextAttributes(BaseModel):
             "touched. Setting the option at the job level enables it for every "
             "label; sharing is always per-label. Cascades line -> label -> job "
             "(fallback false); explicit true is honored."
+        ),
+    )
+    optimize_line_content: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Redistribute this line's words across the consecutive lines that "
+            "also enable the option: whole words move between the enabled "
+            "lines of the group (word order is never changed, only the line "
+            "breaks) so the group's lines reach equal rendered width, "
+            "minimizing the horizontal compression the label would otherwise "
+            "need. Consecutive enabled lines form one independent group; a "
+            "disabled line breaks the group. Runs as an export pre-pass "
+            "before the cutter-reduction and shared-compression pre-passes. "
+            "Cascades line -> label -> job (fallback false); explicit true is "
+            "honored."
         ),
     )
     text_color: Optional[TextColor] = Field(
@@ -1185,6 +1214,9 @@ class PlateSpec(BaseModel):
         max_cutter_downsizes: Optional cap on cutter downsizing steps.
             Accepted for schema parity with the job/label
             ``max_cutter_downsizes`` cascade (not applied at plate level).
+        optimize_line_content: Optional word-level line-content reflow
+            permission. Accepted for schema parity with the job/label
+            ``optimize_line_content`` cascade (not applied at plate level).
         layout: Optional per-plate fill-order override (``rows`` /
             ``columns``). ``None`` (the default) inherits the job-level
             ``layout``. Unlike the other cascading fields, this one IS
@@ -1356,6 +1388,12 @@ class PlateSpec(BaseModel):
         description=(
             "Per-label sharing of horizontal compression (schema parity; "
             "not applied at plate level)."
+        ),
+    )
+    optimize_line_content: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Word-level line-content reflow permission (schema parity; not applied at plate level)."
         ),
     )
     hole_text_collision_distance: Optional[float] = Field(

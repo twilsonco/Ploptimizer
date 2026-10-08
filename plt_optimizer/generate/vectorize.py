@@ -808,6 +808,16 @@ def export_per_cutter_plts(
     if provided_plates is not None and len(provided_plates) == 0:
         provided_plates = None
 
+    # Word-level line-content reflow (pre-pass): consecutive text lines that
+    # enable ``optimize_line_content`` exchange whole words (word order kept,
+    # only the line breaks move) so their natural widths equalize, minimizing
+    # the compression the label needs. Runs FIRST among the pre-passes, so the
+    # cutter reduction and shared compression below measure the reflowed text.
+    # No-op (same list) when no label enables it.
+    from plt_optimizer.generate.line_content import apply_line_content_reflow
+
+    resolved_labels = apply_line_content_reflow(resolved_labels)
+
     # Compression-driven cutter reduction (pre-pass): render-measure the
     # labels once and downsize the *automatic* cutters of compressed lines
     # BEFORE the pen map / packing / rendering consume them, so the per-cutter

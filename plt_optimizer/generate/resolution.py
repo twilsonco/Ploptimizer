@@ -138,6 +138,12 @@ DEFAULT_CUTTER_DOWNSIZE_GLOBAL: bool = True
 # most-compressed (minimum) scale, clamped to each receiver's own
 # ``1 - max_h_compress`` budget floor.
 DEFAULT_H_COMPRESS_GLOBAL: bool = False
+# Word-level line-content reflow (see ``plt_optimizer.generate.line_content``).
+# ``False`` (the default) keeps the historical per-line text: lines never
+# exchange words. ``True`` lets consecutive enabled lines redistribute their
+# words (word order preserved, only the line breaks move) to equalize the
+# group's rendered widths, minimizing horizontal compression.
+DEFAULT_OPTIMIZE_LINE_CONTENT: bool = False
 # Stroke-color layer tag default. ``"none"`` is the implicit color of
 # every line that omits ``text_color``; it never cascades (the field is
 # label/line-local by design, see schema.TextColor) and the resolution
@@ -464,6 +470,17 @@ class ResolvedTextLine:
             budget is never touched. Consumed by
             :mod:`plt_optimizer.generate.h_compress`. Explicit ``True`` is
             honored; only ``None`` means unset.
+        optimize_line_content: Whether this line's words may be
+            redistributed across the consecutive lines that also enable the
+            option (cascaded line -> label -> job, default
+            ``DEFAULT_OPTIMIZE_LINE_CONTENT`` (``False``)). Consecutive
+            enabled lines form one independent reflow group; the export
+            pre-pass :mod:`plt_optimizer.generate.line_content` moves whole
+            words between the group's lines (word order preserved, only the
+            line breaks change) so the group's rendered widths equalize,
+            minimizing horizontal compression. Consumed before the
+            cutter-reduction and shared-compression pre-passes. Explicit
+            ``True`` is honored; only ``None`` means unset.
     """
 
     text: str
@@ -488,6 +505,7 @@ class ResolvedTextLine:
     max_cutter_downsizes: int = DEFAULT_MAX_CUTTER_DOWNSIZES
     cutter_downsize_global: bool = DEFAULT_CUTTER_DOWNSIZE_GLOBAL
     h_compress_global: bool = DEFAULT_H_COMPRESS_GLOBAL
+    optimize_line_content: bool = DEFAULT_OPTIMIZE_LINE_CONTENT
 
 
 @dataclass(frozen=True)
@@ -1257,6 +1275,17 @@ def _resolve_content(
         else:
             line_h_compress_global = DEFAULT_H_COMPRESS_GLOBAL
 
+        # Resolve the word-level line-content reflow permission with the same
+        # precedence; an intentional ``True`` (opt-in) is honored.
+        if line.optimize_line_content is not None:
+            line_optimize_line_content: bool = line.optimize_line_content
+        elif label_input.optimize_line_content is not None:
+            line_optimize_line_content = label_input.optimize_line_content
+        elif job.optimize_line_content is not None:
+            line_optimize_line_content = job.optimize_line_content
+        else:
+            line_optimize_line_content = DEFAULT_OPTIMIZE_LINE_CONTENT
+
         resolved_content.append(
             ResolvedTextLine(
                 text=line.text,
@@ -1281,6 +1310,7 @@ def _resolve_content(
                 max_cutter_downsizes=line_max_cutter_downsizes,
                 cutter_downsize_global=line_cutter_downsize_global,
                 h_compress_global=line_h_compress_global,
+                optimize_line_content=line_optimize_line_content,
             )
         )
     return resolved_content

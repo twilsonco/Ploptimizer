@@ -2007,3 +2007,46 @@ class TestMaterialHelpers:
         assert material_key(" WB(UV) ") == material_key("wb(uv)")
         assert material_key(None) is None
         assert material_key("wb") != material_key("wb(uv)")
+
+
+class TestOptimizeLineContent:
+    """Tests for the optimize_line_content word-reflow field."""
+
+    def test_inherited_on_all_levels(self) -> None:
+        """TextLine, LabelSpec and JobSpec expose optimize_line_content."""
+        assert TextLine(text="X", optimize_line_content=True).optimize_line_content is True
+        label = LabelSpec(id="lbl", optimize_line_content=True, content=[TextLine(text="X")])
+        assert label.optimize_line_content is True
+        job = JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            optimize_line_content=True,
+            content=[TextLine(text="X")],
+        )
+        assert job.optimize_line_content is True
+        # The opt-out direction works on every level too.
+        assert TextLine(text="X", optimize_line_content=False).optimize_line_content is False
+
+    def test_default_is_none(self) -> None:
+        """Schema default is None (unset); resolution applies the False fallback."""
+        assert TextLine(text="X").optimize_line_content is None
+        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).optimize_line_content is None
+        assert (
+            JobSpec(
+                job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]
+            ).optimize_line_content
+            is None
+        )
+
+    def test_plate_accepts_field_for_parity(self) -> None:
+        """PlateSpec should accept the field for schema parity."""
+        plate = PlateSpec(
+            id="plate_1",
+            width=24.0,
+            height=12.0,
+            left_clearance=0.25,
+            top_clearance=0.25,
+            optimize_line_content=True,
+        )
+        assert plate.optimize_line_content is True

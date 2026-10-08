@@ -27,6 +27,7 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_MAX_H_COMPRESS,
     DEFAULT_MIN_GLYPH_WIDTH,
     DEFAULT_MIN_HOLE_MARGIN,
+    DEFAULT_OPTIMIZE_LINE_CONTENT,
     DEFAULT_SPACE_WIDTH_FRACTION,
     DEFAULT_TEXT_COLOR,
     DEFAULT_TEXT_H_ALIGNMENT,
@@ -2625,3 +2626,70 @@ class TestMaterialCascade:
             id="x", count=1, width=1.0, height=1.0, margin=0.1, h_margin=0.1, v_margin=0.1
         )
         assert label.material is None
+
+
+class TestOptimizeLineContentCascade:
+    """optimize_line_content cascades line -> label -> job -> False (explicit-None)."""
+
+    @staticmethod
+    def _job(**levels: bool | None) -> JobSpec:
+        """Build a single-line job applying optimize_line_content at the given levels."""
+        job_kwargs: dict[str, bool | None] = {}
+        label_kwargs: dict[str, bool | None] = {}
+        line_kwargs: dict[str, bool | None] = {}
+        if "job" in levels:
+            job_kwargs["optimize_line_content"] = levels["job"]
+        if "label" in levels:
+            label_kwargs["optimize_line_content"] = levels["label"]
+        if "line" in levels:
+            line_kwargs["optimize_line_content"] = levels["line"]
+        return JobSpec(
+            job_name="J",
+            text_height=0.5,
+            **job_kwargs,  # type: ignore[arg-type]
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    **label_kwargs,  # type: ignore[arg-type]
+                    content=[TextLine(text="X", **line_kwargs)],  # type: ignore[arg-type]
+                )
+            ],
+        )
+
+    def test_default_module_constant_is_false(self) -> None:
+        """The shipped default keeps every line's authored text."""
+        assert DEFAULT_OPTIMIZE_LINE_CONTENT is False
+
+    def test_default_resolves_false(self) -> None:
+        """All levels omitting resolves to the False fallback."""
+        line = resolve_job_spec(self._job())[0].content[0]
+        assert line.optimize_line_content is False
+
+    def test_job_true_used_when_label_omits(self) -> None:
+        """Job-level True cascades to labels and lines that omit the field."""
+        line = resolve_job_spec(self._job(job=True))[0].content[0]
+        assert line.optimize_line_content is True
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level False beats the job-level True."""
+        line = resolve_job_spec(self._job(job=True, label=False))[0].content[0]
+        assert line.optimize_line_content is False
+
+    def test_line_overrides_label(self) -> None:
+        """Line-level True beats the label-level False."""
+        line = resolve_job_spec(self._job(job=False, label=False, line=True))[0].content[0]
+        assert line.optimize_line_content is True
+
+    def test_resolved_line_defaults_to_false(self) -> None:
+        """A manually constructed ResolvedTextLine defaults to False."""
+        line = ResolvedTextLine(
+            text="X",
+            nominal_text_height=0.5,
+            toolpath_text_height=0.44,
+            cutter_diameter=0.06,
+            character_spacing=0.09,
+            line_spacing=0.1,
+        )
+        assert line.optimize_line_content is False

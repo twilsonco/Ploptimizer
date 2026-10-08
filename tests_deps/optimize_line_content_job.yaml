@@ -1,0 +1,63 @@
+# Fixture for word-level line-content reflow (`optimize_line_content`,
+# default false).
+#
+# Consecutive text lines that enable the option exchange whole words (word
+# order is never changed -- only the line breaks move) so the group's lines
+# reach equal rendered width, minimizing the horizontal compression the label
+# would otherwise need. Consecutive enabled lines form one independent group;
+# a disabled line breaks the group. The reflow runs as an export pre-pass
+# before the cutter-reduction and shared-compression pre-passes.
+job:
+  job_name: Optimize Line Content Demo
+
+  width: 4.0
+  height: 1.6
+  margin: 0.1
+  text_height: 0.5
+
+  # Compression budget: the reflowed lines fit, so nothing compresses; the
+  # unbalanced opt-out label below shows the compression the reflow avoids.
+  max_h_compress: 0.5
+
+  # Opt in at the job level (the field defaults to false).
+  optimize_line_content: true
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. Two enabled lines: "ABCDEFGH IJ" overflows the inner content area
+    #    while "K" is tiny, so "IJ" moves down and both lines fit at their
+    #    natural width (zero compression).
+    - id: reflowed
+      content:
+        - text: "ABCDEFGH IJ"
+        - text: "K"
+
+    # 2. Opt-out: with optimize_line_content false the authored split stays,
+    #    so the wide line compresses to fit.
+    - id: opted_out
+      optimize_line_content: false
+      content:
+        - text: "ABCDEFGH IJ"
+        - text: "K"
+
+    # 3. Group boundary: the disabled middle line splits the label into two
+    #    single-line groups, so no words are exchanged at all.
+    - id: split_groups
+      content:
+        - text: "AAAA BBBB"
+        - text: "SOLO"
+          optimize_line_content: false
+        - text: "CCCC"
+
+    # 4. Deep group: one very long line plus three short ones. Word order is
+    #    kept, so the tail words travel all the way down to the last lines.
+    - id: deep_group
+      content:
+        - text: "AAAA BBBB CCCC DDDD"
+        - text: "E"
+        - text: "F"
+        - text: "G"

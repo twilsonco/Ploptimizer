@@ -432,6 +432,19 @@
       "description": "Default per-label sharing of horizontal compression (job layer; a trigger line's compression scale applies to every eligible line of the same text_height in the same label).",
       "title": "H Compress Global"
     },
+    "optimize_line_content": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default word-level line-content reflow permission (job layer; consecutive enabled text lines redistribute their words to equalize rendered width, minimizing horizontal compression). Unset falls back to False.",
+      "title": "Optimize Line Content"
+    },
     "text_chunk_mode": {
       "anyOf": [
         {

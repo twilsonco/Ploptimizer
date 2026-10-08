@@ -1255,6 +1255,84 @@ class TestHCompressGlobalDemoExample:
         ]
 
 
+class TestOptimizeLineContentDemoExample:
+    """Regression tests for tests_deps/optimize_line_content_job.yaml.
+
+    The fixture opts in to ``optimize_line_content``: consecutive enabled
+    lines exchange whole words (word order kept, only the line breaks move)
+    so their natural widths equalize and the reflowed label needs no
+    compression, while the opted-out twin (identical text, flag off) must
+    compress. A disabled middle line splits a label into independent groups.
+    """
+
+    _SPEC = Path("tests_deps/optimize_line_content_job.yaml")
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="olc",
+            optimize=False,
+            plots=False,
+        )
+
+    def test_reflowed_label_balances_and_fits(self, tmp_path: Path) -> None:
+        """The over-wide first line sheds its tail word and nothing compresses."""
+        result = self._export(tmp_path)
+        reflowed = result.rendered_labels["reflowed"]
+        assert [line.text for line in reflowed.source_label.content] == [
+            "ABCDEFGH",
+            "IJ K",
+        ]
+        assert reflowed.compression_by_line == {}
+
+    def test_opted_out_label_keeps_text_and_compresses(self, tmp_path: Path) -> None:
+        """optimize_line_content false: the authored split stays and compresses."""
+        result = self._export(tmp_path)
+        opted_out = result.rendered_labels["opted_out"]
+        assert [line.text for line in opted_out.source_label.content] == [
+            "ABCDEFGH IJ",
+            "K",
+        ]
+        assert sorted(opted_out.compression_by_line) == [0]
+        assert opted_out.compression_by_line[0] < 1.0
+
+    def test_disabled_line_splits_the_groups(self, tmp_path: Path) -> None:
+        """A disabled middle line breaks the group, so no words move."""
+        result = self._export(tmp_path)
+        split = result.rendered_labels["split_groups"]
+        assert [line.text for line in split.source_label.content] == [
+            "AAAA BBBB",
+            "SOLO",
+            "CCCC",
+        ]
+        assert split.compression_by_line == {}
+
+    def test_deep_group_moves_words_to_the_last_line(self, tmp_path: Path) -> None:
+        """A four-line group sheds its long first line's tail words downward."""
+        result = self._export(tmp_path)
+        deep = result.rendered_labels["deep_group"]
+        texts = [line.text for line in deep.source_label.content]
+        # Word order is preserved across the whole group.
+        assert " ".join(texts).split() == "AAAA BBBB CCCC DDDD E F G".split()
+        # The first line shed words; the last line received them.
+        assert texts[0] == "AAAA"
+        assert texts[-1].startswith("DDDD")
+        assert deep.compression_by_line == {}
+
+    def test_reflow_keeps_one_cutter_file(self, tmp_path: Path) -> None:
+        """Reflow changes line breaks only, so the cutter set is unchanged."""
+        result = self._export(tmp_path)
+        assert sorted(p.name for p in result.plt_paths) == [
+            "0.015_bh_olc.plt",
+            "0.060_txt_olc.plt",
+        ]
+
+
 class TestPlateNumberScoping:
     """Plate numbers are scoped to a material group, not the whole job."""
 

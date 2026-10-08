@@ -102,6 +102,12 @@ _FALLBACK_NOTES: dict[str, str] = {
     "lines are never touched. Cascades line/label/job; job-config supplies the shop default.",
     "DEFAULT_MAX_H_COMPRESS": "0.0 = horizontal compression disabled. Required from config-or-"
     "spec when a job-config is in play.",
+    "DEFAULT_OPTIMIZE_LINE_CONTENT": "False = every text line keeps its authored words. True = "
+    "consecutive enabled lines exchange whole words (word order kept, only the line breaks move) "
+    "so the group's natural rendered widths equalize, minimizing the compression the label needs. "
+    "A disabled line breaks the group; runs of one line, blank lines and groups with fewer words "
+    "than lines are left alone. Runs as an export pre-pass before the cutter-reduction and "
+    "shared-compression pre-passes. Cascades line/label/job; job-config supplies the shop default.",
     "DEFAULT_TEXT_H_ALIGNMENT": "Horizontal alignment fallback when unset everywhere.",
     "DEFAULT_TEXT_COLOR": "Implicit stroke-color layer of text that omits text_color "
     "(never cascades; a job-level text_color is rejected). 'none' cannot be specified "
