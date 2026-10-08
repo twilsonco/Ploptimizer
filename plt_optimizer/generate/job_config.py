@@ -358,6 +358,16 @@ class JobDefaults(BaseModel):
             "Unset falls back to False."
         ),
     )
+    optimize_line_content_max_lines: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Default ceiling N on the consecutive lines a reflow group may "
+            "use (job layer). Growth-only: the group starts at its existing "
+            "line count and may gain lines up to N. Unset (null) means no "
+            "growth."
+        ),
+    )
     text_chunk_mode: Optional[Literal["line", "word"]] = Field(
         default=None, description="Default plate-space text optimization granularity."
     )
@@ -454,6 +464,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "cutter_downsize_global",
     "h_compress_global",
     "optimize_line_content",
+    "optimize_line_content_max_lines",
     "allow_rotation",
     "text_chunk_mode",
     "layout",

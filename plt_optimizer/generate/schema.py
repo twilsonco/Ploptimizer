@@ -494,6 +494,22 @@ class TextAttributes(BaseModel):
             Defaults to ``False``; only ``None`` means unset. Cascades
             line -> label -> job (and is accepted on plates for schema
             parity, where it is not applied at that level).
+        optimize_line_content_max_lines: Optional ceiling ``N`` on how many
+            consecutive lines an :attr:`optimize_line_content` group may use.
+            The option can only ever **add** lines to a label -- it never
+            removes, blanks or collapses one. Unset (``None``) reflows across
+            the group's existing lines and adds none. When set, the reflow
+            starts from the group's existing line count ``G`` and grows the
+            group -- inserting new lines cloned from the group's typography --
+            until its lines need no horizontal compression, ``M`` reaches
+            ``N``, or ``M`` reaches the number of words in the group (every
+            line keeps at least one word). ``N <= G`` leaves the cap inert.
+            Setting it on any one line of a group applies it to the whole
+            group; two *different* values in one group are an error, and so is
+            specifying it while :attr:`optimize_line_content` is not enabled.
+            Defaults to ``None`` (unset = no growth). Cascades
+            line -> label -> job (and is accepted on plates for schema
+            parity, where it is not applied at that level).
         text_color: Optional stroke-color layer tag used to split
             otherwise-identical text into separate toolpaths (one HPGL
             ``SP`` layer and one PLT file per distinct color), so the
@@ -726,6 +742,24 @@ class TextAttributes(BaseModel):
             "before the cutter-reduction and shared-compression pre-passes. "
             "Cascades line -> label -> job (fallback false); explicit true is "
             "honored."
+        ),
+    )
+    optimize_line_content_max_lines: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Ceiling N on how many consecutive lines an optimize_line_content "
+            "group may use. This option can only ever ADD lines to a label; it "
+            "never removes, blanks or collapses one. Unset reflows across the "
+            "group's existing lines and adds none. When set, the reflow starts "
+            "at the group's existing line count G and grows the group "
+            "(inserting lines cloned from the group's typography) until its "
+            "lines need no horizontal compression, M reaches N, or M reaches "
+            "the group's word count. N <= G leaves the cap inert. Setting it "
+            "on any one line of a group applies it to the whole group; two "
+            "different values in one group are an error, and so is specifying "
+            "it while optimize_line_content is not enabled. Cascades "
+            "line -> label -> job (unset by default = no growth)."
         ),
     )
     text_color: Optional[TextColor] = Field(
@@ -1217,6 +1251,10 @@ class PlateSpec(BaseModel):
         optimize_line_content: Optional word-level line-content reflow
             permission. Accepted for schema parity with the job/label
             ``optimize_line_content`` cascade (not applied at plate level).
+        optimize_line_content_max_lines: Optional ceiling on the number of
+            consecutive lines a reflow group may use. Accepted for schema
+            parity with the job/label ``optimize_line_content_max_lines``
+            cascade (not applied at plate level).
         layout: Optional per-plate fill-order override (``rows`` /
             ``columns``). ``None`` (the default) inherits the job-level
             ``layout``. Unlike the other cascading fields, this one IS
@@ -1394,6 +1432,14 @@ class PlateSpec(BaseModel):
         default=None,
         description=(
             "Word-level line-content reflow permission (schema parity; not applied at plate level)."
+        ),
+    )
+    optimize_line_content_max_lines: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Ceiling on the number of consecutive lines a reflow group may "
+            "use (schema parity; not applied at plate level)."
         ),
     )
     hole_text_collision_distance: Optional[float] = Field(
@@ -1798,6 +1844,35 @@ class JobSpec(LabelAttributes):
                 "a label or an individual text line to split otherwise-"
                 "identical text into separate toolpaths"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _reject_max_lines_disabled_parity(self) -> JobSpec:
+        """Reject a plate pairing a reflow line cap with reflow disabled.
+
+        ``optimize_line_content_max_lines`` requires ``optimize_line_content``
+        to be enabled; the authoritative check runs at resolution time (where
+        the full line -> label -> job cascade is visible, so a job-level cap
+        with a label-level enable is valid). This validator covers only the
+        self-contradictory plate-parity declaration: a plate that explicitly
+        disables reflow while declaring its cap.
+
+        Raises:
+            ValueError: When a plate sets ``optimize_line_content_max_lines``
+                while its own ``optimize_line_content`` is ``False``.
+
+        Returns:
+            Self for method chaining.
+        """
+        for plate in self.plates or []:
+            if (
+                plate.optimize_line_content_max_lines is not None
+                and plate.optimize_line_content is False
+            ):
+                raise ValueError(
+                    f"plate '{plate.id}': 'optimize_line_content_max_lines' "
+                    "requires 'optimize_line_content' to be enabled"
+                )
         return self
 
     @model_validator(mode="after")

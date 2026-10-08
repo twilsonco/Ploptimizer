@@ -445,6 +445,20 @@
       "description": "Default word-level line-content reflow permission (job layer; consecutive enabled text lines redistribute their words to equalize rendered width, minimizing horizontal compression). Unset falls back to False.",
       "title": "Optimize Line Content"
     },
+    "optimize_line_content_max_lines": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default ceiling N on the consecutive lines a reflow group may use (job layer). Growth-only: the group starts at its existing line count and may gain lines up to N. Unset (null) means no growth.",
+      "title": "Optimize Line Content Max Lines"
+    },
     "text_chunk_mode": {
       "anyOf": [
         {

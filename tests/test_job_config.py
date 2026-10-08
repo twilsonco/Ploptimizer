@@ -145,6 +145,15 @@ class TestJobDefaultsModel:
         assert JobDefaults(optimize_line_content=False).optimize_line_content is False
         assert JobDefaults().optimize_line_content is None
 
+    def test_optimize_line_content_max_lines_config_field(self) -> None:
+        """optimize_line_content_max_lines is a legal shop default (int, ge=1)."""
+        defaults = JobDefaults(optimize_line_content_max_lines=3)
+        assert defaults.optimize_line_content_max_lines == 3
+        assert JobDefaults().optimize_line_content_max_lines is None
+        assert JobDefaults(optimize_line_content_max_lines=None).optimize_line_content_max_lines is None
+        with pytest.raises(ValidationError):
+            JobDefaults(optimize_line_content_max_lines=0)  # type: ignore[arg-type]
+
     def test_description_key_allowed(self) -> None:
         """A free-form description (like tools.json) is accepted."""
         assert JobDefaults(**_FULL_CONFIG, description="shop A").description == "shop A"
@@ -190,6 +199,7 @@ class TestJobDefaultsModel:
         assert "cutter_downsize_global" not in REQUIRED_WHEN_UNCONFIGURED
         assert "h_compress_global" not in REQUIRED_WHEN_UNCONFIGURED
         assert "optimize_line_content" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "optimize_line_content_max_lines" not in REQUIRED_WHEN_UNCONFIGURED
         assert JobDefaults().space_width_fraction is None
         assert JobDefaults().min_glyph_width is None
         assert JobDefaults().kerning_window_fraction is None
@@ -342,6 +352,32 @@ class TestApplyJobConfigDefaults:
         config = load_job_config(_write_config(tmp_path, config_data))
         filled = apply_job_config_defaults(_minimal_job(optimize_line_content=False), config)
         assert filled["optimize_line_content"] is False
+
+    def test_optimize_line_content_max_lines_job_layer_fill(self, tmp_path: Path) -> None:
+        """The configured reflow line cap lands as a job-level value."""
+        config_data = dict(_FULL_CONFIG)
+        config_data["optimize_line_content_max_lines"] = 4
+        config = load_job_config(_write_config(tmp_path, config_data))
+        filled = apply_job_config_defaults(_minimal_job(), config)
+        assert filled["optimize_line_content_max_lines"] == 4
+
+    def test_optimize_line_content_max_lines_yaml_wins(self, tmp_path: Path) -> None:
+        """A spec-declared cap is never overridden by the config."""
+        config_data = dict(_FULL_CONFIG)
+        config_data["optimize_line_content_max_lines"] = 4
+        config = load_job_config(_write_config(tmp_path, config_data))
+        filled = apply_job_config_defaults(
+            _minimal_job(optimize_line_content_max_lines=2), config
+        )
+        assert filled["optimize_line_content_max_lines"] == 2
+
+    def test_optimize_line_content_max_lines_null_stays_unset(self, tmp_path: Path) -> None:
+        """A null config cap leaves the job key unset (no growth)."""
+        config_data = dict(_FULL_CONFIG)
+        config_data["optimize_line_content_max_lines"] = None
+        config = load_job_config(_write_config(tmp_path, config_data))
+        filled = apply_job_config_defaults(_minimal_job(), config)
+        assert filled.get("optimize_line_content_max_lines") is None
 
     def test_yaml_values_win(self, tmp_path: Path) -> None:
         """Spec-declared values are never overridden by the config."""
@@ -710,6 +746,7 @@ class TestParseYamlWithJobConfig:
         assert job.cutter_downsize_global is True
         assert job.h_compress_global is False
         assert job.optimize_line_content is False
+        assert job.optimize_line_content_max_lines is None
 
     def test_yaml_overrides_config(self) -> None:
         """Spec-declared values still win over the shipped config."""

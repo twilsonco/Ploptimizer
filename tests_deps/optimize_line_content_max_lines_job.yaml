@@ -1,0 +1,89 @@
+# Fixture for the reflow line cap (`optimize_line_content_max_lines`).
+#
+# The cap is GROWTH-ONLY: a group of consecutive `optimize_line_content`
+# lines starts at its existing line count and may ADD lines (clones of the
+# group's own typography, inserted after the group's last line) while its
+# lines still need horizontal compression, up to the cap. It never removes,
+# blanks or collapses a line. The loop probes the rendered label for
+# compression, so the cap is the only path where the reflow pre-pass renders.
+#
+# Geometry: inner content area = width - 2 * margin = 3.8in. The six-word
+# banner "DANGER CONVEYER START AND STOP HERE" repartitions to a widest line
+# of 3.21in at M=4 (fits), 5.94in at M=3 and 7.16in at M=2 (both compress).
+job:
+  job_name: Optimize Line Content Max Lines Demo
+
+  width: 4.0
+  height: 2.6
+  margin: 0.1
+  text_height: 0.5
+
+  # Compression budget: the growth loop measures compression, so a budget of
+  # 0.0 would leave it nothing to measure (see the `no_budget` label).
+  max_h_compress: 0.5
+
+  # Opt in at the job level; each label declares its own cap.
+  optimize_line_content: true
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. Growth: one very long line, cap 4. The loop probes M=1 (12.99in),
+    #    M=2 (7.16in) and M=3 (5.94in) -- all compressed -- and stops at
+    #    M=4, where the widest line is 3.21in: three lines are inserted and
+    #    the label engraves with zero compression.
+    - id: grow
+      optimize_line_content_max_lines: 4
+      content:
+        - text: "DANGER CONVEYER START AND STOP HERE"
+
+    # 2. Cap exhausted: the same banner capped at 3. The loop grows to
+    #    M=3, the widest line is still 5.94in, and the cap is spent -- the
+    #    label keeps its 3-line layout, compresses, and logs a WARNING.
+    - id: cap_exhausted
+      optimize_line_content_max_lines: 3
+      content:
+        - text: "DANGER CONVEYER START AND STOP HERE"
+
+    # 3. Inert cap: the cap (2) does not exceed the group's own line count
+    #    (3), so there is no growth room. The group runs the ordinary
+    #    full-group reflow and keeps all three lines -- a cap never removes
+    #    lines.
+    - id: inert_cap
+      optimize_line_content_max_lines: 2
+      content:
+        - text: "DANGER CONVEYER START"
+        - text: "AND STOP"
+        - text: "HERE"
+
+    # 4. Group cap: the cap is declared on the group's LAST line and applies
+    #    to the whole group (resolution fans it out), growing the two-line
+    #    group to four.
+    - id: group_cap
+      content:
+        - text: "DANGER CONVEYER START"
+        - text: "AND STOP HERE"
+          optimize_line_content_max_lines: 4
+
+    # 5. No budget: max_h_compress 0.0 leaves the loop no compression to
+    #    measure, so the renders are skipped and the group keeps its
+    #    authored single line.
+    - id: no_budget
+      max_h_compress: 0.0
+      optimize_line_content_max_lines: 4
+      content:
+        - text: "DANGER CONVEYER START AND STOP HERE"
+
+    # 6. Boundary: a disabled line separates two capped groups, each of which
+    #    grows on its own terms.
+    - id: group_boundary
+      content:
+        - text: "DANGER CONVEYER START AND STOP HERE"
+          optimize_line_content_max_lines: 4
+        - text: "SERIAL 042"
+          optimize_line_content: false
+        - text: "WEAR SAFETY GOGGLES AND GLOVES ALWAYS"
+          optimize_line_content_max_lines: 4

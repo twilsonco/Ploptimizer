@@ -2050,3 +2050,115 @@ class TestOptimizeLineContent:
             optimize_line_content=True,
         )
         assert plate.optimize_line_content is True
+
+
+class TestOptimizeLineContentMaxLines:
+    """Tests for the optimize_line_content_max_lines reflow line cap."""
+
+    def test_inherited_on_all_levels(self) -> None:
+        """TextLine, LabelSpec and JobSpec expose optimize_line_content_max_lines."""
+        line = TextLine(text="X", optimize_line_content_max_lines=3)
+        assert line.optimize_line_content_max_lines == 3
+        label = LabelSpec(
+            id="lbl",
+            optimize_line_content_max_lines=3,
+            content=[TextLine(text="X")],
+        )
+        assert label.optimize_line_content_max_lines == 3
+        job = JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            optimize_line_content_max_lines=3,
+            content=[TextLine(text="X")],
+        )
+        assert job.optimize_line_content_max_lines == 3
+
+    def test_default_is_none(self) -> None:
+        """Schema default is None (unset = no growth); no fallback value."""
+        assert TextLine(text="X").optimize_line_content_max_lines is None
+        assert (
+            LabelSpec(id="lbl", content=[TextLine(text="X")]).optimize_line_content_max_lines
+            is None
+        )
+        assert (
+            JobSpec(
+                job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]
+            ).optimize_line_content_max_lines
+            is None
+        )
+
+    def test_plate_accepts_field_for_parity(self) -> None:
+        """PlateSpec should accept the field for schema parity."""
+        plate = PlateSpec(
+            id="plate_1",
+            width=24.0,
+            height=12.0,
+            optimize_line_content=True,
+            optimize_line_content_max_lines=4,
+        )
+        assert plate.optimize_line_content_max_lines == 4
+
+    def test_zero_is_rejected(self) -> None:
+        """ge=1: a zero cap is a validation error, not a cascade value."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", optimize_line_content_max_lines=0)
+        with pytest.raises(ValidationError):
+            PlateSpec(id="p", width=24.0, height=12.0, optimize_line_content_max_lines=0)
+
+    def test_plate_cap_with_disabled_reflow_is_rejected(self) -> None:
+        """A plate pairing the cap with an explicit reflow opt-out is contradictory."""
+        with pytest.raises(ValidationError, match="requires 'optimize_line_content'"):
+            JobSpec(
+                job_name="J",
+                width=2.0,
+                height=1.0,
+                content=[TextLine(text="X")],
+                plates=[
+                    PlateSpec(
+                        id="p_disabled",
+                        width=24.0,
+                        height=12.0,
+                        optimize_line_content=False,
+                        optimize_line_content_max_lines=3,
+                    )
+                ],
+            )
+
+    def test_plate_cap_with_enabled_reflow_is_accepted(self) -> None:
+        """The parity self-check passes when the plate enables reflow too."""
+        job = JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            content=[TextLine(text="X")],
+            plates=[
+                PlateSpec(
+                    id="p_ok",
+                    width=24.0,
+                    height=12.0,
+                    optimize_line_content=True,
+                    optimize_line_content_max_lines=3,
+                )
+            ],
+        )
+        assert job.plates is not None
+        assert job.plates[0].optimize_line_content_max_lines == 3
+
+    def test_job_cap_with_disabled_job_reflow_is_accepted(self) -> None:
+        """A job-level cap is legal with the job opt-out: a label may enable reflow."""
+        job = JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            optimize_line_content=False,
+            optimize_line_content_max_lines=3,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    optimize_line_content=True,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        assert job.optimize_line_content_max_lines == 3

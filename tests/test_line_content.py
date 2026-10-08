@@ -38,6 +38,8 @@ def _line(
     cutter: float = 0.06,
     character_spacing: float = 0.09,
     space_width_fraction: float = 0.3,
+    max_lines: int | None = None,
+    max_h_compress: float = 0.0,
 ) -> ResolvedTextLine:
     """Build a resolved line with the reflow permission defaulting to enabled."""
     return ResolvedTextLine(
@@ -48,22 +50,60 @@ def _line(
         character_spacing=character_spacing,
         line_spacing=0.1,
         space_width_fraction=space_width_fraction,
+        max_h_compress=max_h_compress,
         optimize_line_content=enabled,
+        optimize_line_content_max_lines=max_lines,
     )
 
 
-def _label(label_id: str, *lines: ResolvedTextLine) -> ResolvedLabel:
+def _label(label_id: str, *lines: ResolvedTextLine, width: float = 4.0) -> ResolvedLabel:
     """Build a minimal resolved label carrying the given lines."""
     return ResolvedLabel(
         id=label_id,
         count=1,
-        width=4.0,
+        width=width,
         height=2.0,
         margin=0.1,
         h_margin=0.1,
         v_margin=0.1,
         content=list(lines),
     )
+
+
+def _scale_probe(
+    char_width: float = 0.1,
+    space_width: float = 0.2,
+    inner: float = 0.8,
+    calls: List[int] | None = None,
+):
+    """Build a label-level probe charging the same widths as :func:`_char_probe`.
+
+    A line is reported compressed when its natural width exceeds ``inner``
+    (the label's content area), at the scale ``inner / width`` -- the same
+    contract :meth:`RenderedLabel.compression_by_line` fulfils.
+
+    Args:
+        char_width: Width charged for every character.
+        space_width: Width charged for every space.
+        inner: The content width a line must fit within uncompressed.
+        calls: Optional list recording each render's line count.
+
+    Returns:
+        A callable matching
+        :data:`plt_optimizer.generate.cutter_downsize.ScaleProbe`.
+    """
+
+    def probe(label: ResolvedLabel) -> Dict[int, float]:
+        if calls is not None:
+            calls.append(len(label.content))
+        scales: Dict[int, float] = {}
+        for index, line in enumerate(label.content):
+            width = char_width * len(line.text) + space_width * line.text.count(" ")
+            if width > inner:
+                scales[index] = inner / width
+        return scales
+
+    return probe
 
 
 def _char_probe(char_width: float = 0.1, space_width: float = 0.2):
@@ -510,3 +550,216 @@ class TestPrePassOrdering:
         opted_out = result.rendered_labels["opted_out"]
         assert reflowed.compression_by_line == {}
         assert opted_out.compression_by_line  # the authored split compresses
+
+
+class TestGrowthCap:
+    """optimize_line_content_max_lines grows a group; it never shrinks one."""
+
+    def test_grows_until_compression_clears(self) -> None:
+        """A single long line expands to the first line count that fits."""
+        calls: List[int] = []
+        label = _label(
+            "grow",
+            _line("AAAA BBBB CCCC DDDD EEEE FFFF", max_lines=3, max_h_compress=0.5),
+            width=1.4,
+        )
+        clone = _reflow_label(
+            label,
+            _char_probe(0.1, 0.2),
+            _scale_probe(0.1, 0.2, inner=1.2, calls=calls),
+        )
+        assert clone is not None
+        assert [line.text for line in clone.content] == ["AAAA BBBB", "CCCC DDDD", "EEEE FFFF"]
+        # M=1 (3.0) and M=2 (1.6) compress; M=3 (1.0) fits the 1.2in area.
+        assert calls == [1, 2, 3]
+
+    def test_grown_lines_clone_the_group_typography(self) -> None:
+        """Inserted lines copy the group's last line attributes verbatim."""
+        label = _label(
+            "grow",
+            _line("AAAA BBBB CCCC DDDD", nominal=0.5, max_lines=3, max_h_compress=0.5),
+            _line("E", nominal=0.75, max_lines=3, max_h_compress=0.5),
+            width=1.4,
+        )
+        clone = _reflow_label(
+            label,
+            _char_probe(0.1, 0.2),
+            _scale_probe(0.1, 0.2, inner=1.2),
+        )
+        assert clone is not None
+        assert len(clone.content) == 3
+        donor = label.content[1]
+        inserted = clone.content[2]
+        assert inserted.nominal_text_height == donor.nominal_text_height
+        assert inserted.toolpath_text_height == donor.toolpath_text_height
+        assert inserted.cutter_diameter == donor.cutter_diameter
+        assert inserted.font == donor.font
+        assert inserted.optimize_line_content is True
+
+    def test_growth_preserves_word_order(self) -> None:
+        """Growth moves line breaks only; the word sequence is unchanged."""
+        label = _label(
+            "grow",
+            _line("AAAA BBBB CCCC DDDD", max_lines=3, max_h_compress=0.5),
+            _line("E", max_lines=3, max_h_compress=0.5),
+            width=1.4,
+        )
+        clone = _reflow_label(
+            label,
+            _char_probe(0.1, 0.2),
+            _scale_probe(0.1, 0.2, inner=1.2),
+        )
+        assert clone is not None
+        original = " ".join(word for line in label.content for word in line.text.split())
+        grown = " ".join(word for line in clone.content for word in line.text.split())
+        assert grown == original
+        assert len(clone.content) >= len(label.content)
+
+    def test_cap_exhausted_keeps_widest_layout_and_warns(self, caplog) -> None:
+        """A group still compressed at N keeps its layout and logs a WARNING."""
+        label = _label(
+            "tight",
+            _line("AAAA BBBB CCCC DDDD EEEE FFFF", max_lines=2, max_h_compress=0.5),
+            width=1.4,
+        )
+        with caplog.at_level("WARNING"):
+            clone = _reflow_label(
+                label,
+                _char_probe(0.1, 0.2),
+                _scale_probe(0.1, 0.2, inner=1.2),
+            )
+        assert clone is not None
+        assert len(clone.content) == 2  # capped at N, not grown past it
+        assert "optimize_line_content_max_lines cap" in caplog.text
+
+    def test_cap_at_group_size_is_inert(self) -> None:
+        """N == G leaves the cap inert: plain reflow, no renders."""
+        calls: List[int] = []
+        label = _label(
+            "inert",
+            _line("AAAAAA BB CC DD", max_lines=2, max_h_compress=0.5),
+            _line("E", max_lines=2, max_h_compress=0.5),
+        )
+        clone = _reflow_label(
+            label,
+            _char_probe(0.1, 0.2),
+            _scale_probe(0.1, 0.2, inner=1.2, calls=calls),
+        )
+        assert clone is not None
+        assert len(clone.content) == 2
+        assert [line.text for line in clone.content] == ["AAAAAA BB", "CC DD E"]
+        assert calls == []  # the probe is never called for an inert cap
+
+    def test_cap_below_group_size_is_inert(self) -> None:
+        """N < G never removes lines: the group keeps all of them."""
+        label = _label(
+            "inert",
+            _line("AAAAAA BB", max_lines=2, max_h_compress=0.5),
+            _line("CC", max_lines=2, max_h_compress=0.5),
+            _line("DDDDDD", max_lines=2, max_h_compress=0.5),
+        )
+        clone = _reflow_label(
+            label,
+            _char_probe(0.1, 0.2),
+            _scale_probe(0.1, 0.2, inner=1.2),
+        )
+        assert clone is not None
+        assert len(clone.content) == 3  # never collapsed to 2
+
+    def test_uncapped_group_never_renders(self) -> None:
+        """A group without the cap keeps the historical probe-free behaviour."""
+        calls: List[int] = []
+        label = _label("plain", _line("AAAAAA BB CC DD"), _line("E"))
+        clone = _reflow_label(
+            label,
+            _char_probe(0.1, 0.2),
+            _scale_probe(0.1, 0.2, inner=1.2, calls=calls),
+        )
+        assert clone is not None
+        assert calls == []
+
+    def test_no_budget_group_skips_the_probe(self) -> None:
+        """Without a max_h_compress budget the growth loop cannot measure."""
+        calls: List[int] = []
+        label = _label(
+            "nobudget",
+            _line("AAAA BBBB CCCC DDDD", max_lines=3, max_h_compress=0.0),
+            width=1.4,
+        )
+        clone = _reflow_label(
+            label,
+            _char_probe(0.1, 0.2),
+            _scale_probe(0.1, 0.2, inner=1.2, calls=calls),
+        )
+        # The full-group pass on a single-line group changes nothing.
+        assert clone is None
+        assert calls == []
+
+    def test_growth_ceiling_is_the_word_count(self) -> None:
+        """A cap above the word count stops at one word per line."""
+        calls: List[int] = []
+        label = _label(
+            "words",
+            _line("AAAA BBBB", max_lines=9, max_h_compress=0.5),
+            width=0.5,
+        )
+        clone = _reflow_label(
+            label,
+            _char_probe(0.1, 0.2),
+            _scale_probe(0.1, 0.2, inner=0.25, calls=calls),
+        )
+        assert clone is not None
+        assert len(clone.content) == 2  # two words, two lines
+        assert [line.text for line in clone.content] == ["AAAA", "BBBB"]
+        assert calls == [1, 2]
+
+    def test_growth_shifts_later_lines(self) -> None:
+        """Lines after a grown group keep their text and attributes."""
+        label = _label(
+            "shift",
+            _line("AAAA BBBB CCCC DDDD EEEE FFFF", max_lines=3, max_h_compress=0.5),
+            _line("TAIL", enabled=False),
+            width=1.4,
+        )
+        clone = _reflow_label(
+            label,
+            _char_probe(0.1, 0.2),
+            _scale_probe(0.1, 0.2, inner=1.2),
+        )
+        assert clone is not None
+        assert len(clone.content) == 4
+        assert clone.content[-1].text == "TAIL"
+        assert clone.content[-1].optimize_line_content is False
+
+    def test_two_groups_grow_independently(self) -> None:
+        """Each capped group expands on its own terms."""
+        label = _label(
+            "two",
+            _line("AAAA BBBB CCCC DDDD EEEE FFFF", max_lines=3, max_h_compress=0.5),
+            _line("SOLO", enabled=False),
+            _line("GGGG HHHH IIII JJJJ KKKK LLLL", max_lines=3, max_h_compress=0.5),
+            width=1.4,
+        )
+        clone = _reflow_label(
+            label,
+            _char_probe(0.1, 0.2),
+            _scale_probe(0.1, 0.2, inner=1.2),
+        )
+        assert clone is not None
+        assert len(clone.content) == 7
+        assert clone.content[3].text == "SOLO"
+        assert clone.content[3].optimize_line_content is False
+
+    def test_apply_reflow_threads_the_scale_probe(self) -> None:
+        """The public entry point forwards the scale probe to the loop."""
+        label = _label(
+            "grow",
+            _line("AAAA BBBB CCCC DDDD EEEE FFFF", max_lines=3, max_h_compress=0.5),
+            width=1.4,
+        )
+        result = apply_line_content_reflow(
+            [label],
+            probe=_char_probe(0.1, 0.2),
+            scale_probe=_scale_probe(0.1, 0.2, inner=1.2),
+        )
+        assert len(result[0].content) == 3

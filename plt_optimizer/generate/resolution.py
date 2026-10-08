@@ -45,6 +45,19 @@ class CutterSizeError(ValueError):
     """
 
 
+class LineContentConfigError(ValueError):
+    """Raised when ``optimize_line_content_max_lines`` is misconfigured.
+
+    The reflow line cap only governs an ``optimize_line_content`` group, so
+    two declarations are unresolvable and abort the job rather than being
+    silently ignored: a cap resolved onto a label whose lines never enable
+    reflow (nothing would ever be reflowed, so the cap is meaningless), and
+    a single group whose lines declare *different* caps (the group must grow
+    to one agreed ceiling). Both are authoring mistakes, not runtime
+    conditions, so they surface as a non-zero CLI exit.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Global fallback constants
 # ---------------------------------------------------------------------------
@@ -144,6 +157,13 @@ DEFAULT_H_COMPRESS_GLOBAL: bool = False
 # words (word order preserved, only the line breaks move) to equalize the
 # group's rendered widths, minimizing horizontal compression.
 DEFAULT_OPTIMIZE_LINE_CONTENT: bool = False
+# Ceiling on the consecutive lines one reflow group may use. ``None`` (the
+# default) is *unset*: the group reflows across its existing lines and never
+# gains one. The option is growth-only -- a numeric value may ADD lines to a
+# label (the group starts at its existing line count and grows while its lines
+# still need horizontal compression) and never removes any. Consumed by
+# :mod:`plt_optimizer.generate.line_content`.
+DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES: Optional[int] = None
 # Stroke-color layer tag default. ``"none"`` is the implicit color of
 # every line that omits ``text_color``; it never cascades (the field is
 # label/line-local by design, see schema.TextColor) and the resolution
@@ -481,6 +501,18 @@ class ResolvedTextLine:
             minimizing horizontal compression. Consumed before the
             cutter-reduction and shared-compression pre-passes. Explicit
             ``True`` is honored; only ``None`` means unset.
+        optimize_line_content_max_lines: Ceiling ``N`` on the consecutive
+            lines the reflow group this line belongs to may use (cascaded
+            line -> label -> job, default ``None`` = unset). Growth-only: the
+            group starts at its existing line count ``G`` and may gain lines
+            (cloned from its own typography) while its lines still need
+            horizontal compression, up to ``N``; it never removes, blanks or
+            collapses a line. ``N <= G`` leaves the cap inert. Setting it on
+            any one line of a group applies it to the whole group (the
+            resolution post-pass fans the value out onto every group line),
+            two *different* values in one group raise
+            :class:`LineContentConfigError`, and so does declaring it while
+            no line of the label enables ``optimize_line_content``.
     """
 
     text: str
@@ -506,6 +538,7 @@ class ResolvedTextLine:
     cutter_downsize_global: bool = DEFAULT_CUTTER_DOWNSIZE_GLOBAL
     h_compress_global: bool = DEFAULT_H_COMPRESS_GLOBAL
     optimize_line_content: bool = DEFAULT_OPTIMIZE_LINE_CONTENT
+    optimize_line_content_max_lines: Optional[int] = DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES
 
 
 @dataclass(frozen=True)
@@ -998,6 +1031,94 @@ def _resolve_holes(
     return [ResolvedHoleSpec(diameter=h.diameter, location=h.location.value) for h in raw_holes]
 
 
+def _apply_reflow_line_caps(
+    resolved_content: list[ResolvedTextLine],
+    label_id: str,
+) -> list[ResolvedTextLine]:
+    """Validate and fan out ``optimize_line_content_max_lines`` per group.
+
+    Runs over the *resolved* lines (so config injection and the full
+    line -> label -> job cascade are already visible) and enforces the two
+    authoring rules of the reflow line cap, then fans the agreed value out:
+
+    1. a cap resolved onto some line while *no* line of the label has
+       ``optimize_line_content`` enabled raises :class:`LineContentConfigError`
+       (the cap governs a reflow group and this label forms none, so the
+       declaration is meaningless). A cap cascading onto lines that are
+       individually disabled is fine as long as the label has an enabled line
+       somewhere -- the pre-pass reads the cap from the group's own lines;
+    2. within one maximal run of consecutive enabled lines, two *different*
+       non-``None`` caps raise (the group grows to one agreed ceiling);
+    3. the group's single cap (else ``None``) is written onto every line of
+       the group, so the reflow pre-pass reads it from the group's first line
+       without re-scanning.
+
+    Labels whose groups need no fan-out are returned unchanged (same line
+    objects), keeping the pass free for the overwhelmingly common
+    cap-less case.
+
+    Args:
+        resolved_content: The label's resolved text lines, in content order.
+        label_id: Identifier used in the error messages.
+
+    Returns:
+        The resolved lines, with fan-out clones where a group's cap was set
+        on only some of its lines.
+
+    Raises:
+        LineContentConfigError: On rule 1 or rule 2 violations.
+    """
+    groups: list[list[int]] = []
+    current: list[int] = []
+    for index, line in enumerate(resolved_content):
+        if line.optimize_line_content:
+            current.append(index)
+        elif current:
+            groups.append(current)
+            current = []
+    if current:
+        groups.append(current)
+
+    caps_declared = any(
+        line.optimize_line_content_max_lines is not None for line in resolved_content
+    )
+    if caps_declared and not groups:
+        raise LineContentConfigError(
+            f"label '{label_id}': 'optimize_line_content_max_lines' is set but "
+            "'optimize_line_content' is not enabled on any line; the line cap "
+            "only governs a reflow group, so enable the option (at the line, "
+            "label or job level) or drop the cap"
+        )
+
+    updated: Optional[list[ResolvedTextLine]] = None
+    for group in groups:
+        caps: set[int] = set()
+        for index in group:
+            declared = resolved_content[index].optimize_line_content_max_lines
+            if declared is not None:
+                caps.add(declared)
+        if len(caps) > 1:
+            listed = ", ".join(str(value) for value in sorted(caps))
+            raise LineContentConfigError(
+                f"label '{label_id}': lines {group[0]}-{group[-1]} form one "
+                "reflow group but declare conflicting "
+                f"'optimize_line_content_max_lines' values ({listed}); "
+                "one line's cap applies to the whole group, so "
+                "declare a single value"
+            )
+        if not caps:
+            continue
+        cap = caps.pop()
+        for index in group:
+            line = resolved_content[index]
+            if line.optimize_line_content_max_lines == cap:
+                continue
+            if updated is None:
+                updated = list(resolved_content)
+            updated[index] = replace(line, optimize_line_content_max_lines=cap)
+    return updated if updated is not None else resolved_content
+
+
 def _resolve_content(
     label_input: LabelSpec | JobSpec,
     job: JobSpec,
@@ -1037,6 +1158,10 @@ def _resolve_content(
         CutterSizeError: If an explicit ``cutter_size`` is greater than or
             equal to the line's nominal text height (no material left to
             engrave).
+        LineContentConfigError: If a line declares
+            ``optimize_line_content_max_lines`` while its reflow permission
+            resolves ``False``, or one reflow group declares two different
+            caps (see :func:`_apply_reflow_line_caps`).
     """
     resolved_content: list[ResolvedTextLine] = []
     content = label_input.content
@@ -1286,6 +1411,17 @@ def _resolve_content(
         else:
             line_optimize_line_content = DEFAULT_OPTIMIZE_LINE_CONTENT
 
+        # Resolve the reflow line cap with the same precedence; only ``None``
+        # means unset (no growth), so no explicit value is ever shadowed.
+        if line.optimize_line_content_max_lines is not None:
+            line_max_lines: Optional[int] = line.optimize_line_content_max_lines
+        elif label_input.optimize_line_content_max_lines is not None:
+            line_max_lines = label_input.optimize_line_content_max_lines
+        elif job.optimize_line_content_max_lines is not None:
+            line_max_lines = job.optimize_line_content_max_lines
+        else:
+            line_max_lines = DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES
+
         resolved_content.append(
             ResolvedTextLine(
                 text=line.text,
@@ -1311,9 +1447,10 @@ def _resolve_content(
                 cutter_downsize_global=line_cutter_downsize_global,
                 h_compress_global=line_h_compress_global,
                 optimize_line_content=line_optimize_line_content,
+                optimize_line_content_max_lines=line_max_lines,
             )
         )
-    return resolved_content
+    return _apply_reflow_line_caps(resolved_content, label_id)
 
 
 def _resolve_label(

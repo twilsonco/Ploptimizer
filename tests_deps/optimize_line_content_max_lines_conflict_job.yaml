@@ -1,0 +1,27 @@
+# Conflict fixture for the reflow line cap (`optimize_line_content_max_lines`).
+#
+# One reflow group (two consecutive enabled lines) declares two *different*
+# caps. A group grows to one agreed ceiling, so the conflicting declaration
+# aborts the job at resolution time with LineContentConfigError.
+job:
+  job_name: Optimize Line Content Max Lines Conflict Demo
+
+  width: 4.0
+  height: 1.6
+  margin: 0.1
+  text_height: 0.5
+  max_h_compress: 0.5
+  optimize_line_content: true
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    - id: conflict
+      content:
+        - text: "DANGER CONVEYER START"
+          optimize_line_content_max_lines: 2
+        - text: "AND STOP HERE"
+          optimize_line_content_max_lines: 4

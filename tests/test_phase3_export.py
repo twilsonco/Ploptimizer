@@ -9,7 +9,12 @@ from typing import Optional
 import pytest
 
 from plt_optimizer.generate.layout import LayoutMode
-from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine, resolve_job_spec
+from plt_optimizer.generate.resolution import (
+    LineContentConfigError,
+    ResolvedLabel,
+    ResolvedTextLine,
+    resolve_job_spec,
+)
 from plt_optimizer.generate.schema import (
     LabelSpec,
     PlateSpec,
@@ -1331,6 +1336,109 @@ class TestOptimizeLineContentDemoExample:
             "0.015_bh_olc.plt",
             "0.060_txt_olc.plt",
         ]
+
+
+class TestOptimizeLineContentMaxLinesDemoExample:
+    """Regression tests for tests_deps/optimize_line_content_max_lines_job.yaml.
+
+    The reflow line cap is growth-only: a capped group starts at its existing
+    line count and may ADD lines (clones of its own typography) while its
+    lines still need horizontal compression, up to the cap. A cap at or below
+    the group's line count is inert, and a cap on any one line governs the
+    whole group. The companion conflict fixture pins the validation error.
+    """
+
+    _SPEC = Path("tests_deps/optimize_line_content_max_lines_job.yaml")
+    _CONFLICT_SPEC = Path("tests_deps/optimize_line_content_max_lines_conflict_job.yaml")
+    _WORDS = "DANGER CONVEYER START AND STOP HERE".split()
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="olcm",
+            optimize=False,
+            plots=False,
+        )
+
+    def test_grown_label_fits_without_compression(self, tmp_path: Path) -> None:
+        """The single long line grows to four lines and engraves uncompressed."""
+        result = self._export(tmp_path)
+        grown = result.rendered_labels["grow"]
+        texts = [line.text for line in grown.source_label.content]
+        assert len(texts) == 4
+        assert " ".join(texts).split() == self._WORDS
+        assert grown.compression_by_line == {}
+
+    def test_grown_lines_clone_the_group_typography(self, tmp_path: Path) -> None:
+        """Inserted lines carry the group's text height and cutter."""
+        result = self._export(tmp_path)
+        grown = result.rendered_labels["grow"]
+        assert {line.nominal_text_height for line in grown.source_label.content} == {0.5}
+        assert {line.cutter_diameter for line in grown.source_label.content} == {0.06}
+        assert all(line.optimize_line_content for line in grown.source_label.content)
+
+    def test_cap_exhausted_keeps_the_cap_and_compresses(self, tmp_path: Path) -> None:
+        """A cap spent while compressed keeps its line count and squeezes."""
+        result = self._export(tmp_path)
+        tight = result.rendered_labels["cap_exhausted"]
+        texts = [line.text for line in tight.source_label.content]
+        assert len(texts) == 3  # capped at N, never grown past it
+        assert " ".join(texts).split() == self._WORDS
+        assert tight.compression_by_line  # still compressed at the ceiling
+
+    def test_inert_cap_never_removes_lines(self, tmp_path: Path) -> None:
+        """A cap below the group's line count leaves the line count alone."""
+        result = self._export(tmp_path)
+        inert = result.rendered_labels["inert_cap"]
+        texts = [line.text for line in inert.source_label.content]
+        assert len(texts) == 3
+        assert " ".join(texts).split() == "DANGER CONVEYER START AND STOP HERE".split()
+
+    def test_group_cap_from_the_last_line_grows_the_group(self, tmp_path: Path) -> None:
+        """A cap declared on a group's last line applies to the whole group."""
+        result = self._export(tmp_path)
+        group = result.rendered_labels["group_cap"]
+        texts = [line.text for line in group.source_label.content]
+        assert len(texts) == 4
+        assert " ".join(texts).split() == self._WORDS
+        assert group.compression_by_line == {}
+
+    def test_no_budget_group_keeps_its_authored_line(self, tmp_path: Path) -> None:
+        """Without a compression budget the growth loop cannot measure."""
+        result = self._export(tmp_path)
+        nobudget = result.rendered_labels["no_budget"]
+        texts = [line.text for line in nobudget.source_label.content]
+        assert texts == ["DANGER CONVEYER START AND STOP HERE"]
+
+    def test_disabled_line_keeps_the_groups_independent(self, tmp_path: Path) -> None:
+        """A disabled line between two capped groups keeps them separate."""
+        result = self._export(tmp_path)
+        boundary = result.rendered_labels["group_boundary"]
+        texts = [line.text for line in boundary.source_label.content]
+        # 4 grown lines, the untouched serial line, then 4 grown lines.
+        assert len(texts) == 9
+        assert texts[4] == "SERIAL 042"
+        assert " ".join(texts[:4]).split() == self._WORDS
+        assert " ".join(texts[5:]).split() == "WEAR SAFETY GOGGLES AND GLOVES ALWAYS".split()
+
+    def test_growth_keeps_one_cutter_file(self, tmp_path: Path) -> None:
+        """Growth clones the group's typography, so the cutter set is unchanged."""
+        result = self._export(tmp_path)
+        assert sorted(p.name for p in result.plt_paths) == [
+            "0.015_bh_olcm.plt",
+            "0.060_txt_olcm.plt",
+        ]
+
+    def test_conflicting_group_caps_abort(self) -> None:
+        """Two different caps in one group abort at resolution."""
+        job = parse_yaml(self._CONFLICT_SPEC)
+        with pytest.raises(LineContentConfigError, match="conflicting"):
+            resolve_job_spec(job)
 
 
 class TestPlateNumberScoping:

@@ -28,12 +28,14 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_MIN_GLYPH_WIDTH,
     DEFAULT_MIN_HOLE_MARGIN,
     DEFAULT_OPTIMIZE_LINE_CONTENT,
+    DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES,
     DEFAULT_SPACE_WIDTH_FRACTION,
     DEFAULT_TEXT_COLOR,
     DEFAULT_TEXT_H_ALIGNMENT,
     DEFAULT_TEXT_HEIGHT,
     IDEAL_CUTTER_MAP,
     CutterSizeError,
+    LineContentConfigError,
     ResolvedHoleSpec,
     ResolvedLabel,
     ResolvedTextLine,
@@ -2693,3 +2695,130 @@ class TestOptimizeLineContentCascade:
             line_spacing=0.1,
         )
         assert line.optimize_line_content is False
+
+
+class TestOptimizeLineContentMaxLinesCascade:
+    """optimize_line_content_max_lines cascades line -> label -> job -> None."""
+
+    @staticmethod
+    def _job(cap_levels: dict[str, int | None], **flags: bool | None) -> JobSpec:
+        """Build a two-line job applying the cap at the given levels.
+
+        Args:
+            cap_levels: Where to declare the cap (``job`` / ``label`` /
+                ``line0`` / ``line1`` keys map to values).
+            flags: Where to enable reflow (``job`` / ``label`` / ``line0`` /
+                ``line1`` keys map to booleans).
+
+        Returns:
+            A validated JobSpec (single label, two content lines).
+        """
+        job_kwargs: dict[str, object] = {}
+        label_kwargs: dict[str, object] = {}
+        line0_kwargs: dict[str, object] = {}
+        line1_kwargs: dict[str, object] = {}
+        if "job" in cap_levels:
+            job_kwargs["optimize_line_content_max_lines"] = cap_levels["job"]
+        if "label" in cap_levels:
+            label_kwargs["optimize_line_content_max_lines"] = cap_levels["label"]
+        if "line0" in cap_levels:
+            line0_kwargs["optimize_line_content_max_lines"] = cap_levels["line0"]
+        if "line1" in cap_levels:
+            line1_kwargs["optimize_line_content_max_lines"] = cap_levels["line1"]
+        if "job" in flags:
+            job_kwargs["optimize_line_content"] = flags["job"]
+        if "label" in flags:
+            label_kwargs["optimize_line_content"] = flags["label"]
+        if "line0" in flags:
+            line0_kwargs["optimize_line_content"] = flags["line0"]
+        if "line1" in flags:
+            line1_kwargs["optimize_line_content"] = flags["line1"]
+        return JobSpec(
+            job_name="J",
+            text_height=0.5,
+            **job_kwargs,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    **label_kwargs,
+                    content=[
+                        TextLine(text="AAA BBB", **line0_kwargs),
+                        TextLine(text="CCC", **line1_kwargs),
+                    ],
+                )
+            ],
+        )
+
+    def test_default_module_constant_is_none(self) -> None:
+        """The shipped default is unset (no growth)."""
+        assert DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES is None
+
+    def test_default_resolves_none(self) -> None:
+        """All levels omitting the cap resolves to None."""
+        job = self._job({}, job=True)
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.optimize_line_content_max_lines is None
+
+    def test_job_cap_cascades(self) -> None:
+        """A job-level cap lands on every enabled line."""
+        job = self._job({"job": 3}, job=True)
+        lines = resolve_job_spec(job)[0].content
+        assert all(line.optimize_line_content_max_lines == 3 for line in lines)
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level cap beats the job-level cap."""
+        job = self._job({"job": 3, "label": 5}, job=True)
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.optimize_line_content_max_lines == 5
+
+    def test_line_overrides_label(self) -> None:
+        """Line-level cap beats the label-level cap (single-line group)."""
+        job = self._job({"label": 5, "line0": 2}, line0=True)
+        lines = resolve_job_spec(job)[0].content
+        assert lines[0].optimize_line_content_max_lines == 2
+
+    def test_fanout_applies_group_cap_to_every_line(self) -> None:
+        """One line's cap fans out to the whole enabled group."""
+        job = self._job({"line0": 4}, job=True)
+        lines = resolve_job_spec(job)[0].content
+        assert lines[0].optimize_line_content_max_lines == 4
+        assert lines[1].optimize_line_content_max_lines == 4
+
+    def test_equal_caps_are_not_a_conflict(self) -> None:
+        """Two lines declaring the same cap validate fine."""
+        job = self._job({"line0": 3, "line1": 3}, job=True)
+        lines = resolve_job_spec(job)[0].content
+        assert all(line.optimize_line_content_max_lines == 3 for line in lines)
+
+    def test_conflicting_group_caps_raise(self) -> None:
+        """Two different caps in one group abort with LineContentConfigError."""
+        job = self._job({"line0": 2, "line1": 3}, job=True)
+        with pytest.raises(LineContentConfigError, match="conflicting"):
+            resolve_job_spec(job)
+
+    def test_cap_without_enable_raises(self) -> None:
+        """A cap on a line whose reflow resolves False aborts."""
+        job = self._job({"line0": 3})  # optimize_line_content unset -> False
+        with pytest.raises(LineContentConfigError, match="not enabled"):
+            resolve_job_spec(job)
+
+    def test_cap_with_line_enable_is_valid(self) -> None:
+        """A line-level cap with a line-level enable resolves cleanly."""
+        job = self._job({"line0": 3}, line0=True)
+        lines = resolve_job_spec(job)[0].content
+        assert lines[0].optimize_line_content_max_lines == 3
+        assert lines[1].optimize_line_content_max_lines is None
+
+    def test_resolved_line_defaults_to_none(self) -> None:
+        """A manually constructed ResolvedTextLine defaults the cap to None."""
+        line = ResolvedTextLine(
+            text="X",
+            nominal_text_height=0.5,
+            toolpath_text_height=0.44,
+            cutter_diameter=0.06,
+            character_spacing=0.09,
+            line_spacing=0.1,
+        )
+        assert line.optimize_line_content_max_lines is None
