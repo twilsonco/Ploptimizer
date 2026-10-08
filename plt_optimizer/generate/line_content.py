@@ -69,6 +69,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import math
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from plt_optimizer.generate.cutter_downsize import ScaleProbe
@@ -570,6 +571,75 @@ def _reflow_label(
     return dataclasses.replace(label, content=new_content)
 
 
+def _recalculate_spacing_after_growth(label: ResolvedLabel) -> ResolvedLabel:
+    """Recalculate line spacing when a label has grown.
+
+    When the growth loop expands a single-line label to multiple lines, the
+    spacing inherited from the original (typically 0.0 for a 1-line label
+    with "auto" spacing) is inappropriate for the new line count. This
+    function recalculates spacing to distribute the new lines evenly within
+    the available vertical space, matching the behavior of "auto" spacing
+    resolution.
+
+    Args:
+        label: A potentially grown label after reflow.
+
+    Returns:
+        The label with recalculated spacing if it grew and has uniform
+        minimal spacing; otherwise the same label object.
+    """
+    if len(label.content) < 2:
+        return label  # Single-line labels don't have spacing after them.
+
+    spacings = [line.line_spacing for line in label.content[:-1]]
+    if not spacings:
+        return label
+
+    # Heuristic: if all spacings are equal and very small (0.0 or close),
+    # treat it as "auto" spacing calculated for the original line count
+    # and recalculate for the current (grown) line count.
+    all_equal = all(math.isclose(s, spacings[0], abs_tol=1e-9) for s in spacings)
+    all_minimal = spacings[0] < 0.01  # 0.01 inch threshold for "auto" detection
+
+    if not (all_equal and all_minimal):
+        return label
+
+    # Recalculate spacing to fit the new line count within available height,
+    # matching _resolve_auto_line_spacing logic.
+    available_height = label.height - (2 * label.v_margin)
+    heights = [line.nominal_text_height for line in label.content]
+    total_height = sum(heights)
+
+    if total_height >= available_height:
+        # Text alone fills or exceeds available height; no room for spacing.
+        new_spacings = [0.0] * len(spacings)
+    else:
+        # Distribute available space as equal spacing gaps.
+        num_gaps = len(spacings)
+        available_spacing = available_height - total_height
+        gap_size = available_spacing / num_gaps
+        new_spacings = [gap_size] * num_gaps
+
+    if all(math.isclose(new, old, abs_tol=1e-9) for new, old in zip(new_spacings, spacings)):
+        return label  # No change needed.
+
+    logger.debug(
+        "Label %s: recalculated line_spacing after growth from %s to %s "
+        "for %d lines (available height %.3fin).",
+        label.id,
+        [round(s, 4) for s in spacings],
+        [round(s, 4) for s in new_spacings],
+        len(label.content),
+        available_height,
+    )
+
+    new_content = [
+        dataclasses.replace(line, line_spacing=new_spacings[i]) if i < len(new_spacings) else line
+        for i, line in enumerate(label.content)
+    ]
+    return dataclasses.replace(label, content=new_content)
+
+
 def apply_line_content_reflow(
     resolved_labels: Sequence[ResolvedLabel],
     *,
@@ -613,5 +683,8 @@ def apply_line_content_reflow(
             result.append(label)
             continue
         clone = _reflow_label(label, width_probe, scale_probe)
-        result.append(clone if clone is not None else label)
+        processed = clone if clone is not None else label
+        # Recalculate spacing after growth to fit the new line count.
+        processed = _recalculate_spacing_after_growth(processed)
+        result.append(processed)
     return result
