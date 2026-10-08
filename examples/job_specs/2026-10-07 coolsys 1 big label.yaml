@@ -1,0 +1,17 @@
+# 2026-09-28
+# Coolsys Walmart 5168
+job:
+  job_name: Coolsys Walmart 5168
+  width: 24
+  height: 16
+  text_height: 1.5
+  v_margin: 2
+  optimize_line_content: true
+  optimize_line_content_max_lines: 6
+  h_compress_global: true
+  font: dino
+  labels:
+    - id: a
+      content:
+        - text: "Always charge secondary CO2 system through a filter drier. Do not trap liquid by closing charging station and isolation valves while servicing. Always vacuum charging line after charging is complete. Charge secondary CO2 system with 99.9% pure or higher food and beverage grade CO2."
+  
