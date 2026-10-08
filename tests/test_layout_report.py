@@ -81,6 +81,9 @@ class TestCompactMode:
 
         assert lines == [
             "Label l1:",
+            "    Margins: horizontal 0.100in (left/right), vertical 0.100in (top/bottom)",
+            "    Line spacing (gaps between lines):",
+            "      Line 0: 0.200in (requested 0.500in)",
             "    Line 0: 'A' spacing below 0.200in (requested 0.500in)",
         ]
         assert has_layout_findings([resolved], {"l1": rendered})
@@ -93,6 +96,7 @@ class TestCompactMode:
 
         assert lines == [
             "Label l1:",
+            "    Margins: horizontal 0.100in (left/right), vertical 0.100in (top/bottom)",
             "    Line 0: 'WIDE' scale 0.870 (13.0% compressed)",
         ]
         assert has_layout_findings([resolved], {"l1": rendered})
@@ -110,6 +114,10 @@ class TestCompactMode:
 
         assert lines == [
             "Label l1:",
+            "    Margins: horizontal 0.100in (left/right), vertical 0.100in (top/bottom)",
+            "    Line spacing (gaps between lines):",
+            "      Line 0: 0.200in (requested 0.500in)",
+            "      Line 1: 0.100in",
             "    Line 0: 'WIDE' spacing below 0.200in (requested 0.500in)",
             "    Line 2: 'B' scale 0.500 (50.0% compressed)",
         ]
@@ -140,8 +148,10 @@ class TestFullMode:
 
         assert lines == [
             "Label l1:",
-            "    Line 0: 'A' spacing below 0.100in",
-            "    Line 1: 'B' spacing below 0.200in (requested 0.500in)",
+            "    Margins: horizontal 0.100in (left/right), vertical 0.100in (top/bottom)",
+            "    Line spacing (gaps between lines):",
+            "      Line 0: 0.100in",
+            "      Line 1: 0.200in (requested 0.500in)",
         ]
 
     def test_untouched_label_gets_summary_line(self) -> None:
@@ -150,7 +160,11 @@ class TestFullMode:
 
         lines = format_layout_report([resolved], {"l1": rendered}, full=True)
 
-        assert lines[:2] == ["Label l1:", "    all lines at natural width / spacing"]
+        assert lines[:3] == [
+            "Label l1:",
+            "    Margins: horizontal 0.100in (left/right), vertical 0.100in (top/bottom)",
+            "    all lines at natural width / spacing",
+        ]
 
     def test_untouched_job_appends_footer(self) -> None:
         """A full-mode job without findings ends with the check-mark footer."""
@@ -189,6 +203,7 @@ class TestCutterDownsizeFindings:
 
         assert lines == [
             "Label l1:",
+            "    Margins: horizontal 0.100in (left/right), vertical 0.100in (top/bottom)",
             "    Line 0: 'WIDE' cutter 0.060in -> 0.045in (downsized for compression)",
         ]
         assert has_layout_findings([resolved], {"l1": rendered})
@@ -206,6 +221,7 @@ class TestCutterDownsizeFindings:
 
         assert lines == [
             "Label l1:",
+            "    Margins: horizontal 0.100in (left/right), vertical 0.100in (top/bottom)",
             "    Line 0: 'WIDE' scale 0.850 (15.0% compressed)",
             "    Line 0: 'WIDE' cutter 0.060in -> 0.045in (downsized for compression)",
         ]

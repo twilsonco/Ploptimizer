@@ -83,9 +83,9 @@ def _label_findings(
         One ``(line_index, line_text, scale, requested, effective,
         downsize)`` tuple per finding, in content order. ``scale`` is set
         (below ``1.0``) only for compressed lines; ``requested``/``effective``
-        are set only for spacing gaps that deviate from the requested value;
-        ``downsize`` is the ``(original, final)`` cutter pair only for lines
-        whose automatic cutter was reduced.
+        are set only for spacing gaps (always in full mode, or when deviating
+        in compact mode); ``downsize`` is the ``(original, final)`` cutter
+        pair only for lines whose automatic cutter was reduced.
     """
     content = rendered.source_label.content
     downsizes = rendered.source_label.cutter_downsize_by_line
@@ -139,7 +139,9 @@ def _label_lines(
     """
     content = rendered.source_label.content
     findings = _label_findings(rendered)
-    finding_by_index = {
+    finding_by_index: dict[
+        int, tuple[float | None, float | None, float | None, tuple[float, float] | None]
+    ] = {
         index: (scale, requested, effective, downsize)
         for index, _t, scale, requested, effective, downsize in findings
     }
@@ -148,6 +150,33 @@ def _label_lines(
         return []
 
     lines = [f"Label {rendered.source_label.id}:"]
+
+    # Add margin summary line
+    h_margin = rendered.source_label.h_margin
+    v_margin = rendered.source_label.v_margin
+    lines.append(
+        f"    Margins: horizontal {h_margin:.3f}in (left/right), "
+        f"vertical {v_margin:.3f}in (top/bottom)"
+    )
+
+    # Add spacing summary section showing all line gaps
+    if rendered.line_spacing_by_line or content:
+        spacing_lines: list[str] = []
+        for line_index in range(len(content) - 1):  # n-1 gaps for n lines
+            effective = rendered.line_spacing_by_line.get(line_index)
+            if effective is not None:
+                requested: float = content[line_index].line_spacing
+                if _spacing_deviation(requested, effective):
+                    spacing_lines.append(
+                        f"      Line {line_index}: {effective:.3f}in (requested {requested:.3f}in)"
+                    )
+                else:
+                    spacing_lines.append(f"      Line {line_index}: {effective:.3f}in")
+
+        if spacing_lines:
+            lines.append("    Line spacing (gaps between lines):")
+            lines.extend(spacing_lines)
+
     if full and not findings and not rendered.line_spacing_by_line:
         lines.append(_UNTOUCHED_LINE)
         return lines
@@ -155,7 +184,10 @@ def _label_lines(
     for line_index, line in enumerate(content):
         entry = finding_by_index.get(line_index)
         if entry is not None:
-            scale, requested, effective, downsize = entry
+            scale = entry[0]
+            requested = entry[1]  # type: ignore[assignment]
+            effective = entry[2]
+            downsize = entry[3]
             if scale is not None:
                 lines.append(
                     f"    Line {line_index}: {line.text!r} "
@@ -167,16 +199,19 @@ def _label_lines(
                     f"    Line {line_index}: {line.text!r} "
                     f"cutter {original:.3f}in -> {final:.3f}in (downsized for compression)"
                 )
-            if effective is not None:
+            # In compact mode, print spacing deviations; in full mode, they're shown in the spacing section
+            if not full and effective is not None:
                 lines.append(
                     f"    Line {line_index}: {line.text!r} "
                     f"spacing below {effective:.3f}in (requested {requested:.3f}in)"
                 )
         elif full:
-            effective = rendered.line_spacing_by_line.get(line_index)
-            if effective is not None:
+            # Show compression info in full mode if present
+            scale = rendered.compression_by_line.get(line_index)
+            if scale is not None and scale < 1.0:
                 lines.append(
-                    f"    Line {line_index}: {line.text!r} spacing below {effective:.3f}in"
+                    f"    Line {line_index}: {line.text!r} "
+                    f"scale {scale:.3f} ({(1.0 - scale) * 100.0:.1f}% compressed)"
                 )
     return lines
 
