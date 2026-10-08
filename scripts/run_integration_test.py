@@ -46,10 +46,12 @@ GENERATE_DEFAULT_PLOTS = True
 
 # Import pipeline components
 from plt_optimizer.generate.job_config import JobConfig, load_job_config
+from plt_optimizer.generate.label_renderer import measure_line_vertical_extents
 from plt_optimizer.generate.layout import generate_layout
 from plt_optimizer.generate.layout_report import format_layout_report
 from plt_optimizer.generate.resolution import (
     ResolvedLabel,
+    memoize_extents_probe,
     resolve_job_spec,
 )
 from plt_optimizer.generate.schema import DEFAULT_LAYOUT_MODE, LayoutMode, parse_yaml
@@ -208,6 +210,7 @@ def phase_2_resolution_and_layout(
         job,
         available_cutters=inventory,
         boundary_hole_cutter_size=boundary_hole_cutter_size,
+        extents_probe=memoize_extents_probe(measure_line_vertical_extents),
     )
 
     print("\n--- RESOLUTION RESULTS ---\n")

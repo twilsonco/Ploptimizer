@@ -470,6 +470,19 @@
           "description": "Stock material name (free-form, e.g. 'wb' or 'wb(uv)'); cascades job -> label. Labels sharing a material pack together and a plate never mixes materials. Comparison trims whitespace and ignores case; unset (null) labels pack with the job-level material.",
           "title": "Material"
         },
+        "use_baseline_spacing": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stack a label's text lines by baseline-to-baseline pitch (text_height + line_spacing) so descenders hang into the gap and every gap reads as one uniform visual spacing; false stacks by rendered ink box (historical). Cascades job -> plate -> label (never text lines); unset (null) falls back to job-config.json then true. Accepted on plates for schema parity only.",
+          "title": "Use Baseline Spacing"
+        },
         "id": {
           "description": "Unique identifier for this label specification.",
           "title": "Id",
@@ -889,6 +902,19 @@
           "default": null,
           "description": "Minimum engraved-stroke air gap in inches (schema parity; not applied at plate level).",
           "title": "Hole Text Collision Distance"
+        },
+        "use_baseline_spacing": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Baseline-to-baseline line spacing (schema parity; not applied at plate level -- labels render before packing).",
+          "title": "Use Baseline Spacing"
         },
         "layout": {
           "anyOf": [
@@ -1747,6 +1773,19 @@
       "default": null,
       "description": "Stock material name (free-form, e.g. 'wb' or 'wb(uv)'); cascades job -> label. Labels sharing a material pack together and a plate never mixes materials. Comparison trims whitespace and ignores case; unset (null) labels pack with the job-level material.",
       "title": "Material"
+    },
+    "use_baseline_spacing": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Stack a label's text lines by baseline-to-baseline pitch (text_height + line_spacing) so descenders hang into the gap and every gap reads as one uniform visual spacing; false stacks by rendered ink box (historical). Cascades job -> plate -> label (never text lines); unset (null) falls back to job-config.json then true. Accepted on plates for schema parity only.",
+      "title": "Use Baseline Spacing"
     },
     "job_name": {
       "description": "Human-readable name for this job.",

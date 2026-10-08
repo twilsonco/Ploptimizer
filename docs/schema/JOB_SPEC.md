@@ -75,6 +75,7 @@ they are no longer auto-sized from rendered content.
 | `hole_margin` | float \| null | null (unset) | >=0 | Distance from hole edge to label edge in inches (label -> job, fallback 0.1875). |
 | `holes` | list[HoleSpec] \| null | null (unset) | — | Drill holes; a label value replaces the job-level list entirely (an empty list suppresses holes). 'corners'/'sides' expand to members. |
 | `material` | str \| null | null (unset) | — | Stock material name (free-form, e.g. 'wb' or 'wb(uv)'); cascades job -> label. Labels sharing a material pack together and a plate never mixes materials. Comparison trims whitespace and ignores case; unset (null) labels pack with the job-level material. |
+| `use_baseline_spacing` | bool \| null | null (unset) | — | Stack a label's text lines by baseline-to-baseline pitch (text_height + line_spacing) so descenders hang into the gap and every gap reads as one uniform visual spacing; false stacks by rendered ink box (historical). Cascades job -> plate -> label (never text lines); unset (null) falls back to job-config.json then true. Accepted on plates for schema parity only. |
 | `job_name` | str | **required** | — | Human-readable name for this job. |
 | `plates` | list[PlateSpec] \| null | null (unset) | — | Plate (material sheet) definitions. Omit for unbounded mode: auto-allocated default_plate_{i} sheets (24x16 unless job-config plate_width/plate_height override). |
 | `labels` | list[LabelSpec] \| null | null (unset) | — | Explicit label list. Mutually exclusive with root-level content and a job-level replacement_text_file. |
@@ -125,6 +126,7 @@ Specification for a plate (material sheet) to cut labels from.
 | `optimize_line_content` | bool \| null | null (unset) | — | Word-level line-content reflow permission (schema parity; not applied at plate level). |
 | `optimize_line_content_max_lines` | int \| null | null (unset) | >=1 | Ceiling on the number of consecutive lines a reflow group may use (schema parity; not applied at plate level). |
 | `hole_text_collision_distance` | float \| null | null (unset) | >=0 | Minimum engraved-stroke air gap in inches (schema parity; not applied at plate level). |
+| `use_baseline_spacing` | bool \| null | null (unset) | — | Baseline-to-baseline line spacing (schema parity; not applied at plate level -- labels render before packing). |
 | `layout` | LayoutMode \| null | null (unset) | — | Per-plate fill-order override (None = inherit the job layout). |
 | `material` | str \| null | null (unset) | — | Stock material this plate is cut from (free-form, e.g. 'wb' or 'wb(uv)'); cascades job -> plate (an explicit plate value wins). A plate carries exactly one material: labels whose material matches pack onto it and no other material shares it. A plate that omits material (null) is claimed by one material group. Comparison trims whitespace and ignores case. |
 | `replacement_text_file` | str \| null | null (unset) | — | Path to an EngraveLab/Vision Pro-style replacement text file. Each line produces one label packed onto this plate only. |
@@ -183,6 +185,7 @@ A label may be defined in one of two ways:
 | `hole_margin` | float \| null | null (unset) | >=0 | Distance from hole edge to label edge in inches (label -> job, fallback 0.1875). |
 | `holes` | list[HoleSpec] \| null | null (unset) | — | Drill holes; a label value replaces the job-level list entirely (an empty list suppresses holes). 'corners'/'sides' expand to members. |
 | `material` | str \| null | null (unset) | — | Stock material name (free-form, e.g. 'wb' or 'wb(uv)'); cascades job -> label. Labels sharing a material pack together and a plate never mixes materials. Comparison trims whitespace and ignores case; unset (null) labels pack with the job-level material. |
+| `use_baseline_spacing` | bool \| null | null (unset) | — | Stack a label's text lines by baseline-to-baseline pitch (text_height + line_spacing) so descenders hang into the gap and every gap reads as one uniform visual spacing; false stacks by rendered ink box (historical). Cascades job -> plate -> label (never text lines); unset (null) falls back to job-config.json then true. Accepted on plates for schema parity only. |
 | `id` | str | **required** | — | Unique identifier for this label specification. |
 | `count` | int | `1` | >=1 | Number of instances to produce (must be >= 1). |
 | `content` | list[TextLine] \| null | null (unset) | — | Text lines to render. Required unless replacement_text_file is provided. |
@@ -370,6 +373,7 @@ always beats the config.
 | `DEFAULT_TEXT_COLOR` | `'none'` | Implicit stroke-color layer of text that omits text_color (never cascades; a job-level text_color is rejected). 'none' cannot be specified explicitly. |
 | `DEFAULT_TEXT_HEIGHT` | `0.25` | Font height when unset at line/label/job level. |
 | `DEFAULT_TEXT_H_ALIGNMENT` | `'center'` | Horizontal alignment fallback when unset everywhere. |
+| `DEFAULT_USE_BASELINE_SPACING` | `True` | True = a label's text lines stack by baseline pitch (cap height + line_spacing), so descenders hang into the gap below their line and every gap reads as one uniform visual spacing; auto line_spacing and the margin clamp measure each line's real descender extent. False = lines stack by rendered ink box (historical), where a descender inflates the gap under its own line. Cascades label/job (accepted on plates for schema parity only, never text lines); job-config supplies the shop default. |
 | `DEFAULT_V_MARGIN` | `None` | — |
 
 ## Required-when-unconfigured (job-config gate)

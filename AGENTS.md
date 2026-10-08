@@ -556,6 +556,74 @@ only ever ADD lines, never remove, blank, or collapse them.**
   `tests_deps/optimize_line_content_max_lines_conflict_job.yaml` pins the
   conflicting-caps abort.
 
+### Baseline-to-Baseline Line Spacing (`use_baseline_spacing`)
+
+`use_baseline_spacing` (default **true**) stacks a label's text lines by
+baseline-to-baseline **pitch** (`toolpath_text_height + line_spacing`) instead
+of by rendered ink box. Both renderers return geometry with the baseline at
+y = 0 (+y up, descenders negative), so a line's ink is
+`[baseline - D, baseline + A]` where `A`/`D` are the measured ascender and
+descender depths. A descender therefore **hangs into the gap below its line**
+instead of inflating it: every gap reads as one uniform visual spacing
+regardless of descenders, and the whole block is shorter by the descender
+depth. Cap-only lines (ascender == cap height, descender 0) stack
+bit-identically to ink-box stacking. Cascades job → plate → label (never text
+lines — spacing is a property of the stacked block); plate values are accepted
+for schema parity only (labels render before packing); `job-config.json`
+supplies the shop default (repo default `true`).
+
+- **Pitch basis = `toolpath_text_height`** (the per-font cap height), NOT
+  `nominal_text_height`: pitch stays content-independent (a per-font constant),
+  which is also what makes descender-free lines bit-identical to ink-box
+  stacking.
+- Pure math in `resolution.py` (matplotlib-free): `baseline_pitch`
+  (`cap + spacing`, spacing floored at 0), `baseline_offsets` (baselines
+  descending from 0 by one pitch), `baseline_block_height`
+  (`max(b_i + A_i) - min(b_i - D_i)` — convex, continuous and non-decreasing
+  in the spacings), `fit_baseline_spacing_to_margins` (render-time clamp:
+  proportional shrink of all spacings via bisection on the scale factor —
+  the closed-form of `fit_line_spacing_to_margins` is only valid for the
+  linear ink-box model; tolerance 1e-9, ≤100 iterations),
+  `solve_baseline_spacing_to_fill` (auto `line_spacing` with explicit
+  `v_margin`: uniform spacing filling the inner height exactly) and
+  `solve_baseline_spacing_to_ratio` (auto both: inter-line gap = ratio ×
+  top/bottom gap, filling the label). All return `0.0`/input on degenerate
+  input (single line, no spacing to remove, overflow with zero spacing).
+- **Real descender extents (Option B, no accepted staleness):** the auto
+  spacing solvers in `_resolve_auto_line_spacing` / `_fit_content_to_margins`
+  size against **measured** `(A, D)` per line when the feature is on and an
+  `extents_probe` is supplied. `LineExtentsProbe =
+  Callable[[ResolvedTextLine], tuple[float, float]]` is injectable
+  (`resolve_job_spec(..., extents_probe=...)`); the production probe is
+  `memoize_extents_probe(measure_line_vertical_extents)` (label_renderer
+  renders each line once, caches per line). The CLI (`cli/generate.py`) and
+  `scripts/run_integration_test.py` thread it in. Without a probe (direct API
+  / test callers) the historical nominal-height arithmetic runs unchanged;
+  the probe is never called when the feature is off (`_measure_extents`
+  returns `None`), so ink-box jobs pay no renders.
+- **Renderer** (`_render_positioned_lines`): pass 1 collects
+  `baseline_geometry` `(pitch_basis, ascender, descender)` per rendered line;
+  the margin clamp chooses `fit_baseline_spacing_to_margins` vs
+  `fit_line_spacing_to_margins`; baselines come from a precomputed table
+  (`baseline_offsets` shifted so the ink block centers on y = 0) and each
+  line's `y_offset` is exactly its baseline Y. The ink-box running anchor is
+  skipped in baseline mode.
+- **Reporting keeps implied-gap semantics with zero `layout_report.py`
+  changes**: `reported_spacing` is the spacing term (`pitch - cap height`),
+  equal to the requested `line_spacing` unless a margin clamp reduced it —
+  exactly the deviation the report surfaces. A descender pair whose *visual*
+  gap shrinks is therefore not a finding. No new `RenderedLabel` /
+  `_LineEntry` fields; no CLI note (the CLI keeps its single summary line).
+- `DEFAULT_USE_BASELINE_SPACING: bool = True` in `resolution.py` is the code
+  fallback (also the `ResolvedLabel` dataclass default, so direct test
+  callers get baseline stacking).
+- Example fixture: `tests_deps/use_baseline_spacing_job.yaml` (pinned by
+  `tests/test_phase3_export.py::TestUseBaselineSpacingDemoExample`) — a
+  baseline label (descender hangs into the gap: visual gap 0.027 vs the
+  requested 0.15, block 0.123in shorter), its ink-box twin
+  (`use_baseline_spacing: false`, full 0.15in air), and a cap-only control
+  label (mode-independent).
+
 ### Horizontal Text Alignment
 
 Each text line is positioned horizontally within the label's inner content
@@ -969,7 +1037,7 @@ already knows each toolpath's kind, the `Profiler` is skipped entirely.
   **removed**; optimization now happens pre-write in plate space.
 
 ### Cascading Resolution
-When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.15), `space_width_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.3), `min_glyph_width` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `kerning_window_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.05), `kerning_penetration_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_recession_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_min_gap` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `fallback_advance_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `cutter_downsize` (explicit `false` is honored; only `None` means unset, falling back to the config or true), `max_cutter_downsizes` (explicit 0 is honored; only `None` means unset, falling back to the config or 1) and `cutter_downsize_global` (explicit `false` is honored; only `None` means unset, falling back to the config or true) and `h_compress_global` (explicit `true` is honored; only `None` means unset, falling back to the config or false) and `optimize_line_content` (explicit `true` is honored; only `None` means unset, falling back to the config or false) and `optimize_line_content_max_lines` (explicit `None` means unset = no growth, no fallback; only an explicit cap > 0 applies). `cutter_size` (explicit-`None` precedence line → label → job → auto-select; no config tier, `gt=0.0` so an explicit `0.0` is a validation error, not a cascade value). `material` cascades label → job (and plate → job via the clearance-style plate cascade): an explicit label/plate value wins, an explicit `null` counts as unset, and empty-after-trim strings are validation errors.
+When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.15), `space_width_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.3), `min_glyph_width` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `kerning_window_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.05), `kerning_penetration_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_recession_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_min_gap` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `fallback_advance_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `cutter_downsize` (explicit `false` is honored; only `None` means unset, falling back to the config or true), `max_cutter_downsizes` (explicit 0 is honored; only `None` means unset, falling back to the config or 1) and `cutter_downsize_global` (explicit `false` is honored; only `None` means unset, falling back to the config or true) and `h_compress_global` (explicit `true` is honored; only `None` means unset, falling back to the config or false) and `optimize_line_content` (explicit `true` is honored; only `None` means unset, falling back to the config or false) and `optimize_line_content_max_lines` (explicit `None` means unset = no growth, no fallback; only an explicit cap > 0 applies) and `use_baseline_spacing` (explicit `false` is honored; only `None` means unset, falling back to the config or true; cascades job → plate → label, never text lines, plate parity only). `cutter_size` (explicit-`None` precedence line → label → job → auto-select; no config tier, `gt=0.0` so an explicit `0.0` is a validation error, not a cascade value). `material` cascades label → job (and plate → job via the clearance-style plate cascade): an explicit label/plate value wins, an explicit `null` counts as unset, and empty-after-trim strings are validation errors.
 
 ### Stroke-Color Toolpath Splitting (`text_color`)
 

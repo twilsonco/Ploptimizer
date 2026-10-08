@@ -445,6 +445,19 @@
       "description": "Default word-level line-content reflow permission (job layer; consecutive enabled text lines redistribute their words to equalize rendered width, minimizing horizontal compression). Unset falls back to False.",
       "title": "Optimize Line Content"
     },
+    "use_baseline_spacing": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default baseline-to-baseline line spacing permission (job layer; cascades label -> job, never text lines). True stacks a label's lines by baseline pitch so descenders hang into the gap and every gap reads as one uniform visual spacing; false stacks by rendered ink box. Unset falls back to true.",
+      "title": "Use Baseline Spacing"
+    },
     "optimize_line_content_max_lines": {
       "anyOf": [
         {

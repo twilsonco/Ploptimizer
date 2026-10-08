@@ -1,0 +1,50 @@
+# Fixture for baseline-to-baseline line stacking (`use_baseline_spacing`,
+# default true).
+#
+# Baseline mode anchors every text line on its BASELINE with a pitch of
+# (toolpath_text_height + line_spacing), so a descender hangs INTO the gap
+# below its line and every gap reads as one uniform visual spacing. Ink-box
+# mode (false, the historical behaviour) stacks each line's full ink box, so a
+# line with descenders inflates the gap under it.
+#
+# No plate declares a material and the job packs onto one sheet, so emitted
+# names carry no plate/material prefix: [<cutter>]_txt_<job>.plt per distinct
+# cutter plus one bh file.
+job:
+  job_name: Baseline Spacing Demo
+
+  width: 3.0
+  height: 1.4
+  margin: 0.1
+  text_height: 0.5
+  line_spacing: 0.15
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. Baseline stacking (the shipped default): the 'p' descender on the
+    #    first line hangs into the gap, so the visual gap under it is
+    #    tighter than the requested 0.15in and the block is shorter.
+    - id: baseline
+      content:
+        - text: "Depth"
+        - text: "RANGE"
+
+    # 2. Ink-box twin: same content, use_baseline_spacing false. The whole
+    #    'p' box stays above the gap, keeping the full 0.15in of air.
+    - id: inkbox
+      use_baseline_spacing: false
+      content:
+        - text: "Depth"
+        - text: "RANGE"
+
+    # 3. Cap-only content (no descenders/ascenders past the cap): baseline
+    #    stacking is bit-identical to ink-box stacking, so this label's
+    #    geometry is the mode-independent control.
+    - id: caponly
+      content:
+        - text: "HAPPY"
+        - text: "ROOTS"

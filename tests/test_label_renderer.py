@@ -295,8 +295,15 @@ def _make_local_label(
     width: float = 4.0,
     height: float = 2.0,
     margin: float = 0.1,
+    use_baseline_spacing: bool = True,
 ) -> ResolvedLabel:
-    """Helper to build a ResolvedLabel for local text-rendering tests."""
+    """Helper to build a ResolvedLabel for local text-rendering tests.
+
+    ``use_baseline_spacing`` defaults to the shipped default (baseline
+    pitch). Ink-box stacking regressions pass ``False`` to pin the historical
+    geometry, where each line's full ink box (descenders included) consumes
+    vertical space.
+    """
     return ResolvedLabel(
         id="multi_line",
         count=1,
@@ -307,6 +314,7 @@ def _make_local_label(
         v_margin=margin,
         holes=[],
         content=content,
+        use_baseline_spacing=use_baseline_spacing,
     )
 
 
@@ -330,6 +338,10 @@ class TestMultiLineStacking:
     The Phase 3 render path (``_render_text_local``) used to translate every
     line to y=0, printing all lines on the same baseline with overlapping
     glyphs (visible in complex_test_job.yaml PNG previews).
+
+    These cases use mixed line heights, whose expected numbers are ink-box
+    arithmetic, so they pin ``use_baseline_spacing=False``. Baseline pitch
+    (the shipped default) is covered by :class:`TestBaselineSpacingStacking`.
     """
 
     def test_two_line_block_height_includes_spacing(self) -> None:
@@ -353,7 +365,8 @@ class TestMultiLineStacking:
                     character_spacing=0.0,
                     line_spacing=0.0,
                 ),
-            ]
+            ],
+            use_baseline_spacing=False,
         )
 
         lc = _render_text_local(label)
@@ -388,7 +401,8 @@ class TestMultiLineStacking:
                     character_spacing=0.0,
                     line_spacing=0.0,
                 ),
-            ]
+            ],
+            use_baseline_spacing=False,
         )
 
         lc = _render_text_local(label)
@@ -431,6 +445,7 @@ class TestMultiLineStacking:
             ],
             width=6.0,
             height=2.0,
+            use_baseline_spacing=False,
         )
 
         rendered = render_label_to_plt(label)
@@ -453,6 +468,119 @@ class TestMultiLineStacking:
             f"{expected_total:.3f}in stacked (lines overlapping?)"
         )
         assert text_span < expected_total + 0.1
+
+
+class TestBaselineSpacingStacking:
+    """Baseline-to-baseline stacking (``use_baseline_spacing=True``, default).
+
+    Lines anchor on their baselines with a pitch of
+    ``toolpath_text_height + line_spacing``, so descenders hang into the gap
+    and every gap reads as the same visual spacing. Cap-only lines are
+    bit-identical to ink-box stacking (their ink box is the cap height).
+    """
+
+    @staticmethod
+    def _cap_only_lines(spacing: float) -> list[ResolvedTextLine]:
+        """Two cap-only lines with ink box exactly [baseline, baseline + cap].
+
+        ``H``/``O`` reach the full cap height and sit on the baseline; ``A``
+        and ``B`` ink falls slightly short of it, which would blur the
+        bit-identical parity assertion.
+        """
+        return [
+            _make_line("HHH", height=0.3, line_spacing=spacing),
+            _make_line("OOO", height=0.3),
+        ]
+
+    def test_pitch_is_cap_height_plus_spacing(self) -> None:
+        """Baselines step down by toolpath height + spacing, exactly."""
+        label = _make_local_label(self._cap_only_lines(spacing=0.15))
+        _lc, entries = _render_text_local_with_bounds(label)
+        assert len(entries) == 2
+        # H/O sit on their baseline: the ink bottom IS the baseline.
+        pitch = entries[0].bounds[1] - entries[1].bounds[1]
+        expected = 0.27 + 0.15
+        assert math.isclose(pitch, expected, abs_tol=0.01), (
+            f"Baseline pitch {pitch:.3f}in != cap 0.27 + spacing 0.15"
+        )
+
+    def test_descender_hangs_into_the_gap(self) -> None:
+        """The descender eats into the gap, shrinking the visual air below it."""
+        spacing = 0.05
+        content = [_make_line("gy", height=0.3, line_spacing=spacing), _make_line("ABC")]
+
+        baseline_entries = _render_text_local_with_bounds(_make_local_label(content))[1]
+        inkbox_entries = _render_text_local_with_bounds(
+            _make_local_label(content, use_baseline_spacing=False)
+        )[1]
+
+        # Visual gap = upper ink bottom -> lower ink top. Ink-box mode keeps
+        # the full spacing of air; baseline mode shrinks it by the descender.
+        baseline_gap = baseline_entries[0].bounds[1] - baseline_entries[1].bounds[3]
+        inkbox_gap = inkbox_entries[0].bounds[1] - inkbox_entries[1].bounds[3]
+        assert math.isclose(inkbox_gap, spacing, abs_tol=0.01)
+        assert baseline_gap < inkbox_gap - 0.02, (
+            f"baseline gap {baseline_gap:.3f} should be visibly tighter than "
+            f"ink-box gap {inkbox_gap:.3f} (descender hanging into the gap)"
+        )
+
+    def test_block_shrinks_by_the_descender_depth(self) -> None:
+        """Baseline stacking reclaims exactly the descender depth of space."""
+        content = [_make_line("gy", height=0.3, line_spacing=0.1), _make_line("ABC")]
+
+        baseline_lc, baseline_entries = _render_text_local_with_bounds(
+            _make_local_label(content)
+        )
+        inkbox_lc, _entries = _render_text_local_with_bounds(
+            _make_local_label(content, use_baseline_spacing=False)
+        )
+        baseline_height = baseline_lc.bounds()[3] - baseline_lc.bounds()[1]
+        inkbox_height = inkbox_lc.bounds()[3] - inkbox_lc.bounds()[1]
+
+        # The 'gy' descender depth, measured from the baseline-mode render:
+        # baseline = next baseline + pitch (cap 0.27 + spacing 0.1).
+        next_baseline = baseline_entries[1].bounds[1]
+        gy_baseline = next_baseline + 0.27 + 0.1
+        descender = gy_baseline - baseline_entries[0].bounds[1]
+        assert descender > 0.03, "fixture must contain a real descender"
+        assert math.isclose(inkbox_height - baseline_height, descender, abs_tol=0.02), (
+            f"Ink-box {inkbox_height:.3f} - baseline {baseline_height:.3f} != "
+            f"descender {descender:.3f}"
+        )
+
+    def test_cap_only_lines_identical_in_both_modes(self) -> None:
+        """Descender-free content renders bit-identically under both modes."""
+        baseline_entries = _render_text_local_with_bounds(
+            _make_local_label(self._cap_only_lines(spacing=0.12))
+        )[1]
+        inkbox_entries = _render_text_local_with_bounds(
+            _make_local_label(self._cap_only_lines(spacing=0.12), use_baseline_spacing=False)
+        )[1]
+        assert len(baseline_entries) == len(inkbox_entries)
+        for got, want in zip(baseline_entries, inkbox_entries):
+            for g, w in zip(got.bounds, want.bounds):
+                assert math.isclose(g, w, abs_tol=1e-9)
+
+    def test_reported_spacing_is_the_spacing_term(self) -> None:
+        """Unclamped baseline renders report the requested spacing verbatim."""
+        label = _make_local_label(self._cap_only_lines(spacing=0.15))
+        _lc, entries = _render_text_local_with_bounds(label)
+        assert entries[0].line_spacing is not None
+        assert math.isclose(entries[0].line_spacing, 0.15, abs_tol=1e-9)
+        assert entries[1].line_spacing is None
+
+    def test_margin_clamp_uses_the_baseline_block(self) -> None:
+        """The render-time clamp sizes against the baseline-stacked block."""
+        margin = 0.125
+        label = _make_local_label(self._cap_only_lines(spacing=0.3), width=3.0, height=1.0, margin=margin)
+        lc, entries = _render_text_local_with_bounds(label)
+        block_height = lc.bounds()[3] - lc.bounds()[1]
+        available = label.height - 2 * margin
+        # Cap-only: baseline block == ink-box block; 0.54 + 0.3 > 0.75 clamps
+        # the spacing to 0.75 - 0.54 = 0.21.
+        assert entries[0].line_spacing is not None
+        assert math.isclose(entries[0].line_spacing, available - 0.54, abs_tol=0.01)
+        assert block_height <= available + 0.02
 
 
 class TestMarginPrecedence:

@@ -855,6 +855,16 @@ class LabelAttributes(TextAttributes):
             sharing a material pack together and a plate never mixes
             materials. Comparison is case-insensitive and
             whitespace-trimmed; the first-declared spelling is kept.
+        use_baseline_spacing: Optional baseline-to-baseline line spacing
+            permission. Cascades job -> plate -> label (deliberately NOT
+            text lines -- spacing is a property of the stacked block, not of
+            one line); ``None`` (the default) means unset and falls back to
+            ``job-config.json`` then ``True``. When enabled, a label's lines
+            stack by baseline pitch (``text_height + line_spacing``) so a
+            line's descenders hang *into* the gap below it and every gap on
+            the label reads as one uniform visual spacing; when disabled,
+            lines stack by rendered ink box (the historical behaviour, where
+            a descender inflates the gap under its own line).
     """
 
     width: Optional[float] = Field(
@@ -912,6 +922,17 @@ class LabelAttributes(TextAttributes):
             "job -> label. Labels sharing a material pack together and a plate "
             "never mixes materials. Comparison trims whitespace and ignores "
             "case; unset (null) labels pack with the job-level material."
+        ),
+    )
+    use_baseline_spacing: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Stack a label's text lines by baseline-to-baseline pitch "
+            "(text_height + line_spacing) so descenders hang into the gap and "
+            "every gap reads as one uniform visual spacing; false stacks by "
+            "rendered ink box (historical). Cascades job -> plate -> label "
+            "(never text lines); unset (null) falls back to job-config.json "
+            "then true. Accepted on plates for schema parity only."
         ),
     )
 
@@ -1447,6 +1468,13 @@ class PlateSpec(BaseModel):
         ge=0.0,
         description=(
             "Minimum engraved-stroke air gap in inches (schema parity; not applied at plate level)."
+        ),
+    )
+    use_baseline_spacing: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Baseline-to-baseline line spacing (schema parity; not applied at "
+            "plate level -- labels render before packing)."
         ),
     )
     layout: Optional[LayoutMode] = Field(

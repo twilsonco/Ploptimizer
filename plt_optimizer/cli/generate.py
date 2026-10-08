@@ -278,9 +278,15 @@ def run(args: argparse.Namespace) -> int:
     inventory, boundary_hole_cutter = _load_cutter_inventory(args.tools)
 
     # Lazy heavy imports (see module docstring note in the top-level imports).
-    from plt_optimizer.generate.label_renderer import LabelRenderError
+    from plt_optimizer.generate.label_renderer import (
+        LabelRenderError,
+        measure_line_vertical_extents,
+    )
     from plt_optimizer.generate.layout import LayoutFitError
-    from plt_optimizer.generate.resolution import CutterSizeError
+    from plt_optimizer.generate.resolution import (
+        CutterSizeError,
+        memoize_extents_probe,
+    )
     from plt_optimizer.generate.vectorize import export_per_cutter_plts
 
     try:
@@ -288,6 +294,11 @@ def run(args: argparse.Namespace) -> int:
             job,
             available_cutters=inventory,
             boundary_hole_cutter_size=boundary_hole_cutter,
+            # Baseline spacing measures each line's real descender extent so
+            # auto spacing and margin fitting account for it (the probe is
+            # memoized and is never called for single-line labels, labels
+            # stacking by ink box, or jobs without a multi-line label).
+            extents_probe=memoize_extents_probe(measure_line_vertical_extents),
         )
         default_plate_size = _default_plate_size(job_config)
         export_result = export_per_cutter_plts(

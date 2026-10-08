@@ -43,8 +43,11 @@ from plt_optimizer.generate.plt_font_renderer import (
 from plt_optimizer.generate.resolution import (
     ResolvedLabel,
     ResolvedTextLine,
+    baseline_block_height,
+    baseline_offsets,
     compute_horizontal_offset,
     compute_horizontal_scale,
+    fit_baseline_spacing_to_margins,
     fit_line_spacing_to_margins,
 )
 from plt_optimizer.generate.text_geometry import TextBlock, block_from_linecollection
@@ -1811,6 +1814,43 @@ def measure_line_natural_width(line: ResolvedTextLine) -> float:
     return bounds[2] - bounds[0]
 
 
+def measure_line_vertical_extents(line: ResolvedTextLine) -> tuple[float, float]:
+    """Measure one resolved text line's ink extents around its baseline.
+
+    Renders the line standalone (no label margins, no compression, no
+    stacking -- the raw glyph run) and reads its bounding box in the
+    renderer's baseline frame, where both font paths place the **baseline at
+    y = 0** with ``+y`` up and descenders below it. This is the production
+    :data:`~plt_optimizer.generate.resolution.LineExtentsProbe`: baseline
+    spacing needs to know how far a line's glyphs reach below their baseline
+    (which depends on the characters it contains) before the block is
+    stacked.
+
+    Args:
+        line: The resolved text line to measure.
+
+    Returns:
+        ``(ascender, descender)`` in inches, both non-negative: the distance
+        from the baseline to the top of the ink, and the depth of the ink
+        hanging below the baseline. ``(0.0, 0.0)`` for a line with no
+        geometry (blank text).
+
+    Raises:
+        LabelRenderError: If the line's font cannot render its text (missing
+            glyph, unknown font), naming the line.
+    """
+    try:
+        block, _word_groups, _glyph_groups = _render_line_block(line, TextChunkMode.LINE)
+    except (PltFontRenderError, FtextRenderError) as exc:
+        raise LabelRenderError(f"text line ({line.text!r}) cannot be rendered: {exc}") from exc
+    bounds = block.bounds()
+    if bounds is None:
+        return (0.0, 0.0)
+    # Clamp at zero: a line whose ink sits entirely above the baseline has no
+    # descender, and rounding noise must not manufacture one.
+    return (max(0.0, bounds[3]), max(0.0, -bounds[1]))
+
+
 def _render_positioned_lines(
     label: ResolvedLabel,
     chunk_mode: TextChunkMode = TextChunkMode.LINE,
@@ -1909,6 +1949,16 @@ def _render_positioned_lines(
         ]
     ] = []
     total_rendered_height = 0.0
+    # Per-line baseline geometry, parallel to ``rendered_lines``: one
+    # ``(pitch_basis, ascender, descender)`` triple per rendered line, in
+    # inches. The renderers place the baseline at y = 0 with +y up, so the
+    # pre-translate bounds give the ink extents around it directly (both
+    # compression passes scale X only, leaving Y untouched). The pitch basis is
+    # the line's cap height (``toolpath_text_height``) -- a per-font constant
+    # independent of the line's own characters -- so a descender-free line
+    # (ascender == basis, descender == 0) stacks bit-identically to ink-box
+    # stacking. Consumed only when the label stacks by baseline pitch.
+    baseline_geometry: List[Tuple[float, float, float]] = []
 
     for line_index, line in enumerate(label.content):
         # Render at the toolpath_text_height (cutter-compensated) in the
@@ -1956,6 +2006,13 @@ def _render_positioned_lines(
                 glyph_groups,
             )
         )
+        baseline_geometry.append(
+            (
+                line.toolpath_text_height,
+                max(0.0, bounds[3]),
+                max(0.0, -bounds[1]),
+            )
+        )
         total_rendered_height += rendered_height
 
     if not rendered_lines:
@@ -1972,11 +2029,26 @@ def _render_positioned_lines(
     # margin is user-specified and text already accounts for per-line cutter diameter
     # via horizontal compensation.
     available_height = label.height - (2 * v_margin)
-    adjusted_spacings = fit_line_spacing_to_margins(
-        [height for _idx, _lc, height, _spacing, _mhc, _align, _wg, _cs, _gg in rendered_lines],
-        spacings,
-        available_height,
-    )
+    use_baseline = label.use_baseline_spacing
+    pitch_basis = [basis for basis, _a, _d in baseline_geometry]
+    ascenders = [ascender for _basis, ascender, _d in baseline_geometry]
+    descenders = [descender for _basis, _ascender, descender in baseline_geometry]
+    if use_baseline:
+        # Baseline pitch: the clamp fits the descender-extended ink block, so
+        # a line's descenders claim their share of the inner height.
+        adjusted_spacings = fit_baseline_spacing_to_margins(
+            pitch_basis,
+            ascenders,
+            descenders,
+            spacings,
+            available_height,
+        )
+    else:
+        adjusted_spacings = fit_line_spacing_to_margins(
+            [height for _idx, _lc, height, _spacing, _mhc, _align, _wg, _cs, _gg in rendered_lines],
+            spacings,
+            available_height,
+        )
     if adjusted_spacings != spacings:
         logger.warning(
             "Label %s: line_spacing reduced at render time from %s to %s "
@@ -1986,14 +2058,32 @@ def _render_positioned_lines(
             [round(s, 4) for s in adjusted_spacings],
             v_margin,
         )
-    total_rendered_height = sum(
-        height for _idx, _lc, height, _spacing, _mhc, _align, _wg, _cs, _gg in rendered_lines
-    ) + sum(adjusted_spacings)
+    if use_baseline:
+        total_rendered_height = baseline_block_height(
+            pitch_basis, ascenders, descenders, adjusted_spacings
+        )
+    else:
+        total_rendered_height = sum(
+            height for _idx, _lc, height, _spacing, _mhc, _align, _wg, _cs, _gg in rendered_lines
+        ) + sum(adjusted_spacings)
 
     # Anchor the block so its vertical center sits at y = total / 2. The
     # absolute anchor is irrelevant (post-export centering fixes it); only
     # the relative stacking matters.
     current_y = total_rendered_height / 2.0
+
+    # Baseline mode precomputes each line's baseline Y in the same centered
+    # frame: the block-local baselines descend by one pitch each, and the
+    # whole set is shifted so the ink block (descenders included) centers on
+    # y = 0. The per-line ``y_offset`` is then exactly that baseline Y,
+    # because the rendered block's own baseline sits at local y = 0.
+    baseline_y: List[float] = []
+    if use_baseline:
+        offsets = baseline_offsets(pitch_basis, adjusted_spacings)
+        top_extent = max(b + a for b, a in zip(offsets, ascenders))
+        bottom_extent = min(b - d for b, d in zip(offsets, descenders))
+        shift = (top_extent + bottom_extent) / 2.0
+        baseline_y = [offset - shift for offset in offsets]
 
     # Second pass: position each line, stacked top-to-bottom (+y up).
     positioned: List[
@@ -2074,9 +2164,26 @@ def _render_positioned_lines(
         )
         x_offset = target_left_x - min_x
 
-        # Vertical stacking: top of this line's glyphs at current_y.
-        y_offset = current_y - max_y
+        # Vertical stacking. Ink-box mode anchors the top of this line's
+        # glyphs at current_y. Baseline mode anchors the line's BASELINE at
+        # its precomputed Y, so a descender hangs into the gap below instead
+        # of inflating it (the rendered block's baseline sits at local y = 0).
+        if use_baseline:
+            y_offset = baseline_y[i]
+        else:
+            y_offset = current_y - max_y
         block = block.translate(x_offset, y_offset)
+
+        # Reported gap below this line. Both modes report the spacing term
+        # (the value the layout report compares against the requested
+        # ``line_spacing``). Under baseline spacing that term is
+        # ``pitch - cap height``: the requested spacing survives unchanged
+        # when the fit leaves it alone (so a descender pair, whose *visual*
+        # gap shrinks, is not a report finding), and only a margin clamp
+        # reduces it -- which is exactly the deviation the report surfaces.
+        reported_spacing: Optional[float] = (
+            adjusted_spacings[i] if i < len(adjusted_spacings) else None
+        )
 
         # Translation is additive, so the positioned bounds are the measured
         # bounds shifted; no re-measurement is needed.
@@ -2094,7 +2201,7 @@ def _render_positioned_lines(
                         max_y + y_offset,
                     ),
                     compression_scale=effective_scale,
-                    line_spacing=adjusted_spacings[i] if i < len(adjusted_spacings) else None,
+                    line_spacing=reported_spacing,
                 ),
                 word_groups,
                 glyph_groups,
@@ -2102,10 +2209,12 @@ def _render_positioned_lines(
         )
 
         # Move down past this line (plus adjusted spacing, except after
-        # the last).
-        current_y -= rendered_height
-        if i < len(adjusted_spacings):
-            current_y -= adjusted_spacings[i]
+        # the last). Baseline mode ignores the running anchor -- its Y comes
+        # from the precomputed ``baseline_y`` table.
+        if not use_baseline:
+            current_y -= rendered_height
+            if i < len(adjusted_spacings):
+                current_y -= adjusted_spacings[i]
 
     return positioned
 

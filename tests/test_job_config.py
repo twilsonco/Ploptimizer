@@ -44,6 +44,7 @@ _FULL_CONFIG: dict[str, Any] = {
     "kerning_recession_scale": 0.0,
     "kerning_min_gap": 0.05,
     "fallback_advance_fraction": 0.9,
+    "use_baseline_spacing": False,
     "plate_width": 24.0,
     "plate_height": 16.0,
     "left_clearance": 0.0,
@@ -200,6 +201,7 @@ class TestJobDefaultsModel:
         assert "h_compress_global" not in REQUIRED_WHEN_UNCONFIGURED
         assert "optimize_line_content" not in REQUIRED_WHEN_UNCONFIGURED
         assert "optimize_line_content_max_lines" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "use_baseline_spacing" not in REQUIRED_WHEN_UNCONFIGURED
         assert JobDefaults().space_width_fraction is None
         assert JobDefaults().min_glyph_width is None
         assert JobDefaults().kerning_window_fraction is None
@@ -207,6 +209,8 @@ class TestJobDefaultsModel:
         assert JobDefaults().kerning_recession_scale is None
         assert JobDefaults().kerning_min_gap is None
         assert JobDefaults().fallback_advance_fraction is None
+        assert JobDefaults().use_baseline_spacing is None
+        assert JobDefaults(use_baseline_spacing=False).use_baseline_spacing is False
 
 
 class TestLoadJobConfig:
@@ -734,7 +738,7 @@ class TestParseYamlWithJobConfig:
         assert job.max_h_compress == 0.7
         assert job.min_hole_margin == 0.1875
         assert job.hole_text_collision_distance == 0.1
-        assert job.space_width_fraction == 0.8
+        assert job.space_width_fraction == 0.6
         assert job.min_glyph_width == 0.06
         assert job.kerning_window_fraction == 0.15
         assert job.kerning_penetration_scale == 1.0
@@ -747,6 +751,7 @@ class TestParseYamlWithJobConfig:
         assert job.h_compress_global is False
         assert job.optimize_line_content is False
         assert job.optimize_line_content_max_lines is None
+        assert job.use_baseline_spacing is True
 
     def test_yaml_overrides_config(self) -> None:
         """Spec-declared values still win over the shipped config."""

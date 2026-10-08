@@ -1646,6 +1646,49 @@ class TestHCompressGlobal:
         assert plate.h_compress_global is True
 
 
+class TestUseBaselineSpacing:
+    """Tests for the use_baseline_spacing label-tier stacking field."""
+
+    def test_inherited_on_label_and_job_tiers_only(self) -> None:
+        """use_baseline_spacing lives on LabelAttributes, never on TextLine."""
+        assert "use_baseline_spacing" in LabelAttributes.model_fields
+        assert "use_baseline_spacing" in JobSpec.model_fields
+        assert "use_baseline_spacing" in PlateSpec.model_fields
+        assert "use_baseline_spacing" not in TextLine.model_fields
+        assert "use_baseline_spacing" not in TextAttributes.model_fields
+
+    def test_label_and_job_accept_booleans(self) -> None:
+        """Both directions validate on the tiers that carry the field."""
+        label = LabelSpec(id="lbl", content=[TextLine(text="X")], use_baseline_spacing=False)
+        assert label.use_baseline_spacing is False
+        job = JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            use_baseline_spacing=False,
+            content=[TextLine(text="X")],
+        )
+        assert job.use_baseline_spacing is False
+
+    def test_default_is_none(self) -> None:
+        """Schema default is None (unset); resolution applies the True fallback."""
+        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).use_baseline_spacing is None
+        assert (
+            JobSpec(
+                job_name="J",
+                width=2.0,
+                height=1.0,
+                content=[TextLine(text="X")],
+            ).use_baseline_spacing
+            is None
+        )
+
+    def test_plate_accepts_field_for_parity(self) -> None:
+        """PlateSpec should accept the field for schema parity."""
+        plate = PlateSpec(id="plate_1", width=24.0, height=12.0, use_baseline_spacing=False)
+        assert plate.use_baseline_spacing is False
+
+
 class TestJobLevelReplacementFile:
     """Job-level ``replacement_text_file`` (labels section optional)."""
 

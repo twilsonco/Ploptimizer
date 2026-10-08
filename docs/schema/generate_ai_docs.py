@@ -109,6 +109,12 @@ _FALLBACK_NOTES: dict[str, str] = {
     "than lines are left alone. Runs as an export pre-pass before the cutter-reduction and "
     "shared-compression pre-passes. Cascades line/label/job; job-config supplies the shop default.",
     "DEFAULT_TEXT_H_ALIGNMENT": "Horizontal alignment fallback when unset everywhere.",
+    "DEFAULT_USE_BASELINE_SPACING": "True = a label's text lines stack by baseline pitch "
+    "(cap height + line_spacing), so descenders hang into the gap below their line and every "
+    "gap reads as one uniform visual spacing; auto line_spacing and the margin clamp measure "
+    "each line's real descender extent. False = lines stack by rendered ink box (historical), "
+    "where a descender inflates the gap under its own line. Cascades label/job (accepted on "
+    "plates for schema parity only, never text lines); job-config supplies the shop default.",
     "DEFAULT_TEXT_COLOR": "Implicit stroke-color layer of text that omits text_color "
     "(never cascades; a job-level text_color is rejected). 'none' cannot be specified "
     "explicitly.",

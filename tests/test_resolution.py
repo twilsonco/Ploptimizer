@@ -33,21 +33,29 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_TEXT_COLOR,
     DEFAULT_TEXT_H_ALIGNMENT,
     DEFAULT_TEXT_HEIGHT,
+    DEFAULT_USE_BASELINE_SPACING,
     IDEAL_CUTTER_MAP,
     CutterSizeError,
     LineContentConfigError,
     ResolvedHoleSpec,
     ResolvedLabel,
     ResolvedTextLine,
+    baseline_block_height,
+    baseline_offsets,
+    baseline_pitch,
     build_cutter_pen_map,
     compute_horizontal_offset,
     compute_horizontal_scale,
+    fit_baseline_spacing_to_margins,
     fit_line_spacing_to_margins,
     get_cutter_diameter,
+    memoize_extents_probe,
     next_smaller_cutter,
     resolve_job_spec,
     should_downsize_cutter,
     snap_boundary_hole_cutter,
+    solve_baseline_spacing_to_fill,
+    solve_baseline_spacing_to_ratio,
 )
 from plt_optimizer.generate.schema import (
     DEFAULT_HOLE_DIAMETER,
@@ -2822,3 +2830,351 @@ class TestOptimizeLineContentMaxLinesCascade:
             line_spacing=0.1,
         )
         assert line.optimize_line_content_max_lines is None
+
+
+class TestBaselinePitchMath:
+    """Pure baseline-geometry helpers (pitch, offsets, block height)."""
+
+    def test_pitch_is_cap_height_plus_spacing(self) -> None:
+        """Each gap's pitch is the upper line's height plus its spacing."""
+        assert baseline_pitch([0.5, 0.5, 0.5], [0.1, 0.2]) == [0.6, 0.7]
+
+    def test_pitch_clamps_negative_spacing(self) -> None:
+        """A negative spacing floors at 0.0 (pitch never below the height)."""
+        assert baseline_pitch([0.5, 0.5], [-0.2]) == [0.5]
+
+    def test_offsets_descend_by_one_pitch_each(self) -> None:
+        """Baselines start at 0 and step down by the pitch (+y up)."""
+        offsets = baseline_offsets([0.5, 0.5, 0.4], [0.1, 0.2])
+        assert len(offsets) == 3
+        for got, want in zip(offsets, [0.0, -0.6, -1.3]):
+            assert math.isclose(got, want, abs_tol=1e-12)
+
+    def test_single_line_offsets(self) -> None:
+        """A single line has one baseline at the origin."""
+        assert baseline_offsets([0.5], []) == [0.0]
+
+    def test_block_height_without_descenders_is_ink_box(self) -> None:
+        """Uniform cap-only lines reproduce the ink-box height exactly."""
+        height = baseline_block_height([0.5, 0.5], [0.5, 0.5], [0.0, 0.0], [0.1])
+        assert math.isclose(height, 0.5 + 0.1 + 0.5, abs_tol=1e-12)
+
+    def test_block_height_grows_by_the_descender_depth(self) -> None:
+        """A descender on the last line extends the block below its baseline."""
+        heights = [0.5, 0.5]
+        plain = baseline_block_height(heights, [0.5, 0.5], [0.0, 0.0], [0.1])
+        with_desc = baseline_block_height(heights, [0.5, 0.5], [0.0, 0.12], [0.1])
+        assert math.isclose(with_desc - plain, 0.12, abs_tol=1e-12)
+
+    def test_interior_descender_does_not_grow_the_block(self) -> None:
+        """A descender hanging into a roomy gap stays inside the block."""
+        heights = [0.5, 0.5, 0.5]
+        plain = baseline_block_height(heights, [0.5] * 3, [0.0] * 3, [0.4, 0.4])
+        middle = baseline_block_height(heights, [0.5] * 3, [0.0, 0.1, 0.0], [0.4, 0.4])
+        assert math.isclose(middle, plain, abs_tol=1e-12)
+
+
+class TestFitBaselineSpacingToMargins:
+    """Baseline-spacing margin clamp (bisection on the spacing factor)."""
+
+    def test_returns_input_when_block_fits(self) -> None:
+        """A block inside the inner area keeps its requested spacings."""
+        spacings = fit_baseline_spacing_to_margins([0.5, 0.5], [0.5, 0.5], [0.0, 0.0], [0.1], 2.0)
+        assert spacings == [0.1]
+
+    def test_no_spacings_is_a_no_op(self) -> None:
+        """Single-line content has no gaps to clamp."""
+        assert fit_baseline_spacing_to_margins([0.5], [0.5], [0.0], [], 2.0) == []
+
+    def test_descenders_are_charged_to_the_block(self) -> None:
+        """Descenders reaching the inner edge shrink the spacing."""
+        heights, asc = [0.5, 0.5], [0.5, 0.5]
+        plain = fit_baseline_spacing_to_margins(heights, asc, [0.0, 0.0], [0.2], 1.2)
+        desc = fit_baseline_spacing_to_margins(heights, asc, [0.0, 0.1], [0.2], 1.2)
+        assert plain == [0.2]
+        assert desc[0] < plain[0]
+
+    def test_fits_exactly_after_clamping(self) -> None:
+        """The clamped spacing makes the ink block fill the inner area."""
+        heights, asc, desc = [0.5, 0.5], [0.5, 0.5], [0.0, 0.12]
+        adjusted = fit_baseline_spacing_to_margins(heights, asc, desc, [0.5], 1.2)
+        block = baseline_block_height(heights, asc, desc, adjusted)
+        assert math.isclose(block, 1.2, abs_tol=1e-6)
+
+    def test_never_increases_spacing(self) -> None:
+        """Clamping only ever reduces (margins take precedence)."""
+        adjusted = fit_baseline_spacing_to_margins([0.5, 0.5], [0.5, 0.5], [0.0, 0.0], [0.9], 1.05)
+        assert adjusted[0] < 0.9
+
+    def test_collapses_to_zero_when_heights_overflow(self) -> None:
+        """When the block overflows with no spacing, every spacing hits 0.0."""
+        adjusted = fit_baseline_spacing_to_margins([0.5, 0.5], [0.5, 0.5], [0.0, 0.3], [0.4], 1.0)
+        assert adjusted == [0.0]
+
+    def test_zero_total_spacing_returns_input(self) -> None:
+        """No spacing to remove means nothing to scale (early exit)."""
+        assert fit_baseline_spacing_to_margins([0.5, 0.5], [0.5, 0.5], [0.0, 0.0], [0.0], 0.6) == [
+            0.0
+        ]
+
+    def test_matches_ink_box_math_for_cap_only_lines(self) -> None:
+        """Uniform cap-only lines agree with the ink-box clamp exactly."""
+        heights = [0.5, 0.5, 0.5]
+        baseline = fit_baseline_spacing_to_margins(
+            heights, heights, [0.0, 0.0, 0.0], [0.4, 0.2], 1.9
+        )
+        ink_box = fit_line_spacing_to_margins(heights, [0.4, 0.2], 1.9)
+        for got, want in zip(baseline, ink_box):
+            assert math.isclose(got, want, abs_tol=1e-6)
+
+
+class TestSolveBaselineSpacingToFill:
+    """Explicit-v_margin auto spacing under baseline stacking."""
+
+    def test_fills_the_available_height_exactly(self) -> None:
+        """The solved spacing makes the ink block equal the inner height."""
+        heights, asc, desc = [0.5, 0.5, 0.5], [0.5, 0.5, 0.5], [0.0, 0.15, 0.0]
+        spacing = solve_baseline_spacing_to_fill(heights, asc, desc, 2.0)
+        block = baseline_block_height(heights, asc, desc, [spacing, spacing])
+        assert math.isclose(block, 2.0, abs_tol=1e-6)
+
+    def test_matches_ink_box_math_without_descenders(self) -> None:
+        """Cap-only content reproduces the closed-form nominal division."""
+        heights = [0.5, 0.5, 0.5]
+        solved = solve_baseline_spacing_to_fill(heights, heights, [0.0, 0.0, 0.0], 2.0)
+        assert math.isclose(solved, (2.0 - 1.5) / 2.0, abs_tol=1e-9)
+
+    def test_descenders_reduce_the_spacing(self) -> None:
+        """A descender claims space, so the spacing term shrinks."""
+        heights = [0.5, 0.5]
+        plain = solve_baseline_spacing_to_fill(heights, heights, [0.0, 0.0], 1.4)
+        desc = solve_baseline_spacing_to_fill(heights, heights, [0.0, 0.2], 1.4)
+        assert desc < plain
+
+    def test_overflow_returns_zero(self) -> None:
+        """No room for spacing yields 0.0 (never negative)."""
+        assert solve_baseline_spacing_to_fill([0.5, 0.5], [0.5, 0.5], [0.0, 0.3], 1.0) == 0.0
+
+    def test_single_line_returns_zero(self) -> None:
+        """A single line has no gaps."""
+        assert solve_baseline_spacing_to_fill([0.5], [0.5], [0.0], 2.0) == 0.0
+
+
+class TestSolveBaselineSpacingToRatio:
+    """Auto-v_margin auto spacing under baseline stacking."""
+
+    def test_ratio_balances_top_and_interline_gaps(self) -> None:
+        """ratio=1 makes every gap equal and fills the label exactly."""
+        heights = [0.5, 0.5, 0.5]
+        spacing, v_margin = solve_baseline_spacing_to_ratio(
+            2.0, heights, heights, [0.0, 0.0, 0.0], 1.0
+        )
+        assert math.isclose(spacing, v_margin, abs_tol=1e-9)
+        block = baseline_block_height(heights, heights, [0.0, 0.0, 0.0], [spacing, spacing])
+        assert math.isclose(2 * v_margin + block, 2.0, abs_tol=1e-6)
+
+    def test_matches_ink_box_math_without_descenders(self) -> None:
+        """Cap-only content reproduces the closed-form ratio division."""
+        heights = [0.5, 0.5, 0.5]
+        spacing, v_margin = solve_baseline_spacing_to_ratio(
+            2.0, heights, heights, [0.0, 0.0, 0.0], 1.3
+        )
+        expected_gap = (2.0 - 1.5) / (2.0 + 2 * 1.3)
+        assert math.isclose(v_margin, expected_gap, abs_tol=1e-6)
+        assert math.isclose(spacing, 1.3 * expected_gap, abs_tol=1e-6)
+
+    def test_descenders_shrink_the_gaps(self) -> None:
+        """The block fills the label, so descender ink eats into the gaps."""
+        heights = [0.5, 0.5]
+        plain = solve_baseline_spacing_to_ratio(2.0, heights, heights, [0.0, 0.0], 1.0)
+        desc = solve_baseline_spacing_to_ratio(2.0, heights, heights, [0.0, 0.25], 1.0)
+        assert desc[1] < plain[1]
+        assert desc[0] < plain[0]
+
+    def test_single_line_centers(self) -> None:
+        """A single line has no gaps; the margin is half the label."""
+        assert solve_baseline_spacing_to_ratio(2.0, [0.5], [0.5], [0.0], 1.0) == (0.0, 1.0)
+
+
+class TestMemoizeExtentsProbe:
+    """The production probe wrapper caches per line."""
+
+    def test_each_line_measured_once(self) -> None:
+        """Identical lines (value equality) hit the cache."""
+        calls: list[str] = []
+
+        def probe(line: ResolvedTextLine) -> tuple[float, float]:
+            calls.append(line.text)
+            return (0.4, 0.1)
+
+        memoized = memoize_extents_probe(probe)
+        line_a = _make_line("ABC")
+        line_b = _make_line("ABC")
+        assert line_a == line_b
+        assert memoized(line_a) == memoized(line_b)
+        assert calls == ["ABC"]
+
+
+class TestUseBaselineSpacingCascade:
+    """use_baseline_spacing cascades label -> job -> True (explicit-None)."""
+
+    @staticmethod
+    def _job(**levels: bool | None) -> JobSpec:
+        """Build a one-label job applying use_baseline_spacing at the given levels."""
+        job_kwargs: dict[str, bool | None] = {}
+        label_kwargs: dict[str, bool | None] = {}
+        if "job" in levels:
+            job_kwargs["use_baseline_spacing"] = levels["job"]
+        if "label" in levels:
+            label_kwargs["use_baseline_spacing"] = levels["label"]
+        return JobSpec(
+            job_name="J",
+            text_height=0.5,
+            **job_kwargs,  # type: ignore[arg-type]
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    **label_kwargs,  # type: ignore[arg-type]
+                    content=[TextLine(text="X"), TextLine(text="Y")],
+                )
+            ],
+        )
+
+    def test_default_module_constant_is_true(self) -> None:
+        """The shipped default enables baseline spacing."""
+        assert DEFAULT_USE_BASELINE_SPACING is True
+
+    def test_default_resolves_true(self) -> None:
+        """All levels omitting resolves to the True fallback."""
+        assert resolve_job_spec(self._job())[0].use_baseline_spacing is True
+
+    def test_job_false_used_when_label_omits(self) -> None:
+        """Job-level False cascades onto labels that omit the field."""
+        assert resolve_job_spec(self._job(job=False))[0].use_baseline_spacing is False
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level True beats the job-level False."""
+        assert (
+            resolve_job_spec(self._job(job=False, label=True))[0].use_baseline_spacing is True
+        )
+
+    def test_label_false_is_honored(self) -> None:
+        """An intentional False (ink-box stacking) never falls through."""
+        assert resolve_job_spec(self._job(job=True, label=False))[0].use_baseline_spacing is False
+
+    def test_root_level_job_resolves_own_value(self) -> None:
+        """A root-level job masquerading as a label resolves its own field."""
+        job = JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            text_height=0.5,
+            content=[TextLine(text="X")],
+            use_baseline_spacing=False,
+        )
+        assert resolve_job_spec(job)[0].use_baseline_spacing is False
+
+    def test_resolved_label_defaults_true(self) -> None:
+        """A manually constructed ResolvedLabel defaults to the shipped default."""
+        label = ResolvedLabel(
+            id="l",
+            count=1,
+            width=2.0,
+            height=1.0,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+        )
+        assert label.use_baseline_spacing is DEFAULT_USE_BASELINE_SPACING
+
+
+class TestAutoLineSpacingBaselineProbe:
+    """Option B: auto spacing measures real descender extents."""
+
+    @staticmethod
+    def _job(**label_kwargs: object) -> JobSpec:
+        """Build a two-line job (one with descenders) using auto line_spacing."""
+        return JobSpec(
+            job_name="J",
+            width=4.0,
+            height=2.0,
+            text_height=0.5,
+            margin=0.2,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    content=[TextLine(text="gy"), TextLine(text="ABC")],
+                    **label_kwargs,  # type: ignore[arg-type]
+                )
+            ],
+        )
+
+    @staticmethod
+    def _probe(line: ResolvedTextLine) -> tuple[float, float]:
+        """Fake extents: the descender line hangs 0.20in below its baseline."""
+        cap = line.toolpath_text_height
+        return (cap, 0.20 if "g" in line.text else 0.0)
+
+    def test_probe_unused_without_baseline_spacing(self) -> None:
+        """The ink-box path never calls the probe (no renders paid for)."""
+        calls: list[str] = []
+
+        def probe(line: ResolvedTextLine) -> tuple[float, float]:
+            calls.append(line.text)
+            return (line.toolpath_text_height, 0.0)
+
+        resolve_job_spec(self._job(use_baseline_spacing=False), extents_probe=probe)
+        assert calls == []
+
+    def test_probe_unused_without_a_probe(self) -> None:
+        """Baseline spacing without a probe keeps the nominal-height math."""
+        label = resolve_job_spec(self._job())[0]
+        assert label.use_baseline_spacing is True
+        # Auto v_margin, ratio 1.0: 2 * gap + (1.0 + gap) == 2.0 -> gap = 1 / 3.
+        assert math.isclose(label.content[0].line_spacing, 1.0 / 3.0, abs_tol=1e-9)
+
+    def test_probe_changes_resolved_spacing(self) -> None:
+        """Measured descenders move the resolved spacing off the nominal math."""
+        plain = resolve_job_spec(self._job())[0]
+        measured = resolve_job_spec(self._job(), extents_probe=self._probe)[0]
+        assert not math.isclose(
+            measured.content[0].line_spacing, plain.content[0].line_spacing, abs_tol=1e-6
+        )
+
+    def test_probe_resolves_uniform_spacing(self) -> None:
+        """Every gap gets the same spacing, sized for the measured descender."""
+        label = resolve_job_spec(self._job(), extents_probe=self._probe)[0]
+        spacings = [line.line_spacing for line in label.content[:-1]]
+        assert len(set(spacings)) == 1
+        # ratio 1.0: interline gap == v_margin, so spacing == v_margin.
+        assert math.isclose(spacings[0], label.v_margin, abs_tol=1e-6)
+        # The descender-extended block plus the two margins fills the label.
+        heights = [line.toolpath_text_height for line in label.content]
+        block = baseline_block_height(heights, heights, [0.20, 0.0], spacings)
+        assert math.isclose(2 * label.v_margin + block, 2.0, abs_tol=1e-6)
+
+    def test_explicit_v_margin_uses_fill_solver(self) -> None:
+        """An explicit v_margin fills the fixed inner area exactly."""
+        label = resolve_job_spec(
+            self._job(v_margin=0.3), extents_probe=self._probe
+        )[0]
+        heights = [line.toolpath_text_height for line in label.content]
+        asc = [h for h in heights]
+        desc = [0.20, 0.0]
+        block = baseline_block_height(heights, asc, desc, [label.content[0].line_spacing])
+        assert math.isclose(block, 2.0 - 2 * 0.3, abs_tol=1e-6)
+
+    def test_margin_fit_clamps_explicit_spacing(self) -> None:
+        """Explicit spacing is clamped against the descender-extended block."""
+        label = resolve_job_spec(
+            self._job(line_spacing=1.0), extents_probe=self._probe
+        )[0]
+        plain = resolve_job_spec(self._job(line_spacing=1.0))[0]
+        # Inner height 2.0 - 2 * 0.2 = 1.6. The probe run stacks on cap heights
+        # (0.44): the first line's descender hangs into the gap, so the block
+        # is A0 + pitch = 0.44 + (0.44 + s) = 1.6 -> s = 0.72. The probe-less
+        # run divides the nominal heights (0.5): 0.5 + (0.5 + s) = 1.6 -> 0.60.
+        assert math.isclose(label.content[0].line_spacing, 0.72, abs_tol=1e-6)
+        assert math.isclose(plain.content[0].line_spacing, 0.6, abs_tol=1e-6)

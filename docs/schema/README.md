@@ -177,6 +177,7 @@ always wins at its level. Precedence per attribute:
 | `cutter_size` | line → label → job (no config tier) | `null` = auto-select from `text_height` |
 | `cutter_downsize`, `max_cutter_downsizes`, `cutter_downsize_global` | line → label → job → config | `true` / `1` / `true` |
 | `h_compress_global` | line → label → job → config | `false` |
+| `use_baseline_spacing` | label → job → config (never lines; plate parity) | `true` |
 | `text_color` | line → label (never job/plate/config) | `none` (implicit) |
 | `width`, `height` | label → job → auto-size from rendered content | — |
 | `margin` | label → job → config | 0.125 |
@@ -223,9 +224,9 @@ entries that omit it).
 - **Per-plate typographic fields** (`hole_margin`, `max_h_compress`,
   `text_h_alignment`, `min_hole_margin`, `hole_text_collision_distance`,
   `cutter_size`, `cutter_downsize`, `max_cutter_downsizes`,
-  `cutter_downsize_global`, `h_compress_global`) are accepted on plates for
-  schema parity but **not applied** at plate level — labels render once before
-  packing.
+  `cutter_downsize_global`, `h_compress_global`, `use_baseline_spacing`) are
+  accepted on plates for schema parity but **not applied** at plate level —
+  labels render once before packing.
 - **`cutter_size` (default null)**: an explicit cutter diameter (inches)
   overriding the automatic height→cutter lookup. The requested diameter is
   snapped to `tools.json` `available_cutters` (next size down, else next up,
@@ -284,6 +285,19 @@ entries that omit it).
   cutter swap (accepted staleness). WARNING-logged per propagated line and
   reported in the layout report as an ordinary compressed line. `job-config.json`
   supplies the shop default.
+- **`use_baseline_spacing` (default true)**: baseline-to-baseline line
+  spacing. Stacking a label by rendered ink box means a line carrying
+  descenders (`g j p q y`) pushes the next line down by its full ink height,
+  inflating that one visual gap. With baseline spacing each line's baseline
+  sits one pitch below the previous one (`pitch = cap height + line_spacing`),
+  so the descender hangs *into* the gap and every gap on the label reads as
+  one uniform visual spacing. Lines without descenders are bit-identical to
+  ink-box stacking. Auto `line_spacing` and the margin clamp measure each
+  line's real ascender/descender extents (render probe), so a descender-heavy
+  block claims its space up front and fills the label exactly. `false`
+  restores the historical ink-box stacking. Cascades label → job → config
+  (never text lines — spacing is a property of the stacked block); plates are
+  parity-only.
 - **Text–hole collision avoidance** (3 phases): always-on detection →
   opt-in `min_hole_margin` sweep → opt-in `max_h_compress` compression.
   Unresolved collisions fail the job (`LabelRenderError`, non-zero exit).

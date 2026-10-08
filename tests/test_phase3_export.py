@@ -668,6 +668,11 @@ class TestLayerReport:
         Hand-picked (random search over the real NearestNeighbor + 2-Opt
         path) so the plate-space sweep fires: inter-chunk travel drops
         1427.785 -> 1403.864 and emitted travel 6391.220 -> 6367.300.
+
+        ``use_baseline_spacing=False`` pins the ink-box stacking the tour was
+        tuned under: baseline spacing shifts each line's Y, which reshuffles
+        the rapid-travel gains and silences the direction sweep this test
+        asserts on. The report line's format is what is under test here.
         """
         return ResolvedLabel(
             id="lbl",
@@ -678,6 +683,7 @@ class TestLayerReport:
             h_margin=0.0,
             v_margin=0.0,
             material=None,
+            use_baseline_spacing=False,
             content=[
                 ResolvedTextLine(
                     text=text,
@@ -1499,3 +1505,83 @@ class TestPlateNumberScoping:
         combined = sorted(p.name for p in result.pdf_paths if "all_" in p.name)
         assert any(name.startswith("wbuv_all_") for name in combined), combined
         assert any(name[:2].isdigit() and "_wb_all_" in name for name in combined), combined
+
+
+class TestUseBaselineSpacingDemoExample:
+    """Regression tests for tests_deps/use_baseline_spacing_job.yaml.
+
+    The fixture pins baseline-to-baseline stacking (``use_baseline_spacing``,
+    default true) against its ink-box twin: a descender hangs into the gap
+    below its line (tighter visual gap, shorter block), while cap-only
+    content renders identically under both modes.
+    """
+
+    _SPEC = Path("tests_deps/use_baseline_spacing_job.yaml")
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="ubs",
+            optimize=False,
+            plots=False,
+        )
+
+    @staticmethod
+    def _stacked_bounds(label: ResolvedLabel) -> list[tuple[float, float, float, float]]:
+        """Per-line local bounds of a resolved label (block centered at y=0)."""
+        from plt_optimizer.generate.label_renderer import _render_text_local_with_bounds
+
+        _lc, entries = _render_text_local_with_bounds(label)
+        return [entry.bounds for entry in entries]
+
+    def test_flags_resolve_per_label(self, tmp_path: Path) -> None:
+        """The default is baseline stacking; the twin opts out explicitly."""
+        result = self._export(tmp_path)
+        assert result.rendered_labels["baseline"].source_label.use_baseline_spacing is True
+        assert result.rendered_labels["inkbox"].source_label.use_baseline_spacing is False
+        assert result.rendered_labels["caponly"].source_label.use_baseline_spacing is True
+
+    def test_descender_hangs_into_the_gap(self, tmp_path: Path) -> None:
+        """Baseline mode shrinks the visual gap by the descender depth."""
+        result = self._export(tmp_path)
+        baseline = self._stacked_bounds(result.rendered_labels["baseline"].source_label)
+        inkbox = self._stacked_bounds(result.rendered_labels["inkbox"].source_label)
+
+        # Visual gap = upper ink bottom -> lower ink top.
+        baseline_gap = baseline[0][1] - baseline[1][3]
+        inkbox_gap = inkbox[0][1] - inkbox[1][3]
+        assert math.isclose(inkbox_gap, 0.15, abs_tol=0.01)
+        assert math.isclose(baseline_gap, 0.027, abs_tol=0.01)
+
+        # The reclaimed space is exactly the 'p' descender depth.
+        baseline_block = max(b[3] for b in baseline) - min(b[1] for b in baseline)
+        inkbox_block = max(b[3] for b in inkbox) - min(b[1] for b in inkbox)
+        assert math.isclose(inkbox_block - baseline_block, 0.123, abs_tol=0.01)
+
+    def test_cap_only_content_is_mode_independent(self, tmp_path: Path) -> None:
+        """Descender-free content keeps the requested spacing verbatim."""
+        result = self._export(tmp_path)
+        caponly = result.rendered_labels["caponly"]
+        assert caponly.compression_by_line == {}
+        assert math.isclose(caponly.line_spacing_by_line[0], 0.15, abs_tol=1e-9)
+
+    def test_report_sees_no_findings(self, tmp_path: Path) -> None:
+        """Baseline stacking reports the requested spacing (no report finding)."""
+        result = self._export(tmp_path)
+        for label_id in ("baseline", "inkbox", "caponly"):
+            rendered = result.rendered_labels[label_id]
+            assert rendered.compression_by_line == {}
+            assert math.isclose(rendered.line_spacing_by_line[0], 0.15, abs_tol=1e-9)
+
+    def test_stacking_keeps_one_cutter_file(self, tmp_path: Path) -> None:
+        """Stacking changes Y placement only, so the cutter set is unchanged."""
+        result = self._export(tmp_path)
+        assert sorted(p.name for p in result.plt_paths) == [
+            "0.015_bh_ubs.plt",
+            "0.060_txt_ubs.plt",
+        ]

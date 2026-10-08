@@ -358,6 +358,16 @@ class JobDefaults(BaseModel):
             "Unset falls back to False."
         ),
     )
+    use_baseline_spacing: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Default baseline-to-baseline line spacing permission (job layer; "
+            "cascades label -> job, never text lines). True stacks a label's "
+            "lines by baseline pitch so descenders hang into the gap and every "
+            "gap reads as one uniform visual spacing; false stacks by rendered "
+            "ink box. Unset falls back to true."
+        ),
+    )
     optimize_line_content_max_lines: Optional[int] = Field(
         default=None,
         ge=1,
@@ -465,6 +475,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "h_compress_global",
     "optimize_line_content",
     "optimize_line_content_max_lines",
+    "use_baseline_spacing",
     "allow_rotation",
     "text_chunk_mode",
     "layout",

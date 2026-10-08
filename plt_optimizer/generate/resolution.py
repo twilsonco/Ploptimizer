@@ -27,12 +27,53 @@ import logging
 import math
 import uuid
 from dataclasses import dataclass, field, replace
-from typing import Optional, Sequence, Union
+from typing import Callable, Optional, Sequence, Union
 
 from plt_optimizer.generate.font_registry import DEFAULT_FONT_NAME
 from plt_optimizer.generate.schema import JobSpec, LabelSpec
 
 logger = logging.getLogger(__name__)
+
+# Signature of the probe measuring one resolved text line's vertical ink
+# extents relative to its baseline: ``(ascender, descender)``, both in inches
+# and both non-negative (the distance from the baseline to the top of the
+# ink, and the depth of the ink hanging below it). Baseline spacing needs
+# render-time knowledge -- how far a line's glyphs reach below their baseline
+# depends on the characters it contains -- so the measurement is injected:
+# :func:`plt_optimizer.generate.label_renderer.measure_line_vertical_extents`
+# supplies it in production, and tests inject a table. ``None`` (the default
+# everywhere) keeps the historical nominal-height spacing math and costs no
+# renders.
+LineExtentsProbe = Callable[["ResolvedTextLine"], tuple[float, float]]
+
+
+def memoize_extents_probe(probe: LineExtentsProbe) -> LineExtentsProbe:
+    """Wrap an extents probe so each distinct line is measured at most once.
+
+    A job's labels frequently share identical content (replacement-file
+    expansion, ``count`` repetition), and measuring a line means rendering
+    it. The cache keys on the line object itself: :class:`ResolvedTextLine`
+    is a frozen dataclass with value equality, so identical typography hits the
+    same entry, and spacing fitters that measure the same label twice
+    (auto-spacing, then margin fitting) pay nothing.
+
+    Args:
+        probe: The probe to wrap, e.g.
+            :func:`plt_optimizer.generate.label_renderer.measure_line_vertical_extents`.
+
+    Returns:
+        A probe returning cached ``(ascender, descender)`` extents.
+    """
+    cache: dict[ResolvedTextLine, tuple[float, float]] = {}
+
+    def memoized(line: ResolvedTextLine) -> tuple[float, float]:
+        cached = cache.get(line)
+        if cached is None:
+            cached = probe(line)
+            cache[line] = cached
+        return cached
+
+    return memoized
 
 
 class CutterSizeError(ValueError):
@@ -164,6 +205,15 @@ DEFAULT_OPTIMIZE_LINE_CONTENT: bool = False
 # still need horizontal compression) and never removes any. Consumed by
 # :mod:`plt_optimizer.generate.line_content`.
 DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES: Optional[int] = None
+# Baseline-to-baseline line spacing. ``True`` (the default) stacks a label's
+# text lines by baseline pitch (``nominal_text_height + line_spacing``) so a
+# line's descenders hang *into* the gap below it and every gap on the label
+# reads as one uniform visual spacing. ``False`` stacks by rendered ink box
+# (the historical behaviour): a line carrying descenders pushes the next line
+# down by its full ink height, inflating that one visual gap. Label-level
+# only -- spacing is a property of the stacked block, never of one line, so
+# the field is deliberately absent from ``TextLine``/``TextAttributes``.
+DEFAULT_USE_BASELINE_SPACING: bool = True
 # Stroke-color layer tag default. ``"none"`` is the implicit color of
 # every line that omits ``text_color``; it never cascades (the field is
 # label/line-local by design, see schema.TextColor) and the resolution
@@ -623,6 +673,16 @@ class ResolvedLabel:
             ``None`` (the default) means unset: the label groups with the
             job-level material, and a job without materials packs exactly
             like a single material group.
+        use_baseline_spacing: Stack this label's text lines by
+            baseline-to-baseline pitch (``nominal_text_height +
+            line_spacing``) instead of by rendered ink box (from the
+            ``use_baseline_spacing`` cascade, label -> job, default
+            ``True``). Under baseline spacing a line's descenders hang into
+            the gap below it, so every gap on the label reads as one uniform
+            visual spacing; the render-time clamp
+            (:func:`fit_baseline_spacing_to_margins`) shrinks the spacings
+            only when the descender-extended block no longer fits the inner
+            area. ``False`` reproduces the historical ink-box stacking.
     """
 
     id: str
@@ -644,6 +704,7 @@ class ResolvedLabel:
     text_chunk_mode: str = "line"
     plate_id: Optional[str] = None
     material: Optional[str] = None
+    use_baseline_spacing: bool = DEFAULT_USE_BASELINE_SPACING
 
 
 # ---------------------------------------------------------------------------
@@ -690,6 +751,259 @@ def fit_line_spacing_to_margins(
     # (capped at the total spacing available, i.e. a floor of zero).
     factor = max(0.0, (total_spacing - excess) / total_spacing)
     return [s * factor for s in spacings]
+
+
+# ---------------------------------------------------------------------------
+# Baseline-spacing geometry (``use_baseline_spacing``)
+#
+# Baseline spacing stacks lines by the distance between their baselines
+# (``pitch_i = nominal_text_height_i + line_spacing_i``) instead of by their
+# rendered ink boxes. Each line's ink spans ``[b_i - D_i, b_i + A_i]`` where
+# ``b_i`` is its baseline, ``A_i`` the ascender extent (ink above the
+# baseline) and ``D_i`` the descender depth (ink hanging below it), all in
+# inches. Because the baselines descend monotonically, the block's ink height
+# is ``max_i(b_i + A_i) - min_i(b_i - D_i)``: a maximum and a minimum of
+# affine functions of the spacings, hence convex, continuous and
+# non-decreasing in every spacing. That monotonicity is what lets the fit
+# helpers below solve the block height by bisection -- the closed-form
+# proportional scale-down of :func:`fit_line_spacing_to_margins` is only
+# valid for the linear ink-box model.
+# ---------------------------------------------------------------------------
+_BISECTION_TOLERANCE: float = 1e-9
+_BISECTION_MAX_ITERATIONS: int = 100
+
+
+def baseline_pitch(line_heights: Sequence[float], line_spacings: Sequence[float]) -> list[float]:
+    """Return the baseline-to-baseline pitch of each inter-line gap.
+
+    The pitch of the gap below line ``i`` is ``line_heights[i] +
+    line_spacings[i]``: the nominal (cap) height carries the baseline down to
+    the next line's cap line, and ``line_spacing`` is the engraved-stroke air
+    gap measured from that baseline to the next line's ink top. Lines without
+    descenders therefore produce exactly the ink-box geometry, and a descender
+    of depth ``d`` shortens the visual gap by exactly ``d``.
+
+    Args:
+        line_heights: Nominal text height of each line in inches. Length ``n``.
+        line_spacings: Spacing applied *after* each line except the last, in
+            inches. Length ``n - 1`` (longer input is truncated).
+
+    Returns:
+        One pitch per gap (length ``min(n - 1, len(line_spacings))``), in
+        inches. Negative spacings are clamped to ``0.0``.
+    """
+    return [
+        float(height) + max(0.0, float(spacing))
+        for height, spacing in zip(line_heights, line_spacings)
+    ]
+
+
+def baseline_offsets(line_heights: Sequence[float], line_spacings: Sequence[float]) -> list[float]:
+    """Return each line's baseline Y in a baseline-stacked block.
+
+    Coordinates are ``+y`` up with the **first** baseline at ``0.0``, so the
+    offsets are non-increasing (each line sits one pitch below the previous
+    one). Callers translate the block as a whole; only the relative offsets
+    matter.
+
+    Args:
+        line_heights: Nominal text height of each line in inches. Length ``n``.
+        line_spacings: Spacing below each line except the last, in inches.
+
+    Returns:
+        One baseline Y per line (length ``len(line_heights)``), in inches.
+    """
+    offsets = [0.0]
+    for pitch in baseline_pitch(line_heights, line_spacings):
+        offsets.append(offsets[-1] - pitch)
+    return offsets
+
+
+def baseline_block_height(
+    line_heights: Sequence[float],
+    ascenders: Sequence[float],
+    descenders: Sequence[float],
+    line_spacings: Sequence[float],
+) -> float:
+    """Return the ink height of a baseline-stacked text block.
+
+    Args:
+        line_heights: Nominal text height of each line in inches. Length ``n``.
+        ascenders: Ink extent above each line's baseline, in inches (``A_i``,
+            non-negative). Length ``n``.
+        descenders: Ink depth below each line's baseline, in inches (``D_i``,
+            non-negative). Length ``n``.
+        line_spacings: Spacing below each line except the last, in inches.
+
+    Returns:
+        The distance from the block's highest ink point to its lowest, in
+        inches. Equal to the ink-box height when every descender is ``0.0``
+        and every ascender equals its line's nominal height.
+    """
+    offsets = baseline_offsets(line_heights, line_spacings)
+    top = max(offset + ascender for offset, ascender in zip(offsets, ascenders))
+    bottom = min(offset - descender for offset, descender in zip(offsets, descenders))
+    return top - bottom
+
+
+def _solve_monotone_root(
+    function: Callable[[float], float],
+    lower: float,
+    upper: float,
+) -> float:
+    """Bisect a non-decreasing function's root inside ``[lower, upper]``.
+
+    Args:
+        function: Non-decreasing objective; the root is where it reaches
+            ``0.0``.
+        lower: Lower bracket; ``function(lower) <= 0`` is expected (the
+            largest admissible value).
+        upper: Upper bracket; ``function(upper) >= 0`` is expected.
+
+    Returns:
+        The largest admissible value (``function(value) <= 0``) found, within
+        :data:`_BISECTION_TOLERANCE`.
+    """
+    if function(lower) >= 0.0:
+        return lower
+    for _ in range(_BISECTION_MAX_ITERATIONS):
+        middle = (lower + upper) / 2.0
+        if upper - lower <= _BISECTION_TOLERANCE:
+            break
+        if function(middle) <= 0.0:
+            lower = middle
+        else:
+            upper = middle
+    return lower
+
+
+def fit_baseline_spacing_to_margins(
+    line_heights: Sequence[float],
+    ascenders: Sequence[float],
+    descenders: Sequence[float],
+    line_spacings: Sequence[float],
+    available_height: float,
+) -> list[float]:
+    """Shrink baseline-stacked spacing so the descender-extended block fits.
+
+    The baseline-spacing counterpart of :func:`fit_line_spacing_to_margins`:
+    margins take precedence over requested spacing, and the spacings are
+    scaled down by one common factor (never increased, floor ``0.0``) until
+    the block's **ink** height -- which includes the descenders hanging into
+    the gaps -- fits ``available_height``. Because that height is convex and
+    non-decreasing in the scale factor, the factor is found by bisection
+    rather than the linear closed form.
+
+    Args:
+        line_heights: Nominal text height of each line in inches. Length ``n``.
+        ascenders: Ink extent above each line's baseline, in inches.
+        descenders: Ink depth below each line's baseline, in inches.
+        line_spacings: Spacing below each line except the last, in inches.
+        available_height: Inner content height in inches (label height minus
+            both vertical margins).
+
+    Returns:
+        A new list of spacings. Equal to the (clamped) input when the block
+        already fits; proportionally reduced otherwise. When the block
+        overflows even with zero spacing, every spacing collapses to ``0.0``
+        and the block still overflows (text height is never reduced).
+    """
+    spacings = [max(0.0, float(s)) for s in line_spacings]
+    if not spacings:
+        return spacings
+
+    def height_at(factor: float) -> float:
+        return baseline_block_height(
+            line_heights, ascenders, descenders, [s * factor for s in spacings]
+        )
+
+    if height_at(1.0) <= available_height:
+        return spacings
+    total_spacing = sum(spacings)
+    if total_spacing <= 0.0:
+        return spacings
+
+    factor = _solve_monotone_root(lambda t: height_at(t) - available_height, 0.0, 1.0)
+    return [s * factor for s in spacings]
+
+
+def solve_baseline_spacing_to_fill(
+    line_heights: Sequence[float],
+    ascenders: Sequence[float],
+    descenders: Sequence[float],
+    available_height: float,
+) -> float:
+    """Return the uniform spacing that fills ``available_height`` exactly.
+
+    Auto line spacing under baseline stacking (explicit ``v_margin``): every
+    gap gets the same spacing, chosen so the block's ink height -- descenders
+    included -- equals the inner content height. This is the render-accurate
+    counterpart of the ink-box arithmetic in
+    :func:`_resolve_auto_line_spacing`, which divides the space freed by the
+    *nominal* heights and therefore ignores how far a line's descenders reach
+    below its baseline.
+
+    Args:
+        line_heights: Nominal text height of each line in inches. Length ``n``.
+        ascenders: Ink extent above each line's baseline, in inches.
+        descenders: Ink depth below each line's baseline, in inches.
+        available_height: Inner content height in inches.
+
+    Returns:
+        The uniform spacing in inches (``0.0`` when the block overflows even
+        with no spacing, mirroring the ink-box path's ``max(0.0, ...)``).
+    """
+    if len(line_heights) < 2:
+        return 0.0
+
+    def height_at(spacing: float) -> float:
+        gaps = [spacing] * (len(line_heights) - 1)
+        return baseline_block_height(line_heights, ascenders, descenders, gaps)
+
+    if height_at(0.0) >= available_height:
+        return 0.0
+    return _solve_monotone_root(lambda s: height_at(s) - available_height, 0.0, available_height)
+
+
+def solve_baseline_spacing_to_ratio(
+    label_height: float,
+    line_heights: Sequence[float],
+    ascenders: Sequence[float],
+    descenders: Sequence[float],
+    interline_to_top_bottom_ratio: float,
+) -> tuple[float, float]:
+    """Return ``(interline_spacing, v_margin)`` for ratio-balanced gaps.
+
+    Auto line spacing **and** auto ``v_margin`` under baseline stacking: the
+    top and bottom gaps are equal, every inter-line gap is that gap scaled by
+    ``interline_to_top_bottom_ratio``, and the three together fill the label.
+    The equation solved is ``label_height = 2 * gap + block_height(pitch_i =
+    line_heights[i] + ratio * gap)`` -- the render-accurate form of the
+    nominal-height division used by :func:`_resolve_auto_line_spacing`.
+
+    Args:
+        label_height: Final label height in inches (outer boundary).
+        line_heights: Nominal text height of each line in inches. Length ``n``.
+        ascenders: Ink extent above each line's baseline, in inches.
+        descenders: Ink depth below each line's baseline, in inches.
+        interline_to_top_bottom_ratio: Inter-line gap as a multiple of the
+            top/bottom gap. ``1.0`` makes every gap equal.
+
+    Returns:
+        ``(interline_spacing, v_margin)`` in inches. Single-line content
+        returns ``(0.0, label_height / 2.0)`` (no gaps; the ink centers).
+    """
+    if len(line_heights) < 2:
+        return 0.0, label_height / 2.0
+
+    ratio = max(0.0, float(interline_to_top_bottom_ratio))
+
+    def total_at(gap: float) -> float:
+        gaps = [gap * ratio] * (len(line_heights) - 1)
+        return 2.0 * gap + baseline_block_height(line_heights, ascenders, descenders, gaps)
+
+    gap = _solve_monotone_root(lambda g: total_at(g) - label_height, 0.0, label_height)
+    return gap * ratio, gap
 
 
 def compute_horizontal_scale(
@@ -780,6 +1094,8 @@ def _resolve_auto_line_spacing(
     boundary_hole_cutter: float,
     label_id: str,
     interline_to_top_bottom_ratio: float = 1.0,
+    use_baseline_spacing: bool = False,
+    extents_probe: Optional[LineExtentsProbe] = None,
 ) -> tuple[list[ResolvedTextLine], Optional[float]]:
     """Resolve any auto line spacing values in content.
 
@@ -795,6 +1111,16 @@ def _resolve_auto_line_spacing(
     among inter-line gaps and top/bottom margins, with the ratio controlling
     their relative sizes.
 
+    Baseline spacing (``use_baseline_spacing`` with an ``extents_probe``)
+    fills the same space against the block's **ink** height instead of the sum
+    of nominal heights: each line's real ascender/descender extents are
+    measured through the probe, so a line whose glyphs hang below the baseline
+    claims its share of the space up front. The auto spacing is then the value
+    that makes the descender-extended block fill the inner area exactly, which
+    keeps the render-time clamp (:func:`fit_baseline_spacing_to_margins`)
+    silent. Without a probe the nominal-height arithmetic below runs unchanged
+    (no renders are paid for).
+
     Args:
         content: Fully resolved text lines (with line_spacing=-1.0 for auto).
         label_height: Final label height in inches (outer boundary).
@@ -806,6 +1132,10 @@ def _resolve_auto_line_spacing(
             relative to top/bottom margins. Default 1.0 makes all gaps equal.
             Values > 1.0 increase inter-line spacing at the expense of
             top/bottom margins.
+        use_baseline_spacing: Resolve auto spacing against the baseline-stacked
+            ink height (see above). Takes effect only with ``extents_probe``.
+        extents_probe: Optional probe measuring a line's
+            ``(ascender, descender)`` ink extents in inches.
 
     Returns:
         A tuple of (updated_content, calculated_v_margin). calculated_v_margin
@@ -840,12 +1170,30 @@ def _resolve_auto_line_spacing(
     total_line_height = sum(line_heights)
     num_lines = len(content)
 
+    # Baseline spacing measures the real ink extents once (callers memoize the
+    # probe, so a label's lines render at most once) and solves the fill
+    # equation against the descender-extended block height. Its pitch basis is
+    # the line's cap height (``toolpath_text_height``) -- a per-font constant
+    # independent of the line's own characters -- which is exactly what the
+    # renderer stacks by.
+    baseline_extents: Optional[tuple[list[float], list[float]]] = None
+    baseline_heights: Optional[list[float]] = None
+    if use_baseline_spacing and extents_probe is not None and num_lines > 1:
+        measured = [extents_probe(line) for line in content]
+        baseline_extents = ([a for a, _d in measured], [d for _a, d in measured])
+        baseline_heights = [line.toolpath_text_height for line in content]
+
     calculated_v_margin: Optional[float] = None
 
     if v_margin_explicit is not None:
         # Explicit v_margin: calculate line_spacing to fill the remaining space
         available_height = label_height - 2.0 * v_margin_explicit
-        if num_lines > 1:
+        if baseline_extents is not None and baseline_heights is not None:
+            ascenders, descenders = baseline_extents
+            calculated_spacing = solve_baseline_spacing_to_fill(
+                baseline_heights, ascenders, descenders, available_height
+            )
+        elif num_lines > 1:
             calculated_spacing = max(0.0, (available_height - total_line_height) / (num_lines - 1))
         else:
             calculated_spacing = 0.0
@@ -869,7 +1217,16 @@ def _resolve_auto_line_spacing(
         #   interline_gap = ratio * top_bottom_gap
         #
         available_space = label_height - total_line_height
-        if num_lines > 1:
+        if baseline_extents is not None and baseline_heights is not None:
+            ascenders, descenders = baseline_extents
+            calculated_spacing, top_bottom_gap = solve_baseline_spacing_to_ratio(
+                label_height,
+                baseline_heights,
+                ascenders,
+                descenders,
+                interline_to_top_bottom_ratio,
+            )
+        elif num_lines > 1:
             # Multiple lines: account for (num_lines - 1) inter-line gaps
             top_bottom_gap = max(
                 0.0,
@@ -910,17 +1267,31 @@ def _fit_content_to_margins(
     label_height: float,
     margin: float,
     label_id: str,
+    use_baseline_spacing: bool = False,
+    extents_probe: Optional[LineExtentsProbe] = None,
 ) -> list[ResolvedTextLine]:
     """Clamp resolved line spacing so text respects the label margins.
 
     Uses nominal text heights for the fit estimate; the renderer applies a
     final safety check against measured glyph heights.
 
+    Under baseline spacing (``use_baseline_spacing`` with an
+    ``extents_probe``) the estimate uses the baseline-stacked **ink** height
+    (:func:`fit_baseline_spacing_to_margins`) instead of the sum of nominal
+    heights, so a line's descenders claim their space in the resolved
+    ``line_spacing`` values. That keeps the resolved spacing equal to what the
+    renderer will actually engrave (the layout report compares the two) and
+    keeps the renderer's own clamp silent.
+
     Args:
         content: Fully resolved text lines for the label.
         label_height: Final label height in inches (outer boundary).
         margin: Resolved label margin in inches.
         label_id: Identifier used in log messages.
+        use_baseline_spacing: Fit against the baseline-stacked ink height.
+            Takes effect only with ``extents_probe``.
+        extents_probe: Optional probe measuring a line's
+            ``(ascender, descender)`` ink extents in inches.
 
     Returns:
         The original content list when no adjustment is needed, otherwise
@@ -933,7 +1304,21 @@ def _fit_content_to_margins(
     heights = [line.nominal_text_height for line in content]
     spacings = [line.line_spacing for line in content[:-1]]
 
-    adjusted = fit_line_spacing_to_margins(heights, spacings, available_height)
+    extents = _measure_extents(content, use_baseline_spacing, extents_probe)
+    if extents is not None:
+        ascenders, descenders = extents
+        # The pitch basis is the cap height, matching the renderer's stacking
+        # (see ``_render_positioned_lines``); the nominal heights above stay
+        # the ink-box basis for the historical path and the overflow warning.
+        adjusted = fit_baseline_spacing_to_margins(
+            [line.toolpath_text_height for line in content],
+            ascenders,
+            descenders,
+            spacings,
+            available_height,
+        )
+    else:
+        adjusted = fit_line_spacing_to_margins(heights, spacings, available_height)
     if all(math.isclose(a, b, abs_tol=1e-9) for a, b in zip(adjusted, spacings)):
         return content
 
@@ -960,6 +1345,33 @@ def _fit_content_to_margins(
         replace(line, line_spacing=adjusted[i]) if i < len(adjusted) else line
         for i, line in enumerate(content)
     ]
+
+
+def _measure_extents(
+    content: Sequence[ResolvedTextLine],
+    use_baseline_spacing: bool,
+    extents_probe: Optional[LineExtentsProbe],
+) -> Optional[tuple[list[float], list[float]]]:
+    """Measure every line's ``(ascender, descender)`` ink extents, if enabled.
+
+    Shared by the two spacing fitters so a label's lines are measured through
+    one probe call per line (the production probe memoizes per line, so labels
+    sharing content cost nothing).
+
+    Args:
+        content: Fully resolved text lines for one label.
+        use_baseline_spacing: When False the probe is never called.
+        extents_probe: Optional probe measuring a line's ink extents.
+
+    Returns:
+        ``(ascenders, descenders)`` in inches, or ``None`` when baseline
+        spacing is disabled, no probe is wired, or the label has a single line
+        (no gaps to fit).
+    """
+    if not use_baseline_spacing or extents_probe is None or len(content) < 2:
+        return None
+    measured = [extents_probe(line) for line in content]
+    return ([a for a, _d in measured], [d for _a, d in measured])
 
 
 # ---------------------------------------------------------------------------
@@ -1459,6 +1871,7 @@ def _resolve_label(
     available_cutters: Optional[list[float]] = None,
     tolerance_factor: float = 3.0,
     boundary_hole_cutter_size: Optional[float] = None,
+    extents_probe: Optional[LineExtentsProbe] = None,
 ) -> ResolvedLabel:
     """Resolve a single label (or root-level job) into a ResolvedLabel.
 
@@ -1474,6 +1887,12 @@ def _resolve_label(
             ``tools.json``). Snapped to ``available_cutters`` via
             :func:`snap_boundary_hole_cutter`; ``None`` falls back to
             ``DEFAULT_BOUNDARY_HOLE_CUTTER``.
+        extents_probe: Optional probe measuring a line's ``(ascender,
+            descender)`` ink extents in inches. When provided **and** the
+            label resolves ``use_baseline_spacing`` on, the auto-spacing and
+            margin-fitting math measures the real descender extents (see
+            :func:`_resolve_auto_line_spacing`); ``None`` (the default) keeps
+            the nominal-height arithmetic and costs no renders.
 
     Returns:
         A fully resolved label with all dimensions guaranteed non-None.
@@ -1544,6 +1963,19 @@ def _resolve_label(
         label_input.material if label_input.material is not None else job.material
     )
 
+    # Baseline-to-baseline line spacing (cascades label -> job; the plate tier
+    # is schema parity only, see schema.PlateSpec). Resolved at the LABEL level
+    # because spacing governs the stacked block, never one line -- an
+    # intentional ``False`` (ink-box stacking) is honored, and only ``None``
+    # means unset. A root-level job masquerading as a label carries the field
+    # itself, so its own value resolves.
+    if label_input.use_baseline_spacing is not None:
+        label_use_baseline_spacing: bool = label_input.use_baseline_spacing
+    elif job.use_baseline_spacing is not None:
+        label_use_baseline_spacing = job.use_baseline_spacing
+    else:
+        label_use_baseline_spacing = DEFAULT_USE_BASELINE_SPACING
+
     # Resolve text lines with cutter compensation
     resolved_content = _resolve_content(
         label_input, job, available_cutters, tolerance_factor, label_id
@@ -1574,6 +2006,8 @@ def _resolve_label(
         hole_cutter,
         label_id,
         interline_to_top_bottom_ratio,
+        use_baseline_spacing=label_use_baseline_spacing,
+        extents_probe=extents_probe,
     )
 
     # If auto v_margin was calculated, use it instead of the default
@@ -1586,7 +2020,12 @@ def _resolve_label(
     # calculated to fit perfectly within the v_margin.
     if calculated_v_margin is None:
         resolved_content = _fit_content_to_margins(
-            resolved_content, final_height, label_margin, label_id
+            resolved_content,
+            final_height,
+            label_margin,
+            label_id,
+            use_baseline_spacing=label_use_baseline_spacing,
+            extents_probe=extents_probe,
         )
 
     return ResolvedLabel(
@@ -1606,6 +2045,7 @@ def _resolve_label(
         text_chunk_mode=label_text_chunk_mode,
         plate_id=label_plate_id,
         material=label_material,
+        use_baseline_spacing=label_use_baseline_spacing,
     )
 
 
@@ -1667,6 +2107,7 @@ def resolve_job_spec(
     available_cutters: Optional[list[float]] = None,
     tolerance_factor: float = 3.0,
     boundary_hole_cutter_size: Optional[float] = None,
+    extents_probe: Optional[LineExtentsProbe] = None,
 ) -> list[ResolvedLabel]:
     """Flatten a JobSpec into a list of fully resolved labels.
 
@@ -1687,6 +2128,14 @@ def resolve_job_spec(
             ``available_cutters`` (next size down, else next size up);
             ``None`` falls back to ``DEFAULT_BOUNDARY_HOLE_CUTTER``.
             Feeds the text-hole collision stroke floor only.
+        extents_probe: Optional probe measuring a text line's ``(ascender,
+            descender)`` ink extents in inches, used by labels that resolve
+            ``use_baseline_spacing`` on so auto spacing and margin fitting
+            account for descenders. ``None`` (the default) keeps the
+            nominal-height spacing math and costs no renders. Production
+            callers pass
+            :func:`plt_optimizer.generate.label_renderer.measure_line_vertical_extents`
+            (memoized) via :func:`measure_baseline_extents`.
 
     Returns:
         A list of ResolvedLabel objects with all dimensions guaranteed
@@ -1720,6 +2169,7 @@ def resolve_job_spec(
             available_cutters,
             tolerance_factor,
             boundary_hole_cutter_size,
+            extents_probe,
         )
         for label_input in labels_to_process
     ]
