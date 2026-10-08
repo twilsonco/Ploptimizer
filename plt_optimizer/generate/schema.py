@@ -685,6 +685,20 @@ class TextAttributes(BaseModel):
             "explicit false is honored."
         ),
     )
+    h_compress_global: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Share horizontal compression across the text lines of one label: "
+            "when a line's width forces horizontal compression, every other "
+            "eligible line of the same text_height in the same label is "
+            "compressed to the same scale (the most-compressed scale among "
+            "the triggering lines, clamped to each line's own max_h_compress "
+            "budget floor). Lines with a zero max_h_compress budget are never "
+            "touched. Setting the option at the job level enables it for every "
+            "label; sharing is always per-label. Cascades line -> label -> job "
+            "(fallback false); explicit true is honored."
+        ),
+    )
     text_color: Optional[TextColor] = Field(
         default=None,
         description=(
@@ -1335,6 +1349,13 @@ class PlateSpec(BaseModel):
         description=(
             "Per-label sharing of compression-driven cutter downsizes "
             "(schema parity; not applied at plate level)."
+        ),
+    )
+    h_compress_global: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Per-label sharing of horizontal compression (schema parity; "
+            "not applied at plate level)."
         ),
     )
     hole_text_collision_distance: Optional[float] = Field(

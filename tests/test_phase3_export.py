@@ -1190,6 +1190,71 @@ class TestCutterDownsizeGlobalDemoExample:
             assert rendered.source_label.cutter_downsize_by_line == {}
 
 
+class TestHCompressGlobalDemoExample:
+    """Regression tests for tests_deps/h_compress_global_job.yaml.
+
+    The fixture opts in to ``h_compress_global``: a compressed line's scale is
+    shared with the fitting siblings of the same text height *inside the same
+    label*, while other labels and opted-out labels keep their per-line
+    behaviour.
+    """
+
+    _SPEC = Path("tests_deps/h_compress_global_job.yaml")
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="hcg",
+            optimize=False,
+            plots=False,
+        )
+
+    def test_fitting_sibling_receives_the_shared_scale(self, tmp_path: Path) -> None:
+        """The trigger's compression lands on its fitting same-height sibling."""
+        result = self._export(tmp_path)
+        shared = result.rendered_labels["shared"]
+        assert sorted(shared.source_label.global_compress_by_line) == [0, 1]
+
+        trigger = shared.source_label.global_compress_by_line[0]
+        # The shared scale equals the trigger's natural scale: the trigger is
+        # never squeezed past what it needed on its own.
+        assert math.isclose(trigger, 0.8576, abs_tol=1e-3)
+        assert math.isclose(shared.source_label.global_compress_by_line[1], trigger)
+
+        # Both lines report the shared scale as their effective compression.
+        assert sorted(shared.compression_by_line) == [0, 1]
+        for scale in shared.compression_by_line.values():
+            assert math.isclose(scale, trigger, abs_tol=1e-3)
+
+    def test_sharing_never_crosses_the_label_boundary(self, tmp_path: Path) -> None:
+        """A fitting line in another label keeps its natural width."""
+        result = self._export(tmp_path)
+        other = result.rendered_labels["other_label"]
+        assert other.source_label.global_compress_by_line == {}
+        assert other.compression_by_line == {}
+
+    def test_opt_out_label_stays_per_line(self, tmp_path: Path) -> None:
+        """h_compress_global false: the trigger compresses, siblings don't."""
+        result = self._export(tmp_path)
+        opted_out = result.rendered_labels["opted_out"]
+        assert opted_out.source_label.global_compress_by_line == {}
+        assert sorted(opted_out.compression_by_line) == [0]
+        assert math.isclose(opted_out.compression_by_line[0], 0.8576, abs_tol=1e-3)
+
+    def test_shared_compression_keeps_one_cutter_file(self, tmp_path: Path) -> None:
+        """Sharing changes glyph density only, so the cutter set is unchanged."""
+        result = self._export(tmp_path)
+        assert sorted(p.name for p in result.plt_paths) == [
+            "0.015_bh_hcg.plt",
+            "0.060_txt_hcg.plt",
+        ]
+
+
 class TestPlateNumberScoping:
     """Plate numbers are scoped to a material group, not the whole job."""
 

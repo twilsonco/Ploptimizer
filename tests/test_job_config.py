@@ -133,6 +133,12 @@ class TestJobDefaultsModel:
         assert JobDefaults(cutter_downsize_global=True).cutter_downsize_global is True
         assert JobDefaults().cutter_downsize_global is None
 
+    def test_h_compress_global_config_field(self) -> None:
+        """h_compress_global is a legal shop default (opt-in configurable)."""
+        assert JobDefaults(h_compress_global=True).h_compress_global is True
+        assert JobDefaults(h_compress_global=False).h_compress_global is False
+        assert JobDefaults().h_compress_global is None
+
     def test_description_key_allowed(self) -> None:
         """A free-form description (like tools.json) is accepted."""
         assert JobDefaults(**_FULL_CONFIG, description="shop A").description == "shop A"
@@ -176,6 +182,7 @@ class TestJobDefaultsModel:
         assert "cutter_downsize" not in REQUIRED_WHEN_UNCONFIGURED
         assert "max_cutter_downsizes" not in REQUIRED_WHEN_UNCONFIGURED
         assert "cutter_downsize_global" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "h_compress_global" not in REQUIRED_WHEN_UNCONFIGURED
         assert JobDefaults().space_width_fraction is None
         assert JobDefaults().min_glyph_width is None
         assert JobDefaults().kerning_window_fraction is None
@@ -296,6 +303,22 @@ class TestApplyJobConfigDefaults:
         config = load_job_config(_write_config(tmp_path, config_data))
         filled = apply_job_config_defaults(_minimal_job(cutter_downsize_global=True), config)
         assert filled["cutter_downsize_global"] is True
+
+    def test_h_compress_global_job_layer_fill(self, tmp_path: Path) -> None:
+        """The configured compression-sharing default lands as a job-level value."""
+        config_data = dict(_FULL_CONFIG)
+        config_data["h_compress_global"] = True
+        config = load_job_config(_write_config(tmp_path, config_data))
+        filled = apply_job_config_defaults(_minimal_job(), config)
+        assert filled["h_compress_global"] is True
+
+    def test_h_compress_global_yaml_wins(self, tmp_path: Path) -> None:
+        """A spec-declared h_compress_global is never overridden by the config."""
+        config_data = dict(_FULL_CONFIG)
+        config_data["h_compress_global"] = True
+        config = load_job_config(_write_config(tmp_path, config_data))
+        filled = apply_job_config_defaults(_minimal_job(h_compress_global=False), config)
+        assert filled["h_compress_global"] is False
 
     def test_yaml_values_win(self, tmp_path: Path) -> None:
         """Spec-declared values are never overridden by the config."""
@@ -662,6 +685,7 @@ class TestParseYamlWithJobConfig:
         assert job.cutter_downsize is True
         assert job.max_cutter_downsizes == 1
         assert job.cutter_downsize_global is True
+        assert job.h_compress_global is False
 
     def test_yaml_overrides_config(self) -> None:
         """Spec-declared values still win over the shipped config."""

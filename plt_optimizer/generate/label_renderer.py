@@ -2000,6 +2000,21 @@ def _render_positioned_lines(
         cutter_margin_h = h_margin + (line.cutter_diameter / 2.0)
         compression_available_width = inner_width - (2 * cutter_margin_h)
         alignment_available_width = inner_width - (2 * h_margin)
+
+        # Per-label shared compression (``h_compress_global``): the export
+        # pre-pass measured this line's group scale. The effective scale is
+        # ``collision x margin``, so the shared scale becomes a width target
+        # for the margin-compression step below: ``margin = min(natural,
+        # shared / collision)``. A line whose natural compression is already
+        # tighter keeps it (never stretched back), and the pre-pass clamps the
+        # shared scale to this line's own ``1 - max_h_compress`` floor, so the
+        # budget is respected by construction.
+        global_scale = label.global_compress_by_line.get(line_index, 1.0)
+        if global_scale < 1.0 and collision_scale > 0.0:
+            compression_available_width = min(
+                compression_available_width,
+                (global_scale / collision_scale) * pre_margin_width,
+            )
         block = compress_line_to_width(
             block,
             compression_available_width,

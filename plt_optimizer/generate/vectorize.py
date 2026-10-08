@@ -817,6 +817,17 @@ def export_per_cutter_plts(
 
     resolved_labels = apply_compression_cutter_downsize(resolved_labels, available_cutters)
 
+    # Per-label shared horizontal compression (pre-pass): when a label enables
+    # ``h_compress_global``, a line's compression is measured and the group's
+    # most-compressed scale is applied to its same-height siblings BEFORE the
+    # pen map / packing / rendering run. No-op (same list) when no label
+    # enables it. Runs after the cutter reduction, so a shared compression can
+    # deepen a line's squeeze without re-triggering a cutter swap (accepted
+    # staleness -- the two pre-passes are deliberately not looped together).
+    from plt_optimizer.generate.h_compress import apply_global_h_compress
+
+    resolved_labels = apply_global_h_compress(resolved_labels)
+
     # Pen == (cutter, color): assign one HPGL pen per distinct text
     # cutter/color layer so the assembled plate can be split into
     # per-layer files after assembly.

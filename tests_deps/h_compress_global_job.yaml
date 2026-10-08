@@ -1,0 +1,54 @@
+# Fixture for per-label sharing of horizontal compression
+# (`h_compress_global`, default false).
+#
+# When one text line is horizontally compressed, every other eligible line of
+# the SAME text_height WITHIN THE SAME LABEL is compressed to the group's
+# most-compressed (minimum) scale, clamped to each line's own
+# `1 - max_h_compress` budget floor — so one label engraves one text size at
+# one glyph density.
+#
+# No plate declares a material and the job packs onto one sheet, so emitted
+# names carry no plate/material prefix: [<cutter>]_txt_<job>.plt per distinct
+# cutter plus one bh file.
+job:
+  job_name: H Compress Global Demo
+
+  width: 3.0
+  height: 1.2
+  margin: 0.1
+  text_height: 0.5
+
+  # Compression budget for the over-wide lines; the shared scale never
+  # squeezes a line below 1 - max_h_compress = 0.5 of its natural width.
+  max_h_compress: 0.5
+
+  # Opt in to per-label sharing (the field defaults to false).
+  h_compress_global: true
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. Two lines of the same text_height: "LONG TEXT" overflows the inner
+    #    content area and compresses; "OK" fits naturally and RECEIVES the
+    #    shared scale (one glyph density for the label).
+    - id: shared
+      content:
+        - text: "LONG TEXT"
+        - text: "OK"
+
+    # 2. Sharing is per-label: this label's fitting line keeps its natural
+    #    width even though label `shared` compressed at the same text_height.
+    - id: other_label
+      content:
+        - text: "OK"
+
+    # 3. Opt-out: with h_compress_global false the trigger line still
+    #    compresses to fit, but its fitting sibling keeps its natural width.
+    - id: opted_out
+      h_compress_global: false
+      content:
+        - text: "LONG TEXT"
+        - text: "OK"

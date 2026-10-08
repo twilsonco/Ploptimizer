@@ -305,6 +305,19 @@
           "description": "Share a compression-driven cutter downsize across the text lines of one label: when a line's compression triggers a swap to a smaller inventory tool, every other eligible line of the same text_height in the same label receives the same swap (then each continues its own one-way step loop). Lines with an explicit cutter_size, cutter_downsize false, max_cutter_downsizes 0, or a zero max_h_compress budget are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades line -> label -> job (fallback true); explicit false is honored.",
           "title": "Cutter Downsize Global"
         },
+        "h_compress_global": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Share horizontal compression across the text lines of one label: when a line's width forces horizontal compression, every other eligible line of the same text_height in the same label is compressed to the same scale (the most-compressed scale among the triggering lines, clamped to each line's own max_h_compress budget floor). Lines with a zero max_h_compress budget are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades line -> label -> job (fallback false); explicit true is honored.",
+          "title": "H Compress Global"
+        },
         "text_color": {
           "anyOf": [
             {
@@ -796,6 +809,19 @@
           "description": "Per-label sharing of compression-driven cutter downsizes (schema parity; not applied at plate level).",
           "title": "Cutter Downsize Global"
         },
+        "h_compress_global": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Per-label sharing of horizontal compression (schema parity; not applied at plate level).",
+          "title": "H Compress Global"
+        },
         "hole_text_collision_distance": {
           "anyOf": [
             {
@@ -1166,6 +1192,19 @@
           "description": "Share a compression-driven cutter downsize across the text lines of one label: when a line's compression triggers a swap to a smaller inventory tool, every other eligible line of the same text_height in the same label receives the same swap (then each continues its own one-way step loop). Lines with an explicit cutter_size, cutter_downsize false, max_cutter_downsizes 0, or a zero max_h_compress budget are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades line -> label -> job (fallback true); explicit false is honored.",
           "title": "Cutter Downsize Global"
         },
+        "h_compress_global": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Share horizontal compression across the text lines of one label: when a line's width forces horizontal compression, every other eligible line of the same text_height in the same label is compressed to the same scale (the most-compressed scale among the triggering lines, clamped to each line's own max_h_compress budget floor). Lines with a zero max_h_compress budget are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades line -> label -> job (fallback false); explicit true is honored.",
+          "title": "H Compress Global"
+        },
         "text_color": {
           "anyOf": [
             {
@@ -1462,6 +1501,19 @@
       "default": null,
       "description": "Share a compression-driven cutter downsize across the text lines of one label: when a line's compression triggers a swap to a smaller inventory tool, every other eligible line of the same text_height in the same label receives the same swap (then each continues its own one-way step loop). Lines with an explicit cutter_size, cutter_downsize false, max_cutter_downsizes 0, or a zero max_h_compress budget are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades line -> label -> job (fallback true); explicit false is honored.",
       "title": "Cutter Downsize Global"
+    },
+    "h_compress_global": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Share horizontal compression across the text lines of one label: when a line's width forces horizontal compression, every other eligible line of the same text_height in the same label is compressed to the same scale (the most-compressed scale among the triggering lines, clamped to each line's own max_h_compress budget floor). Lines with a zero max_h_compress budget are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades line -> label -> job (fallback false); explicit true is honored.",
+      "title": "H Compress Global"
     },
     "text_color": {
       "anyOf": [

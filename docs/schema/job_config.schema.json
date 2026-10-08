@@ -419,6 +419,19 @@
       "description": "Default per-label sharing of compression-driven cutter downsizes (job layer; a trigger line's swap applies to every eligible line of the same text_height in the same label).",
       "title": "Cutter Downsize Global"
     },
+    "h_compress_global": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default per-label sharing of horizontal compression (job layer; a trigger line's compression scale applies to every eligible line of the same text_height in the same label).",
+      "title": "H Compress Global"
+    },
     "text_chunk_mode": {
       "anyOf": [
         {

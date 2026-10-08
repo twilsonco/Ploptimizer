@@ -176,6 +176,7 @@ always wins at its level. Precedence per attribute:
 | `text_height`, `character_spacing`, `line_spacing`, `max_h_compress`, `text_h_alignment` | line → label → job → config | see fallback table in `JOB_SPEC.md` |
 | `cutter_size` | line → label → job (no config tier) | `null` = auto-select from `text_height` |
 | `cutter_downsize`, `max_cutter_downsizes`, `cutter_downsize_global` | line → label → job → config | `true` / `1` / `true` |
+| `h_compress_global` | line → label → job → config | `false` |
 | `text_color` | line → label (never job/plate/config) | `none` (implicit) |
 | `width`, `height` | label → job → auto-size from rendered content | — |
 | `margin` | label → job → config | 0.125 |
@@ -222,8 +223,9 @@ entries that omit it).
 - **Per-plate typographic fields** (`hole_margin`, `max_h_compress`,
   `text_h_alignment`, `min_hole_margin`, `hole_text_collision_distance`,
   `cutter_size`, `cutter_downsize`, `max_cutter_downsizes`,
-  `cutter_downsize_global`) are accepted on plates for schema parity but
-  **not applied** at plate level — labels render once before packing.
+  `cutter_downsize_global`, `h_compress_global`) are accepted on plates for
+  schema parity but **not applied** at plate level — labels render once before
+  packing.
 - **`cutter_size` (default null)**: an explicit cutter diameter (inches)
   overriding the automatic height→cutter lookup. The requested diameter is
   snapped to `tools.json` `available_cutters` (next size down, else next up,
@@ -264,6 +266,23 @@ entries that omit it).
   Sharing is always per-label — setting the option at the job level simply
   enables it for every label. WARNING-logged per propagated line and
   reported in the layout report like a trigger downsize. `job-config.json`
+  supplies the shop default.
+- **`h_compress_global` (default false)**: per-label sharing of horizontal
+  compression. When a text line is horizontally compressed (margin overflow
+  and/or hole collision), every other *eligible* line of the same
+  `text_height` **within the same label** is compressed to the group's
+  most-compressed (minimum) scale, clamped to each receiver's own
+  `1 - max_h_compress` budget floor — so one label engraves one text size at
+  one glyph density. A line whose natural compression is already tighter keeps
+  it (never stretched back). Lines with `max_h_compress: 0.0` are never
+  touched (no compression mechanism can fire on them), and
+  `h_compress_global: false` opts a line out in both directions (it neither
+  shares its own compression nor receives a sibling's). Sharing is always
+  per-label — setting the option at the job level simply enables it for every
+  label. Runs as an export pre-pass **after** the cutter reduction, so a
+  shared compression can deepen a line's squeeze without re-triggering a
+  cutter swap (accepted staleness). WARNING-logged per propagated line and
+  reported in the layout report as an ordinary compressed line. `job-config.json`
   supplies the shop default.
 - **Text–hole collision avoidance** (3 phases): always-on detection →
   opt-in `min_hole_margin` sweep → opt-in `max_h_compress` compression.

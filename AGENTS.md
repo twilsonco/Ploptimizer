@@ -237,6 +237,22 @@ JobSpec (job-level defaults)
   field — plate identity does not exist when the export pre-pass runs).
   Cascades line → label → job → default (plate parity only);
   `job-config.json` supplies the shop default.
+- `h_compress_global`: Boolean gate for **per-label sharing** of horizontal
+  compression (`default None` → **false**). When a text line is horizontally
+  compressed, every other *eligible* line of the same `text_height` **within
+  the same label** is compressed to the group's most-compressed (minimum)
+  scale, clamped to each receiver's own `1 - max_h_compress` budget floor (a
+  line whose natural compression is already tighter keeps it, never stretched
+  back), so one label engraves one text size at one glyph density. Lines with
+  `max_h_compress: 0.0` are never touched (no compression mechanism can fire
+  on them) and a group needs ≥2 eligible lines to share.
+  `h_compress_global: false` opts a line out in both directions (it neither
+  shares its own compression nor receives a sibling's). Sharing is always
+  per-label: setting the option at the job level simply enables it for every
+  label (plate = parity-only, like every render-affecting field — plate
+  identity does not exist when the export pre-pass runs). Cascades line →
+  label → job → default (plate parity only); `job-config.json` supplies the
+  shop default.
 
 **LabelAttributes** (extends TextAttributes, cascades to LabelSpec only):
 - `width`: Label width in inches; must be defined at label or job level (required; no longer auto-sized).
@@ -346,6 +362,54 @@ parity only); `max_cutter_downsizes: 0` disables the mechanism.
   `tests/test_phase3_export.py::TestCutterDownsizeDemoExample`) — one
   downsized line (0.06→0.045), one fitting line, one explicit-cutter line
   (never reduced) and one `cutter_downsize: false` opt-out.
+
+### Per-Label Shared Horizontal Compression (`h_compress_global`)
+
+Two same-height lines in one label can end up engraved at visibly different
+glyph densities — the over-wide line compressed, its short sibling left at
+natural width. `h_compress_global` (default **false**) makes compression
+label-wide: a compressed line's scale is applied to every other *eligible*
+line of the same `nominal_text_height` **within the same label**, so one label
+engraves one text size at one density. Cascades line → label → job →
+`job-config.json` default (plate parity only); `h_compress_global: false` opts
+a line out in both directions (it neither shares its own compression nor
+receives a sibling's).
+
+- `plt_optimizer/generate/h_compress.py` runs as an **export pre-pass**
+  (`apply_global_h_compress`) inside `vectorize.export_per_cutter_plts`,
+  *after* `apply_compression_cutter_downsize` and *before*
+  `build_cutter_pen_map`: it renders each label once through the shared
+  `ScaleProbe` (lazy-imported `render_label_to_plt`, reading
+  `RenderedLabel.compression_by_line`) and emits `ResolvedLabel` clones
+  (`dataclasses.replace`) carrying `global_compress_by_line` (line index →
+  shared scale).
+- **Group scale:** the group's *most-compressed* (minimum) effective scale
+  among its triggering eligible lines, clamped to each receiver's own
+  `1 - max_h_compress` budget floor (`_shared_scale`). A line whose natural
+  compression is already tighter keeps it (never stretched back). A single
+  pass converges — the group minimum is fixed by the triggering lines' natural
+  scales, so applying it to a fitting sibling never deepens any line's natural
+  compression (no fixpoint loop, unlike `_share_downsizes`).
+- **Eligibility:** `h_compress_global AND max_h_compress > 0.0` (no compression
+  mechanism can fire on a zero-budget line, so it can neither trigger nor
+  receive). A group needs ≥2 eligible lines to share; a lone eligible line's
+  natural compression is its own business. The renderer applies the map as the
+  second-pass margin target (`margin = min(natural, shared / collision)`), so
+  the effective scale is `min(natural, shared)` and a trigger line's geometry
+  stays bit-identical to the per-line behaviour.
+- **Scope guards (free no-ops):** no label has an eligible line; no triggering
+  line in a same-height group with two eligible lines. The flag rides resolved
+  lines, so no export/CLI threading is needed (unlike `available_cutters`).
+- Accepted staleness: this pre-pass runs *after* the cutter reduction, so a
+  shared compression can deepen a line's squeeze without re-triggering a cutter
+  swap. The two pre-passes are deliberately **not** looped to a joint fixpoint.
+- Each propagated line logs a WARNING naming the label id, line index, text and
+  scale; the layout report prints it as an ordinary compressed line
+  (`scale 0.858 (14.2% compressed)`) — the shared scale lands in
+  `RenderedLabel.compression_by_line` for free.
+- Example fixture: `tests_deps/h_compress_global_job.yaml` (pinned by
+  `tests/test_phase3_export.py::TestHCompressGlobalDemoExample`) — a shared
+  label, a per-label boundary, and an opted-out label.
 
 ### Horizontal Text Alignment
 
@@ -760,7 +824,7 @@ already knows each toolpath's kind, the `Profiler` is skipped entirely.
   **removed**; optimization now happens pre-write in plate space.
 
 ### Cascading Resolution
-When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.15), `space_width_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.3), `min_glyph_width` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `kerning_window_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.05), `kerning_penetration_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_recession_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_min_gap` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `fallback_advance_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `cutter_downsize` (explicit `false` is honored; only `None` means unset, falling back to the config or true), `max_cutter_downsizes` (explicit 0 is honored; only `None` means unset, falling back to the config or 1) and `cutter_downsize_global` (explicit `false` is honored; only `None` means unset, falling back to the config or true). `cutter_size` (explicit-`None` precedence line → label → job → auto-select; no config tier, `gt=0.0` so an explicit `0.0` is a validation error, not a cascade value). `material` cascades label → job (and plate →
+When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.15), `space_width_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.3), `min_glyph_width` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `kerning_window_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.05), `kerning_penetration_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_recession_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_min_gap` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `fallback_advance_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `cutter_downsize` (explicit `false` is honored; only `None` means unset, falling back to the config or true), `max_cutter_downsizes` (explicit 0 is honored; only `None` means unset, falling back to the config or 1) and `cutter_downsize_global` (explicit `false` is honored; only `None` means unset, falling back to the config or true) and `h_compress_global` (explicit `true` is honored; only `None` means unset, falling back to the config or false). `cutter_size` (explicit-`None` precedence line → label → job → auto-select; no config tier, `gt=0.0` so an explicit `0.0` is a validation error, not a cascade value). `material` cascades label → job (and plate →
 job via the clearance-style plate cascade): an explicit label/plate value wins,
 an explicit `null` counts as unset, and empty-after-trim strings are validation
 errors.
@@ -975,7 +1039,7 @@ top-most layer:
   `min_glyph_width`, `kerning_window_fraction`, `kerning_penetration_scale`,
   `kerning_recession_scale`,
   `kerning_min_gap`, `fallback_advance_fraction`, `cutter_downsize`,
-  `max_cutter_downsizes`, `cutter_downsize_global`, `holes`, `allow_rotation`,
+  `max_cutter_downsizes`, `cutter_downsize_global`, `h_compress_global`, `holes`, `allow_rotation`,
   `text_chunk_mode`, `layout`) fill missing **job-level** keys; the existing
   label -> job cascade then works unchanged and YAML values always win (an
   explicit YAML `null` counts as unset; `holes: []` suppression is a value).

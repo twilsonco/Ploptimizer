@@ -95,6 +95,11 @@ _FALLBACK_NOTES: dict[str, str] = {
     "converges to the smallest). Explicit cutter_size / cutter_downsize false / "
     "max_cutter_downsizes 0 / max_h_compress 0.0 lines are never touched. Cascades "
     "line/label/job; job-config supplies the shop default.",
+    "DEFAULT_H_COMPRESS_GLOBAL": "False = horizontal compression stays per-line. True = a "
+    "compressed line's scale is shared across the label: every other eligible line of the same "
+    "text_height in the same label is compressed to the group's most-compressed (minimum) "
+    "scale, clamped to each line's own 1 - max_h_compress budget floor. max_h_compress 0.0 "
+    "lines are never touched. Cascades line/label/job; job-config supplies the shop default.",
     "DEFAULT_MAX_H_COMPRESS": "0.0 = horizontal compression disabled. Required from config-or-"
     "spec when a job-config is in play.",
     "DEFAULT_TEXT_H_ALIGNMENT": "Horizontal alignment fallback when unset everywhere.",

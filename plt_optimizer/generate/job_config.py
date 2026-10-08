@@ -341,6 +341,14 @@ class JobDefaults(BaseModel):
             "of the same text_height in the same label)."
         ),
     )
+    h_compress_global: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Default per-label sharing of horizontal compression (job layer; "
+            "a trigger line's compression scale applies to every eligible line "
+            "of the same text_height in the same label)."
+        ),
+    )
     text_chunk_mode: Optional[Literal["line", "word"]] = Field(
         default=None, description="Default plate-space text optimization granularity."
     )
@@ -435,6 +443,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "cutter_downsize",
     "max_cutter_downsizes",
     "cutter_downsize_global",
+    "h_compress_global",
     "allow_rotation",
     "text_chunk_mode",
     "layout",

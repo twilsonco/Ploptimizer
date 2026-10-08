@@ -130,6 +130,14 @@ DEFAULT_MAX_CUTTER_DOWNSIZES: int = 1
 # line of the same nominal text height *within the same label* (sharing is
 # always per-label; the job tier only enables the option for its labels).
 DEFAULT_CUTTER_DOWNSIZE_GLOBAL: bool = True
+# Per-label sharing of horizontal compression. ``False`` (the default) keeps
+# the historical per-line behaviour; ``True`` propagates a trigger line's
+# compression scale to every other eligible line of the same nominal text
+# height *within the same label* (sharing is always per-label; the job tier
+# only enables the option for its labels). The shared scale is the group's
+# most-compressed (minimum) scale, clamped to each receiver's own
+# ``1 - max_h_compress`` budget floor.
+DEFAULT_H_COMPRESS_GLOBAL: bool = False
 # Stroke-color layer tag default. ``"none"`` is the implicit color of
 # every line that omits ``text_color``; it never cascades (the field is
 # label/line-local by design, see schema.TextColor) and the resolution
@@ -444,6 +452,18 @@ class ResolvedTextLine:
             neither shares its own downsize nor receives a sibling's.
             Consumed by :mod:`plt_optimizer.generate.cutter_downsize`.
             Explicit ``False`` is honored; only ``None`` means unset.
+        h_compress_global: Whether horizontal compression is shared across
+            the lines of the label (cascaded line -> label -> job, default
+            ``DEFAULT_H_COMPRESS_GLOBAL`` (``False``)). When a trigger line
+            is horizontally compressed, every other *eligible* line of the
+            same ``nominal_text_height`` in the same label is compressed to
+            the group's minimum (most-compressed) scale, clamped to each
+            receiver's own ``1 - max_h_compress`` budget floor; a line with
+            this flag ``False`` neither shares its own compression nor
+            receives a sibling's, and a line with a zero ``max_h_compress``
+            budget is never touched. Consumed by
+            :mod:`plt_optimizer.generate.h_compress`. Explicit ``True`` is
+            honored; only ``None`` means unset.
     """
 
     text: str
@@ -467,6 +487,7 @@ class ResolvedTextLine:
     cutter_downsize: bool = DEFAULT_CUTTER_DOWNSIZE
     max_cutter_downsizes: int = DEFAULT_MAX_CUTTER_DOWNSIZES
     cutter_downsize_global: bool = DEFAULT_CUTTER_DOWNSIZE_GLOBAL
+    h_compress_global: bool = DEFAULT_H_COMPRESS_GLOBAL
 
 
 @dataclass(frozen=True)
@@ -512,6 +533,18 @@ class ResolvedLabel:
             same line), and the line's :attr:`ResolvedTextLine.toolpath_text_height`
             already reflects the final cutter. Set by the export pre-pass via
             ``dataclasses.replace``; never sourced from the YAML schema.
+        global_compress_by_line: Mapping of line index to a shared horizontal
+            scale in ``(0.0, 1.0)`` applied by the per-label compression
+            sharing pre-pass (see
+            :mod:`plt_optimizer.generate.h_compress`). When
+            ``ResolvedTextLine.h_compress_global`` is enabled and one line of
+            a ``nominal_text_height`` group is horizontally compressed, every
+            eligible line of that group receives the group's minimum scale
+            (clamped to its own ``1 - max_h_compress`` budget floor). An empty
+            dict (the default) means no shared compression was applied; lines
+            not in the dict use scale ``1.0``. Applied by the renderer on top
+            of :attr:`collision_compress_by_line`. Set by the export pre-pass
+            via ``dataclasses.replace``; never sourced from the YAML schema.
         hole_text_collision_distance: Minimum air gap in inches kept
             between the engraved text stroke and the engraved drill-hole
             stroke (cascaded label -> job, default ``0.15``). Combined
@@ -554,6 +587,7 @@ class ResolvedLabel:
     min_hole_margin: Optional[float] = None
     collision_compress_by_line: dict[int, float] = field(default_factory=dict)
     cutter_downsize_by_line: dict[int, tuple[float, float]] = field(default_factory=dict)
+    global_compress_by_line: dict[int, float] = field(default_factory=dict)
     hole_text_collision_distance: float = DEFAULT_HOLE_TEXT_COLLISION_DISTANCE
     hole_cutter_diameter: float = DEFAULT_BOUNDARY_HOLE_CUTTER
     text_chunk_mode: str = "line"
@@ -1212,6 +1246,17 @@ def _resolve_content(
         else:
             line_cutter_downsize_global = DEFAULT_CUTTER_DOWNSIZE_GLOBAL
 
+        # Resolve the per-label horizontal-compression-sharing flag with the
+        # same precedence; an intentional ``True`` (opt-in) is honored.
+        if line.h_compress_global is not None:
+            line_h_compress_global: bool = line.h_compress_global
+        elif label_input.h_compress_global is not None:
+            line_h_compress_global = label_input.h_compress_global
+        elif job.h_compress_global is not None:
+            line_h_compress_global = job.h_compress_global
+        else:
+            line_h_compress_global = DEFAULT_H_COMPRESS_GLOBAL
+
         resolved_content.append(
             ResolvedTextLine(
                 text=line.text,
@@ -1235,6 +1280,7 @@ def _resolve_content(
                 cutter_downsize=line_cutter_downsize,
                 max_cutter_downsizes=line_max_cutter_downsizes,
                 cutter_downsize_global=line_cutter_downsize_global,
+                h_compress_global=line_h_compress_global,
             )
         )
     return resolved_content

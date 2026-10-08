@@ -14,6 +14,7 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_CUTTER_SIZE,
     DEFAULT_FALLBACK_ADVANCE_FRACTION,
     DEFAULT_FONT,
+    DEFAULT_H_COMPRESS_GLOBAL,
     DEFAULT_HOLE_MARGIN,
     DEFAULT_HOLE_TEXT_COLLISION_DISTANCE,
     DEFAULT_KERNING_MIN_GAP,
@@ -2452,6 +2453,61 @@ class TestCutterDownsizeGlobalCascade:
         """Line-level False beats the label-level True."""
         line = resolve_job_spec(self._job(job=True, label=True, line=False))[0].content[0]
         assert line.cutter_downsize_global is False
+
+
+class TestHCompressGlobalCascade:
+    """h_compress_global cascades line -> label -> job -> False (explicit-None)."""
+
+    @staticmethod
+    def _job(**levels: bool | None) -> JobSpec:
+        """Build a single-line job applying h_compress_global at the given levels."""
+        job_kwargs: dict[str, bool | None] = {}
+        label_kwargs: dict[str, bool | None] = {}
+        line_kwargs: dict[str, bool | None] = {}
+        if "job" in levels:
+            job_kwargs["h_compress_global"] = levels["job"]
+        if "label" in levels:
+            label_kwargs["h_compress_global"] = levels["label"]
+        if "line" in levels:
+            line_kwargs["h_compress_global"] = levels["line"]
+        return JobSpec(
+            job_name="J",
+            text_height=0.5,
+            **job_kwargs,  # type: ignore[arg-type]
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    **label_kwargs,  # type: ignore[arg-type]
+                    content=[TextLine(text="X", **line_kwargs)],  # type: ignore[arg-type]
+                )
+            ],
+        )
+
+    def test_default_module_constant_is_false(self) -> None:
+        """The shipped default keeps horizontal compression per-line."""
+        assert DEFAULT_H_COMPRESS_GLOBAL is False
+
+    def test_default_resolves_false(self) -> None:
+        """All levels omitting resolves to the False fallback."""
+        line = resolve_job_spec(self._job())[0].content[0]
+        assert line.h_compress_global is False
+
+    def test_job_true_used_when_label_omits(self) -> None:
+        """Job-level True cascades to labels and lines that omit the field."""
+        line = resolve_job_spec(self._job(job=True))[0].content[0]
+        assert line.h_compress_global is True
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level False beats the job-level True."""
+        line = resolve_job_spec(self._job(job=True, label=False))[0].content[0]
+        assert line.h_compress_global is False
+
+    def test_line_overrides_label(self) -> None:
+        """Line-level True beats the label-level False."""
+        line = resolve_job_spec(self._job(job=False, label=False, line=True))[0].content[0]
+        assert line.h_compress_global is True
 
 
 class TestNextSmallerCutter:

@@ -1603,6 +1603,49 @@ class TestCutterDownsizeGlobal:
         assert plate.cutter_downsize_global is False
 
 
+class TestHCompressGlobal:
+    """Tests for the h_compress_global per-label sharing field."""
+
+    def test_inherited_on_all_levels(self) -> None:
+        """TextLine, LabelSpec and JobSpec expose h_compress_global."""
+        assert TextLine(text="X", h_compress_global=True).h_compress_global is True
+        label = LabelSpec(id="lbl", h_compress_global=True, content=[TextLine(text="X")])
+        assert label.h_compress_global is True
+        job = JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            h_compress_global=True,
+            content=[TextLine(text="X")],
+        )
+        assert job.h_compress_global is True
+        # The opt-out direction works on every level too.
+        assert TextLine(text="X", h_compress_global=False).h_compress_global is False
+
+    def test_default_is_none(self) -> None:
+        """Schema default is None (unset); resolution applies the False fallback."""
+        assert TextLine(text="X").h_compress_global is None
+        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).h_compress_global is None
+        assert (
+            JobSpec(
+                job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]
+            ).h_compress_global
+            is None
+        )
+
+    def test_plate_accepts_field_for_parity(self) -> None:
+        """PlateSpec should accept the field for schema parity."""
+        plate = PlateSpec(
+            id="plate_1",
+            width=24.0,
+            height=12.0,
+            left_clearance=0.25,
+            top_clearance=0.25,
+            h_compress_global=True,
+        )
+        assert plate.h_compress_global is True
+
+
 class TestJobLevelReplacementFile:
     """Job-level ``replacement_text_file`` (labels section optional)."""
 

@@ -16,6 +16,7 @@
   "cutter_downsize": true,
   "max_cutter_downsizes": 1,
   "cutter_downsize_global": true,
+  "h_compress_global": false,
   "plate_width": 24.0,
   "plate_height": 16.0,
   "left_clearance": 0.0,
