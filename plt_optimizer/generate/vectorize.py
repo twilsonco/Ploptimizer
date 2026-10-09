@@ -1119,6 +1119,7 @@ def _write_simple_plots(
             title=title,
             show_plot=False,
             simple_mode=True,
+            gridlines=False,
         )
         pdf_paths.append(pdf_path)
 

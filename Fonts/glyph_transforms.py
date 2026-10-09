@@ -31,7 +31,11 @@ units (1000 = 1 design inch), ``+y`` up, the text baseline at ``y = 0`` and
 each glyph's left edge at ``x = 0``. The cap line is the reference
 character's stored ``bounding_box.max_y`` (design-unit 1000 for every v2
 font) and the midline is half of it. Derived entries re-establish the
-``x = 0`` left edge, so they obey the same contract as engraved ones.
+``x = 0`` left edge, so they obey the same contract as engraved ones. A
+character listed in ``extract_plt_fonts.VERTICALLY_CENTERED_CHARS`` (``S``)
+is midline-centred by the extractor, so its stored box straddles the
+baseline on purpose; a derived glyph inherits its base's stored position, and
+no recipe bases on ``S``.
 
 Arc (``AA``) rules
 ------------------

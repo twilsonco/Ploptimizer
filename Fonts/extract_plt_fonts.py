@@ -47,6 +47,19 @@ angle. ``H_ref_raw`` is the median measured height across all framing copies;
 the file-name height is *never* used to correct it (see
 :func:`check_height_drift`).
 
+One exception: a character listed in :data:`VERTICALLY_CENTERED_CHARS` is
+additionally *translated* (never scaled, X is never touched) so the centre of
+its own bounding box lands on the **midline** ``MIDLINE_FRACTION * UNITS_PER_INCH``
+(half the cap height) instead of sitting on the baseline. Round-symmetric
+glyphs such as ``S`` are engraved by EngraveLab hanging slightly below the
+baseline and short of the cap line, which reads as a low-sitting letter next
+to ``H``/``O``/``C``; centring them fixes that at the source, so the stored
+``glyph``, ``bounding_box`` and both envelopes all describe the centred
+position and the typesetter kerns and places the glyph accordingly. The
+reference character is never centred - it *defines* the baseline (``y = 0``)
+and the cap line (``y = 1000``) - and ``--no-vertical-centering`` disables the
+pass entirely for A/B comparison against the raw engraved positions.
+
 The result is merged into ``Fonts/plt_fonts.json``::
 
     {
@@ -112,6 +125,7 @@ if str(SCRIPT_DIR) not in sys.path:  # sibling module, same reason
 # (documented in Fonts/glyph_transforms.py). ``arc_bounds``/``segment_bounds``
 # are re-exported for callers that reach them through this module.
 from glyph_transforms import (  # noqa: E402
+    MIDLINE_FRACTION,
     Bounds,
     angle_in_sweep,
     arc_band_xs,
@@ -157,6 +171,19 @@ DRIFT_WARN_THRESHOLD = 0.05
 # 3 decimals, so two *identical* glyphs can differ by up to 0.001 units; the
 # comparison therefore accepts this bound (plus a tiny float slack).
 REFERENCE_MATCH_TOLERANCE = 1e-3
+
+# Characters whose stored geometry is *translated* so the centre of their own
+# bounding box sits on the midline (``MIDLINE_FRACTION * UNITS_PER_INCH``, i.e.
+# half the cap height) instead of on the baseline. EngraveLab engraves
+# round-symmetric glyphs like ``S`` hanging below the baseline and short of the
+# cap line, which reads as a low-sitting letter beside ``H``/``O``/``C``; the
+# shift is pure translation (height and X are untouched) and lands on the
+# emitted ``glyph``, the ``bounding_box`` and both envelopes together, so the
+# typesetter sees one consistent centred silhouette. Add characters here as
+# fonts reveal the same engraving bias. The reference character is always
+# exempt (it defines the baseline and cap line); --no-vertical-centering
+# disables the pass entirely.
+VERTICALLY_CENTERED_CHARS: Tuple[str, ...] = ("S",)
 
 # Numerical slack (plotter units) for the geometric predicates (row/cluster
 # merging, envelope sampling).
@@ -933,11 +960,66 @@ def sample_envelopes(
     return band_envelopes(lines, arcs, bounds, samples)
 
 
+def _should_vertically_center(character: str, reference_char: str, enabled: bool) -> bool:
+    """Return whether ``character``'s glyph is to be centred on the midline.
+
+    The reference character is always exempt: it *defines* the baseline
+    (``y = 0``) and the cap line (``y = 1000``) for the whole font and is the
+    glyph the framing verification measures, so translating it would break the
+    normalization contract every other glyph relies on.
+
+    Args:
+        character: The character the cluster maps to.
+        reference_char: The sheet's framing reference character.
+        enabled: ``False`` disables the pass entirely
+            (``--no-vertical-centering``).
+
+    Returns:
+        ``True`` when the glyph's stored geometry is to be centred.
+    """
+    return enabled and character in VERTICALLY_CENTERED_CHARS and character != reference_char
+
+
+def _midline_centered(
+    transform: GlyphTransform,
+    bounds: Bounds,
+) -> Tuple[GlyphTransform, Bounds]:
+    """Shift ``transform`` so the glyph's box centre lands on the midline.
+
+    The shift is a pure vertical translation in the stored frame: the glyph
+    height, its width and its left edge (``x = 0``) are all preserved, and the
+    emitted geometry, bounding box and envelopes move together because all
+    three are derived from the returned transform.
+
+    Args:
+        transform: The glyph's baseline normalization.
+        bounds: ``transform``'s mapped bounding box.
+
+    Returns:
+        ``(transform, bounds)`` unchanged when the glyph is already centred
+        (within :data:`_EPS`), otherwise the shifted transform and its shifted
+        bounding box.
+    """
+    centre = (bounds[1] + bounds[3]) / 2.0
+    shift = MIDLINE_FRACTION * UNITS_PER_INCH - centre
+    if abs(shift) <= _EPS:
+        return transform, bounds
+    # Y_norm = scale * (baseline - Y_raw), so raising the stored glyph by
+    # `shift` units means raising the raw baseline by shift / scale.
+    shifted = GlyphTransform(
+        scale=transform.scale,
+        origin_x=transform.origin_x,
+        baseline=transform.baseline + shift / transform.scale,
+    )
+    return shifted, (bounds[0], bounds[1] + shift, bounds[2], bounds[3] + shift)
+
+
 def build_character_entry(
     cluster: Cluster,
     baseline: float,
     scale: float,
     samples: int,
+    vertical_center: bool = False,
 ) -> CharacterEntry:
     """Build the JSON entry for one character.
 
@@ -946,15 +1028,20 @@ def build_character_entry(
         baseline: The row's raw baseline Y, in plotter units.
         scale: Global scale factor ``S``.
         samples: Envelope sample count.
+        vertical_center: Translate the glyph so its box centre sits on the
+            midline (see :data:`VERTICALLY_CENTERED_CHARS`).
 
     Returns:
         A ``{"bounding_box", "left_envelope", "right_envelope", "glyph"}``
         mapping in normalized plotter units (+Y up, baseline ``y = 0``, left
-        edge ``x = 0``).
+        edge ``x = 0``; a midline-centred glyph straddles the baseline instead
+        of sitting on it).
     """
     raw_bounds = cluster.bounds
     transform = GlyphTransform(scale=scale, origin_x=raw_bounds[0], baseline=baseline)
     bounds = transform.map_bounds(raw_bounds)
+    if vertical_center:
+        transform, bounds = _midline_centered(transform, bounds)
     left_envelope, right_envelope = sample_envelopes(cluster.paths, transform, bounds, samples)
     glyph = emit_glyph(cluster.paths, transform)
     if not glyph:
@@ -982,6 +1069,7 @@ def extract_font_from_document(
     row_threshold: Optional[float] = None,
     cluster_threshold: Optional[float] = None,
     envelope_samples: int = ENVELOPE_SAMPLES,
+    vertical_centering: bool = True,
 ) -> Tuple[FontEntry, int, float, float]:
     """Split one engraved sheet into a font entry.
 
@@ -993,6 +1081,9 @@ def extract_font_from_document(
         row_threshold: Manual Y-gap row threshold; ``None`` searches.
         cluster_threshold: Manual X-gap glyph threshold; ``None`` searches.
         envelope_samples: Envelope sample count per glyph.
+        vertical_centering: Apply :data:`VERTICALLY_CENTERED_CHARS` midline
+            centring (``False`` = ``--no-vertical-centering``, store the raw
+            engraved positions).
 
     Returns:
         ``(font_entry, row_count, row_threshold, cluster_threshold)`` where
@@ -1018,14 +1109,24 @@ def extract_font_from_document(
     reference_height_in = reference_height_raw / UNITS_PER_INCH
 
     characters_out: Dict[str, CharacterEntry] = {}
+    centered: List[str] = []
     index = 0
     for row in rows:
         for cluster in row.content:
             character = characters[index]
             index += 1
+            center_this = _should_vertically_center(character, reference_char, vertical_centering)
             characters_out[character] = build_character_entry(
-                cluster, row.baseline, scale, envelope_samples
+                cluster, row.baseline, scale, envelope_samples, center_this
             )
+            if center_this:
+                centered.append(character)
+    if centered:
+        logger.info(
+            "Vertically centred %d glyph(s) about the midline: %s",
+            len(centered),
+            " ".join(centered),
+        )
 
     entry: FontEntry = {
         "reference_char": reference_char,
@@ -1074,6 +1175,7 @@ def extract_font_file(
     row_threshold: Optional[float] = None,
     cluster_threshold: Optional[float] = None,
     envelope_samples: int = ENVELOPE_SAMPLES,
+    vertical_centering: bool = True,
 ) -> FontExtraction:
     """Extract one ``<font>_<height>_<ref>.plt`` sample sheet into a font entry.
 
@@ -1085,6 +1187,8 @@ def extract_font_file(
             :func:`extract_font_from_document`).
         cluster_threshold: Manual X-gap glyph threshold.
         envelope_samples: Envelope sample count per glyph.
+        vertical_centering: Apply :data:`VERTICALLY_CENTERED_CHARS` midline
+            centring to the extracted glyphs.
 
     Returns:
         The extraction result.
@@ -1109,6 +1213,7 @@ def extract_font_file(
         row_threshold,
         cluster_threshold,
         envelope_samples,
+        vertical_centering,
     )
     check_height_drift(
         name,
@@ -1294,6 +1399,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "(default: %(default)s).",
     )
     parser.add_argument(
+        "--no-vertical-centering",
+        action="store_true",
+        help="Store every glyph exactly where it was engraved, disabling the "
+        "midline centring of the characters listed in VERTICALLY_CENTERED_CHARS "
+        "(currently: " + " ".join(sorted(VERTICALLY_CENTERED_CHARS)) + ").",
+    )
+    parser.add_argument(
         "--font-name",
         default=None,
         help="Explicit font key; only valid with a single input file. "
@@ -1363,6 +1475,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 row_threshold=args.row_threshold,
                 cluster_threshold=args.cluster_threshold,
                 envelope_samples=args.envelope_samples,
+                vertical_centering=not args.no_vertical_centering,
             )
         except FontExtractionError as e:
             logger.error("%s", e)

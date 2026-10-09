@@ -144,6 +144,18 @@ The script processes every `Fonts/PLT/*.plt` and, per sheet:
    `x = 0`, and **Y grows upward** — descenders (`g`, `j`, `p`, `_`, ...) get
    negative `y`. The raw sheets are engraved +Y-down, so this mirrors Y and
    negates every `AA` arc sweep.
+
+   One exception: a character listed in `VERTICALLY_CENTERED_CHARS`
+   (currently `S`) is additionally **translated** so the centre of its own
+   bounding box lands on the **midline** (half the cap height) instead of on
+   the baseline. EngraveLab engraves round-symmetric glyphs hanging below the
+   baseline and short of the cap line, which reads as a low-sitting letter
+   beside `H`/`O`/`C`. The shift is pure translation — height, width and the
+   `x = 0` left edge are untouched — and it lands on the emitted `glyph`, the
+   `bounding_box` and both envelopes together, so the typesetter places and
+   kerns one consistent centred silhouette. The reference character is always
+   exempt (it *defines* the baseline and cap line), and
+   `--no-vertical-centering` stores every glyph exactly where it was engraved.
 4. **Aggregates the profile envelopes**: each glyph's left and right silhouette
    is recorded over 30 uniform vertical *bands* — every band covers half a
    sampling step above and below its height and takes the extreme X of *any*

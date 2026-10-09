@@ -80,7 +80,10 @@ JobSpec (job-level defaults)
   Cascades line → label → job (default `ReliefSingleLineCAD-Regular`;
   accepted on plates for schema parity only). PLT fonts render from the v2
   library (baseline-normalized glyphs, +y up, ref char exactly 1000 units):
-  glyphs anchor on the baseline (descenders hang below), the reference
+  glyphs anchor on the baseline (descenders hang below; a character listed in
+  `extract_plt_fonts.VERTICALLY_CENTERED_CHARS` — currently `S` — is
+  midline-centred at extraction, so its box straddles the baseline on purpose
+  and the reference char is always exempt), the reference
   character scales to exactly `text_height`, and adjacent glyphs inside a
   word are **profile-envelope kerned** — origin-to-origin advance =
   `max(scaled penetration, advance floor)` + clearance

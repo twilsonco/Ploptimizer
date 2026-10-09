@@ -21,6 +21,7 @@ import importlib.util
 import json
 import logging
 import math
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -117,6 +118,15 @@ def _glyph_commands(char: str, x_left: float, baseline: float) -> List[str]:
     if char == "_":  # zero-height stroke below the baseline
         return [
             f"PU{x_left:.3f},{baseline + 100.0:.3f};PD{x_left + 300.0:.3f},{baseline + 100.0:.3f};"
+        ]
+    if char == "C":  # short 250x300 box on the baseline (off-centre ink box)
+        short_top = baseline - 300.0
+        return [
+            f"PU{x_left:.3f},{short_top:.3f};",
+            f"PD{x_left + 250.0:.3f},{short_top:.3f};",
+            f"PD{x_left + 250.0:.3f},{baseline:.3f};",
+            f"PD{x_left:.3f},{baseline:.3f};",
+            f"PD{x_left:.3f},{short_top:.3f};",
         ]
     if char == "T":  # triangle: base 300 wide at the baseline, apex at top-center
         return [
@@ -795,6 +805,143 @@ class TestExtractFontFromDocument:
             script.extract_font_from_document(doc, ["A"], "E", declared_height=0.5)
 
 
+class TestVerticallyCenteredChars:
+    """Midline centring of :data:`VERTICALLY_CENTERED_CHARS` glyphs.
+
+    The synthetic ``C`` is a 250x300 box sitting on the baseline, so it
+    normalizes to ``y`` in ``[0, 600]`` (scale = 1000/500): its ink-box centre
+    is 300, and centring moves it to ``[200, 800]`` - a +200-unit translation.
+    """
+
+    # Normalized box of the synthetic C before/after centring.
+    RAW_BOTTOM = 0.0
+    RAW_TOP = 600.0
+    CENTERED_BOTTOM = 200.0
+    CENTERED_TOP = 800.0
+
+    @staticmethod
+    def _extract(
+        chars: Sequence[str] = ("E", "C", "A"),
+        *,
+        centered: Sequence[str] = ("C",),
+        vertical_centering: bool = True,
+    ) -> Dict[str, Any]:
+        """Extract a one-row sheet with ``chars`` under the given centring list."""
+        original = script.VERTICALLY_CENTERED_CHARS
+        script.VERTICALLY_CENTERED_CHARS = tuple(centered)
+        try:
+            doc = PLTParser().parse_string(make_framed_sheet([list(chars)]))
+            entry, _, _, _ = script.extract_font_from_document(
+                doc,
+                list(chars),
+                "E",
+                declared_height=0.5,
+                vertical_centering=vertical_centering,
+            )
+        finally:
+            script.VERTICALLY_CENTERED_CHARS = original
+        return entry["characters"]
+
+    def test_constant_is_a_tuple_of_single_characters_containing_S(self) -> None:
+        assert isinstance(script.VERTICALLY_CENTERED_CHARS, tuple)
+        assert all(len(char) == 1 for char in script.VERTICALLY_CENTERED_CHARS)
+        assert "S" in script.VERTICALLY_CENTERED_CHARS
+
+    def test_listed_glyph_is_centred_on_the_midline(self) -> None:
+        box = self._extract()["C"]["bounding_box"]
+        assert box["min_y"] == pytest.approx(self.CENTERED_BOTTOM, abs=1e-6)
+        assert box["max_y"] == pytest.approx(self.CENTERED_TOP, abs=1e-6)
+        centre = (box["min_y"] + box["max_y"]) / 2.0
+        assert centre == pytest.approx(script.MIDLINE_FRACTION * script.UNITS_PER_INCH, abs=1e-6)
+
+    def test_unlisted_glyph_is_untouched(self) -> None:
+        """A character absent from the list keeps its engraved position."""
+        centered = self._extract()["A"]["bounding_box"]
+        raw = self._extract(vertical_centering=False)["A"]["bounding_box"]
+        assert centered == raw
+
+    def test_centring_is_pure_translation(self) -> None:
+        """Height, width and the left edge are all preserved."""
+        centered = self._extract()["C"]
+        raw = self._extract(vertical_centering=False)["C"]
+        c_box, raw_box = centered["bounding_box"], raw["bounding_box"]
+        assert c_box["max_y"] - c_box["min_y"] == pytest.approx(
+            raw_box["max_y"] - raw_box["min_y"], abs=1e-6
+        )
+        assert c_box["min_x"] == pytest.approx(raw_box["min_x"], abs=1e-6)
+        assert c_box["max_x"] == pytest.approx(raw_box["max_x"], abs=1e-6)
+
+    def test_envelopes_travel_with_the_glyph(self) -> None:
+        """Every envelope sample keeps its X and gains exactly the shift."""
+        centered = self._extract()["C"]
+        raw = self._extract(vertical_centering=False)["C"]
+        shift = self.CENTERED_BOTTOM - self.RAW_BOTTOM
+        for key in ("left_envelope", "right_envelope"):
+            assert len(centered[key]) == len(raw[key]) == script.ENVELOPE_SAMPLES
+            for (cx, cy), (rx, ry) in zip(centered[key], raw[key]):
+                assert cx == pytest.approx(rx, abs=1e-6)
+                assert cy == pytest.approx(ry + shift, abs=1e-6)
+
+    def test_emitted_geometry_agrees_with_the_box(self) -> None:
+        """The stored HPGL moves with the bounding box, not just the metadata."""
+        glyph = self._extract()["C"]["glyph"]
+        # The stored glyph is already in the normalized frame (+Y up), so its
+        # own coordinates must span the centred box. Coordinates emit as
+        # `x,y` pairs, so the Y of every pair is the second number.
+        ys = [float(y) for _x, y in re.findall(r"(-?\d+\.\d+),(-?\d+\.\d+)", glyph)]
+        assert ys, "the emitted glyph carried no coordinates"
+        assert min(ys) == pytest.approx(self.CENTERED_BOTTOM, abs=1e-3)
+        assert max(ys) == pytest.approx(self.CENTERED_TOP, abs=1e-3)
+        PLTParser().parse_string("IN;PA;" + glyph + "SP;")
+
+    def test_reference_character_is_never_centred(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Centring the reference char would break the baseline/cap contract."""
+        with caplog.at_level(logging.INFO, logger="extract_plt_fonts"):
+            characters = self._extract(centered=("E",))
+        box = characters["E"]["bounding_box"]
+        assert box["min_y"] == pytest.approx(0.0, abs=1e-6)
+        assert box["max_y"] == pytest.approx(1000.0, abs=1e-3)
+        assert not any("Vertically centred" in record.getMessage() for record in caplog.records)
+
+    def test_disabling_centring_is_the_baseline_behaviour(self) -> None:
+        box = self._extract(vertical_centering=False)["C"]["bounding_box"]
+        assert box["min_y"] == pytest.approx(self.RAW_BOTTOM, abs=1e-6)
+        assert box["max_y"] == pytest.approx(self.RAW_TOP, abs=1e-6)
+
+    def test_centring_is_logged(self, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level(logging.INFO, logger="extract_plt_fonts"):
+            self._extract()
+        messages = [record.getMessage() for record in caplog.records]
+        assert any("Vertically centred 1 glyph(s) about the midline: C" in m for m in messages)
+
+    def test_cli_flag_stores_the_raw_engraved_position(self, tmp_path: Path) -> None:
+        fonts_dir = tmp_path / "fonts"
+        fonts_dir.mkdir()
+        (fonts_dir / "myfont_1_E.plt").write_text(
+            make_framed_sheet([["E", "C", "A"]]), encoding="utf-8"
+        )
+        ascii_file = tmp_path / "ascii.txt"
+        ascii_file.write_text("E C A", encoding="utf-8")
+        base = ["--fonts-dir", str(fonts_dir), "--ascii-file", str(ascii_file)]
+        centered_out = tmp_path / "centered.json"
+        raw_out = tmp_path / "raw.json"
+        original = script.VERTICALLY_CENTERED_CHARS
+        script.VERTICALLY_CENTERED_CHARS = ("C",)
+        try:
+            assert script.main(base + ["--output", str(centered_out)]) == 0
+            assert script.main(base + ["--output", str(raw_out), "--no-vertical-centering"]) == 0
+        finally:
+            script.VERTICALLY_CENTERED_CHARS = original
+        centered = json.loads(centered_out.read_text(encoding="utf-8"))
+        raw = json.loads(raw_out.read_text(encoding="utf-8"))
+        assert centered["Myfont"]["characters"]["C"]["bounding_box"]["min_y"] == pytest.approx(
+            self.CENTERED_BOTTOM, abs=1e-3
+        )
+        assert raw["Myfont"]["characters"]["C"]["bounding_box"]["min_y"] == pytest.approx(
+            self.RAW_BOTTOM, abs=1e-3
+        )
+
+
 class TestExtractFontFile:
     """Tests for extract_font_file() including the real-word guard rail."""
 
@@ -1092,6 +1239,28 @@ class TestRealSheetIntegration:
         env = entry["characters"]["E"]["left_envelope"]
         assert len(env) == script.ENVELOPE_SAMPLES
         assert all(env[i][1] <= env[i + 1][1] + 1e-9 for i in range(len(env) - 1))
+
+    def test_dino_S_is_centred_on_the_midline(self) -> None:
+        """The engraved Dino ``S`` hangs low; extraction centres it on the midline."""
+        characters = script.load_characters(REPO_ROOT / "Fonts" / "ascii.txt")
+        centered = script.extract_font_file(DINO_FRAMED_FIXTURE, characters).entry["characters"]
+        raw = script.extract_font_file(
+            DINO_FRAMED_FIXTURE, characters, vertical_centering=False
+        ).entry["characters"]
+
+        box = centered["S"]["bounding_box"]
+        centre = (box["min_y"] + box["max_y"]) / 2.0
+        assert centre == pytest.approx(500.0, abs=1e-3)
+        # Pure translation: the engraved height is preserved, and the raw
+        # Dino S really does sit below the midline (the bug being fixed).
+        raw_box = raw["S"]["bounding_box"]
+        assert box["max_y"] - box["min_y"] == pytest.approx(
+            raw_box["max_y"] - raw_box["min_y"], abs=1e-3
+        )
+        assert (raw_box["min_y"] + raw_box["max_y"]) / 2.0 < 500.0 - 1.0
+        # The reference char keeps defining the baseline and cap line.
+        assert centered["E"]["bounding_box"]["min_y"] == pytest.approx(0.0, abs=1e-3)
+        assert centered["E"]["bounding_box"]["max_y"] == pytest.approx(1000.0, abs=1e-2)
 
     def test_dino_all_glyphs_round_trip(self) -> None:
         characters = script.load_characters(REPO_ROOT / "Fonts" / "ascii.txt")
