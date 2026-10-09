@@ -2847,6 +2847,22 @@ class TestBaselinePitchMath:
         """A negative spacing floors at 0.0 (pitch never below the height)."""
         assert baseline_pitch([0.5, 0.5], [-0.2]) == [0.5]
 
+    def test_next_cap_basis_anchors_on_the_following_height(self) -> None:
+        """The next-cap basis pitches by the FOLLOWING line's cap height."""
+        assert baseline_pitch([0.3, 0.5], [0.2], next_cap_basis=True) == [0.7]
+
+    def test_next_cap_basis_uniform_matches_default(self) -> None:
+        """Uniform heights make the two bases coincide (bit-identical)."""
+        heights = [0.5, 0.5, 0.5]
+        spacings = [0.1, 0.2]
+        assert baseline_pitch(heights, spacings, next_cap_basis=True) == baseline_pitch(
+            heights, spacings
+        )
+
+    def test_next_cap_basis_clamps_negative_spacing(self) -> None:
+        """The next-cap basis floors negative spacings at 0.0 too."""
+        assert baseline_pitch([0.3, 0.5], [-0.2], next_cap_basis=True) == [0.5]
+
     def test_offsets_descend_by_one_pitch_each(self) -> None:
         """Baselines start at 0 and step down by the pitch (+y up)."""
         offsets = baseline_offsets([0.5, 0.5, 0.4], [0.1, 0.2])
@@ -2930,6 +2946,19 @@ class TestFitBaselineSpacingToMargins:
         ink_box = fit_line_spacing_to_margins(heights, [0.4, 0.2], 1.9)
         for got, want in zip(baseline, ink_box):
             assert math.isclose(got, want, abs_tol=1e-6)
+
+    def test_next_cap_basis_fits_the_mixed_height_block(self) -> None:
+        """The next-cap clamp measures the block the stacking path engraves."""
+        # Caps 0.44 / 0.22, cap-only ink, spacing 0.5: pitch = 0.22 + 0.5,
+        # block = 0.44 + 0.72 = 1.16 -> shrink to fit 1.0: 0.44 + 0.22 + s =
+        # 1.0 -> s = 0.34.
+        heights = [0.44, 0.22]
+        adjusted = fit_baseline_spacing_to_margins(
+            heights, heights, [0.0, 0.0], [0.5], 1.0, next_cap_basis=True
+        )
+        assert math.isclose(adjusted[0], 0.34, abs_tol=1e-6)
+        block = baseline_block_height(heights, heights, [0.0, 0.0], adjusted, next_cap_basis=True)
+        assert math.isclose(block, 1.0, abs_tol=1e-6)
 
 
 class TestSolveBaselineSpacingToFill:

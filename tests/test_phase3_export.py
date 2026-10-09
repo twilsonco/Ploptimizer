@@ -1594,6 +1594,80 @@ class TestUseBaselineSpacingDemoExample:
         ]
 
 
+class TestBaselineSpacingMixedHeightDemoExample:
+    """Regression tests for tests_deps/baseline_spacing_mixed_height_job.yaml.
+
+    The fixture pins the baseline-spacing pitch basis on MIXED text heights:
+    an explicit ``line_spacing`` is the distance from a line's BASELINE to the
+    FOLLOWING line's CAP line (pitch = the following cap height + spacing),
+    so the requested spacing survives verbatim on mixed-height labels. With
+    cap-only glyphs the gap reads straight off the rendered bounds, and the
+    baseline label is bit-identical to its ink-box twin -- the promise the
+    historical current-cap basis broke on mixed heights.
+    """
+
+    _SPEC = Path("tests_deps/baseline_spacing_mixed_height_job.yaml")
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="bsmh",
+            optimize=False,
+            plots=False,
+        )
+
+    @staticmethod
+    def _stacked_bounds(label: ResolvedLabel) -> list[tuple[float, float, float, float]]:
+        """Per-line local bounds of a resolved label (block centered at y=0)."""
+        from plt_optimizer.generate.label_renderer import _render_text_local_with_bounds
+
+        _lc, entries = _render_text_local_with_bounds(label)
+        return [entry.bounds for entry in entries]
+
+    def test_mixed_height_gap_is_exactly_line_spacing(self, tmp_path: Path) -> None:
+        """Baseline-to-next-capline equals the requested 0.1in on mixed caps."""
+        result = self._export(tmp_path)
+        bounds = self._stacked_bounds(result.rendered_labels["mixed"].source_label)
+        # Cap-only glyphs: ink bottom == baseline, ink top == cap line. The
+        # historical current-cap basis would measure 0.10 + (0.440 - 0.220).
+        gap = bounds[0][1] - bounds[1][3]
+        assert math.isclose(gap, 0.1, abs_tol=1e-6)
+        # The pitch itself anchors on the FOLLOWING line's cap (0.220).
+        pitch = bounds[0][1] - bounds[1][1]
+        assert math.isclose(pitch, 0.220 + 0.1, abs_tol=1e-6)
+
+    def test_cap_only_mixed_height_matches_ink_box(self, tmp_path: Path) -> None:
+        """Descender-free mixed-height lines stack identically in both modes."""
+        result = self._export(tmp_path)
+        baseline = self._stacked_bounds(result.rendered_labels["mixed"].source_label)
+        inkbox = self._stacked_bounds(result.rendered_labels["mixed_inkbox"].source_label)
+        for got, want in zip(baseline, inkbox):
+            for g, w in zip(got, want):
+                assert math.isclose(g, w, abs_tol=1e-9)
+
+    def test_uniform_height_label_is_mode_independent(self, tmp_path: Path) -> None:
+        """Equal caps make the two pitch bases coincide (control label)."""
+        result = self._export(tmp_path)
+        rendered = result.rendered_labels["uniform"]
+        assert math.isclose(rendered.line_spacing_by_line[0], 0.1, abs_tol=1e-9)
+        bounds = self._stacked_bounds(rendered.source_label)
+        gap = bounds[0][1] - bounds[1][3]
+        assert math.isclose(gap, 0.1, abs_tol=1e-6)
+
+    def test_report_sees_no_findings(self, tmp_path: Path) -> None:
+        """The resolved spacing survives verbatim, so the report stays quiet."""
+        result = self._export(tmp_path)
+        for label_id in ("mixed", "mixed_inkbox", "uniform"):
+            rendered = result.rendered_labels[label_id]
+            assert rendered.compression_by_line == {}
+            assert math.isclose(rendered.line_spacing_by_line[0], 0.1, abs_tol=1e-9)
+
+
 class TestDescenderAdjustDemoExample:
     """Regression tests for tests_deps/descender_adjust_job.yaml.
 

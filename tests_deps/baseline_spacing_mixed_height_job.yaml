@@ -1,0 +1,70 @@
+# Fixture for baseline-to-baseline spacing on MIXED text heights
+# (`use_baseline_spacing`, default true).
+#
+# The point this fixture pins: under baseline spacing an explicit
+# `line_spacing` is the distance from a line's BASELINE to the FOLLOWING
+# line's CAP line (pitch = the following line's cap height + line_spacing),
+# NOT the current line's cap height. On a uniform-height label the two bases
+# coincide, so this fixture uses two lines of DIFFERENT text_height to make
+# the difference measurable:
+#
+#   line 0  text_height 0.50 -> cutter 0.060 -> cap 0.440
+#   line 1  text_height 0.25 -> cutter 0.030 -> cap 0.220
+#   line_spacing 0.10
+#
+# With cap-only glyphs (H/O reach the full cap, no descenders) the baseline of
+# a line IS its ink bottom and its cap line IS its ink top, so the
+# baseline-to-next-capline gap reads straight off the rendered bounds:
+#
+#   baseline spacing (next-cap basis):  0.10  (= line_spacing, the promise)
+#   the historical current-cap basis:   0.32  (= 0.10 + (0.440 - 0.220))
+#
+# Because cap-only lines stack bit-identically to ink-box stacking, the
+# baseline label here is bit-identical to its ink-box twin -- the new basis is
+# what makes that parity hold on MIXED heights (the old basis broke it).
+#
+# `auto_descending_character_adjustment: false` is deliberate: this fixture
+# demonstrates STACKING geometry in isolation. All content is cap-only, so the
+# relief would never fire anyway; disabling it keeps the intent explicit.
+job:
+  job_name: Baseline Spacing Mixed Height Demo
+
+  width: 3.0
+  height: 1.4
+  margin: 0.1
+  line_spacing: 0.1
+  auto_descending_character_adjustment: false
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. Baseline stacking (the shipped default) on mixed heights: the gap
+    #    under line 0 is exactly line_spacing (baseline -> next cap line).
+    - id: mixed
+      content:
+        - text: "HH"
+          text_height: 0.5
+        - text: "OO"
+          text_height: 0.25
+
+    # 2. Ink-box twin: same mixed content, use_baseline_spacing false. Cap-only
+    #    lines stack bit-identically, so this label matches `mixed` exactly.
+    - id: mixed_inkbox
+      use_baseline_spacing: false
+      content:
+        - text: "HH"
+          text_height: 0.5
+        - text: "OO"
+          text_height: 0.25
+
+    # 3. Uniform-height control: both lines 0.5. The two pitch bases coincide,
+    #    so this label is mode-independent by construction.
+    - id: uniform
+      content:
+        - text: "HH"
+          text_height: 0.5
+        - text: "OO"
+          text_height: 0.5

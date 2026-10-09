@@ -2021,6 +2021,8 @@ def _baseline_table(
     ascenders: Sequence[float],
     descenders: Sequence[float],
     spacings: Sequence[float],
+    *,
+    next_cap_basis: bool = False,
 ) -> List[float]:
     """Return each line's baseline Y in the ink-centered block frame.
 
@@ -2033,11 +2035,15 @@ def _baseline_table(
         ascenders: Ink extent above each line's baseline, inches.
         descenders: Ink depth below each line's baseline, inches.
         spacings: Spacing below each line except the last, inches.
+        next_cap_basis: Pitch basis forwarded to :func:`baseline_offsets`
+            (``True`` = baseline-to-next-capline spacing, the stacking path's
+            basis so a specified ``line_spacing`` engraves its literal gap on
+            mixed-height labels).
 
     Returns:
         One baseline Y per line, ``+y`` up, block-centered.
     """
-    offsets = baseline_offsets(pitch_basis, spacings)
+    offsets = baseline_offsets(pitch_basis, spacings, next_cap_basis=next_cap_basis)
     top_extent = max(b + a for b, a in zip(offsets, ascenders))
     bottom_extent = min(b - d for b, d in zip(offsets, descenders))
     shift = (top_extent + bottom_extent) / 2.0
@@ -2272,6 +2278,7 @@ def _apply_descender_relief(
     available_height: float,
     *,
     use_baseline: bool,
+    next_cap_basis: bool = False,
 ) -> _DescenderRelief:
     """Relieve descending glyphs that come close to the glyph below them.
 
@@ -2305,6 +2312,9 @@ def _apply_descender_relief(
         available_height: Inner content height, inches.
         use_baseline: Which stacking mode the caller uses (selects the baseline
             table and the block-height model the growth is capped by).
+        next_cap_basis: Pitch basis of the baseline tables and the block
+            height (``True`` = baseline-to-next-capline spacing; mirrors the
+            caller's stacking basis so the relief measures what is engraved).
 
     Returns:
         A :class:`_DescenderRelief` carrying the adjusted blocks, spacings and
@@ -2338,7 +2348,11 @@ def _apply_descender_relief(
         descender_values = [descender for _basis, _ascender, descender in geometry]
         if use_baseline:
             return baseline_block_height(
-                list(pitch_basis), ascender_values, descender_values, list(spacing_list)
+                list(pitch_basis),
+                ascender_values,
+                descender_values,
+                list(spacing_list),
+                next_cap_basis=next_cap_basis,
             )
         ink_height = sum(
             bounds[3] - bounds[1]
@@ -2393,7 +2407,9 @@ def _apply_descender_relief(
         ascenders = [ascender for _basis, ascender, _d in geometry]
         descenders = [descender for _basis, _ascender, descender in geometry]
         if use_baseline:
-            baselines = _baseline_table(pitch_basis, ascenders, descenders, current_spacings)
+            baselines = _baseline_table(
+                pitch_basis, ascenders, descenders, current_spacings, next_cap_basis=next_cap_basis
+            )
         else:
             baselines = _inkbox_baseline_table(current_blocks, current_spacings)
 
@@ -2451,7 +2467,9 @@ def _apply_descender_relief(
         ascenders = [ascender for _basis, ascender, _d in geometry]
         descenders = [descender for _basis, _ascender, descender in geometry]
         if use_baseline:
-            baselines_after = _baseline_table(pitch_basis, ascenders, descenders, current_spacings)
+            baselines_after = _baseline_table(
+                pitch_basis, ascenders, descenders, current_spacings, next_cap_basis=next_cap_basis
+            )
         else:
             baselines_after = _inkbox_baseline_table(current_blocks, current_spacings)
         _post_pairs, deficits = measure(baselines_after)
@@ -2468,7 +2486,9 @@ def _apply_descender_relief(
     ascenders = [ascender for _basis, ascender, _d in geometry]
     descenders = [descender for _basis, _ascender, descender in geometry]
     if use_baseline:
-        baselines = _baseline_table(pitch_basis, ascenders, descenders, current_spacings)
+        baselines = _baseline_table(
+            pitch_basis, ascenders, descenders, current_spacings, next_cap_basis=next_cap_basis
+        )
     else:
         baselines = _inkbox_baseline_table(current_blocks, current_spacings)
     final_boxes: List[List[GlyphBox]] = [
@@ -2792,13 +2812,16 @@ def _render_positioned_lines(
     descenders = [descender for _basis, _ascender, descender in baseline_geometry]
     if use_baseline:
         # Baseline pitch: the clamp fits the descender-extended ink block, so
-        # a line's descenders claim their share of the inner height.
+        # a line's descenders claim their share of the inner height. The
+        # next-cap basis matches the stacking below (``line_spacing`` =
+        # baseline-to-next-capline), so the clamp measures the engraved gaps.
         adjusted_spacings = fit_baseline_spacing_to_margins(
             pitch_basis,
             ascenders,
             descenders,
             spacings,
             available_height,
+            next_cap_basis=True,
         )
     else:
         adjusted_spacings = fit_line_spacing_to_margins(
@@ -2916,6 +2939,7 @@ def _render_positioned_lines(
         adjusted_spacings,
         available_height,
         use_baseline=use_baseline,
+        next_cap_basis=use_baseline,
     )
     if relief.fixes:
         _log_descender_fixes(label, relief.fixes)
@@ -2939,7 +2963,7 @@ def _render_positioned_lines(
     descenders = [descender for _basis, _ascender, descender in baseline_geometry]
     if use_baseline:
         total_rendered_height = baseline_block_height(
-            pitch_basis, ascenders, descenders, adjusted_spacings
+            pitch_basis, ascenders, descenders, adjusted_spacings, next_cap_basis=True
         )
     else:
         total_rendered_height = sum(relief.heights) + sum(adjusted_spacings)
@@ -2956,7 +2980,7 @@ def _render_positioned_lines(
     # because the rendered block's own baseline sits at local y = 0.
     baseline_y: List[float] = []
     if use_baseline:
-        offsets = baseline_offsets(pitch_basis, adjusted_spacings)
+        offsets = baseline_offsets(pitch_basis, adjusted_spacings, next_cap_basis=True)
         top_extent = max(b + a for b, a in zip(offsets, ascenders))
         bottom_extent = min(b - d for b, d in zip(offsets, descenders))
         shift = (top_extent + bottom_extent) / 2.0

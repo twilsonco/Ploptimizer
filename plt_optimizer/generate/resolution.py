@@ -206,11 +206,14 @@ DEFAULT_OPTIMIZE_LINE_CONTENT: bool = False
 # :mod:`plt_optimizer.generate.line_content`.
 DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES: Optional[int] = None
 # Baseline-to-baseline line spacing. ``True`` (the default) stacks a label's
-# text lines by baseline pitch (``nominal_text_height + line_spacing``) so a
-# line's descenders hang *into* the gap below it and every gap on the label
-# reads as one uniform visual spacing. ``False`` stacks by rendered ink box
-# (the historical behaviour): a line carrying descenders pushes the next line
-# down by its full ink height, inflating that one visual gap. Label-level
+# text lines by baseline pitch so a line's descenders hang *into* the gap
+# below it and every gap on the label reads as one uniform visual spacing.
+# Under the stacking path an explicit ``line_spacing`` is the distance from a
+# line's BASELINE to the following line's CAP line (``pitch_i = cap_{i+1} +
+# line_spacing_i``), so the value the user typed is the gap they get on
+# uniform-height *and* mixed-height labels. ``False`` stacks by rendered ink
+# box (the historical behaviour): a line carrying descenders pushes the next
+# line down by its full ink height, inflating that one visual gap. Label-level
 # only -- spacing is a property of the stacked block, never of one line, so
 # the field is deliberately absent from ``TextLine``/``TextAttributes``.
 DEFAULT_USE_BASELINE_SPACING: bool = True
@@ -703,8 +706,9 @@ class ResolvedLabel:
             job-level material, and a job without materials packs exactly
             like a single material group.
         use_baseline_spacing: Stack this label's text lines by
-            baseline-to-baseline pitch (``nominal_text_height +
-            line_spacing``) instead of by rendered ink box (from the
+            baseline-to-baseline pitch (the following line's cap height plus
+            ``line_spacing``, so ``line_spacing`` reads as the baseline-to-
+            capline gap) instead of by rendered ink box (from the
             ``use_baseline_spacing`` cascade, label -> job, default
             ``True``). Under baseline spacing a line's descenders hang into
             the gap below it, so every gap on the label reads as one uniform
@@ -806,8 +810,12 @@ def fit_line_spacing_to_margins(
 # Baseline-spacing geometry (``use_baseline_spacing``)
 #
 # Baseline spacing stacks lines by the distance between their baselines
-# (``pitch_i = nominal_text_height_i + line_spacing_i``) instead of by their
-# rendered ink boxes. Each line's ink spans ``[b_i - D_i, b_i + A_i]`` where
+# (``pitch_i``) instead of by their rendered ink boxes. Two pitch bases share
+# the helpers below: the *current-cap* basis (``pitch_i = cap_i +
+# line_spacing_i``, used by the auto-spacing solvers) and the *next-cap*
+# basis (``pitch_i = cap_{i+1} + line_spacing_i``, used by the stacking path
+# so ``line_spacing`` is exactly the baseline-to-next-capline gap on
+# mixed-height labels too). Each line's ink spans ``[b_i - D_i, b_i + A_i]`` where
 # ``b_i`` is its baseline, ``A_i`` the ascender extent (ink above the
 # baseline) and ``D_i`` the descender depth (ink hanging below it), all in
 # inches. Because the baselines descend monotonically, the block's ink height
@@ -822,32 +830,57 @@ _BISECTION_TOLERANCE: float = 1e-9
 _BISECTION_MAX_ITERATIONS: int = 100
 
 
-def baseline_pitch(line_heights: Sequence[float], line_spacings: Sequence[float]) -> list[float]:
+def baseline_pitch(
+    line_heights: Sequence[float],
+    line_spacings: Sequence[float],
+    *,
+    next_cap_basis: bool = False,
+) -> list[float]:
     """Return the baseline-to-baseline pitch of each inter-line gap.
 
-    The pitch of the gap below line ``i`` is ``line_heights[i] +
-    line_spacings[i]``: the nominal (cap) height carries the baseline down to
-    the next line's cap line, and ``line_spacing`` is the engraved-stroke air
-    gap measured from that baseline to the next line's ink top. Lines without
-    descenders therefore produce exactly the ink-box geometry, and a descender
-    of depth ``d`` shortens the visual gap by exactly ``d``.
+    Two pitch bases share this function:
+
+    * ``next_cap_basis=False`` (the default): the pitch of the gap below line
+      ``i`` is ``line_heights[i] + line_spacings[i]`` -- the line's *own* cap
+      height plus its spacing. Used by the auto-spacing solvers, which size
+      the block, not a user-typed gap.
+    * ``next_cap_basis=True``: the pitch of the gap below line ``i`` is
+      ``line_heights[i + 1] + line_spacings[i]`` -- the *following* line's cap
+      height plus the spacing. The following line's cap line sits exactly one
+      cap height above its baseline, so ``line_spacings[i]`` is then precisely
+      the distance from line ``i``'s **baseline** to line ``i + 1``'s **cap
+      line**. That anchor is content-independent (neither ascenders nor
+      descenders enter) and identical on uniform-height and mixed-height
+      labels, so a specified ``line_spacing`` engraves the same gap on both.
+
+    With equal neighbouring cap heights the two bases are identical; lines
+    without descenders therefore produce exactly the ink-box geometry, and a
+    descender of depth ``d`` shortens the visual gap by exactly ``d``.
 
     Args:
-        line_heights: Nominal text height of each line in inches. Length ``n``.
+        line_heights: Cap height of each line in inches. Length ``n``.
         line_spacings: Spacing applied *after* each line except the last, in
             inches. Length ``n - 1`` (longer input is truncated).
+        next_cap_basis: Anchor each gap's pitch on the following line's cap
+            height (baseline-to-next-capline spacing) instead of the current
+            line's.
 
     Returns:
         One pitch per gap (length ``min(n - 1, len(line_spacings))``), in
         inches. Negative spacings are clamped to ``0.0``.
     """
+    bases = line_heights[1:] if next_cap_basis else line_heights
     return [
-        float(height) + max(0.0, float(spacing))
-        for height, spacing in zip(line_heights, line_spacings)
+        float(height) + max(0.0, float(spacing)) for height, spacing in zip(bases, line_spacings)
     ]
 
 
-def baseline_offsets(line_heights: Sequence[float], line_spacings: Sequence[float]) -> list[float]:
+def baseline_offsets(
+    line_heights: Sequence[float],
+    line_spacings: Sequence[float],
+    *,
+    next_cap_basis: bool = False,
+) -> list[float]:
     """Return each line's baseline Y in a baseline-stacked block.
 
     Coordinates are ``+y`` up with the **first** baseline at ``0.0``, so the
@@ -856,14 +889,16 @@ def baseline_offsets(line_heights: Sequence[float], line_spacings: Sequence[floa
     matter.
 
     Args:
-        line_heights: Nominal text height of each line in inches. Length ``n``.
+        line_heights: Cap height of each line in inches. Length ``n``.
         line_spacings: Spacing below each line except the last, in inches.
+        next_cap_basis: Pitch basis forwarded to :func:`baseline_pitch`
+            (``True`` = baseline-to-next-capline spacing).
 
     Returns:
         One baseline Y per line (length ``len(line_heights)``), in inches.
     """
     offsets = [0.0]
-    for pitch in baseline_pitch(line_heights, line_spacings):
+    for pitch in baseline_pitch(line_heights, line_spacings, next_cap_basis=next_cap_basis):
         offsets.append(offsets[-1] - pitch)
     return offsets
 
@@ -873,23 +908,27 @@ def baseline_block_height(
     ascenders: Sequence[float],
     descenders: Sequence[float],
     line_spacings: Sequence[float],
+    *,
+    next_cap_basis: bool = False,
 ) -> float:
     """Return the ink height of a baseline-stacked text block.
 
     Args:
-        line_heights: Nominal text height of each line in inches. Length ``n``.
+        line_heights: Cap height of each line in inches. Length ``n``.
         ascenders: Ink extent above each line's baseline, in inches (``A_i``,
             non-negative). Length ``n``.
         descenders: Ink depth below each line's baseline, in inches (``D_i``,
             non-negative). Length ``n``.
         line_spacings: Spacing below each line except the last, in inches.
+        next_cap_basis: Pitch basis forwarded to :func:`baseline_offsets`
+            (``True`` = baseline-to-next-capline spacing).
 
     Returns:
         The distance from the block's highest ink point to its lowest, in
         inches. Equal to the ink-box height when every descender is ``0.0``
         and every ascender equals its line's nominal height.
     """
-    offsets = baseline_offsets(line_heights, line_spacings)
+    offsets = baseline_offsets(line_heights, line_spacings, next_cap_basis=next_cap_basis)
     top = max(offset + ascender for offset, ascender in zip(offsets, ascenders))
     bottom = min(offset - descender for offset, descender in zip(offsets, descenders))
     return top - bottom
@@ -932,6 +971,8 @@ def fit_baseline_spacing_to_margins(
     descenders: Sequence[float],
     line_spacings: Sequence[float],
     available_height: float,
+    *,
+    next_cap_basis: bool = False,
 ) -> list[float]:
     """Shrink baseline-stacked spacing so the descender-extended block fits.
 
@@ -944,12 +985,15 @@ def fit_baseline_spacing_to_margins(
     rather than the linear closed form.
 
     Args:
-        line_heights: Nominal text height of each line in inches. Length ``n``.
+        line_heights: Cap height of each line in inches. Length ``n``.
         ascenders: Ink extent above each line's baseline, in inches.
         descenders: Ink depth below each line's baseline, in inches.
         line_spacings: Spacing below each line except the last, in inches.
         available_height: Inner content height in inches (label height minus
             both vertical margins).
+        next_cap_basis: Pitch basis forwarded to :func:`baseline_block_height`
+            (``True`` = baseline-to-next-capline spacing; the stacking callers
+            pass ``True`` so the clamp measures what the renderer stacks).
 
     Returns:
         A new list of spacings. Equal to the (clamped) input when the block
@@ -963,7 +1007,11 @@ def fit_baseline_spacing_to_margins(
 
     def height_at(factor: float) -> float:
         return baseline_block_height(
-            line_heights, ascenders, descenders, [s * factor for s in spacings]
+            line_heights,
+            ascenders,
+            descenders,
+            [s * factor for s in spacings],
+            next_cap_basis=next_cap_basis,
         )
 
     if height_at(1.0) <= available_height:
@@ -1359,12 +1407,16 @@ def _fit_content_to_margins(
         # The pitch basis is the cap height, matching the renderer's stacking
         # (see ``_render_positioned_lines``); the nominal heights above stay
         # the ink-box basis for the historical path and the overflow warning.
+        # ``next_cap_basis=True`` mirrors the renderer's baseline-to-next-
+        # capline spacing, so the resolved spacing equals what is engraved on
+        # mixed-height labels too.
         adjusted = fit_baseline_spacing_to_margins(
             [line.toolpath_text_height for line in content],
             ascenders,
             descenders,
             spacings,
             available_height,
+            next_cap_basis=True,
         )
     else:
         adjusted = fit_line_spacing_to_margins(heights, spacings, available_height)

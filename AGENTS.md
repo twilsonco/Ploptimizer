@@ -562,25 +562,38 @@ only ever ADD lines, never remove, blank, or collapse them.**
 ### Baseline-to-Baseline Line Spacing (`use_baseline_spacing`)
 
 `use_baseline_spacing` (default **true**) stacks a label's text lines by
-baseline-to-baseline **pitch** (`toolpath_text_height + line_spacing`) instead
-of by rendered ink box. Both renderers return geometry with the baseline at
-y = 0 (+y up, descenders negative), so a line's ink is
+baseline-to-baseline **pitch** instead of by rendered ink box, so an explicit
+`line_spacing` is the distance from a line's **baseline** to the **following
+line's cap line** (`pitch_i = toolpath_text_height_{i+1} + line_spacing_i` on
+the stacking path) — the typographic leading a user reads off a layout, exact
+on uniform-height *and* mixed-height labels. Both renderers return geometry
+with the baseline at y = 0 (+y up, descenders negative), so a line's ink is
 `[baseline - D, baseline + A]` where `A`/`D` are the measured ascender and
 descender depths. A descender therefore **hangs into the gap below its line**
 instead of inflating it: every gap reads as one uniform visual spacing
 regardless of descenders, and the whole block is shorter by the descender
 depth. Cap-only lines (ascender == cap height, descender 0) stack
-bit-identically to ink-box stacking. Cascades job → plate → label (never text
+bit-identically to ink-box stacking, and uniform-height labels are
+bit-identical to the historical current-cap pitch (equal caps make the two
+bases coincide). Cascades job → plate → label (never text
 lines — spacing is a property of the stacked block); plate values are accepted
 for schema parity only (labels render before packing); `job-config.json`
 supplies the shop default (repo default `true`).
 
-- **Pitch basis = `toolpath_text_height`** (the per-font cap height), NOT
-  `nominal_text_height`: pitch stays content-independent (a per-font constant),
-  which is also what makes descender-free lines bit-identical to ink-box
-  stacking.
+- **Pitch basis = the following line's `toolpath_text_height`** (the per-font
+  cap height), NOT `nominal_text_height`: pitch stays content-independent (a
+  per-font constant), which is also what makes descender-free lines
+  bit-identical to ink-box stacking. The stacking path (renderer margin clamp,
+  `_fit_content_to_margins`, baseline tables, block height, descender-relief
+  growth) passes `next_cap_basis=True`; the **auto-spacing solvers**
+  (`solve_baseline_spacing_to_fill` / `solve_baseline_spacing_to_ratio`) keep
+  the current-cap basis — they size a block fill, not a user-typed gap — so on
+  mixed-height labels an auto-solved spacing is a fill value, not a literal
+  baseline-to-capline distance (uniform labels: identical either way).
 - Pure math in `resolution.py` (matplotlib-free): `baseline_pitch`
-  (`cap + spacing`, spacing floored at 0), `baseline_offsets` (baselines
+  (`cap + spacing`, spacing floored at 0; keyword `next_cap_basis=True` anchors
+  the cap on the **following** line — the stacking path's basis),
+  `baseline_offsets` (baselines
   descending from 0 by one pitch), `baseline_block_height`
   (`max(b_i + A_i) - min(b_i - D_i)` — convex, continuous and non-decreasing
   in the spacings), `fit_baseline_spacing_to_margins` (render-time clamp:

@@ -5,7 +5,7 @@ job:
   width: 24
   height: 16
   text_height: 1.5
-  v_margin: 2
+  v_margin: 3
   optimize_line_content: true
   optimize_line_content_max_lines: 6
   h_compress_global: true
