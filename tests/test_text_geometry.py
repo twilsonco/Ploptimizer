@@ -456,6 +456,89 @@ class TestCompressX:
         assert "flattened" in caplog.text
 
 
+class TestScaleY:
+    """Vertical scaling about the baseline (the descending-character relief)."""
+
+    def test_noop_scale(self) -> None:
+        """Scale >= 1 returns the identical block."""
+        block = TextBlock(strokes=(Stroke(pen_up=0j, segments=(LineSeg(0j, 1 + 1j),)),))
+        assert block.scaled_y(1.0) is block
+
+    def test_lines_scale_exactly_about_the_baseline(self) -> None:
+        """X is untouched; Y scales about y = 0 (ascender and descender together)."""
+        block = TextBlock(strokes=(Stroke(pen_up=0j, segments=(LineSeg(1 - 0.5j, 3 + 2j),)),))
+        scaled = block.scaled_y(0.5)
+        assert scaled.bounds() == pytest.approx((1.0, -0.25, 3.0, 1.0))
+
+    def test_pen_up_scales_with_the_segments(self) -> None:
+        """The rapid target follows Y too, so the stroke stays self-consistent."""
+        block = TextBlock(strokes=(Stroke(pen_up=2 + 4j, segments=(LineSeg(2 + 4j, 3 + 4j),)),))
+        scaled = block.scaled_y(0.25)
+        stroke = scaled.strokes[0]
+        assert stroke.pen_up == pytest.approx(2 + 1j)
+        assert stroke.segments[0].start == pytest.approx(2 + 1j)
+
+    def test_stroke_count_is_preserved(self) -> None:
+        """A polyline glyph keeps its stroke count (the glyph partition stays valid)."""
+        block = TextBlock(
+            strokes=(
+                Stroke(pen_up=0j, segments=(LineSeg(0j, 1 - 0.2j),)),
+                Stroke(pen_up=1j, segments=(LineSeg(1j, 2j), LineSeg(2j, 2 - 0.1j))),
+            )
+        )
+        scaled = block.scaled_y(0.6)
+        assert [len(s.segments) for s in scaled.strokes] == [1, 2]
+
+    def test_arcs_flatten_at_debug(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Arcs flatten (an ellipse is not a circular arc) and log at DEBUG."""
+        block = TextBlock(strokes=(Stroke(pen_up=1 + 0j, segments=(_quarter_arc(),)),))
+        # Pin the emitting logger: the suite configures logging globally, and
+        # the module logger's effective level then hides the DEBUG record.
+        caplog.set_level("DEBUG", logger="plt_optimizer.generate.text_geometry")
+        scaled = block.scaled_y(0.5, context="label_1 line 0")
+        assert all(isinstance(seg, LineSeg) for seg in scaled.strokes[0].segments)
+        assert "flattened" in caplog.text
+        assert "label_1 line 0" in caplog.text
+
+    def test_flattened_arc_stays_on_the_scaled_circle(self) -> None:
+        """Every flattened vertex is the original vertex with Y halved."""
+        arc = _quarter_arc()
+        block = TextBlock(strokes=(Stroke(pen_up=1 + 0j, segments=(arc,)),))
+        scaled = block.scaled_y(0.5)
+        expected = [complex(p.real, p.imag * 0.5) for p in arc.flattened()]
+        got = [scaled.strokes[0].segments[0].start] + [
+            seg.end for seg in scaled.strokes[0].segments
+        ]
+        assert got == pytest.approx(expected, abs=1e-12)
+
+    def test_replaced_strokes_splices_at_original_indices(self) -> None:
+        """A transformed glyph returns to its exact stroke positions."""
+        block = TextBlock(
+            strokes=(
+                Stroke(pen_up=0j, segments=(LineSeg(0j, 1j),)),
+                Stroke(pen_up=0j, segments=(LineSeg(0j, 2j),)),
+                Stroke(pen_up=0j, segments=(LineSeg(0j, 3j),)),
+            )
+        )
+        replaced = block.replaced_strokes({1: block.strokes[1].scaled_y(0.5)})
+        assert replaced.strokes[0] is block.strokes[0]
+        assert replaced.strokes[2] is block.strokes[2]
+        assert replaced.strokes[1].segments[0].end == pytest.approx(1j)
+
+    def test_replaced_strokes_empty_is_identity(self) -> None:
+        """No replacements returns the identical block."""
+        block = TextBlock(strokes=(Stroke(pen_up=0j, segments=(LineSeg(0j, 1j),)),))
+        assert block.replaced_strokes({}) is block
+
+    def test_replaced_strokes_ignores_out_of_range(self) -> None:
+        """Indices outside the block are dropped, never appended."""
+        block = TextBlock(strokes=(Stroke(pen_up=0j, segments=(LineSeg(0j, 1j),)),))
+        replaced = block.replaced_strokes(
+            {5: Stroke(pen_up=0j, segments=(LineSeg(0j, 9j),))}
+        )
+        assert len(replaced.strokes) == 1
+
+
 class TestBlockFromLineCollection:
     """Adapter from the polyline-only vpype representation."""
 

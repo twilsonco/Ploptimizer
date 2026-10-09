@@ -865,6 +865,46 @@ class LabelAttributes(TextAttributes):
             the label reads as one uniform visual spacing; when disabled,
             lines stack by rendered ink box (the historical behaviour, where
             a descender inflates the gap under its own line).
+        auto_descending_character_adjustment: Optional permission for
+            automatic descending-character relief. Cascades job -> plate ->
+            label (deliberately NOT text lines -- the mechanism compares a
+            line's glyphs against the *following* line's, so it is a property
+            of the stacked block); ``None`` (the default) means unset and
+            falls back to ``job-config.json`` then ``True``. When enabled, a
+            glyph whose ink hangs below its baseline is vertically downscaled
+            and raised (see :attr:`descending_character_v_scale` and
+            :attr:`descending_character_raise`) **only** when a glyph on the
+            following line comes within the required clearance (the
+            engraved-stroke floor scaled by
+            :attr:`descending_character_clearance`) of it -- a per-glyph
+            reaction to a measured near-miss, never a blanket adjustment of
+            every descender on the label.
+        descending_character_v_scale: Maximum vertical downscale allowed for
+            a triggering descending glyph, in ``[0.2, 1.0]``. Cascades
+            job -> plate -> label (never text lines); ``None`` (the default)
+            means unset and falls back to ``job-config.json`` then ``0.5``.
+            ``1.0`` forbids downscaling entirely; ``0.5`` permits squeezing
+            the glyph to 50% of its height; ``0.2`` is the deepest squeeze
+            allowed. The glyph is scaled about its own baseline, so its
+            ascender and descender shrink together.
+        descending_character_raise: Maximum vertical raise allowed for a
+            triggering descending glyph, as a fraction of its own descender
+            depth, in ``[0.0, 1.0]``. Cascades job -> plate -> label (never
+            text lines); ``None`` (the default) means unset and falls back to
+            ``job-config.json`` then ``0.7``. ``0.0`` forbids raising;
+            ``1.0`` permits lifting the glyph until its lowest point sits
+            exactly on the baseline.
+        descending_character_clearance: Extra air demanded between the
+            *engraved* stroke of a descending glyph and the *engraved* stroke
+            of a glyph on the following line, as a **unitless factor of the
+            stroke floor** ``0.5 * (cutter_upper + cutter_lower)`` at which the
+            two strokes would touch: the required gap is
+            ``floor * (1 + clearance)``, so the demanded air scales with the
+            cutter width and reads the same at every text size. Cascades job ->
+            plate -> label (never text lines); ``ge=0.0``, ``None`` (the
+            default) means unset and falls back to ``job-config.json`` then
+            ``0.0``. An explicit ``0.0`` is honored (only true touching
+            triggers the relief).
     """
 
     width: Optional[float] = Field(
@@ -933,6 +973,58 @@ class LabelAttributes(TextAttributes):
             "rendered ink box (historical). Cascades job -> plate -> label "
             "(never text lines); unset (null) falls back to job-config.json "
             "then true. Accepted on plates for schema parity only."
+        ),
+    )
+    auto_descending_character_adjustment: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Automatically downscale and raise a descending glyph that comes "
+            "(close to) colliding with a glyph on the following line. "
+            "Per-descending-character, triggered by a measured near-miss "
+            "against the line below -- never a blanket adjustment. Cascades "
+            "job -> plate -> label (never text lines); unset (null) falls back "
+            "to job-config.json then true. Accepted on plates for schema "
+            "parity only."
+        ),
+    )
+    descending_character_v_scale: Optional[float] = Field(
+        default=None,
+        ge=0.2,
+        le=1.0,
+        description=(
+            "Maximum vertical downscale allowed for a triggering descending "
+            "glyph in [0.2, 1.0] (1.0 = no downscaling, 0.5 = 50% "
+            "downscaling), about the glyph's own baseline. Cascades job -> "
+            "plate -> label (never text lines); unset (null) falls back to "
+            "job-config.json then 0.5. Accepted on plates for schema parity "
+            "only."
+        ),
+    )
+    descending_character_raise: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Maximum vertical raise allowed for a triggering descending glyph "
+            "as a fraction of its own descender depth in [0.0, 1.0] (0.0 = no "
+            "raising, 1.0 = lift until the glyph's lowest point sits exactly "
+            "at the baseline). Cascades job -> plate -> label (never text "
+            "lines); unset (null) falls back to job-config.json then 0.7. "
+            "Accepted on plates for schema parity only."
+        ),
+    )
+    descending_character_clearance: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Extra air demanded between the engraved stroke of a descending "
+            "glyph and the engraved stroke of a glyph on the following line, "
+            "as a unitless factor of the stroke floor (required gap = floor * "
+            "(1 + clearance)), so it scales with the cutter width and reads "
+            "the same at every text size. Cascades job -> plate -> label (never "
+            "text lines); explicit 0.0 is honored (only true touching triggers); "
+            "unset (null) falls back to job-config.json then 0.0. Accepted on "
+            "plates for schema parity only."
         ),
     )
 
@@ -1276,6 +1368,24 @@ class PlateSpec(BaseModel):
             consecutive lines a reflow group may use. Accepted for schema
             parity with the job/label ``optimize_line_content_max_lines``
             cascade (not applied at plate level).
+        auto_descending_character_adjustment: Optional automatic
+            descending-character relief permission. Accepted for schema parity
+            with the job/label ``auto_descending_character_adjustment``
+            cascade (not applied at plate level -- labels render before
+            packing).
+        descending_character_v_scale: Optional maximum vertical downscale for
+            a triggering descending glyph. Accepted for schema parity with the
+            job/label ``descending_character_v_scale`` cascade (not applied at
+            plate level).
+        descending_character_raise: Optional maximum raise for a triggering
+            descending glyph. Accepted for schema parity with the job/label
+            ``descending_character_raise`` cascade (not applied at plate
+            level).
+        descending_character_clearance: Optional extra engraved-stroke air gap
+            (as a unitless factor of the stroke floor) for descending-character
+            relief. Accepted for schema parity with the job/label
+            ``descending_character_clearance`` cascade (not applied at plate
+            level).
         layout: Optional per-plate fill-order override (``rows`` /
             ``columns``). ``None`` (the default) inherits the job-level
             ``layout``. Unlike the other cascading fields, this one IS
@@ -1475,6 +1585,40 @@ class PlateSpec(BaseModel):
         description=(
             "Baseline-to-baseline line spacing (schema parity; not applied at "
             "plate level -- labels render before packing)."
+        ),
+    )
+    auto_descending_character_adjustment: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Automatic descending-character relief permission (schema parity; "
+            "not applied at plate level -- labels render before packing)."
+        ),
+    )
+    descending_character_v_scale: Optional[float] = Field(
+        default=None,
+        ge=0.2,
+        le=1.0,
+        description=(
+            "Maximum vertical downscale for a triggering descending glyph in "
+            "[0.2, 1.0] (schema parity; not applied at plate level)."
+        ),
+    )
+    descending_character_raise: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Maximum raise for a triggering descending glyph as a fraction of "
+            "its descender depth in [0.0, 1.0] (schema parity; not applied at "
+            "plate level)."
+        ),
+    )
+    descending_character_clearance: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Extra engraved-stroke air gap in inches for descending-character "
+            "relief (schema parity; not applied at plate level)."
         ),
     )
     layout: Optional[LayoutMode] = Field(

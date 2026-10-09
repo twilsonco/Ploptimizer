@@ -8,10 +8,14 @@ import pytest
 from pydantic import ValidationError
 
 from plt_optimizer.generate.resolution import (
+    DEFAULT_AUTO_DESCENDING_CHARACTER_ADJUSTMENT,
     DEFAULT_BOUNDARY_HOLE_CUTTER,
     DEFAULT_CUTTER_DOWNSIZE,
     DEFAULT_CUTTER_DOWNSIZE_GLOBAL,
     DEFAULT_CUTTER_SIZE,
+    DEFAULT_DESCENDING_CHARACTER_CLEARANCE,
+    DEFAULT_DESCENDING_CHARACTER_RAISE,
+    DEFAULT_DESCENDING_CHARACTER_V_SCALE,
     DEFAULT_FALLBACK_ADVANCE_FRACTION,
     DEFAULT_FONT,
     DEFAULT_H_COMPRESS_GLOBAL,
@@ -3178,3 +3182,130 @@ class TestAutoLineSpacingBaselineProbe:
         # run divides the nominal heights (0.5): 0.5 + (0.5 + s) = 1.6 -> 0.60.
         assert math.isclose(label.content[0].line_spacing, 0.72, abs_tol=1e-6)
         assert math.isclose(plain.content[0].line_spacing, 0.6, abs_tol=1e-6)
+
+
+class TestDescendingCharacterCascade:
+    """The four relief fields cascade label -> job -> default (explicit-None)."""
+
+    @staticmethod
+    def _job(**levels: object) -> JobSpec:
+        """Build a one-label job applying the relief fields at the given levels."""
+        job_kwargs: dict[str, object] = {}
+        label_kwargs: dict[str, object] = {}
+        for key, value in levels.items():
+            tier, _, field = key.partition("__")
+            target = job_kwargs if tier == "job" else label_kwargs
+            target[field] = value
+        return JobSpec(
+            job_name="J",
+            text_height=0.5,
+            **job_kwargs,  # type: ignore[arg-type]
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    **label_kwargs,  # type: ignore[arg-type]
+                    content=[TextLine(text="X"), TextLine(text="Y")],
+                )
+            ],
+        )
+
+    def test_default_module_constants(self) -> None:
+        """The shipped defaults: relief on, 0.5 scale, 0.7 raise, 0.0 clearance."""
+        assert DEFAULT_AUTO_DESCENDING_CHARACTER_ADJUSTMENT is True
+        assert DEFAULT_DESCENDING_CHARACTER_V_SCALE == 0.5
+        assert DEFAULT_DESCENDING_CHARACTER_RAISE == 0.7
+        assert DEFAULT_DESCENDING_CHARACTER_CLEARANCE == 0.0
+
+    def test_defaults_resolve(self) -> None:
+        """All levels omitting resolves to the shipped fallbacks."""
+        label = resolve_job_spec(self._job())[0]
+        assert label.auto_descending_character_adjustment is True
+        assert label.descending_character_v_scale == 0.5
+        assert label.descending_character_raise == 0.7
+        assert label.descending_character_clearance == 0.0
+
+    def test_job_values_used_when_label_omits(self) -> None:
+        """Job-level values cascade onto labels that omit the fields."""
+        label = resolve_job_spec(
+            self._job(
+                job__auto_descending_character_adjustment=False,
+                job__descending_character_v_scale=0.3,
+                job__descending_character_raise=0.25,
+                job__descending_character_clearance=0.05,
+            )
+        )[0]
+        assert label.auto_descending_character_adjustment is False
+        assert label.descending_character_v_scale == pytest.approx(0.3)
+        assert label.descending_character_raise == pytest.approx(0.25)
+        assert label.descending_character_clearance == pytest.approx(0.05)
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level values beat the job-level ones."""
+        label = resolve_job_spec(
+            self._job(
+                job__auto_descending_character_adjustment=False,
+                job__descending_character_v_scale=0.3,
+                label__auto_descending_character_adjustment=True,
+                label__descending_character_v_scale=0.9,
+            )
+        )[0]
+        assert label.auto_descending_character_adjustment is True
+        assert label.descending_character_v_scale == pytest.approx(0.9)
+
+    def test_label_false_is_honored(self) -> None:
+        """An intentional False (descenders engrave verbatim) never falls through."""
+        label = resolve_job_spec(
+            self._job(
+                job__auto_descending_character_adjustment=True,
+                label__auto_descending_character_adjustment=False,
+            )
+        )[0]
+        assert label.auto_descending_character_adjustment is False
+
+    def test_explicit_zero_allowances_are_honored(self) -> None:
+        """Only ``None`` means unset: a 0.0 raise/clearance is a real value."""
+        label = resolve_job_spec(
+            self._job(
+                job__descending_character_raise=0.7,
+                job__descending_character_clearance=0.05,
+                label__descending_character_raise=0.0,
+                label__descending_character_clearance=0.0,
+            )
+        )[0]
+        assert label.descending_character_raise == 0.0
+        assert label.descending_character_clearance == 0.0
+
+    def test_root_level_job_resolves_own_values(self) -> None:
+        """A root-level job masquerading as a label resolves its own fields."""
+        job = JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            text_height=0.5,
+            content=[TextLine(text="X")],
+            auto_descending_character_adjustment=False,
+            descending_character_v_scale=0.6,
+        )
+        label = resolve_job_spec(job)[0]
+        assert label.auto_descending_character_adjustment is False
+        assert label.descending_character_v_scale == pytest.approx(0.6)
+
+    def test_resolved_label_defaults(self) -> None:
+        """A manually constructed ResolvedLabel defaults to the shipped values."""
+        label = ResolvedLabel(
+            id="l",
+            count=1,
+            width=2.0,
+            height=1.0,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+        )
+        assert label.auto_descending_character_adjustment is (
+            DEFAULT_AUTO_DESCENDING_CHARACTER_ADJUSTMENT
+        )
+        assert label.descending_character_v_scale == DEFAULT_DESCENDING_CHARACTER_V_SCALE
+        assert label.descending_character_raise == DEFAULT_DESCENDING_CHARACTER_RAISE
+        assert label.descending_character_clearance == DEFAULT_DESCENDING_CHARACTER_CLEARANCE

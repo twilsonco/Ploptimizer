@@ -214,6 +214,35 @@ DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES: Optional[int] = None
 # only -- spacing is a property of the stacked block, never of one line, so
 # the field is deliberately absent from ``TextLine``/``TextAttributes``.
 DEFAULT_USE_BASELINE_SPACING: bool = True
+# Automatic descending-character relief. ``True`` (the default) lets the
+# renderer vertically downscale and raise a glyph whose ink hangs below its
+# baseline, but ONLY when a glyph on the following line comes within the
+# required clearance (the engraved-stroke floor scaled by
+# ``DEFAULT_DESCENDING_CHARACTER_CLEARANCE``) of it.
+# The relief is per triggering glyph -- a descender with no tall neighbour
+# below it is left exactly as rendered. When the allowances
+# (``DEFAULT_DESCENDING_CHARACTER_V_SCALE`` / ``DEFAULT_DESCENDING_CHARACTER_RAISE``)
+# are exhausted, the gap below the line grows instead. Label-level only -- the
+# mechanism compares a line's glyphs against the following line's, so it is a
+# property of the stacked block, never of one line, and the field is
+# deliberately absent from ``TextLine``/``TextAttributes``.
+DEFAULT_AUTO_DESCENDING_CHARACTER_ADJUSTMENT: bool = True
+# Deepest vertical downscale permitted for a triggering descending glyph
+# (``1.0`` = downscaling forbidden, ``0.5`` = squeezed to half height). The
+# glyph is scaled about its own baseline, so ascender and descender shrink
+# together. Bound to ``[0.2, 1.0]`` by the schema.
+DEFAULT_DESCENDING_CHARACTER_V_SCALE: float = 0.5
+# Deepest raise permitted for a triggering descending glyph, as a fraction of
+# its own descender depth (``0.0`` = no raising, ``1.0`` = lift until the
+# glyph's lowest point sits exactly at the baseline).
+DEFAULT_DESCENDING_CHARACTER_RAISE: float = 0.7
+# Extra air demanded between the engraved strokes of a descending glyph and
+# the glyph below it, as a **unitless factor of the stroke floor**
+# ``0.5 * (cutter_upper + cutter_lower)``: the required gap is
+# ``floor * (1 + clearance)``, so the demand scales with the cutter width and
+# reads the same at every text size. An explicit ``0.0`` is honored (only true
+# touching triggers).
+DEFAULT_DESCENDING_CHARACTER_CLEARANCE: float = 0.0
 # Stroke-color layer tag default. ``"none"`` is the implicit color of
 # every line that omits ``text_color``; it never cascades (the field is
 # label/line-local by design, see schema.TextColor) and the resolution
@@ -683,6 +712,22 @@ class ResolvedLabel:
             (:func:`fit_baseline_spacing_to_margins`) shrinks the spacings
             only when the descender-extended block no longer fits the inner
             area. ``False`` reproduces the historical ink-box stacking.
+        auto_descending_character_adjustment: Permit automatic vertical
+            downscaling + raising of descending glyphs that come close to
+            colliding with glyphs on the following line (from the
+            ``auto_descending_character_adjustment`` cascade, label -> job,
+            default ``True``). Applied per triggering glyph by the renderer.
+        descending_character_v_scale: Smallest vertical scale a triggering
+            descending glyph may be squeezed to, about its own baseline (from
+            the ``descending_character_v_scale`` cascade, default ``0.5``).
+        descending_character_raise: Largest raise a triggering descending
+            glyph may receive, as a fraction of its own descender depth (from
+            the ``descending_character_raise`` cascade, default ``0.7``).
+        descending_character_clearance: Extra engraved-stroke air gap demanded
+            between a descending glyph and the glyph below it, as a unitless
+            factor of the stroke floor -- the required gap is
+            ``floor * (1 + clearance)`` (from the
+            ``descending_character_clearance`` cascade, default ``0.0``).
     """
 
     id: str
@@ -705,6 +750,10 @@ class ResolvedLabel:
     plate_id: Optional[str] = None
     material: Optional[str] = None
     use_baseline_spacing: bool = DEFAULT_USE_BASELINE_SPACING
+    auto_descending_character_adjustment: bool = DEFAULT_AUTO_DESCENDING_CHARACTER_ADJUSTMENT
+    descending_character_v_scale: float = DEFAULT_DESCENDING_CHARACTER_V_SCALE
+    descending_character_raise: float = DEFAULT_DESCENDING_CHARACTER_RAISE
+    descending_character_clearance: float = DEFAULT_DESCENDING_CHARACTER_CLEARANCE
 
 
 # ---------------------------------------------------------------------------
@@ -1976,6 +2025,41 @@ def _resolve_label(
     else:
         label_use_baseline_spacing = DEFAULT_USE_BASELINE_SPACING
 
+    # Automatic descending-character relief (cascades label -> job; the plate
+    # tier is schema parity only, see schema.PlateSpec). Resolved at the LABEL
+    # level because the mechanism compares a line's glyphs against the
+    # following line's -- it is a property of the stacked block, never of one
+    # line. Explicit ``False`` is honored, and only ``None`` means unset; the
+    # three numeric allowances follow the same explicit-``None`` precedence so
+    # an explicit ``0.0`` clearance is honored (only true touching triggers).
+    if label_input.auto_descending_character_adjustment is not None:
+        label_descender_adjustment: bool = label_input.auto_descending_character_adjustment
+    elif job.auto_descending_character_adjustment is not None:
+        label_descender_adjustment = job.auto_descending_character_adjustment
+    else:
+        label_descender_adjustment = DEFAULT_AUTO_DESCENDING_CHARACTER_ADJUSTMENT
+
+    if label_input.descending_character_v_scale is not None:
+        label_descender_v_scale: float = label_input.descending_character_v_scale
+    elif job.descending_character_v_scale is not None:
+        label_descender_v_scale = job.descending_character_v_scale
+    else:
+        label_descender_v_scale = DEFAULT_DESCENDING_CHARACTER_V_SCALE
+
+    if label_input.descending_character_raise is not None:
+        label_descender_raise: float = label_input.descending_character_raise
+    elif job.descending_character_raise is not None:
+        label_descender_raise = job.descending_character_raise
+    else:
+        label_descender_raise = DEFAULT_DESCENDING_CHARACTER_RAISE
+
+    if label_input.descending_character_clearance is not None:
+        label_descender_clearance: float = label_input.descending_character_clearance
+    elif job.descending_character_clearance is not None:
+        label_descender_clearance = job.descending_character_clearance
+    else:
+        label_descender_clearance = DEFAULT_DESCENDING_CHARACTER_CLEARANCE
+
     # Resolve text lines with cutter compensation
     resolved_content = _resolve_content(
         label_input, job, available_cutters, tolerance_factor, label_id
@@ -2046,6 +2130,10 @@ def _resolve_label(
         plate_id=label_plate_id,
         material=label_material,
         use_baseline_spacing=label_use_baseline_spacing,
+        auto_descending_character_adjustment=label_descender_adjustment,
+        descending_character_v_scale=label_descender_v_scale,
+        descending_character_raise=label_descender_raise,
+        descending_character_clearance=label_descender_clearance,
     )
 
 

@@ -115,6 +115,25 @@ _FALLBACK_NOTES: dict[str, str] = {
     "each line's real descender extent. False = lines stack by rendered ink box (historical), "
     "where a descender inflates the gap under its own line. Cascades label/job (accepted on "
     "plates for schema parity only, never text lines); job-config supplies the shop default.",
+    "DEFAULT_AUTO_DESCENDING_CHARACTER_ADJUSTMENT": "True = a descending glyph is vertically "
+    "downscaled and raised when a glyph on the FOLLOWING line comes within the required "
+    "clearance (the engraved-stroke floor 0.5*(cutter_upper+cutter_lower) scaled by "
+    "1 + descending_character_clearance) of it. The "
+    "relief is per triggering glyph (never a blanket adjustment) and runs at render time; when "
+    "the allowances are exhausted the gap below the line grows, and a collision that neither "
+    "the allowances nor the admissible spacing can clear aborts the job. False = descenders "
+    "engrave exactly as rendered. Cascades label/job (accepted on plates for schema parity "
+    "only, never text lines); job-config supplies the shop default.",
+    "DEFAULT_DESCENDING_CHARACTER_V_SCALE": "0.5 = a triggering descending glyph may be "
+    "vertically squeezed to 50% of its height about its own baseline (1.0 forbids downscaling, "
+    "0.2 is the deepest squeeze). Cascades label/job; job-config supplies the shop default.",
+    "DEFAULT_DESCENDING_CHARACTER_RAISE": "0.7 = a triggering descending glyph may be lifted by "
+    "up to 70% of its own descender depth (1.0 lifts until its lowest point sits exactly at the "
+    "baseline, 0.0 forbids raising). Cascades label/job; job-config supplies the shop default.",
+    "DEFAULT_DESCENDING_CHARACTER_CLEARANCE": "0.0 = the relief triggers only when the two "
+    "engraved strokes would touch (the stroke floor); a unitless factor of that floor, so 0.3 "
+    "demands 30% extra air and the requirement scales with the cutter width (reads the same at "
+    "every text size). Cascades label/job; job-config supplies the shop default.",
     "DEFAULT_TEXT_COLOR": "Implicit stroke-color layer of text that omits text_color "
     "(never cascades; a job-level text_color is rejected). 'none' cannot be specified "
     "explicitly.",

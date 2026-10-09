@@ -1689,3 +1689,174 @@ class TestTextChunkRecords:
             flat = [i for group in record.glyph_groups for i in group]
             assert sorted(flat) == list(range(stroke_count))
             assert len(record.glyph_groups) == 2  # two glyphs per word
+
+
+def _make_descender_label(
+    content: list[ResolvedTextLine],
+    *,
+    height: float = 1.4,
+    **kwargs: object,
+) -> ResolvedLabel:
+    """Build a two-line label for descending-character relief tests.
+
+    The relief is a label-tier mechanism, so the label is built with the
+    relief allowances passed straight through to ``ResolvedLabel``.
+    """
+    return ResolvedLabel(
+        id="descender",
+        count=1,
+        width=3.0,
+        height=height,
+        margin=0.1,
+        h_margin=0.1,
+        v_margin=0.1,
+        holes=[],
+        content=content,
+        **kwargs,  # type: ignore[arg-type]
+    )
+
+
+class TestDescendingCharacterRelief:
+    """The per-glyph relief fires only on a measured near-miss below a descender."""
+
+    def test_descender_close_to_the_line_below_is_relieved(self) -> None:
+        """A 'p' hanging toward the capitals below is squeezed and raised."""
+        label = _make_descender_label(
+            [_make_line("Depth", height=0.5, line_spacing=0.05), _make_line("RANGE", height=0.5)]
+        )
+        rendered = render_label_to_plt(label)
+
+        fixes = rendered.descender_adjustments_by_line
+        assert list(fixes) == [0]
+        (fix,) = fixes[0]
+        assert fix.char == "p"
+        assert fix.scale_y < 1.0  # downscaled
+        assert fix.raise_amount > 0.0  # raised
+        assert fix.gap_before < fix.gap_after
+
+    def test_relief_clears_the_engraved_stroke_floor(self) -> None:
+        """The relieved gap reaches the stroke floor (0.5*(cutter+cutter))."""
+        label = _make_descender_label(
+            [_make_line("Depth", height=0.5, line_spacing=0.05), _make_line("RANGE", height=0.5)]
+        )
+        rendered = render_label_to_plt(label)
+        (fix,) = rendered.descender_adjustments_by_line[0]
+
+        floor = 0.5 * (0.03 + 0.03)
+        assert fix.gap_after >= floor - 1e-9
+
+    def test_clearance_factor_widens_the_required_gap(self) -> None:
+        """A unitless clearance of 0.5 settles the relieved gap at 1.5x the floor.
+
+        The clearance is a factor of the stroke floor, not an inch value, so
+        the demanded air scales with the cutter width (here 0.03in cutters =>
+        floor 0.03in, required 0.045in).
+        """
+        label = _make_descender_label(
+            [_make_line("Depth", height=0.5, line_spacing=0.05), _make_line("RANGE", height=0.5)],
+            descending_character_clearance=0.5,
+        )
+        rendered = render_label_to_plt(label)
+        (fix,) = rendered.descender_adjustments_by_line[0]
+
+        floor = 0.5 * (0.03 + 0.03)
+        assert fix.gap_after == pytest.approx(floor * 1.5, abs=1e-6)
+
+    def test_roomy_gap_is_left_alone(self) -> None:
+        """A descender with no close partner below engraves exactly as rendered."""
+        label = _make_descender_label(
+            [_make_line("Depth", height=0.5, line_spacing=0.4), _make_line("RANGE", height=0.5)]
+        )
+        rendered = render_label_to_plt(label)
+        assert rendered.descender_adjustments_by_line == {}
+
+    def test_cap_only_content_is_never_relieved(self) -> None:
+        """No descenders means no relief, and the geometry is untouched."""
+        content = [_make_line("HAPPY", height=0.5, line_spacing=0.05), _make_line("ROOTS", height=0.5)]
+        on = render_label_to_plt(_make_descender_label(content))
+        off = render_label_to_plt(
+            _make_descender_label(content, auto_descending_character_adjustment=False)
+        )
+        assert on.descender_adjustments_by_line == {}
+        assert on.plt_content == off.plt_content
+
+    def test_feature_disabled_leaves_the_descender_verbatim(self) -> None:
+        """With the flag off, a colliding descender is not relieved."""
+        content = [_make_line("Depth", height=0.5, line_spacing=0.05), _make_line("RANGE", height=0.5)]
+        off = render_label_to_plt(
+            _make_descender_label(content, auto_descending_character_adjustment=False)
+        )
+        on = render_label_to_plt(_make_descender_label(content))
+        assert off.descender_adjustments_by_line == {}
+        assert on.descender_adjustments_by_line != {}
+        assert on.plt_content != off.plt_content
+
+    def test_only_the_triggered_glyph_is_relieved(self) -> None:
+        """A line with one descender relieves exactly that one glyph."""
+        label = _make_descender_label(
+            [_make_line("Depth", height=0.5, line_spacing=0.05), _make_line("ROOTS", height=0.5)]
+        )
+        rendered = render_label_to_plt(label)
+        fixes = rendered.descender_adjustments_by_line[0]
+        assert [f.char for f in fixes] == ["p"]
+
+    def test_allowances_bound_the_relief(self) -> None:
+        """The relief never exceeds v_scale / raise."""
+        label = _make_descender_label(
+            [_make_line("Depth", height=0.5, line_spacing=0.05), _make_line("RANGE", height=0.5)],
+            descending_character_v_scale=0.6,
+            descending_character_raise=0.3,
+        )
+        rendered = render_label_to_plt(label)
+        (fix,) = rendered.descender_adjustments_by_line[0]
+        assert fix.scale_y >= 0.6 - 1e-9
+        # The raise is a fraction of the glyph's OWN descender depth, which can
+        # never exceed the line's toolpath height (0.5 - 0.03 cutter).
+        assert 0.0 < fix.raise_amount <= 0.3 * 0.47 + 1e-9
+
+    def test_exhausted_allowances_grow_the_spacing(self) -> None:
+        """No downscale + no raise => the gap below the line widens to clear."""
+        label = _make_descender_label(
+            [_make_line("Depth", height=0.5, line_spacing=0.05), _make_line("RANGE", height=0.5)],
+            descending_character_v_scale=1.0,
+            descending_character_raise=0.0,
+        )
+        rendered = render_label_to_plt(label)
+        assert rendered.descender_adjustments_by_line == {}
+        # The gap grew past the requested 0.05 to clear the descender.
+        assert rendered.line_spacing_by_line[0] > 0.05
+
+    def test_no_room_to_grow_aborts_the_job(self) -> None:
+        """Allowances spent and no vertical room => LabelRenderError."""
+        label = _make_descender_label(
+            [_make_line("Depth", height=0.5, line_spacing=0.0), _make_line("RANGE", height=0.5)],
+            descending_character_v_scale=1.0,
+            descending_character_raise=0.0,
+            height=0.7,
+        )
+        with pytest.raises(LabelRenderError, match="cannot clear the line below"):
+            render_label_to_plt(label)
+
+    def test_relief_preserves_the_glyph_partition(self) -> None:
+        """Stroke counts survive the Y-scale, so the intra-chunk sweep stays valid."""
+        label = _make_descender_label(
+            [_make_line("Depth", height=0.5, line_spacing=0.05), _make_line("RANGE", height=0.5)]
+        )
+        rendered = render_label_to_plt(label)
+        for record in rendered.text_chunks:
+            stroke_count = sum(len(block.strokes) for block in record.blocks)
+            flat = [i for group in record.glyph_groups for i in group]
+            assert sorted(flat) == list(range(stroke_count))
+
+    def test_inkbox_mode_also_relives(self) -> None:
+        """The relief runs in ink-box stacking mode too (Y-only, mode-agnostic).
+
+        Ink-box stacking keeps the requested spacing as the visual gap, so a
+        zero spacing is what puts the descender against the capitals below.
+        """
+        label = _make_descender_label(
+            [_make_line("Depth", height=0.5, line_spacing=0.0), _make_line("RANGE", height=0.5)],
+            use_baseline_spacing=False,
+        )
+        rendered = render_label_to_plt(label)
+        assert rendered.descender_adjustments_by_line != {}

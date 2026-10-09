@@ -32,10 +32,10 @@ Coordinate conventions match the rest of the render path:
   rotations and translations leave sweeps untouched; a *uniform* scale
   scales centers/radii but never sweeps.
 
-The only operation that cannot preserve arcs is non-uniform horizontal
-compression (:meth:`TextBlock.compress_x`): an ellipse is not a circular
-arc, so arc segments on a compressed line are flattened to polylines at a
-bounded chord-error tolerance.
+The operations that cannot preserve arcs are the non-uniform scales
+(:meth:`TextBlock.compress_x` and :meth:`TextBlock.scaled_y`): an ellipse is
+not a circular arc, so arc segments on a scaled line are flattened to
+polylines at a bounded chord-error tolerance.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass
-from typing import List, Optional, Sequence, Tuple, Union
+from typing import List, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import vpype as vp
@@ -198,6 +198,20 @@ class LineSeg:
         """Return this segment scaled uniformly about the origin."""
         return LineSeg(self.start * factor, self.end * factor)
 
+    def scaled_y(self, factor: float) -> Tuple[TextSegment, ...]:
+        """Return this segment with Y scaled about the baseline ``y = 0``.
+
+        A straight segment survives a non-uniform scale exactly, so the
+        result is a single :class:`LineSeg` (the tuple keeps the return type
+        uniform with :meth:`ArcSeg.scaled_y`, which must flatten).
+        """
+        return (
+            LineSeg(
+                complex(self.start.real, self.start.imag * factor),
+                complex(self.end.real, self.end.imag * factor),
+            ),
+        )
+
     def mirrored_y(self, span: float) -> LineSeg:
         """Return this segment with Y mirrored (``y' = span - y``)."""
         return LineSeg(
@@ -255,6 +269,17 @@ class ArcSeg:
     def scaled(self, factor: float) -> ArcSeg:
         """Return this arc scaled uniformly about the origin (sweep untouched)."""
         return ArcSeg(self.start * factor, self.center * factor, self.sweep_deg)
+
+    def scaled_y(self, factor: float) -> Tuple[TextSegment, ...]:
+        """Return this arc with Y scaled about the baseline ``y = 0``.
+
+        A circular arc cannot survive a non-uniform scale (an ellipse is not
+        a circular arc), so it is flattened to a chord-bounded polyline at
+        :data:`ARC_FLATTEN_CHORD_TOL_INCHES` and the flattened vertices are
+        Y-scaled -- the same contract as :meth:`TextBlock.compress_x`.
+        """
+        points = [complex(p.real, p.imag * factor) for p in self.flattened()]
+        return tuple(LineSeg(a, b) for a, b in zip(points[:-1], points[1:]))
 
     def mirrored_y(self, span: float) -> ArcSeg:
         """Return this arc with Y mirrored; the sweep sign is negated."""
@@ -314,6 +339,21 @@ class Stroke:
         return Stroke(
             pen_up=self.pen_up * factor,
             segments=tuple(seg.scaled(factor) for seg in self.segments),
+        )
+
+    def scaled_y(self, factor: float) -> Stroke:
+        """Return this stroke with Y scaled about the baseline ``y = 0``.
+
+        X is untouched, so the glyph keeps its width and its horizontal
+        position; only its height around the baseline changes. Arcs flatten
+        (see :meth:`ArcSeg.scaled_y`), so the segment count may grow.
+        """
+        segments: List[TextSegment] = []
+        for seg in self.segments:
+            segments.extend(seg.scaled_y(factor))
+        return Stroke(
+            pen_up=complex(self.pen_up.real, self.pen_up.imag * factor),
+            segments=tuple(segments),
         )
 
     def mirrored_y(self, span: float) -> Stroke:
@@ -471,6 +511,66 @@ class TextBlock:
     def scaled(self, factor: float) -> TextBlock:
         """Return this block scaled uniformly about the origin."""
         return TextBlock(strokes=tuple(s.scaled(factor) for s in self.strokes))
+
+    def scaled_y(self, factor: float, context: str = "") -> TextBlock:
+        """Return this block with Y uniformly scaled about the baseline ``y = 0``.
+
+        The vertical counterpart of :meth:`compress_x`: X (and therefore the
+        glyph's width and horizontal placement) is untouched, while the ink
+        above and below the baseline shrinks by ``factor``. Used by the
+        automatic descending-character relief, which squeezes a glyph about
+        its own baseline so a deep descender reaches less far into the gap
+        below. Line segments scale exactly; arcs CANNOT survive a
+        non-uniform scale, so each arc is flattened to a polyline at
+        :data:`ARC_FLATTEN_CHORD_TOL_INCHES` and the flattened vertices are
+        Y-scaled. A DEBUG log records when arcs were flattened.
+
+        Args:
+            factor: Vertical scale factor in ``(0, 1]``; ``>= 1`` is a no-op.
+            context: Optional description for the arc-flattening log.
+
+        Returns:
+            The (possibly flattened + vertically scaled) block.
+        """
+        if factor >= 1.0:
+            return self
+        flattened_any = any(
+            isinstance(seg, ArcSeg) for stroke in self.strokes for seg in stroke.segments
+        )
+        strokes = tuple(stroke.scaled_y(factor) for stroke in self.strokes)
+        if flattened_any:
+            logger.debug(
+                "Text arcs flattened to polylines during vertical scaling%s "
+                "(chord error <= %gin); vertical scaling and native arcs are "
+                "mutually exclusive.",
+                f" {context}" if context else "",
+                ARC_FLATTEN_CHORD_TOL_INCHES,
+            )
+        return TextBlock(strokes=strokes)
+
+    def replaced_strokes(self, replacements: Mapping[int, Stroke]) -> TextBlock:
+        """Return this block with the given stroke indices swapped out.
+
+        Lets a caller transform one glyph's strokes in isolation (the
+        descending-character relief scales and raises a single glyph) and
+        splice the result back into the line's block. Stroke order is
+        preserved, so a per-glyph partition built against the original block
+        stays valid on the result.
+
+        Args:
+            replacements: ``{stroke_index: replacement_stroke}``. Indices
+                outside ``range(len(strokes))`` are ignored.
+
+        Returns:
+            A new block carrying the replacements at their original indices.
+        """
+        if not replacements:
+            return self
+        strokes = list(self.strokes)
+        for index, stroke in replacements.items():
+            if 0 <= index < len(strokes):
+                strokes[index] = stroke
+        return TextBlock(strokes=tuple(strokes))
 
     def mirrored_y(self, span: float) -> TextBlock:
         """Return this block with Y mirrored across ``y' = span - y``."""

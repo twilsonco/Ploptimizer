@@ -8,7 +8,7 @@ runner's Phase 3.6 is pinned without matplotlib.
 
 from __future__ import annotations
 
-from plt_optimizer.generate.label_renderer import RenderedLabel
+from plt_optimizer.generate.label_renderer import DescenderFix, RenderedLabel
 from plt_optimizer.generate.layout_report import format_layout_report, has_layout_findings
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
 
@@ -34,6 +34,7 @@ def _label(
     compression: dict[int, float] | None = None,
     spacing: dict[int, float] | None = None,
     downsizes: dict[int, tuple[float, float]] | None = None,
+    descenders: dict[int, tuple[DescenderFix, ...]] | None = None,
 ) -> tuple[ResolvedLabel, RenderedLabel]:
     """Build a (resolved, rendered) pair carrying the given render-time maps."""
     resolved = ResolvedLabel(
@@ -59,8 +60,30 @@ def _label(
         height=2.0,
         compression_by_line=dict(compression or {}),
         line_spacing_by_line=dict(spacing or {}),
+        descender_adjustments_by_line=dict(descenders or {}),
     )
     return resolved, rendered
+
+
+def _fix(
+    line_index: int = 0,
+    glyph_index: int = 2,
+    char: str = "p",
+    scale_y: float = 0.6,
+    raise_amount: float = 0.071,
+    gap_before: float = -0.077,
+    gap_after: float = 0.045,
+) -> DescenderFix:
+    """Build a descending-character relief record for report tests."""
+    return DescenderFix(
+        line_index=line_index,
+        glyph_index=glyph_index,
+        char=char,
+        scale_y=scale_y,
+        raise_amount=raise_amount,
+        gap_before=gap_before,
+        gap_after=gap_after,
+    )
 
 
 class TestCompactMode:
@@ -250,3 +273,58 @@ class TestEmptyInputs:
     def test_no_labels(self) -> None:
         """A job with no labels yields no lines."""
         assert format_layout_report([], {}) == []
+
+
+class TestDescenderReliefFindings:
+    """The per-glyph descending-character relief is a report finding."""
+
+    def test_relief_is_a_compact_finding(self) -> None:
+        """A relieved glyph prints its scale, raise and gap transition."""
+        resolved, rendered = _label(
+            "l1",
+            [_line("Depth", 0.05), _line("RANGE")],
+            spacing={0: 0.05},
+            descenders={0: (_fix(),)},
+        )
+
+        lines = format_layout_report([resolved], {"l1": rendered})
+
+        assert lines == [
+            "Label l1:",
+            "    Margins: horizontal 0.100in (left/right), vertical 0.100in (top/bottom)",
+            "    Line spacing (gaps between lines):",
+            "      Line 0: 0.050in",
+            "    Line 0: 'Depth' glyph 'p' descender v-scale 0.600, "
+            "raised 0.071in (gap -0.077in -> 0.045in)",
+        ]
+        assert has_layout_findings([resolved], {"l1": rendered})
+
+    def test_multiple_reliefs_print_in_glyph_order(self) -> None:
+        """Every relieved glyph on a line prints its own line."""
+        resolved, rendered = _label(
+            "l1",
+            [_line("Depth", 0.05), _line("RANGE")],
+            descenders={0: (_fix(glyph_index=2, char="p"), _fix(glyph_index=4, char="h"))},
+        )
+
+        lines = format_layout_report([resolved], {"l1": rendered})
+
+        assert sum(1 for line in lines if "descender v-scale" in line) == 2
+
+    def test_relief_prints_alongside_other_findings(self) -> None:
+        """A line can be compressed, downsized and relieved at once."""
+        resolved, rendered = _label(
+            "l1",
+            [_line("Depth", 0.5), _line("RANGE")],
+            compression={0: 0.9},
+            spacing={0: 0.2},
+            downsizes={0: (0.06, 0.045)},
+            descenders={0: (_fix(),)},
+        )
+
+        lines = format_layout_report([resolved], {"l1": rendered})
+        text = "\n".join(lines)
+
+        assert "scale 0.900 (10.0% compressed)" in text
+        assert "cutter 0.060in -> 0.045in" in text
+        assert "descender v-scale 0.600" in text

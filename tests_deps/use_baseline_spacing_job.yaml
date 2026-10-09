@@ -10,6 +10,12 @@
 # No plate declares a material and the job packs onto one sheet, so emitted
 # names carry no plate/material prefix: [<cutter>]_txt_<job>.plt per distinct
 # cutter plus one bh file.
+#
+# `auto_descending_character_adjustment: false` is deliberate: this fixture
+# demonstrates STACKING geometry in isolation, and the (default-on) relief
+# would relieve the tight 'p' descender on the baseline label, changing the
+# very gap/block numbers this fixture pins. See descender_adjust_job.yaml for
+# the relief's own demo.
 job:
   job_name: Baseline Spacing Demo
 
@@ -18,6 +24,7 @@ job:
   margin: 0.1
   text_height: 0.5
   line_spacing: 0.15
+  auto_descending_character_adjustment: false
 
   plates:
     - id: plate_1

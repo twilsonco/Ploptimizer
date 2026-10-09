@@ -19,6 +19,11 @@ what is engraved without appearing in the YAML spec:
   ``source_label.content[i].line_spacing`` (the adjusted clone, so
   collision-phase clones report correctly), so the report shows both the
   requested and the effective spacing whenever they differ.
+- **Descending-character relief**
+  (:attr:`RenderedLabel.descender_adjustments_by_line`): the individual
+  descending glyphs the automatic descending-character adjustment vertically
+  downscaled and raised because a glyph on the following line came close to
+  colliding with them (``auto_descending_character_adjustment``).
 
 This module is the single source of truth for the report text: the
 ``generate`` CLI (compact by default, full under ``-v``) and
@@ -71,8 +76,18 @@ def _spacing_deviation(requested: float, effective: float) -> bool:
 
 def _label_findings(
     rendered: RenderedLabel,
-) -> list[tuple[int, str, float | None, float | None, float | None, tuple[float, float] | None]]:
-    """Collect the per-line findings (compression / spacing / downsize) of a label.
+) -> list[
+    tuple[
+        int,
+        str,
+        float | None,
+        float | None,
+        float | None,
+        tuple[float, float] | None,
+        int,
+    ]
+]:
+    """Collect the per-line findings (compression / spacing / downsize / relief).
 
     Args:
         rendered: The rendered label carrying the render-time maps plus the
@@ -80,20 +95,34 @@ def _label_findings(
             any compression-driven cutter downsizes.
 
     Returns:
-        One ``(line_index, line_text, scale, requested, effective,
-        downsize)`` tuple per finding, in content order. ``scale`` is set
+        One ``(line_index, line_text, scale, requested, effective, downsize,
+        relief_count)`` tuple per finding, in content order. ``scale`` is set
         (below ``1.0``) only for compressed lines; ``requested``/``effective``
         are set only for spacing gaps (always in full mode, or when deviating
         in compact mode); ``downsize`` is the ``(original, final)`` cutter
-        pair only for lines whose automatic cutter was reduced.
+        pair only for lines whose automatic cutter was reduced;
+        ``relief_count`` is how many descending glyphs the automatic
+        descending-character adjustment relieved on that line (``0`` for none).
     """
     content = rendered.source_label.content
     downsizes = rendered.source_label.cutter_downsize_by_line
+    reliefs = rendered.descender_adjustments_by_line
     findings: list[
-        tuple[int, str, float | None, float | None, float | None, tuple[float, float] | None]
+        tuple[
+            int,
+            str,
+            float | None,
+            float | None,
+            float | None,
+            tuple[float, float] | None,
+            int,
+        ]
     ] = []
     for line_index in sorted(
-        set(rendered.compression_by_line) | set(rendered.line_spacing_by_line) | set(downsizes)
+        set(rendered.compression_by_line)
+        | set(rendered.line_spacing_by_line)
+        | set(downsizes)
+        | set(reliefs)
     ):
         if line_index >= len(content):  # pragma: no cover - defensive
             continue
@@ -104,7 +133,8 @@ def _label_findings(
         requested = float(line.line_spacing)
         deviates = effective is not None and _spacing_deviation(requested, effective)
         downsize = downsizes.get(line_index)
-        if not compressed and not deviates and downsize is None:
+        relief_count = len(reliefs.get(line_index, ()))
+        if not compressed and not deviates and downsize is None and relief_count == 0:
             continue
         findings.append(
             (
@@ -114,6 +144,7 @@ def _label_findings(
                 float(requested) if deviates else None,
                 effective if deviates else None,
                 downsize,
+                relief_count,
             )
         )
     return findings
@@ -140,10 +171,11 @@ def _label_lines(
     content = rendered.source_label.content
     findings = _label_findings(rendered)
     finding_by_index: dict[
-        int, tuple[float | None, float | None, float | None, tuple[float, float] | None]
+        int,
+        tuple[float | None, float | None, float | None, tuple[float, float] | None, int],
     ] = {
-        index: (scale, requested, effective, downsize)
-        for index, _t, scale, requested, effective, downsize in findings
+        index: (scale, requested, effective, downsize, relief_count)
+        for index, _t, scale, requested, effective, downsize, relief_count in findings
     }
 
     if not full and not findings:
@@ -199,6 +231,13 @@ def _label_lines(
                     f"    Line {line_index}: {line.text!r} "
                     f"cutter {original:.3f}in -> {final:.3f}in (downsized for compression)"
                 )
+            if entry[4]:
+                for fix in rendered.descender_adjustments_by_line.get(line_index, ()):
+                    lines.append(
+                        f"    Line {line_index}: {line.text!r} glyph {fix.char!r} "
+                        f"descender v-scale {fix.scale_y:.3f}, raised {fix.raise_amount:.3f}in "
+                        f"(gap {fix.gap_before:.3f}in -> {fix.gap_after:.3f}in)"
+                    )
             # In compact mode, print spacing deviations; in full mode, they're shown in the spacing section
             if not full and effective is not None:
                 lines.append(

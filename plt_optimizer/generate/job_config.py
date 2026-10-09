@@ -157,6 +157,17 @@ class JobDefaults(BaseModel):
         auto_line_spacing_interline_to_top_bottom_ratio: Ratio controlling
             inter-line spacing relative to top/bottom margins when auto line
             spacing is enabled.
+        auto_descending_character_adjustment: Default automatic
+            descending-character relief permission. Unset falls back to True.
+        descending_character_v_scale: Default deepest vertical downscale for a
+            triggering descending glyph. Unset falls back to 0.5.
+        descending_character_raise: Default deepest raise for a triggering
+            descending glyph, as a fraction of its descender depth. Unset
+            falls back to 0.7.
+        descending_character_clearance: Default extra engraved-stroke air gap
+            for descending-character relief, as a unitless factor of the stroke
+            floor (required gap = floor * (1 + clearance)). Unset falls back
+            to 0.0.
         tool_options: Engraver tool options (header commands) metadata with
             HPGL command prefixes, types, units, dual defaults, and bounds.
     """
@@ -368,6 +379,52 @@ class JobDefaults(BaseModel):
             "ink box. Unset falls back to true."
         ),
     )
+    auto_descending_character_adjustment: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Default automatic descending-character relief permission (job "
+            "layer; cascades label -> job, never text lines). True vertically "
+            "downscales and raises a descending glyph only when a glyph on the "
+            "following line comes within the required clearance (the "
+            "engraved-stroke floor scaled by descending_character_clearance) "
+            "of it; false leaves descenders exactly as rendered. Unset falls "
+            "back to true."
+        ),
+    )
+    descending_character_v_scale: Optional[float] = Field(
+        default=None,
+        ge=0.2,
+        le=1.0,
+        description=(
+            "Default deepest vertical downscale permitted for a triggering "
+            "descending glyph, in [0.2, 1.0] (job layer; 1.0 = downscaling "
+            "forbidden, 0.5 = squeezed to half height, about the glyph's own "
+            "baseline). Unset falls back to 0.5."
+        ),
+    )
+    descending_character_raise: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Default deepest raise permitted for a triggering descending "
+            "glyph, as a fraction of its own descender depth in [0.0, 1.0] "
+            "(job layer; 0.0 = no raising, 1.0 = lift until the glyph's "
+            "lowest point sits exactly at the baseline). Unset falls back "
+            "to 0.7."
+        ),
+    )
+    descending_character_clearance: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Default extra engraved-stroke air gap demanded between a "
+            "descending glyph and the glyph below it, as a unitless factor of "
+            "the stroke floor at which the two strokes touch (required gap = "
+            "floor * (1 + clearance); job layer). An explicit 0.0 is honored "
+            "(only true touching triggers). Unset falls back to 0.0."
+        ),
+    )
     optimize_line_content_max_lines: Optional[int] = Field(
         default=None,
         ge=1,
@@ -476,6 +533,10 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "optimize_line_content",
     "optimize_line_content_max_lines",
     "use_baseline_spacing",
+    "auto_descending_character_adjustment",
+    "descending_character_v_scale",
+    "descending_character_raise",
+    "descending_character_clearance",
     "allow_rotation",
     "text_chunk_mode",
     "layout",

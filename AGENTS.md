@@ -627,6 +627,90 @@ supplies the shop default (repo default `true`).
   (`use_baseline_spacing: false`, full 0.15in air), and a cap-only control
   label (mode-independent).
 
+### Automatic Descending-Character Relief (`auto_descending_character_adjustment`)
+
+Baseline stacking lets a descender hang into the gap below its line. When the
+line under it carries a tall glyph close enough that the two **engraved
+strokes** would bleed together, `auto_descending_character_adjustment` (default
+**true**) relieves that one glyph: a vertical downscale about its own baseline
+plus an upward raise, both bounded by cascading allowances. Cascades job →
+plate → label (never text lines — the mechanism compares a line's glyphs
+against the following line's, so it is a property of the stacked block); the
+plate tier is schema parity only, like every render-affecting field.
+`job-config.json` supplies the shop default.
+
+- Four cascading fields, all on `LabelAttributes` + `PlateSpec` parity, landing
+  on `ResolvedLabel` (label → job → default, explicit-`None` precedence so an
+  explicit `false`/`0.0` is honored):
+  `auto_descending_character_adjustment` (bool, default `true`),
+  `descending_character_v_scale` (`[0.2, 1.0]`, default `0.5` = deepest squeeze
+  to half height, about the baseline), `descending_character_raise`
+  (`[0.0, 1.0]`, default `0.7` = fraction of the glyph's **own descender depth**,
+  so `1.0` lifts its lowest point exactly to the baseline), and
+  `descending_character_clearance` (`ge=0.0`, default `0.0` = **unitless factor
+  of the stroke floor**: the required gap is `floor * (1 + clearance)`, so the
+  demanded air scales with the cutter width and reads the same at every text
+  size; explicit `0.0` means only true touching triggers).
+  All four are `JobDefaults` keys in `_JOB_LAYER_FIELDS` and are **not**
+  required-when-unconfigured (they have code fallbacks).
+- **Trigger is per glyph pair, measured against the following line:** a
+  descending glyph (ink below its baseline) and a glyph on the line below whose
+  X spans overlap, whose vertical gap falls below
+  `0.5 * (cutter_upper + cutter_lower) * (1 + descending_character_clearance)`.
+  The first factor is the engraved-stroke floor at which the two cut strokes
+  touch (the same stroke-aware floor the text-hole system uses); the clearance
+  is a unitless multiplier of that floor, never an inch value. A descender with
+  no close partner below is left exactly as rendered — never a blanket
+  adjustment, never keyed off the following line's cap line.
+  `geometry.aabb_vertical_gap` measures the gap over the overlapping X span
+  (`inf` when X-disjoint).
+- **Single proportional ramp:** one `t ∈ [0, 1]` drives both effects —
+  `scale_y = 1 - t*(1 - v_scale)`, `raise = t * raise_fraction * descender`.
+  The glyph's bottom after the ramp is `raise(t) - descender*scale_y(t)`, so
+  the gap it produces is **linear in `t`** and the smallest clearing `t` has a
+  closed form (`descender_adjust.ramp_for`, no bisection). `t` clamps to `1.0`
+  (both allowances fully spent); the relief is one-way (a glyph only ever gets
+  smaller and higher), so the fixpoint converges.
+- **Exhausted ramp ⇒ grow the gap below the line** (label_renderer's
+  `_grow_spacings` + `_solve_spacing_growth_factor`, bisection on the stacked
+  block height, mode-agnostic via a `height_at` callback). The growth is
+  capped by the vertical margins; a residual shortfall after every allowance
+  and all admissible spacing raises `LabelRenderError` (non-zero CLI exit)
+  naming both lines, the shortfall and the spent allowances.
+- **Runs inside `_render_positioned_lines`, between phase 2a (X: compression +
+  alignment) and phase 2b (Y: stacking + `_LineEntry`).** The relief is Y-only
+  and the X phase is X-only, so they commute; X must run first because the pair
+  gaps need final X positions (alignment shifts lines relative to each other).
+  Works in both stacking modes (baseline and ink-box). The relief works in the
+  renderers' local frame (baseline `y = 0`); `_shifted_boxes` lifts glyph boxes
+  to the stacked baselines for measurement, and `_apply_glyph_ramps` rebuilds
+  each line from the **original** render at the glyph's full ramp (idempotent —
+  ramps never compound).
+- **`TextBlock.scale_y(factor, context)`** mirrors `compress_x`: X untouched,
+  Y scaled about the baseline; arcs flatten at the chord tolerance (DEBUG log —
+  vertical scaling and native arcs are mutually exclusive). Stroke count is
+  preserved 1:1, so `glyph_groups`, `TextChunkRecord.glyph_groups` and the
+  intra-chunk glyph sweep stay valid. `TextBlock.replaced_strokes` splices one
+  glyph back at its original stroke indices.
+- **Reporting** rides `RenderedLabel.descender_adjustments_by_line`
+  (`{line_index: (DescenderFix, ...)}`, only lines with a relief).
+  `layout_report.py` prints each as a finding:
+  `Line N: 'Depth' glyph 'p' descender v-scale 0.600, raised 0.071in (gap
+  -0.077in -> 0.045in)`. `_LineEntry` is **unchanged** (the relief never
+  touches the collision-detection tuple-unpack). INFO per glyph, WARNING per
+  spacing growth.
+- **`plt_optimizer/generate/descender_adjust.py`** is the pure solver
+  (matplotlib-free, `TYPE_CHECKING`-only pipeline imports — Win7/3.8 import
+  guarantee): `GlyphBox`, `PairGap`, `DescenderFix`, `required_gap`,
+  `measure_pairs`, `ramp_for`, `worst_deficit`, `apply_ramp`, `merge_ramps`,
+  `ramps_changed`, `is_finite_gap`.
+- Accepted staleness: `_resolve_auto_line_spacing` / `_fit_content_to_margins`
+  size vertical spacing against the *original* descender extents; the
+  render-time growth is margin-safe and authoritative. Resolution-time
+  awareness (a per-glyph extents probe) is a deliberate follow-up.
+- Example fixture: `tests_deps/descender_adjust_job.yaml` (pinned by
+  `tests/test_phase3_export.py::TestDescenderAdjustDemoExample`).
+
 ### Horizontal Text Alignment
 
 Each text line is positioned horizontally within the label's inner content
@@ -1040,7 +1124,7 @@ already knows each toolpath's kind, the `Profiler` is skipped entirely.
   **removed**; optimization now happens pre-write in plate space.
 
 ### Cascading Resolution
-When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.15), `space_width_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.3), `min_glyph_width` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `kerning_window_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.05), `kerning_penetration_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_recession_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_min_gap` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `fallback_advance_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `cutter_downsize` (explicit `false` is honored; only `None` means unset, falling back to the config or true), `max_cutter_downsizes` (explicit 0 is honored; only `None` means unset, falling back to the config or 1) and `cutter_downsize_global` (explicit `false` is honored; only `None` means unset, falling back to the config or true) and `h_compress_global` (explicit `true` is honored; only `None` means unset, falling back to the config or false) and `optimize_line_content` (explicit `true` is honored; only `None` means unset, falling back to the config or false) and `optimize_line_content_max_lines` (explicit `None` means unset = no growth, no fallback; only an explicit cap > 0 applies) and `use_baseline_spacing` (explicit `false` is honored; only `None` means unset, falling back to the config or true; cascades job → plate → label, never text lines, plate parity only). `cutter_size` (explicit-`None` precedence line → label → job → auto-select; no config tier, `gt=0.0` so an explicit `0.0` is a validation error, not a cascade value). `material` cascades label → job (and plate → job via the clearance-style plate cascade): an explicit label/plate value wins, an explicit `null` counts as unset, and empty-after-trim strings are validation errors.
+When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.15), `space_width_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.3), `min_glyph_width` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `kerning_window_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.05), `kerning_penetration_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_recession_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_min_gap` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `fallback_advance_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `cutter_downsize` (explicit `false` is honored; only `None` means unset, falling back to the config or true), `max_cutter_downsizes` (explicit 0 is honored; only `None` means unset, falling back to the config or 1) and `cutter_downsize_global` (explicit `false` is honored; only `None` means unset, falling back to the config or true) and `h_compress_global` (explicit `true` is honored; only `None` means unset, falling back to the config or false) and `optimize_line_content` (explicit `true` is honored; only `None` means unset, falling back to the config or false) and `optimize_line_content_max_lines` (explicit `None` means unset = no growth, no fallback; only an explicit cap > 0 applies) and `use_baseline_spacing` (explicit `false` is honored; only `None` means unset, falling back to the config or true; cascades job → plate → label, never text lines, plate parity only) and `auto_descending_character_adjustment` (explicit `false` is honored; only `None` means unset, falling back to the config or true; cascades job → plate → label, never text lines, plate parity only) and `descending_character_v_scale` (explicit `0.2` is honored; only `None` means unset, falling back to the config or 0.5) and `descending_character_raise` (explicit `0.0` is honored; only `None` means unset, falling back to the config or 0.7) and `descending_character_clearance` (explicit `0.0` is honored; only `None` means unset, falling back to the config or 0.0; a unitless factor of the engraved-stroke floor, not inches; all three floats cascade job → plate → label, never text lines, plate parity only). `cutter_size` (explicit-`None` precedence line → label → job → auto-select; no config tier, `gt=0.0` so an explicit `0.0` is a validation error, not a cascade value). `material` cascades label → job (and plate → job via the clearance-style plate cascade): an explicit label/plate value wins, an explicit `null` counts as unset, and empty-after-trim strings are validation errors.
 
 ### Stroke-Color Toolpath Splitting (`text_color`)
 

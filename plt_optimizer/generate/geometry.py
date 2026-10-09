@@ -87,6 +87,40 @@ def circle_aabb_gap(
     return math.hypot(dx, dy) - hole_radius
 
 
+def aabb_vertical_gap(upper: TextBounds, lower: TextBounds) -> float:
+    """Compute the signed vertical clearance between an upper box and a lower box.
+
+    The gap is measured only where the two boxes overlap horizontally -- the
+    region where their engraved strokes could actually meet. Two boxes whose
+    X spans are disjoint never collide, so they report
+    :data:`math.inf` ("infinitely far apart").
+
+    - ``gap > 0``: the boxes are separated by ``gap`` inches vertically.
+    - ``gap == 0``: they touch exactly (the engraved strokes are tangent).
+    - ``gap < 0``: they overlap; ``abs(gap)`` is the penetration depth.
+
+    The primary consumer is the automatic descending-character relief, which
+    measures how close a glyph hanging below its baseline comes to a glyph on
+    the following line.
+
+    Args:
+        upper: ``(x_min, y_min, x_max, y_max)`` of the upper box.
+        lower: ``(x_min, y_min, x_max, y_max)`` of the lower box.
+
+    Returns:
+        The signed clearance in the caller's length units, or ``inf`` when
+        the boxes do not overlap horizontally.
+    """
+    upper_x_min, upper_y_min, upper_x_max, _upper_y_max = upper
+    lower_x_min, _lower_y_min, lower_x_max, lower_y_max = lower
+
+    overlap = min(upper_x_max, lower_x_max) - max(upper_x_min, lower_x_min)
+    if overlap <= 0.0:
+        return math.inf
+
+    return upper_y_min - lower_y_max
+
+
 def arc_swept_bounds(
     center_x: float,
     center_y: float,

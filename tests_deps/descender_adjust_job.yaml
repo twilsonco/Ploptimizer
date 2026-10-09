@@ -1,0 +1,75 @@
+# Fixture for automatic descending-character relief
+# (`auto_descending_character_adjustment`, default true).
+#
+# Baseline stacking lets a descender hang into the gap below its line. When a
+# glyph on the FOLLOWING line is close enough that the two engraved strokes
+# would bleed together, that one descending glyph is vertically downscaled
+# (about its own baseline, to `descending_character_v_scale`) and raised (by up
+# to `descending_character_raise` x its own descender depth). The trigger is a
+# measured near-miss against the line below -- never a blanket adjustment.
+#
+# No plate declares a material and the job packs onto one sheet, so emitted
+# names carry no plate/material prefix: [<cutter>]_txt_<job>.plt per distinct
+# cutter plus one bh file.
+job:
+  job_name: Descender Adjust Demo
+
+  width: 3.0
+  height: 1.4
+  margin: 0.1
+  text_height: 0.5
+  line_spacing: 0.05
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. Trigger: the 'p' descender on "Depth" hangs toward the capitals of
+    #    "RANGE" below. The relief squeezes + raises just that glyph so the
+    #    engraved strokes clear (gap closes to the stroke floor).
+    - id: trigger
+      content:
+        - text: "Depth"
+        - text: "RANGE"
+
+    # 2. No trigger: the same content with a roomy gap. No glyph on the line
+    #    below comes close, so the descender engraves exactly as rendered.
+    - id: no_trigger
+      line_spacing: 0.4
+      content:
+        - text: "Depth"
+        - text: "RANGE"
+
+    # 3. Not-all: "Depth" over "ROOTS". Only the pairs under the 'p' are close,
+    #    so only the 'p' is relieved -- the relief is per descending glyph.
+    - id: notall
+      content:
+        - text: "Depth"
+        - text: "ROOTS"
+
+    # 4. Cap-only control: no descenders at all, so the relief never fires and
+    #    the geometry is the mode-independent (bit-identical to disabled) case.
+    - id: caponly
+      content:
+        - text: "HAPPY"
+        - text: "ROOTS"
+
+    # 5. Spacing growth: allowances spent (no downscale, no raise), so the gap
+    #    below the line grows to clear the descender against the line below.
+    - id: spacing_grow
+      descending_character_v_scale: 1.0
+      descending_character_raise: 0.0
+      content:
+        - text: "Depth"
+        - text: "RANGE"
+
+    # 6. Feature disabled: the relief is off, the descender hangs exactly as
+    #    baseline stacking leaves it (the trigger label's un-relieved twin).
+    #    (The id is quoted: bare ``off`` is a YAML boolean.)
+    - id: "off"
+      auto_descending_character_adjustment: false
+      content:
+        - text: "Depth"
+        - text: "RANGE"

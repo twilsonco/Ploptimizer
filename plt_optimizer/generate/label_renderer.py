@@ -17,11 +17,23 @@ import tempfile
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterable, List, Mapping, NamedTuple, Optional, Sequence, Tuple
+from typing import Any, Callable, Iterable, List, Mapping, NamedTuple, Optional, Sequence, Tuple
 
 import numpy as np
 import vpype as vp
 
+from plt_optimizer.generate.descender_adjust import (
+    DescenderFix,
+    GlyphBox,
+    PairGap,
+    apply_ramp,
+    measure_pairs,
+    merge_ramps,
+    ramp_for,
+    ramps_changed,
+    required_gap,
+    worst_deficit,
+)
 from plt_optimizer.generate.font_registry import FontNotFoundError, resolve_font
 from plt_optimizer.generate.ftext_renderer import (
     FtextRenderError,
@@ -31,6 +43,7 @@ from plt_optimizer.generate.ftext_renderer import (
 )
 from plt_optimizer.generate.geometry import (
     CollisionResult,
+    aabb_vertical_gap,
     arc_swept_bounds,
     circle_aabb_gap,
 )
@@ -50,7 +63,11 @@ from plt_optimizer.generate.resolution import (
     fit_baseline_spacing_to_margins,
     fit_line_spacing_to_margins,
 )
-from plt_optimizer.generate.text_geometry import TextBlock, block_from_linecollection
+from plt_optimizer.generate.text_geometry import (
+    Stroke,
+    TextBlock,
+    block_from_linecollection,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +92,22 @@ PLT_FOOTER: str = "SP;"
 # step, so it stays small.
 _MARGIN_ADJUST_STEPS: int = 32
 _COMPRESSION_RESOLVE_STEPS: int = 16
+
+# Iteration cap for the descending-character relief loop. Each pass is
+# monotone (every glyph ramp grows, every spacing grows), so the loop
+# converges well inside this; the cap is a guard against float noise
+# oscillating around the convergence tolerance.
+_DESCENDER_MAX_PASSES: int = 8
+
+# Gap comparison tolerance for the relief's abort gate: a gap exactly equal to
+# the required clearance is safe (tangency). AGENTS.md forbids ``==`` on floats.
+_DESCENDER_GAP_TOLERANCE: float = 1e-9
+
+# Bisection granularity for the relief's spacing growth (the stacked block
+# height is non-decreasing in the spacings, so the admissible growth factor is
+# found by bisection -- the same shape as ``fit_baseline_spacing_to_margins``).
+_SPACING_GROWTH_MAX_ITERATIONS: int = 100
+_SPACING_GROWTH_TOLERANCE: float = 1e-9
 
 
 class _LineEntry(NamedTuple):
@@ -237,6 +270,14 @@ class RenderedLabel:
             computed by consumers against the source label's per-line
             ``line_spacing``. Reporting-only (single-line labels yield an
             empty dict): nothing downstream consumes it for geometry.
+        descender_adjustments_by_line: Mapping of line index to the
+            descending-character reliefs applied to that line's glyphs by the
+            automatic descending-character adjustment (vertical downscale +
+            raise of the individual glyphs measured close to a glyph on the
+            following line). Only lines with at least one relief are
+            included, so the common case is an empty dict. Reporting-only:
+            the geometry itself is already baked into ``plt_content`` /
+            ``text_chunks``.
     """
 
     source_label: ResolvedLabel
@@ -252,6 +293,7 @@ class RenderedLabel:
     text_chunks: Tuple[TextChunkRecord, ...] = ()
     compression_by_line: dict[int, float] = field(default_factory=dict)
     line_spacing_by_line: dict[int, float] = field(default_factory=dict)
+    descender_adjustments_by_line: dict[int, Tuple[DescenderFix, ...]] = field(default_factory=dict)
 
 
 def _collision_threshold(label: ResolvedLabel, line_index: int) -> float:
@@ -841,11 +883,13 @@ def _render_label_once(
     # Render text layers, one arc-native block tuple per cutter pen (SP1
     # only when no pen_map is supplied, preserving the historical
     # single-pen output).
+    descender_fixes: List[DescenderFix] = []
     text_pens, line_entries, chunk_records = _render_text_lines_by_pen(
         label,
         pen_map,
         chunk_mode=_chunk_mode_of(label),
         check_glyph_coverage=check_glyph_coverage,
+        descender_fixes=descender_fixes,
     )
 
     # Render boundary layer
@@ -893,6 +937,17 @@ def _render_label_once(
             if entry.line_spacing is not None
         }
 
+        # Per-line descending-character reliefs (vertical downscale + raise of
+        # the glyphs measured close to the line below), reporting-only. Only
+        # lines with at least one relief are included.
+        descender_adjustments_by_line: dict[int, Tuple[DescenderFix, ...]] = {}
+        for fix in descender_fixes:
+            descender_adjustments_by_line.setdefault(fix.line_index, ())
+            descender_adjustments_by_line[fix.line_index] = (
+                *descender_adjustments_by_line[fix.line_index],
+                fix,
+            )
+
         rendered = RenderedLabel(
             source_label=label,
             plt_content=plt_content,
@@ -905,6 +960,7 @@ def _render_label_once(
             text_chunks=tuple(chunk_records),
             compression_by_line=compression_by_line,
             line_spacing_by_line=line_spacing_by_line,
+            descender_adjustments_by_line=descender_adjustments_by_line,
         )
         return rendered, line_entries
     finally:
@@ -1851,11 +1907,707 @@ def measure_line_vertical_extents(line: ResolvedTextLine) -> tuple[float, float]
     return (max(0.0, bounds[3]), max(0.0, -bounds[1]))
 
 
+@dataclass(frozen=True)
+class _DescenderRelief:
+    """The outcome of one descending-character relief run.
+
+    Everything is in the renderers' **local frame**: one block per renderable
+    line with that line's baseline at ``y = 0`` (the frame the first render
+    pass produces). The caller positions the returned blocks exactly like the
+    ones it passed in, so the relief never re-does the alignment math.
+
+    Attributes:
+        blocks: The line blocks after every applied relief, in renderable-line
+            order (identical objects to the input when nothing triggered).
+        heights: Each line's ink height after the relief, inches (a relief
+            scales a glyph about its baseline, so a line's ink height can
+            shrink). Consumed by ink-box stacking.
+        spacings: The inter-line spacings after any relief-driven growth.
+        geometry: The refreshed per-line ``(pitch_basis, ascender, descender)``
+            triples -- the relief changes how far each line's ink reaches
+            around its baseline, and the stacking math depends on it.
+        fixes: Every applied relief, in (line, glyph) order.
+        residual: Per-gap clearance shortfall left after every allowance and
+            all admissible spacing growth were spent, inches. Non-zero entries
+            abort the job.
+    """
+
+    blocks: List[TextBlock]
+    heights: List[float]
+    spacings: List[float]
+    geometry: List[Tuple[float, float, float]]
+    fixes: List[DescenderFix]
+    residual: List[float]
+
+
+def _glyph_chars(text: str) -> List[str]:
+    """Return the characters a rendered line's glyph partition covers.
+
+    Both renderers exclude spaces from the per-glyph stroke partition (the PLT
+    walk emits no strokes for a space, the TTF partition slices by per-glyph
+    contour counts, which are ``0`` for a space), so the partition's ``i``-th
+    group belongs to the ``i``-th non-space character.
+
+    Args:
+        text: The line's text.
+
+    Returns:
+        The non-space characters, in text order.
+    """
+    return [char for char in text if char != " "]
+
+
+def _glyph_boxes(
+    block: TextBlock,
+    glyph_groups: Tuple[Tuple[int, ...], ...],
+    text: str,
+) -> List[GlyphBox]:
+    """Measure every glyph of one line in the renderer's baseline frame.
+
+    Each glyph's ink box is the swept bounds of its own strokes (the same
+    stroke-subset idiom the plate-space chunk records use), which is what makes
+    the relief per-descending-character: a glyph's box reflects only its own
+    silhouette, never its line's aggregate ink box. The block is in the local
+    frame, so the baseline is ``y = 0`` and the descender depth is ``-y_min``.
+
+    Args:
+        block: The line's block, baseline at ``y = 0``.
+        glyph_groups: One stroke-index tuple per rendered character.
+        text: The line's text (for the character names).
+
+    Returns:
+        One :class:`GlyphBox` per glyph group, in text order. Empty when no
+        per-glyph partition is available (the relief is a no-op then).
+    """
+    chars = _glyph_chars(text)
+    if not glyph_groups or len(chars) != len(glyph_groups):
+        return []
+    boxes: List[GlyphBox] = []
+    for glyph_index, indices in enumerate(glyph_groups):
+        if not indices:
+            continue
+        glyph_block = TextBlock(strokes=tuple(block.strokes[i] for i in indices))
+        bounds = glyph_block.bounds()
+        if bounds is None:  # pragma: no cover - empty groups are skipped above
+            continue
+        boxes.append(
+            GlyphBox(
+                glyph_index=glyph_index,
+                char=chars[glyph_index],
+                bounds=bounds,
+                descender=max(0.0, -bounds[1]),
+            )
+        )
+    return boxes
+
+
+def _line_cutter(label: ResolvedLabel, line_index: int) -> float:
+    """Return the cutter diameter of one content line (0.0 when out of range).
+
+    Args:
+        label: The label being rendered.
+        line_index: Index into ``label.content``.
+
+    Returns:
+        The line's cutter diameter in inches.
+    """
+    if 0 <= line_index < len(label.content):
+        return label.content[line_index].cutter_diameter
+    return 0.0  # pragma: no cover - renderable indices always address content
+
+
+def _baseline_table(
+    pitch_basis: Sequence[float],
+    ascenders: Sequence[float],
+    descenders: Sequence[float],
+    spacings: Sequence[float],
+) -> List[float]:
+    """Return each line's baseline Y in the ink-centered block frame.
+
+    The shared baseline table: baselines descend by one pitch each from ``0``
+    and the whole set shifts so the ink block (descenders included) centers on
+    ``y = 0`` -- exactly the frame the renderer positions lines in.
+
+    Args:
+        pitch_basis: Each line's cap height (the pitch basis), inches.
+        ascenders: Ink extent above each line's baseline, inches.
+        descenders: Ink depth below each line's baseline, inches.
+        spacings: Spacing below each line except the last, inches.
+
+    Returns:
+        One baseline Y per line, ``+y`` up, block-centered.
+    """
+    offsets = baseline_offsets(pitch_basis, spacings)
+    top_extent = max(b + a for b, a in zip(offsets, ascenders))
+    bottom_extent = min(b - d for b, d in zip(offsets, descenders))
+    shift = (top_extent + bottom_extent) / 2.0
+    return [offset - shift for offset in offsets]
+
+
+def _inkbox_baseline_table(
+    blocks: Sequence[TextBlock],
+    spacings: Sequence[float],
+) -> List[float]:
+    """Return each line's baseline Y under ink-box stacking, block-centered.
+
+    Mirrors the renderer's running anchor exactly (ink top at ``current_y``,
+    descending by ``height + spacing``), so the relief measures the gaps the
+    ink-box mode will actually engrave.
+
+    Args:
+        blocks: The line blocks in the local frame (baseline at ``y = 0``).
+        spacings: Spacing below each line except the last, inches.
+
+    Returns:
+        One baseline Y per line, ``+y`` up, block-centered on ``y = 0``.
+    """
+    heights: List[float] = []
+    tops: List[float] = []
+    for block in blocks:
+        bounds = block.bounds()
+        if bounds is None:  # pragma: no cover - callers skip empty blocks
+            heights.append(0.0)
+            tops.append(0.0)
+            continue
+        heights.append(bounds[3] - bounds[1])
+        tops.append(bounds[3])
+    current_y = (sum(heights) + sum(spacings)) / 2.0
+    baselines: List[float] = []
+    for index, top in enumerate(tops):
+        baselines.append(current_y - top)
+        current_y -= heights[index]
+        if index < len(spacings):
+            current_y -= spacings[index]
+    return baselines
+
+
+def _local_line_extents(
+    blocks: Sequence[TextBlock],
+    pitch_basis: Sequence[float],
+) -> List[Tuple[float, float, float]]:
+    """Refresh the per-line baseline geometry from local-frame blocks.
+
+    A relief scales a glyph about its baseline and lifts it, so both the
+    ascender and the descender of the *line* can move. The blocks stay in the
+    baseline frame, so the bounds give the extents directly -- the same reading
+    the first render pass uses.
+
+    Args:
+        blocks: The line blocks in the local frame (baseline at ``y = 0``).
+        pitch_basis: Each line's cap height (unchanged by the relief).
+
+    Returns:
+        One ``(pitch_basis, ascender, descender)`` triple per line.
+    """
+    geometry: List[Tuple[float, float, float]] = []
+    for index, block in enumerate(blocks):
+        basis = pitch_basis[index] if index < len(pitch_basis) else 0.0
+        bounds = block.bounds()
+        if bounds is None:  # pragma: no cover - callers skip empty blocks
+            geometry.append((basis, 0.0, 0.0))
+            continue
+        geometry.append((basis, max(0.0, bounds[3]), max(0.0, -bounds[1])))
+    return geometry
+
+
+def _shifted_boxes(boxes: Sequence[GlyphBox], baseline_y: float) -> List[GlyphBox]:
+    """Shift local-frame glyph boxes into the stacked frame.
+
+    Pairwise gaps must be measured where the glyphs will actually be engraved,
+    i.e. after the line's baseline has been placed at ``baseline_y``. The
+    relief itself stays in the local frame, where the scale pivot is ``y = 0``.
+
+    Args:
+        boxes: Glyph boxes measured in the local frame.
+        baseline_y: The line's baseline Y in the stacked frame, inches.
+
+    Returns:
+        The same glyphs with their bounds translated by ``baseline_y``.
+    """
+    if baseline_y == 0.0:
+        return list(boxes)
+    return [
+        replace(
+            box,
+            bounds=(
+                box.bounds[0],
+                box.bounds[1] + baseline_y,
+                box.bounds[2],
+                box.bounds[3] + baseline_y,
+            ),
+        )
+        for box in boxes
+    ]
+
+
+def _apply_glyph_ramps(
+    block: TextBlock,
+    glyph_groups: Tuple[Tuple[int, ...], ...],
+    text: str,
+    ramps: Mapping[int, float],
+    v_scale: float,
+    raise_fraction: float,
+) -> Tuple[TextBlock, List[Tuple[int, str, float, float]]]:
+    """Scale and raise the triggered glyphs of one line (local frame).
+
+    Each glyph is transformed in isolation -- Y-scaled about the line's
+    baseline (``y = 0`` in the local frame), then translated up -- and spliced
+    back into the line's block at its original stroke indices. Stroke order and
+    count are preserved, so the line's per-glyph partition (and the plate-space
+    chunk records built from it) stays valid.
+
+    Args:
+        block: The line's block, baseline at ``y = 0``.
+        glyph_groups: One stroke-index tuple per rendered character.
+        text: The line's text (for the character names).
+        ramps: ``{glyph_index: ramp}`` for the glyphs to relieve.
+        v_scale: Smallest permitted vertical scale.
+        raise_fraction: Largest permitted raise fraction.
+
+    Returns:
+        ``(new_block, applied)`` where ``applied`` lists
+        ``(glyph_index, char, scale_y, raise_amount)`` per relieved glyph.
+    """
+    if not ramps:
+        return block, []
+    chars = _glyph_chars(text)
+    replacements: dict[int, Stroke] = {}
+    applied: List[Tuple[int, str, float, float]] = []
+    for glyph_index, indices in enumerate(glyph_groups):
+        ramp = ramps.get(glyph_index, 0.0)
+        if ramp <= 0.0 or not indices:
+            continue
+        glyph_block = TextBlock(strokes=tuple(block.strokes[i] for i in indices))
+        bounds = glyph_block.bounds()
+        if bounds is None:  # pragma: no cover - empty groups are skipped above
+            continue
+        descender = max(0.0, -bounds[1])
+        scale_y, raise_amount = apply_ramp(descender, v_scale, raise_fraction, ramp)
+        transformed = glyph_block.scaled_y(scale_y).translate(0.0, raise_amount)
+        for position, stroke_index in enumerate(indices):
+            replacements[stroke_index] = transformed.strokes[position]
+        applied.append((glyph_index, chars[glyph_index], scale_y, raise_amount))
+    return block.replaced_strokes(replacements), applied
+
+
+def _grow_spacings(
+    spacings: Sequence[float],
+    growths: Sequence[float],
+    available_height: float,
+    height_at: Callable[[Sequence[float]], float],
+) -> List[float]:
+    """Grow spacings by their needed amounts, capped by the inner content height.
+
+    Growing the gap below line ``i`` moves that line's whole ink block (and
+    every line under it) away from line ``i``, so the growth a glyph-level gap
+    needs is exactly its residual deficit -- in both stacking modes. Growing
+    widens the block, and the vertical margins outrank the mechanism: the
+    growths are scaled down by one common factor (bisection, the block height
+    being non-decreasing in the spacings) so the block still fits
+    ``available_height``. Whatever shortfall survives is reported.
+
+    Args:
+        spacings: Spacing below each line except the last, inches.
+        growths: Clearance shortfall per gap, inches.
+        available_height: Inner content height, inches.
+        height_at: The stacked block's ink height for a spacing list (mode-
+            specific: baseline pitch geometry, or ink boxes plus spacings).
+
+    Returns:
+        A new list of spacings. Equal to the input when every growth is zero.
+    """
+    needed = [max(0.0, float(growth)) for growth in growths]
+    base = [max(0.0, float(spacing)) for spacing in spacings]
+    if all(growth <= 0.0 for growth in needed):
+        return base
+
+    def height_with(factor: float) -> float:
+        return height_at([spacing + growth * factor for spacing, growth in zip(base, needed)])
+
+    if height_with(1.0) <= available_height:
+        return [spacing + growth for spacing, growth in zip(base, needed)]
+
+    factor = _solve_spacing_growth_factor(height_with, available_height)
+    return [spacing + growth * factor for spacing, growth in zip(base, needed)]
+
+
+def _solve_spacing_growth_factor(
+    height_with: Callable[[float], float],
+    available_height: float,
+) -> float:
+    """Bisect the largest common growth factor whose block still fits.
+
+    Args:
+        height_with: The stacked block's ink height at a growth factor
+            (non-decreasing in the factor).
+        available_height: Inner content height, inches.
+
+    Returns:
+        The largest factor in ``[0, 1]`` with ``height_with(factor) <=
+        available_height``, within ``1e-9``. ``0.0`` when even bare spacings
+        overflow (the margins already leave no room to grow).
+    """
+    lower = 0.0
+    upper = 1.0
+    if height_with(lower) >= available_height:
+        return 0.0
+    for _ in range(_SPACING_GROWTH_MAX_ITERATIONS):
+        middle = (lower + upper) / 2.0
+        if upper - lower <= _SPACING_GROWTH_TOLERANCE:
+            break
+        if height_with(middle) <= available_height:
+            lower = middle
+        else:
+            upper = middle
+    return lower
+
+
+def _apply_descender_relief(
+    label: ResolvedLabel,
+    blocks: Sequence[TextBlock],
+    glyph_groups_by_line: Sequence[Tuple[Tuple[int, ...], ...]],
+    line_indices: Sequence[int],
+    pitch_basis: Sequence[float],
+    spacings: Sequence[float],
+    available_height: float,
+    *,
+    use_baseline: bool,
+) -> _DescenderRelief:
+    """Relieve descending glyphs that come close to the glyph below them.
+
+    A monotone fixpoint, run in the renderers' local frame (each block carries
+    its own baseline at ``y = 0``). Every pass:
+
+    1. places the line baselines with the current spacings (the same tables the
+       caller stacks by, so the relief measures what will be engraved);
+    2. measures every (descending glyph, following-line glyph) pair over its
+       overlapping X span and gives each triggering glyph the smallest ramp
+       that clears its tightest pair, merged one-way into the glyph's ramp (a
+       glyph only ever gets smaller and higher);
+    3. rebuilds each line's block from the ORIGINAL render with the glyph's
+       full ramp (idempotent -- a pass never compounds a glyph's transform);
+    4. grows each gap by the deficit that survives the ramps, capped by the
+       inner content height.
+
+    Ramps only grow and are capped at ``1.0``; spacings only grow and are
+    capped by the inner height, so the loop converges. The pass cap is a
+    float-noise guard.
+
+    Args:
+        label: The label being rendered (supplies the allowances and cutters).
+        blocks: The rendered line blocks, baseline at ``y = 0``, in
+            renderable-line order.
+        glyph_groups_by_line: Per-line per-glyph stroke partitions.
+        line_indices: Each block's index into ``label.content`` (the relief
+            names lines by their content index, like the collision reports).
+        pitch_basis: Each line's cap height (the baseline pitch basis), inches.
+        spacings: Margin-clamped spacings, inches.
+        available_height: Inner content height, inches.
+        use_baseline: Which stacking mode the caller uses (selects the baseline
+            table and the block-height model the growth is capped by).
+
+    Returns:
+        A :class:`_DescenderRelief` carrying the adjusted blocks, spacings and
+        geometry, the applied reliefs, and the per-gap residual shortfalls.
+    """
+    original = list(blocks)
+    current_spacings = [max(0.0, float(s)) for s in spacings]
+    geometry = _local_line_extents(original, pitch_basis)
+    # Feature gate: disabled labels engrave descenders exactly as rendered.
+    if not label.auto_descending_character_adjustment:
+        return _DescenderRelief(
+            blocks=original,
+            heights=[
+                (bounds[3] - bounds[1]) if (bounds := block.bounds()) is not None else 0.0
+                for block in original
+            ],
+            spacings=current_spacings,
+            geometry=geometry,
+            fixes=[],
+            residual=[],
+        )
+    # Per-glyph ramps already applied (one-way; a glyph never shrinks back).
+    ramps: dict[int, dict[int, float]] = {index: {} for index in range(len(original))}
+    # Tightest gap each glyph had before any relief, and after the last pass.
+    gap_before: dict[tuple[int, int], float] = {}
+    gap_after: dict[tuple[int, int], float] = {}
+    deficits = [0.0] * max(0, len(original) - 1)
+
+    def height_at(spacing_list: Sequence[float]) -> float:
+        ascender_values = [ascender for _basis, ascender, _d in geometry]
+        descender_values = [descender for _basis, _ascender, descender in geometry]
+        if use_baseline:
+            return baseline_block_height(
+                list(pitch_basis), ascender_values, descender_values, list(spacing_list)
+            )
+        ink_height = sum(
+            bounds[3] - bounds[1]
+            for block in current_blocks
+            if (bounds := block.bounds()) is not None
+        )
+        return ink_height + sum(spacing_list)
+
+    current_blocks: List[TextBlock] = list(original)
+    # Glyph boxes of the untouched render: the ramp's basis (its descender
+    # depth) is always the pre-relief one, which is also what
+    # ``_apply_glyph_ramps`` rebuilds from, so the reported scale/raise match
+    # the geometry actually emitted.
+    original_boxes: List[List[GlyphBox]] = [
+        _glyph_boxes(block, groups, label.content[line_index].text)
+        for block, groups, line_index in zip(original, glyph_groups_by_line, line_indices)
+    ]
+
+    def measure(baselines: Sequence[float]) -> tuple[List[List[PairGap]], List[float]]:
+        """Measure every glyph pair of the current geometry at ``baselines``.
+
+        Args:
+            baselines: Each line's baseline Y in the stacked frame, inches.
+
+        Returns:
+            ``(pairs_by_gap, deficits)``: the pairs of each inter-line gap and
+            the worst clearance shortfall of each.
+        """
+        boxes = [
+            _shifted_boxes(
+                _glyph_boxes(block, groups, label.content[line_index].text),
+                baselines[index],
+            )
+            for index, (block, groups, line_index) in enumerate(
+                zip(current_blocks, glyph_groups_by_line, line_indices)
+            )
+        ]
+        pairs_by_gap: List[List[PairGap]] = []
+        gap_deficits: List[float] = []
+        for gap_index in range(len(original) - 1):
+            required = required_gap(
+                _line_cutter(label, line_indices[gap_index]),
+                _line_cutter(label, line_indices[gap_index + 1]),
+                label.descending_character_clearance,
+            )
+            pairs = measure_pairs(boxes[gap_index], boxes[gap_index + 1], required)
+            pairs_by_gap.append(pairs)
+            gap_deficits.append(worst_deficit(pairs))
+        return pairs_by_gap, gap_deficits
+
+    for _pass in range(_DESCENDER_MAX_PASSES):
+        ascenders = [ascender for _basis, ascender, _d in geometry]
+        descenders = [descender for _basis, _ascender, descender in geometry]
+        if use_baseline:
+            baselines = _baseline_table(pitch_basis, ascenders, descenders, current_spacings)
+        else:
+            baselines = _inkbox_baseline_table(current_blocks, current_spacings)
+
+        # ---- Measure every pair; propose the smallest clearing ramp ----
+        pairs_by_gap, _pre_deficits = measure(baselines)
+        proposed: dict[int, dict[int, float]] = {}
+        for gap_index, pairs in enumerate(pairs_by_gap):
+            for pair in pairs:
+                key = (gap_index, pair.upper.glyph_index)
+                # Only a pair with horizontal overlap measures a real gap; the
+                # X-disjoint pairs report inf and must not seed the report.
+                if not math.isfinite(pair.gap):
+                    continue
+                if key not in gap_before or pair.gap < gap_before[key]:
+                    gap_before[key] = pair.gap
+                ramp = ramp_for(
+                    pair.gap,
+                    pair.required,
+                    pair.upper.descender,
+                    label.descending_character_v_scale,
+                    label.descending_character_raise,
+                )
+                if ramp > 0.0:
+                    proposed.setdefault(gap_index, {})[pair.upper.glyph_index] = ramp
+
+        grew = False
+        for gap_index, per_glyph in proposed.items():
+            before = ramps[gap_index]
+            after = merge_ramps(before, per_glyph)
+            if ramps_changed(before, after):
+                grew = True
+            ramps[gap_index] = after
+
+        # ---- Rebuild each line from the original render at its full ramp ----
+        current_blocks = []
+        for index, block in enumerate(original):
+            per_glyph = ramps.get(index, {})
+            if not per_glyph:
+                current_blocks.append(block)
+                continue
+            rebuilt, _applied = _apply_glyph_ramps(
+                block,
+                glyph_groups_by_line[index],
+                label.content[line_indices[index]].text,
+                per_glyph,
+                label.descending_character_v_scale,
+                label.descending_character_raise,
+            )
+            current_blocks.append(rebuilt)
+        geometry = _local_line_extents(current_blocks, pitch_basis)
+
+        # ---- Grow each gap by the shortfall the RAMPS left behind ----
+        # Measured after the rebuild: growing by the pre-ramp deficit would
+        # widen gaps the relief already cleared.
+        ascenders = [ascender for _basis, ascender, _d in geometry]
+        descenders = [descender for _basis, _ascender, descender in geometry]
+        if use_baseline:
+            baselines_after = _baseline_table(pitch_basis, ascenders, descenders, current_spacings)
+        else:
+            baselines_after = _inkbox_baseline_table(current_blocks, current_spacings)
+        _post_pairs, deficits = measure(baselines_after)
+        if any(deficit > _DESCENDER_GAP_TOLERANCE for deficit in deficits):
+            grown = _grow_spacings(current_spacings, deficits, available_height, height_at)
+            if grown != current_spacings:
+                current_spacings = grown
+                grew = True
+
+        if not grew:
+            break
+
+    # ---- Final measurement: the gaps the engraving actually has ----
+    ascenders = [ascender for _basis, ascender, _d in geometry]
+    descenders = [descender for _basis, _ascender, descender in geometry]
+    if use_baseline:
+        baselines = _baseline_table(pitch_basis, ascenders, descenders, current_spacings)
+    else:
+        baselines = _inkbox_baseline_table(current_blocks, current_spacings)
+    final_boxes: List[List[GlyphBox]] = [
+        _glyph_boxes(block, groups, label.content[line_index].text)
+        for block, groups, line_index in zip(current_blocks, glyph_groups_by_line, line_indices)
+    ]
+    stacked_boxes = [
+        _shifted_boxes(boxes, baselines[index]) for index, boxes in enumerate(final_boxes)
+    ]
+    residual: List[float] = []
+    for gap_index in range(len(original) - 1):
+        required = required_gap(
+            _line_cutter(label, line_indices[gap_index]),
+            _line_cutter(label, line_indices[gap_index + 1]),
+            label.descending_character_clearance,
+        )
+        pairs = measure_pairs(stacked_boxes[gap_index], stacked_boxes[gap_index + 1], required)
+        residual.append(worst_deficit(pairs))
+        # gap_after: the relieved glyph's tightest gap against the line below,
+        # measured directly (a fully relieved glyph no longer descends, so
+        # ``measure_pairs``' descending filter would drop it).
+        lower_boxes = stacked_boxes[gap_index + 1]
+        for box in stacked_boxes[gap_index]:
+            gaps = [
+                gap
+                for gap in (aabb_vertical_gap(box.bounds, other.bounds) for other in lower_boxes)
+                if math.isfinite(gap)
+            ]
+            if gaps:
+                gap_after[(gap_index, box.glyph_index)] = min(gaps)
+
+    fixes: List[DescenderFix] = []
+    for gap_index in sorted(ramps):
+        line_index = line_indices[gap_index]
+        box_by_glyph = {box.glyph_index: box for box in original_boxes[gap_index]}
+        for glyph_index, ramp in sorted(ramps[gap_index].items()):
+            if ramp <= 0.0:
+                continue
+            glyph_box = box_by_glyph.get(glyph_index)
+            descender = glyph_box.descender if glyph_box is not None else 0.0
+            scale_y, raise_amount = apply_ramp(
+                descender,
+                label.descending_character_v_scale,
+                label.descending_character_raise,
+                ramp,
+            )
+            fixes.append(
+                DescenderFix(
+                    line_index=line_index,
+                    glyph_index=glyph_index,
+                    char=glyph_box.char if glyph_box is not None else "",
+                    scale_y=scale_y,
+                    raise_amount=raise_amount,
+                    gap_before=gap_before.get((gap_index, glyph_index), math.inf),
+                    gap_after=gap_after.get((gap_index, glyph_index), math.inf),
+                )
+            )
+
+    heights = [
+        (bounds[3] - bounds[1]) if (bounds := block.bounds()) is not None else 0.0
+        for block in current_blocks
+    ]
+    return _DescenderRelief(
+        blocks=current_blocks,
+        heights=heights,
+        spacings=current_spacings,
+        geometry=geometry,
+        fixes=fixes,
+        residual=[max(0.0, value) for value in residual],
+    )
+
+
+def _log_descender_fixes(label: ResolvedLabel, fixes: Sequence[DescenderFix]) -> None:
+    """Log every applied descending-character relief at INFO.
+
+    Args:
+        label: The label being rendered (for the id in each message).
+        fixes: The reliefs applied by :func:`_apply_descender_relief`.
+    """
+    for fix in fixes:
+        logger.info(
+            "Label %s: line %s glyph %r descender relieved -- vertical scale "
+            "%.3f, raised %.3fin (gap %.3fin -> %.3fin).",
+            label.id,
+            fix.line_index,
+            fix.char,
+            fix.scale_y,
+            fix.raise_amount,
+            fix.gap_before,
+            fix.gap_after,
+        )
+
+
+def _format_unresolvable_descenders(
+    label: ResolvedLabel,
+    relief: _DescenderRelief,
+    line_indices: Sequence[int],
+) -> str:
+    """Build the abort message for descenders the relief could not clear.
+
+    Args:
+        label: The label whose relief failed.
+        relief: The relief outcome carrying the per-gap residual shortfalls.
+        line_indices: Each relief line's index into ``label.content``.
+
+    Returns:
+        A multi-line message naming every gap that stayed too tight, the two
+        lines involved, the shortfall, and the allowances that were spent.
+    """
+    lines = [
+        f"Label {label.id}: descending characters cannot clear the line below "
+        f"within the allowed allowances."
+    ]
+    for gap_index, deficit in enumerate(relief.residual):
+        if deficit <= _DESCENDER_GAP_TOLERANCE:
+            continue
+        upper = line_indices[gap_index] if gap_index < len(line_indices) else gap_index
+        lower = line_indices[gap_index + 1] if gap_index + 1 < len(line_indices) else upper + 1
+        upper_text = label.content[upper].text if upper < len(label.content) else ""
+        lower_text = label.content[lower] if lower < len(label.content) else None
+        lines.append(
+            f"  - lines {upper} ({upper_text!r}) / {lower} "
+            f"({getattr(lower_text, 'text', '')!r}): still {deficit:.3f}in short "
+            f"after vertical scale {label.descending_character_v_scale:.2f}, "
+            f"raise {label.descending_character_raise:.2f}, clearance "
+            f"{label.descending_character_clearance:.2f}x the stroke floor and "
+            f"all admissible line spacing. Increase line_spacing, height, "
+            f"descending_character_v_scale/raise, or lower "
+            f"descending_character_clearance."
+        )
+    return "\n".join(lines)
+
+
 def _render_positioned_lines(
     label: ResolvedLabel,
     chunk_mode: TextChunkMode = TextChunkMode.LINE,
     *,
     check_glyph_coverage: bool = True,
+    descender_fixes: Optional[List[DescenderFix]] = None,
 ) -> List[
     Tuple[
         int,
@@ -1903,6 +2655,11 @@ def _render_positioned_lines(
             reports no word groups.
         check_glyph_coverage: When True (the default), a TrueType font missing
             a glyph fails the render (see :func:`_render_line_block`).
+        descender_fixes: Optional list receiving every descending-character
+            relief applied while positioning (the per-glyph vertical downscale
+            + raise triggered by a near-miss against the line below). The
+            geometry is always applied; the list only collects the records for
+            reporting, so a caller that does not report passes ``None``.
 
     Returns:
         One ``(line_index, positioned_block, entry, word_groups,
@@ -2058,54 +2815,28 @@ def _render_positioned_lines(
             [round(s, 4) for s in adjusted_spacings],
             v_margin,
         )
-    if use_baseline:
-        total_rendered_height = baseline_block_height(
-            pitch_basis, ascenders, descenders, adjusted_spacings
-        )
-    else:
-        total_rendered_height = sum(
-            height for _idx, _lc, height, _spacing, _mhc, _align, _wg, _cs, _gg in rendered_lines
-        ) + sum(adjusted_spacings)
 
-    # Anchor the block so its vertical center sits at y = total / 2. The
-    # absolute anchor is irrelevant (post-export centering fixes it); only
-    # the relative stacking matters.
-    current_y = total_rendered_height / 2.0
-
-    # Baseline mode precomputes each line's baseline Y in the same centered
-    # frame: the block-local baselines descend by one pitch each, and the
-    # whole set is shifted so the ink block (descenders included) centers on
-    # y = 0. The per-line ``y_offset`` is then exactly that baseline Y,
-    # because the rendered block's own baseline sits at local y = 0.
-    baseline_y: List[float] = []
-    if use_baseline:
-        offsets = baseline_offsets(pitch_basis, adjusted_spacings)
-        top_extent = max(b + a for b, a in zip(offsets, ascenders))
-        bottom_extent = min(b - d for b, d in zip(offsets, descenders))
-        shift = (top_extent + bottom_extent) / 2.0
-        baseline_y = [offset - shift for offset in offsets]
-
-    # Second pass: position each line, stacked top-to-bottom (+y up).
-    positioned: List[
-        Tuple[
-            int,
-            TextBlock,
-            _LineEntry,
-            Optional[List[Tuple[str, List[int]]]],
-            Tuple[Tuple[int, ...], ...],
-        ]
-    ] = []
-    for i, (
+    # ---- Phase 2a: horizontal pipeline (compression + alignment) ----
+    # The descending-character relief below is Y-only and this phase is X-only,
+    # so doing the X work first is exact -- and necessary: the relief compares
+    # a glyph against the glyphs of the line below over their overlapping X
+    # span, which only exists once every line is aligned.
+    x_blocks: List[TextBlock] = []
+    x_line_indices: List[int] = []
+    x_word_groups: List[Optional[List[Tuple[str, List[int]]]]] = []
+    x_glyph_groups: List[Tuple[Tuple[int, ...], ...]] = []
+    effective_scales: List[float] = []
+    for (
         line_index,
         block,
-        rendered_height,
+        _rendered_height,
         _line_spacing,
         max_h_compress,
         text_h_alignment,
         word_groups,
         collision_scale,
         glyph_groups,
-    ) in enumerate(rendered_lines):
+    ) in rendered_lines:
         bounds = block.bounds()
         if bounds is None:  # pragma: no cover - measured in first pass
             continue
@@ -2145,24 +2876,109 @@ def _render_positioned_lines(
         bounds = block.bounds()
         if bounds is None:  # pragma: no cover - measured in first pass
             continue
-        min_x, _min_y, max_x, max_y = bounds
+        min_x, _min_y, max_x, _max_y = bounds
         rendered_width = max_x - min_x
 
-        # Effective per-line horizontal scale, recorded for reporting:
-        # the collision-avoidance scale (applied in the first pass) times
-        # the margin-overflow scale measured here. compress_x scales X only,
-        # so the width ratio is exactly the applied margin scale (1.0 when
-        # the line already fit or compression was disabled).
+        # Effective per-line horizontal scale, recorded for reporting: the
+        # collision-avoidance scale (applied in the first pass) times the
+        # margin-overflow scale measured here. compress_x scales X only, so the
+        # width ratio is exactly the applied margin scale (1.0 when the line
+        # already fit or compression was disabled).
         margin_scale = rendered_width / pre_margin_width if pre_margin_width > 0.0 else 1.0
-        effective_scale = collision_scale * margin_scale
 
         # Horizontal alignment within the available width: "left" anchors
-        # the line's left-most point at the left margin, "right" anchors
-        # the right-most point at the right margin, "center" centers it.
+        # the line's left-most point at the left margin, "right" anchors the
+        # right-most point at the right margin, "center" centers it.
         target_left_x = compute_horizontal_offset(
             rendered_width, alignment_available_width, h_margin, text_h_alignment
         )
-        x_offset = target_left_x - min_x
+        x_blocks.append(block.translate(target_left_x - min_x, 0.0))
+        x_line_indices.append(line_index)
+        x_word_groups.append(word_groups)
+        x_glyph_groups.append(glyph_groups)
+        effective_scales.append(collision_scale * margin_scale)
+
+    if not x_blocks:
+        return []
+
+    # ---- Descending-character relief (Y-only, per triggering glyph) ----
+    # Baseline stacking lets a descender hang into the gap below its line;
+    # when a glyph on the line below comes close enough that the two engraved
+    # strokes would bleed together, that one glyph is vertically downscaled and
+    # raised (bounded by the cascading allowances), and the gap below the line
+    # grows to cover whatever the allowances could not.
+    relief = _apply_descender_relief(
+        label,
+        x_blocks,
+        x_glyph_groups,
+        x_line_indices,
+        pitch_basis,
+        adjusted_spacings,
+        available_height,
+        use_baseline=use_baseline,
+    )
+    if relief.fixes:
+        _log_descender_fixes(label, relief.fixes)
+        if descender_fixes is not None:
+            descender_fixes.extend(relief.fixes)
+    if any(residual > _DESCENDER_GAP_TOLERANCE for residual in relief.residual):
+        raise LabelRenderError(_format_unresolvable_descenders(label, relief, x_line_indices))
+    if relief.spacings != adjusted_spacings:
+        logger.warning(
+            "Label %s: line_spacing increased at render time from %s to %s "
+            "to clear descending characters against the line below.",
+            label.id,
+            [round(s, 4) for s in adjusted_spacings],
+            [round(s, 4) for s in relief.spacings],
+        )
+
+    adjusted_spacings = relief.spacings
+    baseline_geometry = relief.geometry
+    pitch_basis = [basis for basis, _a, _d in baseline_geometry]
+    ascenders = [ascender for _basis, ascender, _d in baseline_geometry]
+    descenders = [descender for _basis, _ascender, descender in baseline_geometry]
+    if use_baseline:
+        total_rendered_height = baseline_block_height(
+            pitch_basis, ascenders, descenders, adjusted_spacings
+        )
+    else:
+        total_rendered_height = sum(relief.heights) + sum(adjusted_spacings)
+
+    # Anchor the block so its vertical center sits at y = total / 2. The
+    # absolute anchor is irrelevant (post-export centering fixes it); only
+    # the relative stacking matters.
+    current_y = total_rendered_height / 2.0
+
+    # Baseline mode precomputes each line's baseline Y in the same centered
+    # frame: the block-local baselines descend by one pitch each, and the
+    # whole set is shifted so the ink block (descenders included) centers on
+    # y = 0. The per-line ``y_offset`` is then exactly that baseline Y,
+    # because the rendered block's own baseline sits at local y = 0.
+    baseline_y: List[float] = []
+    if use_baseline:
+        offsets = baseline_offsets(pitch_basis, adjusted_spacings)
+        top_extent = max(b + a for b, a in zip(offsets, ascenders))
+        bottom_extent = min(b - d for b, d in zip(offsets, descenders))
+        shift = (top_extent + bottom_extent) / 2.0
+        baseline_y = [offset - shift for offset in offsets]
+
+    # ---- Phase 2b: vertical stacking + per-line reporting ----
+    # X is final (phase 2a), the relief adjusted Y-only, so this phase moves
+    # each line onto its stacked baseline and records what the report needs.
+    positioned: List[
+        Tuple[
+            int,
+            TextBlock,
+            _LineEntry,
+            Optional[List[Tuple[str, List[int]]]],
+            Tuple[Tuple[int, ...], ...],
+        ]
+    ] = []
+    for i, (block, line_index) in enumerate(zip(relief.blocks, x_line_indices)):
+        bounds = block.bounds()
+        if bounds is None:  # pragma: no cover - measured in phase 2a
+            continue
+        min_x, min_y, max_x, max_y = bounds
 
         # Vertical stacking. Ink-box mode anchors the top of this line's
         # glyphs at current_y. Baseline mode anchors the line's BASELINE at
@@ -2172,7 +2988,7 @@ def _render_positioned_lines(
             y_offset = baseline_y[i]
         else:
             y_offset = current_y - max_y
-        block = block.translate(x_offset, y_offset)
+        block = block.translate(0.0, y_offset)
 
         # Reported gap below this line. Both modes report the spacing term
         # (the value the layout report compares against the requested
@@ -2194,17 +3010,12 @@ def _render_positioned_lines(
                 _LineEntry(
                     line_index=line_index,
                     line_text=label.content[line_index].text,
-                    bounds=(
-                        min_x + x_offset,
-                        bounds[1] + y_offset,
-                        max_x + x_offset,
-                        max_y + y_offset,
-                    ),
-                    compression_scale=effective_scale,
+                    bounds=(min_x, min_y + y_offset, max_x, max_y + y_offset),
+                    compression_scale=effective_scales[i],
                     line_spacing=reported_spacing,
                 ),
-                word_groups,
-                glyph_groups,
+                x_word_groups[i],
+                x_glyph_groups[i],
             )
         )
 
@@ -2212,7 +3023,7 @@ def _render_positioned_lines(
         # the last). Baseline mode ignores the running anchor -- its Y comes
         # from the precomputed ``baseline_y`` table.
         if not use_baseline:
-            current_y -= rendered_height
+            current_y -= relief.heights[i]
             if i < len(adjusted_spacings):
                 current_y -= adjusted_spacings[i]
 
@@ -2258,6 +3069,7 @@ def _render_text_lines_by_pen(
     chunk_mode: TextChunkMode = TextChunkMode.LINE,
     *,
     check_glyph_coverage: bool = True,
+    descender_fixes: Optional[List[DescenderFix]] = None,
 ) -> Tuple[dict[int, Tuple[TextBlock, ...]], List[_LineEntry], List[TextChunkRecord]]:
     """Render text lines grouped onto per-cutter pen layers.
 
@@ -2291,7 +3103,10 @@ def _render_text_lines_by_pen(
     line_entries: List[_LineEntry] = []
     chunk_records: List[TextChunkRecord] = []
     for line_index, positioned_block, entry, word_groups, glyph_groups in _render_positioned_lines(
-        label, chunk_mode=chunk_mode, check_glyph_coverage=check_glyph_coverage
+        label,
+        chunk_mode=chunk_mode,
+        check_glyph_coverage=check_glyph_coverage,
+        descender_fixes=descender_fixes,
     ):
         pen = LAYER_TEXT
         if pen_map is not None and 0 <= line_index < len(label.content):

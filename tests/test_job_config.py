@@ -45,6 +45,10 @@ _FULL_CONFIG: dict[str, Any] = {
     "kerning_min_gap": 0.05,
     "fallback_advance_fraction": 0.9,
     "use_baseline_spacing": False,
+    "auto_descending_character_adjustment": False,
+    "descending_character_v_scale": 0.3,
+    "descending_character_raise": 0.25,
+    "descending_character_clearance": 0.05,
     "plate_width": 24.0,
     "plate_height": 16.0,
     "left_clearance": 0.0,
@@ -159,6 +163,33 @@ class TestJobDefaultsModel:
         """A free-form description (like tools.json) is accepted."""
         assert JobDefaults(**_FULL_CONFIG, description="shop A").description == "shop A"
 
+    def test_descending_character_config_fields(self) -> None:
+        """The relief fields are legal shop defaults with schema-mirrored bounds."""
+        assert JobDefaults(auto_descending_character_adjustment=True).auto_descending_character_adjustment is True
+        assert JobDefaults(auto_descending_character_adjustment=False).auto_descending_character_adjustment is False
+        assert JobDefaults().auto_descending_character_adjustment is None
+        assert (
+            JobDefaults(descending_character_v_scale=0.2).descending_character_v_scale == 0.2
+        )
+        assert JobDefaults(descending_character_raise=1.0).descending_character_raise == 1.0
+        assert JobDefaults(descending_character_clearance=0.0).descending_character_clearance == 0.0
+        assert JobDefaults().descending_character_v_scale is None
+        assert JobDefaults().descending_character_raise is None
+        assert JobDefaults().descending_character_clearance is None
+
+    def test_descending_character_range_validators(self) -> None:
+        """The relief floats enforce the same bounds as the job spec."""
+        with pytest.raises(ValidationError):
+            JobDefaults(descending_character_v_scale=0.1)  # type: ignore[arg-type]
+        with pytest.raises(ValidationError):
+            JobDefaults(descending_character_v_scale=1.1)  # type: ignore[arg-type]
+        with pytest.raises(ValidationError):
+            JobDefaults(descending_character_raise=-0.1)  # type: ignore[arg-type]
+        with pytest.raises(ValidationError):
+            JobDefaults(descending_character_raise=1.5)  # type: ignore[arg-type]
+        with pytest.raises(ValidationError):
+            JobDefaults(descending_character_clearance=-0.01)  # type: ignore[arg-type]
+
     def test_range_validators(self) -> None:
         """Numeric fields enforce the same bounds as the job spec."""
         with pytest.raises(ValidationError):
@@ -202,6 +233,10 @@ class TestJobDefaultsModel:
         assert "optimize_line_content" not in REQUIRED_WHEN_UNCONFIGURED
         assert "optimize_line_content_max_lines" not in REQUIRED_WHEN_UNCONFIGURED
         assert "use_baseline_spacing" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "auto_descending_character_adjustment" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "descending_character_v_scale" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "descending_character_raise" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "descending_character_clearance" not in REQUIRED_WHEN_UNCONFIGURED
         assert JobDefaults().space_width_fraction is None
         assert JobDefaults().min_glyph_width is None
         assert JobDefaults().kerning_window_fraction is None
@@ -752,6 +787,13 @@ class TestParseYamlWithJobConfig:
         assert job.optimize_line_content is False
         assert job.optimize_line_content_max_lines is None
         assert job.use_baseline_spacing is True
+        # The descending-character relief knobs are shop-tuning values (the
+        # repo config ships non-default numbers on purpose), so this test only
+        # pins that the config layer resolves them -- never the exact numbers.
+        assert isinstance(job.auto_descending_character_adjustment, bool)
+        assert isinstance(job.descending_character_v_scale, float)
+        assert isinstance(job.descending_character_raise, float)
+        assert isinstance(job.descending_character_clearance, float)
 
     def test_yaml_overrides_config(self) -> None:
         """Spec-declared values still win over the shipped config."""

@@ -673,6 +673,12 @@ class TestLayerReport:
         tuned under: baseline spacing shifts each line's Y, which reshuffles
         the rapid-travel gains and silences the direction sweep this test
         asserts on. The report line's format is what is under test here.
+
+        ``auto_descending_character_adjustment=False`` is required for the same
+        reason: this label is a synthetic routing fixture (zero margins, four
+        lines of 0.4in on a 1.6in sheet), so its spacing is fully clamped and
+        the 'Q' descenders cannot be relieved -- the relief would abort the
+        render, and its Y transform would move the tuned tour numbers.
         """
         return ResolvedLabel(
             id="lbl",
@@ -684,6 +690,7 @@ class TestLayerReport:
             v_margin=0.0,
             material=None,
             use_baseline_spacing=False,
+            auto_descending_character_adjustment=False,
             content=[
                 ResolvedTextLine(
                     text=text,
@@ -1584,4 +1591,122 @@ class TestUseBaselineSpacingDemoExample:
         assert sorted(p.name for p in result.plt_paths) == [
             "0.015_bh_ubs.plt",
             "0.060_txt_ubs.plt",
+        ]
+
+
+class TestDescenderAdjustDemoExample:
+    """Regression tests for tests_deps/descender_adjust_job.yaml.
+
+    The fixture pins the automatic descending-character relief
+    (``auto_descending_character_adjustment``, default true): a descending
+    glyph measured close to a glyph on the following line is vertically
+    downscaled about its own baseline and raised, per glyph, until the engraved
+    strokes clear. Roomy gaps, cap-only content and the explicit opt-out leave
+    the descender exactly as rendered; spent allowances grow the gap below.
+    """
+
+    _SPEC = Path("tests_deps/descender_adjust_job.yaml")
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="da",
+            optimize=False,
+            plots=False,
+        )
+
+    def test_flags_resolve_per_label(self, tmp_path: Path) -> None:
+        """The default enables the relief; one label opts out explicitly."""
+        result = self._export(tmp_path)
+        assert (
+            result.rendered_labels["trigger"].source_label.auto_descending_character_adjustment
+            is True
+        )
+        assert (
+            result.rendered_labels["off"].source_label.auto_descending_character_adjustment
+            is False
+        )
+        grow = result.rendered_labels["spacing_grow"].source_label
+        assert grow.descending_character_v_scale == 1.0
+        assert grow.descending_character_raise == 0.0
+
+    def test_descender_is_relieved_against_the_line_below(self, tmp_path: Path) -> None:
+        """The 'p' is squeezed and raised until the engraved strokes clear."""
+        result = self._export(tmp_path)
+        fixes = result.rendered_labels["trigger"].descender_adjustments_by_line
+
+        assert list(fixes) == [0]
+        (fix,) = fixes[0]
+        assert fix.char == "p"
+        assert fix.glyph_index == 2  # D-e-p-t-h
+        assert fix.scale_y == pytest.approx(0.549, abs=0.01)
+        assert fix.raise_amount == pytest.approx(0.078, abs=0.01)
+        assert fix.gap_before == pytest.approx(-0.073, abs=0.01)
+        # Cleared to the stroke floor: 0.5 * (0.06 + 0.06) + clearance 0.0.
+        assert fix.gap_after == pytest.approx(0.06, abs=1e-6)
+
+    def test_relief_is_per_glyph_not_blanket(self, tmp_path: Path) -> None:
+        """Only the glyph with a close partner below is relieved."""
+        result = self._export(tmp_path)
+        fixes = result.rendered_labels["notall"].descender_adjustments_by_line
+        assert [fix.char for fixes_on_line in fixes.values() for fix in fixes_on_line] == ["p"]
+
+    def test_roomy_gap_is_left_alone(self, tmp_path: Path) -> None:
+        """No close partner below means no relief."""
+        result = self._export(tmp_path)
+        assert result.rendered_labels["no_trigger"].descender_adjustments_by_line == {}
+
+    def test_cap_only_control_has_no_relief(self, tmp_path: Path) -> None:
+        """Descender-free content is the mode-independent control."""
+        result = self._export(tmp_path)
+        caponly = result.rendered_labels["caponly"]
+        assert caponly.descender_adjustments_by_line == {}
+        assert caponly.compression_by_line == {}
+        assert math.isclose(caponly.line_spacing_by_line[0], 0.05, abs_tol=1e-9)
+
+    def test_disabled_label_engraves_the_descender_verbatim(self, tmp_path: Path) -> None:
+        """The opt-out twin keeps the un-relieved (colliding) descender."""
+        result = self._export(tmp_path)
+        off = result.rendered_labels["off"]
+        trigger = result.rendered_labels["trigger"]
+        assert off.descender_adjustments_by_line == {}
+        assert off.plt_content != trigger.plt_content
+
+        from plt_optimizer.generate.label_renderer import _render_text_local_with_bounds
+
+        _lc, entries = _render_text_local_with_bounds(off.source_label)
+        # Baseline stacking leaves the 'p' descender inside the gap: the visual
+        # gap between the lines is negative (the ink boxes overlap).
+        assert entries[0].bounds[1] - entries[1].bounds[3] < 0.0
+
+    def test_spent_allowances_grow_the_gap_below(self, tmp_path: Path) -> None:
+        """No downscale + no raise => the inter-line spacing increases."""
+        result = self._export(tmp_path)
+        grow = result.rendered_labels["spacing_grow"]
+        assert grow.descender_adjustments_by_line == {}
+        # The requested 0.05in grew to clear the descender against the caps.
+        assert grow.line_spacing_by_line[0] == pytest.approx(0.183, abs=0.01)
+
+    def test_relief_reports_a_layout_finding(self, tmp_path: Path) -> None:
+        """The relief surfaces in the shared LAYOUT REPORT formatter."""
+        from plt_optimizer.generate.layout_report import has_layout_findings
+
+        result = self._export(tmp_path)
+        resolved = [
+            result.rendered_labels[label_id].source_label
+            for label_id in ("caponly", "trigger")
+        ]
+        assert has_layout_findings(resolved, result.rendered_labels)
+
+    def test_relief_keeps_one_cutter_file(self, tmp_path: Path) -> None:
+        """The relief is a Y transform only, so the cutter set is unchanged."""
+        result = self._export(tmp_path)
+        assert sorted(p.name for p in result.plt_paths) == [
+            "0.015_bh_da.plt",
+            "0.060_txt_da.plt",
         ]

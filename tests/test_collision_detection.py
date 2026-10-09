@@ -15,6 +15,7 @@ import pytest
 
 from plt_optimizer.generate.geometry import (
     CollisionResult,
+    aabb_vertical_gap,
     arc_swept_bounds,
     circle_aabb_gap,
 )
@@ -135,3 +136,44 @@ class TestArcSweptBounds:
         """A sweep crossing 90 deg reaches the top of the circle."""
         _x_min, _y_min, _x_max, y_max = arc_swept_bounds(0.0, 0.0, 1.0, 45.0, 90.0)
         assert y_max == pytest.approx(1.0)
+
+
+class TestAabbVerticalGap:
+    """Tests for the signed vertical clearance between two boxes."""
+
+    def test_separated_boxes_report_positive_gap(self) -> None:
+        """Boxes stacked with air between them report that air."""
+        assert aabb_vertical_gap((0.0, 1.0, 1.0, 2.0), (0.0, 0.0, 1.0, 0.5)) == 0.5
+
+    def test_touching_boxes_report_zero(self) -> None:
+        """Tangency is a gap of exactly zero (safe, not a collision)."""
+        assert aabb_vertical_gap((0.0, 1.0, 1.0, 2.0), (0.0, 0.0, 1.0, 1.0)) == 0.0
+
+    def test_overlap_reports_negative_penetration(self) -> None:
+        """An overlap reports the (negative) penetration depth."""
+        assert aabb_vertical_gap((0.0, 0.5, 1.0, 2.0), (0.0, 0.0, 1.0, 1.0)) == -0.5
+
+    def test_gap_measured_only_over_the_overlapping_x_span(self) -> None:
+        """The partial-X-overlap case measures the vertical gap, not the lateral one."""
+        upper = (0.0, 1.0, 2.0, 2.0)
+        lower = (1.5, 0.0, 3.5, 0.75)
+        assert aabb_vertical_gap(upper, lower) == pytest.approx(0.25)
+
+    def test_disjoint_x_spans_report_infinity(self) -> None:
+        """Laterally distant boxes can never collide, so they are infinitely far."""
+        assert math.isinf(aabb_vertical_gap((0.0, 1.0, 1.0, 2.0), (5.0, 0.0, 6.0, 0.5)))
+
+    def test_touching_x_edges_report_infinity(self) -> None:
+        """A zero-width X overlap is no overlap at all."""
+        assert math.isinf(aabb_vertical_gap((0.0, 1.0, 1.0, 2.0), (1.0, 0.0, 2.0, 0.5)))
+
+    def test_is_frame_agnostic(self) -> None:
+        """A shared translation leaves the gap unchanged (y-up and y-down alike)."""
+        upper = (0.0, 1.0, 1.0, 2.0)
+        lower = (0.0, 0.0, 1.0, 0.5)
+        shift = -3.7
+        moved = (
+            (upper[0], upper[1] + shift, upper[2], upper[3] + shift),
+            (lower[0], lower[1] + shift, lower[2], lower[3] + shift),
+        )
+        assert aabb_vertical_gap(*moved) == pytest.approx(aabb_vertical_gap(upper, lower))

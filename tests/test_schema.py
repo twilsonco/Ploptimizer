@@ -1689,6 +1689,102 @@ class TestUseBaselineSpacing:
         assert plate.use_baseline_spacing is False
 
 
+class TestAutoDescendingCharacterAdjustment:
+    """Tests for the label-tier descending-character relief fields.
+
+    The relief compares a line's glyphs against the *following* line's, so all
+    four fields live on ``LabelAttributes`` (inherited by ``LabelSpec`` /
+    ``JobSpec``) and are deliberately absent from ``TextLine`` /
+    ``TextAttributes``.
+    """
+
+    _FIELDS = (
+        "auto_descending_character_adjustment",
+        "descending_character_v_scale",
+        "descending_character_raise",
+        "descending_character_clearance",
+    )
+
+    @pytest.mark.parametrize("field", _FIELDS)
+    def test_inherited_on_label_and_job_tiers_only(self, field: str) -> None:
+        """The relief fields live on LabelAttributes, never on TextLine."""
+        assert field in LabelAttributes.model_fields
+        assert field in JobSpec.model_fields
+        assert field in PlateSpec.model_fields
+        assert field not in TextLine.model_fields
+        assert field not in TextAttributes.model_fields
+
+    @pytest.mark.parametrize("field", _FIELDS)
+    def test_default_is_none(self, field: str) -> None:
+        """Schema default is None (unset); resolution applies the fallback."""
+        assert getattr(LabelSpec(id="lbl", content=[TextLine(text="X")]), field) is None
+
+    def test_label_and_job_accept_the_values(self) -> None:
+        """Every field validates on the tiers that carry it."""
+        label = LabelSpec(
+            id="lbl",
+            content=[TextLine(text="X")],
+            auto_descending_character_adjustment=False,
+            descending_character_v_scale=0.3,
+            descending_character_raise=0.0,
+            descending_character_clearance=0.05,
+        )
+        assert label.auto_descending_character_adjustment is False
+        assert label.descending_character_v_scale == pytest.approx(0.3)
+        assert label.descending_character_raise == 0.0
+        assert label.descending_character_clearance == pytest.approx(0.05)
+
+        job = JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            auto_descending_character_adjustment=False,
+            descending_character_v_scale=0.8,
+            descending_character_raise=1.0,
+            descending_character_clearance=0.0,
+            content=[TextLine(text="X")],
+        )
+        assert job.auto_descending_character_adjustment is False
+        assert job.descending_character_v_scale == pytest.approx(0.8)
+        assert job.descending_character_raise == pytest.approx(1.0)
+        assert job.descending_character_clearance == 0.0
+
+    def test_v_scale_bounds_are_enforced(self) -> None:
+        """descending_character_v_scale is bound to [0.2, 1.0]."""
+        with pytest.raises(ValidationError, match="descending_character_v_scale"):
+            LabelSpec(id="lbl", content=[TextLine(text="X")], descending_character_v_scale=0.1)
+        with pytest.raises(ValidationError, match="descending_character_v_scale"):
+            LabelSpec(id="lbl", content=[TextLine(text="X")], descending_character_v_scale=1.1)
+
+    def test_raise_bounds_are_enforced(self) -> None:
+        """descending_character_raise is bound to [0.0, 1.0]."""
+        with pytest.raises(ValidationError, match="descending_character_raise"):
+            LabelSpec(id="lbl", content=[TextLine(text="X")], descending_character_raise=-0.1)
+        with pytest.raises(ValidationError, match="descending_character_raise"):
+            LabelSpec(id="lbl", content=[TextLine(text="X")], descending_character_raise=1.5)
+
+    def test_clearance_must_be_non_negative(self) -> None:
+        """descending_character_clearance is ge=0.0 (an explicit 0.0 is legal)."""
+        with pytest.raises(ValidationError, match="descending_character_clearance"):
+            LabelSpec(id="lbl", content=[TextLine(text="X")], descending_character_clearance=-0.01)
+        label = LabelSpec(id="lbl", content=[TextLine(text="X")], descending_character_clearance=0.0)
+        assert label.descending_character_clearance == 0.0
+
+    @pytest.mark.parametrize(
+        "field,value",
+        [
+            ("auto_descending_character_adjustment", False),
+            ("descending_character_v_scale", 0.4),
+            ("descending_character_raise", 0.25),
+            ("descending_character_clearance", 0.03),
+        ],
+    )
+    def test_plate_accepts_field_for_parity(self, field: str, value: object) -> None:
+        """PlateSpec should accept the fields for schema parity."""
+        plate = PlateSpec(id="plate_1", width=24.0, height=12.0, **{field: value})
+        assert getattr(plate, field) == value
+
+
 class TestJobLevelReplacementFile:
     """Job-level ``replacement_text_file`` (labels section optional)."""
 

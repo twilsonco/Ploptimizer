@@ -178,6 +178,7 @@ always wins at its level. Precedence per attribute:
 | `cutter_downsize`, `max_cutter_downsizes`, `cutter_downsize_global` | line → label → job → config | `true` / `1` / `true` |
 | `h_compress_global` | line → label → job → config | `false` |
 | `use_baseline_spacing` | label → job → config (never lines; plate parity) | `true` |
+| `auto_descending_character_adjustment`, `descending_character_v_scale`, `descending_character_raise`, `descending_character_clearance` | label → job → config (never lines; plate parity) | `true` / `0.5` / `0.7` / `0.0` |
 | `text_color` | line → label (never job/plate/config) | `none` (implicit) |
 | `width`, `height` | label → job → auto-size from rendered content | — |
 | `margin` | label → job → config | 0.125 |
@@ -224,7 +225,9 @@ entries that omit it).
 - **Per-plate typographic fields** (`hole_margin`, `max_h_compress`,
   `text_h_alignment`, `min_hole_margin`, `hole_text_collision_distance`,
   `cutter_size`, `cutter_downsize`, `max_cutter_downsizes`,
-  `cutter_downsize_global`, `h_compress_global`, `use_baseline_spacing`) are
+  `cutter_downsize_global`, `h_compress_global`, `use_baseline_spacing`,
+  `auto_descending_character_adjustment`, `descending_character_v_scale`,
+  `descending_character_raise`, `descending_character_clearance`) are
   accepted on plates for schema parity but **not applied** at plate level —
   labels render once before packing.
 - **`cutter_size` (default null)**: an explicit cutter diameter (inches)
@@ -298,6 +301,28 @@ entries that omit it).
   restores the historical ink-box stacking. Cascades label → job → config
   (never text lines — spacing is a property of the stacked block); plates are
   parity-only.
+- **`auto_descending_character_adjustment` (default true)**: per-glyph
+  descending-character relief. Baseline spacing lets a descender hang into the
+  gap below its line; when a glyph on the **following** line is close enough
+  that the two engraved strokes would bleed together, that one descending glyph
+  is vertically downscaled (about its own baseline, down to
+  `descending_character_v_scale`) and raised (by up to `descending_character_raise`
+  × its own descender depth, so `1.0` lifts its lowest point exactly to the
+  baseline). The trigger is a measured near-miss against the line below — a gap
+  under `0.5 * (cutter_upper + cutter_lower) * (1 + descending_character_clearance)`
+  over the pair's overlapping X span (the clearance is a unitless factor of the
+  stroke floor, so it reads the same at every text size) — never a blanket
+  adjustment of every descender, and never based on the following line's cap
+  line in the abstract.
+  When both allowances are exhausted and the pair is still too close, the gap
+  below the line grows (capped by the vertical margins); a collision that
+  neither the allowances nor the admissible spacing can clear aborts the job
+  (`LabelRenderError`, non-zero exit). Runs at render time in both stacking
+  modes; arcs on a relieved glyph are flattened (bounded chord error, DEBUG).
+  Reported per glyph in the layout report. Cascades label → job → config (never
+  text lines — the mechanism compares a line's glyphs against the following
+  line's); plates are parity-only. `false` engraves descenders exactly as
+  rendered.
 - **Text–hole collision avoidance** (3 phases): always-on detection →
   opt-in `min_hole_margin` sweep → opt-in `max_h_compress` compression.
   Unresolved collisions fail the job (`LabelRenderError`, non-zero exit).

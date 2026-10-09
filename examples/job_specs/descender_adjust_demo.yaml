@@ -1,0 +1,61 @@
+# Demo: automatic descending-character relief
+# (`auto_descending_character_adjustment`, default true).
+#
+# Each label stacks a line with DESCENDERS (p y g) directly over a line of tall
+# CAPITALS with a tight line_spacing, so the descenders come close to colliding
+# with the capitals below.
+#
+#   - *_relief  (default, relief ON): the individual descending glyphs that
+#     come too close are vertically downscaled (about their own baseline) and
+#     raised, so the engraved strokes clear. The relief is per glyph -- only the
+#     glyphs with a close partner below move.
+#   - *_raw     (relief OFF): the same content with the mechanism disabled, so
+#     the descenders hang exactly as baseline stacking leaves them and bleed
+#     into the capitals below.
+#
+# Compare the pairs in the simple-outline PDFs (pdf/*.pdf) and the color-coded
+# rapid-travel plots (pdf/*_default.pdf, written with --default-plots).
+#
+#   uv run plt-optimizer generate \
+#     examples/job_specs/descender_adjust_demo.yaml \
+#     -o test_output/descender_adjust_demo --default-plots
+job:
+  job_name: Descender Relief Demo
+  width: 6.0
+  height: 3.0
+  margin: 0.2
+  text_height: 1.0
+  line_spacing: 0.1
+  font: dino
+
+  plates:
+    - id: plate_1
+      width: 30.0
+      height: 16.0
+
+  labels:
+    # 1. Relief ON (the shipped default): the 'p' and 'y' are relieved.
+    - id: typical_relief
+      content:
+        - text: "Typical"
+        - text: "HEIGHT"
+
+    # 2. Relief OFF: same content, descenders bleed into the capitals below.
+    - id: typical_raw
+      auto_descending_character_adjustment: false
+      content:
+        - text: "Typical"
+        - text: "HEIGHT"
+
+    # 3. Relief ON: 'p' over "RANGE".
+    - id: depth_relief
+      content:
+        - text: "Depth"
+        - text: "RANGE"
+
+    # 4. Relief OFF: 'p' over "RANGE" (un-relieved twin of label 3).
+    - id: depth_raw
+      auto_descending_character_adjustment: false
+      content:
+        - text: "Depth"
+        - text: "RANGE"
