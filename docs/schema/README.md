@@ -320,11 +320,21 @@ entries that omit it).
   firing on box overlaps whose real ink is nowhere near. The relief is per
   descending glyph — never a blanket adjustment of every descender, and never
   based on the following line's cap line in the abstract.
+  The label's **bottom border** is measured the same way, as a virtual
+  "following line": the border is drawn at the label edge and cut by the
+  boundary/hole tool, so a descender collides when its ink comes within
+  `0.5 * (text_cutter + hole_cutter_diameter) * (1 + descending_character_clearance)`
+  of the border centreline. Crossing `v_margin` is **not** a collision — ink
+  may spill into the margin; only the border stroke counts. No extra fields.
   When both allowances are exhausted and the pair is still too close, the gap
   below the line grows (capped by the vertical margins); a collision that
   neither the allowances nor the admissible spacing can clear aborts the job
-  (`LabelRenderError`, non-zero exit). Runs at render time in both stacking
-  modes; arcs on a relieved glyph are flattened (bounded chord error, DEBUG).
+  (`LabelRenderError`, non-zero exit). A **border** collision never aborts:
+  growing the spacing above the last line moves that line *down* toward the
+  border, so the per-glyph ramp is the only remedy and a spent ramp is reported
+  as a WARNING while the job engraves the best the allowances allow. Runs at
+  render time in both stacking modes; arcs on a relieved glyph are flattened
+  (bounded chord error, DEBUG).
   Reported per glyph in the layout report. Cascades label → job → config (never
   text lines — the mechanism compares a line's glyphs against the following
   line's); plates are parity-only. `false` engraves descenders exactly as

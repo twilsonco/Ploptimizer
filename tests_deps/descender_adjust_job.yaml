@@ -76,3 +76,15 @@ job:
       content:
         - text: "Depth"
         - text: "ROOTS"
+
+    # 7. Bottom border: the block is centred, so a 0.55in tall label leaves
+    #    only ~0.034in between the 'p'/'y' descender tips and the border
+    #    centreline -- inside the required 0.5 * (0.06 + 0.015) * 1.0 =
+    #    0.0375in (the border is drawn at the label edge and cut by the
+    #    boundary/hole tool). The relief squeezes + raises just those glyphs;
+    #    spacing growth is excluded (it moves the last line DOWN, toward the
+    #    border), so the ramp is the whole remedy.
+    - id: border
+      height: 0.55
+      content:
+        - text: "pay"

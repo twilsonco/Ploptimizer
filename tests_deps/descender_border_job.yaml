@@ -1,0 +1,90 @@
+# Fixture for the descending-character relief's BOTTOM BORDER trigger
+# (`auto_descending_character_adjustment`, default true -- no extra fields).
+#
+# The label's border rectangle is drawn at the label edge, and the border
+# stroke is cut by the boundary/hole tool (`hole_cutter_diameter`). A
+# descending glyph collides with it when its sub-baseline ink comes within
+# `0.5 * (text_cutter + hole_cutter) * (1 + descending_character_clearance)`
+# of the border centreline -- the same rolling-circle test the relief already
+# runs against the following text line, with the border as a virtual
+# "following line".
+#
+# The text block is centred in the label, so the descender tip sits
+# `(height - ink_height) / 2` above the border: a short label puts it inside
+# the required clearance, a taller label leaves it clear. Only the per-glyph
+# ramp (vertical downscale about the baseline + raise) can help -- growing the
+# inter-line spacing moves the last line DOWN in the centred frame, which
+# deepens a border collision -- so spacing growth is deliberately excluded
+# here, and a ramp that runs out of allowance is reported as a WARNING and the
+# job engraves the best the allowances allow (never an abort).
+#
+# Crossing `v_margin` is NOT a collision: the ink is allowed to spill into the
+# margin, only the border stroke matters (see the `margin_cross` label).
+#
+# Dino at 1.5in text with a 0.09in cutter puts the descender tip ~0.944in
+# below the centred block's middle; with the default 0.015in boundary/hole
+# cutter the required clearance is 0.5 * (0.09 + 0.015) * 1.5 = 0.0788in.
+#
+# No plate declares a material and the job packs onto one sheet, so emitted
+# names carry no plate/material prefix: [<cutter>]_txt_<job>.plt per distinct
+# cutter plus one bh file.
+job:
+  job_name: Descender Border Demo
+
+  width: 6.0
+  margin: 0.1
+  v_margin: 0.1
+  text_height: 1.5
+  line_spacing: 0.3
+  font: dino
+  descending_character_clearance: 0.5
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. Trigger: a 1.9in tall label leaves only ~0.006in between the 'g'
+    #    descender tips and the bottom border, far inside the required
+    #    0.0788in. The relief squeezes + raises just those glyphs.
+    - id: trigger
+      height: 1.9
+      content:
+        - text: "charging"
+
+    # 2. No trigger: the same word on a 2.1in tall label leaves ~0.106in of
+    #    air, clear of the requirement, so the descender engraves as rendered.
+    - id: no_trigger
+      height: 2.1
+      content:
+        - text: "charging"
+
+    # 3. Margin crossing is not a collision: the ink spills ~0.74in past the
+    #    0.2in v_margin while staying 0.106in clear of the border stroke, so
+    #    nothing is relieved. The margin is not the constraint.
+    - id: margin_cross
+      height: 2.1
+      v_margin: 0.2
+      content:
+        - text: "charging"
+
+    # 4. Spacing growth is excluded: the two lines are far apart, so the only
+    #    trigger is the border under the last line's 'g' glyphs. The relief
+    #    acts on the glyphs and leaves the inter-line spacing untouched
+    #    (growing it would move the last line DOWN, toward the border).
+    - id: spacing_untouched
+      height: 3.4
+      content:
+        - text: "AAAA"
+        - text: "charging"
+
+    # 5. Feature disabled: the relief is off, the descender hangs exactly as
+    #    baseline stacking leaves it, into the border stroke (the trigger
+    #    label's un-relieved twin). (The id is quoted: bare ``off`` is a YAML
+    #    boolean.)
+    - id: "off"
+      height: 1.9
+      auto_descending_character_adjustment: false
+      content:
+        - text: "charging"

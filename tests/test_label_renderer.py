@@ -1700,12 +1700,15 @@ def _make_descender_label(
     content: list[ResolvedTextLine],
     *,
     height: float = 1.4,
+    v_margin: float = 0.1,
     **kwargs: object,
 ) -> ResolvedLabel:
     """Build a two-line label for descending-character relief tests.
 
     The relief is a label-tier mechanism, so the label is built with the
     relief allowances passed straight through to ``ResolvedLabel``.
+    ``v_margin`` is a parameter (not hardcoded) so a test can place the text
+    block near the bottom border and exercise the border trigger.
     """
     return ResolvedLabel(
         id="descender",
@@ -1714,7 +1717,7 @@ def _make_descender_label(
         height=height,
         margin=0.1,
         h_margin=0.1,
-        v_margin=0.1,
+        v_margin=v_margin,
         holes=[],
         content=content,
         **kwargs,  # type: ignore[arg-type]
@@ -1943,3 +1946,140 @@ class TestDescendingCharacterRelief:
         )
         rendered = render_label_to_plt(label)
         assert rendered.descender_adjustments_by_line != {}
+
+
+def _make_border_label(
+    texts: list[str],
+    *,
+    height: float = 1.9,
+    v_margin: float = 0.1,
+    line_spacing: float = 0.3,
+    **kwargs: object,
+) -> ResolvedLabel:
+    """Build a dino label positioned near its bottom border.
+
+    Dino at 1.5in with a 0.09in cutter puts the descender tip ~0.94in below
+    the centred block's middle, so a 1.9in label leaves ~0.006in of air above
+    the border centreline -- far inside the required clearance
+    ``0.5 * (0.09 + 0.015) * 1.5 = 0.079in`` (the border cutter is
+    ``ResolvedLabel.hole_cutter_diameter``, the snapped boundary/hole tool).
+    A 2.1in label leaves ~0.106in and is clear.
+    """
+    content = [
+        ResolvedTextLine(
+            text=text,
+            nominal_text_height=1.5,
+            toolpath_text_height=1.5 - 0.09,
+            cutter_diameter=0.09,
+            character_spacing=0.0,
+            line_spacing=line_spacing,
+            max_h_compress=0.0,
+            text_h_alignment="center",
+            font="dino",
+        )
+        for text in texts
+    ]
+    return ResolvedLabel(
+        id="border",
+        count=1,
+        width=6.0,
+        height=height,
+        margin=0.1,
+        h_margin=0.1,
+        v_margin=v_margin,
+        holes=[],
+        content=content,
+        descending_character_clearance=0.5,
+        **kwargs,  # type: ignore[arg-type]
+    )
+
+
+class TestDescendingCharacterBorderRelief:
+    """The bottom border acts as a virtual following line for the relief."""
+
+    def test_descender_close_to_the_bottom_border_is_relieved(self) -> None:
+        """A 'g' hanging toward the border stroke is squeezed and raised."""
+        rendered = render_label_to_plt(_make_border_label(["charging"], height=1.9))
+
+        fixes = rendered.descender_adjustments_by_line
+        assert list(fixes) == [0]
+        assert [fix.char for fix in fixes[0]] == ["g", "g"]  # both 'g' in charging
+        for fix in fixes[0]:
+            assert fix.scale_y < 1.0
+            assert fix.raise_amount > 0.0
+            assert fix.gap_before == pytest.approx(0.006, abs=0.01)
+            # Cleared to the required 0.5 * (0.09 + 0.015) * 1.5 = 0.0788in,
+            # within one plotter unit.
+            assert fix.gap_after == pytest.approx(0.0788, abs=1e-3)
+
+    def test_descender_clear_of_the_border_is_left_alone(self) -> None:
+        """A roomy label keeps the descender exactly as rendered."""
+        rendered = render_label_to_plt(_make_border_label(["charging"], height=2.1))
+        assert rendered.descender_adjustments_by_line == {}
+
+    def test_crossing_the_margin_is_not_a_border_collision(self) -> None:
+        """Ink spilling into v_margin is accepted; only the border stroke counts.
+
+        The block is centred, so the ink bottom always sits at ``height / 2``
+        from the border -- a 2.1in label leaves 0.106in of air (clear of the
+        0.079in requirement) while the ink crosses the 0.2in v_margin by
+        ~0.74in. The margin is not the constraint, so nothing is relieved.
+        """
+        rendered = render_label_to_plt(_make_border_label(["charging"], height=2.1, v_margin=0.2))
+        assert rendered.descender_adjustments_by_line == {}
+
+    def test_border_relief_never_grows_the_line_spacing(self) -> None:
+        """Spacing growth cannot help a border collision, so it stays put.
+
+        Growing the gap above the last line moves that line DOWN in the
+        centred frame -- the opposite of what the border needs -- so only the
+        per-glyph ramp acts. The two lines here are far apart, so the
+        line-to-line mechanism has nothing to do and the spacing is untouched.
+        """
+        label = _make_border_label(["AAAA", "charging"], height=3.4)
+        rendered = render_label_to_plt(label)
+
+        fixes = rendered.descender_adjustments_by_line
+        assert list(fixes) == [1]  # the last line's 'g' glyphs
+        assert [fix.char for fix in fixes[1]] == ["g", "g"]
+        assert rendered.line_spacing_by_line[0] == pytest.approx(0.0, abs=1e-9)
+
+    def test_feature_disabled_leaves_the_border_descender_verbatim(self) -> None:
+        """With the flag off, the border collision engraves untouched."""
+        off = render_label_to_plt(
+            _make_border_label(["charging"], height=1.9, auto_descending_character_adjustment=False)
+        )
+        on = render_label_to_plt(_make_border_label(["charging"], height=1.9))
+        assert off.descender_adjustments_by_line == {}
+        assert on.descender_adjustments_by_line != {}
+        assert on.plt_content != off.plt_content
+
+    def test_exhausted_allowances_warn_and_engrave(self, caplog: pytest.LogCaptureFixture) -> None:
+        """No downscale + no raise => the job proceeds and the shortfall warns.
+
+        Spacing growth cannot help a border collision, so a spent ramp is the
+        end of the mechanism: the engraving is the best the allowances allow,
+        reported as a WARNING naming the glyph, the gap, the requirement and
+        the spent allowances.
+        """
+        label = _make_border_label(
+            ["charging"],
+            height=1.9,
+            descending_character_v_scale=1.0,
+            descending_character_raise=0.0,
+        )
+        with caplog.at_level(logging.WARNING, logger="plt_optimizer.generate.label_renderer"):
+            rendered = render_label_to_plt(label)
+
+        assert rendered.descender_adjustments_by_line == {}
+        messages = [r.message for r in caplog.records if "bottom border" in r.message]
+        assert messages
+        assert "glyph 'g' stays" in messages[0]
+        assert "needs 0.079in" in messages[0]
+
+    def test_single_line_label_relieves_against_the_border(self) -> None:
+        """The border trigger needs no following line (no inter-line gap)."""
+        label = _make_border_label(["charging"], height=1.9)
+        assert len(label.content) == 1
+        rendered = render_label_to_plt(label)
+        assert [fix.char for fix in rendered.descender_adjustments_by_line[0]] == ["g", "g"]

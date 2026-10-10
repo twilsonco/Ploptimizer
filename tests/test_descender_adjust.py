@@ -10,6 +10,7 @@ directly (no rendering), mirroring how the baseline-spacing helpers in
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import pytest
 
@@ -509,3 +510,91 @@ class TestRampForMeasured:
         ramp = ramp_for_measured(lambda t: gap + t * 0.12, required=required)
         assert gap + ramp * 0.12 >= required - 1e-6
         assert gap + (ramp - 1e-4) * 0.12 < required
+
+
+def _border_box(y: float, x_min: float = 0.0, x_max: float = 10.0) -> GlyphBox:
+    """Build a :class:`GlyphBox` shaped like the label's bottom border."""
+    return GlyphBox(
+        glyph_index=-1,
+        char="",
+        bounds=(x_min, y, x_max, y),
+        descender=0.0,
+        ink=(((x_min, y), (x_max, y)),),
+        sub_baseline_ink=(),
+    )
+
+
+class TestBorderMeasurement:
+    """The bottom border as a virtual 'following line' for the rolling circle.
+
+    The grid indexing the border ink is sized to the required clearance, so it
+    is exact below that radius and reports ``inf`` beyond it (both mean "safe"
+    to the relief). These fixtures keep the measured distance inside the cell
+    so the exact value is observable.
+    """
+
+    def test_vertical_descender_measures_the_distance_to_the_line(self) -> None:
+        """A descender hanging straight down measures its gap to the border."""
+        # Sub-baseline ink ends at y = -0.3; the border sits at y = -0.34.
+        upper = _ink_box(0, "g", 0.0, -0.3, 0.2, 0.3, ink=(((0.0, 0.0), (0.1, -0.3)),))
+        (gap,) = measure_glyph_gaps([upper], [_border_box(-0.34)], required=0.05)
+        assert gap.gap == pytest.approx(0.04)
+        assert gap.collides is True
+
+    def test_clear_pair_does_not_collide(self) -> None:
+        """A descender with enough air above the border is safe."""
+        # Gap 0.1in against a required 0.15in: inside the grid's cell, so the
+        # exact distance is observable and the pair still collides.
+        upper = _ink_box(0, "g", 0.0, -0.3, 0.2, 0.3, ink=(((0.0, 0.0), (0.1, -0.3)),))
+        (gap,) = measure_glyph_gaps([upper], [_border_box(-0.4)], required=0.15)
+        assert gap.gap == pytest.approx(0.1)
+        assert gap.collides is True
+        # The same pair against a smaller requirement is safe.
+        (safe,) = measure_glyph_gaps([upper], [_border_box(-0.4)], required=0.05)
+        assert safe.collides is False
+
+    def test_sideways_hook_measures_the_true_2d_distance(self) -> None:
+        """A hook reaching sideways toward the border measures its real distance.
+
+        The closest border point is diagonally below the hook's tip, so the
+        gap is the hypotenuse, not the vertical drop.
+        """
+        # Tip at (0.1, -0.3); the border at y = -0.5 spans x in [0.15, 10],
+        # so the closest border point is (0.15, -0.5): hypot(0.05, 0.2).
+        upper = _ink_box(0, "g", 0.0, -0.3, 0.1, 0.3, ink=(((0.0, 0.0), (0.1, -0.3)),))
+        border = GlyphBox(
+            glyph_index=-1,
+            char="",
+            bounds=(0.15, -0.5, 10.0, -0.5),
+            descender=0.0,
+            ink=(((0.15, -0.5), (10.0, -0.5)),),
+            sub_baseline_ink=(),
+        )
+        (gap,) = measure_glyph_gaps([upper], [border], required=0.3)
+        assert gap.gap == pytest.approx(math.hypot(0.05, 0.2))
+
+    def test_ink_touching_the_border_reports_zero(self) -> None:
+        """Ink reaching the border centreline has no clearance."""
+        upper = _ink_box(0, "g", 0.0, -0.5, 0.2, 0.3, ink=(((0.0, 0.0), (0.1, -0.5)),))
+        (gap,) = measure_glyph_gaps([upper], [_border_box(-0.5)], required=0.05)
+        assert gap.gap == pytest.approx(0.0)
+        assert gap.collides is True
+
+    def test_glyph_without_a_descender_never_triggers(self) -> None:
+        """A cap-only glyph is not a relief candidate against the border."""
+        upper = _ink_box(0, "H", 0.0, 0.0, 0.2, 0.3, ink=(((0.0, 0.0), (0.2, 0.3)),))
+        assert measure_glyph_gaps([upper], [_border_box(-0.1)], required=0.05) == []
+
+    def test_ramp_lifts_the_descender_clear_of_the_border(self) -> None:
+        """Raising the descender by its depth lands it on the baseline, clear."""
+        upper = _ink_box(0, "g", 0.0, -0.3, 0.2, 0.3, ink=(((0.0, 0.0), (0.1, -0.3)),))
+        border = _border_box(-0.34)
+        (before,) = measure_glyph_gaps([upper], [border], required=0.05)
+        assert before.collides is True
+        # Raising by the descender depth puts the tip on the baseline (y = 0),
+        # 0.34in above the border -- beyond the grid's cell, i.e. safely clear.
+        lifted = ramp_ink(upper.sub_baseline_ink, 0.0, 1.0, 0.3)
+        lifted_box = replace(upper, sub_baseline_ink=lifted)
+        (after,) = measure_glyph_gaps([lifted_box], [border], required=0.05)
+        assert math.isinf(after.gap)
+        assert after.collides is False

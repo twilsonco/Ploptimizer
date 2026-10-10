@@ -126,6 +126,19 @@ _GAP_REPORT_RADIUS: float = 0.25
 # descenders are two orders of magnitude deeper.
 _INK_EMISSION_FLOOR: float = 5e-4
 
+# Sentinel glyph index for the bottom border's virtual glyph box (the border
+# is not a rendered character, so it never collides with a real glyph index).
+_BORDER_GLYPH_INDEX: int = -1
+
+# Shortfall tolerance for the bottom-border report, in inches: one plotter
+# unit. The border ramp converges asymptotically (relieving a glyph shrinks
+# the block's bottom extent, which re-centres the block DOWNWARD and undoes
+# part of the relief, so each pass closes only part of the deficit), leaving a
+# sub-plotter-unit residual. Emitted coordinates are integer 1/1000in, so a
+# shortfall that small is not a collision in the engraved output and must not
+# be reported.
+_BORDER_SHORTFALL_TOLERANCE: float = 2 * _INK_EMISSION_FLOOR
+
 # Bisection granularity for the relief's spacing growth (the stacked block
 # height is non-decreasing in the spacings, so the admissible growth factor is
 # found by bisection -- the same shape as ``fit_baseline_spacing_to_margins``).
@@ -1935,6 +1948,22 @@ def measure_line_vertical_extents(line: ResolvedTextLine) -> tuple[float, float]
     return (max(0.0, bounds[3]), max(0.0, -bounds[1]))
 
 
+class _BorderShortfall(NamedTuple):
+    """A glyph the relief could not lift clear of the bottom border.
+
+    Attributes:
+        fix: The relief that was applied (the allowances fully spent, or
+            partly -- the record of what the glyph received).
+        gap: The glyph's final swept-ink distance from the border centreline,
+            inches (clamped to the reporting radius).
+        required: The clearance the engraved strokes must keep, inches.
+    """
+
+    fix: DescenderFix
+    gap: float
+    required: float
+
+
 @dataclass(frozen=True)
 class _DescenderRelief:
     """The outcome of one descending-character relief run.
@@ -1958,6 +1987,12 @@ class _DescenderRelief:
         residual: Per-gap clearance shortfall left after every allowance and
             all admissible spacing growth were spent, inches. Non-zero entries
             abort the job.
+        border_shortfalls: Every glyph still within the required clearance of
+            the bottom border after every allowance was spent. Reported as a
+            WARNING, never an abort: spacing growth cannot help a border
+            collision (growing the gap above the last line moves that line
+            DOWN in the centred frame), so the ramp is the only lever and the
+            engraved result is the best the allowances allow.
     """
 
     blocks: List[TextBlock]
@@ -1966,6 +2001,7 @@ class _DescenderRelief:
     geometry: List[Tuple[float, float, float]]
     fixes: List[DescenderFix]
     residual: List[float]
+    border_shortfalls: List[_BorderShortfall] = field(default_factory=list)
 
 
 def _glyph_chars(text: str) -> List[str]:
@@ -2351,6 +2387,63 @@ def _gap_required(
     )
 
 
+def _border_required(label: ResolvedLabel, line_index: int) -> float:
+    """Return the clearance a descending glyph must keep from the bottom border.
+
+    The same stroke-aware floor as the line-to-line trigger, with the border's
+    cutter (the snapped boundary/hole tool) in place of the following line's:
+    ``0.5 * (text_cutter + hole_cutter) * (1 + clearance)``.
+
+    Args:
+        label: The label being rendered (supplies both cutters and the
+            clearance factor).
+        line_index: The glyph's index into ``label.content``.
+
+    Returns:
+        The required clearance, inches.
+    """
+    return required_gap(
+        _line_cutter(label, line_index),
+        label.hole_cutter_diameter,
+        label.descending_character_clearance,
+    )
+
+
+def _border_box(label: ResolvedLabel) -> GlyphBox:
+    """Return the label's bottom border as a virtual "following line".
+
+    The border rectangle is drawn at the label edge (``vp.rect(0, 0, width,
+    height)``, no inset), so its bottom edge is the label-local line
+    ``y = 0``. The relief's stacked frame centres the text block on ``y = 0``
+    at label ``height / 2``, which puts that edge at ``-height / 2`` -- the
+    same constant in both stacking modes.
+
+    The box carries the edge as one polyline spanning the label width, so the
+    existing rolling-circle measurement
+    (:func:`~plt_optimizer.generate.descender_adjust.measure_glyph_gaps`)
+    treats it exactly like the ink of a line below: a descending glyph
+    collides when its sub-baseline ink comes within the required clearance of
+    the engraved border stroke. Crossing the (unrelated) ``v_margin`` is not a
+    collision and is never measured here.
+
+    Args:
+        label: The label being rendered (supplies the material dimensions).
+
+    Returns:
+        A :class:`GlyphBox` whose ink is the bottom border centreline.
+    """
+    border_y = -label.height / 2.0
+    polyline: Polyline = ((0.0, border_y), (label.width, border_y))
+    return GlyphBox(
+        glyph_index=_BORDER_GLYPH_INDEX,
+        char="",
+        bounds=(0.0, border_y, label.width, border_y),
+        descender=0.0,
+        ink=(polyline,),
+        sub_baseline_ink=(),
+    )
+
+
 def _solve_gap_growth(
     upper_boxes: Sequence[GlyphBox],
     lower_boxes: Sequence[GlyphBox],
@@ -2564,6 +2657,9 @@ def _apply_descender_relief(
     # Tightest gap each glyph had before any relief, and after the last pass.
     gap_before: dict[tuple[int, int], float] = {}
     gap_after: dict[tuple[int, int], float] = {}
+    # Every (line, glyph) that ever triggered against the bottom border, so a
+    # glyph whose allowances cannot help at all (ramp 0) is still reported.
+    border_triggered: dict[int, set[int]] = {index: set() for index in range(len(original))}
     deficits = [0.0] * max(0, len(original) - 1)
 
     def height_at(spacing_list: Sequence[float]) -> float:
@@ -2590,7 +2686,9 @@ def _apply_descender_relief(
         for block, groups, line_index in zip(original, glyph_groups_by_line, line_indices)
     ]
 
-    def measure(boxes: Sequence[Sequence[GlyphBox]]) -> tuple[List[List[GlyphGap]], List[float]]:
+    def measure(
+        boxes: Sequence[Sequence[GlyphBox]],
+    ) -> tuple[List[List[GlyphGap]], List[float], List[List[GlyphGap]]]:
         """Measure every descending glyph of the given stacked-frame boxes.
 
         The rolling-circle test: each descending glyph's sub-baseline ink
@@ -2598,12 +2696,19 @@ def _apply_descender_relief(
         cell = required clearance, keeping the ``gap < required`` decision
         exact). Glyphs without ink knowledge fall back to the box model.
 
+        The bottom border is measured the same way, as a virtual "following
+        line" (see :func:`_border_box`): the engraved descender stroke against
+        the engraved border stroke. The label's ``v_margin`` is NOT a
+        constraint -- ink crossing the margin is accepted, only the border
+        stroke matters.
+
         Args:
             boxes: Each line's glyph boxes in the stacked frame.
 
         Returns:
-            ``(gaps_by_gap, deficits)``: the per-glyph gaps of each inter-line
-            gap and the worst clearance shortfall of each.
+            ``(gaps_by_gap, deficits, border_gaps)``: the per-glyph gaps of
+            each inter-line gap, the worst clearance shortfall of each, and
+            every line's per-glyph gaps against the bottom border.
         """
         gaps_by_gap: List[List[GlyphGap]] = []
         gap_deficits: List[float] = []
@@ -2616,7 +2721,14 @@ def _apply_descender_relief(
             gaps = measure_glyph_gaps(boxes[gap_index], boxes[gap_index + 1], required)
             gaps_by_gap.append(gaps)
             gap_deficits.append(worst_glyph_deficit(gaps))
-        return gaps_by_gap, gap_deficits
+        border_box = _border_box(label)
+        border_gaps: List[List[GlyphGap]] = [
+            measure_glyph_gaps(
+                boxes[index], [border_box], _border_required(label, line_indices[index])
+            )
+            for index in range(len(original))
+        ]
+        return gaps_by_gap, gap_deficits, border_gaps
 
     def stacked_boxes_of(
         blocks: Sequence[TextBlock], baselines: Sequence[float]
@@ -2632,6 +2744,80 @@ def _apply_descender_relief(
             )
         ]
 
+    def propose_ramp(
+        gap: GlyphGap,
+        grid: Optional[InkGrid],
+        upper_baseline: float,
+        current_ramp: float,
+    ) -> float:
+        """Return the total ramp clearing one colliding glyph, in [0, 1].
+
+        The lower ink (a line's complete ink, or the bottom border's
+        centreline) is frozen during the bisection, so the caller indexes it
+        once and every candidate ramp queries the same grid -- cell = required,
+        which keeps the ``gap < required`` decision exact. Glyphs without ink
+        knowledge fall back to the box model's closed form.
+
+        The measured glyph ink is the CURRENT (already relieved) ink, so the
+        bisected value is the ramp the glyph still needs ON TOP of
+        ``current_ramp``. ``_apply_glyph_ramps`` rebuilds from the ORIGINAL
+        render at the glyph's TOTAL ramp, so the increment is added back here
+        -- storing the bare increment would under-apply the relief (the
+        line-to-line path hides that behind spacing growth; the bottom border
+        has no growth lever, so it would engrave short of the clearance).
+
+        Args:
+            gap: The measured (glyph, lower ink) proximity.
+            grid: Grid indexing the lower ink at the gap's required clearance
+                (``None`` when the pair is not ink-measurable).
+            upper_baseline: The glyph's line baseline Y in the stacked frame.
+            current_ramp: The ramp the glyph already carries, in ``[0, 1]``.
+
+        Returns:
+            The total ramp in ``[0, 1]``; ``current_ramp`` when no further
+            allowance can help.
+        """
+        if gap.upper.sub_baseline_ink and grid is not None:
+            descender = gap.upper.descender
+            full_scale, full_raise = apply_ramp(
+                descender,
+                label.descending_character_v_scale,
+                label.descending_character_raise,
+                1.0,
+            )
+            if full_scale >= 1.0 and full_raise <= 0.0:
+                # Both allowances are zero: the ramp can never help (the box
+                # model's closed form tests this as its slope).
+                return current_ramp
+
+            def gap_at(
+                t: float,
+                _ink: Ink = gap.upper.sub_baseline_ink,
+                _descender: float = descender,
+                _grid: InkGrid = grid,
+                _baseline: float = upper_baseline,
+            ) -> float:
+                scale_y, raise_amount = apply_ramp(
+                    _descender,
+                    label.descending_character_v_scale,
+                    label.descending_character_raise,
+                    t,
+                )
+                return _grid.min_gap(ramp_ink(_ink, _baseline, scale_y, raise_amount))
+
+            increment = ramp_for_measured(gap_at, gap.required)
+        else:
+            # Box-model fallback (glyphs without ink knowledge): the vertical
+            # gap is linear in the ramp, closed form.
+            increment = ramp_for(
+                gap.gap,
+                gap.required,
+                gap.upper.descender,
+                label.descending_character_v_scale,
+                label.descending_character_raise,
+            )
+        return min(1.0, current_ramp + increment)
+
     for _pass in range(_DESCENDER_MAX_PASSES):
         ascenders = [ascender for _basis, ascender, _d in geometry]
         descenders = [descender for _basis, _ascender, descender in geometry]
@@ -2642,7 +2828,7 @@ def _apply_descender_relief(
 
         # ---- Measure every descending glyph; propose the smallest clearing ramp ----
         boxes = stacked_boxes_of(current_blocks, baselines)
-        gaps_by_gap, _pre_deficits = measure(boxes)
+        gaps_by_gap, _pre_deficits, border_gaps = measure(boxes)
         proposed: dict[int, dict[int, float]] = {}
         for gap_index, gaps in enumerate(gaps_by_gap):
             triggering = [gap for gap in gaps if gap.collides and math.isfinite(gap.gap)]
@@ -2661,48 +2847,38 @@ def _apply_descender_relief(
                 key = (gap_index, gap.upper.glyph_index)
                 if key not in gap_before or gap.gap < gap_before[key]:
                     gap_before[key] = gap.gap
-                if gap.upper.sub_baseline_ink and grid is not None:
-                    descender = gap.upper.descender
-                    full_scale, full_raise = apply_ramp(
-                        descender,
-                        label.descending_character_v_scale,
-                        label.descending_character_raise,
-                        1.0,
-                    )
-                    if full_scale >= 1.0 and full_raise <= 0.0:
-                        # Both allowances are zero: the ramp can never help
-                        # (the box model's closed form tests this as its
-                        # slope). The surviving deficit grows the spacing.
-                        continue
-
-                    def gap_at(
-                        t: float,
-                        _ink: Ink = gap.upper.sub_baseline_ink,
-                        _descender: float = descender,
-                        _grid: InkGrid = grid,
-                        _baseline: float = upper_baseline,
-                    ) -> float:
-                        scale_y, raise_amount = apply_ramp(
-                            _descender,
-                            label.descending_character_v_scale,
-                            label.descending_character_raise,
-                            t,
-                        )
-                        return _grid.min_gap(ramp_ink(_ink, _baseline, scale_y, raise_amount))
-
-                    ramp = ramp_for_measured(gap_at, required)
-                else:
-                    # Box-model fallback (glyphs without ink knowledge):
-                    # the vertical gap is linear in the ramp, closed form.
-                    ramp = ramp_for(
-                        gap.gap,
-                        required,
-                        gap.upper.descender,
-                        label.descending_character_v_scale,
-                        label.descending_character_raise,
-                    )
+                ramp = propose_ramp(
+                    gap, grid, upper_baseline, ramps[gap_index].get(gap.upper.glyph_index, 0.0)
+                )
                 if ramp > 0.0:
                     proposed.setdefault(gap_index, {})[gap.upper.glyph_index] = ramp
+
+        # ---- The bottom border: the same test against the border stroke ----
+        # The border is a virtual "following line" (see _border_box), so the
+        # trigger, the ramp and the one-way merge are identical. Spacing growth
+        # deliberately does NOT see these deficits: growing the gap above the
+        # last line moves that line DOWN in the centred frame, which deepens a
+        # border collision, so the ramp is the only lever here.
+        border = _border_box(label)
+        for line_index, gaps in enumerate(border_gaps):
+            triggering = [gap for gap in gaps if gap.collides and math.isfinite(gap.gap)]
+            if not triggering:
+                continue
+            required = triggering[0].required
+            border_grid = InkGrid(border.ink, required) if required > 0.0 else None
+            for gap in triggering:
+                key = (line_index, gap.upper.glyph_index)
+                border_triggered[line_index].add(gap.upper.glyph_index)
+                if key not in gap_before or gap.gap < gap_before[key]:
+                    gap_before[key] = gap.gap
+                ramp = propose_ramp(
+                    gap,
+                    border_grid,
+                    baselines[line_index],
+                    ramps[line_index].get(gap.upper.glyph_index, 0.0),
+                )
+                if ramp > 0.0:
+                    proposed.setdefault(line_index, {})[gap.upper.glyph_index] = ramp
 
         grew = False
         for gap_index, per_glyph in proposed.items():
@@ -2740,7 +2916,9 @@ def _apply_descender_relief(
         else:
             baselines_after = _inkbox_baseline_table(current_blocks, current_spacings)
         boxes_after = stacked_boxes_of(current_blocks, baselines_after)
-        _post_gaps, deficits = measure(boxes_after)
+        # Line-to-line deficits only: the border's third return value is
+        # deliberately dropped here (see the border proposal above).
+        _post_gaps, deficits, _post_border_gaps = measure(boxes_after)
         if any(deficit > _DESCENDER_GAP_TOLERANCE for deficit in deficits):
             # Measured, not deficit-derived: the ink distance widens
             # sub-linearly with the spacing, so growing by the deficit
@@ -2828,6 +3006,58 @@ def _apply_descender_relief(
             gap_after[(gap_index, glyph_index)] = min(nearest, cell)
         residual.append(worst)
 
+    # ---- Bottom border: the final gap against the border stroke ----
+    # Measured for every glyph that ever triggered against the border --
+    # including one the allowances could not move at all (ramp 0), which must
+    # not collide silently. ``gap_after`` is merged in for the glyphs the
+    # relief moved, so it reports the tightest of {line below, border} -- the
+    # two things the engraved stroke must clear. A border shortfall never
+    # enters ``residual``: spacing growth cannot help (it moves the last line
+    # DOWN), so the ramp is the whole remedy and the result is reported as a
+    # WARNING instead of aborting.
+    border = _border_box(label)
+    border_shortfalls: List[_BorderShortfall] = []
+    for line_index in range(len(original)):
+        required = _border_required(label, line_indices[line_index])
+        cell = max(required, _GAP_REPORT_RADIUS)
+        final_by_glyph = {box.glyph_index: box for box in stacked_boxes[line_index]}
+        original_by_glyph = {box.glyph_index: box for box in original_boxes[line_index]}
+        for glyph_index in sorted(border_triggered.get(line_index, ())):
+            box = final_by_glyph.get(glyph_index)
+            if box is None:
+                continue
+            if not box.sub_baseline_ink:
+                nearest = cell
+            else:
+                grid = InkGrid(border.ink, cell) if cell > 0.0 else None
+                nearest = (
+                    min(grid.min_gap(box.sub_baseline_ink), cell) if grid is not None else cell
+                )
+            ramp = ramps.get(line_index, {}).get(glyph_index, 0.0)
+            glyph_box = original_by_glyph.get(glyph_index)
+            scale_y, raise_amount = apply_ramp(
+                glyph_box.descender if glyph_box is not None else 0.0,
+                label.descending_character_v_scale,
+                label.descending_character_raise,
+                ramp,
+            )
+            fix = DescenderFix(
+                line_index=line_indices[line_index],
+                glyph_index=glyph_index,
+                char=glyph_box.char if glyph_box is not None else "",
+                scale_y=scale_y,
+                raise_amount=raise_amount,
+                gap_before=gap_before.get((line_index, glyph_index), math.inf),
+                gap_after=nearest,
+            )
+            if ramp > 0.0:
+                previous = gap_after.get((line_index, glyph_index))
+                gap_after[(line_index, glyph_index)] = (
+                    nearest if previous is None else min(previous, nearest)
+                )
+            if nearest < required - _BORDER_SHORTFALL_TOLERANCE:
+                border_shortfalls.append(_BorderShortfall(fix=fix, gap=nearest, required=required))
+
     fixes: List[DescenderFix] = []
     for gap_index in sorted(ramps):
         line_index = line_indices[gap_index]
@@ -2866,6 +3096,7 @@ def _apply_descender_relief(
         geometry=geometry,
         fixes=fixes,
         residual=[max(0.0, value) for value in residual],
+        border_shortfalls=border_shortfalls,
     )
 
 
@@ -2887,6 +3118,37 @@ def _log_descender_fixes(label: ResolvedLabel, fixes: Sequence[DescenderFix]) ->
             fix.raise_amount,
             fix.gap_before,
             fix.gap_after,
+        )
+
+
+def _log_border_shortfalls(label: ResolvedLabel, shortfalls: Sequence[_BorderShortfall]) -> None:
+    """Log every glyph the relief could not clear from the bottom border.
+
+    A WARNING, never an abort: the border is below the last text line, so
+    growing the inter-line spacing moves the descender CLOSER to it (the block
+    is centred), which leaves the per-glyph ramp as the only lever. When the
+    allowances run out the engraving is the best they allow, so the job
+    proceeds and the shortfall is reported.
+
+    Args:
+        label: The label being rendered (for the id in each message).
+        shortfalls: The shortfalls collected by
+            :func:`_apply_descender_relief`.
+    """
+    for shortfall in shortfalls:
+        fix = shortfall.fix
+        logger.warning(
+            "Label %s: line %s glyph %r stays %.3fin from the bottom border "
+            "(needs %.3fin) after vertical scale %.3f, raised %.3fin -- "
+            "increase height, v_margin, descending_character_v_scale/raise, "
+            "or lower descending_character_clearance.",
+            label.id,
+            fix.line_index,
+            fix.char,
+            shortfall.gap,
+            shortfall.required,
+            fix.scale_y,
+            fix.raise_amount,
         )
 
 
@@ -3249,6 +3511,8 @@ def _render_positioned_lines(
         _log_descender_fixes(label, relief.fixes)
         if descender_fixes is not None:
             descender_fixes.extend(relief.fixes)
+    if relief.border_shortfalls:
+        _log_border_shortfalls(label, relief.border_shortfalls)
     if any(residual > _DESCENDER_GAP_TOLERANCE for residual in relief.residual):
         raise LabelRenderError(_format_unresolvable_descenders(label, relief, x_line_indices))
     if relief.spacings != adjusted_spacings:

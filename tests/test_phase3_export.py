@@ -1711,6 +1711,24 @@ class TestDescenderAdjustDemoExample:
             "0.060_txt_da.plt",
         ]
 
+    def test_border_descender_is_relieved(self, tmp_path: Path) -> None:
+        """The short label's descenders are squeezed clear of the bottom border.
+
+        The border is a virtual "following line" drawn at the label edge and
+        cut by the boundary/hole tool, so the required clearance is
+        ``0.5 * (0.06 + 0.015) * (1 + 0.0) = 0.0375in``.
+        """
+        result = self._export(tmp_path)
+        fixes = result.rendered_labels["border"].descender_adjustments_by_line
+
+        assert list(fixes) == [0]
+        assert [fix.char for fix in fixes[0]] == ["p", "y"]
+        for fix in fixes[0]:
+            assert fix.scale_y < 1.0
+            assert fix.raise_amount > 0.0
+            assert fix.gap_before == pytest.approx(0.034, abs=0.01)
+            assert fix.gap_after == pytest.approx(0.0375, abs=1e-3)
+
 
 class TestDescenderCrookExample:
     """Regression tests for tests_deps/descender_crook_job.yaml.
@@ -1752,6 +1770,11 @@ class TestDescenderCrookExample:
         # The tightest gap (0.094in) sits inside the required clearance
         # (0.5 * (0.09 + 0.09) * 1.5 = 0.135in) and is cleared above it.
         assert fix.gap_before == pytest.approx(0.094, abs=0.01)
+        # Cleared above the required clearance (0.5 * (0.09 + 0.09) * 1.5 =
+        # 0.135in). ``gap_after`` is the tightest of the constraints that
+        # actually bind this glyph -- the line below (0.281in); the bottom
+        # border is far away, so it never triggered and never clamps the
+        # report.
         assert fix.gap_after == pytest.approx(0.281, abs=0.01)
         assert fix.gap_before < fix.gap_after
 
@@ -1803,3 +1826,94 @@ class TestDescenderCrookExample:
         assert off.descender_adjustments_by_line == {}
         assert crook.descender_adjustments_by_line != {}
         assert off.plt_content != crook.plt_content
+
+
+class TestDescenderBorderExample:
+    """Regression tests for tests_deps/descender_border_job.yaml.
+
+    The bottom border is a virtual "following line" for the descending-
+    character relief: a descender collides when its sub-baseline ink comes
+    within ``0.5 * (text_cutter + hole_cutter) * (1 + clearance)`` of the
+    border centreline (the border is drawn at the label edge and cut by the
+    boundary/hole tool). The block is centred, so a short label puts the
+    descender inside that clearance and a taller one leaves it clear. Only the
+    per-glyph ramp acts -- spacing growth moves the last line DOWN, toward the
+    border -- and crossing ``v_margin`` is not a collision.
+    """
+
+    _SPEC = Path("tests_deps/descender_border_job.yaml")
+
+    # 1.5in dino text auto-selects a 0.187in cutter; the boundary/hole tool is
+    # the 0.015in default, so the required clearance is
+    # 0.5 * (0.187 + 0.015) * 1.5 = 0.1515in.
+    _REQUIRED = 0.1515
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the border job with plotting disabled."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="br",
+            optimize=False,
+            plots=False,
+        )
+
+    def test_descender_near_the_border_is_relieved(self, tmp_path: Path) -> None:
+        """The short label's 'g' is squeezed and raised clear of the border."""
+        result = self._export(tmp_path)
+        fixes = result.rendered_labels["trigger"].descender_adjustments_by_line
+
+        assert list(fixes) == [0]
+        (fix,) = fixes[0]
+        assert fix.char == "g"
+        assert fix.scale_y < 1.0
+        assert fix.raise_amount > 0.0
+        assert fix.gap_before < self._REQUIRED
+        assert fix.gap_after == pytest.approx(self._REQUIRED, abs=1e-3)
+
+    def test_descender_clear_of_the_border_is_left_alone(self, tmp_path: Path) -> None:
+        """The taller label leaves enough air, so nothing is relieved."""
+        result = self._export(tmp_path)
+        assert result.rendered_labels["no_trigger"].descender_adjustments_by_line == {}
+
+    def test_crossing_the_margin_is_not_a_collision(self, tmp_path: Path) -> None:
+        """Ink spilling into v_margin is accepted; only the border stroke counts."""
+        result = self._export(tmp_path)
+        assert result.rendered_labels["margin_cross"].descender_adjustments_by_line == {}
+
+    def test_border_relief_acts_on_the_last_line_only(self, tmp_path: Path) -> None:
+        """The border trigger lands on the last line's descender, never the gap."""
+
+        result = self._export(tmp_path)
+        label = result.rendered_labels["spacing_untouched"]
+        fixes = label.descender_adjustments_by_line
+
+        assert list(fixes) == [1]  # the last line's 'g'
+        (fix,) = fixes[1]
+        assert fix.char == "g"
+        assert fix.gap_after == pytest.approx(self._REQUIRED, abs=1e-3)
+        # The relief never grows spacing for a border collision: the reported
+        # gap is the margin-clamped value, not a relief-grown one.
+        assert label.source_label.content[0].line_spacing >= label.line_spacing_by_line[0]
+
+    def test_disabled_label_engraves_the_border_descender_verbatim(
+        self, tmp_path: Path
+    ) -> None:
+        """The opt-out twin keeps the descender hanging into the border stroke."""
+        result = self._export(tmp_path)
+        off = result.rendered_labels["off"]
+        trigger = result.rendered_labels["trigger"]
+        assert off.descender_adjustments_by_line == {}
+        assert trigger.descender_adjustments_by_line != {}
+        assert off.plt_content != trigger.plt_content
+
+    def test_border_relief_keeps_one_cutter_file(self, tmp_path: Path) -> None:
+        """The relief is a Y transform only, so the cutter set is unchanged."""
+        result = self._export(tmp_path)
+        assert sorted(p.name for p in result.plt_paths) == [
+            "0.015_bh_br.plt",
+            "0.187_txt_br.plt",
+        ]
