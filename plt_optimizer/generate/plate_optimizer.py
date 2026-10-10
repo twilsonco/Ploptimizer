@@ -30,9 +30,12 @@ values in plotter units, 1 inch = 1000 units):
 
 1. ``x1 = round(x_local * 1000)``, ``y1 = round(y_local * 1000)``
 2. vertical centering: ``y2 = round(y1 + shift)`` where
-   ``shift = height * 500 - (text_y_min + text_y_max) / 2`` over the
-   union of the label's text-pen vertices (mirrors
+   ``shift = (height / 2 - band_offset) * 1000 - (text_y_min + text_y_max) / 2``
+   over the union of the label's text-pen vertices (mirrors
    ``_center_text_layer_vertically``; the label margin cancels out).
+   ``band_offset`` is ``RenderedLabel.band_center_offset_inches`` -- ``0.0`` for
+   ink-centered labels, non-zero when the label centers by its
+   baseline-to-capline band.
 3. Y-mirror: ``y3 = flip_span - y2`` where ``flip_span`` is the rendered
    label's post-flip Y bounds sum (mirrors
    ``_flip_y_coordinates_in_plt``).
@@ -224,8 +227,11 @@ def _label_transform(rendered: RenderedLabel, label: ResolvedLabel) -> _LabelTra
         current_center = (min(ys) + max(ys)) / 2.0
     else:  # No text: centering is a no-op.
         current_center = 0.0
-    # expected center = margin + (height - 2*margin)/2 == height/2 (inches).
-    expected_center = label.height * _UNITS_PER_INCH / 2.0
+    # expected center = margin + (height - 2*margin)/2 == height/2 (inches),
+    # lowered by the band-center offset the export centering applied (band-
+    # centered labels land the baseline-to-capline band, not the ink, on the
+    # inner-area center). Mirrors _center_text_layer_vertically exactly.
+    expected_center = (label.height / 2.0 - rendered.band_center_offset_inches) * _UNITS_PER_INCH
     return _LabelTransform(
         shift=expected_center - current_center,
         flip_span=_units(rendered.y_min) + _units(rendered.y_max),

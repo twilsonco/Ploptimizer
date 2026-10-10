@@ -196,6 +196,7 @@ class TestRenderLabelOnceTerminator:
             label: ResolvedLabel,
             text_pens: Optional[set[int]] = None,
             text_blocks: Optional[dict[int, tuple[TextBlock, ...]]] = None,
+            band_center_offset_inches: float = 0.0,
         ) -> None:
             Path(output_path).write_text(content, encoding="utf-8")
 

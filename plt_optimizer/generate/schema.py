@@ -865,6 +865,23 @@ class LabelAttributes(TextAttributes):
             the label reads as one uniform visual spacing; when disabled,
             lines stack by rendered ink box (the historical behaviour, where
             a descender inflates the gap under its own line).
+        v_center_by_content: Optional vertical-centering mode. Cascades
+            job -> plate -> label (deliberately NOT text lines -- centering is
+            a property of the stacked block); ``None`` (the default) means
+            unset and falls back to ``job-config.json`` then ``False``.
+            ``False`` (the default) locks the text block to its
+            **baseline-to-capline band**: the band spans the lowest baseline to
+            the highest capline and is centered in the inner content area, so
+            the visible text is optically centered and descenders hang into the
+            bottom margin, where the descending-character relief
+            (:attr:`auto_descending_character_adjustment`) deals with them
+            against the bottom border. ``True`` centers the block by its
+            **rendered ink** (the historical behaviour): the deepest descender
+            is charged to the block, so a line carrying descenders rides high
+            in the label. Centering by band is only active when the relief is
+            enabled -- with :attr:`auto_descending_character_adjustment`
+            disabled nothing would adjust the descenders, so ink centering is
+            kept and this field is inert.
         auto_descending_character_adjustment: Optional permission for
             automatic descending-character relief. Cascades job -> plate ->
             label (deliberately NOT text lines -- the mechanism compares a
@@ -973,6 +990,22 @@ class LabelAttributes(TextAttributes):
             "rendered ink box (historical). Cascades job -> plate -> label "
             "(never text lines); unset (null) falls back to job-config.json "
             "then true. Accepted on plates for schema parity only."
+        ),
+    )
+    v_center_by_content: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Center a label's text block by its rendered ink (true, historical "
+            "-- the deepest descender is charged to the block, so lines with "
+            "descenders ride high) or by its baseline-to-capline band (false, "
+            "the default -- the visible text is optically centered and "
+            "descenders hang into the bottom margin for the descending-"
+            "character relief to handle). Band centering is active only when "
+            "auto_descending_character_adjustment is enabled; with the relief "
+            "off, ink centering is kept and this field is inert. Cascades job "
+            "-> plate -> label (never text lines); unset (null) falls back to "
+            "job-config.json then false. Accepted on plates for schema parity "
+            "only."
         ),
     )
     auto_descending_character_adjustment: Optional[bool] = Field(
@@ -1585,6 +1618,14 @@ class PlateSpec(BaseModel):
         description=(
             "Baseline-to-baseline line spacing (schema parity; not applied at "
             "plate level -- labels render before packing)."
+        ),
+    )
+    v_center_by_content: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Vertical centering mode: rendered ink (true) or baseline-to-"
+            "capline band (false, the default). Schema parity; not applied at "
+            "plate level -- labels render before packing."
         ),
     )
     auto_descending_character_adjustment: Optional[bool] = Field(

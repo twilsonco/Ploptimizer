@@ -483,6 +483,19 @@
           "description": "Stack a label's text lines by baseline-to-baseline pitch (text_height + line_spacing) so descenders hang into the gap and every gap reads as one uniform visual spacing; false stacks by rendered ink box (historical). Cascades job -> plate -> label (never text lines); unset (null) falls back to job-config.json then true. Accepted on plates for schema parity only.",
           "title": "Use Baseline Spacing"
         },
+        "v_center_by_content": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Center a label's text block by its rendered ink (true, historical -- the deepest descender is charged to the block, so lines with descenders ride high) or by its baseline-to-capline band (false, the default -- the visible text is optically centered and descenders hang into the bottom margin for the descending-character relief to handle). Band centering is active only when auto_descending_character_adjustment is enabled; with the relief off, ink centering is kept and this field is inert. Cascades job -> plate -> label (never text lines); unset (null) falls back to job-config.json then false. Accepted on plates for schema parity only.",
+          "title": "V Center By Content"
+        },
         "auto_descending_character_adjustment": {
           "anyOf": [
             {
@@ -972,6 +985,19 @@
           "default": null,
           "description": "Baseline-to-baseline line spacing (schema parity; not applied at plate level -- labels render before packing).",
           "title": "Use Baseline Spacing"
+        },
+        "v_center_by_content": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Vertical centering mode: rendered ink (true) or baseline-to-capline band (false, the default). Schema parity; not applied at plate level -- labels render before packing.",
+          "title": "V Center By Content"
         },
         "auto_descending_character_adjustment": {
           "anyOf": [
@@ -1900,6 +1926,19 @@
       "default": null,
       "description": "Stack a label's text lines by baseline-to-baseline pitch (text_height + line_spacing) so descenders hang into the gap and every gap reads as one uniform visual spacing; false stacks by rendered ink box (historical). Cascades job -> plate -> label (never text lines); unset (null) falls back to job-config.json then true. Accepted on plates for schema parity only.",
       "title": "Use Baseline Spacing"
+    },
+    "v_center_by_content": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Center a label's text block by its rendered ink (true, historical -- the deepest descender is charged to the block, so lines with descenders ride high) or by its baseline-to-capline band (false, the default -- the visible text is optically centered and descenders hang into the bottom margin for the descending-character relief to handle). Band centering is active only when auto_descending_character_adjustment is enabled; with the relief off, ink centering is kept and this field is inert. Cascades job -> plate -> label (never text lines); unset (null) falls back to job-config.json then false. Accepted on plates for schema parity only.",
+      "title": "V Center By Content"
     },
     "auto_descending_character_adjustment": {
       "anyOf": [

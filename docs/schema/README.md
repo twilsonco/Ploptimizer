@@ -178,6 +178,7 @@ always wins at its level. Precedence per attribute:
 | `cutter_downsize`, `max_cutter_downsizes`, `cutter_downsize_global` | line → label → job → config | `true` / `1` / `true` |
 | `h_compress_global` | line → label → job → config | `false` |
 | `use_baseline_spacing` | label → job → config (never lines; plate parity) | `true` |
+| `v_center_by_content` | label → job → config (never lines; plate parity) | `false` |
 | `auto_descending_character_adjustment`, `descending_character_v_scale`, `descending_character_raise`, `descending_character_clearance` | label → job → config (never lines; plate parity) | `true` / `0.5` / `0.7` / `0.0` |
 | `text_color` | line → label (never job/plate/config) | `none` (implicit) |
 | `width`, `height` | label → job → auto-size from rendered content | — |
@@ -226,6 +227,7 @@ entries that omit it).
   `text_h_alignment`, `min_hole_margin`, `hole_text_collision_distance`,
   `cutter_size`, `cutter_downsize`, `max_cutter_downsizes`,
   `cutter_downsize_global`, `h_compress_global`, `use_baseline_spacing`,
+  `v_center_by_content`,
   `auto_descending_character_adjustment`, `descending_character_v_scale`,
   `descending_character_raise`, `descending_character_clearance`) are
   accepted on plates for schema parity but **not applied** at plate level —
@@ -301,6 +303,21 @@ entries that omit it).
   restores the historical ink-box stacking. Cascades label → job → config
   (never text lines — spacing is a property of the stacked block); plates are
   parity-only.
+- **`v_center_by_content` (default false)**: how a label centers its text
+  vertically. The historical rule centers the block by its **rendered ink**,
+  charging the deepest descender to the label — so a line carrying descenders
+  rides high and its plain letters look visibly off-centre. `false` (the
+  default) centers the **baseline-to-capline band** instead: the visible glyphs
+  sit in the label's optical middle and descenders hang into the bottom margin,
+  where the descending-character relief clears them against the bottom border.
+  The vertical margin clamp follows the same model, so a band-centered label
+  sizes its line spacing against the cap band and descenders no longer shrink
+  the spacing. Band centering is active **only** when
+  `auto_descending_character_adjustment` is enabled — with the relief off
+  nothing would adjust a descender, so ink centering is kept and this field is
+  inert. `true` restores ink centering bit-identically. Cascades label → job →
+  config (never text lines — centering is a property of the stacked block);
+  plates are parity-only.
 - **`auto_descending_character_adjustment` (default true)**: per-glyph
   descending-character relief. Baseline spacing lets a descender hang into the
   gap below its line; when a glyph on the **following** line is close enough

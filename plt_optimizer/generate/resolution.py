@@ -214,6 +214,19 @@ DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES: Optional[int] = None
 # only -- spacing is a property of the stacked block, never of one line, so
 # the field is deliberately absent from ``TextLine``/``TextAttributes``.
 DEFAULT_USE_BASELINE_SPACING: bool = True
+# Vertical centering mode for a label's text block. ``False`` (the default)
+# centers the block by its **baseline-to-capline band** -- the band spans the
+# lowest baseline to the highest capline, so the visible text is optically
+# centered and descenders hang into the bottom margin, where the descending-
+# character relief handles them against the bottom border. ``True`` centers by
+# the block's **rendered ink** (the historical behaviour): the deepest
+# descender is charged to the block, so a line carrying descenders rides high
+# in the label. Band centering is active only when the descending-character
+# relief is enabled (see ``center_text_by_band``); with the relief off nothing
+# would adjust the descenders, so ink centering is kept. Label-level only --
+# centering is a property of the stacked block, never of one line, so the
+# field is deliberately absent from ``TextLine``/``TextAttributes``.
+DEFAULT_V_CENTER_BY_CONTENT: bool = False
 # Automatic descending-character relief. ``True`` (the default) lets the
 # renderer vertically downscale and raise a glyph whose ink hangs below its
 # baseline, but ONLY when a glyph on the following line comes within the
@@ -712,6 +725,16 @@ class ResolvedLabel:
             (:func:`fit_baseline_spacing_to_margins`) shrinks the spacings
             only when the descender-extended block no longer fits the inner
             area. ``False`` reproduces the historical ink-box stacking.
+        v_center_by_content: Center the text block by its rendered ink
+            (``True``, historical -- the deepest descender is charged to the
+            block, so lines with descenders ride high) or by its
+            baseline-to-capline band (``False``, the default -- the visible
+            text is optically centered and descenders hang into the bottom
+            margin for the relief to handle) (from the
+            ``v_center_by_content`` cascade, label -> job, default ``False``).
+            Band centering is active only together with an enabled
+            :attr:`auto_descending_character_adjustment`; see
+            :attr:`center_text_by_band`.
         auto_descending_character_adjustment: Permit automatic vertical
             downscaling + raising of descending glyphs that come close to
             colliding with glyphs on the following line (from the
@@ -750,10 +773,22 @@ class ResolvedLabel:
     plate_id: Optional[str] = None
     material: Optional[str] = None
     use_baseline_spacing: bool = DEFAULT_USE_BASELINE_SPACING
+    v_center_by_content: bool = DEFAULT_V_CENTER_BY_CONTENT
     auto_descending_character_adjustment: bool = DEFAULT_AUTO_DESCENDING_CHARACTER_ADJUSTMENT
     descending_character_v_scale: float = DEFAULT_DESCENDING_CHARACTER_V_SCALE
     descending_character_raise: float = DEFAULT_DESCENDING_CHARACTER_RAISE
     descending_character_clearance: float = DEFAULT_DESCENDING_CHARACTER_CLEARANCE
+
+    @property
+    def center_text_by_band(self) -> bool:
+        """Whether the renderer centers the text block by its cap band.
+
+        Band centering exists so descenders can hang into the bottom margin
+        and be adjusted by the descending-character relief; with the relief
+        disabled nothing would move them, so the historical ink centering is
+        kept and :attr:`v_center_by_content` is inert.
+        """
+        return self.auto_descending_character_adjustment and not self.v_center_by_content
 
 
 # ---------------------------------------------------------------------------
@@ -873,6 +908,8 @@ def baseline_block_height(
     ascenders: Sequence[float],
     descenders: Sequence[float],
     line_spacings: Sequence[float],
+    *,
+    charge_descenders: bool = True,
 ) -> float:
     """Return the ink height of a baseline-stacked text block.
 
@@ -883,6 +920,13 @@ def baseline_block_height(
         descenders: Ink depth below each line's baseline, in inches (``D_i``,
             non-negative). Length ``n``.
         line_spacings: Spacing below each line except the last, in inches.
+        charge_descenders: When ``True`` (the default) the block's bottom is
+            its deepest descender, so descenders claim a share of the inner
+            content height. When ``False`` the bottom is the **lowest
+            baseline** -- the block is measured as its baseline-to-capline
+            band, which is what a band-centered label fits to the margins
+            (descenders hang into the bottom margin, where the
+            descending-character relief handles them).
 
     Returns:
         The distance from the block's highest ink point to its lowest, in
@@ -891,7 +935,10 @@ def baseline_block_height(
     """
     offsets = baseline_offsets(line_heights, line_spacings)
     top = max(offset + ascender for offset, ascender in zip(offsets, ascenders))
-    bottom = min(offset - descender for offset, descender in zip(offsets, descenders))
+    if charge_descenders:
+        bottom = min(offset - descender for offset, descender in zip(offsets, descenders))
+    else:
+        bottom = min(offsets)
     return top - bottom
 
 
@@ -932,6 +979,8 @@ def fit_baseline_spacing_to_margins(
     descenders: Sequence[float],
     line_spacings: Sequence[float],
     available_height: float,
+    *,
+    charge_descenders: bool = True,
 ) -> list[float]:
     """Shrink baseline-stacked spacing so the descender-extended block fits.
 
@@ -963,7 +1012,11 @@ def fit_baseline_spacing_to_margins(
 
     def height_at(factor: float) -> float:
         return baseline_block_height(
-            line_heights, ascenders, descenders, [s * factor for s in spacings]
+            line_heights,
+            ascenders,
+            descenders,
+            [s * factor for s in spacings],
+            charge_descenders=charge_descenders,
         )
 
     if height_at(1.0) <= available_height:
@@ -981,6 +1034,8 @@ def solve_baseline_spacing_to_fill(
     ascenders: Sequence[float],
     descenders: Sequence[float],
     available_height: float,
+    *,
+    charge_descenders: bool = True,
 ) -> float:
     """Return the uniform spacing that fills ``available_height`` exactly.
 
@@ -1007,7 +1062,13 @@ def solve_baseline_spacing_to_fill(
 
     def height_at(spacing: float) -> float:
         gaps = [spacing] * (len(line_heights) - 1)
-        return baseline_block_height(line_heights, ascenders, descenders, gaps)
+        return baseline_block_height(
+            line_heights,
+            ascenders,
+            descenders,
+            gaps,
+            charge_descenders=charge_descenders,
+        )
 
     if height_at(0.0) >= available_height:
         return 0.0
@@ -1020,6 +1081,8 @@ def solve_baseline_spacing_to_ratio(
     ascenders: Sequence[float],
     descenders: Sequence[float],
     interline_to_top_bottom_ratio: float,
+    *,
+    charge_descenders: bool = True,
 ) -> tuple[float, float]:
     """Return ``(interline_spacing, v_margin)`` for ratio-balanced gaps.
 
@@ -1049,7 +1112,13 @@ def solve_baseline_spacing_to_ratio(
 
     def total_at(gap: float) -> float:
         gaps = [gap * ratio] * (len(line_heights) - 1)
-        return 2.0 * gap + baseline_block_height(line_heights, ascenders, descenders, gaps)
+        return 2.0 * gap + baseline_block_height(
+            line_heights,
+            ascenders,
+            descenders,
+            gaps,
+            charge_descenders=charge_descenders,
+        )
 
     gap = _solve_monotone_root(lambda g: total_at(g) - label_height, 0.0, label_height)
     return gap * ratio, gap
@@ -1145,6 +1214,7 @@ def _resolve_auto_line_spacing(
     interline_to_top_bottom_ratio: float = 1.0,
     use_baseline_spacing: bool = False,
     extents_probe: Optional[LineExtentsProbe] = None,
+    charge_descenders: bool = True,
 ) -> tuple[list[ResolvedTextLine], Optional[float]]:
     """Resolve any auto line spacing values in content.
 
@@ -1185,6 +1255,10 @@ def _resolve_auto_line_spacing(
             ink height (see above). Takes effect only with ``extents_probe``.
         extents_probe: Optional probe measuring a line's
             ``(ascender, descender)`` ink extents in inches.
+        charge_descenders: When ``False`` (band-centered labels) the fill
+            equation sizes the space against the baseline-to-capline band, so
+            descenders are NOT charged to the inner area -- they hang into the
+            bottom margin for the descending-character relief to handle.
 
     Returns:
         A tuple of (updated_content, calculated_v_margin). calculated_v_margin
@@ -1240,7 +1314,11 @@ def _resolve_auto_line_spacing(
         if baseline_extents is not None and baseline_heights is not None:
             ascenders, descenders = baseline_extents
             calculated_spacing = solve_baseline_spacing_to_fill(
-                baseline_heights, ascenders, descenders, available_height
+                baseline_heights,
+                ascenders,
+                descenders,
+                available_height,
+                charge_descenders=charge_descenders,
             )
         elif num_lines > 1:
             calculated_spacing = max(0.0, (available_height - total_line_height) / (num_lines - 1))
@@ -1274,6 +1352,7 @@ def _resolve_auto_line_spacing(
                 ascenders,
                 descenders,
                 interline_to_top_bottom_ratio,
+                charge_descenders=charge_descenders,
             )
         elif num_lines > 1:
             # Multiple lines: account for (num_lines - 1) inter-line gaps
@@ -1318,6 +1397,7 @@ def _fit_content_to_margins(
     label_id: str,
     use_baseline_spacing: bool = False,
     extents_probe: Optional[LineExtentsProbe] = None,
+    charge_descenders: bool = True,
 ) -> list[ResolvedTextLine]:
     """Clamp resolved line spacing so text respects the label margins.
 
@@ -1341,6 +1421,10 @@ def _fit_content_to_margins(
             Takes effect only with ``extents_probe``.
         extents_probe: Optional probe measuring a line's
             ``(ascender, descender)`` ink extents in inches.
+        charge_descenders: When ``False`` (band-centered labels) the fit
+            measures the block as its baseline-to-capline band, so descenders
+            are not charged to the inner area and the spacing is not shrunk to
+            make them fit -- they hang into the bottom margin for the relief.
 
     Returns:
         The original content list when no adjustment is needed, otherwise
@@ -1365,6 +1449,7 @@ def _fit_content_to_margins(
             descenders,
             spacings,
             available_height,
+            charge_descenders=charge_descenders,
         )
     else:
         adjusted = fit_line_spacing_to_margins(heights, spacings, available_height)
@@ -2025,6 +2110,19 @@ def _resolve_label(
     else:
         label_use_baseline_spacing = DEFAULT_USE_BASELINE_SPACING
 
+    # Vertical centering mode (cascades label -> job; the plate tier is schema
+    # parity only, see schema.PlateSpec). Resolved at the LABEL level because
+    # centering is a property of the stacked block, never of one line.
+    # Explicit ``True`` is honored (ink centering), and only ``None`` means
+    # unset. Band centering is applied only together with an enabled
+    # descending-character relief -- see ``ResolvedLabel.center_text_by_band``.
+    if label_input.v_center_by_content is not None:
+        label_v_center_by_content: bool = label_input.v_center_by_content
+    elif job.v_center_by_content is not None:
+        label_v_center_by_content = job.v_center_by_content
+    else:
+        label_v_center_by_content = DEFAULT_V_CENTER_BY_CONTENT
+
     # Automatic descending-character relief (cascades label -> job; the plate
     # tier is schema parity only, see schema.PlateSpec). Resolved at the LABEL
     # level because the mechanism compares a line's glyphs against the
@@ -2082,6 +2180,12 @@ def _resolve_label(
     # Resolve auto line spacing ratio (job level only)
     interline_to_top_bottom_ratio = job.auto_line_spacing_interline_to_top_bottom_ratio or 1.0
 
+    # Band centering (see ResolvedLabel.center_text_by_band): the margin fit
+    # and auto-spacing size the block as its baseline-to-capline band, so
+    # descenders are not charged to the inner area -- they hang into the bottom
+    # margin for the relief to handle. Mirrors the renderer's centering rule.
+    label_center_by_band = label_descender_adjustment and not label_v_center_by_content
+
     # Resolve any auto line spacing (must happen before margin fitting)
     resolved_content, calculated_v_margin = _resolve_auto_line_spacing(
         resolved_content,
@@ -2092,6 +2196,7 @@ def _resolve_label(
         interline_to_top_bottom_ratio,
         use_baseline_spacing=label_use_baseline_spacing,
         extents_probe=extents_probe,
+        charge_descenders=not label_center_by_band,
     )
 
     # If auto v_margin was calculated, use it instead of the default
@@ -2110,6 +2215,7 @@ def _resolve_label(
             label_id,
             use_baseline_spacing=label_use_baseline_spacing,
             extents_probe=extents_probe,
+            charge_descenders=not label_center_by_band,
         )
 
     return ResolvedLabel(
@@ -2130,6 +2236,7 @@ def _resolve_label(
         plate_id=label_plate_id,
         material=label_material,
         use_baseline_spacing=label_use_baseline_spacing,
+        v_center_by_content=label_v_center_by_content,
         auto_descending_character_adjustment=label_descender_adjustment,
         descending_character_v_scale=label_descender_v_scale,
         descending_character_raise=label_descender_raise,

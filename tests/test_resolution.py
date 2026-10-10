@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import pytest
 from pydantic import ValidationError
@@ -38,6 +39,7 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_TEXT_H_ALIGNMENT,
     DEFAULT_TEXT_HEIGHT,
     DEFAULT_USE_BASELINE_SPACING,
+    DEFAULT_V_CENTER_BY_CONTENT,
     IDEAL_CUTTER_MAP,
     CutterSizeError,
     LineContentConfigError,
@@ -2877,6 +2879,25 @@ class TestBaselinePitchMath:
         middle = baseline_block_height(heights, [0.5] * 3, [0.0, 0.1, 0.0], [0.4, 0.4])
         assert math.isclose(middle, plain, abs_tol=1e-12)
 
+    def test_band_block_height_excludes_descenders(self) -> None:
+        """charge_descenders=False measures the baseline-to-capline band."""
+        heights = [0.5, 0.5]
+        band = baseline_block_height(
+            heights, [0.5, 0.5], [0.0, 0.12], [0.1], charge_descenders=False
+        )
+        ink = baseline_block_height(heights, [0.5, 0.5], [0.0, 0.12], [0.1])
+        # The band stops at the lowest baseline, so it is the descender shorter.
+        assert math.isclose(band, 0.5 + 0.1 + 0.5, abs_tol=1e-12)
+        assert math.isclose(ink - band, 0.12, abs_tol=1e-12)
+
+    def test_band_block_height_ignores_interior_descenders(self) -> None:
+        """The band model is content-independent below the baselines."""
+        heights = [0.5, 0.5, 0.5]
+        band = baseline_block_height(
+            heights, [0.5] * 3, [0.2, 0.0, 0.3], [0.4, 0.4], charge_descenders=False
+        )
+        assert math.isclose(band, 0.5 + 0.4 + 0.5 + 0.4 + 0.5, abs_tol=1e-12)
+
 
 class TestFitBaselineSpacingToMargins:
     """Baseline-spacing margin clamp (bisection on the spacing factor)."""
@@ -2920,6 +2941,30 @@ class TestFitBaselineSpacingToMargins:
         assert fit_baseline_spacing_to_margins([0.5, 0.5], [0.5, 0.5], [0.0, 0.0], [0.0], 0.6) == [
             0.0
         ]
+
+    def test_band_mode_does_not_charge_descenders(self) -> None:
+        """charge_descenders=False fits against the cap band, keeping spacing.
+
+        The same label that loses spacing when descenders are charged keeps
+        its full spacing when the block is measured as its baseline-to-capline
+        band -- the descender hangs into the bottom margin instead. The band
+        spans 1.3in here and the descender-extended ink 1.5in, so an inner
+        height of 1.4in sits between the two.
+        """
+        heights, asc, desc = [0.5, 0.5], [0.5, 0.5], [0.0, 0.2]
+        charged = fit_baseline_spacing_to_margins(heights, asc, desc, [0.3], 1.4)
+        band = fit_baseline_spacing_to_margins(
+            heights, asc, desc, [0.3], 1.4, charge_descenders=False
+        )
+        assert band == [0.3]
+        assert charged[0] < 0.3
+
+    def test_band_mode_still_clamps_a_band_overflow(self) -> None:
+        """The band model clamps spacing when the band itself overflows."""
+        adjusted = fit_baseline_spacing_to_margins(
+            [0.5, 0.5], [0.5, 0.5], [0.0, 0.0], [0.9], 1.05, charge_descenders=False
+        )
+        assert adjusted[0] < 0.9
 
     def test_matches_ink_box_math_for_cap_only_lines(self) -> None:
         """Uniform cap-only lines agree with the ink-box clamp exactly."""
@@ -3092,6 +3137,110 @@ class TestUseBaselineSpacingCascade:
             v_margin=0.1,
         )
         assert label.use_baseline_spacing is DEFAULT_USE_BASELINE_SPACING
+
+
+class TestVCenterByContentCascade:
+    """v_center_by_content cascades label -> job -> False (explicit-None)."""
+
+    @staticmethod
+    def _job(**levels: bool | None) -> JobSpec:
+        """Build a one-label job applying v_center_by_content at the given levels."""
+        job_kwargs: dict[str, bool | None] = {}
+        label_kwargs: dict[str, bool | None] = {}
+        if "job" in levels:
+            job_kwargs["v_center_by_content"] = levels["job"]
+        if "label" in levels:
+            label_kwargs["v_center_by_content"] = levels["label"]
+        return JobSpec(
+            job_name="J",
+            text_height=0.5,
+            **job_kwargs,  # type: ignore[arg-type]
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    **label_kwargs,  # type: ignore[arg-type]
+                    content=[TextLine(text="X"), TextLine(text="Y")],
+                )
+            ],
+        )
+
+    def test_default_module_constant_is_false(self) -> None:
+        """The shipped default centers by band (ink centering is the opt-in)."""
+        assert DEFAULT_V_CENTER_BY_CONTENT is False
+
+    def test_default_resolves_false(self) -> None:
+        """All levels omitting resolves to the False fallback."""
+        assert resolve_job_spec(self._job())[0].v_center_by_content is False
+
+    def test_job_true_used_when_label_omits(self) -> None:
+        """Job-level True cascades onto labels that omit the field."""
+        assert resolve_job_spec(self._job(job=True))[0].v_center_by_content is True
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level False beats the job-level True."""
+        assert resolve_job_spec(self._job(job=True, label=False))[0].v_center_by_content is False
+
+    def test_label_true_is_honored(self) -> None:
+        """An intentional True (ink centering) never falls through."""
+        assert resolve_job_spec(self._job(job=False, label=True))[0].v_center_by_content is True
+
+    def test_resolved_label_defaults_false(self) -> None:
+        """A manually constructed ResolvedLabel defaults to the shipped default."""
+        label = ResolvedLabel(
+            id="l",
+            count=1,
+            width=2.0,
+            height=1.0,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+        )
+        assert label.v_center_by_content is DEFAULT_V_CENTER_BY_CONTENT
+
+
+class TestCenterTextByBandGate:
+    """Band centering needs the descending-character relief enabled."""
+
+    @staticmethod
+    def _label(**kwargs: object) -> ResolvedLabel:
+        base = ResolvedLabel(
+            id="l",
+            count=1,
+            width=2.0,
+            height=1.0,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+        )
+        return replace(base, **kwargs)
+
+    def test_band_centering_is_the_default(self) -> None:
+        """Relief on + ink-centering off centers by band."""
+        assert self._label().center_text_by_band is True
+
+    def test_ink_centering_opts_out(self) -> None:
+        """v_center_by_content=True restores the historical ink centering."""
+        assert self._label(v_center_by_content=True).center_text_by_band is False
+
+    def test_relief_off_forces_ink_centering(self) -> None:
+        """With the relief off nothing adjusts descenders, so ink centers."""
+        label = self._label(
+            v_center_by_content=False, auto_descending_character_adjustment=False
+        )
+        assert label.center_text_by_band is False
+
+    def test_param_inert_when_relief_off(self) -> None:
+        """The flag is parity-only while the relief is disabled."""
+        off = self._label(auto_descending_character_adjustment=False)
+        assert off.center_text_by_band is False
+        assert (
+            self._label(
+                v_center_by_content=True, auto_descending_character_adjustment=False
+            ).center_text_by_band
+            is False
+        )
 
 
 class TestAutoLineSpacingBaselineProbe:

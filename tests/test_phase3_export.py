@@ -1726,7 +1726,9 @@ class TestDescenderAdjustDemoExample:
         for fix in fixes[0]:
             assert fix.scale_y < 1.0
             assert fix.raise_amount > 0.0
-            assert fix.gap_before == pytest.approx(0.034, abs=0.01)
+            # Band centering drops the block by the descender depth, so the
+            # tips reach the border centreline.
+            assert fix.gap_before == pytest.approx(0.0, abs=0.01)
             assert fix.gap_after == pytest.approx(0.0375, abs=1e-3)
 
 
@@ -1761,12 +1763,15 @@ class TestDescenderCrookExample:
         result = self._export(tmp_path)
         fixes = result.rendered_labels["crook"].descender_adjustments_by_line
 
-        assert list(fixes) == [0]
+        # Line 0's 'g' hits the 'i' dot below (the reported bug); band
+        # centering also drops line 1's 'g' onto the bottom border, so both
+        # lines report a relief.
+        assert list(fixes) == [0, 1]
         (fix,) = fixes[0]
         assert fix.char == "g"
         assert fix.glyph_index == 5  # t-h-r-o-u-g-h
-        assert fix.scale_y == pytest.approx(0.638, abs=0.01)
-        assert fix.raise_amount == pytest.approx(0.225, abs=0.01)
+        assert fix.scale_y == pytest.approx(0.710, abs=0.01)
+        assert fix.raise_amount == pytest.approx(0.180, abs=0.01)
         # The tightest gap (0.094in) sits inside the required clearance
         # (0.5 * (0.09 + 0.09) * 1.5 = 0.135in) and is cleared above it.
         assert fix.gap_before == pytest.approx(0.094, abs=0.01)
@@ -1916,4 +1921,110 @@ class TestDescenderBorderExample:
         assert sorted(p.name for p in result.plt_paths) == [
             "0.015_bh_br.plt",
             "0.187_txt_br.plt",
+        ]
+
+
+class TestVCenterByContentExample:
+    """Regression tests for tests_deps/v_center_by_content_job.yaml.
+
+    With the descending-character relief enabled a label centers its text by
+    the baseline-to-capline BAND, so the visible glyphs sit in the label's
+    optical middle and descenders hang into the bottom margin (where the relief
+    clears them against the bottom border). ``v_center_by_content: true``
+    restores the historical ink centering, which charges the deepest descender
+    to the block and rides the whole line high. The margin clamp follows the
+    same model, so a band-centered label keeps the spacing its descenders would
+    otherwise have shrunk.
+    """
+
+    _SPEC = Path("tests_deps/v_center_by_content_job.yaml")
+
+    # 1.5in dino text auto-selects a 0.187in cutter; the boundary/hole tool is
+    # the 0.015in default, so the border clearance is 0.1515in.
+    _REQUIRED = 0.1515
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the centering job with plotting disabled."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="vc",
+            optimize=False,
+            plots=False,
+        )
+
+    def test_band_centered_label_relies_the_descender(self, tmp_path: Path) -> None:
+        """Centering the cap band drops the 'g' into the border clearance."""
+        result = self._export(tmp_path)
+        label = result.rendered_labels["band_centered"]
+
+        assert label.source_label.center_text_by_band is True
+        assert label.band_center_offset_inches > 0.0
+        (fix,) = label.descender_adjustments_by_line[0]
+        assert fix.char == "g"
+        assert fix.gap_after == pytest.approx(self._REQUIRED, abs=1e-3)
+
+    def test_ink_centered_label_is_border_clear(self, tmp_path: Path) -> None:
+        """The historical centering rides the line high, so nothing collides."""
+        result = self._export(tmp_path)
+        label = result.rendered_labels["ink_centered"]
+
+        assert label.source_label.center_text_by_band is False
+        assert label.band_center_offset_inches == 0.0
+        assert label.descender_adjustments_by_line == {}
+
+    def test_band_centering_moves_the_text_below_ink_centering(self, tmp_path: Path) -> None:
+        """The same label sits lower under band centering (the reported symptom).
+
+        Ink centering charges the descender to the block, so the visible text
+        rides high; band centering drops it by the descender depth.
+        """
+        from plt_optimizer.generate import label_renderer as renderer
+
+        result = self._export(tmp_path)
+        band = result.rendered_labels["band_centered"]
+        ink = result.rendered_labels["ink_centered"]
+        lc_band, _ = renderer._render_text_local_with_bounds(band.source_label)
+        lc_ink, _ = renderer._render_text_local_with_bounds(ink.source_label)
+        top_band = max(z.imag for arr in lc_band for z in arr)
+        top_ink = max(z.imag for arr in lc_ink for z in arr)
+
+        assert top_band < top_ink
+
+    def test_relief_off_leaves_the_field_inert(self, tmp_path: Path) -> None:
+        """With the relief disabled, ink centering is kept and nothing moves."""
+        result = self._export(tmp_path)
+        label = result.rendered_labels["relief_off"]
+
+        assert label.source_label.v_center_by_content is False  # the default
+        assert label.source_label.center_text_by_band is False
+        assert label.band_center_offset_inches == 0.0
+        assert label.descender_adjustments_by_line == {}
+
+    def test_band_centering_keeps_spacing_the_descenders_would_shrink(
+        self, tmp_path: Path
+    ) -> None:
+        """The margin clamp sizes against the cap band, preserving spacing.
+
+        Two descender lines whose descender-extended block overflows the inner
+        area: ink centering clamps the authored 0.15in spacing, band centering
+        keeps it and lets the descenders hang into the bottom margin.
+        """
+        result = self._export(tmp_path)
+        kept = result.rendered_labels["spacing_kept"]
+        clamped = result.rendered_labels["spacing_clamped"]
+
+        assert kept.source_label.content[0].line_spacing == pytest.approx(0.15, abs=1e-9)
+        assert kept.line_spacing_by_line[0] == pytest.approx(0.15, abs=1e-6)
+        assert clamped.line_spacing_by_line[0] < 0.15
+
+    def test_centering_keeps_one_cutter_file(self, tmp_path: Path) -> None:
+        """Centering is a Y transform only, so the cutter set is unchanged."""
+        result = self._export(tmp_path)
+        assert sorted(p.name for p in result.plt_paths) == [
+            "0.015_bh_vc.plt",
+            "0.187_txt_vc.plt",
         ]

@@ -319,6 +319,15 @@ class RenderedLabel:
             included, so the common case is an empty dict. Reporting-only:
             the geometry itself is already baked into ``plt_content`` /
             ``text_chunks``.
+        band_center_offset_inches: Offset from the text block's ink center to
+            its baseline-to-capline band center, in inches (``+y`` up, render
+            frame; ``> 0`` when descenders hang below the lowest baseline).
+            Non-zero only when the label centers by band
+            (``ResolvedLabel.center_text_by_band``): the centering step lowers
+            its target by this amount so the band, not the ink, lands on the
+            inner-area center. Consumers that reproduce the vertical placement
+            (text-hole collision detection, the plate-space text transform)
+            must apply the same offset, so it travels with the render.
     """
 
     source_label: ResolvedLabel
@@ -335,6 +344,7 @@ class RenderedLabel:
     compression_by_line: dict[int, float] = field(default_factory=dict)
     line_spacing_by_line: dict[int, float] = field(default_factory=dict)
     descender_adjustments_by_line: dict[int, Tuple[DescenderFix, ...]] = field(default_factory=dict)
+    band_center_offset_inches: float = 0.0
 
 
 def _collision_threshold(label: ResolvedLabel, line_index: int) -> float:
@@ -373,6 +383,7 @@ def _collision_threshold(label: ResolvedLabel, line_index: int) -> float:
 def _detect_text_hole_collisions(
     label: ResolvedLabel,
     line_entries: Sequence[_LineEntry],
+    band_center_offset_inches: float = 0.0,
 ) -> List[CollisionResult]:
     """Find all (text line, drill hole) pairs closer than the threshold.
 
@@ -386,7 +397,9 @@ def _detect_text_hole_collisions(
     placement. The rendered line bounds are anchored around y=0 by
     :func:`_render_text_local_with_bounds`; the export pipeline vertically
     centers the block at ``height / 2`` (``_center_text_layer_vertically``),
-    so bounds are shifted by that amount before the check. The export's
+    so bounds are shifted by that amount before the check. Band centering
+    lowers that target by ``band_center_offset_inches`` (the band, not the ink,
+    lands on the inner-area center), so the shift subtracts it. The export's
     Y-flip mirrors text and holes across the *same* centerline, which
     preserves circle/AABB intersection relationships exactly, so the check
     is valid in this pre-flip frame.
@@ -396,6 +409,8 @@ def _detect_text_hole_collisions(
             diameters and the collision distance.
         line_entries: Per-line :class:`_LineEntry` records as returned by
             :func:`_render_text_local_with_bounds`.
+        band_center_offset_inches: The band-center offset the renderer applied
+            to these bounds (inches); ``0.0`` when the label centers by ink.
 
     Returns:
         One :class:`CollisionResult` per colliding (line, hole) pair.
@@ -405,7 +420,7 @@ def _detect_text_hole_collisions(
         return []
 
     circles = _hole_circles_local(label)
-    shift_y = label.height / 2.0
+    shift_y = label.height / 2.0 - band_center_offset_inches
     results: List[CollisionResult] = []
 
     for line_index, line_text, bounds, _scale, _spacing in line_entries:
@@ -490,6 +505,7 @@ def _resolve_collision_via_margin_adjustment(
     label: ResolvedLabel,
     line_entries: Sequence[_LineEntry],
     line_desc: str = "",
+    band_center_offset_inches: float = 0.0,
 ) -> Optional[ResolvedLabel]:
     """Phase 2: shrink ``hole_margin`` toward ``min_hole_margin`` (no re-render).
 
@@ -505,6 +521,8 @@ def _resolve_collision_via_margin_adjustment(
         line_entries: Rendered text bounds from the initial render.
         line_desc: Optional description of the offending text lines,
             included in the resolution WARNING for informative output.
+        band_center_offset_inches: The band-center offset of the supplied
+            ``line_entries`` (inches); ``0.0`` when the label centers by ink.
 
     Returns:
         A clone of ``label`` with a reduced ``hole_margin`` when one clears
@@ -521,7 +539,9 @@ def _resolve_collision_via_margin_adjustment(
     for i in range(1, steps + 1):
         candidate = label.hole_margin - (label.hole_margin - floor) * i / steps
         candidate_label = replace(label, hole_margin=candidate)
-        if not _detect_text_hole_collisions(candidate_label, line_entries):
+        if not _detect_text_hole_collisions(
+            candidate_label, line_entries, band_center_offset_inches
+        ):
             logger.warning(
                 "Label %s: adjusted hole_margin from %.4fin to %.4fin to "
                 "avoid text-hole collision on %s (minimum allowed %.4fin).",
@@ -539,6 +559,7 @@ def _resolve_collision_via_compression(
     label: ResolvedLabel,
     budget: float,
     line_desc: str = "",
+    band_center_offset_inches: float = 0.0,
 ) -> Optional[ResolvedLabel]:
     """Phase 3: compress text horizontally until collisions clear.
 
@@ -565,7 +586,9 @@ def _resolve_collision_via_compression(
 
     # First pass: detect collisions and identify which lines are colliding
     _candidate_lc, candidate_entries = _render_text_local_with_bounds(label)
-    sweep_collisions = _detect_text_hole_collisions(label, candidate_entries)
+    sweep_collisions = _detect_text_hole_collisions(
+        label, candidate_entries, band_center_offset_inches
+    )
     if not sweep_collisions:
         return None  # No collisions to resolve
 
@@ -581,9 +604,12 @@ def _resolve_collision_via_compression(
         per_line_compress: dict[int, float] = dict.fromkeys(colliding_lines, scale)
         candidate_label = replace(label, collision_compress_by_line=per_line_compress)
 
-        # Re-render and check collisions
+        # Re-render and check collisions. Horizontal compression does not move
+        # the block vertically, so the band-center offset is unchanged.
         _candidate_lc, candidate_entries = _render_text_local_with_bounds(candidate_label)
-        sweep_collisions = _detect_text_hole_collisions(candidate_label, candidate_entries)
+        sweep_collisions = _detect_text_hole_collisions(
+            candidate_label, candidate_entries, band_center_offset_inches
+        )
 
         if not sweep_collisions:
             logger.warning(
@@ -779,7 +805,11 @@ def render_label_to_plt(
     rendered, line_entries = _render_label_once(
         label, pen_map=pen_map, check_glyph_coverage=check_glyph_coverage
     )
-    collisions = _detect_text_hole_collisions(label, line_entries)
+    # The rendered bounds sit in the render frame; the centering step that
+    # places them in the label lowers its target by this offset, so every
+    # collision check against these bounds must subtract it too.
+    band_offset = rendered.band_center_offset_inches
+    collisions = _detect_text_hole_collisions(label, line_entries, band_offset)
     if not collisions:
         return rendered
 
@@ -794,7 +824,7 @@ def render_label_to_plt(
     # ---- Phase 2: reduce hole_margin toward min_hole_margin ----
     if label.min_hole_margin is not None:
         margin_label = _resolve_collision_via_margin_adjustment(
-            label, line_entries, line_desc=line_desc
+            label, line_entries, line_desc=line_desc, band_center_offset_inches=band_offset
         )
         if margin_label is not None:
             _log_collisions(label, detected_collisions, level=logging.WARNING)
@@ -808,7 +838,7 @@ def render_label_to_plt(
         floor = max(0.0, label.min_hole_margin)
         if floor < label.hole_margin:
             base_label = replace(label, hole_margin=floor)
-            collisions = _detect_text_hole_collisions(base_label, line_entries)
+            collisions = _detect_text_hole_collisions(base_label, line_entries, band_offset)
             logger.debug(
                 "Label %s: Phase 2 margin adjustment failed. "
                 "Reduced hole_margin from %.4fin to %.4fin floor. "
@@ -824,7 +854,7 @@ def render_label_to_plt(
     attempted_scale: Optional[float] = None
     if budget > 0.0:
         compressed_label = _resolve_collision_via_compression(
-            base_label, budget, line_desc=line_desc
+            base_label, budget, line_desc=line_desc, band_center_offset_inches=band_offset
         )
         if compressed_label is not None:
             # Verify that the compression actually cleared collisions in the
@@ -836,7 +866,9 @@ def render_label_to_plt(
                 pen_map=pen_map,
                 check_glyph_coverage=check_glyph_coverage,
             )
-            final_collisions = _detect_text_hole_collisions(compressed_label, resolved_line_entries)
+            final_collisions = _detect_text_hole_collisions(
+                compressed_label, resolved_line_entries, resolved_rendered.band_center_offset_inches
+            )
             if not final_collisions:
                 _log_collisions(label, detected_collisions, level=logging.WARNING)
                 return replace(resolved_rendered, collision_detected=True)
@@ -861,10 +893,17 @@ def render_label_to_plt(
         # For diagnostics, create per-line compression map with the floor scale
         per_line_floor_compress = dict.fromkeys(range(len(base_label.content)), attempted_scale)
         final_label = replace(base_label, collision_compress_by_line=per_line_floor_compress)
+        final_band: List[float] = []
         _, final_entries = _render_text_local_with_bounds(
-            final_label, check_glyph_coverage=check_glyph_coverage
+            final_label,
+            check_glyph_coverage=check_glyph_coverage,
+            band_center_offset=final_band,
         )
-        collisions = _detect_text_hole_collisions(final_label, final_entries)
+        collisions = _detect_text_hole_collisions(
+            final_label,
+            final_entries,
+            final_band[0] if final_band else band_offset,
+        )
         base_label = final_label
 
     # ---- Unresolvable: collisions are unacceptable output ----
@@ -925,12 +964,14 @@ def _render_label_once(
     # only when no pen_map is supplied, preserving the historical
     # single-pen output).
     descender_fixes: List[DescenderFix] = []
+    band_center_offset: List[float] = []
     text_pens, line_entries, chunk_records = _render_text_lines_by_pen(
         label,
         pen_map,
         chunk_mode=_chunk_mode_of(label),
         check_glyph_coverage=check_glyph_coverage,
         descender_fixes=descender_fixes,
+        band_center_offset=band_center_offset,
     )
 
     # Render boundary layer
@@ -951,7 +992,12 @@ def _render_label_once(
 
     try:
         _export_to_plt_with_postprocessing(
-            doc, temp_path, label, text_pens=set(text_pens), text_blocks=text_pens
+            doc,
+            temp_path,
+            label,
+            text_pens=set(text_pens),
+            text_blocks=text_pens,
+            band_center_offset_inches=band_center_offset[0] if band_center_offset else 0.0,
         )
         plt_content = temp_path.read_text().strip()
 
@@ -1002,6 +1048,7 @@ def _render_label_once(
             compression_by_line=compression_by_line,
             line_spacing_by_line=line_spacing_by_line,
             descender_adjustments_by_line=descender_adjustments_by_line,
+            band_center_offset_inches=band_center_offset[0] if band_center_offset else 0.0,
         )
         return rendered, line_entries
     finally:
@@ -1233,6 +1280,7 @@ def _export_to_plt_with_postprocessing(
     label: ResolvedLabel,
     text_pens: Optional[Iterable[int]] = None,
     text_blocks: Optional[Mapping[int, Sequence[TextBlock]]] = None,
+    band_center_offset_inches: float = 0.0,
 ) -> None:
     """Export vpype Document to PLT for a single label.
 
@@ -1287,7 +1335,12 @@ def _export_to_plt_with_postprocessing(
     center_pens: frozenset[int] = (
         frozenset({LAYER_TEXT}) if text_pens is None else frozenset(text_pens)
     )
-    _center_text_layer_vertically(output_path, label, text_pens=center_pens)
+    _center_text_layer_vertically(
+        output_path,
+        label,
+        text_pens=center_pens,
+        band_center_offset_inches=band_center_offset_inches,
+    )
 
     # Invert Y-axis to device convention so rendered labels display upright.
     # ftext emits glyphs in plotter convention (+y up), but the plotting /
@@ -1422,6 +1475,7 @@ def _center_text_layer_vertically(
     file_path: Path,
     label: ResolvedLabel,
     text_pens: Iterable[int] = (LAYER_TEXT,),
+    band_center_offset_inches: float = 0.0,
 ) -> None:
     """Center the text pen(s) vertically within label bounds after scaling.
 
@@ -1438,11 +1492,23 @@ def _center_text_layer_vertically(
     each other -- centering each pen independently would shift lines of
     different cutters apart.
 
+    This is the **authoritative** vertical placement of the text: the renderer
+    centers the block on ``y = 0`` in its own frame, and this function moves
+    that block to its final position in the label, so any centering rule must
+    be applied here (a rule applied only to the render frame is silently
+    undone by this shift).
+
     Args:
         file_path: Path to the PLT file (after scaling).
         label: The label being rendered (for dimensions and margins).
         text_pens: Pen numbers carrying text geometry. Defaults to the
             historical single text pen (``SP1``).
+        band_center_offset_inches: Offset from the ink center to the
+            baseline-to-capline band center in the render frame (inches, ``> 0``
+            when descenders hang below). When band centering is active the band
+            -- not the ink -- must land on the inner-area center, so the target
+            is lowered by this amount. ``0.0`` (the default) centers the ink,
+            the historical behaviour.
     """
     pens = {int(pen) for pen in text_pens}
     content = file_path.read_text(encoding="utf-8")
@@ -1485,11 +1551,14 @@ def _center_text_layer_vertically(
     text_y_min = min(y_coords)
     text_y_max = max(y_coords)
 
-    # Expected center position (in plotter units: 1 inch = 1000 units)
+    # Expected center position (in plotter units: 1 inch = 1000 units). Band
+    # centering lowers the target by the ink-to-band offset so the band, not
+    # the ink, lands on the inner-area center.
     v_margin_units = label.v_margin * 1000.0
     label_height_units = label.height * 1000.0
     available_height_units = label_height_units - (2 * v_margin_units)
     expected_center_y = v_margin_units + available_height_units / 2.0
+    expected_center_y -= band_center_offset_inches * 1000.0
 
     # Current center of text
     current_center_y = (text_y_min + text_y_max) / 2.0
@@ -2187,23 +2256,75 @@ def _line_cutter(label: ResolvedLabel, line_index: int) -> float:
     return 0.0  # pragma: no cover - renderable indices always address content
 
 
+def _band_center_delta(
+    offsets: Sequence[float],
+    ascenders: Sequence[float],
+    pitch_basis: Sequence[float],
+    *,
+    by_content: bool,
+) -> float:
+    """Return the shift from the ink-centered frame to the cap-band-centered frame.
+
+    The **band** spans the lowest baseline to the highest capline; centering it
+    (instead of the ink block) puts the visible text in the optical middle of
+    the label and lets descenders hang into the bottom margin, where the
+    descending-character relief handles them against the bottom border. The
+    ink-centered frame already centers ``[min(b - d), max(b + a)]`` on ``y = 0``,
+    so the band-centered frame is that frame shifted down by the band's own
+    center in it.
+
+    Args:
+        offsets: Each line's baseline Y in the unshifted (first-baseline-at-0)
+            frame, inches.
+        ascenders: Ink extent above each line's baseline, inches.
+        pitch_basis: Each line's cap height, inches.
+        by_content: When ``True`` the band top is the tallest measured ink
+            above the baseline (so a line of x-height letters sits lower); when
+            ``False`` it is the cap height, a content-independent per-font
+            constant.
+
+    Returns:
+        The band's center in the ink-centered frame, inches (``> 0`` when
+        descenders hang below the lowest baseline).
+    """
+    if not offsets:
+        return 0.0
+    tops = (
+        (b + a for b, a in zip(offsets, ascenders))
+        if by_content
+        else (b + p for b, p in zip(offsets, pitch_basis))
+    )
+    band_top = max(tops)
+    band_bottom = min(offsets)
+    return (band_top + band_bottom) / 2.0
+
+
 def _baseline_table(
     pitch_basis: Sequence[float],
     ascenders: Sequence[float],
     descenders: Sequence[float],
     spacings: Sequence[float],
+    *,
+    center_by_band: bool = False,
+    by_content: bool = True,
 ) -> List[float]:
-    """Return each line's baseline Y in the ink-centered block frame.
+    """Return each line's baseline Y in the block-centered frame.
 
     The shared baseline table: baselines descend by one pitch each from ``0``
     and the whole set shifts so the ink block (descenders included) centers on
-    ``y = 0`` -- exactly the frame the renderer positions lines in.
+    ``y = 0`` -- exactly the frame the renderer positions lines in. With
+    ``center_by_band`` the block is shifted the extra amount that centers the
+    baseline-to-capline band instead (see :func:`_band_center_delta`), which is
+    what lets descenders hang into the bottom margin for the relief to fix.
 
     Args:
         pitch_basis: Each line's cap height (the pitch basis), inches.
         ascenders: Ink extent above each line's baseline, inches.
         descenders: Ink depth below each line's baseline, inches.
         spacings: Spacing below each line except the last, inches.
+        center_by_band: Center the baseline-to-capline band, not the ink block.
+        by_content: Band top from the measured ascender (``True``) or the cap
+            height (``False``). Ignored unless ``center_by_band``.
 
     Returns:
         One baseline Y per line, ``+y`` up, block-centered.
@@ -2212,22 +2333,40 @@ def _baseline_table(
     top_extent = max(b + a for b, a in zip(offsets, ascenders))
     bottom_extent = min(b - d for b, d in zip(offsets, descenders))
     shift = (top_extent + bottom_extent) / 2.0
+    if center_by_band:
+        shift += _band_center_delta(
+            [offset - shift for offset in offsets],
+            ascenders,
+            pitch_basis,
+            by_content=by_content,
+        )
     return [offset - shift for offset in offsets]
 
 
 def _inkbox_baseline_table(
     blocks: Sequence[TextBlock],
     spacings: Sequence[float],
+    *,
+    pitch_basis: Sequence[float] = (),
+    center_by_band: bool = False,
+    by_content: bool = True,
 ) -> List[float]:
     """Return each line's baseline Y under ink-box stacking, block-centered.
 
     Mirrors the renderer's running anchor exactly (ink top at ``current_y``,
     descending by ``height + spacing``), so the relief measures the gaps the
-    ink-box mode will actually engrave.
+    ink-box mode will actually engrave. ``center_by_band`` applies the same
+    baseline-to-capline band centering as :func:`_baseline_table` (the running
+    anchor is untouched -- only the block's absolute position moves).
 
     Args:
         blocks: The line blocks in the local frame (baseline at ``y = 0``).
         spacings: Spacing below each line except the last, inches.
+        pitch_basis: Each line's cap height, inches (the band top when
+            ``by_content`` is False).
+        center_by_band: Center the baseline-to-capline band, not the ink block.
+        by_content: Band top from the measured ascender (``True``) or the cap
+            height (``False``).
 
     Returns:
         One baseline Y per line, ``+y`` up, block-centered on ``y = 0``.
@@ -2249,6 +2388,13 @@ def _inkbox_baseline_table(
         current_y -= heights[index]
         if index < len(spacings):
             current_y -= spacings[index]
+    if center_by_band:
+        # ``tops`` is each line's ink extent above its baseline (the blocks are
+        # in the baseline frame), i.e. exactly the band's ascender input.
+        baselines = [
+            b - _band_center_delta(baselines, tops, pitch_basis, by_content=by_content)
+            for b in baselines
+        ]
     return baselines
 
 
@@ -2598,6 +2744,8 @@ def _apply_descender_relief(
     available_height: float,
     *,
     use_baseline: bool,
+    center_by_band: bool = False,
+    by_content: bool = True,
 ) -> _DescenderRelief:
     """Relieve descending glyphs that come close to the glyph below them.
 
@@ -2631,6 +2779,11 @@ def _apply_descender_relief(
         available_height: Inner content height, inches.
         use_baseline: Which stacking mode the caller uses (selects the baseline
             table and the block-height model the growth is capped by).
+        center_by_band: The caller centers the block by its baseline-to-capline
+            band; the relief's stacked frame matches (the border sits at a fixed
+            ``-height/2``, so the frame must agree for the border measurement).
+        by_content: Band top from the measured ascender (``True``) or the cap
+            height (``False``).
 
     Returns:
         A :class:`_DescenderRelief` carrying the adjusted blocks, spacings and
@@ -2666,8 +2819,16 @@ def _apply_descender_relief(
         ascender_values = [ascender for _basis, ascender, _d in geometry]
         descender_values = [descender for _basis, _ascender, descender in geometry]
         if use_baseline:
+            # Same block model as the margin clamp: a band-centered label caps
+            # spacing growth against the cap band, not the descender-extended
+            # ink (the relief's growth must not be limited by a model the
+            # clamp no longer enforces).
             return baseline_block_height(
-                list(pitch_basis), ascender_values, descender_values, list(spacing_list)
+                list(pitch_basis),
+                ascender_values,
+                descender_values,
+                list(spacing_list),
+                charge_descenders=not center_by_band,
             )
         ink_height = sum(
             bounds[3] - bounds[1]
@@ -2822,9 +2983,22 @@ def _apply_descender_relief(
         ascenders = [ascender for _basis, ascender, _d in geometry]
         descenders = [descender for _basis, _ascender, descender in geometry]
         if use_baseline:
-            baselines = _baseline_table(pitch_basis, ascenders, descenders, current_spacings)
+            baselines = _baseline_table(
+                pitch_basis,
+                ascenders,
+                descenders,
+                current_spacings,
+                center_by_band=center_by_band,
+                by_content=by_content,
+            )
         else:
-            baselines = _inkbox_baseline_table(current_blocks, current_spacings)
+            baselines = _inkbox_baseline_table(
+                current_blocks,
+                current_spacings,
+                pitch_basis=pitch_basis,
+                center_by_band=center_by_band,
+                by_content=by_content,
+            )
 
         # ---- Measure every descending glyph; propose the smallest clearing ramp ----
         boxes = stacked_boxes_of(current_blocks, baselines)
@@ -2912,9 +3086,22 @@ def _apply_descender_relief(
         ascenders = [ascender for _basis, ascender, _d in geometry]
         descenders = [descender for _basis, _ascender, descender in geometry]
         if use_baseline:
-            baselines_after = _baseline_table(pitch_basis, ascenders, descenders, current_spacings)
+            baselines_after = _baseline_table(
+                pitch_basis,
+                ascenders,
+                descenders,
+                current_spacings,
+                center_by_band=center_by_band,
+                by_content=by_content,
+            )
         else:
-            baselines_after = _inkbox_baseline_table(current_blocks, current_spacings)
+            baselines_after = _inkbox_baseline_table(
+                current_blocks,
+                current_spacings,
+                pitch_basis=pitch_basis,
+                center_by_band=center_by_band,
+                by_content=by_content,
+            )
         boxes_after = stacked_boxes_of(current_blocks, baselines_after)
         # Line-to-line deficits only: the border's third return value is
         # deliberately dropped here (see the border proposal above).
@@ -2947,9 +3134,22 @@ def _apply_descender_relief(
     ascenders = [ascender for _basis, ascender, _d in geometry]
     descenders = [descender for _basis, _ascender, descender in geometry]
     if use_baseline:
-        baselines = _baseline_table(pitch_basis, ascenders, descenders, current_spacings)
+        baselines = _baseline_table(
+            pitch_basis,
+            ascenders,
+            descenders,
+            current_spacings,
+            center_by_band=center_by_band,
+            by_content=by_content,
+        )
     else:
-        baselines = _inkbox_baseline_table(current_blocks, current_spacings)
+        baselines = _inkbox_baseline_table(
+            current_blocks,
+            current_spacings,
+            pitch_basis=pitch_basis,
+            center_by_band=center_by_band,
+            by_content=by_content,
+        )
     final_boxes: List[List[GlyphBox]] = [
         _glyph_boxes(block, groups, label.content[line_index].text)
         for block, groups, line_index in zip(current_blocks, glyph_groups_by_line, line_indices)
@@ -3198,6 +3398,7 @@ def _render_positioned_lines(
     *,
     check_glyph_coverage: bool = True,
     descender_fixes: Optional[List[DescenderFix]] = None,
+    band_center_offset: Optional[List[float]] = None,
 ) -> List[
     Tuple[
         int,
@@ -3377,18 +3578,29 @@ def _render_positioned_lines(
     # via horizontal compensation.
     available_height = label.height - (2 * v_margin)
     use_baseline = label.use_baseline_spacing
+    # Band centering (v_center_by_content=false + relief enabled): center the
+    # baseline-to-capline band so the visible text sits in the label's optical
+    # middle and descenders hang into the bottom margin, where the relief
+    # handles them. With the relief disabled nothing would move a descender, so
+    # the historical ink centering is kept (see ResolvedLabel.center_text_by_band).
+    center_by_band = label.center_text_by_band
+    by_content = label.v_center_by_content
     pitch_basis = [basis for basis, _a, _d in baseline_geometry]
     ascenders = [ascender for _basis, ascender, _d in baseline_geometry]
     descenders = [descender for _basis, _ascender, descender in baseline_geometry]
     if use_baseline:
         # Baseline pitch: the clamp fits the descender-extended ink block, so
-        # a line's descenders claim their share of the inner height.
+        # a line's descenders claim their share of the inner height. Under band
+        # centering the block is measured as its baseline-to-capline band
+        # instead -- descenders hang into the bottom margin for the relief --
+        # matching the resolution-time fit so neither clamp fights the other.
         adjusted_spacings = fit_baseline_spacing_to_margins(
             pitch_basis,
             ascenders,
             descenders,
             spacings,
             available_height,
+            charge_descenders=not center_by_band,
         )
     else:
         adjusted_spacings = fit_line_spacing_to_margins(
@@ -3506,6 +3718,8 @@ def _render_positioned_lines(
         adjusted_spacings,
         available_height,
         use_baseline=use_baseline,
+        center_by_band=center_by_band,
+        by_content=by_content,
     )
     if relief.fixes:
         _log_descender_fixes(label, relief.fixes)
@@ -3542,17 +3756,42 @@ def _render_positioned_lines(
     current_y = total_rendered_height / 2.0
 
     # Baseline mode precomputes each line's baseline Y in the same centered
-    # frame: the block-local baselines descend by one pitch each, and the
-    # whole set is shifted so the ink block (descenders included) centers on
-    # y = 0. The per-line ``y_offset`` is then exactly that baseline Y,
-    # because the rendered block's own baseline sits at local y = 0.
+    # frame: the block-local baselines descend by one pitch each, and the whole
+    # set is shifted so the ink block (descenders included) centers on y = 0 --
+    # or, under band centering, so the baseline-to-capline band centers there.
+    # The per-line ``y_offset`` is then exactly that baseline Y, because the
+    # rendered block's own baseline sits at local y = 0.
     baseline_y: List[float] = []
     if use_baseline:
-        offsets = baseline_offsets(pitch_basis, adjusted_spacings)
-        top_extent = max(b + a for b, a in zip(offsets, ascenders))
-        bottom_extent = min(b - d for b, d in zip(offsets, descenders))
-        shift = (top_extent + bottom_extent) / 2.0
-        baseline_y = [offset - shift for offset in offsets]
+        baseline_y = _baseline_table(
+            pitch_basis,
+            ascenders,
+            descenders,
+            adjusted_spacings,
+            center_by_band=center_by_band,
+            by_content=by_content,
+        )
+        # The delta is measured in the INK-centered frame, so recompute the
+        # unshifted table when the table above applied the band shift.
+        ink_centered = (
+            baseline_y
+            if not center_by_band
+            else _baseline_table(pitch_basis, ascenders, descenders, adjusted_spacings)
+        )
+    else:
+        ink_centered = _inkbox_baseline_table(relief.blocks, adjusted_spacings)
+
+    # The render frame centers the ink block on y = 0, so the band's center in
+    # it is exactly the extra offset the authoritative centering step
+    # (_center_text_layer_vertically) must subtract to center the band instead.
+    if center_by_band:
+        delta = _band_center_delta(ink_centered, ascenders, pitch_basis, by_content=by_content)
+        if band_center_offset is not None:
+            band_center_offset.append(delta)
+        if not use_baseline:
+            # Ink-box mode keeps its running anchor; band centering only moves
+            # the block's absolute position.
+            current_y -= delta
 
     # ---- Phase 2b: vertical stacking + per-line reporting ----
     # X is final (phase 2a), the relief adjusted Y-only, so this phase moves
@@ -3626,6 +3865,7 @@ def _render_text_local_with_bounds(
     label: ResolvedLabel,
     *,
     check_glyph_coverage: bool = True,
+    band_center_offset: Optional[List[float]] = None,
 ) -> Tuple[vp.LineCollection, List[_LineEntry]]:
     """Render text at local coordinates and report per-line bounds.
 
@@ -3637,18 +3877,23 @@ def _render_text_local_with_bounds(
         label: The resolved label whose ``content`` should be rendered.
         check_glyph_coverage: When True (the default), a TrueType font
             missing a glyph fails the render.
+        band_center_offset: Optional list receiving the band-center offset the
+            renderer applied (inches); left empty when the label centers by
+            ink. Collision detection must subtract the same offset the export
+            centering applies, so sweeps that re-render collect it here.
 
     Returns:
         A tuple ``(combined_lc, line_entries)`` where ``combined_lc`` holds
         all rendered lines and ``line_entries`` is a list of :class:`_LineEntry`
         records in label-local coordinates (pre-export anchor, block centered
         around y=0). The export pipeline vertically centers the block at
-        ``height / 2``; collision detection applies that shift itself.
+        ``height / 2`` (lowered by the band-center offset when band centering
+        is active); collision detection applies that shift itself.
     """
     text_lc = vp.LineCollection()
     line_entries: List[_LineEntry] = []
     for _line_index, positioned_block, entry, _wg, _gg in _render_positioned_lines(
-        label, check_glyph_coverage=check_glyph_coverage
+        label, check_glyph_coverage=check_glyph_coverage, band_center_offset=band_center_offset
     ):
         text_lc.extend(positioned_block.to_vpype_polylines())
         line_entries.append(entry)
@@ -3662,6 +3907,7 @@ def _render_text_lines_by_pen(
     *,
     check_glyph_coverage: bool = True,
     descender_fixes: Optional[List[DescenderFix]] = None,
+    band_center_offset: Optional[List[float]] = None,
 ) -> Tuple[dict[int, Tuple[TextBlock, ...]], List[_LineEntry], List[TextChunkRecord]]:
     """Render text lines grouped onto per-cutter pen layers.
 
@@ -3680,6 +3926,11 @@ def _render_text_lines_by_pen(
             :func:`_render_positioned_lines`).
         check_glyph_coverage: When True (the default), a TrueType font
             missing a glyph fails the render.
+        band_center_offset: Optional list receiving the band-center offset the
+            renderer applied (inches, render frame) when the label centers by
+            baseline-to-capline band; left empty when it centers by ink. The
+            authoritative centering step needs the value, so it is collected
+            here the same way ``descender_fixes`` is.
 
     Returns:
         Tuple of ``(pens, line_entries, chunk_records)`` where ``pens`` maps
@@ -3699,6 +3950,7 @@ def _render_text_lines_by_pen(
         chunk_mode=chunk_mode,
         check_glyph_coverage=check_glyph_coverage,
         descender_fixes=descender_fixes,
+        band_center_offset=band_center_offset,
     ):
         pen = LAYER_TEXT
         if pen_map is not None and 0 <= line_index < len(label.content):

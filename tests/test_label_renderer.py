@@ -9,9 +9,11 @@ import vpype as vp
 
 from plt_optimizer.generate.label_renderer import (
     _INK_EMISSION_FLOOR,
+    LAYER_TEXT,
     LabelRenderError,
     RenderedLabel,
     _clip_below_baseline,
+    _collect_hpgl_geometry,
     _flip_y_coordinates_in_plt,
     _glyph_ink,
     _hole_circles_local,
@@ -2007,25 +2009,30 @@ class TestDescendingCharacterBorderRelief:
         for fix in fixes[0]:
             assert fix.scale_y < 1.0
             assert fix.raise_amount > 0.0
-            assert fix.gap_before == pytest.approx(0.006, abs=0.01)
+            # Band centering drops the block by the descender depth, so the
+            # tip reaches the border centreline.
+            assert fix.gap_before == pytest.approx(0.0, abs=0.01)
             # Cleared to the required 0.5 * (0.09 + 0.015) * 1.5 = 0.0788in,
             # within one plotter unit.
             assert fix.gap_after == pytest.approx(0.0788, abs=1e-3)
 
     def test_descender_clear_of_the_border_is_left_alone(self) -> None:
         """A roomy label keeps the descender exactly as rendered."""
-        rendered = render_label_to_plt(_make_border_label(["charging"], height=2.1))
+        rendered = render_label_to_plt(_make_border_label(["charging"], height=2.7))
         assert rendered.descender_adjustments_by_line == {}
 
     def test_crossing_the_margin_is_not_a_border_collision(self) -> None:
         """Ink spilling into v_margin is accepted; only the border stroke counts.
 
-        The block is centred, so the ink bottom always sits at ``height / 2``
-        from the border -- a 2.1in label leaves 0.106in of air (clear of the
-        0.079in requirement) while the ink crosses the 0.2in v_margin by
-        ~0.74in. The margin is not the constraint, so nothing is relieved.
+        Band centering puts the cap band on the inner-area centre, so the ink
+        bottom sits ``(height - band) / 2`` above the border: a 2.7in label
+        leaves 0.168in of air (clear of the 0.0788in requirement) while the ink
+        crosses the 0.25in v_margin. The margin is not the constraint, so
+        nothing is relieved.
         """
-        rendered = render_label_to_plt(_make_border_label(["charging"], height=2.1, v_margin=0.2))
+        rendered = render_label_to_plt(
+            _make_border_label(["charging"], height=2.7, v_margin=0.25)
+        )
         assert rendered.descender_adjustments_by_line == {}
 
     def test_border_relief_never_grows_the_line_spacing(self) -> None:
@@ -2034,7 +2041,8 @@ class TestDescendingCharacterBorderRelief:
         Growing the gap above the last line moves that line DOWN in the
         centred frame -- the opposite of what the border needs -- so only the
         per-glyph ramp acts. The two lines here are far apart, so the
-        line-to-line mechanism has nothing to do and the spacing is untouched.
+        line-to-line mechanism has nothing to do and the spacing keeps its
+        authored value.
         """
         label = _make_border_label(["AAAA", "charging"], height=3.4)
         rendered = render_label_to_plt(label)
@@ -2042,7 +2050,7 @@ class TestDescendingCharacterBorderRelief:
         fixes = rendered.descender_adjustments_by_line
         assert list(fixes) == [1]  # the last line's 'g' glyphs
         assert [fix.char for fix in fixes[1]] == ["g", "g"]
-        assert rendered.line_spacing_by_line[0] == pytest.approx(0.0, abs=1e-9)
+        assert rendered.line_spacing_by_line[0] == pytest.approx(0.3, abs=1e-9)
 
     def test_feature_disabled_leaves_the_border_descender_verbatim(self) -> None:
         """With the flag off, the border collision engraves untouched."""
@@ -2083,3 +2091,105 @@ class TestDescendingCharacterBorderRelief:
         assert len(label.content) == 1
         rendered = render_label_to_plt(label)
         assert [fix.char for fix in rendered.descender_adjustments_by_line[0]] == ["g", "g"]
+
+
+def _text_pen_y_extent(rendered: RenderedLabel) -> tuple[float, float]:
+    """Return the emitted text layer's ``(min_y, max_y)`` in inches.
+
+    Device frame (``+y`` downward after the export flip), so the visually
+    lowest ink is ``max_y``. Borders/holes are excluded: only the text pen
+    carries the placement the centering rule controls.
+    """
+    parts = re.split(r"(SP\d+;)", rendered.plt_content)
+    ys: list[float] = []
+    for i in range(1, len(parts), 2):
+        if int(parts[i][2:-1]) != LAYER_TEXT:
+            continue
+        points, arcs = _collect_hpgl_geometry(parts[i + 1])
+        ys.extend(y for _x, y in points)
+        for arc in arcs:
+            _x_min, y_min, _x_max, y_max = arc.swept_bounds()
+            ys.extend((y_min, y_max))
+    return min(ys) / 1000.0, max(ys) / 1000.0
+
+
+class TestBandCentering:
+    """Text centers by its baseline-to-capline band, not its ink block."""
+
+    def test_band_centering_shifts_the_ink_down_by_the_descender(self) -> None:
+        """The visible text drops; the descender hangs into the bottom margin.
+
+        Band centering puts the cap band on the inner-area centre, so the ink
+        centre (which includes the descender hanging below the baseline) ends
+        up ``band_center_offset`` *below* it -- the exact opposite of the
+        historical ink centering, which charges the descender to the block and
+        rides the whole line high. In the device frame (``+y`` downward) a
+        lower position is a larger y.
+        """
+        label = _make_border_label(["charging"], height=2.7)
+        rendered = render_label_to_plt(label)
+        lo, hi = _text_pen_y_extent(rendered)
+        ink_center = (lo + hi) / 2.0
+        inner_center = label.height / 2.0
+
+        assert label.center_text_by_band is True
+        assert rendered.band_center_offset_inches == pytest.approx(0.2382, abs=1e-3)
+        # Device frame is +y down: the ink centre sits below the inner centre.
+        assert ink_center - inner_center == pytest.approx(
+            rendered.band_center_offset_inches, abs=1e-3
+        )
+
+    def test_v_center_by_content_restores_ink_centering(self) -> None:
+        """v_center_by_content=True centers the ink block (the historical rule)."""
+        label = _make_border_label(["charging"], height=2.7, v_center_by_content=True)
+        rendered = render_label_to_plt(label)
+        lo, hi = _text_pen_y_extent(rendered)
+
+        assert label.center_text_by_band is False
+        assert rendered.band_center_offset_inches == 0.0
+        assert (lo + hi) / 2.0 == pytest.approx(label.height / 2.0, abs=1e-3)
+
+    def test_relief_off_forces_ink_centering(self) -> None:
+        """With the relief disabled nothing adjusts descenders, so ink centers."""
+        label = _make_border_label(
+            ["charging"], height=2.7, auto_descending_character_adjustment=False
+        )
+        rendered = render_label_to_plt(label)
+        lo, hi = _text_pen_y_extent(rendered)
+
+        assert label.center_text_by_band is False
+        assert rendered.band_center_offset_inches == 0.0
+        assert (lo + hi) / 2.0 == pytest.approx(label.height / 2.0, abs=1e-3)
+
+    def test_band_centering_exposes_the_border_collision_ink_centering_hid(self) -> None:
+        """The two features are complementary, not redundant.
+
+        A 2.1in label is border-clear under ink centering (the block rides high
+        enough that the descender never reaches the border), so nothing is
+        relieved. Band centering drops the text to center the visible glyphs,
+        which puts the 'g' tip inside the required clearance -- and the relief
+        catches it. Centering the text optically and clearing the border are
+        achieved together, which is the point of the pair.
+        """
+        band = render_label_to_plt(_make_border_label(["charging"], height=2.1))
+        ink = render_label_to_plt(
+            _make_border_label(["charging"], height=2.1, v_center_by_content=True)
+        )
+
+        assert ink.descender_adjustments_by_line == {}
+        assert band.band_center_offset_inches > 0.0
+        fixes = band.descender_adjustments_by_line[0]
+        assert [fix.char for fix in fixes] == ["g", "g"]
+        for fix in fixes:
+            assert fix.gap_before < 0.0788  # inside the required clearance
+            assert fix.gap_after == pytest.approx(0.0788, abs=1e-3)
+
+    def test_band_centering_does_not_move_the_label_bounds(self) -> None:
+        """Packing is unaffected: the border rect dominates the render bounds."""
+        band = render_label_to_plt(_make_border_label(["charging"], height=2.7))
+        ink = render_label_to_plt(
+            _make_border_label(["charging"], height=2.7, v_center_by_content=True)
+        )
+
+        assert band.width == pytest.approx(ink.width, abs=1e-9)
+        assert band.height == pytest.approx(ink.height, abs=1e-9)

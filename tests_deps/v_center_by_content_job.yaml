@@ -1,0 +1,84 @@
+# Fixture for baseline-to-capline band centering (`v_center_by_content`,
+# default false) and its interaction with the descending-character relief.
+#
+# The text block used to center on its INK, charging the deepest descender to
+# the label: a line carrying descenders rode high, its plain letters visibly
+# off-centre, while the descender wasted the air it needed. When the relief is
+# enabled (`auto_descending_character_adjustment`, default true) the block
+# centers on its baseline-to-capline BAND instead -- the visible text is
+# optically centred and descenders hang into the bottom margin, where the
+# relief handles them against the bottom border. `v_center_by_content: true`
+# restores the historical ink centering; with the relief disabled the field is
+# inert (nothing would adjust a descender, so ink centering is kept).
+#
+# The margin clamp follows the same model: a band-centered label sizes its
+# line spacing against the cap band, so descenders no longer shrink the
+# spacing (see `spacing_kept`).
+#
+# Dino at 1.5in text auto-selects a 0.187in cutter; with the default 0.015in
+# boundary/hole cutter the required border clearance is
+# 0.5 * (0.187 + 0.015) * 1.5 = 0.1515in.
+#
+# No plate declares a material and the job packs onto one sheet, so emitted
+# names carry no plate/material prefix.
+job:
+  job_name: V Center By Content Demo
+
+  width: 6.0
+  margin: 0.1
+  v_margin: 0.1
+  text_height: 1.5
+  font: dino
+  descending_character_clearance: 0.5
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. Band centered (the default): the cap band is centred, so the 'g'
+    #    descender drops inside the border clearance and the relief lifts it.
+    - id: band_centered
+      height: 2.1
+      content:
+        - text: "charging"
+
+    # 2. Ink centered (v_center_by_content: true): the historical rule charges
+    #    the descender to the block, riding the whole line high -- the same
+    #    label is border-clear, so nothing is relieved.
+    - id: ink_centered
+      height: 2.1
+      v_center_by_content: true
+      content:
+        - text: "charging"
+
+    # 3. Relief off: the field is inert, ink centering is kept, and no glyph
+    #    moves (the band_centered label's un-adjusted twin).
+    - id: relief_off
+      height: 2.1
+      auto_descending_character_adjustment: false
+      content:
+        - text: "charging"
+
+    # 4. Spacing kept: two descender lines whose descender-extended block
+    #    overflows the inner area. Ink centering clamps the authored 0.15in
+    #    spacing to fit the descenders; band centering sizes against the cap
+    #    band, so the authored spacing survives and the descenders hang into
+    #    the bottom margin.
+    - id: spacing_kept
+      height: 3.4
+      line_spacing: 0.15
+      content:
+        - text: "paying"
+        - text: "paying"
+
+    # 5. Spacing clamped (the same label, ink centered): the descenders are
+    #    charged to the block, so the 0.15in spacing is reduced to fit.
+    - id: spacing_clamped
+      height: 3.4
+      line_spacing: 0.15
+      v_center_by_content: true
+      content:
+        - text: "paying"
+        - text: "paying"

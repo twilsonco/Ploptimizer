@@ -20,6 +20,7 @@
   "optimize_line_content": false,
   "optimize_line_content_max_lines": null,
   "use_baseline_spacing": true,
+  "v_center_by_content": false,
   "auto_descending_character_adjustment": true,
   "descending_character_v_scale": 0.75,
   "descending_character_raise": 0.7,

@@ -458,6 +458,19 @@
       "description": "Default baseline-to-baseline line spacing permission (job layer; cascades label -> job, never text lines). True stacks a label's lines by baseline pitch so descenders hang into the gap and every gap reads as one uniform visual spacing; false stacks by rendered ink box. Unset falls back to true.",
       "title": "Use Baseline Spacing"
     },
+    "v_center_by_content": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default vertical centering mode (job layer; cascades label -> job, never text lines). False (the default) centers a label's text block by its baseline-to-capline band, so the visible text is optically centered and descenders hang into the bottom margin for the descending-character relief to handle against the bottom border; true centers by rendered ink (historical), which charges the deepest descender to the block and makes lines with descenders ride high. Band centering is active only when auto_descending_character_adjustment is enabled. Unset falls back to false.",
+      "title": "V Center By Content"
+    },
     "auto_descending_character_adjustment": {
       "anyOf": [
         {

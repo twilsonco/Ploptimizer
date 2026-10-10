@@ -21,9 +21,11 @@
 # Crossing `v_margin` is NOT a collision: the ink is allowed to spill into the
 # margin, only the border stroke matters (see the `margin_cross` label).
 #
-# Dino at 1.5in text with a 0.09in cutter puts the descender tip ~0.944in
-# below the centred block's middle; with the default 0.015in boundary/hole
-# cutter the required clearance is 0.5 * (0.09 + 0.015) * 1.5 = 0.0788in.
+# Dino at 1.5in text auto-selects a 0.187in cutter; with the default 0.015in
+# boundary/hole cutter the required clearance is
+# 0.5 * (0.187 + 0.015) * 1.5 = 0.1515in. Band centering drops the block by the
+# descender depth (~0.22in), so a label shorter than ~2.6in puts the 'g' tip
+# inside that clearance and a taller one leaves it clear.
 #
 # No plate declares a material and the job packs onto one sheet, so emitted
 # names carry no plate/material prefix: [<cutter>]_txt_<job>.plt per distinct
@@ -45,27 +47,27 @@ job:
       height: 16.0
 
   labels:
-    # 1. Trigger: a 1.9in tall label leaves only ~0.006in between the 'g'
-    #    descender tips and the bottom border, far inside the required
-    #    0.0788in. The relief squeezes + raises just those glyphs.
+    # 1. Trigger: a 1.9in tall label leaves no air at all between the 'g'
+    #    descender tip and the bottom border, far inside the required
+    #    0.1515in. The relief squeezes + raises just that glyph.
     - id: trigger
       height: 1.9
       content:
         - text: "charging"
 
-    # 2. No trigger: the same word on a 2.1in tall label leaves ~0.106in of
+    # 2. No trigger: the same word on a 2.7in tall label leaves ~0.249in of
     #    air, clear of the requirement, so the descender engraves as rendered.
     - id: no_trigger
-      height: 2.1
+      height: 2.7
       content:
         - text: "charging"
 
-    # 3. Margin crossing is not a collision: the ink spills ~0.74in past the
-    #    0.2in v_margin while staying 0.106in clear of the border stroke, so
-    #    nothing is relieved. The margin is not the constraint.
+    # 3. Margin crossing is not a collision: the ink spills past the 0.35in
+    #    v_margin while staying 0.349in clear of the border stroke, so nothing
+    #    is relieved. The margin is not the constraint.
     - id: margin_cross
-      height: 2.1
-      v_margin: 0.2
+      height: 2.9
+      v_margin: 0.35
       content:
         - text: "charging"
 

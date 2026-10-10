@@ -45,6 +45,7 @@ _FULL_CONFIG: dict[str, Any] = {
     "kerning_min_gap": 0.05,
     "fallback_advance_fraction": 0.9,
     "use_baseline_spacing": False,
+    "v_center_by_content": True,
     "auto_descending_character_adjustment": False,
     "descending_character_v_scale": 0.3,
     "descending_character_raise": 0.25,
@@ -233,6 +234,7 @@ class TestJobDefaultsModel:
         assert "optimize_line_content" not in REQUIRED_WHEN_UNCONFIGURED
         assert "optimize_line_content_max_lines" not in REQUIRED_WHEN_UNCONFIGURED
         assert "use_baseline_spacing" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "v_center_by_content" not in REQUIRED_WHEN_UNCONFIGURED
         assert "auto_descending_character_adjustment" not in REQUIRED_WHEN_UNCONFIGURED
         assert "descending_character_v_scale" not in REQUIRED_WHEN_UNCONFIGURED
         assert "descending_character_raise" not in REQUIRED_WHEN_UNCONFIGURED
@@ -246,6 +248,8 @@ class TestJobDefaultsModel:
         assert JobDefaults().fallback_advance_fraction is None
         assert JobDefaults().use_baseline_spacing is None
         assert JobDefaults(use_baseline_spacing=False).use_baseline_spacing is False
+        assert JobDefaults().v_center_by_content is None
+        assert JobDefaults(v_center_by_content=True).v_center_by_content is True
 
 
 class TestLoadJobConfig:
@@ -787,6 +791,7 @@ class TestParseYamlWithJobConfig:
         assert job.optimize_line_content is False
         assert job.optimize_line_content_max_lines is None
         assert job.use_baseline_spacing is True
+        assert job.v_center_by_content is False
         # The descending-character relief knobs are shop-tuning values (the
         # repo config ships non-default numbers on purpose), so this test only
         # pins that the config layer resolves them -- never the exact numbers.

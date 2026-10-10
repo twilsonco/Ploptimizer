@@ -379,6 +379,21 @@ class JobDefaults(BaseModel):
             "ink box. Unset falls back to true."
         ),
     )
+    v_center_by_content: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Default vertical centering mode (job layer; cascades label -> job, "
+            "never text lines). False (the default) centers a label's text "
+            "block by its baseline-to-capline band, so the visible text is "
+            "optically centered and descenders hang into the bottom margin for "
+            "the descending-character relief to handle against the bottom "
+            "border; true centers by rendered ink (historical), which charges "
+            "the deepest descender to the block and makes lines with descenders "
+            "ride high. Band centering is active only when "
+            "auto_descending_character_adjustment is enabled. Unset falls back "
+            "to false."
+        ),
+    )
     auto_descending_character_adjustment: Optional[bool] = Field(
         default=None,
         description=(
@@ -533,6 +548,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "optimize_line_content",
     "optimize_line_content_max_lines",
     "use_baseline_spacing",
+    "v_center_by_content",
     "auto_descending_character_adjustment",
     "descending_character_v_scale",
     "descending_character_raise",

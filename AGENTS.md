@@ -803,6 +803,59 @@ plate tier is schema parity only, like every render-affecting field.
   no_trigger, `margin_cross` (margin crossed, border clear ⇒ no relief),
   `spacing_untouched` (growth excluded) and the opt-out twin.
 
+### Baseline-to-Capline Band Centering (`v_center_by_content`)
+
+A label centers its text block vertically. Centering it by its **rendered ink**
+(the historical rule) charges the deepest descender to the block, so a line
+carrying descenders rides high and its plain letters look visibly off-centre —
+the reported Sunwest symptom (`B29ABg` on a 1x1.0in label: the visible text sat
+0.089in from the top edge while the `g` wasted the air it needed below).
+
+- **`ResolvedLabel.center_text_by_band`** is the single gate:
+  `auto_descending_character_adjustment and not v_center_by_content`. With the
+  relief disabled nothing would adjust a descender, so ink centering is kept and
+  `v_center_by_content` is inert. `v_center_by_content: true` restores ink
+  centering bit-identically.
+- **One delta, applied in one place.** The band spans the lowest baseline to the
+  highest capline; `_band_center_delta` returns its center measured in the
+  ink-centered frame (which the frame already centers on `y = 0`), so the
+  band-centered frame is that frame shifted down by the delta. Band top =
+  `max(b_i + A_i)` when `v_center_by_content` is true (measured ascender) and
+  `max(b_i + toolpath_text_height_i)` when false (content-independent per-font
+  cap height); band bottom is always `min(b_i)`. Relative stacking is untouched,
+  so line-to-line relief gaps are shift-invariant — only the absolute frame
+  moves, which is what the border (fixed at `-height/2`) needs.
+- **`_center_text_layer_vertically` is authoritative.** It runs after export and
+  re-centers the exported layer's ink bounds onto `v_margin + available_height/2`,
+  so it silently undoes any centering applied only to the render frame. The
+  delta is therefore threaded to it (`band_center_offset_inches`, subtracted from
+  the target) via the established out-param idiom
+  (`_render_positioned_lines` → `_render_text_lines_by_pen` →
+  `_render_label_once`) and stored on **`RenderedLabel.band_center_offset_inches`**.
+- **Every consumer of the centering rule must see the same delta** — three
+  sites, all reading `RenderedLabel.band_center_offset_inches`:
+  `_detect_text_hole_collisions` (its `shift_y = height/2` frame shift),
+  `_resolve_collision_via_margin_adjustment` / `_resolve_collision_via_compression`
+  (threaded through), and `plate_optimizer._label_transform` (the plate-space
+  text transform, which mirrors the centering math exactly — a missed site here
+  desynchronizes the optimized text layer from the emitted border).
+- **The margin clamp follows the same model.** `baseline_block_height` gained
+  `charge_descenders: bool = True`; band-centered labels pass `False` so the
+  block is measured as the cap band and descenders are not charged to the inner
+  area (they hang into the bottom margin). Threaded through
+  `fit_baseline_spacing_to_margins`, `solve_baseline_spacing_to_fill`,
+  `solve_baseline_spacing_to_ratio`, `_resolve_auto_line_spacing`,
+  `_fit_content_to_margins`, the renderer's own clamp, and the relief's
+  `height_at` growth cap — all must agree, or one clamp fights another. The
+  default `True` keeps every existing caller and pin unchanged.
+- **Packing is unaffected**: the border rect dominates `RenderedLabel` bounds and
+  a pure Y shift changes no ink extent (pinned by
+  `TestBandCentering::test_band_centering_does_not_move_the_label_bounds`).
+- Fixture: `tests_deps/v_center_by_content_job.yaml` (pinned by
+  `TestVCenterByContentExample`) — band-centered (relief fires), `ink_centered`
+  (border clear), `relief_off` (field inert), `spacing_kept` vs `spacing_clamped`
+  (the margin clamp model). Renderer-level: `TestBandCentering`.
+
 ### Horizontal Text Alignment
 
 Each text line is positioned horizontally within the label's inner content
@@ -1216,7 +1269,7 @@ already knows each toolpath's kind, the `Profiler` is skipped entirely.
   **removed**; optimization now happens pre-write in plate space.
 
 ### Cascading Resolution
-When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.15), `space_width_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.3), `min_glyph_width` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `kerning_window_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.05), `kerning_penetration_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_recession_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_min_gap` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `fallback_advance_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `cutter_downsize` (explicit `false` is honored; only `None` means unset, falling back to the config or true), `max_cutter_downsizes` (explicit 0 is honored; only `None` means unset, falling back to the config or 1) and `cutter_downsize_global` (explicit `false` is honored; only `None` means unset, falling back to the config or true) and `h_compress_global` (explicit `true` is honored; only `None` means unset, falling back to the config or false) and `optimize_line_content` (explicit `true` is honored; only `None` means unset, falling back to the config or false) and `optimize_line_content_max_lines` (explicit `None` means unset = no growth, no fallback; only an explicit cap > 0 applies) and `use_baseline_spacing` (explicit `false` is honored; only `None` means unset, falling back to the config or true; cascades job → plate → label, never text lines, plate parity only) and `auto_descending_character_adjustment` (explicit `false` is honored; only `None` means unset, falling back to the config or true; cascades job → plate → label, never text lines, plate parity only) and `descending_character_v_scale` (explicit `0.2` is honored; only `None` means unset, falling back to the config or 0.5) and `descending_character_raise` (explicit `0.0` is honored; only `None` means unset, falling back to the config or 0.7) and `descending_character_clearance` (explicit `0.0` is honored; only `None` means unset, falling back to the config or 0.0; a unitless factor of the engraved-stroke floor, not inches; all three floats cascade job → plate → label, never text lines, plate parity only). `cutter_size` (explicit-`None` precedence line → label → job → auto-select; no config tier, `gt=0.0` so an explicit `0.0` is a validation error, not a cascade value). `material` cascades label → job (and plate → job via the clearance-style plate cascade): an explicit label/plate value wins, an explicit `null` counts as unset, and empty-after-trim strings are validation errors.
+When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.15), `space_width_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.3), `min_glyph_width` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `kerning_window_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.05), `kerning_penetration_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_recession_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_min_gap` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `fallback_advance_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `cutter_downsize` (explicit `false` is honored; only `None` means unset, falling back to the config or true), `max_cutter_downsizes` (explicit 0 is honored; only `None` means unset, falling back to the config or 1) and `cutter_downsize_global` (explicit `false` is honored; only `None` means unset, falling back to the config or true) and `h_compress_global` (explicit `true` is honored; only `None` means unset, falling back to the config or false) and `optimize_line_content` (explicit `true` is honored; only `None` means unset, falling back to the config or false) and `optimize_line_content_max_lines` (explicit `None` means unset = no growth, no fallback; only an explicit cap > 0 applies) and `use_baseline_spacing` (explicit `false` is honored; only `None` means unset, falling back to the config or true; cascades job → plate → label, never text lines, plate parity only) and `v_center_by_content` (explicit `true` is honored; only `None` means unset, falling back to the config or false; cascades job → plate → label, never text lines, plate parity only; inert while `auto_descending_character_adjustment` is false) and `auto_descending_character_adjustment` (explicit `false` is honored; only `None` means unset, falling back to the config or true; cascades job → plate → label, never text lines, plate parity only) and `descending_character_v_scale` (explicit `0.2` is honored; only `None` means unset, falling back to the config or 0.5) and `descending_character_raise` (explicit `0.0` is honored; only `None` means unset, falling back to the config or 0.7) and `descending_character_clearance` (explicit `0.0` is honored; only `None` means unset, falling back to the config or 0.0; a unitless factor of the engraved-stroke floor, not inches; all three floats cascade job → plate → label, never text lines, plate parity only). `cutter_size` (explicit-`None` precedence line → label → job → auto-select; no config tier, `gt=0.0` so an explicit `0.0` is a validation error, not a cascade value). `material` cascades label → job (and plate → job via the clearance-style plate cascade): an explicit label/plate value wins, an explicit `null` counts as unset, and empty-after-trim strings are validation errors.
 
 ### Stroke-Color Toolpath Splitting (`text_color`)
 
