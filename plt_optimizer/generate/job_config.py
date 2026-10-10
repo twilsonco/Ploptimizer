@@ -95,8 +95,7 @@ class JobDefaults(BaseModel):
             (``ReliefSingleLineCAD-Regular``).
         character_spacing: Default extra spacing between characters (in
             inches). Unset falls back to the per-cutter derived default.
-        line_spacing: Default extra spacing between text lines in inches
-            (baseline-to-next-capline under baseline spacing, the default).
+        line_spacing: Default extra spacing between text lines in inches.
         margin: Default label margin in inches.
         h_margin: Default horizontal (left/right) margin in inches; falls
             back to margin if unset.
@@ -195,13 +194,7 @@ class JobDefaults(BaseModel):
         default=None, description="Default extra spacing between characters in inches (job layer)."
     )
     line_spacing: Optional[float] = Field(
-        default=None,
-        description=(
-            "Default spacing between text lines in inches (job layer). Under "
-            "baseline spacing (the default) this is the distance from a "
-            "line's baseline to the following line's cap line; under ink-box "
-            "spacing it is the clear air between the ink boxes."
-        ),
+        default=None, description="Default extra spacing between text lines in inches (job layer)."
     )
     margin: Optional[float] = Field(
         default=None, ge=0.0, description="Default label margin in inches (job layer)."

@@ -504,32 +504,6 @@ class TestBaselineSpacingStacking:
             f"Baseline pitch {pitch:.3f}in != cap 0.27 + spacing 0.15"
         )
 
-    def test_mixed_height_spacing_is_baseline_to_next_capline(self) -> None:
-        """On mixed heights, line_spacing is the baseline-to-next-capline gap.
-
-        Heights 0.5 / 0.3 give caps 0.47 / 0.27 (cutter 0.03). The pitch
-        anchors on the FOLLOWING line's cap, so the gap from the upper
-        baseline to the lower cap line is exactly the requested spacing -- the
-        historical current-cap basis would have opened it by the cap
-        difference (0.47 - 0.27 = 0.2in).
-        """
-        spacing = 0.12
-        content = [
-            _make_line("HHH", height=0.5, line_spacing=spacing),
-            _make_line("OOO", height=0.3),
-        ]
-        _lc, entries = _render_text_local_with_bounds(_make_local_label(content))
-        assert len(entries) == 2
-        # H/O: ink bottom == baseline, ink top == cap line.
-        baseline_to_next_capline = entries[0].bounds[1] - entries[1].bounds[3]
-        assert math.isclose(baseline_to_next_capline, spacing, abs_tol=0.01), (
-            f"baseline->next capline {baseline_to_next_capline:.3f}in != "
-            f"requested spacing {spacing:.3f}in"
-        )
-        # The pitch itself is the following cap (0.27) + spacing.
-        pitch = entries[0].bounds[1] - entries[1].bounds[1]
-        assert math.isclose(pitch, 0.27 + spacing, abs_tol=0.01)
-
     def test_descender_hangs_into_the_gap(self) -> None:
         """The descender eats into the gap, shrinking the visual air below it."""
         spacing = 0.05

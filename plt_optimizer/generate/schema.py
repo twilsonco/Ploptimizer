@@ -343,35 +343,15 @@ class TextAttributes(BaseModel):
             current list.
         character_spacing: Optional extra spacing between characters in inches.
         line_spacing: Optional extra spacing between text lines in inches,
-            or ``"auto"`` to calculate spacing automatically. What the value
-            measures depends on ``use_baseline_spacing`` (default ``true``):
-
-            * **Baseline spacing (default):** the distance from a line's
-              **baseline** to the **following line's cap line** (the top of
-              its capital letters). This is the typographic leading a user
-              reads off a layout: it is identical on uniform-height and
-              mixed-height labels, and a descender on the upper line hangs
-              *into* that distance (shrinking the visible ink-to-ink air by
-              the descender depth) instead of inflating the gap.
-            * **Ink-box spacing (``use_baseline_spacing: false``):** the
-              clear air between the bottom of the upper line's rendered ink
-              box and the top of the next line's ink box (the historical
-              behaviour; a descender inflates that one gap).
-
-            Auto spacing (``"auto"``) sizes the stacked block to fill the
-            label (solved against each line's own cap height): on
-            uniform-height labels the result equals the baseline-to-capline
-            gap; on mixed-height labels an auto-solved spacing is a
-            block-fill value rather than a literal baseline-to-capline
-            distance. When ``"auto"``, spacing is calculated such
-            that all lines have equal spacing. If ``v_margin`` is explicitly
-            specified, the specified v_margin is honored and line_spacing is
-            calculated to fill the remaining space. If ``v_margin`` is not
-            explicitly specified, the functional v_margin equals the
-            inter-line spacing. Cutter widths of the top and bottom lines are
-            considered: half the respective cutter width is added to the
-            functional v_margin to ensure correct placement in the engraved
-            output. Cascades line -> label -> job (fallback 0.1).
+            or ``"auto"`` to calculate spacing automatically. When ``"auto"``,
+            spacing is calculated such that all lines have equal spacing.
+            If ``v_margin`` is explicitly specified, the specified v_margin
+            is honored and line_spacing is calculated to fill the remaining
+            space. If ``v_margin`` is not explicitly specified, the functional
+            v_margin equals the inter-line spacing. Cutter widths of the top
+            and bottom lines are considered: half the respective cutter width
+            is added to the functional v_margin to ensure correct placement
+            in the engraved output. Cascades line -> label -> job (fallback 0.1).
         max_h_compress: Optional maximum horizontal compression fraction in
             ``[0.0, 1.0]``. When a rendered line is wider than the label's
             inner content area, the line may be uniformly compressed
@@ -569,14 +549,9 @@ class TextAttributes(BaseModel):
     line_spacing: Optional[Union[float, Literal["auto"]]] = Field(
         default=None,
         description=(
-            "Spacing between text lines in inches, or 'auto' to calculate "
-            "spacing automatically based on label height, margins, and text "
-            "line count (default when unspecified). Under baseline spacing "
-            "(use_baseline_spacing, the default) the value is the distance "
-            "from a line's baseline to the following line's cap line (so it "
-            "reads identically on uniform- and mixed-height labels and a "
-            "descender hangs into it); under ink-box spacing it is the clear "
-            "air between the two lines' rendered ink boxes. Fallback when "
+            "Extra spacing between text lines in inches, or "
+            "'auto' to calculate spacing automatically based on label height, "
+            "margins, and text line count (default when unspecified). Fallback when "
             "not specified at any level is 'auto'."
         ),
     )
@@ -885,13 +860,11 @@ class LabelAttributes(TextAttributes):
             text lines -- spacing is a property of the stacked block, not of
             one line); ``None`` (the default) means unset and falls back to
             ``job-config.json`` then ``True``. When enabled, a label's lines
-            stack by baseline pitch (the **following** line's cap height plus
-            ``line_spacing``, so ``line_spacing`` is exactly the
-            baseline-to-next-capline gap on uniform- *and* mixed-height
-            labels) so a line's descenders hang *into* the gap below it and
-            every gap on the label reads as one uniform visual spacing; when
-            disabled, lines stack by rendered ink box (the historical
-            behaviour, where a descender inflates the gap under its own line).
+            stack by baseline pitch (``text_height + line_spacing``) so a
+            line's descenders hang *into* the gap below it and every gap on
+            the label reads as one uniform visual spacing; when disabled,
+            lines stack by rendered ink box (the historical behaviour, where
+            a descender inflates the gap under its own line).
         auto_descending_character_adjustment: Optional permission for
             automatic descending-character relief. Cascades job -> plate ->
             label (deliberately NOT text lines -- the mechanism compares a
@@ -995,14 +968,11 @@ class LabelAttributes(TextAttributes):
         default=None,
         description=(
             "Stack a label's text lines by baseline-to-baseline pitch "
-            "(the following line's cap height + line_spacing, so "
-            "line_spacing is exactly the baseline-to-next-capline gap on "
-            "uniform- and mixed-height labels) so descenders hang into the "
-            "gap and every gap reads as one uniform visual spacing; false "
-            "stacks by rendered ink box (historical). Cascades job -> plate "
-            "-> label (never text lines); unset (null) falls back to "
-            "job-config.json then true. Accepted on plates for schema parity "
-            "only."
+            "(text_height + line_spacing) so descenders hang into the gap and "
+            "every gap reads as one uniform visual spacing; false stacks by "
+            "rendered ink box (historical). Cascades job -> plate -> label "
+            "(never text lines); unset (null) falls back to job-config.json "
+            "then true. Accepted on plates for schema parity only."
         ),
     )
     auto_descending_character_adjustment: Optional[bool] = Field(

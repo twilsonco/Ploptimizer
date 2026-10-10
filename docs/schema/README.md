@@ -292,11 +292,8 @@ entries that omit it).
   spacing. Stacking a label by rendered ink box means a line carrying
   descenders (`g j p q y`) pushes the next line down by its full ink height,
   inflating that one visual gap. With baseline spacing each line's baseline
-  sits one pitch below the previous one (`pitch = the following line's cap
-  height + line_spacing`), so **`line_spacing` is exactly the distance from a
-  line's baseline to the next line's cap line** — the same reading on
-  uniform-height and mixed-height labels — and the descender hangs *into* the
-  gap, so every gap on the label reads as
+  sits one pitch below the previous one (`pitch = cap height + line_spacing`),
+  so the descender hangs *into* the gap and every gap on the label reads as
   one uniform visual spacing. Lines without descenders are bit-identical to
   ink-box stacking. Auto `line_spacing` and the margin clamp measure each
   line's real ascender/descender extents (render probe), so a descender-heavy
