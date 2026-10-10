@@ -308,12 +308,18 @@ entries that omit it).
   is vertically downscaled (about its own baseline, down to
   `descending_character_v_scale`) and raised (by up to `descending_character_raise`
   × its own descender depth, so `1.0` lifts its lowest point exactly to the
-  baseline). The trigger is a measured near-miss against the line below — a gap
-  under `0.5 * (cutter_upper + cutter_lower) * (1 + descending_character_clearance)`
-  over the pair's overlapping X span (the clearance is a unitless factor of the
-  stroke floor, so it reads the same at every text size) — never a blanket
-  adjustment of every descender, and never based on the following line's cap
-  line in the abstract.
+  baseline). The trigger is a measured near-miss against the line below, using
+  the **true 2D swept-ink distance**: a circle of the required diameter rolled
+  along the descending glyph's sub-baseline ink touching any part of any glyph
+  of the line below, i.e. a gap under
+  `0.5 * (cutter_upper + cutter_lower) * (1 + descending_character_clearance)`
+  (the clearance is a unitless factor of the stroke floor, so it reads the same
+  at every text size). This is deliberately **not** a bounding-box comparison:
+  a box model calls X-disjoint boxes "infinitely far apart" and hides a `g`
+  hook reaching sideways into the crook of the `i` on the line below, while
+  firing on box overlaps whose real ink is nowhere near. The relief is per
+  descending glyph — never a blanket adjustment of every descender, and never
+  based on the following line's cap line in the abstract.
   When both allowances are exhausted and the pair is still too close, the gap
   below the line grows (capped by the vertical margins); a collision that
   neither the allowances nor the admissible spacing can clear aborts the job

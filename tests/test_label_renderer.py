@@ -8,11 +8,16 @@ import pytest
 import vpype as vp
 
 from plt_optimizer.generate.label_renderer import (
+    _INK_EMISSION_FLOOR,
     LabelRenderError,
     RenderedLabel,
+    _clip_below_baseline,
     _flip_y_coordinates_in_plt,
+    _glyph_ink,
     _hole_circles_local,
     _render_text_local_with_bounds,
+    _stroke_polyline,
+    _sub_baseline_ink,
     compress_line_to_width,
     extract_bounds_from_plt,
     render_label_to_plt,
@@ -1716,20 +1721,96 @@ def _make_descender_label(
     )
 
 
+class TestInkExtraction:
+    """The swept-ink extraction feeding the relief's rolling-circle test."""
+
+    def test_stroke_polyline_chains_segments_once(self) -> None:
+        """Tip-to-tail segments share their junction vertex exactly once."""
+        stroke = Stroke(
+            pen_up=complex(0.0, 0.0),
+            segments=(LineSeg(complex(0.0, 0.0), complex(1.0, 0.0)), LineSeg(complex(1.0, 0.0), complex(1.0, 1.0))),
+        )
+        assert _stroke_polyline(stroke) == ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0))
+
+    def test_stroke_polyline_of_an_arc_flattens(self) -> None:
+        """An arc contributes its chord-bounded vertices (more than its endpoints)."""
+        from plt_optimizer.generate.text_geometry import ArcSeg
+
+        stroke = Stroke(
+            pen_up=complex(1.0, 0.0),
+            segments=(ArcSeg(complex(1.0, 0.0), complex(0.0, 0.0), 90.0),),
+        )
+        polyline = _stroke_polyline(stroke)
+        assert len(polyline) > 2
+        assert polyline[0] == pytest.approx((1.0, 0.0))
+        assert polyline[-1] == pytest.approx((0.0, 1.0), abs=1e-9)
+
+    def test_glyph_ink_drops_segment_less_strokes(self) -> None:
+        """A glyph's ink is one polyline per non-empty stroke."""
+        block = TextBlock(
+            strokes=(
+                Stroke(pen_up=complex(0.0, 0.0), segments=(LineSeg(complex(0.0, 0.0), complex(0.2, 0.0)),)),
+                Stroke(pen_up=complex(1.0, 1.0), segments=()),
+            )
+        )
+        ink = _glyph_ink(block, (0, 1))
+        assert ink == (((0.0, 0.0), (0.2, 0.0)),)
+
+    def test_clip_keeps_sub_baseline_runs_and_adds_the_crossing(self) -> None:
+        """A run crossing the emission floor contributes a vertex exactly on it."""
+        floor = -_INK_EMISSION_FLOOR
+        clipped = _clip_below_baseline(((0.0, 0.2), (1.0, -0.2)))
+        # Crossing at y = floor: x = 0 + (floor - 0.2) / (-0.4) * 1.0.
+        assert clipped[0][1] == pytest.approx(floor)
+        assert clipped[0][0] == pytest.approx((0.2 + _INK_EMISSION_FLOOR) / 0.4)
+        assert clipped[-1] == (1.0, -0.2)
+
+    def test_clip_drops_ink_entirely_above_the_baseline(self) -> None:
+        """Ink above the baseline has no rolling surface."""
+        assert _clip_below_baseline(((0.0, 0.1), (1.0, 0.3))) == ()
+
+    def test_clip_keeps_ink_entirely_below_unchanged(self) -> None:
+        """Ink below the baseline passes through untouched."""
+        polyline = ((0.0, -0.1), (1.0, -0.3))
+        assert _clip_below_baseline(polyline) == polyline
+
+    def test_clip_drops_ink_shallower_than_the_emission_floor(self) -> None:
+        """Ink below the baseline but above the emission floor is not a descender.
+
+        Emitted coordinates are integer plotter units (1/1000in), so a sliver
+        shallower than half a unit cannot collide in the engraved output.
+        """
+        assert _clip_below_baseline(((0.0, 0.0), (1.0, 0.0))) == ()
+        assert _clip_below_baseline(((0.0, -1e-4), (1.0, -1e-4))) == ()
+
+    def test_sub_baseline_ink_drops_empty_polylines(self) -> None:
+        """Only the polylines with sub-baseline ink survive."""
+        ink = (((0.0, 0.5), (1.0, 0.5)), ((0.0, 0.0), (0.5, -0.2)))
+        clipped = _sub_baseline_ink(ink)
+        assert len(clipped) == 1
+        assert clipped[0][-1] == (0.5, -0.2)
+
+
 class TestDescendingCharacterRelief:
     """The per-glyph relief fires only on a measured near-miss below a descender."""
 
     def test_descender_close_to_the_line_below_is_relieved(self) -> None:
-        """A 'p' hanging toward the capitals below is squeezed and raised."""
+        """A 'y' hanging toward the capitals below is squeezed and raised.
+
+        The trigger is the true 2D swept-ink distance (a circle of the
+        required diameter rolled along the sub-baseline ink), so the fixture
+        pairs a descender that genuinely reaches the capitals below. The
+        relief is per-glyph: "My" over "RANGE" lands the y's tail on the R.
+        """
         label = _make_descender_label(
-            [_make_line("Depth", height=0.5, line_spacing=0.05), _make_line("RANGE", height=0.5)]
+            [_make_line("My", height=0.5, line_spacing=0.05), _make_line("RANGE", height=0.5)]
         )
         rendered = render_label_to_plt(label)
 
         fixes = rendered.descender_adjustments_by_line
         assert list(fixes) == [0]
         (fix,) = fixes[0]
-        assert fix.char == "p"
+        assert fix.char == "y"
         assert fix.scale_y < 1.0  # downscaled
         assert fix.raise_amount > 0.0  # raised
         assert fix.gap_before < fix.gap_after
@@ -1737,13 +1818,15 @@ class TestDescendingCharacterRelief:
     def test_relief_clears_the_engraved_stroke_floor(self) -> None:
         """The relieved gap reaches the stroke floor (0.5*(cutter+cutter))."""
         label = _make_descender_label(
-            [_make_line("Depth", height=0.5, line_spacing=0.05), _make_line("RANGE", height=0.5)]
+            [_make_line("My", height=0.5, line_spacing=0.05), _make_line("RANGE", height=0.5)]
         )
         rendered = render_label_to_plt(label)
         (fix,) = rendered.descender_adjustments_by_line[0]
 
         floor = 0.5 * (0.03 + 0.03)
-        assert fix.gap_after >= floor - 1e-9
+        # The bisection settles the gap at the floor within the emission
+        # tolerance (1e-6in = a thousandth of a plotter unit).
+        assert fix.gap_after >= floor - 1e-6
 
     def test_clearance_factor_widens_the_required_gap(self) -> None:
         """A unitless clearance of 0.5 settles the relieved gap at 1.5x the floor.
@@ -1753,7 +1836,7 @@ class TestDescendingCharacterRelief:
         floor 0.03in, required 0.045in).
         """
         label = _make_descender_label(
-            [_make_line("Depth", height=0.5, line_spacing=0.05), _make_line("RANGE", height=0.5)],
+            [_make_line("My", height=0.5, line_spacing=0.05), _make_line("RANGE", height=0.5)],
             descending_character_clearance=0.5,
         )
         rendered = render_label_to_plt(label)
@@ -1782,7 +1865,7 @@ class TestDescendingCharacterRelief:
 
     def test_feature_disabled_leaves_the_descender_verbatim(self) -> None:
         """With the flag off, a colliding descender is not relieved."""
-        content = [_make_line("Depth", height=0.5, line_spacing=0.05), _make_line("RANGE", height=0.5)]
+        content = [_make_line("My", height=0.5, line_spacing=0.05), _make_line("RANGE", height=0.5)]
         off = render_label_to_plt(
             _make_descender_label(content, auto_descending_character_adjustment=False)
         )
@@ -1803,7 +1886,7 @@ class TestDescendingCharacterRelief:
     def test_allowances_bound_the_relief(self) -> None:
         """The relief never exceeds v_scale / raise."""
         label = _make_descender_label(
-            [_make_line("Depth", height=0.5, line_spacing=0.05), _make_line("RANGE", height=0.5)],
+            [_make_line("My", height=0.5, line_spacing=0.05), _make_line("RANGE", height=0.5)],
             descending_character_v_scale=0.6,
             descending_character_raise=0.3,
         )
@@ -1817,7 +1900,7 @@ class TestDescendingCharacterRelief:
     def test_exhausted_allowances_grow_the_spacing(self) -> None:
         """No downscale + no raise => the gap below the line widens to clear."""
         label = _make_descender_label(
-            [_make_line("Depth", height=0.5, line_spacing=0.05), _make_line("RANGE", height=0.5)],
+            [_make_line("My", height=0.5, line_spacing=0.05), _make_line("RANGE", height=0.5)],
             descending_character_v_scale=1.0,
             descending_character_raise=0.0,
         )
@@ -1829,7 +1912,7 @@ class TestDescendingCharacterRelief:
     def test_no_room_to_grow_aborts_the_job(self) -> None:
         """Allowances spent and no vertical room => LabelRenderError."""
         label = _make_descender_label(
-            [_make_line("Depth", height=0.5, line_spacing=0.0), _make_line("RANGE", height=0.5)],
+            [_make_line("My", height=0.5, line_spacing=0.0), _make_line("RANGE", height=0.5)],
             descending_character_v_scale=1.0,
             descending_character_raise=0.0,
             height=0.7,
@@ -1855,7 +1938,7 @@ class TestDescendingCharacterRelief:
         zero spacing is what puts the descender against the capitals below.
         """
         label = _make_descender_label(
-            [_make_line("Depth", height=0.5, line_spacing=0.0), _make_line("RANGE", height=0.5)],
+            [_make_line("My", height=0.5, line_spacing=0.0), _make_line("RANGE", height=0.5)],
             use_baseline_spacing=False,
         )
         rendered = render_label_to_plt(label)

@@ -653,39 +653,80 @@ plate tier is schema parity only, like every render-affecting field.
   size; explicit `0.0` means only true touching triggers).
   All four are `JobDefaults` keys in `_JOB_LAYER_FIELDS` and are **not**
   required-when-unconfigured (they have code fallbacks).
-- **Trigger is per glyph pair, measured against the following line:** a
-  descending glyph (ink below its baseline) and a glyph on the line below whose
-  X spans overlap, whose vertical gap falls below
+- **Trigger is per descending glyph, measured against the following line:**
+  the **true 2D swept-ink distance** — imagine a circle whose diameter is the
+  required clearance rolled along the descending glyph's **sub-baseline ink**
+  (its strokes clipped at the baseline); it collides exactly when it touches
+  any part of any glyph of the line below. Equivalently the gap is
+  `geometry.ink_gap` between the two glyphs' stroke polylines, against
   `0.5 * (cutter_upper + cutter_lower) * (1 + descending_character_clearance)`.
   The first factor is the engraved-stroke floor at which the two cut strokes
   touch (the same stroke-aware floor the text-hole system uses); the clearance
-  is a unitless multiplier of that floor, never an inch value. A descender with
+  is a unitless multiplier of that floor, never an inch value. **Not a
+  bounding-box comparison:** a box model reports X-disjoint boxes as
+  "infinitely far apart" and hides exactly the pairs this mechanism exists for
+  (a `g` hook reaching sideways into the crook of the `i` on the line below is
+  X-disjoint at box level while its true proximity sits well inside the
+  required clearance — the reported regression, pinned by
+  `tests_deps/descender_crook_job.yaml`), and fires on box overlaps whose real
+  ink is nowhere near (false positives). `descender_adjust.GlyphBox` carries
+  the glyph's `ink` and `sub_baseline_ink`; glyphs without ink knowledge
+  (hand-built boxes in tests) fall back to the vertical box model
+  (`geometry.aabb_vertical_gap`, `inf` when X-disjoint). A descender with
   no close partner below is left exactly as rendered — never a blanket
-  adjustment, never keyed off the following line's cap line.
-  `geometry.aabb_vertical_gap` measures the gap over the overlapping X span
-  (`inf` when X-disjoint).
+  adjustment, never keyed off the following line's cap line. The lower line's
+  complete ink is indexed once per gap per pass through
+  `geometry.InkGrid` (cell = required clearance: the `gap < required` decision
+  is exact below the cell, an upper bound above it), which keeps the per-glyph
+  measurement cheap on lines of hundreds of glyphs.
 - **Single proportional ramp:** one `t ∈ [0, 1]` drives both effects —
   `scale_y = 1 - t*(1 - v_scale)`, `raise = t * raise_fraction * descender`.
-  The glyph's bottom after the ramp is `raise(t) - descender*scale_y(t)`, so
-  the gap it produces is **linear in `t`** and the smallest clearing `t` has a
-  closed form (`descender_adjust.ramp_for`, no bisection). `t` clamps to `1.0`
-  (both allowances fully spent); the relief is one-way (a glyph only ever gets
-  smaller and higher), so the fixpoint converges.
+  For ink-measured pairs the gap is **not linear in `t`**, so the smallest
+  clearing `t` is bisected (`descender_adjust.ramp_for_measured` over
+  `ramp_ink`, the pure stacked-frame transform mirroring the renderer's
+  stroke ramp); the box-model fallback keeps the closed form
+  (`descender_adjust.ramp_for`). `t` clamps to `1.0` (both allowances fully
+  spent; zero allowances never propose a ramp); the relief is one-way (a glyph
+  only ever gets smaller and higher), so the fixpoint converges. The gap
+  tolerances are `1e-6`in (a thousandth of a plotter unit): the 2D distance
+  grows sub-linearly with the vertical spacing, so the fixpoint's finite
+  passes leave sub-plotter-unit noise that must never abort the job.
 - **Exhausted ramp ⇒ grow the gap below the line** (label_renderer's
   `_grow_spacings` + `_solve_spacing_growth_factor`, bisection on the stacked
-  block height, mode-agnostic via a `height_at` callback). The growth is
-  capped by the vertical margins; a residual shortfall after every allowance
-  and all admissible spacing raises `LabelRenderError` (non-zero CLI exit)
-  naming both lines, the shortfall and the spent allowances.
+  block height, mode-agnostic via a `height_at` callback). The growth per gap
+  is **measured, not deficit-derived** (`_solve_gap_growth`): the ink distance
+  widens **sub-linearly** with the spacing (a laterally-offset pair gains
+  `sqrt(dx² + (dy+g)²) - sqrt(dx² + dy²) < g`), so growing by the deficit
+  under-shoots and the fixpoint stalls with a geometric tail of residuals.
+  `_solve_gap_growth` bisects on the measured gap, reusing one frozen
+  `InkGrid` per gap by translating the *query* ink (identical geometry, ~µs per
+  step). The growth is capped by the vertical margins; a residual shortfall
+  after every allowance and all admissible spacing raises `LabelRenderError`
+  (non-zero CLI exit) naming both lines, the shortfall and the spent allowances.
 - **Runs inside `_render_positioned_lines`, between phase 2a (X: compression +
   alignment) and phase 2b (Y: stacking + `_LineEntry`).** The relief is Y-only
   and the X phase is X-only, so they commute; X must run first because the pair
   gaps need final X positions (alignment shifts lines relative to each other).
   Works in both stacking modes (baseline and ink-box). The relief works in the
   renderers' local frame (baseline `y = 0`); `_shifted_boxes` lifts glyph boxes
-  to the stacked baselines for measurement, and `_apply_glyph_ramps` rebuilds
-  each line from the **original** render at the glyph's full ramp (idempotent —
-  ramps never compound).
+  (bounds **and ink**) to the stacked baselines for measurement, and
+  `_apply_glyph_ramps` rebuilds each line from the **original** render at the
+  glyph's full ramp (idempotent — ramps never compound). The FINAL/residual
+  check re-measures the trigger metric on the final geometry, so a relief that
+  shrinks and raises a descender can never land the raised part on the line
+  below (an `i` dot pushed into the crook of a `g`) without growing the spacing
+  or aborting. Untouched glyphs are measured by the same metric (tightness
+  between untouched neighbours is the authored spacing, not this mechanism's
+  doing); relief-moved glyphs additionally report `gap_after` (clamped to
+  `_GAP_REPORT_RADIUS`, the grid's reporting radius, so a fully relieved glyph
+  never prints `inf`).
+- **Ink is clipped at the emission floor** (`_INK_EMISSION_FLOOR` = half a
+  plotter unit = 5e-4in): emitted coordinates are integer 1/1000in, so ink
+  shallower than that cannot collide in the engraved output. `_clip_below_baseline`
+  clips the sub-baseline ink at `-floor` (not `0`) and `_glyph_boxes` zeroes a
+  `descender` at or below the floor, so a 0.0004in font-data sliver never
+  relieves a glyph that does not descend and never aborts a job on sub-unit
+  deficits. Real descenders are two orders of magnitude deeper.
 - **`TextBlock.scale_y(factor, context)`** mirrors `compress_x`: X untouched,
   Y scaled about the baseline; arcs flatten at the chord tolerance (DEBUG log —
   vertical scaling and native arcs are mutually exclusive). Stroke count is
@@ -701,15 +742,23 @@ plate tier is schema parity only, like every render-affecting field.
   spacing growth.
 - **`plt_optimizer/generate/descender_adjust.py`** is the pure solver
   (matplotlib-free, `TYPE_CHECKING`-only pipeline imports — Win7/3.8 import
-  guarantee): `GlyphBox`, `PairGap`, `DescenderFix`, `required_gap`,
-  `measure_pairs`, `ramp_for`, `worst_deficit`, `apply_ramp`, `merge_ramps`,
-  `ramps_changed`, `is_finite_gap`.
+  guarantee): `GlyphBox` (with `ink`/`sub_baseline_ink`), `PairGap`,
+  `GlyphGap`, `DescenderFix`, `required_gap`, `measure_pairs`,
+  `measure_glyph_gaps`, `worst_glyph_deficit`, `ramp_for` (box-model closed
+  form), `ramp_for_measured` (ink bisection), `ramp_ink`, `apply_ramp`,
+  `merge_ramps`, `ramps_changed`, `is_finite_gap`. The distance primitives
+  live in `geometry.py` (`point_segment_gap`, `segment_gap`, `polyline_gap`,
+  `ink_gap`, the `InkGrid` spatial hash, and the `Ink`/`Polyline`/`Point`
+  aliases); `aabb_vertical_gap` stays for the box-model fallback.
 - Accepted staleness: `_resolve_auto_line_spacing` / `_fit_content_to_margins`
   size vertical spacing against the *original* descender extents; the
   render-time growth is margin-safe and authoritative. Resolution-time
   awareness (a per-glyph extents probe) is a deliberate follow-up.
-- Example fixture: `tests_deps/descender_adjust_job.yaml` (pinned by
-  `tests/test_phase3_export.py::TestDescenderAdjustDemoExample`).
+- Example fixtures: `tests_deps/descender_adjust_job.yaml` (pinned by
+  `tests/test_phase3_export.py::TestDescenderAdjustDemoExample`) and
+  `tests_deps/descender_crook_job.yaml` (the reported `g`-hook-into-`i`-dot
+  crook, pinned by `TestDescenderCrookExample` — the pair the box model
+  reports as X-disjoint/`inf`).
 
 ### Horizontal Text Alignment
 

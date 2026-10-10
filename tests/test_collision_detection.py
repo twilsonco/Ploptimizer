@@ -1,23 +1,32 @@
 """Unit tests for the collision-avoidance geometric primitives.
 
 Covers ``plt_optimizer.generate.geometry``: the signed circle/AABB
-clearance used by the text-hole collision detection system, including
-edge cases (tangency, containment, adjacency) that must not produce
-false positives or false negatives.
+clearance used by the text-hole collision detection system, the swept-ink
+distance primitives backing the descending-character relief's rolling-circle
+test (segment/polyline/ink gaps and the spatial grid accelerating them),
+including edge cases (tangency, containment, adjacency, X-disjoint near
+misses) that must not produce false positives or false negatives.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import math
+import random
 
 import pytest
 
 from plt_optimizer.generate.geometry import (
     CollisionResult,
+    Ink,
+    InkGrid,
     aabb_vertical_gap,
     arc_swept_bounds,
     circle_aabb_gap,
+    ink_gap,
+    point_segment_gap,
+    polyline_gap,
+    segment_gap,
 )
 
 
@@ -177,3 +186,196 @@ class TestAabbVerticalGap:
             (lower[0], lower[1] + shift, lower[2], lower[3] + shift),
         )
         assert aabb_vertical_gap(*moved) == pytest.approx(aabb_vertical_gap(upper, lower))
+
+
+class TestPointSegmentGap:
+    """Tests for the point-to-segment distance primitive."""
+
+    def test_perpendicular_foot_lands_inside_the_segment(self) -> None:
+        """The closest point is the projection, not an endpoint."""
+        assert point_segment_gap((0.5, 1.0), (0.0, 0.0), (1.0, 0.0)) == pytest.approx(1.0)
+
+    def test_projection_beyond_the_end_clamps_to_the_endpoint(self) -> None:
+        """A point past the segment's end measures the endpoint distance."""
+        assert point_segment_gap((2.0, 0.0), (0.0, 0.0), (1.0, 0.0)) == pytest.approx(1.0)
+
+    def test_projection_before_the_start_clamps_to_the_start(self) -> None:
+        """A point before the segment's start measures the start distance."""
+        assert point_segment_gap((-1.0, 0.0), (0.0, 0.0), (1.0, 0.0)) == pytest.approx(1.0)
+
+    def test_point_on_the_segment_reports_zero(self) -> None:
+        """A point on the segment has no clearance."""
+        assert point_segment_gap((0.25, 0.0), (0.0, 0.0), (1.0, 0.0)) == 0.0
+
+    def test_degenerate_segment_measures_the_point_distance(self) -> None:
+        """A zero-length segment (a dot of ink) behaves like a point."""
+        assert point_segment_gap((0.0, 3.0), (1.0, 3.0), (1.0, 3.0)) == pytest.approx(1.0)
+
+
+class TestSegmentGap:
+    """Tests for the segment-to-segment distance primitive."""
+
+    def test_crossing_segments_report_zero(self) -> None:
+        """Crossing strokes have no clearance (the endpoint-only trap).
+
+        The minimum of the four endpoint-to-segment distances would report a
+        false positive here; the closest-points solution returns 0.
+        """
+        assert segment_gap((0.0, 0.0), (1.0, 1.0), (0.0, 1.0), (1.0, 0.0)) == 0.0
+
+    def test_parallel_segments_report_the_perpendicular_distance(self) -> None:
+        """Two parallel runs measure the perpendicular offset."""
+        gap = segment_gap((0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0))
+        assert gap == pytest.approx(1.0)
+
+    def test_diagonal_side_by_side_reports_the_perpendicular_distance(self) -> None:
+        """The closest points are interior on both segments."""
+        gap = segment_gap((0.0, 0.0), (1.0, 1.0), (1.0, 0.0), (2.0, 1.0))
+        assert gap == pytest.approx(math.sqrt(0.5))
+
+    def test_endpoint_nearest_pair(self) -> None:
+        """A pair whose closest points are endpoints measures that distance."""
+        assert segment_gap((0.0, 0.0), (1.0, 0.0), (2.0, 0.0), (2.0, 1.0)) == pytest.approx(1.0)
+
+    def test_x_disjoint_near_pair_is_finite(self) -> None:
+        """The relief's blind spot: a sideways near-miss measures its real distance.
+
+        ``aabb_vertical_gap`` reports ``inf`` for this pair (disjoint X spans),
+        which is exactly how a ``g`` hook reaching an ``i`` dot beside it hid
+        from the box model.
+        """
+        gap = segment_gap((0.0, 0.0), (0.1, 0.0), (0.15, -0.2), (0.15, -0.1))
+        assert gap == pytest.approx(math.hypot(0.05, 0.1))
+        assert math.isinf(aabb_vertical_gap((0.0, 0.0, 0.1, 0.0), (0.15, -0.2, 0.15, -0.1)))
+
+    def test_two_degenerate_segments_measure_the_point_distance(self) -> None:
+        """Two dots of ink (e.g. two tittles) measure point distance."""
+        assert segment_gap((0.0, 0.0), (0.0, 0.0), (0.0, 2.0), (0.0, 2.0)) == pytest.approx(2.0)
+
+    def test_one_degenerate_segment_measures_point_to_segment(self) -> None:
+        """A dot against a run measures the point-to-segment distance."""
+        assert segment_gap((0.5, 1.0), (0.5, 1.0), (0.0, 0.0), (1.0, 0.0)) == pytest.approx(1.0)
+
+    def test_is_frame_agnostic(self) -> None:
+        """A shared translation leaves the distance unchanged."""
+        shift = complex(-2.5, 4.25)
+        base = segment_gap((0.0, 0.0), (1.0, 1.0), (1.0, 0.0), (2.0, 1.0))
+        moved = segment_gap(
+            (shift.real, shift.imag),
+            (1.0 + shift.real, 1.0 + shift.imag),
+            (1.0 + shift.real, shift.imag),
+            (2.0 + shift.real, 1.0 + shift.imag),
+        )
+        assert moved == pytest.approx(base)
+
+
+class TestPolylineGap:
+    """Tests for the polyline-to-polyline minimum distance."""
+
+    def test_empty_polyline_reports_infinity(self) -> None:
+        """A chain with no ink can never collide."""
+        assert math.isinf(polyline_gap((), ((0.0, 0.0), (1.0, 1.0))))
+        assert math.isinf(polyline_gap(((0.0, 0.0), (1.0, 1.0)), ()))
+
+    def test_single_vertex_polyline_is_a_dot(self) -> None:
+        """A one-vertex chain (a tittle) measures its distance to the chain."""
+        gap = polyline_gap(((0.0, 1.0),), ((0.0, 0.0), (1.0, 0.0)))
+        assert gap == pytest.approx(1.0)
+
+    def test_nearest_pair_across_chains_wins(self) -> None:
+        """The minimum is taken over every segment pair, not the first."""
+        upper = ((0.0, 5.0), (1.0, 5.0), (2.0, 0.1), (3.0, 0.1))
+        lower = ((2.0, 0.0), (3.0, 0.0))
+        assert polyline_gap(upper, lower) == pytest.approx(0.1)
+
+    def test_touching_chains_report_zero(self) -> None:
+        """Chains sharing a junction vertex have no clearance."""
+        upper = ((0.0, 0.0), (1.0, 0.0))
+        lower = ((1.0, 0.0), (1.0, 1.0))
+        assert polyline_gap(upper, lower) == 0.0
+
+
+class TestInkGap:
+    """Tests for the glyph-ink-to-glyph-ink minimum distance."""
+
+    def test_empty_ink_reports_infinity(self) -> None:
+        """A glyph with no ink (a space) can never collide."""
+        assert math.isinf(ink_gap((), (((0.0, 0.0), (1.0, 0.0)),)))
+
+    def test_minimum_spans_all_polyline_pairs(self) -> None:
+        """The nearest pair of strokes across the two glyphs wins."""
+        upper = (((0.0, 9.0), (1.0, 9.0)), ((4.0, 0.2), (5.0, 0.2)))
+        lower = (((0.0, 0.0), (1.0, 0.0)), ((4.0, 0.0), (5.0, 0.0)))
+        assert ink_gap(upper, lower) == pytest.approx(0.2)
+
+
+class TestInkGrid:
+    """Tests for the spatial-hash grid accelerating the relief's inner loop.
+
+    The grid must never change a decision: below its cell size it reports the
+    exact :func:`ink_gap`, and above it only ever reports *more* air (it tests
+    a subset of the pairs, so it can never invent a collision).
+    """
+
+    @staticmethod
+    def _random_ink(seed: int, region: float, polylines: int, vertices: int) -> Ink:
+        """Build deterministic pseudo-random ink inside ``[0, region]^2``."""
+        rng = random.Random(seed)
+        return tuple(
+            tuple(
+                (rng.uniform(0.0, region), rng.uniform(0.0, region))
+                for _ in range(rng.randint(1, vertices))
+            )
+            for _ in range(polylines)
+        )
+
+    def test_exact_below_the_cell_size(self) -> None:
+        """Every pair closer than the cell size measures its exact distance."""
+        for seed in range(60):
+            lower = self._random_ink(seed, region=3.0, polylines=3, vertices=5)
+            upper = self._random_ink(seed + 1000, region=3.0, polylines=2, vertices=5)
+            for cell in (0.05, 0.1, 0.25, 0.5):
+                true_gap = ink_gap(upper, lower)
+                measured = InkGrid(lower, cell).min_gap(upper)
+                if true_gap < cell:
+                    assert measured == pytest.approx(true_gap, abs=1e-9), (seed, cell)
+
+    def test_never_invents_a_collision(self) -> None:
+        """Above the cell size the grid is an upper bound, never a false positive."""
+        for seed in range(60):
+            lower = self._random_ink(seed, region=3.0, polylines=3, vertices=5)
+            upper = self._random_ink(seed + 500, region=3.0, polylines=2, vertices=5)
+            for cell in (0.05, 0.25):
+                true_gap = ink_gap(upper, lower)
+                measured = InkGrid(lower, cell).min_gap(upper)
+                assert measured >= true_gap - 1e-9, (seed, cell)
+
+    def test_empty_sides_report_infinity(self) -> None:
+        """No ink on either side is unmeasurable."""
+        assert math.isinf(InkGrid((), 0.1).min_gap((((0.0, 0.0), (1.0, 0.0)),)))
+        assert math.isinf(InkGrid((((0.0, 0.0), (1.0, 0.0)),), 0.1).min_gap(()))
+
+    def test_single_vertex_ink_is_indexed(self) -> None:
+        """A dot of ink (a tittle) is found by the grid."""
+        grid = InkGrid((((1.0, 0.0),),), 1.0)
+        assert grid.min_gap((((1.0, 0.5),),)) == pytest.approx(0.5)
+
+    def test_beyond_the_cell_size_reports_infinity(self) -> None:
+        """A pair farther apart than the cell is unmeasured (``inf``)."""
+        grid = InkGrid((((1.0, 0.0),),), 0.1)
+        assert math.isinf(grid.min_gap((((1.0, 0.5),),)))
+
+    def test_non_positive_cell_size_falls_back_to_a_usable_cell(self) -> None:
+        """A zero required clearance must not create zero-area cells."""
+        grid = InkGrid((((0.0, 0.0), (1.0, 0.0)),), 0.0)
+        assert grid.cell_size > 0.0
+        assert grid.min_gap((((0.0, grid.cell_size / 2.0), (1.0, grid.cell_size / 2.0)),))
+        # ...and the fallback cell measures distances inside itself exactly.
+        half = grid.cell_size / 2.0
+        assert grid.min_gap((((0.0, half), (1.0, half)),)) == pytest.approx(half)
+
+    def test_negative_coordinates_index_correctly(self) -> None:
+        """The grid spans the whole plane, including negative coordinates."""
+        lower = (((0.0, -1.0), (1.0, -1.0)),)
+        grid = InkGrid(lower, 0.5)
+        assert grid.min_gap((((0.0, -0.75), (1.0, -0.75)),)) == pytest.approx(0.25)

@@ -1644,11 +1644,11 @@ class TestDescenderAdjustDemoExample:
         (fix,) = fixes[0]
         assert fix.char == "p"
         assert fix.glyph_index == 2  # D-e-p-t-h
-        assert fix.scale_y == pytest.approx(0.549, abs=0.01)
-        assert fix.raise_amount == pytest.approx(0.078, abs=0.01)
-        assert fix.gap_before == pytest.approx(-0.073, abs=0.01)
+        assert fix.scale_y == pytest.approx(0.629, abs=0.01)
+        assert fix.raise_amount == pytest.approx(0.064, abs=0.01)
+        assert fix.gap_before == pytest.approx(0.0, abs=0.01)
         # Cleared to the stroke floor: 0.5 * (0.06 + 0.06) + clearance 0.0.
-        assert fix.gap_after == pytest.approx(0.06, abs=1e-6)
+        assert fix.gap_after == pytest.approx(0.06, abs=1e-3)
 
     def test_relief_is_per_glyph_not_blanket(self, tmp_path: Path) -> None:
         """Only the glyph with a close partner below is relieved."""
@@ -1690,7 +1690,7 @@ class TestDescenderAdjustDemoExample:
         grow = result.rendered_labels["spacing_grow"]
         assert grow.descender_adjustments_by_line == {}
         # The requested 0.05in grew to clear the descender against the caps.
-        assert grow.line_spacing_by_line[0] == pytest.approx(0.183, abs=0.01)
+        assert grow.line_spacing_by_line[0] == pytest.approx(0.159, abs=0.01)
 
     def test_relief_reports_a_layout_finding(self, tmp_path: Path) -> None:
         """The relief surfaces in the shared LAYOUT REPORT formatter."""
@@ -1710,3 +1710,96 @@ class TestDescenderAdjustDemoExample:
             "0.015_bh_da.plt",
             "0.060_txt_da.plt",
         ]
+
+
+class TestDescenderCrookExample:
+    """Regression tests for tests_deps/descender_crook_job.yaml.
+
+    The reported bug: a "g" hook colliding with the dot of an "i" on the line
+    below. The pair is X-disjoint at bounding-box level (the box model reports
+    ``inf``, "can never collide") because the dot sits BESIDE the hook, in its
+    crook. Only the true 2D swept-ink metric -- a circle of the required
+    diameter rolled along the descending glyph's sub-baseline ink -- measures
+    the hook's real proximity and relieves the "g".
+    """
+
+    _SPEC = Path("tests_deps/descender_crook_job.yaml")
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the crook job with plotting disabled."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="cr",
+            optimize=False,
+            plots=False,
+        )
+
+    def test_crook_descender_is_relieved(self, tmp_path: Path) -> None:
+        """The "g" hook reaching the "i" dot below is squeezed and raised."""
+        result = self._export(tmp_path)
+        fixes = result.rendered_labels["crook"].descender_adjustments_by_line
+
+        assert list(fixes) == [0]
+        (fix,) = fixes[0]
+        assert fix.char == "g"
+        assert fix.glyph_index == 5  # t-h-r-o-u-g-h
+        assert fix.scale_y == pytest.approx(0.638, abs=0.01)
+        assert fix.raise_amount == pytest.approx(0.225, abs=0.01)
+        # The tightest gap (0.094in) sits inside the required clearance
+        # (0.5 * (0.09 + 0.09) * 1.5 = 0.135in) and is cleared above it.
+        assert fix.gap_before == pytest.approx(0.094, abs=0.01)
+        assert fix.gap_after == pytest.approx(0.281, abs=0.01)
+        assert fix.gap_before < fix.gap_after
+
+    def test_the_crook_pair_is_blind_to_the_box_model(self, tmp_path: Path) -> None:
+        """The g->i pair is X-disjoint at box level (gap inf) yet truly close.
+
+        This is the pair the box model hid: the "i" dot sits beside the "g"
+        hook, so their bounding boxes never overlap horizontally and
+        ``aabb_vertical_gap`` reports ``inf``. The swept-ink distance is well
+        inside the required clearance.
+        """
+        from plt_optimizer.generate import label_renderer as renderer
+        from plt_optimizer.generate.geometry import aabb_vertical_gap, ink_gap
+
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        label = next(label for label in labels if label.id == "crook")
+        blocks, groups = [], []
+        for line in label.content:
+            block, _wg, glyph_groups = renderer._render_line_block(line, renderer.TextChunkMode.LINE)
+            blocks.append(block)
+            groups.append(glyph_groups)
+        pitch = [line.toolpath_text_height for line in label.content]
+        geometry = renderer._local_line_extents(blocks, pitch)
+        baselines = renderer._baseline_table(
+            pitch,
+            [ascender for _basis, ascender, _d in geometry],
+            [descender for _basis, _ascender, descender in geometry],
+            [0.2614],
+        )
+        upper = renderer._shifted_boxes(
+            renderer._glyph_boxes(blocks[0], groups[0], "through"), baselines[0]
+        )
+        lower = renderer._shifted_boxes(
+            renderer._glyph_boxes(blocks[1], groups[1], "charging"), baselines[1]
+        )
+        hook = next(box for box in upper if box.glyph_index == 5)
+        dot = next(box for box in lower if box.char == "i")
+
+        assert math.isinf(aabb_vertical_gap(hook.bounds, dot.bounds))
+        assert ink_gap(hook.sub_baseline_ink, dot.ink) == pytest.approx(0.084, abs=0.01)
+        assert ink_gap(hook.sub_baseline_ink, dot.ink) < 0.135
+
+    def test_disabled_label_engraves_the_crook_verbatim(self, tmp_path: Path) -> None:
+        """The opt-out twin keeps the colliding "g" (no relief)."""
+        result = self._export(tmp_path)
+        off = result.rendered_labels["off"]
+        crook = result.rendered_labels["crook"]
+        assert off.descender_adjustments_by_line == {}
+        assert crook.descender_adjustments_by_line != {}
+        assert off.plt_content != crook.plt_content

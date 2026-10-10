@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Dict, List, Tuple
 
 # An axis-aligned bounding box as ``(x_min, y_min, x_max, y_max)``.
 TextBounds = Tuple[float, float, float, float]
@@ -174,3 +174,287 @@ def arc_swept_bounds(
     xs = [center_x + radius * math.cos(a) for a in angles]
     ys = [center_y + radius * math.sin(a) for a in angles]
     return (min(xs), min(ys), max(xs), max(ys))
+
+
+# A point as ``(x, y)``.
+Point = Tuple[float, float]
+
+# A connected chain of pen-down vertices -- one engraved stroke, with arcs
+# already flattened to chord-bounded vertices. A single point is a valid
+# (degenerate) polyline: it describes a dot of ink, e.g. an ``i``'s tittle.
+Polyline = Tuple[Point, ...]
+
+# Everything one glyph engraves: the polylines of its strokes. Empty when the
+# glyph has no ink (a space, or ink clipped away entirely).
+Ink = Tuple[Polyline, ...]
+
+# A segment in flat storage, for the spatial grid: ``(x1, y1, x2, y2)``.
+_Segment = Tuple[float, float, float, float]
+
+# Degenerate-segment threshold. Emitted geometry is integer plotter units
+# (1 unit = 0.001in) and the flattening chord tolerance is 0.0002in, so this
+# only absorbs float noise, never real geometry.
+_DEGENERATE_EPSILON: float = 1e-12
+
+# Floor for a :class:`InkGrid` cell size (a zero required clearance would
+# otherwise produce zero-area cells).
+_MIN_GRID_CELL: float = 1e-6
+
+
+def point_segment_gap(point: Point, start: Point, end: Point) -> float:
+    """Return the distance from a point to a segment (``0.0`` when on it).
+
+    Args:
+        point: The query point ``(x, y)``.
+        start: Segment start ``(x, y)``.
+        end: Segment end ``(x, y)``.
+
+    Returns:
+        The Euclidean distance from ``point`` to the closest point of the
+        segment, in the caller's length units.
+    """
+    px, py = point
+    sx, sy = start
+    ex, ey = end
+    dx, dy = ex - sx, ey - sy
+    length_squared = dx * dx + dy * dy
+    if length_squared <= _DEGENERATE_EPSILON * _DEGENERATE_EPSILON:
+        return math.hypot(px - sx, py - sy)
+    # Projection parameter, clamped to the segment (beyond it the closest
+    # point is the corresponding endpoint).
+    t = ((px - sx) * dx + (py - sy) * dy) / length_squared
+    t = min(1.0, max(0.0, t))
+    return math.hypot(px - (sx + t * dx), py - (sy + t * dy))
+
+
+def segment_gap(
+    a_start: Point,
+    a_end: Point,
+    b_start: Point,
+    b_end: Point,
+) -> float:
+    """Return the minimum distance between two segments (``0.0`` when crossing).
+
+    The classic closest-points solution for two segments in a plane: the
+    parameters ``(s, t)`` minimising ``|A(s) - B(t)|`` are solved on the
+    clamped unit square, which handles the parallel and degenerate cases and
+    returns exactly ``0.0`` for crossing segments (the min of the four
+    endpoint-to-segment distances would report a false positive there).
+
+    Args:
+        a_start: First segment's start ``(x, y)``.
+        a_end: First segment's end ``(x, y)``.
+        b_start: Second segment's start ``(x, y)``.
+        b_end: Second segment's end ``(x, y)``.
+
+    Returns:
+        The Euclidean distance between the two segments, in the caller's
+        length units.
+    """
+    ax, ay = a_start
+    bx, by = a_end
+    cx, cy = b_start
+    dx, dy = b_end
+
+    d1x, d1y = bx - ax, by - ay  # first segment's direction
+    d2x, d2y = dx - cx, dy - cy  # second segment's direction
+    rx, ry = ax - cx, ay - cy
+    a = d1x * d1x + d1y * d1y
+    e = d2x * d2x + d2y * d2y
+    f = d2x * rx + d2y * ry
+
+    degenerate = _DEGENERATE_EPSILON * _DEGENERATE_EPSILON
+    if a <= degenerate and e <= degenerate:
+        # Both segments are points.
+        return math.hypot(rx, ry)
+    if a <= degenerate:
+        s = 0.0
+        t = min(1.0, max(0.0, f / e))
+    else:
+        c = d1x * rx + d1y * ry
+        if e <= degenerate:
+            s = min(1.0, max(0.0, -c / a))
+            t = 0.0
+        else:
+            b = d1x * d2x + d1y * d2y
+            denominator = a * e - b * b
+            if denominator > degenerate:
+                # Ordinary case: the segments are not parallel.
+                s = min(1.0, max(0.0, (b * f - c * e) / denominator))
+            else:
+                # Parallel: any s on the first segment is a local optimum;
+                # the clamp below recovers the best t for it.
+                s = 0.0
+            t = (b * s + f) / e
+            if t < 0.0:
+                t = 0.0
+                s = min(1.0, max(0.0, -c / a))
+            elif t > 1.0:
+                t = 1.0
+                s = min(1.0, max(0.0, (b - c) / a))
+
+    return math.hypot((ax + d1x * s) - (cx + d2x * t), (ay + d1y * s) - (cy + d2y * t))
+
+
+def _polyline_segments(polyline: Polyline) -> List[_Segment]:
+    """Return a polyline's segments as flat ``(x1, y1, x2, y2)`` tuples.
+
+    A single-vertex polyline (a dot of ink) contributes a degenerate segment,
+    which :func:`segment_gap` measures as a point.
+    """
+    if not polyline:
+        return []
+    if len(polyline) == 1:
+        x, y = polyline[0]
+        return [(x, y, x, y)]
+    return [(x1, y1, x2, y2) for (x1, y1), (x2, y2) in zip(polyline[:-1], polyline[1:])]
+
+
+def polyline_gap(upper: Polyline, lower: Polyline) -> float:
+    """Return the minimum distance between two polylines.
+
+    Args:
+        upper: One chain of pen-down vertices.
+        lower: Another chain of pen-down vertices.
+
+    Returns:
+        The smallest segment-to-segment distance between the two chains, in
+        the caller's length units. ``math.inf`` when either chain has no ink
+        (nothing to measure -- the pair can never collide).
+    """
+    first = _polyline_segments(upper)
+    second = _polyline_segments(lower)
+    if not first or not second:
+        return math.inf
+    best = math.inf
+    for ax1, ay1, ax2, ay2 in first:
+        a_start = (ax1, ay1)
+        a_end = (ax2, ay2)
+        for bx1, by1, bx2, by2 in second:
+            gap = segment_gap(a_start, a_end, (bx1, by1), (bx2, by2))
+            if gap < best:
+                best = gap
+                if best <= 0.0:
+                    return 0.0
+    return best
+
+
+def ink_gap(upper: Ink, lower: Ink) -> float:
+    """Return the minimum distance between two glyphs' engraved ink.
+
+    This is the metric the descending-character relief uses: rolling a circle
+    of diameter ``required`` along one glyph's ink collides with the other
+    glyph exactly when this distance falls below ``required``. Unlike
+    :func:`aabb_vertical_gap` it is a true 2D distance, so a glyph poking
+    *sideways* into the gap below (a ``g`` hook reaching an ``i`` dot beside
+    it) measures its real proximity instead of reporting ``inf``.
+
+    Args:
+        upper: The upper glyph's ink (the polylines of its strokes).
+        lower: The lower glyph's ink.
+
+    Returns:
+        The smallest distance between any pair of the two glyphs' segments, in
+        the caller's length units. ``math.inf`` when either glyph has no ink.
+    """
+    best = math.inf
+    for first in upper:
+        for second in lower:
+            gap = polyline_gap(first, second)
+            if gap < best:
+                best = gap
+                if best <= 0.0:
+                    return 0.0
+    return best
+
+
+class InkGrid:
+    """Uniform spatial-hash grid over a glyph set's ink, for near-neighbour gaps.
+
+    The descending-character relief compares every descending glyph of a line
+    against every glyph of the line below, and re-measures them on each ramp
+    bisection step. A label's line carries hundreds of glyphs, so the
+    brute-force :func:`ink_gap` is too slow to be the inner loop. This grid
+    buckets the lower line's segments into cells of the *required clearance*,
+    so a query tests only the segments that can possibly reach it.
+
+    The cell size is the whole required clearance, which makes the decision
+    ``gap < required`` **exact**: two segments closer than the cell size always
+    have bounding boxes that intersect the query's box expanded by one cell,
+    so the pair is always tested. The returned minimum is therefore exact
+    whenever it falls below the cell size -- the regime the relief acts on --
+    and an upper bound above it (the grid tests a subset of the pairs, so it
+    can report more air than there really is, never less). Callers that need a
+    distance beyond the cell size use :func:`ink_gap`.
+
+    Attributes:
+        cell_size: The grid's cell edge, in the caller's length units.
+
+    Args:
+        ink: Every polyline to index (typically all glyphs of one text line).
+        cell_size: Cell edge length -- pass the required clearance. Values at
+            or below zero fall back to :data:`_MIN_GRID_CELL`.
+    """
+
+    cell_size: float
+    _cells: Dict[Tuple[int, int], List[_Segment]]
+
+    def __init__(self, ink: Ink, cell_size: float) -> None:
+        self.cell_size = cell_size if cell_size > 0.0 else _MIN_GRID_CELL
+        self._cells = {}
+        for polyline in ink:
+            for segment in _polyline_segments(polyline):
+                x1, y1, x2, y2 = segment
+                (min_x, max_x), (min_y, max_y) = _segment_span(x1, x2), _segment_span(y1, y2)
+                for cell in self._cells_covered(min_x, min_y, max_x, max_y):
+                    self._cells.setdefault(cell, []).append(segment)
+
+    def _cells_covered(
+        self, x_min: float, y_min: float, x_max: float, y_max: float
+    ) -> List[Tuple[int, int]]:
+        """Return every cell index whose square intersects a bounding box."""
+        cell = self.cell_size
+        i_start = math.floor(x_min / cell)
+        i_stop = math.floor(x_max / cell)
+        j_start = math.floor(y_min / cell)
+        j_stop = math.floor(y_max / cell)
+        return [(i, j) for i in range(i_start, i_stop + 1) for j in range(j_start, j_stop + 1)]
+
+    def min_gap(self, query: Ink) -> float:
+        """Return the nearest indexed ink to a glyph's ink.
+
+        Args:
+            query: The querying glyph's ink.
+
+        Returns:
+            The smallest distance from any of ``query``'s segments to any
+            indexed segment sharing a cell with it. Exact below
+            :attr:`cell_size`, an upper bound above it. ``math.inf`` when
+            either side has no ink.
+        """
+        best = math.inf
+        cell = self.cell_size
+        for polyline in query:
+            for x1, y1, x2, y2 in _polyline_segments(polyline):
+                a_start = (x1, y1)
+                a_end = (x2, y2)
+                (min_x, max_x), (min_y, max_y) = (
+                    _segment_span(x1, x2),
+                    _segment_span(y1, y2),
+                )
+                for cell_index in self._cells_covered(
+                    min_x - cell, min_y - cell, max_x + cell, max_y + cell
+                ):
+                    for segment in self._cells.get(cell_index, ()):
+                        bx1, by1, bx2, by2 = segment
+                        gap = segment_gap(a_start, a_end, (bx1, by1), (bx2, by2))
+                        if gap < best:
+                            best = gap
+                            if best <= 0.0:
+                                return 0.0
+        return best
+
+
+def _segment_span(first: float, second: float) -> Tuple[float, float]:
+    """Return the ``(min, max)`` span of two segment endpoint coordinates."""
+    return (min(first, second), max(first, second))

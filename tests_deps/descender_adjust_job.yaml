@@ -6,7 +6,10 @@
 # would bleed together, that one descending glyph is vertically downscaled
 # (about its own baseline, to `descending_character_v_scale`) and raised (by up
 # to `descending_character_raise` x its own descender depth). The trigger is a
-# measured near-miss against the line below -- never a blanket adjustment.
+# measured near-miss against the line below -- never a blanket adjustment --
+# measured as the true 2D swept-ink distance: a circle of the required
+# diameter rolled along the descending glyph's sub-baseline ink touching any
+# part of any glyph of the line below (not a bounding-box comparison).
 #
 # No plate declares a material and the job packs onto one sheet, so emitted
 # names carry no plate/material prefix: [<cutter>]_txt_<job>.plt per distinct
@@ -27,12 +30,12 @@ job:
 
   labels:
     # 1. Trigger: the 'p' descender on "Depth" hangs toward the capitals of
-    #    "RANGE" below. The relief squeezes + raises just that glyph so the
+    #    "ROOTS" below. The relief squeezes + raises just that glyph so the
     #    engraved strokes clear (gap closes to the stroke floor).
     - id: trigger
       content:
         - text: "Depth"
-        - text: "RANGE"
+        - text: "ROOTS"
 
     # 2. No trigger: the same content with a roomy gap. No glyph on the line
     #    below comes close, so the descender engraves exactly as rendered.
@@ -40,7 +43,7 @@ job:
       line_spacing: 0.4
       content:
         - text: "Depth"
-        - text: "RANGE"
+        - text: "ROOTS"
 
     # 3. Not-all: "Depth" over "ROOTS". Only the pairs under the 'p' are close,
     #    so only the 'p' is relieved -- the relief is per descending glyph.
@@ -63,7 +66,7 @@ job:
       descending_character_raise: 0.0
       content:
         - text: "Depth"
-        - text: "RANGE"
+        - text: "ROOTS"
 
     # 6. Feature disabled: the relief is off, the descender hangs exactly as
     #    baseline stacking leaves it (the trigger label's un-relieved twin).
@@ -72,4 +75,4 @@ job:
       auto_descending_character_adjustment: false
       content:
         - text: "Depth"
-        - text: "RANGE"
+        - text: "ROOTS"

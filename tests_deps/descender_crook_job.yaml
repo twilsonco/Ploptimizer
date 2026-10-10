@@ -1,0 +1,51 @@
+# Fixture for the descending-character relief's true 2D swept-ink metric
+# (`auto_descending_character_adjustment`, default true) -- the reported
+# regression: a "g" hook colliding with the dot of an "i" on the line below.
+#
+# The trigger is the true 2D swept-ink distance: a circle of the required
+# diameter rolled along the descending glyph's sub-baseline ink, touching any
+# part of any glyph of the line below. A bounding-box model reports the "g"
+# hook and the "i" dot as X-disjoint (gap = inf, "can never collide") because
+# the dot sits BESIDE the hook, in its crook -- so the box model is blind to
+# this exact collision. The ink model measures the hook's real proximity
+# (well inside the required clearance) and relieves the "g".
+#
+# Dino at 1.5in text, 0.09in cutter, clearance 0.5 => required 0.135in. The
+# "through" / "charging" pair is the reported job's first two words.
+#
+# No plate declares a material and the job packs onto one sheet, so emitted
+# names carry no plate/material prefix: [<cutter>]_txt_<job>.plt per distinct
+# cutter plus one bh file.
+job:
+  job_name: Descender Crook Demo
+
+  width: 6.0
+  height: 4.0
+  margin: 0.1
+  text_height: 1.5
+  font: dino
+  descending_character_clearance: 0.5
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. Crook collision: the "g" hook of "through" reaches the dot of the
+    #    "i" of "charging" below. The pair is X-disjoint at box level (the
+    #    box model reports inf), so only the true-ink metric sees it; the
+    #    relief squeezes + raises just the "g" so the engraved strokes clear.
+    - id: crook
+      content:
+        - text: "through"
+        - text: "charging"
+
+    # 2. Feature disabled: the relief is off, so the "g" engraves verbatim
+    #    and its hook collides with the "i" dot (the trigger label's
+    #    un-relieved twin). (The id is quoted: bare ``off`` is a YAML boolean.)
+    - id: "off"
+      auto_descending_character_adjustment: false
+      content:
+        - text: "through"
+        - text: "charging"

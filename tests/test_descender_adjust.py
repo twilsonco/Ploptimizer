@@ -18,12 +18,16 @@ from plt_optimizer.generate.descender_adjust import (
     GlyphBox,
     PairGap,
     apply_ramp,
+    measure_glyph_gaps,
     measure_pairs,
     merge_ramps,
     ramp_for,
+    ramp_for_measured,
+    ramp_ink,
     ramps_changed,
     required_gap,
     worst_deficit,
+    worst_glyph_deficit,
 )
 
 
@@ -306,3 +310,202 @@ class TestDescenderFix:
         )
         assert (fix.line_index, fix.glyph_index, fix.char) == (0, 2, "p")
         assert fix.gap_after > fix.gap_before
+
+
+def _ink_box(
+    glyph_index: int,
+    char: str,
+    x_min: float,
+    y_min: float,
+    x_max: float,
+    y_max: float,
+    ink: tuple,
+    baseline_y: float = 0.0,
+) -> GlyphBox:
+    """Build a :class:`GlyphBox` carrying explicit swept ink."""
+    return GlyphBox(
+        glyph_index=glyph_index,
+        char=char,
+        bounds=(x_min, y_min, x_max, y_max),
+        descender=max(0.0, baseline_y - y_min),
+        ink=ink,
+        sub_baseline_ink=tuple(
+            tuple((x, y) for x, y in polyline if y <= 0.0) for polyline in ink
+        ),
+    )
+
+
+class TestInkModelMeasurement:
+    """The rolling-circle test: true 2D swept-ink distance, not boxes."""
+
+    def test_x_disjoint_near_pair_measures_its_real_distance(self) -> None:
+        """The relief's blind spot is gone: a sideways near-miss triggers.
+
+        A hook ending at x=0.1, y=0 with a tittle at (0.15, -0.1): the box
+        model reports ``inf`` (disjoint X spans) and the pair hides; the ink
+        model measures the true distance (~0.112in) and the pair collides
+        against a 0.135in requirement.
+        """
+        upper = _ink_box(0, "g", 0.0, -0.1, 0.1, 0.0, ink=(((0.0, 0.0), (0.1, 0.0)),))
+        lower = _ink_box(0, "i", 0.15, -0.15, 0.15, -0.05, ink=(((0.15, -0.15), (0.15, -0.05)),))
+        (pair,) = measure_pairs([upper], [lower], required=0.135)
+        # Closest points: the hook's tip (0.1, 0) and the tittle's top (0.15, -0.05).
+        assert pair.gap == pytest.approx(math.hypot(0.05, 0.05))
+        assert pair.collides is True
+
+    def test_sub_baseline_ink_is_the_rolling_surface(self) -> None:
+        """Only the sub-baseline part of the upper glyph drives the gap.
+
+        The upper glyph's ink above the baseline sits right on top of the
+        lower glyph's box; the rolling circle travels the sub-baseline part,
+        so the measured gap is the sub-baseline distance.
+        """
+        upper = _ink_box(
+            0,
+            "g",
+            0.0,
+            -0.1,
+            0.2,
+            0.4,
+            ink=(((0.0, 0.4), (0.2, 0.4)), ((0.0, 0.0), (0.2, -0.1))),
+        )
+        lower = _ink_box(0, "N", 0.0, -0.5, 0.2, -0.3, ink=(((0.0, -0.5), (0.2, -0.5)),))
+        (pair,) = measure_pairs([upper], [lower], required=0.5)
+        # Sub-baseline ink ends at (0.2, -0.1); the lower ink is the y=-0.5
+        # run: the distance from that endpoint to the run is 0.4. The required
+        # clearance (the grid cell) covers the distance, keeping it exact.
+        assert pair.gap == pytest.approx(0.4)
+
+    def test_glyphs_without_ink_fall_back_to_the_box_model(self) -> None:
+        """Hand-built boxes (no ink) keep the vertical box gap semantics."""
+        upper = _box(0, "p", 0.0, -0.1, 0.2, 0.3)
+        lower = _box(0, "R", 0.0, -0.4, 0.2, 0.0)
+        (pair,) = measure_pairs([upper], [lower], required=0.05)
+        assert pair.gap == pytest.approx(-0.1)
+
+    def test_mixed_ink_and_box_glyphs_measure_infinity(self) -> None:
+        """A box-only upper glyph against ink-carrying lowers is unmeasurable.
+
+        Mixing models in one line would compare boxes against ink (the box
+        is a superset of the ink: it invents collisions), so the pair
+        reports ``inf`` and never triggers.
+        """
+        upper = _box(0, "p", 0.0, -0.1, 0.2, 0.3)
+        lower = _ink_box(0, "N", 0.0, -0.4, 0.2, 0.0, ink=(((0.0, -0.4), (0.2, 0.0)),))
+        (pair,) = measure_pairs([upper], [lower], required=0.05)
+        assert math.isinf(pair.gap)
+        assert pair.collides is False
+
+    def test_grid_and_brute_force_agree(self) -> None:
+        """The grid-accelerated path returns the same gap as ink_gap."""
+        from plt_optimizer.generate.geometry import ink_gap
+
+        upper = _ink_box(
+            0, "g", 0.0, -0.3, 0.5, 0.3, ink=(((0.0, 0.3), (0.3, 0.0), (0.5, -0.3)),)
+        )
+        lowers = [
+            _ink_box(0, "i", 0.55, -0.15, 0.6, -0.1, ink=(((0.55, -0.15), (0.6, -0.1)),)),
+            _ink_box(1, "N", 1.0, -0.4, 1.2, 0.0, ink=(((1.0, -0.4), (1.2, 0.0)),)),
+        ]
+        required = 0.5
+        pairs = measure_pairs([upper], lowers, required=required)
+        brute = min(ink_gap(upper.sub_baseline_ink, lower.ink) for lower in lowers)
+        assert min(pair.gap for pair in pairs) == pytest.approx(brute)
+
+
+class TestMeasureGlyphGaps:
+    """The per-glyph aggregate driving the relief's ramp and spacing growth."""
+
+    def test_only_descending_glyphs_are_measured(self) -> None:
+        """Plain capitals never trigger the mechanism."""
+        upper = _ink_box(0, "H", 0.0, 0.0, 0.2, 0.3, ink=(((0.0, 0.0), (0.2, 0.3)),))
+        lower = _ink_box(0, "R", 0.0, -0.4, 0.2, 0.0, ink=(((0.0, -0.4), (0.2, 0.0)),))
+        assert measure_glyph_gaps([upper], [lower], required=0.05) == []
+
+    def test_tightest_partner_wins(self) -> None:
+        """The glyph's gap is the minimum over the whole line below."""
+        upper = _ink_box(0, "y", 0.0, -0.2, 0.2, 0.0, ink=(((0.0, 0.0), (0.2, -0.2)),))
+        lowers = [
+            _ink_box(0, "R", 0.0, -0.5, 0.2, -0.3, ink=(((0.0, -0.5), (0.2, -0.3)),)),
+            _ink_box(1, "O", 0.3, -0.35, 0.5, -0.15, ink=(((0.3, -0.35), (0.5, -0.15)),)),
+        ]
+        (gap,) = measure_glyph_gaps([upper], lowers, required=0.5)
+        from plt_optimizer.generate.geometry import ink_gap
+
+        assert gap.gap == pytest.approx(
+            min(ink_gap(upper.sub_baseline_ink, lower.ink) for lower in lowers)
+        )
+
+    def test_worst_glyph_deficit_ignores_unmeasurable(self) -> None:
+        """An unmeasurable glyph (inf gap) never drives spacing growth."""
+        # Ink entirely above the baseline: the rolling circle has no surface
+        # to travel, so the glyph is unmeasurable (inf).
+        upper = _ink_box(0, "p", 0.0, -0.1, 0.2, 0.3, ink=(((0.05, 0.05), (0.2, 0.3)),))
+        lower = _ink_box(0, "R", 0.0, -0.4, 0.2, 0.0, ink=(((0.0, -0.4), (0.2, 0.0)),))
+        (gap,) = measure_glyph_gaps([upper], [lower], required=0.05)
+        assert math.isinf(gap.gap)
+        assert worst_glyph_deficit([gap]) == 0.0
+
+
+class TestRampInk:
+    """The pure stacked-frame transform mirroring the renderer's stroke ramp."""
+
+    def test_scales_about_the_baseline_and_raises(self) -> None:
+        """A point maps to (y - baseline) * scale + raise + baseline."""
+        ink = (((0.0, -0.2), (0.1, 0.1)),)
+        ramped = ramp_ink(ink, baseline_y=1.5, scale_y=0.5, raise_amount=0.05)
+        assert ramped[0][0] == pytest.approx((0.0, 0.7))
+        assert ramped[0][1] == pytest.approx((0.1, 0.85))
+
+    def test_identity_ramp_is_a_noop(self) -> None:
+        """scale 1.0 / raise 0.0 leaves the ink exactly where it is."""
+        ink = (((0.0, -0.2), (0.1, 0.1)),)
+        ramped = ramp_ink(ink, baseline_y=-3.0, scale_y=1.0, raise_amount=0.0)
+        assert ramped[0][0] == pytest.approx(ink[0][0])
+        assert ramped[0][1] == pytest.approx(ink[0][1])
+
+    def test_full_raise_lands_the_lowest_point_on_the_baseline(self) -> None:
+        """raise == descender, scale 1.0: the lowest ink point sits on the baseline.
+
+        The ink is in the stacked frame, so the baseline sits at ``baseline_y``
+        and the descender's tip at ``baseline_y - descender``.
+        """
+        ink = (((0.0, 1.75), (0.1, 2.0)),)
+        ramped = ramp_ink(ink, baseline_y=2.0, scale_y=1.0, raise_amount=0.25)
+        assert min(y for _, y in ramped[0]) == pytest.approx(2.0)
+
+
+class TestRampForMeasured:
+    """The bisection solving the ink-distance ramp (no closed form)."""
+
+    def test_safe_at_zero_needs_no_ramp(self) -> None:
+        """A pair already at clearance settles at t = 0."""
+        assert ramp_for_measured(lambda t: 0.1, required=0.05) == 0.0
+
+    def test_exhausted_allowances_return_one(self) -> None:
+        """A pair no ramp can clear spends everything (t = 1)."""
+        assert ramp_for_measured(lambda t: 0.01, required=0.05) == 1.0
+
+    def test_linear_gap_matches_the_closed_form(self) -> None:
+        """On a linear gap the bisection reproduces ramp_for's answer.
+
+        The bisection accepts within the emission tolerance (1e-6in), so it
+        settles a hair below the exact crossing -- within a thousandth of a
+        plotter unit of the closed form.
+        """
+        gap, required, descender, v_scale, raise_fraction = -0.05, 0.05, 0.1, 0.5, 0.7
+        slope = raise_fraction * descender + descender * (1.0 - v_scale)
+        measured = ramp_for_measured(
+            lambda t: gap + t * slope,
+            required=required,
+        )
+        assert measured == pytest.approx(
+            ramp_for(gap, required, descender, v_scale, raise_fraction), abs=1e-5
+        )
+
+    def test_bisected_ramp_clears_the_pair(self) -> None:
+        """The returned ramp is the smallest clearing value (within tolerance)."""
+        gap, required = -0.05, 0.05
+        ramp = ramp_for_measured(lambda t: gap + t * 0.12, required=required)
+        assert gap + ramp * 0.12 >= required - 1e-6
+        assert gap + (ramp - 1e-4) * 0.12 < required

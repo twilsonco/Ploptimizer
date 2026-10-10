@@ -25,14 +25,16 @@ import vpype as vp
 from plt_optimizer.generate.descender_adjust import (
     DescenderFix,
     GlyphBox,
-    PairGap,
+    GlyphGap,
     apply_ramp,
-    measure_pairs,
+    measure_glyph_gaps,
     merge_ramps,
     ramp_for,
+    ramp_for_measured,
+    ramp_ink,
     ramps_changed,
     required_gap,
-    worst_deficit,
+    worst_glyph_deficit,
 )
 from plt_optimizer.generate.font_registry import FontNotFoundError, resolve_font
 from plt_optimizer.generate.ftext_renderer import (
@@ -43,9 +45,13 @@ from plt_optimizer.generate.ftext_renderer import (
 )
 from plt_optimizer.generate.geometry import (
     CollisionResult,
-    aabb_vertical_gap,
+    Ink,
+    InkGrid,
+    Point,
+    Polyline,
     arc_swept_bounds,
     circle_aabb_gap,
+    ink_gap,
 )
 from plt_optimizer.generate.plt_font_renderer import (
     PltFontRenderError,
@@ -101,13 +107,35 @@ _DESCENDER_MAX_PASSES: int = 8
 
 # Gap comparison tolerance for the relief's abort gate: a gap exactly equal to
 # the required clearance is safe (tangency). AGENTS.md forbids ``==`` on floats.
-_DESCENDER_GAP_TOLERANCE: float = 1e-9
+# 1e-6in is the emission floor (a thousandth of a plotter unit): the true 2D
+# ink distance grows sub-linearly with the vertical spacing (a diagonal pair
+# gains less than the spacing it grows by), so the fixpoint's finite passes
+# leave a sub-plotter-unit residual that must never abort the job.
+_DESCENDER_GAP_TOLERANCE: float = 1e-6
+
+# Reporting radius for the relief's final gap_after measurement: the InkGrid
+# cell (and therefore the cheap measurement radius) is at least this, so
+# reported gaps never print as ``inf`` for glyphs that merely sit far apart.
+_GAP_REPORT_RADIUS: float = 0.25
+
+# Emission floor for the relief's ink model, in inches: half a plotter unit
+# (coordinates emit as integer 1/1000in). Glyph ink below this depth does not
+# exist in the emitted PLT, so the relief must not treat it as a descender --
+# a 0.0004in sliver (0.4 units) is font-data noise, and chasing it relieves
+# glyphs that do not descend and aborts the job on sub-unit deficits. Real
+# descenders are two orders of magnitude deeper.
+_INK_EMISSION_FLOOR: float = 5e-4
 
 # Bisection granularity for the relief's spacing growth (the stacked block
 # height is non-decreasing in the spacings, so the admissible growth factor is
 # found by bisection -- the same shape as ``fit_baseline_spacing_to_margins``).
 _SPACING_GROWTH_MAX_ITERATIONS: int = 100
 _SPACING_GROWTH_TOLERANCE: float = 1e-9
+
+# Doubling steps used to bracket the spacing growth that clears a gap's ink
+# distance (the growth a laterally-offset pair needs is bounded by the
+# required clearance, so a handful of doublings always reach it).
+_SPACING_GROWTH_MAX_DOUBLINGS: int = 40
 
 
 class _LineEntry(NamedTuple):
@@ -1957,6 +1985,99 @@ def _glyph_chars(text: str) -> List[str]:
     return [char for char in text if char != " "]
 
 
+def _stroke_polyline(stroke: Stroke) -> Polyline:
+    """Return one stroke's swept ink as a single polyline.
+
+    Segments chain tip-to-tail, so a stroke is one continuous chain: each
+    segment contributes its flattened vertices (a :class:`~plt_optimizer.generate.text_geometry.ArcSeg`
+    flattens at the shared chord tolerance, a :class:`~plt_optimizer.generate.text_geometry.LineSeg`
+    contributes its endpoints), with the shared junction vertex emitted once.
+    Degenerate leftovers are harmless -- the distance primitives measure a
+    zero-length segment as a point.
+
+    Args:
+        stroke: The stroke to flatten.
+
+    Returns:
+        The stroke's vertices, in the stroke's frame. Empty for a segment-less
+        stroke (no ink).
+    """
+    points: List[Point] = []
+    last: Optional[complex] = None
+    for segment in stroke.segments:
+        flattened = segment.flattened()
+        if not flattened:
+            continue
+        start = 1 if last is not None and flattened[0] == last else 0
+        points.extend((point.real, point.imag) for point in flattened[start:])
+        last = flattened[-1]
+    return tuple(points)
+
+
+def _glyph_ink(block: TextBlock, indices: Sequence[int]) -> Ink:
+    """Return every polyline one glyph engraves, in the block's frame.
+
+    Args:
+        block: The line's block (baseline at ``y = 0`` in the local frame).
+        indices: The glyph's stroke indices into ``block.strokes``.
+
+    Returns:
+        One polyline per non-empty stroke. Empty when the glyph has no ink.
+    """
+    return tuple(
+        polyline for polyline in (_stroke_polyline(block.strokes[i]) for i in indices) if polyline
+    )
+
+
+def _clip_below_baseline(polyline: Polyline) -> Polyline:
+    """Clip a polyline to the ink hanging below the baseline's emission floor.
+
+    The relief's rolling circle travels along the part of a descending glyph
+    that hangs *into the gap below its line*, so the glyph's full ink is
+    clipped just below its own baseline: the baseline is the line's ``y = 0``
+    in the renderer's local frame. Runs crossing the floor contribute a vertex
+    exactly on it, so the clipped chain keeps its real silhouette at the cut.
+
+    The floor is :data:`_INK_EMISSION_FLOOR` (half a plotter unit): ink
+    shallower than the emitted coordinate grid cannot collide in the engraved
+    output, and counting it would relieve glyphs that do not descend.
+
+    Args:
+        polyline: The glyph's vertices, in the local frame.
+
+    Returns:
+        The clipped vertices (possibly empty, possibly a single point sitting
+        on the floor).
+    """
+    floor = -_INK_EMISSION_FLOOR
+    clipped: List[Point] = []
+    previous: Optional[Point] = None
+    for point in polyline:
+        inside = point[1] <= floor
+        if previous is not None and inside != (previous[1] <= floor):
+            # Linear crossing of the floor: emit the intersection vertex.
+            span = point[1] - previous[1]
+            if span != 0.0:
+                ratio = (floor - previous[1]) / span
+                clipped.append((previous[0] + ratio * (point[0] - previous[0]), floor))
+        if inside:
+            clipped.append(point)
+        previous = point
+    return tuple(clipped)
+
+
+def _sub_baseline_ink(ink: Ink) -> Ink:
+    """Clip a glyph's ink to the part hanging below its baseline.
+
+    Args:
+        ink: The glyph's polylines, in the renderer's local frame.
+
+    Returns:
+        The clipped polylines, dropping the ones with no sub-baseline ink.
+    """
+    return tuple(clipped for clipped in (_clip_below_baseline(p) for p in ink) if clipped)
+
+
 def _glyph_boxes(
     block: TextBlock,
     glyph_groups: Tuple[Tuple[int, ...], ...],
@@ -1969,6 +2090,11 @@ def _glyph_boxes(
     the relief per-descending-character: a glyph's box reflects only its own
     silhouette, never its line's aggregate ink box. The block is in the local
     frame, so the baseline is ``y = 0`` and the descender depth is ``-y_min``.
+
+    Each box also carries the glyph's **swept ink** (the stroke polylines) and
+    that ink clipped below the baseline, so the relief measures true 2D
+    swept-ink distance -- a circle of the required diameter rolled along the
+    descending part -- instead of comparing boxes.
 
     Args:
         block: The line's block, baseline at ``y = 0``.
@@ -1990,12 +2116,21 @@ def _glyph_boxes(
         bounds = glyph_block.bounds()
         if bounds is None:  # pragma: no cover - empty groups are skipped above
             continue
+        ink = _glyph_ink(block, indices)
+        # Ink shallower than the emission floor is not a descender: it does
+        # not exist in the emitted PLT, so it must not trigger the relief
+        # (the ramp's basis is this depth, and ``descends`` gates the pair).
+        descender = max(0.0, -bounds[1])
+        if descender <= _INK_EMISSION_FLOOR:
+            descender = 0.0
         boxes.append(
             GlyphBox(
                 glyph_index=glyph_index,
                 char=chars[glyph_index],
                 bounds=bounds,
-                descender=max(0.0, -bounds[1]),
+                descender=descender,
+                ink=ink,
+                sub_baseline_ink=_sub_baseline_ink(ink),
             )
         )
     return boxes
@@ -2122,7 +2257,7 @@ def _shifted_boxes(boxes: Sequence[GlyphBox], baseline_y: float) -> List[GlyphBo
         baseline_y: The line's baseline Y in the stacked frame, inches.
 
     Returns:
-        The same glyphs with their bounds translated by ``baseline_y``.
+        The same glyphs with their bounds and ink translated by ``baseline_y``.
     """
     if baseline_y == 0.0:
         return list(boxes)
@@ -2134,6 +2269,10 @@ def _shifted_boxes(boxes: Sequence[GlyphBox], baseline_y: float) -> List[GlyphBo
                 box.bounds[1] + baseline_y,
                 box.bounds[2],
                 box.bounds[3] + baseline_y,
+            ),
+            ink=tuple(tuple((x, y + baseline_y) for x, y in polyline) for polyline in box.ink),
+            sub_baseline_ink=tuple(
+                tuple((x, y + baseline_y) for x, y in polyline) for polyline in box.sub_baseline_ink
             ),
         )
         for box in boxes
@@ -2188,6 +2327,100 @@ def _apply_glyph_ramps(
             replacements[stroke_index] = transformed.strokes[position]
         applied.append((glyph_index, chars[glyph_index], scale_y, raise_amount))
     return block.replaced_strokes(replacements), applied
+
+
+def _gap_required(
+    label: ResolvedLabel,
+    line_indices: Sequence[int],
+    gap_index: int,
+) -> float:
+    """Return the required clearance of one inter-line gap, inches.
+
+    Args:
+        label: The label being rendered (supplies the clearance factor).
+        line_indices: Each renderable line's index into ``label.content``.
+        gap_index: The gap below renderable line ``gap_index``.
+
+    Returns:
+        The clearance from :func:`required_gap` for the gap's two cutters.
+    """
+    return required_gap(
+        _line_cutter(label, line_indices[gap_index]),
+        _line_cutter(label, line_indices[gap_index + 1]),
+        label.descending_character_clearance,
+    )
+
+
+def _solve_gap_growth(
+    upper_boxes: Sequence[GlyphBox],
+    lower_boxes: Sequence[GlyphBox],
+    upper_baseline_y: float,
+    required: float,
+    deficit: float,
+) -> float:
+    """Return the spacing growth that clears one inter-line gap's ink distance.
+
+    Growing the spacing below a line pushes the line below (and everything
+    under it) away, so the sweep-ink gap widens -- but **sub-linearly**: a
+    pair offset sideways gains less than the vertical distance it is given
+    (``sqrt(dx^2 + (dy+g)^2)``), so growing by the deficit under-shoots and
+    the fixpoint stalls with a geometric tail of residuals. This bisects the
+    growth on the measured gap instead.
+
+    The lower line's ink is indexed once; each candidate growth is measured
+    by translating the *query* ink up by that growth (identical geometry,
+    grid frozen), which keeps the bisection cheap on lines of hundreds of
+    glyphs.
+
+    Args:
+        upper_boxes: The upper line's glyph boxes (stacked frame).
+        lower_boxes: The following line's glyph boxes (stacked frame).
+        upper_baseline_y: The upper line's baseline Y, inches (the ramp pivot).
+        required: Clearance from :func:`required_gap`, inches.
+        deficit: The gap's clearance shortfall, inches (> 0).
+
+    Returns:
+        The growth in inches that clears every descending glyph of the gap
+        (the smallest value found, within the emission tolerance). ``0.0``
+        when the gap has no ink-measurable glyph to clear.
+    """
+    lower_ink: Ink = tuple(polyline for lower in lower_boxes for polyline in lower.ink)
+    if not lower_ink or required <= 0.0:
+        return 0.0
+    grid = InkGrid(lower_ink, required)
+    queries: List[Ink] = [
+        box.sub_baseline_ink for box in upper_boxes if box.sub_baseline_ink and box.descends
+    ]
+    if not queries:
+        return 0.0
+
+    def clears(growth: float) -> bool:
+        return all(
+            grid.min_gap(ramp_ink(query, upper_baseline_y, 1.0, growth)) >= required
+            for query in queries
+        )
+
+    # The growth a pair needs is bounded by the required clearance itself
+    # (a purely lateral near-miss clears at ~required), so doubling from the
+    # deficit reaches a clearing value within a few steps.
+    high = max(deficit, _SPACING_GROWTH_TOLERANCE)
+    for _ in range(_SPACING_GROWTH_MAX_DOUBLINGS):
+        if clears(high):
+            break
+        high *= 2.0
+    else:
+        return high
+
+    low = 0.0
+    for _ in range(_SPACING_GROWTH_MAX_ITERATIONS):
+        if high - low <= _SPACING_GROWTH_TOLERANCE:
+            break
+        middle = (low + high) / 2.0
+        if clears(middle):
+            high = middle
+        else:
+            low = middle
+    return high
 
 
 def _grow_spacings(
@@ -2357,26 +2590,22 @@ def _apply_descender_relief(
         for block, groups, line_index in zip(original, glyph_groups_by_line, line_indices)
     ]
 
-    def measure(baselines: Sequence[float]) -> tuple[List[List[PairGap]], List[float]]:
-        """Measure every glyph pair of the current geometry at ``baselines``.
+    def measure(boxes: Sequence[Sequence[GlyphBox]]) -> tuple[List[List[GlyphGap]], List[float]]:
+        """Measure every descending glyph of the given stacked-frame boxes.
+
+        The rolling-circle test: each descending glyph's sub-baseline ink
+        against the *complete* ink of the line below (grid-indexed per gap,
+        cell = required clearance, keeping the ``gap < required`` decision
+        exact). Glyphs without ink knowledge fall back to the box model.
 
         Args:
-            baselines: Each line's baseline Y in the stacked frame, inches.
+            boxes: Each line's glyph boxes in the stacked frame.
 
         Returns:
-            ``(pairs_by_gap, deficits)``: the pairs of each inter-line gap and
-            the worst clearance shortfall of each.
+            ``(gaps_by_gap, deficits)``: the per-glyph gaps of each inter-line
+            gap and the worst clearance shortfall of each.
         """
-        boxes = [
-            _shifted_boxes(
-                _glyph_boxes(block, groups, label.content[line_index].text),
-                baselines[index],
-            )
-            for index, (block, groups, line_index) in enumerate(
-                zip(current_blocks, glyph_groups_by_line, line_indices)
-            )
-        ]
-        pairs_by_gap: List[List[PairGap]] = []
+        gaps_by_gap: List[List[GlyphGap]] = []
         gap_deficits: List[float] = []
         for gap_index in range(len(original) - 1):
             required = required_gap(
@@ -2384,10 +2613,24 @@ def _apply_descender_relief(
                 _line_cutter(label, line_indices[gap_index + 1]),
                 label.descending_character_clearance,
             )
-            pairs = measure_pairs(boxes[gap_index], boxes[gap_index + 1], required)
-            pairs_by_gap.append(pairs)
-            gap_deficits.append(worst_deficit(pairs))
-        return pairs_by_gap, gap_deficits
+            gaps = measure_glyph_gaps(boxes[gap_index], boxes[gap_index + 1], required)
+            gaps_by_gap.append(gaps)
+            gap_deficits.append(worst_glyph_deficit(gaps))
+        return gaps_by_gap, gap_deficits
+
+    def stacked_boxes_of(
+        blocks: Sequence[TextBlock], baselines: Sequence[float]
+    ) -> List[List[GlyphBox]]:
+        """Build the stacked-frame glyph boxes of one set of line blocks."""
+        return [
+            _shifted_boxes(
+                _glyph_boxes(block, groups, label.content[line_index].text),
+                baselines[index],
+            )
+            for index, (block, groups, line_index) in enumerate(
+                zip(blocks, glyph_groups_by_line, line_indices)
+            )
+        ]
 
     for _pass in range(_DESCENDER_MAX_PASSES):
         ascenders = [ascender for _basis, ascender, _d in geometry]
@@ -2397,27 +2640,69 @@ def _apply_descender_relief(
         else:
             baselines = _inkbox_baseline_table(current_blocks, current_spacings)
 
-        # ---- Measure every pair; propose the smallest clearing ramp ----
-        pairs_by_gap, _pre_deficits = measure(baselines)
+        # ---- Measure every descending glyph; propose the smallest clearing ramp ----
+        boxes = stacked_boxes_of(current_blocks, baselines)
+        gaps_by_gap, _pre_deficits = measure(boxes)
         proposed: dict[int, dict[int, float]] = {}
-        for gap_index, pairs in enumerate(pairs_by_gap):
-            for pair in pairs:
-                key = (gap_index, pair.upper.glyph_index)
-                # Only a pair with horizontal overlap measures a real gap; the
-                # X-disjoint pairs report inf and must not seed the report.
-                if not math.isfinite(pair.gap):
-                    continue
-                if key not in gap_before or pair.gap < gap_before[key]:
-                    gap_before[key] = pair.gap
-                ramp = ramp_for(
-                    pair.gap,
-                    pair.required,
-                    pair.upper.descender,
-                    label.descending_character_v_scale,
-                    label.descending_character_raise,
-                )
+        for gap_index, gaps in enumerate(gaps_by_gap):
+            triggering = [gap for gap in gaps if gap.collides and math.isfinite(gap.gap)]
+            if not triggering:
+                continue
+            required = triggering[0].required
+            # The lower line is frozen during a glyph's ramp bisection, so its
+            # complete ink is indexed once per gap and every candidate ramp
+            # queries the same grid (cell = required: exact decision).
+            lower_ink: Ink = tuple(
+                polyline for lower in boxes[gap_index + 1] for polyline in lower.ink
+            )
+            grid = InkGrid(lower_ink, required) if lower_ink and required > 0.0 else None
+            upper_baseline = baselines[gap_index]
+            for gap in triggering:
+                key = (gap_index, gap.upper.glyph_index)
+                if key not in gap_before or gap.gap < gap_before[key]:
+                    gap_before[key] = gap.gap
+                if gap.upper.sub_baseline_ink and grid is not None:
+                    descender = gap.upper.descender
+                    full_scale, full_raise = apply_ramp(
+                        descender,
+                        label.descending_character_v_scale,
+                        label.descending_character_raise,
+                        1.0,
+                    )
+                    if full_scale >= 1.0 and full_raise <= 0.0:
+                        # Both allowances are zero: the ramp can never help
+                        # (the box model's closed form tests this as its
+                        # slope). The surviving deficit grows the spacing.
+                        continue
+
+                    def gap_at(
+                        t: float,
+                        _ink: Ink = gap.upper.sub_baseline_ink,
+                        _descender: float = descender,
+                        _grid: InkGrid = grid,
+                        _baseline: float = upper_baseline,
+                    ) -> float:
+                        scale_y, raise_amount = apply_ramp(
+                            _descender,
+                            label.descending_character_v_scale,
+                            label.descending_character_raise,
+                            t,
+                        )
+                        return _grid.min_gap(ramp_ink(_ink, _baseline, scale_y, raise_amount))
+
+                    ramp = ramp_for_measured(gap_at, required)
+                else:
+                    # Box-model fallback (glyphs without ink knowledge):
+                    # the vertical gap is linear in the ramp, closed form.
+                    ramp = ramp_for(
+                        gap.gap,
+                        required,
+                        gap.upper.descender,
+                        label.descending_character_v_scale,
+                        label.descending_character_raise,
+                    )
                 if ramp > 0.0:
-                    proposed.setdefault(gap_index, {})[pair.upper.glyph_index] = ramp
+                    proposed.setdefault(gap_index, {})[gap.upper.glyph_index] = ramp
 
         grew = False
         for gap_index, per_glyph in proposed.items():
@@ -2454,9 +2739,25 @@ def _apply_descender_relief(
             baselines_after = _baseline_table(pitch_basis, ascenders, descenders, current_spacings)
         else:
             baselines_after = _inkbox_baseline_table(current_blocks, current_spacings)
-        _post_pairs, deficits = measure(baselines_after)
+        boxes_after = stacked_boxes_of(current_blocks, baselines_after)
+        _post_gaps, deficits = measure(boxes_after)
         if any(deficit > _DESCENDER_GAP_TOLERANCE for deficit in deficits):
-            grown = _grow_spacings(current_spacings, deficits, available_height, height_at)
+            # Measured, not deficit-derived: the ink distance widens
+            # sub-linearly with the spacing, so growing by the deficit
+            # under-shoots and the fixpoint stalls (see _solve_gap_growth).
+            growths = [
+                _solve_gap_growth(
+                    boxes_after[gap_index],
+                    boxes_after[gap_index + 1],
+                    baselines_after[gap_index],
+                    _gap_required(label, line_indices, gap_index),
+                    deficit,
+                )
+                if deficit > _DESCENDER_GAP_TOLERANCE
+                else 0.0
+                for gap_index, deficit in enumerate(deficits)
+            ]
+            grown = _grow_spacings(current_spacings, growths, available_height, height_at)
             if grown != current_spacings:
                 current_spacings = grown
                 grew = True
@@ -2485,20 +2786,47 @@ def _apply_descender_relief(
             _line_cutter(label, line_indices[gap_index + 1]),
             label.descending_character_clearance,
         )
-        pairs = measure_pairs(stacked_boxes[gap_index], stacked_boxes[gap_index + 1], required)
-        residual.append(worst_deficit(pairs))
-        # gap_after: the relieved glyph's tightest gap against the line below,
-        # measured directly (a fully relieved glyph no longer descends, so
-        # ``measure_pairs``' descending filter would drop it).
-        lower_boxes = stacked_boxes[gap_index + 1]
-        for box in stacked_boxes[gap_index]:
-            gaps = [
-                gap
-                for gap in (aabb_vertical_gap(box.bounds, other.bounds) for other in lower_boxes)
-                if math.isfinite(gap)
-            ]
-            if gaps:
-                gap_after[(gap_index, box.glyph_index)] = min(gaps)
+        # (a) The trigger metric on the final geometry: every descending
+        # glyph's sub-baseline ink against the complete ink of the line below.
+        # This is the gate: a relief that shrinks and raises a descender can
+        # land the raised part on the line below (an ``i`` dot pushed into the
+        # crook of a ``g``), and that collision must grow the spacing or abort,
+        # never engrave silently. A fully relieved glyph has no sub-baseline
+        # ink left, so it drops out of the descending filter -- safe by
+        # construction, and reported by (b) below.
+        final_gaps = measure_glyph_gaps(
+            stacked_boxes[gap_index], stacked_boxes[gap_index + 1], required
+        )
+        worst = worst_glyph_deficit(final_gaps)
+        # (b) Reporting only: the tightest final gap of every glyph the relief
+        # moved, measured with its sub-baseline ink (a fully relieved glyph has
+        # none and reports the reporting radius). The grid cell is at least the
+        # required clearance, keeping the measurement exact below it; gaps
+        # beyond the reporting radius report the radius.
+        lower_ink_final: Ink = tuple(
+            polyline for lower in stacked_boxes[gap_index + 1] for polyline in lower.ink
+        )
+        cell = max(required, _GAP_REPORT_RADIUS)
+        final_grid = InkGrid(lower_ink_final, cell) if lower_ink_final and cell > 0.0 else None
+        box_by_glyph = {box.glyph_index: box for box in stacked_boxes[gap_index]}
+        for glyph_index in ramps.get(gap_index, {}):
+            box = box_by_glyph.get(glyph_index)
+            if box is None:
+                continue
+            if not box.sub_baseline_ink:
+                gap_after[(gap_index, glyph_index)] = cell
+                continue
+            if final_grid is not None:
+                nearest = final_grid.min_gap(box.sub_baseline_ink)
+            elif lower_ink_final:
+                nearest = ink_gap(box.sub_baseline_ink, lower_ink_final)
+            else:
+                nearest = math.inf
+            # The grid reports ``inf`` beyond its cell (the reporting radius):
+            # clamp to the radius so the report reads "at least this far",
+            # never "infinitely far".
+            gap_after[(gap_index, glyph_index)] = min(nearest, cell)
+        residual.append(worst)
 
     fixes: List[DescenderFix] = []
     for gap_index in sorted(ramps):
