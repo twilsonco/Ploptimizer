@@ -3,6 +3,7 @@
 - [ ] Create the ability to use small caps font, rendered on-the-fly from the original font, i.e. where a "capital" letter is just the original capital letter from the PLT font, and "lowercase" letters are downscaled capital letters.
   - Each font will have the name `<base font name> SC` (case insensitive) 
   - Should work with PLT and TTF fonts
+  - Does not affect the nominal text height (ie no cutter change shall occur).
   - This will include the creation of a new float field `sc_scale` — cascading job -> plate -> label -> line, and in job-config.json with default 0.7 — that determines the scaling applied to PLT uppercase letters in order to produce "lowercase" letters
   - When a sc font is used, the text will be mixed case, e.g. "My Aunt Sally says, 'Hello.'" and the lowercase characters will be replaced with their scaled uppercase counterparts.
 - [ ] Multi-stroke font support
