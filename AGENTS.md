@@ -1353,24 +1353,45 @@ already knows each toolpath's kind, the `Profiler` is skipped entirely.
   `glyph_groups_by_block`) runs `sweep_glyph_directions` per chunk **after**
   the inter-chunk routing is final: with the chronological glyph order fixed
   and the chunk entrance/exit pinned (the group owning the first traced path
-  enters forward, the one owning the last exits forward), the optimal
-  per-glyph forward/reversed assignment is a shortest path through a 2-state
-  chain, solved exactly by DP in O(glyphs); ties resolve to forward and the
+  must start at the chronological entry, the one owning the last must end at
+  the chronological exit — `_PIN_TOLERANCE`), the optimal per-glyph traversal
+  is a shortest path through a chain whose nodes are that glyph's feasible
+  traversals, solved exactly by DP; ties resolve to chronological and the
   all-forward traversal is always feasible, so the sweep is monotone and the
-  inter-chunk tour (strategy + direction sweep) stays exactly valid. All of a
-  glyph's strokes flip together (stroke order reverses, every segment is
-  traced backwards, arc sweeps negate — the Reassembler's
-  `reassemble(..., intra_chunk_results=)` applies it; `None` entries keep the
-  chronological order, and block-level reversal composes by flipping both the
-  sequence and every direction). Parsed PLTs (optimize/watch) carry no glyph
-  knowledge, so the parsed path stays byte-identical. Fires on generated text:
-  the seer intrachunk TTF spec drops emitted rapid travel 13% (16 glyph
-  flips); polyline cutting is bit-exact, arc-native fonts re-approximate
-  reversed arcs (the direction sweep's pre-existing trade-off, ~0.003" here).
-  On improvement it logs INFO (intra + emitted rapid travel), appends
-  `intra_sweep=before->after (N flips)` to `method_notes`, populates the
-  `OptimizationOutcome.intra_sweep_*` fields (all-or-nothing: set only when
-  `flips>0`), and `vectorize._report` adds the `intra sweep` clause.
+  inter-chunk tour (strategy + direction sweep) stays exactly valid.
+  - **Per-stroke direction (`_group_modes`)**: a glyph's mode set is the union
+    of the historical all-or-nothing pair (stored stroke order traced forwards
+    / reversed order traced backwards) and **every per-stroke direction
+    assignment on both stroke orders**, so a glyph can reverse just the strokes
+    that want reversing (the TODO's "reversing some strokes"). The historical
+    pair is a subset, so the optimum can only improve. Traversals are
+    deduplicated by endpoint pair (entry/exit depend only on the first/last
+    stroke and its direction, so 16 traversals of a 3-stroke glyph collapse to
+    8) keeping the cheapest per pair; enumeration is capped at
+    `MAX_EXACT_STROKE_MODES` = 10 strokes (the shipped font library peaks at 8,
+    99% of glyphs at ≤3), above which the sweep falls back to the two-mode
+    pair — a strict subset, so a pathological glyph is never worse. Reversal
+    itself stays the Reassembler's job (`reassemble(..., intra_chunk_results=)`;
+    `None` entries keep the chronological order, and block-level reversal
+    composes by flipping both the sequence and every direction). Parsed PLTs
+    (optimize/watch) carry no glyph knowledge, so the parsed path stays
+    byte-identical. Fires on generated text: across the seer/wb-uv/intrachunk
+    PLT+TTF/sunwest specs the sweep cuts emitted rapid travel 41.4% vs the
+    pre-per-stroke sweep's 34.8% (**−10.2% emitted**, 289 → 527 flips); cutting
+    geometry is exactly preserved (segment counts identical, arcs stay native).
+    On improvement it logs INFO (intra + emitted rapid travel), appends
+    `intra_sweep=before->after (N flips)` to `method_notes`, populates the
+    `OptimizationOutcome.intra_sweep_*` fields (all-or-nothing: set only when
+    `flips>0`), and `vectorize._report` adds the `intra sweep` clause.
+  - **Order freedom is measured and rejected** (do not re-attempt the
+    "optimize each character, then each word, then order the word chunks"
+    hierarchy): real fonts give 2–3 strokes per glyph, and with the chunk
+    entrance/exit pinned, chronological (reading) order **is** the optimal
+    tour — a glyph/word-order DP gains exactly 0.00%. Freeing the endpoints to
+    chase it is catastrophic: the plate TSP and direction sweep exploit a
+    chunk's entrance/exit sitting at its left/right edges, so landing the
+    entrance mid-word cost +29.7% emitted travel on those specs (+52.8% on
+    sunwest). Direction is the entire intra-chunk win.
 - **Coincident-stroke merge** (`core/path_merger.py`, always on, final stage):
   after reassembly, consecutive paths whose junction is tip-to-tail stitch into
   one continuous cut, so the redundant tool-up between them disappears. The

@@ -12,6 +12,7 @@ from typing import List, Sequence, Tuple
 
 import pytest
 
+from plt_optimizer.core import glyph_sweep
 from plt_optimizer.core.glyph_sweep import DEFAULT_TOL, GlyphSweepResult, sweep_glyph_directions
 from plt_optimizer.core.models import (
     ArcSegment,
@@ -444,6 +445,344 @@ class TestMultiStrokeGlyphs:
         emitted = Reassembler()._apply_intra_chunk_order(tuple(paths), result.result)
 
         assert _intra_travel(emitted) == pytest.approx(result.travel_after)
+
+
+class TestPerStrokeDirection:
+    """A glyph may reverse just the strokes that want reversing.
+
+    The historical sweep flipped a glyph all-or-nothing (stored order traced
+    forwards, or reversed order traced backwards). The mode set is now the
+    union of that pair with every per-stroke direction assignment, so these
+    fixtures are built so the optimum needs a *mixed* traversal that the
+    all-or-nothing pair cannot express.
+    """
+
+    @staticmethod
+    def _mixed_fixture() -> Tuple[List[StrokePath], List[Tuple[int, ...]]]:
+        """A two-stroke glyph whose optimum reverses only its first stroke.
+
+        ``A`` exits at (1.9,10) and ``C`` enters at (3.1,10). The glyph's
+        strokes are two verticals at x=2 and x=3 running y=0 -> y=10, so:
+
+        * all-forward:  (1.9,10) -> (2,0) ~10.0, (2,10) -> (3,0) ~10.05,
+          (3,10) -> (3.1,10) = 0.1          -> ~20.15
+        * all-reversed: (1.9,10) -> (3,10) = 1.1, (3,0) -> (2,10) ~10.05,
+          (2,0) -> (3.1,10) ~10.06          -> ~21.21
+        * reverse only the first stroke: (1.9,10) -> (2,10) = 0.1,
+          (2,0) -> (3,0) = 1.0, (3,10) -> (3.1,10) = 0.1 -> 1.2
+
+        The third traversal is not in the all-or-nothing pair.
+        """
+        paths = [
+            _stroke((0.0, 10.0), (1.9, 10.0)),
+            _stroke((2.0, 0.0), (2.0, 10.0)),
+            _stroke((3.0, 0.0), (3.0, 10.0)),
+            _stroke((3.1, 10.0), (4.0, 10.0)),
+        ]
+        return paths, [(0,), (1, 2), (3,)]
+
+    def test_reverses_only_the_stroke_that_wants_reversing(self) -> None:
+        """The mixed traversal wins and only stroke 1 comes out reversed."""
+        paths, groups = self._mixed_fixture()
+
+        result = sweep_glyph_directions(paths, groups)
+
+        assert [(s.path_index, s.reversed) for s in result.result.traverse_order] == [
+            (0, False),
+            (1, True),
+            (2, False),
+            (3, False),
+        ]
+        assert result.travel_before == pytest.approx(
+            10.0005 + math.hypot(1.0, 10.0) + 0.1, abs=1e-3
+        )
+        assert result.travel_after == pytest.approx(1.2)
+        assert result.groups == 3
+        assert result.flips == 1
+
+    def test_beats_the_all_or_nothing_pair(self) -> None:
+        """The optimum is strictly better than either all-or-nothing traversal."""
+        paths, groups = self._mixed_fixture()
+
+        result = sweep_glyph_directions(paths, groups)
+
+        all_forward = _gap(paths[0], False, paths[1], False) + _gap(
+            paths[1], False, paths[2], False
+        ) + _gap(paths[2], False, paths[3], False)
+        all_reversed = _gap(paths[0], False, paths[2], True) + _gap(
+            paths[2], True, paths[1], True
+        ) + _gap(paths[1], True, paths[3], False)
+        assert result.travel_after < min(all_forward, all_reversed) - DEFAULT_TOL
+
+    def test_mixed_mode_endpoints_stay_pinned(self) -> None:
+        """A re-traced middle glyph never moves the chunk's entrance/exit."""
+        paths, groups = self._mixed_fixture()
+
+        states = sweep_glyph_directions(paths, groups).result.traverse_order
+
+        assert states[0].entrance == paths[0].segments[0].start
+        assert states[-1].exit == paths[-1].segments[-1].end
+
+    def test_reported_travel_matches_the_emission(self) -> None:
+        """The objective is what the reassembler actually emits."""
+        paths, groups = self._mixed_fixture()
+
+        result = sweep_glyph_directions(paths, groups)
+        emitted = Reassembler()._apply_intra_chunk_order(tuple(paths), result.result)
+
+        assert _intra_travel(emitted) == pytest.approx(result.travel_after)
+
+    def test_flips_count_mixed_and_whole_glyph_retracing(self) -> None:
+        """A mixed glyph counts as one flip, not one per reversed stroke."""
+        paths, groups = self._mixed_fixture()
+
+        assert sweep_glyph_directions(paths, groups).flips == 1
+
+    def test_single_stroke_glyphs_keep_the_two_mode_behaviour(self) -> None:
+        """A one-stroke glyph has exactly the historical forward/reversed pair."""
+        paths, groups = _flip_fixture()
+
+        modes = glyph_sweep._group_modes(groups[1], paths)
+
+        assert len(modes) == 2
+        assert sorted(mode.all_forward for mode in modes) == [False, True]
+
+    def test_mode_set_is_deduplicated_by_endpoint_pair(self) -> None:
+        """Traversals sharing an endpoint pair collapse to the cheapest one.
+
+        Entry/exit depend only on the first/last stroke and its direction, so
+        a three-stroke glyph has at most 16 traversals but far fewer distinct
+        endpoint pairs.
+        """
+        paths = [
+            _stroke((0.0, 0.0), (1.0, 0.0)),
+            _stroke((2.0, 0.0), (2.0, 1.0)),
+            _stroke((3.0, 0.0), (3.0, 1.0)),
+            _stroke((4.0, 0.0), (4.0, 1.0)),
+            _stroke((5.0, 0.0), (6.0, 0.0)),
+        ]
+
+        modes = glyph_sweep._group_modes((1, 2, 3), paths)
+
+        keys = [glyph_sweep._mode_key(mode) for mode in modes]
+        assert len(keys) == len(set(keys))
+        # 2 stroke orders x 2^3 directions = 16 traversals, 16 endpoint pairs
+        # here (every stroke has distinct endpoints), and the all-forward
+        # traversal is among them.
+        assert len(modes) == 16
+        assert any(mode.all_forward for mode in modes)
+
+    def test_oversized_glyph_falls_back_to_the_all_or_nothing_pair(self) -> None:
+        """Past the enumeration cap the sweep keeps the historical two modes.
+
+        The fallback set is a strict subset of the enumerated one, so a
+        pathological glyph can never be worse than the shipped behaviour.
+        """
+        glyph = tuple(range(1, glyph_sweep.MAX_EXACT_STROKE_MODES + 3))
+        paths = [_stroke((0.0, 0.0), (1.0, 0.0))] + [
+            _stroke((float(i), 0.0), (float(i), 1.0)) for i in glyph
+        ] + [_stroke((50.0, 0.0), (51.0, 0.0))]
+
+        modes = glyph_sweep._group_modes(glyph, paths)
+
+        assert len(modes) == 2
+        assert sorted(mode.all_forward for mode in modes) == [False, True]
+
+    def test_oversized_glyph_still_sweeps_monotonically(self) -> None:
+        """The fallback path sweeps and never increases intra-chunk travel."""
+        glyph = tuple(range(1, glyph_sweep.MAX_EXACT_STROKE_MODES + 3))
+        paths = [_stroke((0.0, 1.0), (1.0, 1.0))] + [
+            _stroke((float(i), 0.0), (float(i), 1.0)) for i in glyph
+        ] + [_stroke((0.5, 1.0), (1.5, 1.0))]
+        groups = [(0,), glyph, (len(paths) - 1,)]
+
+        result = sweep_glyph_directions(paths, groups)
+
+        assert result.travel_after <= result.travel_before + DEFAULT_TOL
+
+
+class TestPerStrokeDirection:
+    """A glyph may reverse just the strokes that want reversing.
+
+    The historical sweep flipped a glyph all-or-nothing (stored order traced
+    forwards, or reversed order traced backwards). The mode set is now the
+    union of that pair with every per-stroke direction assignment, so these
+    fixtures are built so the optimum needs a *mixed* traversal that the
+    all-or-nothing pair cannot express.
+    """
+
+    @staticmethod
+    def _mixed_fixture() -> Tuple[List[StrokePath], List[Tuple[int, ...]]]:
+        """A two-stroke glyph whose optimum reverses only its first stroke.
+
+        ``A`` exits at (1.9,10) and ``C`` enters at (3.1,10). The glyph's two
+        strokes are verticals at x=2 and x=3 running y=0 -> y=10:
+
+        * all-forward:  (1.9,10) -> (2,0) ~10.0, (2,10) -> (3,0) ~10.05,
+          (3,10) -> (3.1,10) = 0.1  -> ~20.15
+        * all-reversed: (1.9,10) -> (3,10) = 1.1, (3,0) -> (2,10) ~10.05,
+          (2,0) -> (3.1,10) ~10.06  -> ~21.21
+        * reverse ONLY the first stroke: (1.9,10) -> (2,10) = 0.1,
+          (2,0) -> (3,0) = 1.0, (3,10) -> (3.1,10) = 0.1  -> 1.2
+
+        The third traversal is not in the all-or-nothing pair.
+        """
+        paths = [
+            _stroke((0.0, 10.0), (1.9, 10.0)),
+            _stroke((2.0, 0.0), (2.0, 10.0)),
+            _stroke((3.0, 0.0), (3.0, 10.0)),
+            _stroke((3.1, 10.0), (4.0, 10.0)),
+        ]
+        return paths, [(0,), (1, 2), (3,)]
+
+    def test_reverses_only_the_stroke_that_wants_reversing(self) -> None:
+        """The mixed traversal wins and only the glyph's first stroke flips."""
+        paths, groups = self._mixed_fixture()
+
+        result = sweep_glyph_directions(paths, groups)
+
+        assert [(s.path_index, s.reversed) for s in result.result.traverse_order] == [
+            (0, False),
+            (1, True),
+            (2, False),
+            (3, False),
+        ]
+        assert result.travel_after == pytest.approx(1.2)
+        assert result.groups == 3
+        assert result.flips == 1
+
+    def test_beats_the_all_or_nothing_pair(self) -> None:
+        """The optimum is strictly better than either all-or-nothing traversal."""
+        paths, groups = self._mixed_fixture()
+
+        result = sweep_glyph_directions(paths, groups)
+
+        all_forward = (
+            _gap(paths[0], False, paths[1], False)
+            + _gap(paths[1], False, paths[2], False)
+            + _gap(paths[2], False, paths[3], False)
+        )
+        all_reversed = (
+            _gap(paths[0], False, paths[2], True)
+            + _gap(paths[2], True, paths[1], True)
+            + _gap(paths[1], True, paths[3], False)
+        )
+        assert result.travel_after < min(all_forward, all_reversed) - DEFAULT_TOL
+
+    def test_mixed_mode_endpoints_stay_pinned(self) -> None:
+        """A re-traced middle glyph never moves the chunk's entrance/exit."""
+        paths, groups = self._mixed_fixture()
+
+        states = sweep_glyph_directions(paths, groups).result.traverse_order
+
+        assert states[0].entrance == paths[0].segments[0].start
+        assert states[-1].exit == paths[-1].segments[-1].end
+
+    def test_reported_travel_matches_the_emission(self) -> None:
+        """The objective is what the reassembler actually emits."""
+        paths, groups = self._mixed_fixture()
+
+        result = sweep_glyph_directions(paths, groups)
+        emitted = Reassembler()._apply_intra_chunk_order(tuple(paths), result.result)
+
+        assert _intra_travel(emitted) == pytest.approx(result.travel_after)
+
+    def test_flips_count_the_glyph_not_its_strokes(self) -> None:
+        """A mixed glyph counts as one flip, not one per reversed stroke."""
+        paths, groups = self._mixed_fixture()
+
+        assert sweep_glyph_directions(paths, groups).flips == 1
+
+    def test_single_stroke_glyph_keeps_the_two_mode_behaviour(self) -> None:
+        """A one-stroke glyph has exactly the historical forward/reversed pair."""
+        paths, groups = _flip_fixture()
+
+        modes = glyph_sweep._group_modes(groups[1], paths)
+
+        assert len(modes) == 2
+        assert sorted(mode.all_forward for mode in modes) == [False, True]
+
+    def test_mode_set_is_deduplicated_by_endpoint_pair(self) -> None:
+        """Traversals sharing an endpoint pair collapse to the cheapest one."""
+        paths = [
+            _stroke((0.0, 0.0), (1.0, 0.0)),
+            _stroke((2.0, 0.0), (2.0, 1.0)),
+            _stroke((3.0, 0.0), (3.0, 1.0)),
+            _stroke((4.0, 0.0), (4.0, 1.0)),
+            _stroke((5.0, 0.0), (6.0, 0.0)),
+        ]
+
+        modes = glyph_sweep._group_modes((1, 2, 3), paths)
+
+        keys = [glyph_sweep._mode_key(mode) for mode in modes]
+        assert len(keys) == len(set(keys))
+        # 2 stroke orders x 2^3 directions = 16 traversals, but entry/exit
+        # depend only on the first/last stroke and its direction: entering at
+        # x=2 forces the stored order (exit at x=4) and entering at x=4 forces
+        # the reversed order (exit at x=2), so 2 x 2 + 2 x 2 = 8 endpoint
+        # pairs survive.
+        assert len(modes) == 8
+        # The chronological traversal's endpoint pair always survives
+        # deduplication (possibly carried by a cheaper same-endpoint mode),
+        # which is what keeps the sweep monotone.
+        chronological_key = glyph_sweep._mode_key(
+            glyph_sweep._traversal((1, 2, 3), (1, 2, 3), (False, False, False), paths)
+        )
+        assert chronological_key in keys
+
+    def test_deduplication_keeps_the_cheapest_same_endpoint_traversal(self) -> None:
+        """A traversal dominated on endpoints and cost is dropped.
+
+        Entering at x=2 and leaving at x=4 admits two traversals of the middle
+        stroke; the one reversing it costs 1.0 against the all-forward 20.1, so
+        the all-forward mode is not reported for that endpoint pair. The
+        sweep stays monotone because the surviving mode is cheaper and shares
+        the endpoints.
+        """
+        paths = [
+            _stroke((0.0, 0.0), (1.0, 0.0)),
+            _stroke((2.0, 0.0), (2.0, 1.0)),
+            _stroke((3.0, 0.0), (3.0, 1.0)),
+            _stroke((4.0, 0.0), (4.0, 1.0)),
+            _stroke((5.0, 0.0), (6.0, 0.0)),
+        ]
+        all_forward = glyph_sweep._traversal((1, 2, 3), (1, 2, 3), (False,) * 3, paths)
+
+        modes = glyph_sweep._group_modes((1, 2, 3), paths)
+        survivor = next(m for m in modes if glyph_sweep._mode_key(m) == glyph_sweep._mode_key(all_forward))
+
+        assert survivor is not all_forward
+        assert survivor.intra < all_forward.intra
+        assert not survivor.all_forward
+
+    def test_oversized_glyph_falls_back_to_the_all_or_nothing_pair(self) -> None:
+        """Past the enumeration cap the sweep keeps the historical two modes.
+
+        The fallback set is a strict subset of the enumerated one, so a
+        pathological glyph can never be worse than the shipped behaviour.
+        """
+        glyph = tuple(range(1, glyph_sweep.MAX_EXACT_STROKE_MODES + 3))
+        paths = [_stroke((0.0, 0.0), (1.0, 0.0))] + [
+            _stroke((float(i), 0.0), (float(i), 1.0)) for i in glyph
+        ]
+
+        modes = glyph_sweep._group_modes(glyph, paths)
+
+        assert len(modes) == 2
+        assert sorted(mode.all_forward for mode in modes) == [False, True]
+
+    def test_oversized_glyph_still_sweeps_monotonically(self) -> None:
+        """The fallback path sweeps and never increases intra-chunk travel."""
+        glyph = tuple(range(1, glyph_sweep.MAX_EXACT_STROKE_MODES + 3))
+        paths = [_stroke((0.0, 1.0), (1.0, 1.0))] + [
+            _stroke((float(i), 0.0), (float(i), 1.0)) for i in glyph
+        ] + [_stroke((0.5, 1.0), (1.5, 1.0))]
+        groups = [(0,), glyph, (len(paths) - 1,)]
+
+        result = sweep_glyph_directions(paths, groups)
+
+        assert result.travel_after <= result.travel_before + DEFAULT_TOL
+        assert result.result.traverse_order[0].entrance == paths[0].segments[0].start
 
 
 class TestArcSafety:

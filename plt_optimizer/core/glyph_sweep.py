@@ -17,15 +17,16 @@ glyph's strokes contiguously and carry the partition out on
 * keep the chunk's entrance and exit fixed (so the inter-chunk tour and the
   direction sweep stay exactly valid, and the emitted rapid travel can never
   increase), and
-* pick, per glyph, forward or reversed tracing -- all of a glyph's strokes
-  flip together (stroke order reverses and every segment is traced backwards,
-  arcs included).
+* pick, per glyph, how its strokes are traced -- the historical all-or-nothing
+  pair (all strokes forwards in stored order, or all backwards in reversed
+  order) *plus* every per-stroke direction assignment, so a glyph can reverse
+  just the strokes that want reversing.
 
 With the order fixed and the endpoints pinned, the problem is a shortest path
-through a 2-state chain (glyph *k* traversed forward / reversed), solved
-exactly by dynamic programming in O(glyphs) time. The all-forward traversal is
-always feasible, so the sweep is monotone by construction: it is accepted only
-on a strict improvement.
+through a chain whose nodes are a glyph's feasible traversals (a handful after
+endpoint deduplication), solved exactly by dynamic programming. The
+all-forward traversal is always feasible, so the sweep is monotone by
+construction: it is accepted only on a strict improvement.
 
 Reversal itself is not implemented here: the sweep emits an
 :class:`~plt_optimizer.core.intra_chunk_optimizer.IntraChunkResult` of
@@ -42,7 +43,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Set, Tuple
+from typing import Dict, List, NamedTuple, Optional, Sequence, Set, Tuple
 
 from plt_optimizer.core.intra_chunk_optimizer import (
     IntraChunkResult,
@@ -55,9 +56,18 @@ from plt_optimizer.core.models import Coordinate, StrokePath
 # for nothing (and cannot loop -- the DP runs once).
 DEFAULT_TOL: float = 1e-9
 
-# The two traversal directions of one glyph group.
-_FORWARD: int = 0
-_REVERSED: int = 1
+# Largest glyph (in strokes) whose per-stroke direction assignments are
+# enumerated exhaustively. The shipped font library peaks at 8 strokes
+# (``Jhanuni`` ``#``) with 99% of glyphs at 3 or fewer, so this covers every
+# real glyph; above it the sweep falls back to the historical all-or-nothing
+# pair, which is a strict subset of the enumerated set (never worse).
+MAX_EXACT_STROKE_MODES: int = 10
+
+# Tolerance for "this mode starts/ends exactly where the chronological
+# emission does", i.e. the endpoint-pinning test. Plotter coordinates are
+# integer device units (~1e-3 in), so a tenth of a plotter unit is far below
+# any real movement and far above float noise on the distances involved.
+_PIN_TOLERANCE: float = 1e-4
 
 
 @dataclass(frozen=True)
@@ -74,7 +84,9 @@ class GlyphSweepResult:
         travel_after: Intra-chunk rapid travel of ``result``. Always
             ``<= travel_before``.
         groups: Number of glyph groups considered.
-        flips: Glyph groups assigned a reversed traversal.
+        flips: Glyph groups re-traced away from the chronological
+            (all-forward) traversal -- a whole-glyph reversal, one or more
+            reversed strokes, or both.
     """
 
     result: IntraChunkResult
@@ -144,36 +156,126 @@ def _intra_travel(sequence: Sequence[Tuple[int, bool]], paths: Sequence[StrokePa
     return total
 
 
-def _group_endpoints(
+class _GroupMode(NamedTuple):
+    """One feasible traversal of a glyph group.
+
+    Attributes:
+        entry: Coordinate the traversal starts at.
+        exit: Coordinate the traversal ends at.
+        intra: Rapid travel *between* the group's own strokes.
+        sequence: ``(path_index, is_reversed)`` pairs in emission order.
+        all_forward: ``True`` for the chronological traversal (stored stroke
+            order, every stroke traced forwards) -- the mode the sweep does
+            not count as a change.
+    """
+
+    entry: Coordinate
+    exit: Coordinate
+    intra: float
+    sequence: Tuple[Tuple[int, bool], ...]
+    all_forward: bool
+
+
+def _mode_key(mode: _GroupMode) -> Tuple[float, float, float, float]:
+    """Endpoint-pair identity of a mode, for deduplication.
+
+    Coordinates are quantised to nanometres so traversals that end at the
+    same pair (within float noise) collapse to one DP transition.
+
+    Args:
+        mode: The traversal to key.
+
+    Returns:
+        ``(entry_x, entry_y, exit_x, exit_y)`` quantised to 1e-9.
+    """
+    return (
+        round(mode.entry.x, 9),
+        round(mode.entry.y, 9),
+        round(mode.exit.x, 9),
+        round(mode.exit.y, 9),
+    )
+
+
+def _traversal(
+    chronological: Sequence[int],
+    order: Sequence[int],
+    directions: Sequence[bool],
+    paths: Sequence[StrokePath],
+) -> _GroupMode:
+    """Measure one traversal of a group's strokes in a given order/direction.
+
+    Args:
+        chronological: The group's path indices in chronological order.
+        order: Path indices in emission order.
+        directions: Per-stroke ``is_reversed`` flags, aligned with ``order``.
+        paths: The block's paths.
+
+    Returns:
+        The measured :class:`_GroupMode`.
+    """
+    sequence = tuple(zip(order, directions))
+    intra = 0.0
+    for (prev_index, prev_rev), (next_index, next_rev) in zip(sequence, sequence[1:]):
+        intra += _dist(_exit(paths[prev_index], prev_rev), _entry(paths[next_index], next_rev))
+    first_index, first_rev = sequence[0]
+    last_index, last_rev = sequence[-1]
+    return _GroupMode(
+        entry=_entry(paths[first_index], first_rev),
+        exit=_exit(paths[last_index], last_rev),
+        intra=intra,
+        sequence=sequence,
+        all_forward=list(order) == list(chronological) and not any(directions),
+    )
+
+
+def _group_modes(
     group: Sequence[int],
     paths: Sequence[StrokePath],
-) -> Tuple[Coordinate, Coordinate, float, float]:
-    """Measure one glyph group's endpoints and internal travel both ways.
+) -> List[_GroupMode]:
+    """Enumerate a glyph group's feasible traversals, cheapest per endpoint pair.
 
-    A glyph's strokes are traced in stored order forward, or in reversed
-    order backwards. The internal (intra-glyph) rapid travel of the two
-    traversals is measured explicitly rather than assumed equal, so the
-    reversal invariance is verified on the data.
+    The feasible set is the union of the historical all-or-nothing pair
+    (stored stroke order traced forwards / reversed stroke order traced
+    backwards) and every per-stroke direction assignment on both stroke
+    orders. The shipped sweep's two traversals are members of that set, so
+    the sweep's optimum stays feasible and the result can only be better.
+
+    Entry and exit depend only on the first/last stroke and its direction, so
+    the set collapses hard after deduplication; the enumeration itself is
+    ``O(k * 2^k)`` and is capped at :data:`MAX_EXACT_STROKE_MODES` strokes,
+    above which the module falls back to the historical two-mode set (a strict
+    subset, so the sweep stays monotone).
 
     Args:
         group: The group's path indices, in chronological order.
         paths: The block's paths.
 
     Returns:
-        ``(forward_entry, forward_exit, intra_forward, intra_reversed)``.
+        The deduplicated modes, cheapest internal travel first.
     """
-    forward_entry = _entry(paths[group[0]], False)
-    forward_exit = _exit(paths[group[-1]], False)
+    indices = tuple(group)
+    size = len(indices)
+    if size > MAX_EXACT_STROKE_MODES:
+        # Pathological glyph (no shipped font reaches this): keep the
+        # historical all-or-nothing pair.
+        candidates = [
+            _traversal(indices, indices, (False,) * size, paths),
+            _traversal(indices, tuple(reversed(indices)), (True,) * size, paths),
+        ]
+    else:
+        candidates = []
+        for order in (indices, tuple(reversed(indices))):
+            for mask in range(1 << size):
+                directions = tuple(bool(mask >> bit & 1) for bit in range(size))
+                candidates.append(_traversal(indices, order, directions, paths))
 
-    intra_forward = 0.0
-    intra_reversed = 0.0
-    for left, right in zip(group, group[1:]):
-        # Forward: ...left's end -> right's start...
-        intra_forward += _dist(_exit(paths[left], False), _entry(paths[right], False))
-        # Reversed emission visits `right` before `left`, both backwards:
-        # ...right's start -> left's end...
-        intra_reversed += _dist(_entry(paths[right], False), _exit(paths[left], False))
-    return forward_entry, forward_exit, intra_forward, intra_reversed
+    best: Dict[Tuple[float, float, float, float], _GroupMode] = {}
+    for mode in candidates:
+        key = _mode_key(mode)
+        current = best.get(key)
+        if current is None or mode.intra < current.intra:
+            best[key] = mode
+    return sorted(best.values(), key=lambda mode: mode.intra)
 
 
 def _forward_chain(
@@ -222,22 +324,25 @@ def sweep_glyph_directions(
     *,
     tol: float = DEFAULT_TOL,
 ) -> GlyphSweepResult:
-    """Pick each glyph's tracing direction to minimise intra-chunk travel.
+    """Pick each glyph's stroke tracing directions to minimise intra-chunk travel.
 
     The glyph order (and therefore the reading order of the engraved text)
     is fixed, as are the chunk's entrance and exit: the group owning the
-    block's first path can only be entered forward and the group owning the
-    last path can only be exited forward, so the inter-chunk tour and the
-    post-TSP direction sweep stay exactly valid. Within those constraints the
-    optimal per-glyph direction set is found exactly by dynamic programming
-    over the 2-state chain; ties resolve to forward.
+    block's first path can only be entered at the chronological entry and the
+    group owning the last path can only be left at the chronological exit, so
+    the inter-chunk tour and the post-TSP direction sweep stay exactly valid.
+    Within those constraints each glyph is traversed in one of the modes
+    enumerated by :func:`_group_modes` -- the historical all-or-nothing pair
+    plus every per-stroke direction assignment -- and the optimal mode per
+    glyph is found exactly by dynamic programming over the group chain. Ties
+    resolve to the chronological (all-forward) mode.
 
     Args:
         paths: The chunk's paths, in chronological (emission) order.
         glyph_groups: Path indices per glyph, in text order. Groups are
             expected disjoint and contiguous; anything not covered by a group
             keeps its chronological slot and forward direction.
-        tol: Minimum strict improvement required to accept a reversal.
+        tol: Minimum strict improvement required to accept a re-tracing.
 
     Returns:
         A :class:`GlyphSweepResult`. ``flips == 0`` (with an all-forward
@@ -279,7 +384,26 @@ def sweep_glyph_directions(
     if valid_groups[0][0] != live[0] or valid_groups[-1][-1] != live[-1]:
         return _no_op(len(valid_groups))
 
-    endpoints = [_group_endpoints(group, paths) for group in valid_groups]
+    # Every feasible traversal per group, filtered so the chunk's entrance and
+    # exit stay exactly where the chronological emission puts them (the
+    # inter-chunk tour and the direction sweep are pinned to them).
+    pinned_entry = _entry(paths[live[0]], False)
+    pinned_exit = _exit(paths[live[-1]], False)
+    modes_by_group: List[List[_GroupMode]] = []
+    for group in valid_groups:
+        modes = _group_modes(group, paths)
+        owns_first = group[0] == live[0]
+        owns_last = group[-1] == live[-1]
+        kept = [
+            mode
+            for mode in modes
+            if (not owns_first or _dist(mode.entry, pinned_entry) <= _PIN_TOLERANCE)
+            and (not owns_last or _dist(mode.exit, pinned_exit) <= _PIN_TOLERANCE)
+        ]
+        if not kept:  # pragma: no cover - the all-forward mode always qualifies
+            return _no_op(len(valid_groups))
+        modes_by_group.append(kept)
+
     # Fixed forward chains of ungrouped paths, between the groups.
     chains: List[Tuple[float, Optional[Coordinate], Optional[Coordinate]]] = []
     for left, right in zip(valid_groups, valid_groups[1:]):
@@ -288,80 +412,69 @@ def sweep_glyph_directions(
 
     baseline = _intra_travel(_chronological_order(live), paths)
 
-    group_count = len(valid_groups)
-    # dp[dir] = best intra travel up to and including the current group,
-    # the group traversed in `dir`. parent[dir] records the previous dir.
-    dp: List[float] = [math.inf, math.inf]
-    parent: List[List[Optional[int]]] = [[None, None] for _ in range(group_count)]
-    # The first group owns path 0, so it is entered forward (the block's
-    # entrance is pinned); only its exit side is free.
-    _first_entry, _first_exit, intra_fwd_first, _intra_rev_first = endpoints[0]
-    dp[_FORWARD] = intra_fwd_first
-    dp[_REVERSED] = math.inf
+    # Chain DP: dp[i] = best intra travel up to and including the current
+    # group, traversed in mode i. parent[i] records the previous mode index.
+    dp: List[float] = [mode.intra for mode in modes_by_group[0]]
+    parents: List[List[Optional[int]]] = [[None] * len(modes) for modes in modes_by_group]
 
-    for k in range(1, group_count):
-        entry, exit_, intra_fwd, intra_rev = endpoints[k]
+    for k in range(1, len(modes_by_group)):
         chain_travel, chain_entry, chain_exit = chains[k - 1]
-        pinned_last = valid_groups[k][-1] == live[-1]
-        next_dp: List[float] = [math.inf, math.inf]
-        for direction in (_FORWARD, _REVERSED):
-            if direction == _REVERSED and pinned_last:
-                continue
-            use_entry = entry if direction == _FORWARD else exit_
-            intra = intra_fwd if direction == _FORWARD else intra_rev
+        previous = modes_by_group[k - 1]
+        next_dp: List[float] = []
+        for mode_index, mode in enumerate(modes_by_group[k]):
             best = math.inf
             best_prev: Optional[int] = None
-            for prev_direction in (_FORWARD, _REVERSED):
-                if dp[prev_direction] == math.inf:
+            for prev_index, prev_mode in enumerate(previous):
+                prev_cost = dp[prev_index]
+                if prev_cost == math.inf:  # pragma: no cover - modes are finite
                     continue
-                prev_exit = (
-                    endpoints[k - 1][1] if prev_direction == _FORWARD else endpoints[k - 1][0]
-                )
-                if chain_exit is not None and chain_entry is not None:
+                if chain_entry is not None and chain_exit is not None:
                     gap = (
-                        _dist(prev_exit, chain_entry) + chain_travel + _dist(chain_exit, use_entry)
+                        _dist(prev_mode.exit, chain_entry)
+                        + chain_travel
+                        + _dist(chain_exit, mode.entry)
                     )
                 else:
-                    gap = _dist(prev_exit, use_entry)
-                cost = dp[prev_direction] + gap + intra
+                    gap = _dist(prev_mode.exit, mode.entry)
+                cost = prev_cost + gap + mode.intra
                 if cost < best:
                     best = cost
-                    best_prev = prev_direction
-            next_dp[direction] = best
-            parent[k][direction] = best_prev
+                    best_prev = prev_index
+            next_dp.append(best)
+            parents[k][mode_index] = best_prev
         dp = next_dp
 
-    best_direction = _FORWARD if dp[_FORWARD] <= dp[_REVERSED] else _REVERSED
-    best_travel = dp[best_direction]
+    best_index = min(range(len(dp)), key=lambda index: dp[index])
+    best_travel = dp[best_index]
     if not (best_travel < baseline - tol):
-        return _no_op(group_count)
+        return _no_op(len(valid_groups))
 
-    # Backtrack the winning direction per group.
-    chosen: List[int] = [best_direction]
-    direction = best_direction
-    for k in range(group_count - 1, 0, -1):
-        direction = parent[k][direction]  # type: ignore[assignment]
-        chosen.append(direction)
-    chosen.reverse()
+    # Backtrack the winning mode per group (walk the chain backwards, then
+    # restore group order).
+    reversed_chosen: List[_GroupMode] = []
+    cursor: Optional[int] = best_index
+    for k in range(len(modes_by_group) - 1, -1, -1):
+        assert cursor is not None  # noqa: S101 - the chain is fully connected
+        reversed_chosen.append(modes_by_group[k][cursor])
+        cursor = parents[k][cursor]
+    chosen = list(reversed(reversed_chosen))
 
     sequence: List[Tuple[int, bool]] = []
     for k, group in enumerate(valid_groups):
-        reversed_group = chosen[k] == _REVERSED
-        for index in reversed(group) if reversed_group else group:
-            sequence.append((index, reversed_group))
-        if k + 1 < group_count:
+        sequence.extend(chosen[k].sequence)
+        if k + 1 < len(valid_groups):
             # Ungrouped paths sitting between this group and the next keep
             # their chronological slot, traced forward.
-            for index in ungrouped:
-                if group[-1] < index < valid_groups[k + 1][0]:
-                    sequence.append((index, False))
+            for index_value in ungrouped:
+                if group[-1] < index_value < valid_groups[k + 1][0]:
+                    sequence.append((index_value, False))
 
-    flips = sum(1 for direction in chosen if direction == _REVERSED)
+    flips = sum(1 for mode in chosen if not mode.all_forward)
     return GlyphSweepResult(
         result=_build_result(sequence, paths, best_travel),
         travel_before=baseline,
         travel_after=best_travel,
-        groups=group_count,
+        groups=len(valid_groups),
         flips=flips,
     )
 

@@ -108,7 +108,9 @@ class OptimizationOutcome:
             :attr:`optimized_doc` including the glyph sweep, or ``None``
             when the sweep did not improve.
         intra_sweep_groups: Glyph groups considered by the sweep.
-        intra_sweep_flips: Glyph groups re-traced in reverse.
+        intra_sweep_flips: Glyph groups re-traced away from the chronological
+            (all-forward) traversal (whole-glyph reversal and/or per-stroke
+            direction changes).
         merged_paths_before: Segment-bearing paths in the pre-merge emission, or
             ``None`` when the merge was disabled (see ``merge_coincident``).
             When the merge ran and found nothing to do, this equals
