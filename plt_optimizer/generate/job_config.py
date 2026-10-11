@@ -168,6 +168,10 @@ class JobDefaults(BaseModel):
             for descending-character relief, as a unitless factor of the stroke
             floor (required gap = floor * (1 + clearance)). Unset falls back
             to 0.0.
+        descending_character_reciprocal_scale: Default deepest top-down
+            downscale permitted for the colliding glyphs on the following line,
+            in [0.2, 1.0] (1.0 = reciprocal downscaling forbidden). Unset falls
+            back to 0.5.
         tool_options: Engraver tool options (header commands) metadata with
             HPGL command prefixes, types, units, dual defaults, and bounds.
     """
@@ -440,6 +444,20 @@ class JobDefaults(BaseModel):
             "(only true touching triggers). Unset falls back to 0.0."
         ),
     )
+    descending_character_reciprocal_scale: Optional[float] = Field(
+        default=None,
+        ge=0.2,
+        le=1.0,
+        description=(
+            "Default deepest top-down downscale permitted for the "
+            "would-be-colliding glyphs on the following line, in [0.2, 1.0] "
+            "(job layer; 1.0 = reciprocal downscaling forbidden, 0.5 = "
+            "squeezed to half height). The lower glyphs are scaled about their "
+            "own lowest ink point, so their lowest point never moves; they "
+            "share the relief with the descending glyph through the same ramp. "
+            "Unset falls back to 0.5."
+        ),
+    )
     optimize_line_content_max_lines: Optional[int] = Field(
         default=None,
         ge=1,
@@ -553,6 +571,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "descending_character_v_scale",
     "descending_character_raise",
     "descending_character_clearance",
+    "descending_character_reciprocal_scale",
     "allow_rotation",
     "text_chunk_mode",
     "layout",

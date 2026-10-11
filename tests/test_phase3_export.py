@@ -1634,27 +1634,52 @@ class TestDescenderAdjustDemoExample:
         grow = result.rendered_labels["spacing_grow"].source_label
         assert grow.descending_character_v_scale == 1.0
         assert grow.descending_character_raise == 0.0
+        assert grow.descending_character_reciprocal_scale == 1.0
+        # The reciprocal demo forbids the descending glyph's own allowances
+        # and caps the following line's top-down downscale at 0.5 (the default).
+        recip = result.rendered_labels["reciprocal"].source_label
+        assert recip.descending_character_v_scale == 1.0
+        assert recip.descending_character_raise == 0.0
+        assert recip.descending_character_reciprocal_scale == 0.5
 
     def test_descender_is_relieved_against_the_line_below(self, tmp_path: Path) -> None:
-        """The 'p' is squeezed and raised until the engraved strokes clear."""
+        """The 'p' is squeezed and raised while the 'O' below shares the load.
+
+        The relief is reciprocal: the same ramp drives the 'p' (downscale about
+        its baseline + raise) and the colliding 'O' on the following line
+        (top-down downscale, lowest point fixed), so the deficit is
+        distributed between the two lines in proportion to their allowances.
+        """
         result = self._export(tmp_path)
         fixes = result.rendered_labels["trigger"].descender_adjustments_by_line
 
-        assert list(fixes) == [0]
+        assert list(fixes) == [0, 1]
         (fix,) = fixes[0]
         assert fix.char == "p"
         assert fix.glyph_index == 2  # D-e-p-t-h
-        assert fix.scale_y == pytest.approx(0.629, abs=0.01)
-        assert fix.raise_amount == pytest.approx(0.064, abs=0.01)
+        assert fix.scale_y == pytest.approx(0.848, abs=0.01)
+        assert fix.raise_amount == pytest.approx(0.026, abs=0.01)
         assert fix.gap_before == pytest.approx(0.0, abs=0.01)
         # Cleared to the stroke floor: 0.5 * (0.06 + 0.06) + clearance 0.0.
         assert fix.gap_after == pytest.approx(0.06, abs=1e-3)
+        # The colliding 'O' shares the SAME ramp, scaled top-down (no raise).
+        (recip,) = fixes[1]
+        assert recip.reciprocal
+        assert recip.char == "O"
+        assert recip.glyph_index == 2  # the second O of R-O-O-T-S
+        assert recip.scale_y == pytest.approx(0.848, abs=0.01)
+        assert recip.raise_amount == 0.0
+        assert recip.gap_before == pytest.approx(0.0, abs=0.01)
+        assert recip.gap_after == pytest.approx(0.06, abs=1e-3)
 
     def test_relief_is_per_glyph_not_blanket(self, tmp_path: Path) -> None:
-        """Only the glyph with a close partner below is relieved."""
+        """Only the glyph with a close partner below (plus that partner) moves."""
         result = self._export(tmp_path)
         fixes = result.rendered_labels["notall"].descender_adjustments_by_line
-        assert [fix.char for fixes_on_line in fixes.values() for fix in fixes_on_line] == ["p"]
+        assert [fix.char for fixes_on_line in fixes.values() for fix in fixes_on_line] == [
+            "p",
+            "O",
+        ]
 
     def test_roomy_gap_is_left_alone(self, tmp_path: Path) -> None:
         """No close partner below means no relief."""
@@ -1685,12 +1710,46 @@ class TestDescenderAdjustDemoExample:
         assert entries[0].bounds[1] - entries[1].bounds[3] < 0.0
 
     def test_spent_allowances_grow_the_gap_below(self, tmp_path: Path) -> None:
-        """No downscale + no raise => the inter-line spacing increases."""
+        """No downscale + no raise + no reciprocal => the spacing increases."""
         result = self._export(tmp_path)
         grow = result.rendered_labels["spacing_grow"]
         assert grow.descender_adjustments_by_line == {}
         # The requested 0.05in grew to clear the descender against the caps.
         assert grow.line_spacing_by_line[0] == pytest.approx(0.159, abs=0.01)
+
+    def test_reciprocal_lean_carries_the_whole_deficit(self, tmp_path: Path) -> None:
+        """With the descender's own allowances forbidden, the 'O' below shrinks.
+
+        The reciprocal label forbids the 'p' (v_scale 1.0, raise 0.0), so the
+        pair's clearance comes entirely from the colliding 'O' scaled top-down
+        about its own lowest ink point: the record reports scale < 1 with a
+        zero raise, and the twin with the reciprocal lever off (scale 1.0)
+        engraves the collision verbatim.
+        """
+        result = self._export(tmp_path)
+        recip = result.rendered_labels["reciprocal"]
+        fixes = recip.descender_adjustments_by_line
+
+        # Line 0's 'p' carries the shared ramp with both its own allowances
+        # forbidden (scale 1.0, raise 0.0 -- the record of a spent lever); the
+        # clearance itself comes from the 'O' below.
+        assert list(fixes) == [0, 1]
+        (upper,) = fixes[0]
+        assert upper.char == "p"
+        assert not upper.reciprocal
+        assert upper.scale_y == pytest.approx(1.0)
+        assert upper.raise_amount == 0.0
+        (fix,) = fixes[1]
+        assert fix.reciprocal
+        assert fix.char == "O"
+        assert fix.scale_y == pytest.approx(0.741, abs=0.01)
+        assert fix.raise_amount == 0.0
+        assert fix.gap_before == pytest.approx(0.0, abs=0.01)
+        assert fix.gap_after == pytest.approx(0.06, abs=1e-3)
+
+        off = result.rendered_labels["reciprocal_off"]
+        assert off.descender_adjustments_by_line == {}
+        assert off.plt_content != recip.plt_content
 
     def test_relief_reports_a_layout_finding(self, tmp_path: Path) -> None:
         """The relief surfaces in the shared LAYOUT REPORT formatter."""
@@ -1770,8 +1829,8 @@ class TestDescenderCrookExample:
         (fix,) = fixes[0]
         assert fix.char == "g"
         assert fix.glyph_index == 5  # t-h-r-o-u-g-h
-        assert fix.scale_y == pytest.approx(0.710, abs=0.01)
-        assert fix.raise_amount == pytest.approx(0.180, abs=0.01)
+        assert fix.scale_y == pytest.approx(0.875, abs=0.01)
+        assert fix.raise_amount == pytest.approx(0.078, abs=0.01)
         # The tightest gap (0.094in) sits inside the required clearance
         # (0.5 * (0.09 + 0.09) * 1.5 = 0.135in) and is cleared above it.
         assert fix.gap_before == pytest.approx(0.094, abs=0.01)
@@ -1831,6 +1890,140 @@ class TestDescenderCrookExample:
         assert off.descender_adjustments_by_line == {}
         assert crook.descender_adjustments_by_line != {}
         assert off.plt_content != crook.plt_content
+
+
+class TestDescenderReciprocalExample:
+    """Regression tests for tests_deps/descender_reciprocal_job.yaml.
+
+    ``descending_character_reciprocal_scale`` (default 0.5) makes the relief
+    two-sided: the colliding glyphs on the FOLLOWING line share the deficit
+    through the same ramp, scaled top-down about their own lowest ink point so
+    their lowest point never moves. The crook pair (a "g" hook reaching the dot
+    of an "i" below) is the fixture: with both allowances open the two glyphs
+    move together, with the descending glyph's allowances forbidden the "i"
+    carries the whole deficit, and with the reciprocal lever off (1.0) the pair
+    engraves as the upper-only relief leaves it.
+    """
+
+    _SPEC = Path("tests_deps/descender_reciprocal_job.yaml")
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the reciprocal job with plotting disabled."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="rc",
+            optimize=False,
+            plots=False,
+        )
+
+    def test_reciprocal_scale_resolves_per_label(self, tmp_path: Path) -> None:
+        """The default is 0.5; labels may forbid the reciprocal half (1.0)."""
+        result = self._export(tmp_path)
+        shared = result.rendered_labels["shared"].source_label
+        assert shared.descending_character_reciprocal_scale == 0.5
+        assert (
+            result.rendered_labels["reciprocal_only"].source_label.descending_character_reciprocal_scale
+            == 0.5
+        )
+        assert (
+            result.rendered_labels["reciprocal_off"].source_label.descending_character_reciprocal_scale
+            == 1.0
+        )
+
+    def test_the_pair_shares_the_load(self, tmp_path: Path) -> None:
+        """The 'g' is squeezed/raised AND the 'i' dot is scaled top-down.
+
+        Both records carry the same ramp, so the descending glyph is squeezed
+        less than the upper-only relief squeezes it (compare the crook demo's
+        0.710 with the shared 0.875 here).
+        """
+        result = self._export(tmp_path)
+        fixes = result.rendered_labels["shared"].descender_adjustments_by_line
+
+        (upper,) = fixes[0]
+        assert upper.char == "g"
+        assert upper.glyph_index == 5  # t-h-r-o-u-g-h
+        assert not upper.reciprocal
+        assert upper.scale_y == pytest.approx(0.875, abs=0.01)
+        assert upper.raise_amount == pytest.approx(0.078, abs=0.01)
+        # The tightest gap (0.094in) sits inside the required clearance
+        # (0.5 * (0.09 + 0.09) * 1.5 = 0.135in) and is cleared above it.
+        assert upper.gap_before == pytest.approx(0.094, abs=0.01)
+        assert upper.gap_after == pytest.approx(0.281, abs=0.01)
+
+        # The colliding 'i' dot shares the SAME ramp, scaled top-down: its
+        # lowest point is the anchor, so it carries no raise at all.
+        partners = [fix for fix in fixes[1] if fix.reciprocal]
+        (partner,) = partners
+        assert partner.char == "i"
+        assert partner.glyph_index == 5  # c-h-a-r-g-i-ng
+        assert partner.scale_y == pytest.approx(upper.scale_y, abs=1e-9)
+        assert partner.raise_amount == 0.0
+        assert partner.gap_before == pytest.approx(upper.gap_before, abs=1e-9)
+        assert partner.gap_after == pytest.approx(upper.gap_after, abs=1e-9)
+
+    def test_the_reciprocal_half_gentles_the_descending_glyph(self, tmp_path: Path) -> None:
+        """Sharing the load squeezes the descender less than the crook demo did.
+
+        ``descender_crook_job.yaml`` pins the same pair with the reciprocal
+        lever at its shipped default too, so this label's own comparison is
+        against the reciprocal-off twin: the shared 'g' keeps a larger
+        (gentler) scale than the lean label, whose allowances are forbidden.
+        """
+        result = self._export(tmp_path)
+        shared = result.rendered_labels["shared"].descender_adjustments_by_line
+        lean = result.rendered_labels["reciprocal_only"].descender_adjustments_by_line
+
+        (shared_upper,) = shared[0]
+        (lean_upper,) = lean[0]
+        # The lean label's 'g' cannot move at all (both allowances are 1.0/0.0).
+        assert lean_upper.scale_y == pytest.approx(1.0)
+        assert lean_upper.raise_amount == 0.0
+        # The shared label's 'g' moved, and stayed inside its allowance floor.
+        assert shared_upper.scale_y < 1.0
+        assert shared_upper.scale_y >= 0.5 - 1e-9
+
+    def test_the_reciprocal_lean_carries_the_whole_deficit(self, tmp_path: Path) -> None:
+        """With the descender inert, the 'i' dot alone clears the pair."""
+        result = self._export(tmp_path)
+        fixes = result.rendered_labels["reciprocal_only"].descender_adjustments_by_line
+
+        assert list(fixes) == [0, 1]
+        (partner,) = [fix for fix in fixes[1] if fix.reciprocal]
+        assert partner.char == "i"
+        assert partner.scale_y == pytest.approx(0.779, abs=0.01)
+        assert partner.raise_amount == 0.0
+        # Cleared above the required clearance (0.5 * (0.09 + 0.09) * 1.5).
+        assert partner.gap_before == pytest.approx(0.094, abs=0.01)
+        assert partner.gap_after == pytest.approx(0.281, abs=0.01)
+
+    def test_the_opt_out_twin_engraves_the_collision_verbatim(
+        self, tmp_path: Path
+    ) -> None:
+        """``descending_character_reciprocal_scale: 1.0`` disables the half.
+
+        The twin forbids the descending glyph's allowances too, so nothing can
+        move: no relief records at all, and its output differs from the lean
+        label's (where the 'i' dot did shrink).
+        """
+        result = self._export(tmp_path)
+        off = result.rendered_labels["reciprocal_off"]
+        lean = result.rendered_labels["reciprocal_only"]
+        assert off.descender_adjustments_by_line == {}
+        assert lean.descender_adjustments_by_line != {}
+        assert off.plt_content != lean.plt_content
+
+    def test_the_reciprocal_is_y_only(self, tmp_path: Path) -> None:
+        """A top-down scale is a Y transform, so the cutter set is unchanged."""
+        result = self._export(tmp_path)
+        assert sorted(p.name for p in result.plt_paths) == [
+            "0.015_bh_rc.plt",
+            "0.187_txt_rc.plt",
+        ]
 
 
 class TestDescenderBorderExample:

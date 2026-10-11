@@ -56,6 +56,21 @@ ramp above ``1.0`` means the allowances cannot clear the pair: the caller
 clamps it to ``1.0`` and grows the inter-line spacing instead (see
 :func:`plt_optimizer.generate.resolution.fit_baseline_spacing_to_gaps`).
 
+The relief is **reciprocal**: the would-be-colliding glyphs on the following
+line contribute through the *same* ramp ``t``, each scaled **top-down** about
+its own lowest ink point::
+
+    reciprocal_scale_y(t) = 1 - t * (1 - descending_character_reciprocal_scale)
+
+so the lower glyph's top descends toward its (fixed) lowest point while the
+upper glyph shrinks and rises -- the deficit is distributed between the two
+lines in proportion to their allowances, and ``t = 1`` spends all three.
+``descending_character_reciprocal_scale: 1.0`` disables the reciprocal side
+(the lower glyphs engrave exactly as rendered, the historical behaviour).
+Because the anchor is the lower glyph's lowest point, a reciprocal fix never
+moves ink *down* past that point: the gap above the line widens monotonically
+and the bottom border is untouched.
+
 The module is deliberately import-light (pure Python; pipeline types are
 ``TYPE_CHECKING``-only imports) so it stays unit-testable without matplotlib,
 mirroring :mod:`plt_optimizer.generate.layout_report`.
@@ -173,19 +188,25 @@ class PairGap:
 
 @dataclass(frozen=True)
 class DescenderFix:
-    """One descending glyph's applied relief, for reporting.
+    """One relieved glyph's applied adjustment, for reporting.
 
     Attributes:
         line_index: Index of the glyph's text line in the label's ``content``.
         glyph_index: Index in the line's per-glyph stroke partition.
         char: The character the glyph renders.
         scale_y: Vertical scale applied about the glyph's baseline (``1.0`` =
-            no downscaling).
-        raise_amount: Upward translation applied after the scale, inches.
-        gap_before: Tightest clearance this glyph had against the following
-            line before any relief, inches (``inf`` when it had no
-            horizontally overlapping partner -- impossible for a trigger).
+            no downscaling). For a reciprocal fix this is the scale applied
+            about the glyph's **lowest ink point** (top-down).
+        raise_amount: Upward translation applied after the scale, inches
+            (always ``0.0`` for a reciprocal fix -- its anchor is fixed).
+        gap_before: Tightest clearance this glyph had before any relief,
+            inches (``inf`` when it had no horizontally overlapping partner --
+            impossible for a trigger). For a reciprocal fix this is the
+            clearance of the descending glyph it shares the pair with.
         gap_after: Tightest clearance after the relief, inches.
+        reciprocal: ``True`` when this record describes a **following-line**
+            glyph scaled top-down in share of the relief, ``False`` (default)
+            for the descending glyph itself.
     """
 
     line_index: int
@@ -195,6 +216,7 @@ class DescenderFix:
     raise_amount: float
     gap_before: float
     gap_after: float
+    reciprocal: bool = False
 
 
 def required_gap(upper_cutter: float, lower_cutter: float, clearance: float) -> float:
@@ -420,6 +442,81 @@ def worst_glyph_deficit(gaps: Sequence[GlyphGap]) -> float:
     )
 
 
+def colliding_partners(
+    upper: GlyphBox,
+    lower_glyphs: Sequence[GlyphBox],
+    required: float,
+) -> tuple[int, ...]:
+    """Return the following-line glyphs a descending glyph comes too close to.
+
+    The reciprocal half of the relief needs to know *which* glyphs of the
+    line below share a collision with a triggering descender, so exactly
+    those (and only those) take the top-down downscale. A partner collides
+    when its complete ink comes within ``required`` of the descending
+    glyph's sub-baseline ink -- the same rolling-circle test as
+    :func:`measure_glyph_gaps`, measured per partner instead of as a
+    minimum.
+
+    Args:
+        upper: The descending glyph of the upper line (stacked frame).
+        lower_glyphs: Glyph boxes of the following line (stacked frame).
+        required: Clearance from :func:`required_gap` for this line pair.
+
+    Returns:
+        The :attr:`GlyphBox.glyph_index` of every colliding partner, in input
+        order. Empty when the upper glyph has no sub-baseline ink (nothing
+        reaches into the gap) or no partner is within ``required``.
+    """
+    if not upper.sub_baseline_ink:
+        return ()
+    return tuple(
+        lower.glyph_index
+        for lower in lower_glyphs
+        if lower.ink and ink_gap(upper.sub_baseline_ink, lower.ink) < required - _GAP_TOLERANCE
+    )
+
+
+def reciprocal_scale_y(ramp: float, reciprocal_scale: float) -> float:
+    """Return the following-line glyph's top-down scale at a ramp value.
+
+    The reciprocal half of the shared ramp: the lower glyph is scaled about
+    its **own lowest ink point** by ``1 - t * (1 - reciprocal_scale)``, so its
+    bottom never moves and its top descends toward it. ``reciprocal_scale``
+    ``1.0`` (or a zero ramp) yields ``1.0`` -- the glyph engraves as rendered.
+
+    Args:
+        ramp: Ramp value in ``[0, 1]`` (the same ``t`` driving the descending
+            glyph's :func:`apply_ramp`).
+        reciprocal_scale: Smallest permitted top-down scale
+            (``descending_character_reciprocal_scale``); ``1.0`` forbids it.
+
+    Returns:
+        The scale factor in ``[reciprocal_scale, 1]``.
+    """
+    clamped = min(1.0, max(0.0, ramp))
+    floor = min(1.0, max(0.0, reciprocal_scale))
+    return 1.0 - clamped * (1.0 - floor)
+
+
+def recip_ink(ink: Ink, anchor_y: float, scale_y: float) -> Ink:
+    """Apply a top-down (reciprocal) scale to glyph ink in the stacked frame.
+
+    Mirrors what the renderer does to a following-line glyph: Y is scaled
+    about the glyph's **lowest ink point** ``anchor_y``, so its bottom stays
+    exactly where it is and its top descends. X is untouched. This is
+    :func:`ramp_ink` with a zero raise, named for the role it plays.
+
+    Args:
+        ink: The glyph's ink (polylines) in the stacked frame.
+        anchor_y: The glyph's lowest ink Y in the same frame, inches.
+        scale_y: Top-down scale (from :func:`reciprocal_scale_y`).
+
+    Returns:
+        The scaled ink, same frame.
+    """
+    return ramp_ink(ink, anchor_y, scale_y, 0.0)
+
+
 def ramp_ink(ink: Ink, baseline_y: float, scale_y: float, raise_amount: float) -> Ink:
     """Apply a relief ramp to glyph ink given in the stacked frame.
 
@@ -491,16 +588,22 @@ def ramp_for(
     descender: float,
     v_scale: float,
     raise_fraction: float,
+    lower_height: float = 0.0,
+    reciprocal_scale: float = 1.0,
 ) -> float:
     """Return the smallest ramp value clearing one pair, clamped to ``[0, 1]``.
 
     The closed form of the **box model**: solves ``gap + t * (raise_cap +
-    descender * (1 - v_scale)) >= required`` for the smallest admissible
-    ``t``, where ``raise_cap = raise_fraction * descender``. It is exact for
-    the vertical box gap (linear in ``t``); ink-measured pairs use
-    :func:`ramp_for_measured` (bisection). ``0.0`` means the pair is already
-    safe; ``1.0`` means the allowances are exhausted (fully spent, and the
-    pair may still fall short -- the caller detects that by re-measuring
+    descender * (1 - v_scale) + lower_height * (1 - reciprocal_scale)) >=
+    required`` for the smallest admissible ``t``, where ``raise_cap =
+    raise_fraction * descender``. The third term is the **reciprocal** half of
+    the relief: a following-line glyph scaled top-down by
+    :func:`reciprocal_scale_y` lowers its top by ``t * lower_height *
+    (1 - reciprocal_scale)``, which widens the vertical box gap linearly too.
+    It is exact for the vertical box gap (linear in ``t``); ink-measured pairs
+    use :func:`ramp_for_measured` (bisection). ``0.0`` means the pair is
+    already safe; ``1.0`` means the allowances are exhausted (fully spent, and
+    the pair may still fall short -- the caller detects that by re-measuring
     after applying the ramp).
 
     Args:
@@ -511,6 +614,12 @@ def ramp_for(
             v_scale``); ``1.0`` forbids downscaling.
         raise_fraction: Largest permitted raise as a fraction of the
             descender (``descending_character_raise``); ``0.0`` forbids raising.
+        lower_height: The colliding partner's ink height, inches -- the
+            reciprocal term's lever. ``0.0`` (default) ignores the reciprocal
+            half, reproducing the box model without it.
+        reciprocal_scale: Smallest permitted top-down scale
+            (``descending_character_reciprocal_scale``); ``1.0`` (default)
+            forbids the reciprocal half.
 
     Returns:
         The ramp value in ``[0, 1]``. ``0.0`` when the pair is safe, the
@@ -524,9 +633,10 @@ def ramp_for(
         return 0.0
 
     raise_cap = max(0.0, raise_fraction) * descender
-    slope = raise_cap + descender * (1.0 - min(1.0, max(0.0, v_scale)))
+    recip_cap = max(0.0, lower_height) * (1.0 - min(1.0, max(0.0, reciprocal_scale)))
+    slope = raise_cap + descender * (1.0 - min(1.0, max(0.0, v_scale))) + recip_cap
     if slope <= _GAP_TOLERANCE:
-        # Both allowances are zero: the ramp can never help.
+        # Every allowance is zero: the ramp can never help.
         return 0.0
     return min(1.0, deficit / slope)
 

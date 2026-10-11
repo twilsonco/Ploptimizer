@@ -59,11 +59,37 @@ job:
         - text: "HAPPY"
         - text: "ROOTS"
 
-    # 5. Spacing growth: allowances spent (no downscale, no raise), so the gap
-    #    below the line grows to clear the descender against the line below.
+    # 5. Spacing growth: every allowance spent (no downscale, no raise, no
+    #    reciprocal downscale), so the gap below the line grows to clear the
+    #    descender against the line below.
     - id: spacing_grow
       descending_character_v_scale: 1.0
       descending_character_raise: 0.0
+      descending_character_reciprocal_scale: 1.0
+      content:
+        - text: "Depth"
+        - text: "ROOTS"
+
+    # 5b. Reciprocal relief: the same trigger as label 1, with the descending
+    #     glyph's own allowances forbidden (v_scale 1.0, raise 0.0). The whole
+    #     deficit now falls on the following line: the colliding 'O' is scaled
+    #     TOP-DOWN about its own lowest ink point (to `descending_character_
+    #     reciprocal_scale`), so its bottom stays exactly where it was and its
+    #     top descends toward it.
+    - id: reciprocal
+      descending_character_v_scale: 1.0
+      descending_character_raise: 0.0
+      descending_character_reciprocal_scale: 0.5
+      content:
+        - text: "Depth"
+        - text: "ROOTS"
+
+    # 5c. Reciprocal relief off: the label-5b twin with the reciprocal lever
+    #     forbidden too -- the historical behaviour, no relief at all.
+    - id: reciprocal_off
+      descending_character_v_scale: 1.0
+      descending_character_raise: 0.0
+      descending_character_reciprocal_scale: 1.0
       content:
         - text: "Depth"
         - text: "ROOTS"

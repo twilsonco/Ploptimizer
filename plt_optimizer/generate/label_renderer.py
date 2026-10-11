@@ -27,12 +27,15 @@ from plt_optimizer.generate.descender_adjust import (
     GlyphBox,
     GlyphGap,
     apply_ramp,
+    colliding_partners,
     measure_glyph_gaps,
     merge_ramps,
     ramp_for,
     ramp_for_measured,
     ramp_ink,
     ramps_changed,
+    recip_ink,
+    reciprocal_scale_y,
     required_gap,
     worst_glyph_deficit,
 )
@@ -2052,7 +2055,10 @@ class _DescenderRelief:
         geometry: The refreshed per-line ``(pitch_basis, ascender, descender)``
             triples -- the relief changes how far each line's ink reaches
             around its baseline, and the stacking math depends on it.
-        fixes: Every applied relief, in (line, glyph) order.
+        fixes: Every applied relief, in (line, glyph) order. A descending
+            glyph's own relief and the top-down downscale of a following-line
+            glyph that shared it are both records here, told apart by
+            :attr:`DescenderFix.reciprocal`.
         residual: Per-gap clearance shortfall left after every allowance and
             all admissible spacing growth were spent, inches. Non-zero entries
             abort the job.
@@ -2468,7 +2474,9 @@ def _apply_glyph_ramps(
     ramps: Mapping[int, float],
     v_scale: float,
     raise_fraction: float,
-) -> Tuple[TextBlock, List[Tuple[int, str, float, float]]]:
+    reciprocal_ramps: Optional[Mapping[int, float]] = None,
+    reciprocal_scale: float = 1.0,
+) -> Tuple[TextBlock, List[Tuple[int, str, float, float, float]]]:
     """Scale and raise the triggered glyphs of one line (local frame).
 
     Each glyph is transformed in isolation -- Y-scaled about the line's
@@ -2477,6 +2485,12 @@ def _apply_glyph_ramps(
     count are preserved, so the line's per-glyph partition (and the plate-space
     chunk records built from it) stays valid.
 
+    A glyph can carry **both** ramps: a middle line's glyph may descend into the
+    gap below it (its own upper ramp) while also colliding with the descender
+    above it (a reciprocal ramp). The upper ramp is applied first, then the
+    reciprocal scale about the glyph's resulting lowest ink point, so the
+    bottom stays put while the top descends.
+
     Args:
         block: The line's block, baseline at ``y = 0``.
         glyph_groups: One stroke-index tuple per rendered character.
@@ -2484,19 +2498,26 @@ def _apply_glyph_ramps(
         ramps: ``{glyph_index: ramp}`` for the glyphs to relieve.
         v_scale: Smallest permitted vertical scale.
         raise_fraction: Largest permitted raise fraction.
+        reciprocal_ramps: ``{glyph_index: ramp}`` for the glyphs to scale
+            top-down (they collide with a descender on the line above).
+        reciprocal_scale: Smallest permitted top-down scale
+            (``descending_character_reciprocal_scale``).
 
     Returns:
         ``(new_block, applied)`` where ``applied`` lists
-        ``(glyph_index, char, scale_y, raise_amount)`` per relieved glyph.
+        ``(glyph_index, char, scale_y, raise_amount, reciprocal_scale_y)`` per
+        relieved glyph (``reciprocal_scale_y`` is ``1.0`` for a pure upper ramp).
     """
-    if not ramps:
+    if not ramps and not reciprocal_ramps:
         return block, []
+    recip_map: Mapping[int, float] = reciprocal_ramps or {}
     chars = _glyph_chars(text)
     replacements: dict[int, Stroke] = {}
-    applied: List[Tuple[int, str, float, float]] = []
+    applied: List[Tuple[int, str, float, float, float]] = []
     for glyph_index, indices in enumerate(glyph_groups):
         ramp = ramps.get(glyph_index, 0.0)
-        if ramp <= 0.0 or not indices:
+        recip_ramp = recip_map.get(glyph_index, 0.0)
+        if (ramp <= 0.0 and recip_ramp <= 0.0) or not indices:
             continue
         glyph_block = TextBlock(strokes=tuple(block.strokes[i] for i in indices))
         bounds = glyph_block.bounds()
@@ -2505,9 +2526,21 @@ def _apply_glyph_ramps(
         descender = max(0.0, -bounds[1])
         scale_y, raise_amount = apply_ramp(descender, v_scale, raise_fraction, ramp)
         transformed = glyph_block.scaled_y(scale_y).translate(0.0, raise_amount)
+        recip_scale_y = reciprocal_scale_y(recip_ramp, reciprocal_scale)
+        if recip_scale_y < 1.0:
+            # Top-down about the (post-raise) lowest ink point: the bottom is
+            # the anchor, so it never moves and the top descends toward it.
+            new_bounds = transformed.bounds()
+            if new_bounds is not None:
+                anchor = new_bounds[1]
+                transformed = (
+                    transformed.translate(0.0, -anchor)
+                    .scaled_y(recip_scale_y)
+                    .translate(0.0, anchor)
+                )
         for position, stroke_index in enumerate(indices):
             replacements[stroke_index] = transformed.strokes[position]
-        applied.append((glyph_index, chars[glyph_index], scale_y, raise_amount))
+        applied.append((glyph_index, chars[glyph_index], scale_y, raise_amount, recip_scale_y))
     return block.replaced_strokes(replacements), applied
 
 
@@ -2758,14 +2791,25 @@ def _apply_descender_relief(
        overlapping X span and gives each triggering glyph the smallest ramp
        that clears its tightest pair, merged one-way into the glyph's ramp (a
        glyph only ever gets smaller and higher);
-    3. rebuilds each line's block from the ORIGINAL render with the glyph's
+    3. gives every colliding partner on the following line the SAME ramp, spent
+       as a top-down downscale about its own lowest ink point
+       (``descending_character_reciprocal_scale``) -- the deficit is shared
+       between the two lines in proportion to their allowances;
+    4. rebuilds each line's block from the ORIGINAL render with the glyph's
        full ramp (idempotent -- a pass never compounds a glyph's transform);
-    4. grows each gap by the deficit that survives the ramps, capped by the
+    5. grows each gap by the deficit that survives the ramps, capped by the
        inner content height.
 
     Ramps only grow and are capped at ``1.0``; spacings only grow and are
     capped by the inner height, so the loop converges. The pass cap is a
     float-noise guard.
+
+    A glyph can carry both ramps at once (a middle line's ``y`` descends into
+    the gap below while its ascender is squeezed by the ``g`` above): the upper
+    ramp is applied first, then the top-down scale about the glyph's resulting
+    lowest point. Because that anchor is the glyph's lowest ink, a reciprocal
+    fix never moves ink down past it, so the gap above the line widens
+    monotonically and the bottom border is untouched.
 
     Args:
         label: The label being rendered (supplies the allowances and cutters).
@@ -2807,9 +2851,17 @@ def _apply_descender_relief(
         )
     # Per-glyph ramps already applied (one-way; a glyph never shrinks back).
     ramps: dict[int, dict[int, float]] = {index: {} for index in range(len(original))}
+    # Per-glyph RECIPROCAL ramps (a following-line glyph scaled top-down in
+    # share of the relief). One-way for the same convergence reason.
+    recip_ramps: dict[int, dict[int, float]] = {index: {} for index in range(len(original))}
     # Tightest gap each glyph had before any relief, and after the last pass.
     gap_before: dict[tuple[int, int], float] = {}
     gap_after: dict[tuple[int, int], float] = {}
+    # Reciprocal-role reporting, keyed (gap_index, LOWER glyph index): the
+    # pair's clearance before any relief, and the descending glyph whose
+    # collision pulled this partner in (for the final re-measurement).
+    recip_gap_before: dict[tuple[int, int], float] = {}
+    recip_pair_upper: dict[tuple[int, int], int] = {}
     # Every (line, glyph) that ever triggered against the bottom border, so a
     # glyph whose allowances cannot help at all (ramp 0) is still reported.
     border_triggered: dict[int, set[int]] = {index: set() for index in range(len(original))}
@@ -2910,14 +2962,20 @@ def _apply_descender_relief(
         grid: Optional[InkGrid],
         upper_baseline: float,
         current_ramp: float,
+        partners: Sequence[GlyphBox] = (),
     ) -> float:
         """Return the total ramp clearing one colliding glyph, in [0, 1].
 
-        The lower ink (a line's complete ink, or the bottom border's
-        centreline) is frozen during the bisection, so the caller indexes it
-        once and every candidate ramp queries the same grid -- cell = required,
-        which keeps the ``gap < required`` decision exact. Glyphs without ink
-        knowledge fall back to the box model's closed form.
+        The lower ink is frozen during the bisection, so the caller indexes the
+        **static** part of it once and every candidate ramp queries the same
+        grid -- cell = required, which keeps the ``gap < required`` decision
+        exact. The glyph's **reciprocal partners** (the following-line glyphs
+        that share its collision and shrink top-down with the same ramp) cannot
+        live in a frozen grid: they move. The caller excludes their ink from the
+        grid and passes them here, and every candidate ramp measures them
+        directly (:func:`~plt_optimizer.generate.geometry.ink_gap` against
+        their scaled ink) -- a handful of glyphs, so the exact per-partner
+        measurement stays cheap.
 
         The measured glyph ink is the CURRENT (already relieved) ink, so the
         bisected value is the ramp the glyph still needs ON TOP of
@@ -2938,7 +2996,7 @@ def _apply_descender_relief(
             The total ramp in ``[0, 1]``; ``current_ramp`` when no further
             allowance can help.
         """
-        if gap.upper.sub_baseline_ink and grid is not None:
+        if gap.upper.sub_baseline_ink and (grid is not None or partners):
             descender = gap.upper.descender
             full_scale, full_raise = apply_ramp(
                 descender,
@@ -2946,8 +3004,9 @@ def _apply_descender_relief(
                 label.descending_character_raise,
                 1.0,
             )
-            if full_scale >= 1.0 and full_raise <= 0.0:
-                # Both allowances are zero: the ramp can never help (the box
+            recip_allowed = label.descending_character_reciprocal_scale < 1.0
+            if full_scale >= 1.0 and full_raise <= 0.0 and not (recip_allowed and partners):
+                # Every allowance is zero: the ramp can never help (the box
                 # model's closed form tests this as its slope).
                 return current_ramp
 
@@ -2955,8 +3014,9 @@ def _apply_descender_relief(
                 t: float,
                 _ink: Ink = gap.upper.sub_baseline_ink,
                 _descender: float = descender,
-                _grid: InkGrid = grid,
+                _grid: Optional[InkGrid] = grid,
                 _baseline: float = upper_baseline,
+                _partners: Sequence[GlyphBox] = partners,
             ) -> float:
                 scale_y, raise_amount = apply_ramp(
                     _descender,
@@ -2964,18 +3024,33 @@ def _apply_descender_relief(
                     label.descending_character_raise,
                     t,
                 )
-                return _grid.min_gap(ramp_ink(_ink, _baseline, scale_y, raise_amount))
+                upper_ink = ramp_ink(_ink, _baseline, scale_y, raise_amount)
+                best = _grid.min_gap(upper_ink) if _grid is not None else math.inf
+                recip = reciprocal_scale_y(t, label.descending_character_reciprocal_scale)
+                for partner in _partners:
+                    anchor = partner.bounds[1]
+                    nearest = ink_gap(upper_ink, recip_ink(partner.ink, anchor, recip))
+                    if nearest < best:
+                        best = nearest
+                return best
 
             increment = ramp_for_measured(gap_at, gap.required)
         else:
             # Box-model fallback (glyphs without ink knowledge): the vertical
-            # gap is linear in the ramp, closed form.
+            # gap is linear in the ramp, closed form. The tightest partner's
+            # ink height feeds the reciprocal term of the slope.
+            partner_height = max(
+                (partner.bounds[3] - partner.bounds[1] for partner in partners),
+                default=0.0,
+            )
             increment = ramp_for(
                 gap.gap,
                 gap.required,
                 gap.upper.descender,
                 label.descending_character_v_scale,
                 label.descending_character_raise,
+                partner_height,
+                label.descending_character_reciprocal_scale,
             )
         return min(1.0, current_ramp + increment)
 
@@ -3004,28 +3079,59 @@ def _apply_descender_relief(
         boxes = stacked_boxes_of(current_blocks, baselines)
         gaps_by_gap, _pre_deficits, border_gaps = measure(boxes)
         proposed: dict[int, dict[int, float]] = {}
+        proposed_recip: dict[int, dict[int, float]] = {}
         for gap_index, gaps in enumerate(gaps_by_gap):
             triggering = [gap for gap in gaps if gap.collides and math.isfinite(gap.gap)]
             if not triggering:
                 continue
             required = triggering[0].required
-            # The lower line is frozen during a glyph's ramp bisection, so its
-            # complete ink is indexed once per gap and every candidate ramp
-            # queries the same grid (cell = required: exact decision).
-            lower_ink: Ink = tuple(
-                polyline for lower in boxes[gap_index + 1] for polyline in lower.ink
-            )
-            grid = InkGrid(lower_ink, required) if lower_ink and required > 0.0 else None
             upper_baseline = baselines[gap_index]
+            # The reciprocal half: the following-line glyphs that share a
+            # triggering descender's collision shrink top-down with the SAME
+            # ramp, so their ink cannot live in the frozen grid the bisection
+            # queries. Their ink is excluded from the grid and measured
+            # directly per candidate ramp (see propose_ramp).
+            partners_by_gap_glyph: dict[int, tuple[int, ...]] = {}
+            if label.descending_character_reciprocal_scale < 1.0:
+                for gap in triggering:
+                    hits = colliding_partners(gap.upper, boxes[gap_index + 1], required)
+                    if hits:
+                        partners_by_gap_glyph[gap.upper.glyph_index] = hits
+            shaken = {index for hits in partners_by_gap_glyph.values() for index in hits}
+            lower_by_index = {lower.glyph_index: lower for lower in boxes[gap_index + 1]}
+            static_ink: Ink = tuple(
+                polyline
+                for lower in boxes[gap_index + 1]
+                if lower.glyph_index not in shaken
+                for polyline in lower.ink
+            )
+            grid = InkGrid(static_ink, required) if static_ink and required > 0.0 else None
             for gap in triggering:
                 key = (gap_index, gap.upper.glyph_index)
                 if key not in gap_before or gap.gap < gap_before[key]:
                     gap_before[key] = gap.gap
+                partner_boxes = tuple(
+                    lower_by_index[index]
+                    for index in partners_by_gap_glyph.get(gap.upper.glyph_index, ())
+                )
                 ramp = propose_ramp(
-                    gap, grid, upper_baseline, ramps[gap_index].get(gap.upper.glyph_index, 0.0)
+                    gap,
+                    grid,
+                    upper_baseline,
+                    ramps[gap_index].get(gap.upper.glyph_index, 0.0),
+                    partner_boxes,
                 )
                 if ramp > 0.0:
                     proposed.setdefault(gap_index, {})[gap.upper.glyph_index] = ramp
+                # The partners ride the SAME ramp (proportional sharing), so
+                # the pair's deficit is distributed between the two lines in
+                # proportion to their allowances instead of landing on one.
+                for partner in partner_boxes:
+                    p_key = (gap_index, partner.glyph_index)
+                    if p_key not in recip_gap_before or gap.gap < recip_gap_before[p_key]:
+                        recip_gap_before[p_key] = gap.gap
+                        recip_pair_upper[p_key] = gap.upper.glyph_index
+                    proposed_recip.setdefault(gap_index + 1, {})[partner.glyph_index] = ramp
 
         # ---- The bottom border: the same test against the border stroke ----
         # The border is a virtual "following line" (see _border_box), so the
@@ -3061,12 +3167,19 @@ def _apply_descender_relief(
             if ramps_changed(before, after):
                 grew = True
             ramps[gap_index] = after
+        for line_index, per_glyph in proposed_recip.items():
+            before = recip_ramps[line_index]
+            after = merge_ramps(before, per_glyph)
+            if ramps_changed(before, after):
+                grew = True
+            recip_ramps[line_index] = after
 
         # ---- Rebuild each line from the original render at its full ramp ----
         current_blocks = []
         for index, block in enumerate(original):
             per_glyph = ramps.get(index, {})
-            if not per_glyph:
+            per_glyph_recip = recip_ramps.get(index, {})
+            if not per_glyph and not per_glyph_recip:
                 current_blocks.append(block)
                 continue
             rebuilt, _applied = _apply_glyph_ramps(
@@ -3076,6 +3189,8 @@ def _apply_descender_relief(
                 per_glyph,
                 label.descending_character_v_scale,
                 label.descending_character_raise,
+                per_glyph_recip,
+                label.descending_character_reciprocal_scale,
             )
             current_blocks.append(rebuilt)
         geometry = _local_line_extents(current_blocks, pitch_basis)
@@ -3285,6 +3400,56 @@ def _apply_descender_relief(
                 )
             )
 
+    # ---- Reciprocal records: the following-line glyphs that shared the load ----
+    # ``gap_before`` is the pair's clearance that pulled the partner in;
+    # ``gap_after`` re-measures the pair on the FINAL geometry (the descending
+    # glyph's sub-baseline ink against this partner's scaled ink).
+    for line_index in sorted(recip_ramps):
+        box_by_glyph = {box.glyph_index: box for box in original_boxes[line_index]}
+        stacked_by_glyph = {box.glyph_index: box for box in stacked_boxes[line_index]}
+        for glyph_index, ramp in sorted(recip_ramps[line_index].items()):
+            if ramp <= 0.0:
+                continue
+            glyph_box = box_by_glyph.get(glyph_index)
+            p_key = (line_index - 1, glyph_index)
+            gap_after_recip = math.inf
+            upper_index = recip_pair_upper.get(p_key)
+            upper_box = (
+                next(
+                    (
+                        box
+                        for box in stacked_boxes[line_index - 1]
+                        if box.glyph_index == upper_index
+                    ),
+                    None,
+                )
+                if upper_index is not None
+                else None
+            )
+            partner_box = stacked_by_glyph.get(glyph_index)
+            if (
+                upper_box is not None
+                and partner_box is not None
+                and upper_box.sub_baseline_ink
+                and partner_box.ink
+            ):
+                cell = max(_gap_required(label, line_indices, line_index - 1), _GAP_REPORT_RADIUS)
+                nearest = ink_gap(upper_box.sub_baseline_ink, partner_box.ink)
+                gap_after_recip = min(nearest, cell)
+            fixes.append(
+                DescenderFix(
+                    line_index=line_indices[line_index],
+                    glyph_index=glyph_index,
+                    char=glyph_box.char if glyph_box is not None else "",
+                    scale_y=reciprocal_scale_y(ramp, label.descending_character_reciprocal_scale),
+                    raise_amount=0.0,
+                    gap_before=recip_gap_before.get(p_key, math.inf),
+                    gap_after=gap_after_recip,
+                    reciprocal=True,
+                )
+            )
+    fixes.sort(key=lambda fix: (fix.line_index, fix.reciprocal, fix.glyph_index))
+
     heights = [
         (bounds[3] - bounds[1]) if (bounds := block.bounds()) is not None else 0.0
         for block in current_blocks
@@ -3308,6 +3473,18 @@ def _log_descender_fixes(label: ResolvedLabel, fixes: Sequence[DescenderFix]) ->
         fixes: The reliefs applied by :func:`_apply_descender_relief`.
     """
     for fix in fixes:
+        if fix.reciprocal:
+            logger.info(
+                "Label %s: line %s glyph %r shares the descender relief -- "
+                "top-down scale %.3f (lowest point fixed, gap %.3fin -> %.3fin).",
+                label.id,
+                fix.line_index,
+                fix.char,
+                fix.scale_y,
+                fix.gap_before,
+                fix.gap_after,
+            )
+            continue
         logger.info(
             "Label %s: line %s glyph %r descender relieved -- vertical scale "
             "%.3f, raised %.3fin (gap %.3fin -> %.3fin).",
@@ -3383,10 +3560,11 @@ def _format_unresolvable_descenders(
             f"  - lines {upper} ({upper_text!r}) / {lower} "
             f"({getattr(lower_text, 'text', '')!r}): still {deficit:.3f}in short "
             f"after vertical scale {label.descending_character_v_scale:.2f}, "
-            f"raise {label.descending_character_raise:.2f}, clearance "
+            f"raise {label.descending_character_raise:.2f}, reciprocal scale "
+            f"{label.descending_character_reciprocal_scale:.2f}, clearance "
             f"{label.descending_character_clearance:.2f}x the stroke floor and "
             f"all admissible line spacing. Increase line_spacing, height, "
-            f"descending_character_v_scale/raise, or lower "
+            f"descending_character_v_scale/raise/reciprocal_scale, or lower "
             f"descending_character_clearance."
         )
     return "\n".join(lines)

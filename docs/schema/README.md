@@ -179,7 +179,7 @@ always wins at its level. Precedence per attribute:
 | `h_compress_global` | line → label → job → config | `false` |
 | `use_baseline_spacing` | label → job → config (never lines; plate parity) | `true` |
 | `v_center_by_content` | label → job → config (never lines; plate parity) | `false` |
-| `auto_descending_character_adjustment`, `descending_character_v_scale`, `descending_character_raise`, `descending_character_clearance` | label → job → config (never lines; plate parity) | `true` / `0.5` / `0.7` / `0.0` |
+| `auto_descending_character_adjustment`, `descending_character_v_scale`, `descending_character_raise`, `descending_character_clearance`, `descending_character_reciprocal_scale` | label → job → config (never lines; plate parity) | `true` / `0.5` / `0.7` / `0.0` / `0.5` |
 | `text_color` | line → label (never job/plate/config) | `none` (implicit) |
 | `width`, `height` | label → job → auto-size from rendered content | — |
 | `margin` | label → job → config | 0.125 |
@@ -229,7 +229,8 @@ entries that omit it).
   `cutter_downsize_global`, `h_compress_global`, `use_baseline_spacing`,
   `v_center_by_content`,
   `auto_descending_character_adjustment`, `descending_character_v_scale`,
-  `descending_character_raise`, `descending_character_clearance`) are
+  `descending_character_raise`, `descending_character_clearance`,
+  `descending_character_reciprocal_scale`) are
   accepted on plates for schema parity but **not applied** at plate level —
   labels render once before packing.
 - **`cutter_size` (default null)**: an explicit cutter diameter (inches)
@@ -343,6 +344,14 @@ entries that omit it).
   `0.5 * (text_cutter + hole_cutter_diameter) * (1 + descending_character_clearance)`
   of the border centreline. Crossing `v_margin` is **not** a collision — ink
   may spill into the margin; only the border stroke counts. No extra fields.
+  The relief is **reciprocal**: the colliding glyphs on the following line
+  share the deficit through the *same* ramp, each scaled **top-down** about its
+  own lowest ink point (so its lowest point never moves and its top descends
+  toward it), capped by `descending_character_reciprocal_scale` (default 0.5;
+  `1.0` forbids the reciprocal half and reproduces the historical one-sided
+  relief bit-identically). A glyph on a middle line can carry both roles at
+  once — its own descending ramp into the gap below and a top-down ramp from
+  the gap above.
   When both allowances are exhausted and the pair is still too close, the gap
   below the line grows (capped by the vertical margins); a collision that
   neither the allowances nor the admissible spacing can clear aborts the job

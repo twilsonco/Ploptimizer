@@ -1703,6 +1703,7 @@ class TestAutoDescendingCharacterAdjustment:
         "descending_character_v_scale",
         "descending_character_raise",
         "descending_character_clearance",
+        "descending_character_reciprocal_scale",
     )
 
     @pytest.mark.parametrize("field", _FIELDS)
@@ -1728,11 +1729,13 @@ class TestAutoDescendingCharacterAdjustment:
             descending_character_v_scale=0.3,
             descending_character_raise=0.0,
             descending_character_clearance=0.05,
+            descending_character_reciprocal_scale=0.4,
         )
         assert label.auto_descending_character_adjustment is False
         assert label.descending_character_v_scale == pytest.approx(0.3)
         assert label.descending_character_raise == 0.0
         assert label.descending_character_clearance == pytest.approx(0.05)
+        assert label.descending_character_reciprocal_scale == pytest.approx(0.4)
 
         job = JobSpec(
             job_name="J",
@@ -1742,12 +1745,14 @@ class TestAutoDescendingCharacterAdjustment:
             descending_character_v_scale=0.8,
             descending_character_raise=1.0,
             descending_character_clearance=0.0,
+            descending_character_reciprocal_scale=1.0,
             content=[TextLine(text="X")],
         )
         assert job.auto_descending_character_adjustment is False
         assert job.descending_character_v_scale == pytest.approx(0.8)
         assert job.descending_character_raise == pytest.approx(1.0)
         assert job.descending_character_clearance == 0.0
+        assert job.descending_character_reciprocal_scale == 1.0
 
     def test_v_scale_bounds_are_enforced(self) -> None:
         """descending_character_v_scale is bound to [0.2, 1.0]."""
@@ -1770,6 +1775,22 @@ class TestAutoDescendingCharacterAdjustment:
         label = LabelSpec(id="lbl", content=[TextLine(text="X")], descending_character_clearance=0.0)
         assert label.descending_character_clearance == 0.0
 
+    def test_reciprocal_scale_bounds_are_enforced(self) -> None:
+        """descending_character_reciprocal_scale is bound to [0.2, 1.0]."""
+        with pytest.raises(ValidationError, match="descending_character_reciprocal_scale"):
+            LabelSpec(
+                id="lbl", content=[TextLine(text="X")], descending_character_reciprocal_scale=0.1
+            )
+        with pytest.raises(ValidationError, match="descending_character_reciprocal_scale"):
+            LabelSpec(
+                id="lbl", content=[TextLine(text="X")], descending_character_reciprocal_scale=1.1
+            )
+        # 1.0 is the opt-out (reciprocal downscaling forbidden) and is legal.
+        label = LabelSpec(
+            id="lbl", content=[TextLine(text="X")], descending_character_reciprocal_scale=1.0
+        )
+        assert label.descending_character_reciprocal_scale == 1.0
+
     @pytest.mark.parametrize(
         "field,value",
         [
@@ -1777,6 +1798,7 @@ class TestAutoDescendingCharacterAdjustment:
             ("descending_character_v_scale", 0.4),
             ("descending_character_raise", 0.25),
             ("descending_character_clearance", 0.03),
+            ("descending_character_reciprocal_scale", 0.6),
         ],
     )
     def test_plate_accepts_field_for_parity(self, field: str, value: object) -> None:

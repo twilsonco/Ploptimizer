@@ -12,6 +12,7 @@ from plt_optimizer.generate.label_renderer import (
     LAYER_TEXT,
     LabelRenderError,
     RenderedLabel,
+    _apply_glyph_ramps,
     _clip_below_baseline,
     _collect_hpgl_geometry,
     _flip_y_coordinates_in_plt,
@@ -1813,12 +1814,20 @@ class TestDescendingCharacterRelief:
         rendered = render_label_to_plt(label)
 
         fixes = rendered.descender_adjustments_by_line
-        assert list(fixes) == [0]
+        assert list(fixes) == [0, 1]
         (fix,) = fixes[0]
         assert fix.char == "y"
         assert fix.scale_y < 1.0  # downscaled
         assert fix.raise_amount > 0.0  # raised
         assert fix.gap_before < fix.gap_after
+        # The following line shares the load: the colliding capital is scaled
+        # top-down (its lowest point stays exactly where it was).
+        (recip,) = fixes[1]
+        assert recip.reciprocal
+        assert recip.char == "N"
+        assert recip.scale_y < 1.0
+        assert recip.raise_amount == 0.0
+        assert recip.gap_before < recip.gap_after
 
     def test_relief_clears_the_engraved_stroke_floor(self) -> None:
         """The relieved gap reaches the stroke floor (0.5*(cutter+cutter))."""
@@ -1903,11 +1912,12 @@ class TestDescendingCharacterRelief:
         assert 0.0 < fix.raise_amount <= 0.3 * 0.47 + 1e-9
 
     def test_exhausted_allowances_grow_the_spacing(self) -> None:
-        """No downscale + no raise => the gap below the line widens to clear."""
+        """No downscale + no raise + no reciprocal => the gap widens to clear."""
         label = _make_descender_label(
             [_make_line("My", height=0.5, line_spacing=0.05), _make_line("RANGE", height=0.5)],
             descending_character_v_scale=1.0,
             descending_character_raise=0.0,
+            descending_character_reciprocal_scale=1.0,
         )
         rendered = render_label_to_plt(label)
         assert rendered.descender_adjustments_by_line == {}
@@ -1920,6 +1930,7 @@ class TestDescendingCharacterRelief:
             [_make_line("My", height=0.5, line_spacing=0.0), _make_line("RANGE", height=0.5)],
             descending_character_v_scale=1.0,
             descending_character_raise=0.0,
+            descending_character_reciprocal_scale=1.0,
             height=0.7,
         )
         with pytest.raises(LabelRenderError, match="cannot clear the line below"):
@@ -1948,6 +1959,230 @@ class TestDescendingCharacterRelief:
         )
         rendered = render_label_to_plt(label)
         assert rendered.descender_adjustments_by_line != {}
+
+
+class TestDescendingCharacterReciprocalRelief:
+    """The following line shares the relief by scaling top-down.
+
+    ``descending_character_reciprocal_scale`` caps how far a colliding
+    following-line glyph may be squeezed; the squeeze is anchored at the
+    glyph's own lowest ink point, so its bottom never moves and its top
+    descends -- the deficit is distributed between the two lines instead of
+    landing entirely on the descending glyph.
+    """
+
+    def test_reciprocal_scale_one_is_bit_identical_to_the_historical_behaviour(
+        self,
+    ) -> None:
+        """The opt-out (1.0) reproduces the upper-only relief byte-for-byte."""
+        content = [
+            _make_line("My", height=0.5, line_spacing=0.05),
+            _make_line("RANGE", height=0.5),
+        ]
+        off = render_label_to_plt(
+            _make_descender_label(content, descending_character_reciprocal_scale=1.0)
+        )
+        historical = render_label_to_plt(
+            _make_descender_label(content, descending_character_reciprocal_scale=1.0),
+        )
+        assert off.plt_content == historical.plt_content
+        # Only the descending glyph carries a record -- no reciprocal partner.
+        assert list(off.descender_adjustments_by_line) == [0]
+        assert [fix.reciprocal for fix in off.descender_adjustments_by_line[0]] == [False]
+
+    def test_the_reciprocal_half_gentles_the_descending_glyph(self) -> None:
+        """Sharing the load means the descender is squeezed less than alone."""
+        content = [
+            _make_line("My", height=0.5, line_spacing=0.05),
+            _make_line("RANGE", height=0.5),
+        ]
+        shared = render_label_to_plt(
+            _make_descender_label(content, descending_character_reciprocal_scale=0.5)
+        )
+        alone = render_label_to_plt(
+            _make_descender_label(content, descending_character_reciprocal_scale=1.0)
+        )
+        (upper_shared,) = shared.descender_adjustments_by_line[0]
+        (upper_alone,) = alone.descender_adjustments_by_line[0]
+        # A larger scale_y means LESS downscaling: the lower line took a share.
+        assert upper_shared.scale_y > upper_alone.scale_y
+        # Both clear the same required gap.
+        assert upper_shared.gap_after == pytest.approx(upper_alone.gap_after, abs=1e-3)
+
+    def test_the_partner_is_scaled_top_down_about_its_lowest_point(self) -> None:
+        """The reciprocal record reports a scale with a zero raise."""
+        label = _make_descender_label(
+            [_make_line("My", height=0.5, line_spacing=0.05), _make_line("RANGE", height=0.5)]
+        )
+        rendered = render_label_to_plt(label)
+        (recip,) = rendered.descender_adjustments_by_line[1]
+        assert recip.reciprocal
+        assert recip.scale_y < 1.0
+        # The anchor is the glyph's lowest ink: no translation at all.
+        assert recip.raise_amount == 0.0
+        assert recip.gap_before < recip.gap_after
+
+    def test_the_reciprocal_scale_is_never_overspent(self) -> None:
+        """The partner's squeeze stops at descending_character_reciprocal_scale."""
+        label = _make_descender_label(
+            [
+                _make_line("My", height=0.5, line_spacing=0.05),
+                _make_line("RANGE", height=0.5),
+            ],
+            # The descender's own allowances are forbidden, so the partner is
+            # pushed all the way to its floor.
+            descending_character_v_scale=1.0,
+            descending_character_raise=0.0,
+            descending_character_reciprocal_scale=0.5,
+        )
+        rendered = render_label_to_plt(label)
+        (recip,) = rendered.descender_adjustments_by_line[1]
+        assert recip.reciprocal
+        assert recip.scale_y >= 0.5 - 1e-9
+
+    def test_the_partner_is_the_glyph_that_shares_the_collision(self) -> None:
+        """A descender with one close partner below pulls in exactly that glyph."""
+        label = _make_descender_label(
+            [_make_line("Depth", height=0.5, line_spacing=0.05), _make_line("ROOTS", height=0.5)]
+        )
+        rendered = render_label_to_plt(label)
+        (upper,) = rendered.descender_adjustments_by_line[0]
+        (recip,) = rendered.descender_adjustments_by_line[1]
+        assert upper.char == "p"
+        assert recip.reciprocal
+        # The 'p' descender of "Depth" lands on the second 'O' of "ROOTS".
+        assert recip.char == "O"
+        assert recip.glyph_index == 2
+
+    def test_a_roomy_gap_still_leaves_both_lines_alone(self) -> None:
+        """No collision means no reciprocal downscale either."""
+        label = _make_descender_label(
+            [_make_line("Depth", height=0.5, line_spacing=0.4), _make_line("RANGE", height=0.5)]
+        )
+        rendered = render_label_to_plt(label)
+        assert rendered.descender_adjustments_by_line == {}
+
+    def test_a_middle_line_can_carry_both_ramps(self) -> None:
+        """A glyph that descends AND is collided with from above gets both.
+
+        Three tight lines of identical text: every ``g``/``y`` hangs toward the
+        line below, and the same glyphs are the colliding partners of the
+        descenders above them. The middle line therefore carries BOTH roles --
+        its own descending ramp into the gap below and a reciprocal (top-down)
+        ramp from the gap above. The fixpoint absorbs the interaction: the job
+        renders, every gap clears, and no record overspends its allowance.
+        """
+        label = _make_descender_label(
+            [
+                _make_line("gy", height=0.5, line_spacing=0.02),
+                _make_line("gy", height=0.5, line_spacing=0.02),
+                _make_line("gy", height=0.5),
+            ],
+            height=2.4,
+        )
+        rendered = render_label_to_plt(label)
+        fixes = rendered.descender_adjustments_by_line
+
+        # The middle line carries both a reciprocal record (from the gap above)
+        # and its own descending record (into the gap below).
+        middle = fixes[1]
+        assert any(fix.reciprocal for fix in middle)
+        assert any(not fix.reciprocal for fix in middle)
+        # Every record respects its allowance floor.
+        for line_fixes in fixes.values():
+            for fix in line_fixes:
+                assert fix.scale_y >= 0.5 - 1e-9
+        # The relief cleared every gap (no abort, no residual).
+        assert rendered.has_collisions is False
+
+    def test_the_feature_gate_disables_the_reciprocal_half(self) -> None:
+        """``auto_descending_character_adjustment: false`` disables everything."""
+        content = [
+            _make_line("My", height=0.5, line_spacing=0.05),
+            _make_line("RANGE", height=0.5),
+        ]
+        off = render_label_to_plt(
+            _make_descender_label(
+                content,
+                auto_descending_character_adjustment=False,
+                descending_character_reciprocal_scale=0.5,
+            )
+        )
+        assert off.descender_adjustments_by_line == {}
+
+    def test_the_reciprocal_half_never_moves_the_bottom_border_gap(self) -> None:
+        """Anchoring at the lowest ink point leaves the border measurement intact.
+
+        The border trigger measures a descender's sub-baseline ink against the
+        border stroke below the LAST line. A reciprocal fix on that line scales
+        its glyphs toward their own lowest point, so nothing moves down and the
+        border clearance is exactly what the upper-only relief produced.
+        """
+        shared = render_label_to_plt(
+            _make_border_label(["charging"], height=1.9, descending_character_reciprocal_scale=0.5)
+        )
+        alone = render_label_to_plt(
+            _make_border_label(["charging"], height=1.9, descending_character_reciprocal_scale=1.0)
+        )
+        # A single line has no following line, so no partner exists at all.
+        assert list(shared.descender_adjustments_by_line) == [0]
+        assert [fix.reciprocal for fix in shared.descender_adjustments_by_line[0]] == [
+            False,
+            False,
+        ]
+        assert [fix.char for fix in shared.descender_adjustments_by_line[0]] == [
+            fix.char for fix in alone.descender_adjustments_by_line[0]
+        ]
+
+    def test_apply_glyph_ramps_composes_both_ramps_on_one_glyph(self) -> None:
+        """A middle-line glyph carrying both ramps keeps its lowest point fixed.
+
+        The upper ramp (downscale about the baseline + raise) runs first; the
+        reciprocal scale then runs about the glyph's resulting lowest ink point,
+        so the composition never pushes ink below that anchor.
+        """
+        # One glyph: a vertical stroke from y = 0.4 down to y = -0.2 (baseline
+        # y = 0, descender 0.2), plus an untouched second glyph for the splice.
+        block = TextBlock(
+            strokes=(
+                Stroke(
+                    pen_up=0.1j,
+                    segments=(LineSeg(complex(0.1, 0.4), complex(0.1, -0.2)),),
+                ),
+                Stroke(pen_up=0j, segments=(LineSeg(1.0j, complex(1.0, 0.4)),)),
+            )
+        )
+        rebuilt, applied = _apply_glyph_ramps(
+            block,
+            ((0,), (1,)),
+            "pg",
+            {0: 1.0},
+            0.5,
+            0.7,
+            {0: 1.0},
+            0.5,
+        )
+        assert [entry[0] for entry in applied] == [0]
+        _glyph_index, _char, scale_y, raise_amount, recip_scale_y = applied[0]
+        assert scale_y == pytest.approx(0.5)
+        assert raise_amount == pytest.approx(0.14)
+        assert recip_scale_y == pytest.approx(0.5)
+        # The upper ramp puts the bottom at raise - descender * scale = 0.04
+        # (0.14 - 0.2*0.5); the reciprocal scale is anchored there, so that is
+        # the final bottom. (Measured on the transformed glyph alone -- the
+        # untouched sibling reaches y = 1.0 and would dominate the block
+        # bounds.)
+        glyph = TextBlock(strokes=(rebuilt.strokes[0],))
+        bounds = glyph.bounds()
+        assert bounds is not None
+        anchor = raise_amount - 0.2 * scale_y
+        assert bounds[1] == pytest.approx(anchor, abs=1e-9)
+        # The top is squeezed toward the anchor: 0.04 + (0.34 - 0.04) * 0.5.
+        top_after_upper = 0.4 * scale_y + raise_amount
+        assert bounds[3] == pytest.approx(anchor + (top_after_upper - anchor) * recip_scale_y)
+        # The untouched glyph is verbatim, and the stroke count is preserved.
+        assert len(rebuilt.strokes) == 2
+        assert rebuilt.strokes[1].segments[0].start == pytest.approx(1.0j)
 
 
 def _make_border_label(

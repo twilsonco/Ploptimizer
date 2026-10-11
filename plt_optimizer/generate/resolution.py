@@ -256,6 +256,13 @@ DEFAULT_DESCENDING_CHARACTER_RAISE: float = 0.7
 # reads the same at every text size. An explicit ``0.0`` is honored (only true
 # touching triggers).
 DEFAULT_DESCENDING_CHARACTER_CLEARANCE: float = 0.0
+# Deepest top-down downscale permitted for the would-be-colliding glyphs on
+# the FOLLOWING line (``1.0`` = reciprocal downscaling forbidden, the
+# historical behaviour; ``0.5`` = squeezed to half height). The lower glyphs
+# are scaled about their own lowest ink point, so their lowest point never
+# moves; they share the relief with the descending glyph through the same
+# ramp driving its downscale/raise. Bound to ``[0.2, 1.0]`` by the schema.
+DEFAULT_DESCENDING_CHARACTER_RECIPROCAL_SCALE: float = 0.5
 # Stroke-color layer tag default. ``"none"`` is the implicit color of
 # every line that omits ``text_color``; it never cascades (the field is
 # label/line-local by design, see schema.TextColor) and the resolution
@@ -751,6 +758,11 @@ class ResolvedLabel:
             factor of the stroke floor -- the required gap is
             ``floor * (1 + clearance)`` (from the
             ``descending_character_clearance`` cascade, default ``0.0``).
+        descending_character_reciprocal_scale: Smallest top-down scale the
+            colliding glyphs on the following line may be squeezed to, about
+            their own lowest ink point (from the
+            ``descending_character_reciprocal_scale`` cascade, default
+            ``0.5``; ``1.0`` = reciprocal downscaling forbidden).
     """
 
     id: str
@@ -778,6 +790,7 @@ class ResolvedLabel:
     descending_character_v_scale: float = DEFAULT_DESCENDING_CHARACTER_V_SCALE
     descending_character_raise: float = DEFAULT_DESCENDING_CHARACTER_RAISE
     descending_character_clearance: float = DEFAULT_DESCENDING_CHARACTER_CLEARANCE
+    descending_character_reciprocal_scale: float = DEFAULT_DESCENDING_CHARACTER_RECIPROCAL_SCALE
 
     @property
     def center_text_by_band(self) -> bool:
@@ -2128,7 +2141,7 @@ def _resolve_label(
     # level because the mechanism compares a line's glyphs against the
     # following line's -- it is a property of the stacked block, never of one
     # line. Explicit ``False`` is honored, and only ``None`` means unset; the
-    # three numeric allowances follow the same explicit-``None`` precedence so
+    # four numeric allowances follow the same explicit-``None`` precedence so
     # an explicit ``0.0`` clearance is honored (only true touching triggers).
     if label_input.auto_descending_character_adjustment is not None:
         label_descender_adjustment: bool = label_input.auto_descending_character_adjustment
@@ -2157,6 +2170,13 @@ def _resolve_label(
         label_descender_clearance = job.descending_character_clearance
     else:
         label_descender_clearance = DEFAULT_DESCENDING_CHARACTER_CLEARANCE
+
+    if label_input.descending_character_reciprocal_scale is not None:
+        label_descender_recip: float = label_input.descending_character_reciprocal_scale
+    elif job.descending_character_reciprocal_scale is not None:
+        label_descender_recip = job.descending_character_reciprocal_scale
+    else:
+        label_descender_recip = DEFAULT_DESCENDING_CHARACTER_RECIPROCAL_SCALE
 
     # Resolve text lines with cutter compensation
     resolved_content = _resolve_content(
@@ -2241,6 +2261,7 @@ def _resolve_label(
         descending_character_v_scale=label_descender_v_scale,
         descending_character_raise=label_descender_raise,
         descending_character_clearance=label_descender_clearance,
+        descending_character_reciprocal_scale=label_descender_recip,
     )
 
 

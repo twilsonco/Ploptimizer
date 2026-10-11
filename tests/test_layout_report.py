@@ -328,3 +328,34 @@ class TestDescenderReliefFindings:
         assert "scale 0.900 (10.0% compressed)" in text
         assert "cutter 0.060in -> 0.045in" in text
         assert "descender v-scale 0.600" in text
+
+    def test_reciprocal_relief_is_a_compact_finding(self) -> None:
+        """A following-line glyph sharing the relief prints its own finding.
+
+        The reciprocal record has no raise (its lowest point is the anchor), so
+        it prints as a top-down scale rather than a v-scale + raise.
+        """
+        reciprocal = DescenderFix(
+            line_index=1,
+            glyph_index=1,
+            char="O",
+            scale_y=0.848,
+            raise_amount=0.0,
+            gap_before=-0.077,
+            gap_after=0.06,
+            reciprocal=True,
+        )
+        resolved, rendered = _label(
+            "l1",
+            [_line("Depth", 0.05), _line("RANGE")],
+            spacing={0: 0.05},
+            descenders={0: (_fix(),), 1: (reciprocal,)},
+        )
+
+        lines = format_layout_report([resolved], {"l1": rendered})
+        text = "\n".join(lines)
+
+        assert "glyph 'O' shares relief, top-down scale 0.848 (gap -0.077in -> 0.060in)" in text
+        # The descending glyph's own record keeps the historical format.
+        assert "glyph 'p' descender v-scale 0.600, raised 0.071in" in text
+        assert has_layout_findings([resolved], {"l1": rendered})

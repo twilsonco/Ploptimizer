@@ -19,6 +19,7 @@ from plt_optimizer.generate.descender_adjust import (
     GlyphBox,
     PairGap,
     apply_ramp,
+    colliding_partners,
     measure_glyph_gaps,
     measure_pairs,
     merge_ramps,
@@ -26,6 +27,8 @@ from plt_optimizer.generate.descender_adjust import (
     ramp_for_measured,
     ramp_ink,
     ramps_changed,
+    recip_ink,
+    reciprocal_scale_y,
     required_gap,
     worst_deficit,
     worst_glyph_deficit,
@@ -232,6 +235,136 @@ class TestApplyRamp:
         scale_y, raise_amount = apply_ramp(0.1, 0.5, 0.7, 5.0)
         assert scale_y == pytest.approx(0.5)
         assert raise_amount == pytest.approx(0.07)
+
+
+class TestReciprocalScaleY:
+    """The following line's top-down scale, driven by the SAME ramp."""
+
+    def test_zero_ramp_is_the_identity(self) -> None:
+        """t = 0 leaves the lower glyph exactly as rendered."""
+        assert reciprocal_scale_y(0.0, 0.5) == 1.0
+
+    def test_full_ramp_spends_the_allowance(self) -> None:
+        """t = 1 reaches the reciprocal_scale floor."""
+        assert reciprocal_scale_y(1.0, 0.5) == pytest.approx(0.5)
+
+    def test_ramp_is_proportional(self) -> None:
+        """Half the ramp is half the way from 1.0 to the floor."""
+        assert reciprocal_scale_y(0.5, 0.4) == pytest.approx(0.7)
+
+    def test_scale_one_forbids_the_reciprocal_half(self) -> None:
+        """reciprocal_scale 1.0 (the opt-out) keeps the glyph at full size."""
+        assert reciprocal_scale_y(1.0, 1.0) == 1.0
+
+    def test_ramp_is_clamped_into_unit_range(self) -> None:
+        """Out-of-range ramps clamp; the allowance is never overspent."""
+        assert reciprocal_scale_y(-1.0, 0.5) == 1.0
+        assert reciprocal_scale_y(5.0, 0.5) == pytest.approx(0.5)
+
+
+class TestRecipInk:
+    """The stacked-frame top-down scale: the lowest ink point is the anchor."""
+
+    def test_lowest_point_never_moves(self) -> None:
+        """Scaling about the anchor leaves the anchor vertex exactly in place."""
+        ink = (((0.0, 1.0), (0.1, 1.4)),)
+        scaled = recip_ink(ink, anchor_y=1.0, scale_y=0.5)
+        assert scaled[0][0] == pytest.approx((0.0, 1.0))
+        # The top descends toward the anchor: 1.0 + (1.4 - 1.0) * 0.5.
+        assert scaled[0][1] == pytest.approx((0.1, 1.2))
+
+    def test_identity_scale_is_a_noop(self) -> None:
+        """scale 1.0 leaves the ink exactly where it is."""
+        ink = (((0.0, 1.0), (0.1, 1.4)),)
+        scaled = recip_ink(ink, anchor_y=1.0, scale_y=1.0)
+        assert scaled[0][0] == pytest.approx((0.0, 1.0))
+        assert scaled[0][1] == pytest.approx((0.1, 1.4))
+
+    def test_x_is_untouched(self) -> None:
+        """The reciprocal half is a Y transform only."""
+        ink = (((0.25, 1.0), (0.75, 1.4)),)
+        scaled = recip_ink(ink, anchor_y=1.0, scale_y=0.3)
+        assert [x for x, _y in scaled[0]] == [0.25, 0.75]
+
+    def test_no_ink_moves_below_the_anchor(self) -> None:
+        """The whole glyph shrinks toward its bottom; nothing overshoots."""
+        ink = (((0.0, 1.0), (0.1, 2.0), (0.2, 1.5)),)
+        scaled = recip_ink(ink, anchor_y=1.0, scale_y=0.25)
+        assert min(y for _, y in scaled[0]) == pytest.approx(1.0)
+
+
+class TestCollidingPartners:
+    """Which following-line glyphs share a descending glyph's collision."""
+
+    def test_only_partners_inside_the_clearance_are_returned(self) -> None:
+        """The tight partner is selected; the roomy one is left alone."""
+        upper = _ink_box(0, "p", 0.0, -0.3, 0.2, 0.3, ink=(((0.0, 0.0), (0.1, -0.3)),))
+        tight = _ink_box(1, "R", 0.0, -0.8, 0.2, -0.4, ink=(((0.0, -0.4), (0.2, -0.4)),))
+        roomy = _ink_box(2, "S", 3.0, -0.8, 3.2, -0.4, ink=(((3.0, -0.4), (3.2, -0.4)),))
+        partners = colliding_partners(upper, [tight, roomy], required=0.15)
+        assert partners == (1,)
+
+    def test_tangent_partner_is_safe(self) -> None:
+        """A gap exactly equal to the requirement is tangency, not a collision."""
+        # A vertical descender at x = 0 down to y = -0.3; the partner's ink is
+        # the horizontal run at y = 0.2 starting at x = 0, so the closest
+        # points are (0, 0) and (0, 0.2): a gap of exactly 0.2in.
+        upper = _ink_box(0, "p", 0.0, -0.3, 0.1, 0.3, ink=(((0.0, 0.0), (0.0, -0.3)),))
+        partner = _ink_box(1, "R", 0.0, 0.2, 0.2, 0.5, ink=(((0.0, 0.2), (0.2, 0.2)),))
+        assert colliding_partners(upper, [partner], required=0.2) == ()
+        # A hair more demanded and the same partner shares the collision.
+        assert colliding_partners(upper, [partner], required=0.21) == (1,)
+
+    def test_glyph_without_sub_baseline_ink_has_no_partners(self) -> None:
+        """Nothing reaches into the gap, so nothing shares a collision."""
+        upper = GlyphBox(
+            glyph_index=0,
+            char="H",
+            bounds=(0.0, 0.0, 0.2, 0.3),
+            descender=0.0,
+            ink=(((0.0, 0.0), (0.2, 0.3)),),
+            sub_baseline_ink=(),
+        )
+        partner = _ink_box(1, "R", 0.0, -0.5, 0.2, 0.0, ink=(((0.0, -0.4), (0.2, -0.4)),))
+        assert colliding_partners(upper, [partner], required=0.5) == ()
+
+    def test_sideways_hook_pulls_in_its_crook_partner(self) -> None:
+        """The pair the box model hides is a partner for the reciprocal half.
+
+        The hook ends beside the tittle (X-disjoint boxes), so the box model
+        reports ``inf`` -- yet the true 2D distance sits inside the clearance
+        and the tittle must share the relief.
+        """
+        upper = _ink_box(0, "g", 0.0, -0.1, 0.1, 0.3, ink=(((0.0, 0.0), (0.1, -0.1)),))
+        dot = _ink_box(
+            5, "i", 0.15, -0.25, 0.2, -0.1, ink=(((0.15, -0.15), (0.2, -0.15)),)
+        )
+        assert colliding_partners(upper, [dot], required=0.1) == (5,)
+
+
+class TestRampForReciprocalSlope:
+    """The box-model closed form with the following line sharing the load."""
+
+    def test_defaults_reproduce_the_upper_only_math(self) -> None:
+        """Omitting the reciprocal arguments is bit-identical to the old form."""
+        plain = ramp_for(-0.02, 0.06, 0.1, 0.5, 0.7)
+        explicit = ramp_for(-0.02, 0.06, 0.1, 0.5, 0.7, 0.0, 1.0)
+        assert plain == explicit
+
+    def test_reciprocal_shares_the_load_so_the_ramp_shrinks(self) -> None:
+        """A partner that can shrink top-down needs a smaller ramp."""
+        upper_only = ramp_for(-0.02, 0.06, 0.1, 0.5, 0.7)
+        shared = ramp_for(-0.02, 0.06, 0.1, 0.5, 0.7, 0.4, 0.5)
+        assert shared < upper_only
+        # The slope gains lower_height * (1 - reciprocal_scale) = 0.4 * 0.5.
+        assert shared == pytest.approx(0.08 / (0.07 + 0.05 + 0.2))
+
+    def test_reciprocal_alone_clears_when_the_upper_is_inert(self) -> None:
+        """With the upper allowances zero, the partner's squeeze carries it."""
+        inert = ramp_for(-0.02, 0.06, 0.1, 1.0, 0.0, 0.4, 1.0)
+        assert inert == 0.0
+        shared = ramp_for(-0.02, 0.06, 0.1, 1.0, 0.0, 0.4, 0.5)
+        assert 0.0 < shared < 1.0
 
 
 class TestMergeRamps:

@@ -50,6 +50,7 @@ _FULL_CONFIG: dict[str, Any] = {
     "descending_character_v_scale": 0.3,
     "descending_character_raise": 0.25,
     "descending_character_clearance": 0.05,
+    "descending_character_reciprocal_scale": 0.6,
     "plate_width": 24.0,
     "plate_height": 16.0,
     "left_clearance": 0.0,
@@ -174,9 +175,18 @@ class TestJobDefaultsModel:
         )
         assert JobDefaults(descending_character_raise=1.0).descending_character_raise == 1.0
         assert JobDefaults(descending_character_clearance=0.0).descending_character_clearance == 0.0
+        assert (
+            JobDefaults(descending_character_reciprocal_scale=0.2).descending_character_reciprocal_scale
+            == 0.2
+        )
+        assert (
+            JobDefaults(descending_character_reciprocal_scale=1.0).descending_character_reciprocal_scale
+            == 1.0
+        )
         assert JobDefaults().descending_character_v_scale is None
         assert JobDefaults().descending_character_raise is None
         assert JobDefaults().descending_character_clearance is None
+        assert JobDefaults().descending_character_reciprocal_scale is None
 
     def test_descending_character_range_validators(self) -> None:
         """The relief floats enforce the same bounds as the job spec."""
@@ -190,6 +200,10 @@ class TestJobDefaultsModel:
             JobDefaults(descending_character_raise=1.5)  # type: ignore[arg-type]
         with pytest.raises(ValidationError):
             JobDefaults(descending_character_clearance=-0.01)  # type: ignore[arg-type]
+        with pytest.raises(ValidationError):
+            JobDefaults(descending_character_reciprocal_scale=0.1)  # type: ignore[arg-type]
+        with pytest.raises(ValidationError):
+            JobDefaults(descending_character_reciprocal_scale=1.1)  # type: ignore[arg-type]
 
     def test_range_validators(self) -> None:
         """Numeric fields enforce the same bounds as the job spec."""
@@ -239,6 +253,7 @@ class TestJobDefaultsModel:
         assert "descending_character_v_scale" not in REQUIRED_WHEN_UNCONFIGURED
         assert "descending_character_raise" not in REQUIRED_WHEN_UNCONFIGURED
         assert "descending_character_clearance" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "descending_character_reciprocal_scale" not in REQUIRED_WHEN_UNCONFIGURED
         assert JobDefaults().space_width_fraction is None
         assert JobDefaults().min_glyph_width is None
         assert JobDefaults().kerning_window_fraction is None
@@ -799,6 +814,7 @@ class TestParseYamlWithJobConfig:
         assert isinstance(job.descending_character_v_scale, float)
         assert isinstance(job.descending_character_raise, float)
         assert isinstance(job.descending_character_clearance, float)
+        assert isinstance(job.descending_character_reciprocal_scale, float)
 
     def test_yaml_overrides_config(self) -> None:
         """Spec-declared values still win over the shipped config."""

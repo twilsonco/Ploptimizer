@@ -553,6 +553,21 @@
           "description": "Extra air demanded between the engraved stroke of a descending glyph and the engraved stroke of a glyph on the following line, as a unitless factor of the stroke floor (required gap = floor * (1 + clearance)), so it scales with the cutter width and reads the same at every text size. Cascades job -> plate -> label (never text lines); explicit 0.0 is honored (only true touching triggers); unset (null) falls back to job-config.json then 0.0. Accepted on plates for schema parity only.",
           "title": "Descending Character Clearance"
         },
+        "descending_character_reciprocal_scale": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.2,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum vertical downscale allowed for the would-be-colliding glyphs on the FOLLOWING line in [0.2, 1.0] (1.0 = no reciprocal downscaling, 0.5 = 50% downscaling). The lower glyphs are scaled top-down about their own lowest ink point, so their lowest point never moves; they share the relief with the descending glyph in proportion to the same ramp driving its downscale/raise. Cascades job -> plate -> label (never text lines); unset (null) falls back to job-config.json then 0.5. Accepted on plates for schema parity only.",
+          "title": "Descending Character Reciprocal Scale"
+        },
         "id": {
           "description": "Unique identifier for this label specification.",
           "title": "Id",
@@ -1055,6 +1070,21 @@
           "default": null,
           "description": "Extra engraved-stroke air gap in inches for descending-character relief (schema parity; not applied at plate level).",
           "title": "Descending Character Clearance"
+        },
+        "descending_character_reciprocal_scale": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.2,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum top-down downscale for the following line's colliding glyphs in [0.2, 1.0] (schema parity; not applied at plate level).",
+          "title": "Descending Character Reciprocal Scale"
         },
         "layout": {
           "anyOf": [
@@ -1996,6 +2026,21 @@
       "default": null,
       "description": "Extra air demanded between the engraved stroke of a descending glyph and the engraved stroke of a glyph on the following line, as a unitless factor of the stroke floor (required gap = floor * (1 + clearance)), so it scales with the cutter width and reads the same at every text size. Cascades job -> plate -> label (never text lines); explicit 0.0 is honored (only true touching triggers); unset (null) falls back to job-config.json then 0.0. Accepted on plates for schema parity only.",
       "title": "Descending Character Clearance"
+    },
+    "descending_character_reciprocal_scale": {
+      "anyOf": [
+        {
+          "maximum": 1.0,
+          "minimum": 0.2,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Maximum vertical downscale allowed for the would-be-colliding glyphs on the FOLLOWING line in [0.2, 1.0] (1.0 = no reciprocal downscaling, 0.5 = 50% downscaling). The lower glyphs are scaled top-down about their own lowest ink point, so their lowest point never moves; they share the relief with the descending glyph in proportion to the same ramp driving its downscale/raise. Cascades job -> plate -> label (never text lines); unset (null) falls back to job-config.json then 0.5. Accepted on plates for schema parity only.",
+      "title": "Descending Character Reciprocal Scale"
     },
     "job_name": {
       "description": "Human-readable name for this job.",

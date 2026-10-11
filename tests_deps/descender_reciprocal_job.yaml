@@ -1,0 +1,64 @@
+# Fixture for the RECIPROCAL half of the descending-character relief
+# (`descending_character_reciprocal_scale`, default 0.5).
+#
+# The relief is no longer one-sided: when a descending glyph comes within the
+# required clearance of a glyph on the following line, the deficit is shared
+# between the two lines through the SAME ramp t in [0, 1]. The descending glyph
+# is downscaled about its baseline and raised (descending_character_v_scale /
+# descending_character_raise); the colliding glyphs on the FOLLOWING line are
+# scaled TOP-DOWN about their own lowest ink point, so their lowest point never
+# moves and their top descends toward it, capped by
+# descending_character_reciprocal_scale (1.0 = reciprocal downscaling
+# forbidden, the historical behaviour).
+#
+# Dino at 1.5in text, 0.09in cutter, clearance 0.5 => required 0.135in.
+#
+# No plate declares a material and the job packs onto one sheet, so emitted
+# names carry no plate/material prefix: [<cutter>]_txt_<job>.plt per distinct
+# cutter plus one bh file.
+job:
+  job_name: Descender Reciprocal Demo
+
+  width: 6.0
+  height: 4.0
+  margin: 0.1
+  text_height: 1.5
+  font: dino
+  descending_character_clearance: 0.5
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. Shared relief: the "g" hook of "through" reaches the dot of the "i"
+    #    of "charging" below (the crook pair). Both allowances are open, so
+    #    the "g" is squeezed/raised AND the "i" is scaled top-down by the same
+    #    ramp -- each glyph moves less than it would have to alone.
+    - id: shared
+      content:
+        - text: "through"
+        - text: "charging"
+
+    # 2. Reciprocal only: the descending glyph's own allowances are forbidden
+    #    (v_scale 1.0, raise 0.0), so the whole deficit falls on the following
+    #    line -- the "i" dot is scaled top-down about its lowest point.
+    - id: reciprocal_only
+      descending_character_v_scale: 1.0
+      descending_character_raise: 0.0
+      descending_character_reciprocal_scale: 0.5
+      content:
+        - text: "through"
+        - text: "charging"
+
+    # 3. The opt-out twin: the reciprocal lever is forbidden too (1.0), so the
+    #    pair engraves exactly as the upper-only relief leaves it (label 2's
+    #    collision stays in the output).
+    - id: reciprocal_off
+      descending_character_v_scale: 1.0
+      descending_character_raise: 0.0
+      descending_character_reciprocal_scale: 1.0
+      content:
+        - text: "through"
+        - text: "charging"

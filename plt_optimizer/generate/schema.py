@@ -1060,6 +1060,22 @@ class LabelAttributes(TextAttributes):
             "plates for schema parity only."
         ),
     )
+    descending_character_reciprocal_scale: Optional[float] = Field(
+        default=None,
+        ge=0.2,
+        le=1.0,
+        description=(
+            "Maximum vertical downscale allowed for the would-be-colliding "
+            "glyphs on the FOLLOWING line in [0.2, 1.0] (1.0 = no reciprocal "
+            "downscaling, 0.5 = 50% downscaling). The lower glyphs are scaled "
+            "top-down about their own lowest ink point, so their lowest point "
+            "never moves; they share the relief with the descending glyph in "
+            "proportion to the same ramp driving its downscale/raise. Cascades "
+            "job -> plate -> label (never text lines); unset (null) falls back "
+            "to job-config.json then 0.5. Accepted on plates for schema parity "
+            "only."
+        ),
+    )
 
     @field_validator("material")
     @classmethod
@@ -1660,6 +1676,15 @@ class PlateSpec(BaseModel):
         description=(
             "Extra engraved-stroke air gap in inches for descending-character "
             "relief (schema parity; not applied at plate level)."
+        ),
+    )
+    descending_character_reciprocal_scale: Optional[float] = Field(
+        default=None,
+        ge=0.2,
+        le=1.0,
+        description=(
+            "Maximum top-down downscale for the following line's colliding "
+            "glyphs in [0.2, 1.0] (schema parity; not applied at plate level)."
         ),
     )
     layout: Optional[LayoutMode] = Field(

@@ -16,6 +16,7 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_CUTTER_SIZE,
     DEFAULT_DESCENDING_CHARACTER_CLEARANCE,
     DEFAULT_DESCENDING_CHARACTER_RAISE,
+    DEFAULT_DESCENDING_CHARACTER_RECIPROCAL_SCALE,
     DEFAULT_DESCENDING_CHARACTER_V_SCALE,
     DEFAULT_FALLBACK_ADVANCE_FRACTION,
     DEFAULT_FONT,
@@ -3366,6 +3367,7 @@ class TestDescendingCharacterCascade:
         assert DEFAULT_DESCENDING_CHARACTER_V_SCALE == 0.5
         assert DEFAULT_DESCENDING_CHARACTER_RAISE == 0.7
         assert DEFAULT_DESCENDING_CHARACTER_CLEARANCE == 0.0
+        assert DEFAULT_DESCENDING_CHARACTER_RECIPROCAL_SCALE == 0.5
 
     def test_defaults_resolve(self) -> None:
         """All levels omitting resolves to the shipped fallbacks."""
@@ -3374,6 +3376,7 @@ class TestDescendingCharacterCascade:
         assert label.descending_character_v_scale == 0.5
         assert label.descending_character_raise == 0.7
         assert label.descending_character_clearance == 0.0
+        assert label.descending_character_reciprocal_scale == 0.5
 
     def test_job_values_used_when_label_omits(self) -> None:
         """Job-level values cascade onto labels that omit the fields."""
@@ -3383,12 +3386,14 @@ class TestDescendingCharacterCascade:
                 job__descending_character_v_scale=0.3,
                 job__descending_character_raise=0.25,
                 job__descending_character_clearance=0.05,
+                job__descending_character_reciprocal_scale=0.8,
             )
         )[0]
         assert label.auto_descending_character_adjustment is False
         assert label.descending_character_v_scale == pytest.approx(0.3)
         assert label.descending_character_raise == pytest.approx(0.25)
         assert label.descending_character_clearance == pytest.approx(0.05)
+        assert label.descending_character_reciprocal_scale == pytest.approx(0.8)
 
     def test_label_overrides_job(self) -> None:
         """Label-level values beat the job-level ones."""
@@ -3396,12 +3401,16 @@ class TestDescendingCharacterCascade:
             self._job(
                 job__auto_descending_character_adjustment=False,
                 job__descending_character_v_scale=0.3,
+                job__descending_character_reciprocal_scale=0.3,
                 label__auto_descending_character_adjustment=True,
                 label__descending_character_v_scale=0.9,
+                label__descending_character_reciprocal_scale=1.0,
             )
         )[0]
         assert label.auto_descending_character_adjustment is True
         assert label.descending_character_v_scale == pytest.approx(0.9)
+        # The reciprocal opt-out (1.0) is a real value, not an unset fallthrough.
+        assert label.descending_character_reciprocal_scale == 1.0
 
     def test_label_false_is_honored(self) -> None:
         """An intentional False (descenders engrave verbatim) never falls through."""
@@ -3458,3 +3467,7 @@ class TestDescendingCharacterCascade:
         assert label.descending_character_v_scale == DEFAULT_DESCENDING_CHARACTER_V_SCALE
         assert label.descending_character_raise == DEFAULT_DESCENDING_CHARACTER_RAISE
         assert label.descending_character_clearance == DEFAULT_DESCENDING_CHARACTER_CLEARANCE
+        assert (
+            label.descending_character_reciprocal_scale
+            == DEFAULT_DESCENDING_CHARACTER_RECIPROCAL_SCALE
+        )

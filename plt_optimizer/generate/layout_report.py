@@ -233,6 +233,13 @@ def _label_lines(
                 )
             if entry[4]:
                 for fix in rendered.descender_adjustments_by_line.get(line_index, ()):
+                    if fix.reciprocal:
+                        lines.append(
+                            f"    Line {line_index}: {line.text!r} glyph {fix.char!r} "
+                            f"shares relief, top-down scale {fix.scale_y:.3f} "
+                            f"(gap {fix.gap_before:.3f}in -> {fix.gap_after:.3f}in)"
+                        )
+                        continue
                     lines.append(
                         f"    Line {line_index}: {line.text!r} glyph {fix.char!r} "
                         f"descender v-scale {fix.scale_y:.3f}, raised {fix.raise_amount:.3f}in "
