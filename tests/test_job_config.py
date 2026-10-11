@@ -13,6 +13,7 @@ This test suite validates:
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -24,10 +25,12 @@ from plt_optimizer.generate.job_config import (
     JobConfig,
     JobConfigError,
     JobDefaults,
+    _spec_declares_margin,
     apply_job_config_defaults,
     assert_required_fields,
     load_job_config,
 )
+from plt_optimizer.generate.resolution import resolve_job_spec
 from plt_optimizer.generate.schema import parse_yaml
 
 # A complete config supplying every required field (plus a few optional
@@ -44,6 +47,7 @@ _FULL_CONFIG: dict[str, Any] = {
     "kerning_recession_scale": 0.0,
     "kerning_min_gap": 0.05,
     "fallback_advance_fraction": 0.9,
+    "sc_scale": 0.45,
     "use_baseline_spacing": False,
     "v_center_by_content": True,
     "auto_descending_character_adjustment": False,
@@ -240,6 +244,7 @@ class TestJobDefaultsModel:
         assert "kerning_recession_scale" not in REQUIRED_WHEN_UNCONFIGURED
         assert "kerning_min_gap" not in REQUIRED_WHEN_UNCONFIGURED
         assert "fallback_advance_fraction" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "sc_scale" not in REQUIRED_WHEN_UNCONFIGURED
         assert "cutter_size" not in REQUIRED_WHEN_UNCONFIGURED
         assert "cutter_downsize" not in REQUIRED_WHEN_UNCONFIGURED
         assert "max_cutter_downsizes" not in REQUIRED_WHEN_UNCONFIGURED
@@ -261,6 +266,12 @@ class TestJobDefaultsModel:
         assert JobDefaults().kerning_recession_scale is None
         assert JobDefaults().kerning_min_gap is None
         assert JobDefaults().fallback_advance_fraction is None
+        assert JobDefaults().sc_scale is None
+        assert JobDefaults(sc_scale=0.4).sc_scale == pytest.approx(0.4)
+        with pytest.raises(Exception):
+            JobDefaults(sc_scale=0.1)
+        with pytest.raises(Exception):
+            JobDefaults(sc_scale=1.1)
         assert JobDefaults().use_baseline_spacing is None
         assert JobDefaults(use_baseline_spacing=False).use_baseline_spacing is False
         assert JobDefaults().v_center_by_content is None
@@ -344,6 +355,7 @@ class TestApplyJobConfigDefaults:
         assert filled["kerning_recession_scale"] == 0.0
         assert filled["kerning_min_gap"] == 0.05
         assert filled["fallback_advance_fraction"] == 0.9
+        assert filled["sc_scale"] == 0.45
 
     def test_cutter_downsize_job_layer_fill(self, tmp_path: Path) -> None:
         """Configured cutter-downsize defaults land as job-level values."""
@@ -450,6 +462,54 @@ class TestApplyJobConfigDefaults:
         config = load_job_config(_write_config(tmp_path, _FULL_CONFIG))
         filled = apply_job_config_defaults(_minimal_job(hole_margin=None), config)
         assert filled["hole_margin"] == 0.0625
+
+    def test_spec_margin_suppresses_config_axis_margins(self, tmp_path: Path) -> None:
+        """A job-level margin wins over configured h_margin/v_margin.
+
+        The margin cascade checks job.h_margin/job.v_margin before the
+        universal margin, so injecting the axis values for a
+        margin-declaring spec would silently outrank the spec's margin
+        on that axis.
+        """
+        config_data = dict(_FULL_CONFIG, margin=0.2, h_margin=0.3, v_margin=0.4)
+        config = load_job_config(_write_config(tmp_path, config_data))
+        filled = apply_job_config_defaults(_minimal_job(margin=2.0), config)
+        assert "h_margin" not in filled
+        assert "v_margin" not in filled
+        assert filled["margin"] == 2.0
+
+    def test_label_margin_suppresses_config_axis_margins(self, tmp_path: Path) -> None:
+        """A label-declared margin suppresses the axis margins job-wide."""
+        config_data = dict(_FULL_CONFIG, h_margin=0.3, v_margin=0.4)
+        config = load_job_config(_write_config(tmp_path, config_data))
+        job = _minimal_job(labels=[{"id": "l1", "margin": 0.5, "content": [{"text": "Hi"}]}])
+        filled = apply_job_config_defaults(job, config)
+        assert "h_margin" not in filled
+        assert "v_margin" not in filled
+
+    def test_null_margin_does_not_suppress_config_axis_margins(self, tmp_path: Path) -> None:
+        """An explicit ``margin: null`` is unset, so the config fills the axes."""
+        config_data = dict(_FULL_CONFIG, h_margin=0.3, v_margin=0.4)
+        config = load_job_config(_write_config(tmp_path, config_data))
+        filled = apply_job_config_defaults(_minimal_job(margin=None), config)
+        assert filled["h_margin"] == 0.3
+        assert filled["v_margin"] == 0.4
+
+    def test_yaml_axis_margin_wins_beside_spec_margin(self, tmp_path: Path) -> None:
+        """A spec-declared h_margin keeps its own value next to a margin."""
+        config_data = dict(_FULL_CONFIG, h_margin=0.3, v_margin=0.4)
+        config = load_job_config(_write_config(tmp_path, config_data))
+        filled = apply_job_config_defaults(_minimal_job(margin=2.0, h_margin=0.25), config)
+        assert filled["h_margin"] == 0.25
+        assert "v_margin" not in filled
+
+    def test_axis_margins_inject_without_spec_margin(self, tmp_path: Path) -> None:
+        """A spec declaring no margin keeps the configured axis defaults."""
+        config_data = dict(_FULL_CONFIG, h_margin=0.3, v_margin=0.4)
+        config = load_job_config(_write_config(tmp_path, config_data))
+        filled = apply_job_config_defaults(_minimal_job(), config)
+        assert filled["h_margin"] == 0.3
+        assert filled["v_margin"] == 0.4
 
     def test_input_not_mutated(self, tmp_path: Path) -> None:
         """Injection returns a copy; the caller's mapping stays pristine."""
@@ -782,6 +842,30 @@ class TestAssertRequiredFields:
             assert_required_fields(job, config)
 
 
+class TestSpecDeclaresMargin:
+    """Direct checks for the margin-declaration probe."""
+
+    def test_job_level_margin(self) -> None:
+        """A job-level margin is a declaration."""
+        assert _spec_declares_margin({"margin": 0.1}) is True
+
+    def test_label_level_margin(self) -> None:
+        """A margin on any label is a declaration too."""
+        assert _spec_declares_margin({"labels": [{"margin": 0.1}]}) is True
+
+    def test_null_everywhere_is_unset(self) -> None:
+        """Explicit nulls are inherit semantics, not declarations."""
+        assert _spec_declares_margin({"margin": None, "labels": [{"margin": None}]}) is False
+
+    def test_non_list_labels_ignored(self) -> None:
+        """A malformed labels value never declares a margin."""
+        assert _spec_declares_margin({"labels": "not-a-list"}) is False
+
+    def test_non_dict_label_entries_ignored(self) -> None:
+        """Non-mapping label entries are skipped, not crashes."""
+        assert _spec_declares_margin({"labels": ["plain string"]}) is False
+
+
 class TestParseYamlWithJobConfig:
     """Integration of parse_yaml() with the job-config layer."""
 
@@ -794,11 +878,12 @@ class TestParseYamlWithJobConfig:
         assert job.hole_text_collision_distance == 0.1
         assert job.space_width_fraction == 0.6
         assert job.min_glyph_width == 0.06
-        assert job.kerning_window_fraction == 0.15
+        assert job.kerning_window_fraction == 0.1
         assert job.kerning_penetration_scale == 1.0
         assert job.kerning_recession_scale == 0.0
         assert job.kerning_min_gap == 0.02
         assert job.fallback_advance_fraction == 1.0
+        assert job.sc_scale == 0.8
         assert job.cutter_downsize is True
         assert job.max_cutter_downsizes == 1
         assert job.cutter_downsize_global is True
@@ -821,6 +906,21 @@ class TestParseYamlWithJobConfig:
         job = parse_yaml("tests_deps/test123_spec.yaml", job_config_path=Path("job-config.json"))
         assert job.margin == 0.1
         assert job.text_height == 0.5
+
+    def test_repo_config_margin_suppresses_axis_margins(self) -> None:
+        """The shipped h_margin default yields to the spec's margin.
+
+        ``tests_deps/test123_spec.yaml`` declares ``margin: 0.1`` and no
+        axis margins, so the repo config's ``h_margin`` must not be
+        injected and resolution must land 0.1in on every edge.
+        """
+        job = parse_yaml("tests_deps/test123_spec.yaml", job_config_path=Path("job-config.json"))
+        assert job.margin == 0.1
+        assert job.h_margin is None
+        assert job.v_margin is None
+        for label in resolve_job_spec(job):
+            assert math.isclose(label.h_margin, 0.1)
+            assert math.isclose(label.v_margin, 0.1)
 
     def test_plate_defaults_applied(self, tmp_path: Path) -> None:
         """Plates omitting dimensions take the config plate size."""

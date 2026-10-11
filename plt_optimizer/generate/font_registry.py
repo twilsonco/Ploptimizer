@@ -22,6 +22,15 @@ vpype): :mod:`plt_optimizer.generate.schema` imports it to validate and
 document the valid font names, and ``schema`` must stay importable on the
 Python 3.8 / Windows 7 CLI path where matplotlib is not installed.
 
+Every base font also gets a synthetic **small-caps variant** named
+``"<base name> SC"`` (case-insensitive, rendered on the fly from the base --
+never stored in the JSON library): the uppercase glyphs engrave verbatim at
+full size while ASCII lowercase ``a-z`` is replaced by its uppercase glyph
+uniformly downscaled by the cascading ``sc_scale`` (see
+:mod:`plt_optimizer.generate.plt_font_renderer` / :mod:`plt_optimizer.generate.ftext_renderer`
+for the per-family transforms). The variant shares the base's kind (PLT
+variants stay arc-native, TTF variants render through ftext).
+
 Matching is case-insensitive and resolves to the canonical stored name, so
 ``"dino"`` and ``"DINO"`` both yield ``"Dino"``.
 """
@@ -33,7 +42,7 @@ import logging
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Tuple
+from typing import Dict, Iterable, List, Literal, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +58,14 @@ PLT_FONTS_JSON_PATH: Path = FONTS_DIR / "plt_fonts.json"
 DEFAULT_FONT_NAME: str = "ReliefSingleLineCAD-Regular"
 
 FontKind = Literal["ttf", "plt"]
+
+# Suffix appended (space-separated) to a base font name to form its
+# synthetic small-caps variant (``"Dino SC"``). Matched case-insensitively;
+# stripped case-insensitively by :func:`base_font_name`.
+SMALL_CAPS_SUFFIX: str = "SC"
+
+# Canonical separator between a base font name and :data:`SMALL_CAPS_SUFFIX`.
+_SMALL_CAPS_SEPARATOR: str = " "
 
 
 class FontNotFoundError(ValueError):
@@ -82,15 +99,23 @@ class FontRef:
     Attributes:
         kind: ``"ttf"`` for a TrueType file, ``"plt"`` for a PLT-extracted
             glyph library.
-        name: The canonical font name (``plt_fonts.json`` key, or the TTF
-            file's basename without extension).
+        name: The canonical font name (``plt_fonts.json`` key, the TTF
+            file's basename without extension, or the synthetic small-caps
+            variant ``"<base name> SC"``).
         path: Absolute path to the ``.ttf`` file; ``None`` for PLT fonts
-            (whose geometry lives in the JSON library).
+            (whose geometry lives in the JSON library). A small-caps
+            variant carries its **base** font's path -- the variant's
+            geometry is the base's, transformed at render time.
+        small_caps: True when the name is a synthetic small-caps variant:
+            uppercase glyphs render verbatim and ASCII lowercase ``a-z``
+            renders as its uppercase glyph downscaled by ``sc_scale``.
+            Geometry and library lookups always use :func:`base_font_name`.
     """
 
     kind: FontKind
     name: str
     path: Optional[Path] = None
+    small_caps: bool = False
 
 
 @dataclass(frozen=True)
@@ -332,19 +357,62 @@ def available_ttf_fonts(fonts_dir: Optional[Path] = None) -> Dict[str, Path]:
     return found
 
 
+def _small_caps_canonical(name: str) -> str:
+    """Return the canonical small-caps variant name of a base font name."""
+    return f"{name}{_SMALL_CAPS_SEPARATOR}{SMALL_CAPS_SUFFIX}"
+
+
+def base_font_name(name: str) -> str:
+    """Return the base font name of ``name``, stripping a trailing `` SC``.
+
+    Glyph-library lookups (``plt_fonts.json`` keys, TTF discovery) are
+    keyed by the base name only -- the small-caps variant is a render-time
+    transform, never a stored font -- so every consumer that indexes the
+    library with a resolved :attr:`FontRef.name` must pass it through this
+    helper first. Non-variant names are returned verbatim.
+
+    Args:
+        name: A canonical font name (``"Dino"``, ``"Dino SC"``,
+            ``"Dino SC SC"``, ...).
+
+    Returns:
+        The base name: a single trailing `` SC`` separator + suffix
+        (case-insensitive) is removed (``"Dino SC"`` -> ``"Dino"``);
+        non-variant names are returned verbatim. Synthesis is one-tier
+        (``_canonical_map`` appends the suffix to base names only), so a
+        resolved variant name always strips to a stored library key.
+    """
+    lowered = name.rstrip().lower()
+    suffix = f"{_SMALL_CAPS_SEPARATOR}{SMALL_CAPS_SUFFIX.lower()}"
+    if lowered.endswith(suffix):
+        return name.rstrip()[: -len(suffix)]
+    return name
+
+
 def _canonical_map(
     plt_fonts: Dict[str, PltFontData], ttfs: Dict[str, Path]
-) -> Dict[str, tuple[FontKind, str]]:
-    """Build the case-insensitive lowercase-name to (kind, canonical) index.
+) -> Dict[str, tuple[FontKind, str, str, bool]]:
+    """Build the case-insensitive index of base and small-caps font names.
 
+    Maps each lowercase name to ``(kind, canonical, base, small_caps)``.
     TrueType entries are inserted last so a TTF basename always wins a
-    cross-family collision (the historical default family is TTF).
+    cross-family collision (the historical default family is TTF). Every
+    base font contributes a synthetic ``"<base> SC"`` variant of the same
+    kind; variants are inserted with ``setdefault`` after all bases, so a
+    real font literally named ``"Foo SC"`` always wins its name.
     """
-    index: Dict[str, tuple[FontKind, str]] = {}
+    index: Dict[str, tuple[FontKind, str, str, bool]] = {}
     for name in plt_fonts:
-        index[name.lower()] = ("plt", name)
+        index[name.lower()] = ("plt", name, name, False)
     for name in ttfs:
-        index[name.lower()] = ("ttf", name)
+        index[name.lower()] = ("ttf", name, name, False)
+    families: tuple[tuple[FontKind, Iterable[str]], ...] = (("plt", plt_fonts), ("ttf", ttfs))
+    for kind, names in families:
+        for name in names:
+            index.setdefault(
+                f"{name.lower()}{_SMALL_CAPS_SEPARATOR}{SMALL_CAPS_SUFFIX.lower()}",
+                (kind, _small_caps_canonical(name), name, True),
+            )
     return index
 
 
@@ -358,11 +426,11 @@ def font_name_choices(
         fonts_dir: Optional Fonts root override.
 
     Returns:
-        Canonical font names (PLT keys + TTF basenames), deduplicated and
-        sorted.
+        Canonical font names (PLT keys + TTF basenames, plus the synthetic
+        ``"<base> SC"`` small-caps variants), deduplicated and sorted.
     """
     index = _canonical_map(load_plt_fonts(json_path), available_ttf_fonts(fonts_dir))
-    return sorted({canonical for _kind, canonical in index.values()}, key=str.lower)
+    return sorted({canonical for _kind, canonical, _base, _sc in index.values()}, key=str.lower)
 
 
 def resolve_font(
@@ -373,10 +441,13 @@ def resolve_font(
     """Resolve a user-supplied font name to a :class:`FontRef`.
 
     Matching is case-insensitive; the returned :attr:`FontRef.name` is always
-    the canonical stored name.
+    the canonical stored name. A ``"<base> SC"`` request resolves to the
+    base font's kind/path with :attr:`FontRef.small_caps` set -- the
+    variant is a render-time transform of the base, never a stored font.
 
     Args:
-        name: Requested font name (e.g. ``"dino"`` or ``"ReliefSingleLineCAD-Regular"``).
+        name: Requested font name (e.g. ``"dino"``, ``"Dino SC"`` or
+            ``"ReliefSingleLineCAD-Regular"``).
         json_path: Optional ``plt_fonts.json`` override.
         fonts_dir: Optional Fonts root override.
 
@@ -392,10 +463,9 @@ def resolve_font(
     entry = index.get(name.strip().lower())
     if entry is None:
         raise FontNotFoundError(name, font_name_choices(json_path, fonts_dir))
-    kind, canonical = entry
-    if kind == "ttf":
-        return FontRef(kind="ttf", name=canonical, path=available_ttf_fonts(fonts_dir)[canonical])
-    return FontRef(kind="plt", name=canonical, path=None)
+    kind, canonical, base, small_caps = entry
+    path = available_ttf_fonts(fonts_dir)[base] if kind == "ttf" else None
+    return FontRef(kind=kind, name=canonical, path=path, small_caps=small_caps)
 
 
 def normalize_font_name(

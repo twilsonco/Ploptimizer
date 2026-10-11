@@ -38,6 +38,18 @@ Coordinate convention (matches matplotlib/plotter):
   visibly different glyph sizes across lines. The result is drop-in compatible
   with the rest of the label/plate layout pipeline (which works entirely in
   inches).
+
+**Small caps** (``small_caps_scale``, the cascaded ``sc_scale``; the caller
+resolves the ``"<base> SC"`` registry variant): matplotlib's
+:class:`~matplotlib.textpath.TextPath` ignores OpenType ``smcp``, so the
+variant is synthesized -- the text is mapped per character (ASCII lowercase
+``a-z`` -> uppercase, every other character verbatim, strictly 1:1) and the
+mapped string renders through the normal path, keeping the font's natural
+uppercase advances (the standard synthetic small-caps spacing). Each
+lowercase-origin glyph's contours are then uniformly shrunk to
+``small_caps_scale`` of the cap height **top-down, about the glyph's own
+bottom-left ink corner** (its bottom stays exactly in place, its top
+descends, and its left edge -- the pen-advance start -- stays put too).
 """
 
 from __future__ import annotations
@@ -83,6 +95,29 @@ _FTEXT_RESOLUTION: int = 1024
 # The reference glyph whose ink height defines the per-font scale (the
 # TrueType analogue of the PLT library's reference character, e.g. "E").
 _REFERENCE_CHAR: str = "H"
+
+# The characters a small-caps font transforms: ASCII lowercase only (the
+# user-facing contract). Accented lowercase, eszett, digits, punctuation
+# and symbols engrave verbatim at full size, and the map is strictly 1:1
+# per character, so word boundaries and the per-glyph contour slicing stay
+# exact on the mapped string.
+_ASCII_LOWER: frozenset[str] = frozenset("abcdefghijklmnopqrstuvwxyz")
+
+
+def _ascii_upper_map(text: str) -> str:
+    """Return ``text`` with ASCII lowercase ``a-z`` mapped to uppercase.
+
+    Every other character maps to itself (1:1, length-preserving), so word
+    boundaries, glyph positions and the per-character contour slicing are
+    identical between the original and the mapped string.
+
+    Args:
+        text: The original line text.
+
+    Returns:
+        The string whose glyphs are rendered.
+    """
+    return "".join(ch.upper() if ch in _ASCII_LOWER else ch for ch in text)
 
 
 class FtextRenderError(ValueError):
@@ -281,12 +316,108 @@ def _assert_glyph_coverage(font_path: Path, text: str) -> None:
         raise FtextRenderError(f"font {font_path.name!r} has no glyphs for: {listing}")
 
 
+def _per_glyph_counts(
+    text: str,
+    font_path: Path,
+    contour_count: int,
+    *,
+    small_caps: bool = False,
+) -> Optional[List[Tuple[str, int]]]:
+    """Return ``(char, contour_count)`` per non-space character of a line.
+
+    matplotlib emits contours glyph-major (each glyph's contours contiguous)
+    and each glyph's contour count is a per-font constant, so the counts
+    slice a whole-line render per character exactly. Under small caps the
+    render used the mapped string, so the counts probe the **uppercase**
+    source glyphs while the pairs stay keyed by the original characters
+    (the map is 1:1).
+
+    Args:
+        text: The line's text (the original, not the mapped string).
+        font_path: Resolved ``.ttf`` file path.
+        contour_count: Number of contours in the whole-line render.
+        small_caps: Whether the render used the small-caps mapped string.
+
+    Returns:
+        The per-character pairs in text order, or ``None`` when the counts
+        do not sum to ``contour_count`` (unexpected font/pathology case).
+    """
+    chars = [ch for ch in text if ch != " "]
+    sources = [_ascii_upper_map(ch) for ch in chars] if small_caps else chars
+    counts = [_glyph_contour_count(font_path, ch) for ch in sources]
+    if sum(counts) != contour_count:
+        return None
+    return list(zip(chars, counts))
+
+
+def _apply_small_caps(
+    scaled: vp.LineCollection,
+    text: str,
+    font_path: Path,
+    factor: float,
+) -> vp.LineCollection:
+    """Shrink the lowercase-origin glyph contours of a scaled line in place.
+
+    The line's contours are sliced per character (see
+    :func:`_per_glyph_counts`, probing the **mapped** uppercase glyphs' counts
+    while keying the slices by the original characters); every slice whose
+    original character is ASCII lowercase is scaled uniformly by ``factor``
+    **about that glyph's own bottom-left ink corner**: the glyph's bottom
+    stays exactly where it is (it sits on the baseline like a shrunken
+    capital) and its top descends, while its left edge -- the pen-advance
+    start -- stays put too.
+
+    Args:
+        scaled: The line's contours in inches (baseline at y=0), before
+            closing-chord removal.
+        text: The ORIGINAL line text (the gate reads its lowercase
+            characters; the render used the mapped string).
+        font_path: Resolved ``.ttf`` file path.
+        factor: The small-caps downscale to apply.
+
+    Returns:
+        The line with the lowercase-origin glyphs shrunk. When the per-glyph
+        contour counts do not line up (unexpected font/pathology case), the
+        line is returned unchanged with a WARNING -- the natural uppercase
+        rendering is the graceful fallback.
+    """
+    pairs = _per_glyph_counts(text, font_path, len(scaled), small_caps=True)
+    if pairs is None:
+        counts_total = sum(
+            _glyph_contour_count(font_path, _ascii_upper_map(ch)) for ch in text if ch != " "
+        )
+        logger.warning(
+            "small-caps TTF render: per-glyph contour counts (%d) do not sum to the "
+            "whole-line contour count (%d); rendering at full size",
+            counts_total,
+            len(scaled),
+        )
+        return scaled
+
+    lines = [np.asarray(line) for line in scaled]
+    cursor = 0
+    for char, count in pairs:
+        glyph_indices = list(range(cursor, cursor + count))
+        cursor += count
+        if char not in _ASCII_LOWER:
+            continue
+        points = np.concatenate([lines[index] for index in glyph_indices if len(lines[index])])
+        # Anchor = the glyph's own bottom-left ink corner (x = its pen-advance
+        # start, y = its lowest ink), so the shrink is purely top-down/inward.
+        anchor = complex(float(points.real.min()), float(points.imag.min()))
+        for index in glyph_indices:
+            line = lines[index]
+            lines[index] = anchor + (line - anchor) * factor
+    return vp.LineCollection(lines)
+
+
 def render_text_line_ftext(
     text: str,
     target_height_inches: float,
     font_path: Optional[Path] = None,
     *,
     check_glyph_coverage: bool = True,
+    small_caps_scale: Optional[float] = None,
 ) -> vp.LineCollection:
     """Render a single line of text with the Relief Single Line TTF font.
 
@@ -310,7 +441,20 @@ def render_text_line_ftext(
             lacks raise :class:`FtextRenderError` instead of silently
             engraving ``.notdef`` boxes. The font-showcase tool disables the
             probe deliberately: rendering the ``.notdef`` box *is* the
-            coverage information a showcase reports.
+            coverage information a showcase reports. The probe runs on the
+            string actually rendered, i.e. the small-caps mapped string when
+            ``small_caps_scale`` is active.
+        small_caps_scale: Small-caps mode for ASCII lowercase ``a-z`` (the
+            cascaded ``sc_scale``). The text is mapped per character
+            (lowercase -> uppercase, everything else verbatim) and the
+            mapped string renders with the font's natural uppercase
+            advances; each lowercase-origin glyph is then uniformly shrunk
+            to this fraction **top-down** (the glyph's own bottom stays
+            exactly in place and its top descends), about its own
+            bottom-left ink corner. ``None`` (the default) disables the
+            transform, keeping every legacy render bit-identical; ``1.0``
+            keeps the uppercase map and only skips the shrink (the line
+            engraves as full-height capitals).
 
     Returns:
         A vpype.LineCollection containing the rendered glyph outlines, or an
@@ -325,17 +469,19 @@ def render_text_line_ftext(
         return vp.LineCollection()
 
     resolved_font = font_path if font_path is not None else DEFAULT_FONT_PATH
+    small_caps = small_caps_scale is not None
+    render_text = _ascii_upper_map(text) if small_caps else text
     if check_glyph_coverage:
-        _assert_glyph_coverage(resolved_font, text)
+        _assert_glyph_coverage(resolved_font, render_text)
 
     try:
         # 1024 points per em keeps the raw geometry high-resolution; it scales
         # linearly with size so the reference normalization below yields the
         # exact target cap height.
         font_props = FontProperties(fname=str(resolved_font))
-        text_path = TextPath((0, 0), text, prop=font_props, size=_FTEXT_RESOLUTION)
+        text_path = TextPath((0, 0), render_text, prop=font_props, size=_FTEXT_RESOLUTION)
     except Exception as exc:  # pragma: no cover - defensive
-        logger.error("matplotlib rendering failed for %r: %s", text, exc)
+        logger.error("matplotlib rendering failed for %r: %s", render_text, exc)
         return vp.LineCollection()
 
     contours = _split_contours(text_path)
@@ -353,6 +499,11 @@ def render_text_line_ftext(
     scaled = vp.LineCollection()
     for line in lc:
         scaled.append(line * scale)
+
+    # Shrink the lowercase-origin glyphs before chord removal, while the
+    # contour arrays still line up 1:1 with the per-glyph contour slicing.
+    if small_caps_scale is not None:
+        scaled = _apply_small_caps(scaled, text, resolved_font, small_caps_scale)
 
     # Drop erroneous closing chords forced by TrueType's closed-path outlines,
     # so open strokes like "1", "4", "7" don't get a straight connector back to
@@ -429,6 +580,7 @@ def render_text_line_ftext_with_words(
     font_path: Optional[Path] = None,
     *,
     check_glyph_coverage: bool = True,
+    small_caps_scale: Optional[float] = None,
 ) -> Tuple[vp.LineCollection, List[Tuple[str, List[int]]]]:
     """Render a line of text and partition its contours by whitespace-delimited word.
 
@@ -446,11 +598,21 @@ def render_text_line_ftext_with_words(
     render (unexpected font/pathology case), the word groups are reported as
     ``[]`` and the caller should fall back to whole-line (ungrouped) mode.
 
+    Under small caps the signature matcher cannot work -- the lowercase-origin
+    glyphs were shrunk after the whole-line render, so they no longer match
+    their standalone render -- and the word groups come from the exact
+    per-glyph contour slicing instead (see :func:`_per_glyph_counts`; the
+    character map is 1:1, so word boundaries are identical).
+
     Args:
         text: The string to render.
         target_height_inches: Desired glyph height in inches.
         font_path: Optional path to the TTF font. Defaults to the bundled
             Relief Single Line CAD font.
+        check_glyph_coverage: When True (the default), characters the font
+            lacks raise :class:`FtextRenderError`.
+        small_caps_scale: Small-caps mode for ASCII lowercase ``a-z``
+            (``None`` = off; see :func:`render_text_line_ftext`).
 
     Returns:
         ``(whole_lc, word_groups)`` where ``whole_lc`` is identical to
@@ -465,11 +627,37 @@ def render_text_line_ftext_with_words(
         target_height_inches,
         font_path=font_path,
         check_glyph_coverage=check_glyph_coverage,
+        small_caps_scale=small_caps_scale,
     )
     if whole.is_empty():
         return whole, []
 
     resolved_font = font_path if font_path is not None else DEFAULT_FONT_PATH
+
+    if small_caps_scale is not None:
+        pairs = _per_glyph_counts(text, resolved_font, len(whole), small_caps=True)
+        if pairs is None:
+            logger.warning(
+                "ftext small-caps grouped render: per-glyph contour counts do not sum "
+                "to the whole-line contour count (%d); falling back to whole-line "
+                "grouping",
+                len(whole),
+            )
+            return whole, []
+        # Contiguous glyph slices -> contiguous word slices (spaces own no
+        # contours, so a word's contours are exactly its glyphs' slices).
+        word_groups: List[Tuple[str, List[int]]] = []
+        cursor = 0
+        glyph_iter = iter(pairs)
+        for word in text.split(" "):
+            word_indices: List[int] = []
+            for _char in word:
+                _source, count = next(glyph_iter)
+                word_indices.extend(range(cursor, cursor + count))
+                cursor += count
+            word_groups.append((word, word_indices))
+        return whole, word_groups
+
     font_props = FontProperties(fname=str(resolved_font))
 
     # Recompute the whole-line normalization scale so word contours can be
@@ -528,6 +716,8 @@ def glyph_groups_for_line(
     text: str,
     font_path: Optional[Path],
     contour_count: int,
+    *,
+    small_caps: bool = False,
 ) -> List[Tuple[str, List[int]]]:
     """Partition a line's contours per character by per-glyph contour counts.
 
@@ -541,6 +731,10 @@ def glyph_groups_for_line(
         text: The rendered line's text.
         font_path: The TTF font used (``None`` = bundled default).
         contour_count: Number of contours in the whole-line render.
+        small_caps: When True, the render used the small-caps mapped string
+            (see :func:`_ascii_upper_map`), so the contour counts are probed
+            on the **uppercase** source glyphs while the groups stay keyed by
+            the original characters (the map is 1:1).
 
     Returns:
         One ``(char, contour_indices)`` pair per non-space character in text
@@ -551,7 +745,8 @@ def glyph_groups_for_line(
     """
     resolved_font = font_path if font_path is not None else DEFAULT_FONT_PATH
     chars = [ch for ch in text if ch != " "]
-    counts = [_glyph_contour_count(resolved_font, ch) for ch in chars]
+    sources = [_ascii_upper_map(ch) for ch in chars] if small_caps else chars
+    counts = [_glyph_contour_count(resolved_font, ch) for ch in sources]
     if sum(counts) != contour_count:
         logger.warning(
             "ftext glyph grouping: per-glyph contour counts (%d) do not sum to "
@@ -598,6 +793,7 @@ def render_text_line_ftext_with_glyphs(
     font_path: Optional[Path] = None,
     *,
     check_glyph_coverage: bool = True,
+    small_caps_scale: Optional[float] = None,
 ) -> Tuple[
     vp.LineCollection,
     List[Tuple[str, List[int]]],
@@ -621,6 +817,8 @@ def render_text_line_ftext_with_glyphs(
             Relief Single Line CAD font.
         check_glyph_coverage: When True (the default), a character the font
             lacks raises :class:`FtextRenderError`.
+        small_caps_scale: Small-caps mode for ASCII lowercase ``a-z``
+            (``None`` = off; see :func:`render_text_line_ftext`).
 
     Returns:
         ``(whole_lc, word_groups, glyph_groups)`` where ``whole_lc`` and
@@ -637,8 +835,14 @@ def render_text_line_ftext_with_glyphs(
         target_height_inches,
         font_path,
         check_glyph_coverage=check_glyph_coverage,
+        small_caps_scale=small_caps_scale,
     )
     if whole.is_empty():
         return whole, word_groups, []
 
-    return whole, word_groups, glyph_groups_for_line(text, font_path, len(whole))
+    small_caps = small_caps_scale is not None
+    return (
+        whole,
+        word_groups,
+        glyph_groups_for_line(text, font_path, len(whole), small_caps=small_caps),
+    )

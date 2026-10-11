@@ -56,7 +56,11 @@ if str(REPO_ROOT) not in sys.path:  # allow running as a plain script
     sys.path.insert(0, str(REPO_ROOT))
 
 from plt_optimizer.generate import plt_font_renderer as kerning  # noqa: E402
-from plt_optimizer.generate.font_registry import load_plt_fonts, resolve_font  # noqa: E402
+from plt_optimizer.generate.font_registry import (  # noqa: E402
+    base_font_name,
+    load_plt_fonts,
+    resolve_font,
+)
 from plt_optimizer.generate.plt_font_renderer import (  # noqa: E402
     _glyph_entry,
     _GlyphGeometry,
@@ -306,7 +310,12 @@ def build_frame(
     if ref.kind != "plt":
         raise ValueError(f"font {ref.name!r} is a TrueType font; no envelope kerning to report")
 
-    font_data = load_plt_fonts(json_path)[ref.name]
+    # A "<base> SC" small-caps variant is a render-time transform: the glyph
+    # library is keyed by the base name, and this diagnostic decomposes the
+    # BASE font's unscaled envelope kerning (the SC shrink is reported by the
+    # layout pipeline, not here).
+    library_name = base_font_name(ref.name)
+    font_data = load_plt_fonts(json_path)[library_name]
     scale = line.toolpath_text_height / font_data.normalized_ref_height
 
     min_glyph_width = _pick(overrides.min_glyph_width, line.min_glyph_width)
@@ -329,7 +338,7 @@ def build_frame(
             getattr(line, "kerning_recession_scale", _RECESSION_DEFAULT),
         ),
         fallback_fraction=_pick(overrides.fallback_fraction, line.fallback_advance_fraction),
-        font=ref.name,
+        font=library_name,
     )
 
 

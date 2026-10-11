@@ -1,0 +1,94 @@
+# Fixture for the small-caps font variants (`<base> SC` + `sc_scale`).
+#
+# A " SC" font name is a synthetic registry variant of the base font: the
+# base font's UPPERCASE glyphs engrave verbatim at full size while ASCII
+# lowercase a-z renders as its uppercase glyph uniformly shrunk by
+# `sc_scale` (default 0.7) **top-down** -- the glyph's own bottom stays in
+# place and its top descends. Uppercase and caseless characters (digits,
+# punctuation) engrave at full size, the nominal text_height is untouched
+# (no cutter change), and the PLT family stays arc-native (the transform is
+# a uniform scale plus a translation).
+#
+# No plate declares a material and the job packs onto one sheet, so emitted
+# names carry no plate/material prefix: [<cutter>]_txt_<job>.plt per distinct
+# cutter plus one bh file.
+#
+# `max_h_compress` stays unset (0.0): no line compresses, so every pinned
+# number below is pure small-caps geometry.
+job:
+  job_name: Small Caps Demo
+
+  width: 3.0
+  height: 1.0
+  margin: 0.1
+  text_height: 0.5
+  line_spacing: 0.15
+  auto_descending_character_adjustment: false
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. PLT small caps at the default 0.7: every glyph is a capital, the
+    #    lowercase ones shrunk to 0.7 of the cap height.
+    - id: plt_sc
+      font: Dino SC
+      content:
+        - text: "abc"
+
+    # 2. The same label in capitals: full cap height, the 0.7 reference.
+    - id: plt_caps
+      font: Dino SC
+      content:
+        - text: "ABC"
+
+    # 3. sc_scale 1.0 keeps the uppercase map and skips the shrink, so this
+    #    label is geometrically identical to the base font rendering "ABC".
+    - id: plt_sc_100
+      font: Dino SC
+      sc_scale: 1.0
+      content:
+        - text: "abc"
+
+    # 4. The base-font control for label 3 (no SC variant, no transform).
+    - id: base_caps
+      font: Dino
+      content:
+        - text: "ABC"
+
+    # 5. sc_scale is INERT on a non-SC font: identical to label 4.
+    - id: base_sc_scale_inert
+      font: Dino
+      sc_scale: 0.3
+      content:
+        - text: "ABC"
+
+    # 6. Caseless characters (digits) engrave at full size on an SC line.
+    - id: plt_caseless
+      font: Dino SC
+      content:
+        - text: "123"
+
+    # 7. Mixed case: the capitals keep the full height, the lowercase ride
+    #    the baseline at 0.5 (the user-facing contract). Widened so the
+    #    line fits its inner area (no compression is in play).
+    - id: plt_mixed
+      width: 4.5
+      font: Dino SC
+      sc_scale: 0.5
+      content:
+        - text: "My Aunt Sally"
+
+    # 8. TrueType small caps through the ftext path (polyline-only).
+    - id: ttf_sc
+      font: ReliefSingleLineCAD-Regular SC
+      content:
+        - text: "abc"
+
+    # 9. The TTF control in capitals: the 0.7 reference for label 8.
+    - id: ttf_caps
+      font: ReliefSingleLineCAD-Regular
+      content:
+        - text: "ABC"

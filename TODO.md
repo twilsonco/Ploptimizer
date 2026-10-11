@@ -1,11 +1,5 @@
 # TODO List
 
-- [ ] Create the ability to use small caps font, rendered on-the-fly from the original font, i.e. where a "capital" letter is just the original capital letter from the PLT font, and "lowercase" letters are downscaled capital letters.
-  - Each font will have the name `<base font name> SC` (case insensitive) 
-  - Should work with PLT and TTF fonts
-  - Does not affect the nominal text height (ie no cutter change shall occur).
-  - This will include the creation of a new float field `sc_scale` — cascading job -> plate -> label -> line, and in job-config.json with default 0.7 — that determines the scaling applied to PLT uppercase letters in order to produce "lowercase" letters
-  - When a sc font is used, the text will be mixed case, e.g. "My Aunt Sally says, 'Hello.'" and the lowercase characters will be replaced with their scaled uppercase counterparts.
 - [ ] Multi-stroke font support
 - [ ] HTML syntax support in label text contents:
   - We'll add a new field for specifying the brackets used for html syntax `html_brackets` — cascading job -> plate -> label -> line, and in job-config.json, defaulting to `<>`. `html_brackets` is a two-character string, the first of which specifies the left bracket, and the second the right bracket. This way, if a label contains chevrons, we don't need to worry about it being incorrectly recognized as html syntax. There's no need to specify a similar new field to specify the slash character, because we only look for the slash when it's enclosed by the html brackets (and whatever command was used), and when that follows the opening html enclosure to define a region of html-modified text. That is, not every forward-slash is taken to be part of html syntax, only those that occur in e.g. `</i>`. 
@@ -17,3 +11,4 @@
   - [ ] <sup>superscript</sup>/<sub>subscript</sub>, or arbitrary floating-point adjustment of baseline (where 0 is the current baseline, 1 is the capline, and -1 is the the $capline - baseline$ distance *below the baseline*). Arbitrary adjustment will work via an optional argument to the `sup` and `sub`, e.g. `1<sup:0.3>st</sup>`. For superscript/subscript, we'll also downscale the character to achieve a proper look. A new float schema field, `supersubscript_downscale`, cascades job -> plate -> label -> line, and in job-config.json, default 0.5, will control the amount of downscaling (bound to [0.2, 1.0]); eg if 0.8, downscale to 80% off original size. *When sup and sub are used with their optional float argument, no scaling will be applied.*
   - [ ] Small caps, `<sc>some text</sc>` will apply the small caps transformation to just the `sc`'d text.
 - [ ] Investigate what other knobs/parameters exist for `rectpack` that could be exposed to the user for better control over the packing algorithm. (For packing labels on the plate during label generation.)
+- [ ] Add a new optional field enum, `border_hole_options`, that lets the user control files produced for borders-holes: `separate` (produce separate files for borders and holes), `combined` (default, produce a single file combining borders and holes), `borders_only`, `holes_only`.

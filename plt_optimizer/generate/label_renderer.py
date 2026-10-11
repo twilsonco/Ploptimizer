@@ -1905,6 +1905,11 @@ def _render_line_block(
         "kerning_min_gap": line.kerning_min_gap,
         "fallback_advance_fraction": line.fallback_advance_fraction,
     }
+    # Small caps is a font-variant property: the cascaded sc_scale reaches the
+    # renderers only for a "<base> SC" font, so every other line keeps the
+    # renderer defaults and renders bit-identically.
+    if ref.small_caps:
+        plt_kwargs["lowercase_scale"] = line.sc_scale
 
     if ref.kind == "plt":
         if chunk_mode is TextChunkMode.WORD:
@@ -1924,31 +1929,32 @@ def _render_line_block(
         return block, None, _validated_glyph_groups(glyph_pairs, len(block.strokes))
 
     # TrueType family: the historical ftext path, adapted to TextBlock.
+    ftext_kwargs: dict[str, Any] = {
+        "target_height_inches": line.toolpath_text_height,
+        "font_path": ref.path,
+        "check_glyph_coverage": check_glyph_coverage,
+    }
+    if ref.small_caps:
+        ftext_kwargs["small_caps_scale"] = line.sc_scale
     if chunk_mode is TextChunkMode.WORD:
-        filtered_lc, groups = render_text_line_ftext_with_words(
-            line.text,
-            target_height_inches=line.toolpath_text_height,
-            font_path=ref.path,
-            check_glyph_coverage=check_glyph_coverage,
-        )
+        filtered_lc, groups = render_text_line_ftext_with_words(line.text, **ftext_kwargs)
         block = block_from_linecollection(filtered_lc)
         # Contour indices map 1:1 onto strokes only when every contour
         # survived adaptation; otherwise fall back to whole-line chunking.
         if groups and len(block.strokes) == len(filtered_lc):
-            pairs = glyph_groups_for_line(line.text, ref.path, len(filtered_lc))
+            pairs = glyph_groups_for_line(
+                line.text, ref.path, len(filtered_lc), small_caps=ref.small_caps
+            )
             return block, groups, _validated_glyph_groups(pairs, len(block.strokes))
         return block, None, ()
-    filtered_lc = render_text_line_ftext(
-        line.text,
-        target_height_inches=line.toolpath_text_height,
-        font_path=ref.path,
-        check_glyph_coverage=check_glyph_coverage,
-    )
+    filtered_lc = render_text_line_ftext(line.text, **ftext_kwargs)
     block = block_from_linecollection(filtered_lc)
     # Glyph groups slice the whole-line contours by per-glyph contour
     # counts; valid only while every contour survived adaptation (1:1).
     if len(block.strokes) == len(filtered_lc):
-        pairs = glyph_groups_for_line(line.text, ref.path, len(filtered_lc))
+        pairs = glyph_groups_for_line(
+            line.text, ref.path, len(filtered_lc), small_caps=ref.small_caps
+        )
         return block, None, _validated_glyph_groups(pairs, len(block.strokes))
     return block, None, ()
 

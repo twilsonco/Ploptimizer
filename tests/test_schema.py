@@ -1646,9 +1646,47 @@ class TestHCompressGlobal:
         assert plate.h_compress_global is True
 
 
+class TestSmallCapsScaleField:
+    """Tests for the sc_scale text-tier small-caps field."""
+
+    def test_present_on_every_tier(self) -> None:
+        """sc_scale cascades line -> label -> job and has plate parity."""
+        assert "sc_scale" in TextAttributes.model_fields
+        assert "sc_scale" in TextLine.model_fields
+        assert "sc_scale" in LabelAttributes.model_fields
+        assert "sc_scale" in LabelSpec.model_fields
+        assert "sc_scale" in JobSpec.model_fields
+        assert "sc_scale" in PlateSpec.model_fields
+
+    def test_default_is_none(self) -> None:
+        """Schema default is None (unset); resolution applies the 0.7 fallback."""
+        assert TextLine(text="X").sc_scale is None
+        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).sc_scale is None
+
+    def test_bounds_enforced(self) -> None:
+        """The scale is bounded to [0.2, 1.0] on every tier."""
+        with pytest.raises(ValueError):
+            TextLine(text="X", sc_scale=0.19)
+        with pytest.raises(ValueError):
+            TextLine(text="X", sc_scale=1.01)
+        with pytest.raises(ValueError):
+            LabelSpec(id="lbl", content=[TextLine(text="X")], sc_scale=0.0)
+        with pytest.raises(ValueError):
+            PlateSpec(id="p", width=24.0, height=12.0, sc_scale=1.5)
+
+    def test_plate_accepts_field_for_parity(self) -> None:
+        """PlateSpec accepts the field for schema parity."""
+        plate = PlateSpec(id="plate_1", width=24.0, height=12.0, sc_scale=0.5)
+        assert plate.sc_scale == 0.5
+
+    def test_font_accepts_small_caps_variant(self) -> None:
+        """A ``"<base> SC"`` font name canonicalizes like any other name."""
+        line = TextLine(text="X", font="dino sc")
+        assert line.font == "Dino SC"
+
+
 class TestUseBaselineSpacing:
     """Tests for the use_baseline_spacing label-tier stacking field."""
-
     def test_inherited_on_label_and_job_tiers_only(self) -> None:
         """use_baseline_spacing lives on LabelAttributes, never on TextLine."""
         assert "use_baseline_spacing" in LabelAttributes.model_fields

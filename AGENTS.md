@@ -66,6 +66,9 @@ JobSpec (job-level defaults)
   `Fonts/**.ttf` basename (extension stripped, rendered through the
   matplotlib `ftext_renderer` path). Case-insensitive, canonicalized at
   validation (`font_registry.resolve_font`); unknown names are rejected.
+  Appending ` SC` to any name selects that font's synthetic **small-caps**
+  variant (rendered on the fly from the base, never stored in the library —
+  see Small Caps Fonts below).
   TTF lines scale by a fixed per-font reference — the ink height of the
   reference glyph `H` — so the cap height equals `text_height` on *every*
   text line (glyph size is a per-font constant, independent of a line's own
@@ -166,6 +169,18 @@ JobSpec (job-level defaults)
   (or lacking envelopes) (`ge=0.0`, default `None` → **1.0** = the left
   glyph's own width). Cascades line → label → job (accepted on plates for
   schema parity only); `job-config.json` supplies the shop default.
+- `sc_scale`: Downscale applied to ASCII lowercase `a-z` by a **small-caps**
+  font — a `font` name ending in ` SC` (e.g. `"Dino SC"`), a synthetic
+  registry variant of the base font (`ge=0.2`, `le=1.0`, default `None` →
+  **0.7**). The lowercase character renders as the base font's **uppercase**
+  glyph uniformly shrunk to `sc_scale` of the cap height, **top-down** (the
+  glyph's own bottom stays exactly in place, its top descends). Uppercase and
+  caseless characters (digits, punctuation, derived symbols) engrave at full
+  size; the nominal/toolpath `text_height` is untouched (no cutter change);
+  `1.0` renders the variant identically to its base font; the field is inert
+  on a non-SC font. Cascades line → label → job (accepted on plates for
+  schema parity only); `job-config.json` supplies the shop default. See
+  Small Caps Fonts below.
 - `max_h_compress`: Maximum horizontal compression fraction in [0, 1] (default
   0.0 = disabled). When a rendered line is wider than the label's inner
   content area, it is uniformly compressed horizontally down to at most
@@ -899,6 +914,82 @@ the reported Sunwest symptom (`B29ABg` on a 1x1.0in label: the visible text sat
   (border clear), `relief_off` (field inert), `spacing_kept` vs `spacing_clamped`
   (the margin clamp model). Renderer-level: `TestBandCentering`.
 
+### Small Caps Fonts (`<base> SC`)
+
+Appending ` SC` to any font name selects a **synthetic small-caps variant**
+of that base font, rendered on the fly — the variant is never a
+`plt_fonts.json` key or a `.ttf` file. Uppercase glyphs engrave verbatim at
+full size; **ASCII lowercase `a-z`** (and only those characters — accented
+lowercase, `ß`, digits, punctuation and the derived Unicode symbols pass
+through verbatim at full size) renders as the base font's **uppercase glyph
+uniformly downscaled** by the cascading `sc_scale` (default 0.7). The
+transform is **top-down**: the glyph's own bottom stays exactly in place (it
+sits on the baseline like a shrunken capital) and its top descends. The
+nominal/toolpath `text_height` is untouched, so the cutter selection never
+moves. The character map is strictly 1:1, so the word/glyph stroke
+partitions (the intra-chunk glyph sweep) stay exact.
+
+- **Registry** (`font_registry.py`): `_canonical_map` synthesizes
+  `"<base> sc" -> (kind, "<base> SC", base, small_caps=True)` for every PLT
+  key and TTF basename (case-insensitive; `setdefault` after all bases, so a
+  real font literally named `"Foo SC"` wins its name). `FontRef` carries
+  `small_caps: bool` and the **base** font's `path`. `font_name_choices()`
+  lists the variants (4 bases → 8 names today), so the schema validator,
+  `--show-fonts` docs and the font showcase all see them. Library lookups
+  must strip the suffix — `base_font_name("Dino SC") -> "Dino"` — which
+  `plt_font_renderer._resolve_plt_font` and `scripts/kerning_report.py` do
+  (a `"Dino SC"` key does not exist in the library).
+- **The scale must be uniform (x = y)**: `TextBlock.scaled(f)` keeps `ArcSeg`
+  sweeps native (an ellipse is not a circular arc), so PLT small caps stay
+  **arc-native end-to-end**; `scaled_y`/`compress_x` flatten arcs and are
+  never used here. The transform is a uniform scale composed with a pure
+  translation (`y' = y_min + (y - y_min) * f`, `x' = x * f`), which is what
+  makes it top-down.
+- **PLT** (`plt_font_renderer.py`, keyword-only `lowercase_scale:
+  Optional[float] = None` on `_walk_line` + the three public wrappers): the
+  char loop maps the glyph *lookup* through `_small_caps_source` (ASCII
+  lowercase → uppercase) and scales the cached `_GlyphGeometry` — block,
+  bounding box **and both profile envelopes** — via `_scale_geometry`
+  **before** `kerning_offset`, so the small silhouette kerns against its
+  neighbours exactly. `None` disables the transform entirely, so every
+  legacy call site renders bit-identically; `1.0` keeps the uppercase map and
+  only skips the shrink (the line engraves as full-height capitals). Glyph
+  groups keep the ORIGINAL character.
+- **TTF** (`ftext_renderer.py`, keyword-only `small_caps_scale:
+  Optional[float] = None` on `render_text_line_ftext[_with_words|_with_glyphs]`
+  and `small_caps: bool` on `glyph_groups_for_line`): matplotlib's `TextPath`
+  ignores OpenType `smcp`, so the renderer maps the text through
+  `_ascii_upper_map` (1:1, length-preserving) and renders the mapped string —
+  keeping matplotlib's shaping and the font's **natural uppercase advances**
+  (the standard synthetic small-caps spacing; advancing by the shrunken glyph
+  would need a per-glyph TTF layout path and is deliberately out of scope).
+  `_apply_small_caps` then slices the line's contours per character
+  (`_per_glyph_counts` probes the **mapped** uppercase glyphs' contour counts
+  while keying the slices by the original characters — a-z counts differ from
+  A-Z counts) and scales each lowercase-origin slice about that glyph's own
+  **bottom-left ink corner**. Under SC the word groups come from that exact
+  slicing (the signature matcher cannot match shrunk glyphs). A contour-count
+  drift logs a WARNING and leaves the natural uppercase render.
+- **Dispatch** (`label_renderer._render_line_block`): the parameter is added
+  to the renderer call **only** when `resolve_font(...).small_caps`, so every
+  non-SC line keeps the historical call shape and output.
+  `measure_line_natural_width` / `measure_line_vertical_extents` route
+  through the same dispatch, so the reflow/compression/extents pre-passes are
+  SC-aware for free.
+- `sc_scale` is a `TextAttributes` field (`ge=0.2, le=1.0`, explicit-`None`
+  cascade line → label → job, plate parity) landing on `ResolvedTextLine`;
+  `DEFAULT_SC_SCALE = 0.7`; a `JobDefaults` key in `_JOB_LAYER_FIELDS`
+  (repo `job-config.json` ships 0.7) and **not**
+  `REQUIRED_WHEN_UNCONFIGURED`. It never touches `nominal_text_height` /
+  `toolpath_text_height`, so it cannot interact with cutter selection,
+  compression budgets, spacing solvers or collision math.
+- Fixture: `tests_deps/small_caps_job.yaml` (pinned by
+  `tests/test_phase3_export.py::TestSmallCapsDemoExample`) — PLT SC at 0.7 vs
+  its capitals, `sc_scale: 1.0` == base-font capitals, `sc_scale` inert on a
+  base font, caseless characters at full size, a mixed-case 0.5 line, and the
+  TTF pair. Renderer-level: `TestSmallCaps` in `tests/test_plt_font_renderer.py`
+  and `tests/test_ftext_renderer.py`; registry-level: `TestSmallCapsVariants`.
+
 ### Horizontal Text Alignment
 
 Each text line is positioned horizontally within the label's inner content
@@ -1519,11 +1610,11 @@ values into the raw job mapping **before** `JobSpec` validation, always at the
 top-most layer:
 
 - Cascading attributes (`text_height`, `font`, `character_spacing`, `line_spacing`,
-  `margin`, `hole_margin`, `min_hole_margin`, `hole_text_collision_distance`,
+  `margin`, `h_margin`, `v_margin`, `hole_margin`, `min_hole_margin`, `hole_text_collision_distance`,
   `max_h_compress`, `text_h_alignment`, `space_width_fraction`,
   `min_glyph_width`, `kerning_window_fraction`, `kerning_penetration_scale`,
   `kerning_recession_scale`,
-  `kerning_min_gap`, `fallback_advance_fraction`, `cutter_downsize`,
+  `kerning_min_gap`, `fallback_advance_fraction`, `sc_scale`, `cutter_downsize`,
   `max_cutter_downsizes`, `cutter_downsize_global`, `h_compress_global`,
   `optimize_line_content`, `holes`, `allow_rotation`,
   `text_chunk_mode`, `layout`) fill missing **job-level** keys; the existing
@@ -1531,6 +1622,15 @@ top-most layer:
   explicit YAML `null` counts as unset; `holes: []` suppression is a value).
   `hole_diameter` additionally fills the `diameter` of any hole entry (config-
   or spec-declared) that omits it.
+- **Margin suppression:** a spec-declared `margin` (job level, **or on any
+  label**) suppresses the configured `h_margin` / `v_margin` injection
+  (`job_config._spec_declares_margin`). The margin cascade checks
+  `job.h_margin` / `job.v_margin` *before* `margin`, so an injected
+  axis-specific default would silently outrank the spec's universal margin
+  on that axis (the reported bug: YAML `margin: 2.0` applied vertically
+  while the config's `h_margin: 0.3` won horizontally). A YAML-declared
+  `h_margin`/`v_margin` always keeps its own value; a spec with no margin
+  at all keeps the configured axis defaults.
 - `plate_width` / `plate_height` fill missing keys of each `plates` entry
   and the unbounded auto-allocated bins:
   the CLI threads `default_plate_size=(plate_width, plate_height)` into

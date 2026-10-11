@@ -158,7 +158,8 @@ def format_fonts_list() -> list[str]:
 
     PLT-extracted fonts (``Fonts/plt_fonts.json`` keys, rendered arc-native)
     and TrueType fonts (``*.ttf`` basenames under ``Fonts/``) are reported
-    separately, followed by the combined list the schema accepts.
+    separately, followed by the synthetic ``"<base> SC"`` small-caps variants
+    and the combined list the schema accepts.
 
     Returns:
         List of formatted lines (each can be printed or joined).
@@ -167,6 +168,11 @@ def format_fonts_list() -> list[str]:
 
     plt_fonts = sorted(font_registry.load_plt_fonts(), key=str.lower)
     ttfs = sorted(font_registry.available_ttf_fonts(), key=str.lower)
+    bases = {name.lower() for name in (*plt_fonts, *ttfs)}
+    small_caps = sorted(
+        (name for name in font_registry.font_name_choices() if name.lower() not in bases),
+        key=str.lower,
+    )
 
     lines = [
         "**Available Fonts** "
@@ -181,6 +187,13 @@ def format_fonts_list() -> list[str]:
         "(*.ttf basenames under Fonts/):",
     ]
     lines += [f"  - **{name}**" for name in ttfs] or ["  - (none found)"]
+    lines += [
+        f"- Small-caps variants ({len(small_caps)}) — synthetic, rendered "
+        "on the fly from the base font: uppercase glyphs engrave verbatim "
+        "while ASCII lowercase a-z renders as its uppercase glyph shrunk "
+        "top-down by `sc_scale` (the glyph's own bottom stays in place):",
+    ]
+    lines += [f"  - **{name}**" for name in small_caps] or ["  - (none found)"]
     lines += [
         "",
         "Any of these names (case-insensitive) is accepted by the cascading "

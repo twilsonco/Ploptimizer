@@ -1514,6 +1514,122 @@ class TestPlateNumberScoping:
         assert any(name[:2].isdigit() and "_wb_all_" in name for name in combined), combined
 
 
+class TestSmallCapsDemoExample:
+    """Regression tests for tests_deps/small_caps_job.yaml.
+
+    The fixture pins the ``"<base> SC"`` small-caps variants: the base font's
+    capitals engrave verbatim while ASCII lowercase renders as its uppercase
+    glyph shrunk **top-down** by ``sc_scale`` (default 0.7). The controls pin
+    ``sc_scale: 1.0`` (uppercase map, no shrink) against the base font, the
+    transform's inertness on a non-SC font, caseless characters at full size,
+    the TTF family, and the contract that the nominal height / cutter never
+    move.
+    """
+
+    _SPEC = Path("tests_deps/small_caps_job.yaml")
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="sc",
+            optimize=False,
+            plots=False,
+        )
+
+    @staticmethod
+    def _ink_height(label: ResolvedLabel) -> float:
+        """Rendered ink height of the label's single text line."""
+        from plt_optimizer.generate.label_renderer import _render_text_local_with_bounds
+
+        _lc, entries = _render_text_local_with_bounds(label)
+        x_min, y_min, x_max, y_max = entries[0].bounds
+        return y_max - y_min
+
+    def test_variants_and_scale_resolve_per_label(self, tmp_path: Path) -> None:
+        """The SC name canonicalizes and ``sc_scale`` cascades (default 0.7)."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        assert by_id["plt_sc"].content[0].font == "Dino SC"
+        assert by_id["plt_sc"].content[0].sc_scale == pytest.approx(0.7)
+        assert by_id["plt_sc_100"].content[0].sc_scale == pytest.approx(1.0)
+        # sc_scale is inert on a base font, but the resolved value is kept.
+        assert by_id["base_sc_scale_inert"].content[0].font == "Dino"
+        assert by_id["base_sc_scale_inert"].content[0].sc_scale == pytest.approx(0.3)
+
+    def test_plt_lowercase_is_the_capital_shrunk(self, tmp_path: Path) -> None:
+        """The PLT lowercase line measures 0.7 of the capital line's height."""
+        result = self._export(tmp_path)
+        small = self._ink_height(result.rendered_labels["plt_sc"].source_label)
+        caps = self._ink_height(result.rendered_labels["plt_caps"].source_label)
+        # Round glyphs overshoot their bbox slightly, so the ratio is 0.7
+        # to within that overshoot.
+        assert small == pytest.approx(0.7 * caps, rel=0.02)
+
+    def test_scale_one_matches_the_base_font_caps(self, tmp_path: Path) -> None:
+        """``sc_scale: 1.0`` renders the base font's capitals exactly."""
+        result = self._export(tmp_path)
+        from plt_optimizer.generate.label_renderer import _render_text_local_with_bounds
+
+        def bounds(label: ResolvedLabel) -> tuple[float, ...]:
+            _lc, entries = _render_text_local_with_bounds(label)
+            return tuple(entries[0].bounds)
+
+        one = bounds(result.rendered_labels["plt_sc_100"].source_label)
+        base = bounds(result.rendered_labels["base_caps"].source_label)
+        assert one == pytest.approx(base, abs=1e-9)
+
+    def test_scale_is_inert_on_a_base_font(self, tmp_path: Path) -> None:
+        """A non-SC font ignores ``sc_scale`` entirely."""
+        result = self._export(tmp_path)
+        from plt_optimizer.generate.label_renderer import _render_text_local_with_bounds
+
+        def bounds(label: ResolvedLabel) -> tuple[float, ...]:
+            _lc, entries = _render_text_local_with_bounds(label)
+            return tuple(entries[0].bounds)
+
+        assert bounds(result.rendered_labels["base_sc_scale_inert"].source_label) == pytest.approx(
+            bounds(result.rendered_labels["base_caps"].source_label), abs=1e-9
+        )
+
+    def test_caseless_characters_stay_full_size(self, tmp_path: Path) -> None:
+        """Digits engrave at cap height on an SC line."""
+        result = self._export(tmp_path)
+        digits = self._ink_height(result.rendered_labels["plt_caseless"].source_label)
+        caps = self._ink_height(result.rendered_labels["plt_caps"].source_label)
+        assert digits == pytest.approx(caps, rel=0.01)
+
+    def test_ttf_family_shrinks_lowercase(self, tmp_path: Path) -> None:
+        """The ftext path shrinks lowercase to 0.7 of its capital line."""
+        result = self._export(tmp_path)
+        small = self._ink_height(result.rendered_labels["ttf_sc"].source_label)
+        caps = self._ink_height(result.rendered_labels["ttf_caps"].source_label)
+        assert small == pytest.approx(0.7 * caps, rel=0.02)
+
+    def test_no_cutter_change_and_arcs_stay_native(self, tmp_path: Path) -> None:
+        """Small caps never moves the cutter, and PLT arcs stay ``AA``."""
+        result = self._export(tmp_path)
+        assert sorted(p.name for p in result.plt_paths) == [
+            "0.015_bh_sc.plt",
+            "0.060_txt_sc.plt",
+        ]
+        for rendered in result.rendered_labels.values():
+            for line in rendered.source_label.content:
+                assert line.cutter_diameter == pytest.approx(0.06)
+        text_file = next(p for p in result.plt_paths if p.name.endswith("_txt_sc.plt"))
+        assert "AA" in text_file.read_text()
+
+    def test_no_compression_findings(self, tmp_path: Path) -> None:
+        """Every label fits its inner area, so the layout report stays clean."""
+        result = self._export(tmp_path)
+        for rendered in result.rendered_labels.values():
+            assert rendered.compression_by_line == {}
+
+
 class TestUseBaselineSpacingDemoExample:
     """Regression tests for tests_deps/use_baseline_spacing_job.yaml.
 

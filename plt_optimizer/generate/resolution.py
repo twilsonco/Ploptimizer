@@ -160,6 +160,14 @@ DEFAULT_KERNING_MIN_GAP: float = 0.0
 # Multiplier on the bounding-box-width fallback advance (no y-overlap or
 # missing envelopes). 1.0 = the left glyph's own width.
 DEFAULT_FALLBACK_ADVANCE_FRACTION: float = 1.0
+# Downscale applied to ASCII lowercase a-z by a small-caps font variant
+# (a ``font`` name ending in `` SC``): the lowercase character renders as
+# the base font's uppercase glyph uniformly shrunk to this fraction of the
+# cap height, top-down (the glyph's own bottom stays in place, its top
+# descends). Bound to [0.2, 1.0] by the schema;
+# 1.0 renders the variant identically to its base font. Inert on non-SC
+# fonts. See ``plt_optimizer.generate.font_registry``.
+DEFAULT_SC_SCALE: float = 0.7
 # Horizontal text alignment defaults to centering (existing behaviour).
 DEFAULT_TEXT_H_ALIGNMENT: str = "center"
 # Explicit cutter diameter (inches) override. ``None`` (the default) means
@@ -501,7 +509,9 @@ class ResolvedTextLine:
             line -> label -> job, default ``DEFAULT_FONT``). Either a
             PLT-extracted ``plt_fonts.json`` key (rendered arc-native) or a
             ``Fonts/`` TTF basename (rendered through ftext); resolve the
-            kind via ``font_registry.resolve_font``.
+            kind via ``font_registry.resolve_font``. A trailing `` SC``
+            selects the base font's synthetic small-caps variant (see
+            :attr:`sc_scale`).
         space_width_fraction: Space advance as a fraction of the rendered
             text height (PLT-extracted fonts): a space advances
             ``space_width_fraction * text_height + character_spacing``.
@@ -547,6 +557,18 @@ class ResolvedTextLine:
             lacking envelopes). Cascaded line -> label -> job, default
             ``DEFAULT_FALLBACK_ADVANCE_FRACTION`` (1.0). Explicit ``0.0``
             is honored; only ``None`` means unset.
+        sc_scale: Downscale applied to ASCII lowercase ``a-z`` by a
+            small-caps font variant (a ``font`` name ending in `` SC``):
+            the lowercase character renders as the base font's uppercase
+            glyph uniformly shrunk to this fraction of the cap height,
+            **top-down** (the glyph's own bottom stays exactly in place and
+            its top descends; uppercase and caseless characters
+            engrave at full size; the nominal/toolpath text height is
+            untouched, so the cutter is unaffected). Cascaded line ->
+            label -> job, default ``DEFAULT_SC_SCALE`` (0.7). Explicit
+            ``1.0`` (base-identical rendering) is honored; only ``None``
+            means unset. Inert when the resolved ``font`` is not an SC
+            variant.
         cutter_size: The explicit cutter diameter in inches requested for
             this line (cascaded line -> label -> job), verbatim as declared,
             or ``None`` when unset. ``None`` means the cutter was
@@ -631,6 +653,7 @@ class ResolvedTextLine:
     kerning_recession_scale: float = DEFAULT_KERNING_RECESSION_SCALE
     kerning_min_gap: float = DEFAULT_KERNING_MIN_GAP
     fallback_advance_fraction: float = DEFAULT_FALLBACK_ADVANCE_FRACTION
+    sc_scale: float = DEFAULT_SC_SCALE
     cutter_size: Optional[float] = DEFAULT_CUTTER_SIZE
     cutter_downsize: bool = DEFAULT_CUTTER_DOWNSIZE
     max_cutter_downsizes: int = DEFAULT_MAX_CUTTER_DOWNSIZES
@@ -1913,6 +1936,18 @@ def _resolve_content(
         else:
             line_fallback_advance_fraction = DEFAULT_FALLBACK_ADVANCE_FRACTION
 
+        # Resolve the small-caps downscale with the same explicit-None
+        # precedence (line -> label -> job -> default); an explicit 1.0
+        # (base-identical rendering) is honored.
+        if line.sc_scale is not None:
+            line_sc_scale: float = line.sc_scale
+        elif label_input.sc_scale is not None:
+            line_sc_scale = label_input.sc_scale
+        elif job.sc_scale is not None:
+            line_sc_scale = job.sc_scale
+        else:
+            line_sc_scale = DEFAULT_SC_SCALE
+
         # Resolve the compression-driven cutter reduction permission with the
         # same explicit-None precedence (line -> label -> job -> default) so an
         # intentional ``False`` (opt-out) is honored instead of falling through
@@ -2000,6 +2035,7 @@ def _resolve_content(
                 kerning_recession_scale=line_kerning_recession_scale,
                 kerning_min_gap=line_kerning_min_gap,
                 fallback_advance_fraction=line_fallback_advance_fraction,
+                sc_scale=line_sc_scale,
                 cutter_size=line_cutter_size,
                 cutter_downsize=line_cutter_downsize,
                 max_cutter_downsizes=line_max_cutter_downsizes,

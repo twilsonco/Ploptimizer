@@ -75,6 +75,20 @@ Layout contract:
   space.
 - A character the font does not define raises :class:`PltFontRenderError`
   at render time (never a silent skip or tofu box).
+- **Small caps** (a ``font_name`` ending in `` SC``, e.g. ``"Dino SC"`` --
+  a synthetic variant of the base font, see
+  :mod:`plt_optimizer.generate.font_registry`): the base font's uppercase
+  glyphs engrave verbatim at full size while ASCII lowercase ``a-z``
+  renders as its **uppercase glyph uniformly downscaled** by
+  ``lowercase_scale`` (the cascaded ``sc_scale``), **top-down**: the glyph's
+  own bottom stays exactly in place (it sits on the baseline like a shrunken
+  capital) and its top descends. The scale applies to the glyph geometry
+  (block, bounding box and both envelopes) *before* kerning, so the small
+  silhouette kerns against its neighbours exactly; the transform is a
+  uniform scale plus a translation, so the native ``AA`` arcs stay native.
+  Caseless characters (digits, punctuation, derived symbols) engrave at
+  full size, and the map is strictly 1:1 per character, so the word/glyph
+  stroke partitions stay exact.
 
 The module is matplotlib-free (core parser + text_geometry only).
 """
@@ -91,12 +105,20 @@ from plt_optimizer.core.parser import PLTParser
 from plt_optimizer.generate.font_registry import (
     FontNotFoundError,
     PltGlyphEntry,
+    base_font_name,
     load_plt_fonts,
     resolve_font,
 )
 from plt_optimizer.generate.text_geometry import Stroke, TextBlock, block_from_parser_paths
 
 logger = logging.getLogger(__name__)
+
+# The characters a small-caps font transforms: ASCII lowercase only (the
+# user-facing contract). Accented lowercase, eszett, digits, punctuation
+# and the derived Unicode symbols engrave verbatim at full size, and the
+# map is strictly 1:1 per character, keeping the word/glyph stroke
+# partitions exact.
+_ASCII_LOWER: frozenset[str] = frozenset("abcdefghijklmnopqrstuvwxyz")
 
 # Fallback space advance as a fraction of the rendered text height (added
 # to ``character_spacing``) when the caller does not cascade an explicit
@@ -431,12 +453,17 @@ def _resolve_plt_font(
     """Resolve ``font_name`` and require the PLT-extracted family.
 
     Args:
-        font_name: Requested font name (canonical or not).
+        font_name: Requested font name (canonical or not). A ``"<base> SC"``
+            small-caps variant resolves to the base font's PLT family (the
+            variant is a render-time transform, never a stored library key).
         json_path: Optional ``plt_fonts.json`` override.
         fonts_dir: Optional Fonts root override (TTF discovery).
 
     Returns:
-        The canonical PLT font name.
+        The canonical PLT font name (``"Dino"`` for base requests, ``"Dino
+        SC"`` for a small-caps variant -- the caller strips it via
+        :func:`~plt_optimizer.generate.font_registry.base_font_name` before
+        indexing the library, and renders lowercase glyphs downscaled).
 
     Raises:
         PltFontRenderError: If the name is unknown (registry error
@@ -454,6 +481,62 @@ def _resolve_plt_font(
     return ref.name
 
 
+def _small_caps_source(char: str) -> str:
+    """Return the glyph-source character for ``char`` under small caps.
+
+    ASCII lowercase maps to its uppercase counterpart (the glyph the small
+    glyph must be drawn from); every other character maps to itself, so the
+    map is 1:1 and the per-character stroke partitions stay exact.
+
+    Args:
+        char: The text character being rendered.
+
+    Returns:
+        The character whose glyph to draw.
+    """
+    return char.upper() if char in _ASCII_LOWER else char
+
+
+def _scale_geometry(geometry: _GlyphGeometry, factor: float) -> _GlyphGeometry:
+    """Return ``geometry`` uniformly scaled **top-down** about its own bottom.
+
+    The transform is ``y' = y_min + (y - y_min) * factor`` with
+    ``x' = x * factor`` (``y_min`` the glyph's lowest ink), so the glyph's
+    bottom stays exactly where it is and its top descends -- the small glyph
+    sits on the baseline like a shrunken capital, and a round glyph's
+    sub-baseline overshoot is preserved rather than lifted. The map is a
+    uniform scale composed with a pure translation, so ``AA`` arcs stay
+    native circular arcs (sweeps untouched).
+
+    The block, bounding box and both profile envelopes transform together,
+    so kerning measures the *scaled* silhouette in the shared baseline
+    frame.
+
+    Args:
+        geometry: Cached glyph geometry in design units.
+        factor: Uniform scale factor (``1.0`` returns ``geometry`` itself).
+
+    Returns:
+        The scaled geometry, or ``geometry`` unchanged at ``1.0``.
+    """
+    if factor == 1.0:
+        return geometry
+    min_x, min_y, max_x, max_y = geometry.bounding_box
+    # Pure Y translation carrying the origin-scaled glyph down onto its own
+    # bottom: y_min * factor + shift == y_min.
+    shift_y = min_y * (1.0 - factor)
+
+    def _point(x: float, y: float) -> Tuple[float, float]:
+        return (x * factor, y * factor + shift_y)
+
+    return _GlyphGeometry(
+        block=geometry.block.scaled(factor).translate(0.0, shift_y),
+        bounding_box=(*_point(min_x, min_y), *_point(max_x, max_y)),
+        left_envelope=tuple(_point(x, y) for x, y in geometry.left_envelope),
+        right_envelope=tuple(_point(x, y) for x, y in geometry.right_envelope),
+    )
+
+
 def _walk_line(
     text: str,
     target_height_inches: float,
@@ -469,6 +552,8 @@ def _walk_line(
     fallback_advance_fraction: Optional[float] = None,
     json_path: Optional[Path] = None,
     fonts_dir: Optional[Path] = None,
+    *,
+    lowercase_scale: Optional[float] = None,
 ) -> Tuple[
     TextBlock,
     List[Tuple[str, List[int]]],
@@ -514,6 +599,16 @@ def _walk_line(
             back to :data:`FALLBACK_ADVANCE_FRACTION`).
         json_path: Optional ``plt_fonts.json`` override (tests).
         fonts_dir: Optional Fonts root override (tests).
+        lowercase_scale: Small-caps mode for ASCII lowercase ``a-z`` (the
+            cascaded ``sc_scale``): each such character draws the base
+            font's **uppercase** glyph, uniformly shrunk to this fraction
+            **top-down** (the glyph's own bottom stays in place, its top
+            descends) and kerned as the small silhouette. ``None`` (the
+            default) disables the transform entirely, so every legacy call
+            site renders bit-identically; ``1.0`` keeps the uppercase map and
+            only skips the shrink (the line engraves as full-height capitals).
+            The caller dispatches on
+            ``font_registry.resolve_font(...).small_caps``.
 
     Returns:
         ``(block, word_groups, glyph_groups)`` where ``block`` is the
@@ -537,8 +632,11 @@ def _walk_line(
         return TextBlock.empty(), [], []
 
     json_path_key = str(json_path) if json_path is not None else ""
+    # The small-caps variant is a render-time transform: the glyph library
+    # is keyed by the BASE font name only.
+    library_name = base_font_name(canonical)
     fonts = load_plt_fonts(Path(json_path) if json_path is not None else None)
-    font_data = fonts[canonical]  # resolved above; presence guaranteed
+    font_data = fonts[library_name]  # resolved above; presence guaranteed
     scale = target_height_inches / font_data.normalized_ref_height
     min_gap_inches = KERNING_MIN_GAP if kerning_min_gap is None else kerning_min_gap
     clearance = cutter_diameter + character_spacing + min_gap_inches
@@ -595,7 +693,14 @@ def _walk_line(
             previous = None
         start_index = len(strokes)
         for char in word:
-            geometry = _glyph_entry(json_path_key, canonical, char)
+            # Small caps: ASCII lowercase draws the uppercase glyph, the
+            # whole glyph geometry (block + bbox + envelopes) uniformly
+            # downscaled top-down BEFORE kerning so the small silhouette
+            # kerns exactly. The glyph group keeps the ORIGINAL character.
+            source = _small_caps_source(char) if lowercase_scale is not None else char
+            geometry = _glyph_entry(json_path_key, library_name, source)
+            if source != char and lowercase_scale is not None:
+                geometry = _scale_geometry(geometry, lowercase_scale)
             char_start = len(strokes)
             if previous is not None:
                 offset = kerning_offset(
@@ -633,6 +738,8 @@ def render_text_line_plt_font_with_words(
     fallback_advance_fraction: Optional[float] = None,
     json_path: Optional[Path] = None,
     fonts_dir: Optional[Path] = None,
+    *,
+    lowercase_scale: Optional[float] = None,
 ) -> Tuple[TextBlock, List[Tuple[str, List[int]]]]:
     """Render a text line in a PLT-extracted font, partitioned by word.
 
@@ -673,6 +780,8 @@ def render_text_line_plt_font_with_words(
             back to :data:`FALLBACK_ADVANCE_FRACTION`).
         json_path: Optional ``plt_fonts.json`` override (tests).
         fonts_dir: Optional Fonts root override (tests).
+        lowercase_scale: Small-caps mode for ASCII lowercase ``a-z``
+            (``None`` = off; see :func:`_walk_line`).
 
     Returns:
         ``(block, word_groups)`` with the semantics documented on
@@ -697,6 +806,7 @@ def render_text_line_plt_font_with_words(
         fallback_advance_fraction,
         json_path,
         fonts_dir,
+        lowercase_scale=lowercase_scale,
     )
     return block, word_groups
 
@@ -716,6 +826,8 @@ def render_text_line_plt_font_with_glyphs(
     fallback_advance_fraction: Optional[float] = None,
     json_path: Optional[Path] = None,
     fonts_dir: Optional[Path] = None,
+    *,
+    lowercase_scale: Optional[float] = None,
 ) -> Tuple[
     TextBlock,
     List[Tuple[str, List[int]]],
@@ -750,6 +862,8 @@ def render_text_line_plt_font_with_glyphs(
             (``None`` = default).
         json_path: Optional ``plt_fonts.json`` override (tests).
         fonts_dir: Optional Fonts root override (tests).
+        lowercase_scale: Small-caps mode for ASCII lowercase ``a-z``
+            (``None`` = off; see :func:`_walk_line`).
 
     Returns:
         ``(block, word_groups, glyph_groups)`` with the semantics
@@ -774,6 +888,7 @@ def render_text_line_plt_font_with_glyphs(
         fallback_advance_fraction,
         json_path,
         fonts_dir,
+        lowercase_scale=lowercase_scale,
     )
 
 
@@ -792,6 +907,8 @@ def render_text_line_plt_font(
     fallback_advance_fraction: Optional[float] = None,
     json_path: Optional[Path] = None,
     fonts_dir: Optional[Path] = None,
+    *,
+    lowercase_scale: Optional[float] = None,
 ) -> TextBlock:
     """Render a text line in a PLT-extracted font (arcs preserved).
 
@@ -827,6 +944,8 @@ def render_text_line_plt_font(
             :data:`FALLBACK_ADVANCE_FRACTION`).
         json_path: Optional ``plt_fonts.json`` override (tests).
         fonts_dir: Optional Fonts root override (tests).
+        lowercase_scale: Small-caps mode for ASCII lowercase ``a-z``
+            (``None`` = off; see :func:`_walk_line`).
 
     Returns:
         The positioned :class:`TextBlock` (empty for blank input).
@@ -849,5 +968,6 @@ def render_text_line_plt_font(
         fallback_advance_fraction=fallback_advance_fraction,
         json_path=json_path,
         fonts_dir=fonts_dir,
+        lowercase_scale=lowercase_scale,
     )
     return block

@@ -964,6 +964,134 @@ def _triangle_block() -> TextBlock:
     )
 
 
+class TestSmallCaps:
+    """The ``"<base> SC"`` small-caps transform (PLT family).
+
+    The synthetic library adds its OWN lowercase glyphs (``a``/``c``, half
+    height) so a test can prove the variant draws the **uppercase** glyph
+    downscaled, never the font's lowercase one. ``G`` descends below the
+    baseline to pin the top-down anchor.
+    """
+
+    @pytest.fixture
+    def sc_lib(self, tmp_path: Path) -> Path:
+        """The synthetic library extended with lowercase + descender glyphs."""
+
+        def _entry(
+            hpgl: str,
+            bbox: Tuple[float, float, float, float],
+            left: Sequence[Tuple[float, float]],
+            right: Sequence[Tuple[float, float]],
+        ) -> Dict[str, Any]:
+            return _v2_entry(hpgl, bbox, left, right)
+
+        characters = dict(_SYNTH_CHARACTERS)
+        # The font's own lowercase: half-height, visually distinct from the
+        # full-height uppercase glyph the small caps must use instead.
+        characters["a"] = _entry(
+            "PU0,0;PD500,500;", (0, 0, 500, 500), [(0, 0), (500, 500)], [(0, 0), (500, 500)]
+        )
+        characters["c"] = _entry(
+            "PU0,250;PD0,250;PD;AA250,250,360;",
+            (0, 0, 500, 500),
+            [(250, 0), (0, 250), (250, 500)],
+            [(250, 0), (500, 250), (250, 500)],
+        )
+        # Uppercase G descends (y -0.5..0.5): pins the top-down anchor.
+        characters["G"] = _entry(
+            "PU0,-500;PD500,500;", (0, -500, 500, 500), [(0, -500), (500, 500)], [(0, -500), (500, 500)]
+        )
+        return _write_library(tmp_path, characters)
+
+    def test_lowercase_uses_uppercase_glyph_downscaled(self, sc_lib: Path) -> None:
+        """``a`` renders the full ``A`` glyph at 0.7 scale, not the font's ``a``."""
+        block = _render("a", 1.0, sc_lib, font="Test SC", lowercase_scale=0.7)
+        bounds = block.bounds()
+        assert bounds is not None
+        # A spans 1.0x1.0; the font's own 'a' spans 0.5x0.5. 0.7 proves the
+        # uppercase glyph was drawn and shrunk.
+        assert bounds[2] == pytest.approx(0.7, abs=1e-9)
+        assert bounds[3] == pytest.approx(0.7, abs=1e-9)
+
+    def test_scale_one_renders_full_height_capital(self, sc_lib: Path) -> None:
+        """``sc_scale=1.0`` maps lowercase to the FULL-size capital."""
+        scaled = _render("a", 1.0, sc_lib, font="Test SC", lowercase_scale=1.0)
+        base = _render("A", 1.0, sc_lib)
+        assert scaled.bounds() == pytest.approx(base.bounds())
+
+    def test_transform_off_uses_the_fonts_own_lowercase(self, sc_lib: Path) -> None:
+        """Without ``lowercase_scale`` the base font renders verbatim."""
+        block = _render("a", 1.0, sc_lib)
+        bounds = block.bounds()
+        assert bounds is not None
+        assert bounds[2] == pytest.approx(0.5, abs=1e-9)  # the font's own 'a'
+
+    def test_top_down_anchor_keeps_the_bottom(self, sc_lib: Path) -> None:
+        """The glyph's own lowest point stays put; its top descends."""
+        base = _render("G", 1.0, sc_lib).bounds()
+        shrunk = _render("g", 1.0, sc_lib, font="Test SC", lowercase_scale=0.7).bounds()
+        assert base is not None and shrunk is not None
+        assert base[1] == pytest.approx(-0.5, abs=1e-9)
+        # Bottom unchanged, top 0.5 -> -0.5 + 1.0*0.7, width halved*0.7.
+        assert shrunk[1] == pytest.approx(-0.5, abs=1e-9)
+        assert shrunk[3] == pytest.approx(0.2, abs=1e-9)
+        assert shrunk[2] == pytest.approx(0.35, abs=1e-9)
+
+    def test_uppercase_and_caseless_glyphs_untouched(self, sc_lib: Path) -> None:
+        """A line of capitals/digits keeps its exact base-font geometry."""
+        sc = _render("AB", 1.0, sc_lib, font="Test SC", lowercase_scale=0.7)
+        base = _render("AB", 1.0, sc_lib)
+        assert sc.bounds() == pytest.approx(base.bounds())
+
+    def test_kerning_uses_the_shrunk_silhouette(self, sc_lib: Path) -> None:
+        """The small glyph advances like the small glyph it engraves.
+
+        ``A``'s right silhouette is the diagonal ``x = y``, so shrinking it
+        to 0.7 shrinks its penetration into the next glyph by the same 0.7:
+        ``aB`` lands 0.3in earlier than the full-height ``AB``.
+        """
+        kwargs = {"cutter_diameter": 0.04, "character_spacing": 0.02}
+        full = _render("AB", 1.0, sc_lib, **kwargs).bounds()
+        small = _render("aB", 1.0, sc_lib, font="Test SC", lowercase_scale=0.7, **kwargs).bounds()
+        assert full is not None and small is not None
+        assert full[2] == pytest.approx(1.06, abs=1e-9)
+        assert small[2] == pytest.approx(0.76, abs=1e-9)
+
+    def test_arcs_stay_native_under_the_shrink(self, sc_lib: Path) -> None:
+        """The uniform scale keeps the arc-native contract (no flattening)."""
+        block = _render("c", 1.0, sc_lib, font="Test SC", lowercase_scale=0.7)
+        assert _count_arcs(block) == 1
+        assert "AA" in block.to_hpgl()
+
+    def test_glyph_groups_keep_the_original_characters(self, sc_lib: Path) -> None:
+        """The stroke partition stays keyed by the text, not the mapped glyphs."""
+        _block, words, glyphs = render_text_line_plt_font_with_glyphs(
+            "aB", 1.0, "Test SC", json_path=sc_lib, lowercase_scale=0.7
+        )
+        assert [char for char, _ in glyphs] == ["a", "B"]
+        assert [word for word, _ in words] == ["aB"]
+
+    def test_bundled_font_small_caps(self) -> None:
+        """The shipped Dino variant shrinks lowercase against the real library."""
+        caps = render_text_line_plt_font("A", 0.5, "Dino")
+        small = render_text_line_plt_font("a", 0.5, "Dino SC", lowercase_scale=0.7)
+        caps_bounds = caps.bounds()
+        small_bounds = small.bounds()
+        assert caps_bounds is not None and small_bounds is not None
+        assert small_bounds[3] == pytest.approx(caps_bounds[3] * 0.7, abs=1e-9)
+        assert small_bounds[1] == pytest.approx(caps_bounds[1], abs=1e-9)
+
+    def test_lowercase_only_line_reports_no_glyph_for_missing_capital(
+        self, tmp_path: Path
+    ) -> None:
+        """A missing UPPERCASE glyph is reported under the mapped character."""
+        root = tmp_path / "nolib"
+        root.mkdir()
+        library = _write_library(root, {"a": _v2_entry("PU0,0;PD500,500;")})
+        with pytest.raises(PltFontRenderError, match="has no glyph for character 'A'"):
+            _render("a", 1.0, library, font="Test SC", lowercase_scale=0.7)
+
+
 class TestLabelRendererDispatch:
     """``_render_line_block`` routes by the cascaded ``font`` field."""
 
@@ -1010,6 +1138,55 @@ class TestLabelRendererDispatch:
             _resolved_line("AB", "Dino"), TextChunkMode.WORD
         )
         assert groups == [("AB", [0])]
+
+    def test_small_caps_variant_threads_lowercase_scale(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An ``SC`` font forwards the cascaded ``sc_scale`` to the renderer."""
+        calls: dict[str, object] = {}
+
+        def fake_render(text: str, **kwargs: object) -> TextBlock:
+            calls.update(kwargs)
+            return _triangle_block()
+
+        monkeypatch.setattr(label_renderer, "render_text_line_plt_font", fake_render)
+        line = ResolvedTextLine(
+            text="Ab",
+            nominal_text_height=0.3,
+            toolpath_text_height=0.27,
+            cutter_diameter=0.03,
+            character_spacing=0.02,
+            line_spacing=0.0,
+            font="Dino SC",
+            sc_scale=0.55,
+        )
+        _render_line_block(line, TextChunkMode.LINE)
+        assert calls["font_name"] == "Dino SC"
+        assert calls["lowercase_scale"] == pytest.approx(0.55)
+
+    def test_base_font_never_receives_lowercase_scale(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A non-SC font keeps the renderer default (bit-identical legacy call)."""
+        calls: dict[str, object] = {}
+
+        def fake_render(text: str, **kwargs: object) -> TextBlock:
+            calls.update(kwargs)
+            return _triangle_block()
+
+        monkeypatch.setattr(label_renderer, "render_text_line_plt_font", fake_render)
+        line = ResolvedTextLine(
+            text="Ab",
+            nominal_text_height=0.3,
+            toolpath_text_height=0.27,
+            cutter_diameter=0.03,
+            character_spacing=0.02,
+            line_spacing=0.0,
+            font="Dino",
+            sc_scale=0.55,
+        )
+        _render_line_block(line, TextChunkMode.LINE)
+        assert "lowercase_scale" not in calls
 
     def test_unknown_font_becomes_render_error(self) -> None:
         """An unresolvable cascaded font raises PltFontRenderError."""

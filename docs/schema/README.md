@@ -183,6 +183,7 @@ always wins at its level. Precedence per attribute:
 | `text_color` | line → label (never job/plate/config) | `none` (implicit) |
 | `width`, `height` | label → job → auto-size from rendered content | — |
 | `margin` | label → job → config | 0.125 |
+| `h_margin`, `v_margin` | label → job → config | `margin` (then 0.125) |
 | `hole_margin` | label → job → config | 0.1875 |
 | `min_hole_margin`, `hole_text_collision_distance` | label → job → config | see fallback table |
 | `holes` | label (replaces job list entirely; `[]` suppresses) → job → config | none |
@@ -194,7 +195,11 @@ always wins at its level. Precedence per attribute:
 
 `job-config.json` sits **below the YAML but above the fallbacks**: its values
 are injected at the job layer before validation, so labels still override
-them. See [`job_config.schema.json`](job_config.schema.json) for its
+them. A spec-declared `margin` (job level, **or on any label**) suppresses
+the configured `h_margin`/`v_margin` injection: the cascade checks the
+axis-specific job-level keys *before* `margin`, so an injected axis value
+would silently outrank the spec's margin on that axis. See
+[`job_config.schema.json`](job_config.schema.json) for its
 contract (unknown keys fail loudly; `hole_diameter` fills `diameter` on hole
 entries that omit it).
 

@@ -32,7 +32,7 @@ import numpy as np
 import pytest
 import vpype as vp
 
-from plt_optimizer.generate import label_renderer
+from plt_optimizer.generate import font_registry, label_renderer
 from plt_optimizer.generate.label_renderer import (
     _center_text_layer_vertically,
     _collect_hpgl_geometry,
@@ -425,6 +425,61 @@ class TestRenderLineBlockWordFallback:
         assert groups is None
         assert glyph_groups == ()
         assert len(block.strokes) == 1
+
+
+class TestSmallCapsDispatch:
+    """``_render_line_block`` forwards the small-caps scale only for ``SC`` fonts."""
+
+    def test_ttf_variant_forwards_small_caps_scale(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A TTF ``SC`` line passes ``small_caps_scale`` to the ftext path."""
+        calls: dict[str, object] = {}
+
+        def fake_ftext(*args: object, **kwargs: object) -> vp.LineCollection:
+            calls.update(kwargs)
+            lc = vp.LineCollection()
+            lc.append(np.array([0 + 0j, 1 + 1j]))
+            return lc
+
+        monkeypatch.setattr(label_renderer, "render_text_line_ftext", fake_ftext)
+        line = ResolvedTextLine(
+            text="Ab",
+            nominal_text_height=0.3,
+            toolpath_text_height=0.27,
+            cutter_diameter=0.03,
+            character_spacing=0.0,
+            line_spacing=0.0,
+            font=f"{font_registry.DEFAULT_FONT_NAME} SC",
+            sc_scale=0.45,
+        )
+        _render_line_block(line, label_renderer.TextChunkMode.LINE)
+        assert calls["small_caps_scale"] == pytest.approx(0.45)
+
+    def test_ttf_base_font_omits_small_caps_scale(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A plain TTF line never receives the parameter (legacy call shape)."""
+        calls: dict[str, object] = {}
+
+        def fake_ftext(*args: object, **kwargs: object) -> vp.LineCollection:
+            calls.update(kwargs)
+            lc = vp.LineCollection()
+            lc.append(np.array([0 + 0j, 1 + 1j]))
+            return lc
+
+        monkeypatch.setattr(label_renderer, "render_text_line_ftext", fake_ftext)
+        line = ResolvedTextLine(
+            text="Ab",
+            nominal_text_height=0.3,
+            toolpath_text_height=0.27,
+            cutter_diameter=0.03,
+            character_spacing=0.0,
+            line_spacing=0.0,
+            sc_scale=0.45,
+        )
+        _render_line_block(line, label_renderer.TextChunkMode.LINE)
+        assert "small_caps_scale" not in calls
 
 
 class TestValidatedGlyphGroups:

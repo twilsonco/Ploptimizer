@@ -447,6 +447,20 @@ class TextAttributes(BaseModel):
             means unset. Cascades line -> label -> job (and is accepted on
             plates for schema parity, where it is not applied at that
             level).
+        sc_scale: Optional downscale applied to ASCII lowercase ``a-z`` by
+            a **small-caps** font (a ``font`` name ending in `` SC``, e.g.
+            ``"Dino SC"``): the lowercase character renders as its base
+            font's uppercase glyph uniformly shrunk to ``sc_scale`` of the
+            cap height, **top-down** -- the glyph's own bottom stays exactly
+            in place (it sits on the baseline like a shrunken capital) and
+            its top descends. Uppercase and caseless
+            characters (digits, punctuation, derived symbols) engrave at
+            full size, and the nominal ``text_height`` is untouched (no
+            cutter change). Inert on non-SC fonts. Bound to ``[0.2, 1.0]``
+            (``1.0`` renders the variant identically to its base font).
+            Defaults to ``0.7``; only ``None`` means unset. Cascades
+            line -> label -> job (and is accepted on plates for schema
+            parity, where it is not applied at that level).
         cutter_size: Optional cutter diameter in inches to use for the text
             instead of the tool auto-selected from ``text_height``. When set,
             the requested diameter is snapped to the shop inventory
@@ -533,7 +547,10 @@ class TextAttributes(BaseModel):
             "Font name: a PLT-extracted font key (Fonts/plt_fonts.json, "
             "rendered arc-native with arcs preserved) or a TrueType basename "
             "(*.ttf under Fonts/, extension stripped); case-insensitive, "
-            "canonicalized at validation. Cascades line -> label -> job "
+            "canonicalized at validation. Appending ' SC' to any name "
+            "selects its synthetic small-caps variant (uppercase glyphs "
+            "verbatim, ASCII lowercase a-z downscaled by sc_scale). "
+            "Cascades line -> label -> job "
             f"(fallback {DEFAULT_FONT_NAME}). Unknown names are rejected; run "
             "docs/schema/generate_schema_docs.py --show-fonts for the full "
             "valid list."
@@ -660,6 +677,22 @@ class TextAttributes(BaseModel):
             "PLT-extracted glyph pairs without overlapping height (or "
             "lacking envelopes). Cascades line -> label -> job (fallback "
             "1.0 = the left glyph's own width); explicit 0.0 is honored."
+        ),
+    )
+    sc_scale: Optional[float] = Field(
+        default=None,
+        ge=0.2,
+        le=1.0,
+        description=(
+            "Downscale applied to ASCII lowercase a-z by a small-caps font "
+            "(a font name ending in ' SC', e.g. 'Dino SC'): the lowercase "
+            "character renders as the base font's uppercase glyph uniformly "
+            "shrunk to sc_scale of the cap height, top-down (the glyph's "
+            "own bottom stays in place and its top descends). Uppercase and "
+            "caseless characters engrave at full size; the nominal "
+            "text_height is untouched (no cutter change). "
+            "Inert on non-SC fonts. Cascades line -> label -> job (fallback "
+            "0.7); explicit 0.2/1.0 are honored."
         ),
     )
     cutter_size: Optional[float] = Field(
@@ -1401,6 +1434,10 @@ class PlateSpec(BaseModel):
             Accepted for schema parity with the job/label
             ``fallback_advance_fraction`` cascade (not applied at plate
             level).
+        sc_scale: Optional small-caps downscale for ASCII lowercase ``a-z``
+            (a ``font`` name ending in `` SC``). Accepted for schema parity
+            with the job/label ``sc_scale`` cascade (not applied at plate
+            level).
         cutter_size: Optional cutter diameter in inches. Accepted for schema
             parity with the job/label ``cutter_size`` cascade (not applied at
             plate level).
@@ -1570,6 +1607,15 @@ class PlateSpec(BaseModel):
             "Fallback advance multiplier on the bounding-box width for pairs "
             "without overlapping height (schema parity; not applied at plate "
             "level)."
+        ),
+    )
+    sc_scale: Optional[float] = Field(
+        default=None,
+        ge=0.2,
+        le=1.0,
+        description=(
+            "Small-caps downscale applied to ASCII lowercase a-z by a ' SC' "
+            "font variant (schema parity; not applied at plate level)."
         ),
     )
     cutter_size: Optional[float] = Field(

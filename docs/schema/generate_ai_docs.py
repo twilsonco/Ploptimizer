@@ -142,6 +142,13 @@ _FALLBACK_NOTES: dict[str, str] = {
     "(arc-native) or a Fonts/ TTF basename; run generate_schema_docs.py --show-fonts.",
     "DEFAULT_FONT_NAME": "Registry-level default font name (font_registry.DEFAULT_FONT_NAME); "
     "resolution.DEFAULT_FONT mirrors it.",
+    "DEFAULT_SC_SCALE": "0.7 = a small-caps font (a font name ending in ' SC', a synthetic "
+    "variant of the base font) renders ASCII lowercase a-z as the base font's uppercase glyph "
+    "uniformly shrunk to 70% of the cap height, top-down (the glyph's own bottom stays in "
+    "place, its top descends). Uppercase and caseless characters engrave at full size and the "
+    "nominal text_height is untouched (no cutter change). 1.0 renders the variant identically "
+    "to its base font; the field is inert on a non-SC font. Cascades line/label/job; job-config "
+    "supplies the shop default.",
     "DEFAULT_HOLE_DIAMETER": "Drill-hole diameter when a hole entry omits 'diameter' (a "
     "job-config hole_diameter fills hole entries too).",
     "DEFAULT_PLATE_WIDTH": "Auto-allocated (unbounded mode) default plate width when job-config "

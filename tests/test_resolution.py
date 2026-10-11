@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import math
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
+from plt_optimizer.generate.job_config import (
+    JobConfig,
+    JobDefaults,
+    apply_job_config_defaults,
+)
 from plt_optimizer.generate.resolution import (
     DEFAULT_AUTO_DESCENDING_CHARACTER_ADJUSTMENT,
     DEFAULT_BOUNDARY_HOLE_CUTTER,
@@ -35,6 +41,7 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_MIN_HOLE_MARGIN,
     DEFAULT_OPTIMIZE_LINE_CONTENT,
     DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES,
+    DEFAULT_SC_SCALE,
     DEFAULT_SPACE_WIDTH_FRACTION,
     DEFAULT_TEXT_COLOR,
     DEFAULT_TEXT_H_ALIGNMENT,
@@ -858,6 +865,46 @@ class TestMarginPrecedenceInResolution:
         label = resolve_job_spec(job)[0]
         # Inner height 0.75, heights 0.6, requested gap 0.1 -> fits untouched.
         assert math.isclose(label.content[0].line_spacing, 0.1)
+
+
+class TestMarginAgainstConfigAxisMargins:
+    """A spec-declared margin must apply on every axis, config notwithstanding.
+
+    Regression: a shop config shipping ``h_margin`` was injected at the job
+    layer, where the margin cascade checks it *before* ``margin``, so a
+    YAML ``margin`` resolved vertically but lost horizontally.
+    """
+
+    def test_spec_margin_wins_over_config_h_margin(self, tmp_path: Path) -> None:
+        """margin=2.0 + config h_margin=0.3 resolves 2.0in on both axes."""
+        job_data = {
+            "job_name": "Coolsys",
+            "width": 24.0,
+            "height": 16.0,
+            "text_height": 1.0,
+            "margin": 2.0,
+            "labels": [{"id": "a", "content": [{"text": "Hello"}]}],
+        }
+        config = JobConfig(path=tmp_path / "job-config.json", defaults=JobDefaults(h_margin=0.3))
+        filled = apply_job_config_defaults(job_data, config)
+        label = resolve_job_spec(JobSpec(**filled))[0]
+        assert math.isclose(label.h_margin, 2.0)
+        assert math.isclose(label.v_margin, 2.0)
+
+    def test_config_axis_margin_applies_without_spec_margin(self, tmp_path: Path) -> None:
+        """Without a spec margin the configured h_margin keeps working."""
+        job_data = {
+            "job_name": "Shop",
+            "width": 24.0,
+            "height": 16.0,
+            "text_height": 1.0,
+            "labels": [{"id": "a", "content": [{"text": "Hello"}]}],
+        }
+        config = JobConfig(path=tmp_path / "job-config.json", defaults=JobDefaults(h_margin=0.3))
+        filled = apply_job_config_defaults(job_data, config)
+        label = resolve_job_spec(JobSpec(**filled))[0]
+        assert math.isclose(label.h_margin, 0.3)
+        assert math.isclose(label.v_margin, DEFAULT_MARGIN)
 
 
 class TestComputeHorizontalScale:
@@ -2100,6 +2147,122 @@ class TestKerningWindowFractionCascade:
             TextLine(text="X", kerning_window_fraction=1.01)
         with pytest.raises(ValueError):
             JobSpec(job_name="J", kerning_window_fraction=1.5)
+
+
+class TestSmallCapsScaleCascade:
+    """``sc_scale`` must cascade line -> label -> job -> default."""
+
+    @staticmethod
+    def _job(**line_kwargs: object) -> JobSpec:
+        """Build a one-label/one-line job carrying optional line overrides."""
+        return JobSpec(
+            job_name="J",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X", **line_kwargs)],  # type: ignore[arg-type]
+                )
+            ],
+        )
+
+    def test_default_when_all_omit(self) -> None:
+        """All levels omitting yields the 0.7 small-caps default."""
+        label = resolve_job_spec(self._job())[0]
+        assert math.isclose(label.content[0].sc_scale, DEFAULT_SC_SCALE)
+        assert DEFAULT_SC_SCALE == 0.7
+
+    def test_job_value_used_when_label_omits(self) -> None:
+        """Job-level value cascades to the line."""
+        job = self._job().model_copy(update={"sc_scale": 0.3})
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].sc_scale, 0.3)
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level value overrides the job-level value."""
+        job = JobSpec(
+            job_name="J",
+            sc_scale=0.3,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    sc_scale=0.9,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].sc_scale, 0.9)
+
+    def test_line_overrides_label(self) -> None:
+        """Line-level value overrides the label-level value."""
+        job = JobSpec(
+            job_name="J",
+            sc_scale=0.3,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    sc_scale=0.9,
+                    content=[TextLine(text="X", sc_scale=0.5)],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].sc_scale, 0.5)
+
+    def test_explicit_one_is_honored(self) -> None:
+        """An explicit 1.0 (base-identical rendering) beats the parents."""
+        job = JobSpec(
+            job_name="J",
+            sc_scale=0.3,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    sc_scale=0.9,
+                    content=[TextLine(text="X", sc_scale=1.0)],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert math.isclose(label.content[0].sc_scale, 1.0)
+
+    def test_scale_never_touches_the_cutter(self) -> None:
+        """The small-caps scale must not change the resolved heights/cutter."""
+        job = JobSpec(
+            job_name="J",
+            text_height=0.5,
+            font="Dino SC",
+            sc_scale=0.4,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="Ab")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        line = label.content[0]
+        assert line.font == "Dino SC"
+        assert math.isclose(line.nominal_text_height, 0.5)
+        assert line.toolpath_text_height == pytest.approx(0.5 - line.cutter_diameter)
+
+    def test_out_of_bounds_rejected(self) -> None:
+        """The scale is bounded to [0.2, 1.0] at every level."""
+        with pytest.raises(ValueError):
+            TextLine(text="X", sc_scale=0.19)
+        with pytest.raises(ValueError):
+            TextLine(text="X", sc_scale=1.01)
+        with pytest.raises(ValueError):
+            JobSpec(job_name="J", sc_scale=0.0)
 
 
 class TestKerningSpacingKnobCascades:

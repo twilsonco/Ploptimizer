@@ -327,3 +327,76 @@ class TestResolveFont:
             )
             == "Jhanuni"
         )
+
+
+class TestSmallCapsVariants:
+    """Synthetic ``"<base> SC"`` small-caps variants."""
+
+    def test_plt_variant_resolves_to_base_family(self, fonts_root: Path) -> None:
+        """A PLT variant keeps the PLT kind, carries no path, and is flagged."""
+        ref = resolve_font(
+            "Dino SC", json_path=fonts_root / "plt_fonts.json", fonts_dir=fonts_root
+        )
+        assert (ref.kind, ref.name, ref.path, ref.small_caps) == ("plt", "Dino SC", None, True)
+
+    def test_ttf_variant_carries_base_path(self, fonts_root: Path) -> None:
+        """A TTF variant resolves to the TTF family with the BASE file path."""
+        ref = resolve_font("Alpha SC", fonts_dir=fonts_root)
+        assert (ref.kind, ref.name, ref.small_caps) == ("ttf", "Alpha SC", True)
+        assert ref.path == fonts_root / "Alpha.ttf"
+
+    @pytest.mark.parametrize("requested", ["dino sc", "DINO SC", "DiNo Sc", " dino sc "])
+    def test_variant_matching_is_case_insensitive(self, fonts_root: Path, requested: str) -> None:
+        """Any casing/whitespace of the variant name resolves canonically."""
+        ref = resolve_font(
+            requested, json_path=fonts_root / "plt_fonts.json", fonts_dir=fonts_root
+        )
+        assert ref.name == "Dino SC"
+        assert ref.small_caps is True
+
+    def test_base_font_is_not_flagged(self, fonts_root: Path) -> None:
+        """A base name never reports small_caps."""
+        ref = resolve_font("Dino", json_path=fonts_root / "plt_fonts.json", fonts_dir=fonts_root)
+        assert ref.small_caps is False
+
+    def test_choices_include_variants(self, fonts_root: Path) -> None:
+        """Every base contributes a variant to the valid-name list."""
+        choices = font_name_choices(
+            json_path=fonts_root / "plt_fonts.json", fonts_dir=fonts_root
+        )
+        assert {"Dino SC", "Jhanuni SC", "Alpha SC", "Beta SC"} <= set(choices)
+        assert choices == sorted(choices, key=str.lower)
+
+    def test_real_sc_named_font_wins_over_synthetic(self, tmp_path: Path) -> None:
+        """A real TTF literally named ``Foo SC`` beats the synthetic variant."""
+        (tmp_path / "Foo SC.ttf").write_bytes(b"t")
+        library = tmp_path / "plt_fonts.json"
+        library.write_text(json.dumps({"Foo": _v2_font({"A": "x"})}), encoding="utf-8")
+        ref = resolve_font("Foo SC", json_path=library, fonts_dir=tmp_path)
+        assert ref.kind == "ttf"
+        # The real file is a base font (its name merely ends in SC), so it is
+        # not a synthetic variant.
+        assert ref.small_caps is False
+
+    @pytest.mark.parametrize(
+        ("requested", "expected"),
+        [
+            ("Dino SC", "Dino"),
+            ("Dino", "Dino"),
+            ("Dino SC SC", "Dino SC"),
+            ("dino sc", "dino"),
+        ],
+    )
+    def test_base_font_name_strips_one_suffix(self, requested: str, expected: str) -> None:
+        """The library-key helper strips exactly one trailing `` SC``."""
+        assert font_registry.base_font_name(requested) == expected
+
+    def test_bundled_variants_resolve(self) -> None:
+        """The shipped fonts each expose a working ``SC`` variant."""
+        for base in font_name_choices():
+            if base.lower().endswith(" sc"):
+                continue
+            ref = resolve_font(f"{base} SC")
+            assert ref.small_caps is True
+            assert ref.kind == resolve_font(base).kind
+            assert ref.path == resolve_font(base).path

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import math
 from pathlib import Path
+from typing import List, Optional
 
 import numpy as np
 import pytest
@@ -527,3 +528,161 @@ class TestRenderTextLineFtextWithWords:
         )
         assert not whole.is_empty()
         assert groups == []
+
+
+def _extents(lc: vp.LineCollection, indices: Optional[List[int]] = None) -> tuple[float, ...]:
+    """Return ``(x_min, x_max, y_min, y_max)`` of contours (all, or by index)."""
+    lines = [np.asarray(line) for line in lc if len(line)]
+    if indices is not None:
+        lines = [np.asarray(lc[i]) for i in indices]
+    points = np.concatenate(lines)
+    return (
+        float(points.real.min()),
+        float(points.real.max()),
+        float(points.imag.min()),
+        float(points.imag.max()),
+    )
+
+
+class TestSmallCaps:
+    """The synthesized small-caps transform (TTF family).
+
+    matplotlib ignores OpenType ``smcp``, so the renderer maps ASCII
+    lowercase to uppercase and shrinks those glyphs **top-down** about their
+    own bottom-left ink corner. The reference line ``"AA"`` (the mapped
+    string) is the exact baseline every assertion compares against.
+    """
+
+    def test_lowercase_renders_the_capital_shrunk_top_down(self) -> None:
+        """The lowercase glyph is the capital, shrunk 0.7 about its bottom-left."""
+        mapped = ftext_renderer.render_text_line_ftext("AA", 1.0, DEFAULT_FONT_PATH)
+        small = ftext_renderer.render_text_line_ftext(
+            "Aa", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.7
+        )
+        cap = _extents(mapped, ftext_renderer.glyph_groups_for_line("AA", DEFAULT_FONT_PATH, len(mapped))[1][1])
+        shrunk = _extents(
+            small,
+            ftext_renderer.glyph_groups_for_line(
+                "Aa", DEFAULT_FONT_PATH, len(small), small_caps=True
+            )[1][1],
+        )
+        # Anchor: the glyph's own left edge and lowest ink stay exactly put.
+        assert shrunk[0] == pytest.approx(cap[0], abs=1e-9)
+        assert shrunk[2] == pytest.approx(cap[2], abs=1e-9)
+        # Uniform 0.7 shrink of width and height, top descending.
+        assert shrunk[1] - shrunk[0] == pytest.approx(0.7 * (cap[1] - cap[0]), abs=1e-9)
+        assert shrunk[3] - shrunk[2] == pytest.approx(0.7 * (cap[3] - cap[2]), abs=1e-9)
+
+    def test_capital_glyph_is_untouched(self) -> None:
+        """The uppercase glyph of a mixed line keeps its exact geometry."""
+        mapped = ftext_renderer.render_text_line_ftext("AA", 1.0, DEFAULT_FONT_PATH)
+        small = ftext_renderer.render_text_line_ftext(
+            "Aa", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.7
+        )
+        cap = _extents(mapped, ftext_renderer.glyph_groups_for_line("AA", DEFAULT_FONT_PATH, len(mapped))[0][1])
+        kept = _extents(
+            small,
+            ftext_renderer.glyph_groups_for_line(
+                "Aa", DEFAULT_FONT_PATH, len(small), small_caps=True
+            )[0][1],
+        )
+        assert kept == pytest.approx(cap, abs=1e-9)
+
+    def test_scale_one_renders_full_height_capitals(self) -> None:
+        """``sc_scale=1.0`` maps lowercase to capitals and skips the shrink."""
+        caps = ftext_renderer.render_text_line_ftext("AA", 1.0, DEFAULT_FONT_PATH)
+        one = ftext_renderer.render_text_line_ftext("Aa", 1.0, DEFAULT_FONT_PATH, small_caps_scale=1.0)
+        assert _extents(one) == pytest.approx(_extents(caps), abs=1e-9)
+
+    def test_transform_off_renders_the_fonts_own_lowercase(self) -> None:
+        """Without the parameter the font's own lowercase glyph renders."""
+        off = ftext_renderer.render_text_line_ftext("a", 1.0, DEFAULT_FONT_PATH)
+        caps = ftext_renderer.render_text_line_ftext("A", 1.0, DEFAULT_FONT_PATH)
+        assert _extents(off) != pytest.approx(_extents(caps), abs=1e-3)
+
+    def test_caseless_characters_stay_full_size(self) -> None:
+        """Digits/punctuation engrave at full size on an SC line."""
+        sc = ftext_renderer.render_text_line_ftext("1-1", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.5)
+        plain = ftext_renderer.render_text_line_ftext("1-1", 1.0, DEFAULT_FONT_PATH)
+        assert _extents(sc) == pytest.approx(_extents(plain), abs=1e-9)
+
+    def test_glyph_groups_keyed_by_the_original_characters(self) -> None:
+        """The partition reports the text's characters, sliced by capital counts."""
+        whole, _words, glyphs = ftext_renderer.render_text_line_ftext_with_glyphs(
+            "Hi there", 0.5, DEFAULT_FONT_PATH, small_caps_scale=0.7
+        )
+        assert [char for char, _indices in glyphs] == list("Hithere")
+        flat = [i for _char, indices in glyphs for i in indices]
+        assert sorted(flat) == list(range(len(whole)))
+
+    def test_word_groups_cover_every_contour(self) -> None:
+        """SC word groups come from the exact slicing and partition the line."""
+        whole, words = ftext_renderer.render_text_line_ftext_with_words(
+            "Hi there", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.7
+        )
+        assert [word for word, _indices in words] == ["Hi", "there"]
+        flat = [i for _word, indices in words for i in indices]
+        assert sorted(flat) == list(range(len(whole)))
+
+    def test_scale_one_word_mode_partitions_the_line(self) -> None:
+        """``sc_scale=1.0`` uses the slicing path and partitions exactly."""
+        whole, words = ftext_renderer.render_text_line_ftext_with_words(
+            "AB CD", 0.5, DEFAULT_FONT_PATH, small_caps_scale=1.0
+        )
+        assert [word for word, _indices in words] == ["AB", "CD"]
+        flat = [i for _word, indices in words for i in indices]
+        assert sorted(flat) == list(range(len(whole)))
+
+    def test_word_group_count_drift_falls_back(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A contour-count drift yields whole-line (ungrouped) word groups."""
+        monkeypatch.setattr(ftext_renderer, "_glyph_contour_count", lambda path, ch: 99)
+        with caplog.at_level(logging.WARNING):
+            whole, words = ftext_renderer.render_text_line_ftext_with_words(
+                "AB CD", 0.5, DEFAULT_FONT_PATH, small_caps_scale=0.7
+            )
+        assert not whole.is_empty()
+        assert words == []
+        assert "falling back to whole-line" in caplog.text
+
+    def test_blank_input_stays_empty(self) -> None:
+        """Blank input short-circuits before any mapping happens."""
+        assert ftext_renderer.render_text_line_ftext("", 0.5, small_caps_scale=0.7).is_empty()
+        whole, words = ftext_renderer.render_text_line_ftext_with_words(
+            "", 0.5, small_caps_scale=0.7
+        )
+        assert whole.is_empty() and words == []
+        whole_g, words_g, glyphs_g = ftext_renderer.render_text_line_ftext_with_glyphs(
+            "", 0.5, small_caps_scale=0.7
+        )
+        assert whole_g.is_empty() and words_g == [] and glyphs_g == []
+
+    def test_coverage_probe_runs_on_the_mapped_string(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The glyph-coverage probe sees the uppercase-mapped string."""
+        seen: list[str] = []
+        monkeypatch.setattr(
+            ftext_renderer,
+            "_assert_glyph_coverage",
+            lambda path, text: seen.append(text),
+        )
+        ftext_renderer.render_text_line_ftext(
+            "My Aunt", 0.5, DEFAULT_FONT_PATH, small_caps_scale=0.7
+        )
+        assert seen == ["MY AUNT"]
+
+    def test_count_mismatch_falls_back_to_full_size(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A contour-count drift leaves the natural uppercase render."""
+        monkeypatch.setattr(ftext_renderer, "_glyph_contour_count", lambda path, ch: 99)
+        with caplog.at_level(logging.WARNING):
+            lc = ftext_renderer.render_text_line_ftext(
+                "ab", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.7
+            )
+        caps = ftext_renderer.render_text_line_ftext("AB", 1.0, DEFAULT_FONT_PATH)
+        assert not lc.is_empty()
+        assert _extents(lc) == pytest.approx(_extents(caps), abs=1e-9)
+        assert "rendering at full size" in caplog.text

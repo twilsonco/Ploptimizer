@@ -12,6 +12,12 @@ Semantics:
   cascade: cascading attributes (margins, compression, collision
   distances, ...) are injected as *job-level* values, so the existing
   label -> job cascade works unchanged and labels still override them.
+- A job spec that declares the universal ``margin`` (at the job level, or
+  on any label) suppresses the configured ``h_margin`` / ``v_margin``
+  injection: ``margin`` is the spec's intent for *every* edge, and the
+  cascade checks ``job.h_margin`` / ``job.v_margin`` *before* ``margin``,
+  so an injected axis-specific default would silently outrank the spec's
+  margin on that axis.
 - ``plate_width`` / ``plate_height`` are *plate-layer* defaults: they fill
   plate entries that omit ``width`` / ``height`` and drive the unbounded
   (auto-allocated) bin size. They deliberately never fill the job-level
@@ -96,11 +102,15 @@ class JobDefaults(BaseModel):
         character_spacing: Default extra spacing between characters (in
             inches). Unset falls back to the per-cutter derived default.
         line_spacing: Default extra spacing between text lines in inches.
-        margin: Default label margin in inches.
+        margin: Default label margin in inches. A spec-declared margin
+            (job level, or on any label) suppresses the configured
+            ``h_margin`` / ``v_margin`` injection.
         h_margin: Default horizontal (left/right) margin in inches; falls
-            back to margin if unset.
-        v_margin: Default vertical (top/bottom) margin in inches; falls back
-            to margin if unset.
+            back to margin if unset. Not injected when the spec declares
+            a margin.
+        v_margin: Default vertical (top/bottom) margin in inches; falls
+            back to margin if unset. Not injected when the spec declares
+            a margin.
         hole_margin: Default hole margin in inches.
         min_hole_margin: Default collision-avoidance floor for the hole
             margin in inches.
@@ -201,14 +211,21 @@ class JobDefaults(BaseModel):
         default=None, description="Default extra spacing between text lines in inches (job layer)."
     )
     margin: Optional[float] = Field(
-        default=None, ge=0.0, description="Default label margin in inches (job layer)."
+        default=None,
+        ge=0.0,
+        description=(
+            "Default label margin in inches (job layer). A spec-declared "
+            "margin (job level, or on any label) suppresses the configured "
+            "h_margin/v_margin injection."
+        ),
     )
     h_margin: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
             "Default horizontal margin (left/right) in inches; falls back to "
-            "margin if unset (job layer)."
+            "margin if unset (job layer). Not injected when the spec declares "
+            "a margin (job level, or on any label)."
         ),
     )
     v_margin: Optional[float] = Field(
@@ -216,7 +233,8 @@ class JobDefaults(BaseModel):
         ge=0.0,
         description=(
             "Default vertical margin (top/bottom) in inches; falls back to "
-            "margin if unset (job layer)."
+            "margin if unset (job layer). Not injected when the spec declares "
+            "a margin (job level, or on any label)."
         ),
     )
     hole_margin: Optional[float] = Field(
@@ -316,6 +334,17 @@ class JobDefaults(BaseModel):
             "Default fallback-advance multiplier for PLT-extracted glyph "
             "pairs without overlapping height (job layer). Unset falls "
             "back to 1.0."
+        ),
+    )
+    sc_scale: Optional[float] = Field(
+        default=None,
+        ge=0.2,
+        le=1.0,
+        description=(
+            "Default small-caps downscale applied to ASCII lowercase a-z "
+            "by a ' SC' font variant (job layer; the lowercase character "
+            "renders as the base font's uppercase glyph uniformly shrunk "
+            "to this fraction of the cap height). Unset falls back to 0.7."
         ),
     )
     holes: Optional[list[HoleSpec]] = Field(
@@ -559,6 +588,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "kerning_recession_scale",
     "kerning_min_gap",
     "fallback_advance_fraction",
+    "sc_scale",
     "cutter_downsize",
     "max_cutter_downsizes",
     "cutter_downsize_global",
@@ -579,6 +609,10 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "top_clearance",
     "auto_line_spacing_interline_to_top_bottom_ratio",
 )
+
+# Config fields whose job-layer injection is suppressed when the spec
+# declares the universal ``margin`` (see :func:`_spec_declares_margin`).
+_MARGIN_SUPPRESSED_FIELDS: frozenset[str] = frozenset({"h_margin", "v_margin"})
 
 
 def load_job_config(job_config_path: Optional[Path]) -> Optional[JobConfig]:
@@ -676,6 +710,32 @@ def _hole_entries_with_diameters(holes: list[Any], default_diameter: Optional[fl
     return result
 
 
+def _spec_declares_margin(job_data: Mapping[str, Any]) -> bool:
+    """Return True when the raw job mapping declares a universal margin.
+
+    A ``margin`` value at the job level, or on any entry of the raw
+    ``labels`` list, is the spec's intent for every label edge. The
+    margin cascade resolves ``h_margin`` / ``v_margin`` through
+    ``margin`` as their fallback and checks the axis-specific job-level
+    keys *first*, so an injected config ``h_margin`` / ``v_margin``
+    would silently outrank the spec's margin on that axis -- the
+    injection is suppressed whenever this returns True. An explicit
+    YAML ``null`` counts as unset (the existing inherit semantics).
+
+    Args:
+        job_data: The raw ``job`` mapping parsed from YAML.
+
+    Returns:
+        True when the job level or any label declares ``margin``.
+    """
+    if job_data.get("margin") is not None:
+        return True
+    labels = job_data.get("labels")
+    if isinstance(labels, list):
+        return any(isinstance(label, dict) and label.get("margin") is not None for label in labels)
+    return False
+
+
 def apply_job_config_defaults(
     job_data: dict[str, Any],
     config: Optional[JobConfig],
@@ -687,6 +747,13 @@ def apply_job_config_defaults(
     unchanged), and plate defaults fill missing keys of each ``plates``
     entry. Values declared in the YAML are never overridden. The input
     mapping is not mutated.
+
+    The configured ``h_margin`` / ``v_margin`` are additionally suppressed
+    whenever the spec declares the universal ``margin`` (job level, or on
+    any label): ``margin`` is the spec's intent for every edge, and the
+    cascade checks the axis-specific job-level keys before ``margin``,
+    so an injected axis value would silently outrank the spec's margin
+    on that axis (see :func:`_spec_declares_margin`).
 
     Args:
         job_data: The raw ``job`` mapping parsed from YAML.
@@ -703,7 +770,10 @@ def apply_job_config_defaults(
 
     # An explicit YAML ``null`` counts as unset (the cascade treats None as
     # "inherit"), so config values fill absent keys and null-valued ones.
+    suppress_margins = _spec_declares_margin(filled)
     for field_name in _JOB_LAYER_FIELDS:
+        if suppress_margins and field_name in _MARGIN_SUPPRESSED_FIELDS:
+            continue
         value = getattr(defaults, field_name)
         if value is not None and filled.get(field_name) is None:
             filled[field_name] = value
