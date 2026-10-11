@@ -22,6 +22,7 @@ from typing import Any, Callable, Iterable, List, Mapping, NamedTuple, Optional,
 import numpy as np
 import vpype as vp
 
+from plt_optimizer.core.units import HPGL_UNITS_PER_INCH, inches_to_units, units_to_inches
 from plt_optimizer.generate.descender_adjust import (
     DescenderFix,
     GlyphBox,
@@ -122,12 +123,12 @@ _DESCENDER_GAP_TOLERANCE: float = 1e-6
 _GAP_REPORT_RADIUS: float = 0.25
 
 # Emission floor for the relief's ink model, in inches: half a plotter unit
-# (coordinates emit as integer 1/1000in). Glyph ink below this depth does not
-# exist in the emitted PLT, so the relief must not treat it as a descender --
-# a 0.0004in sliver (0.4 units) is font-data noise, and chasing it relieves
-# glyphs that do not descend and aborts the job on sub-unit deficits. Real
-# descenders are two orders of magnitude deeper.
-_INK_EMISSION_FLOOR: float = 5e-4
+# (coordinates emit as integer units, 1 inch = ``HPGL_UNITS_PER_INCH``). Glyph
+# ink below this depth does not exist in the emitted PLT, so the relief must
+# not treat it as a descender -- a sub-unit sliver is font-data noise, and
+# chasing it relieves glyphs that do not descend and aborts the job on sub-unit
+# deficits. Real descenders are two orders of magnitude deeper.
+_INK_EMISSION_FLOOR: float = 0.5 / HPGL_UNITS_PER_INCH
 
 # Sentinel glyph index for the bottom border's virtual glyph box (the border
 # is not a rendered character, so it never collides with a real glyph index).
@@ -137,8 +138,8 @@ _BORDER_GLYPH_INDEX: int = -1
 # unit. The border ramp converges asymptotically (relieving a glyph shrinks
 # the block's bottom extent, which re-centres the block DOWNWARD and undoes
 # part of the relief, so each pass closes only part of the deficit), leaving a
-# sub-plotter-unit residual. Emitted coordinates are integer 1/1000in, so a
-# shortfall that small is not a collision in the engraved output and must not
+# sub-plotter-unit residual. Emitted coordinates are integer plotter units, so
+# a shortfall that small is not a collision in the engraved output and must not
 # be reported.
 _BORDER_SHORTFALL_TOLERANCE: float = 2 * _INK_EMISSION_FLOOR
 
@@ -743,7 +744,8 @@ def render_label_to_plt(
 
     Renders the label at local coordinates (origin at bottom-left, no translation).
     Exports to temporary file with postprocessing to ensure coordinates are
-    correct and compressed to 1:1000 scale (1 inch = 1000 units).
+    correct and expressed in integer plotter units
+    (``HPGL_UNITS_PER_INCH`` units = 1 inch).
 
     Text-hole collision avoidance runs in three phases. A (line, hole)
     pair collides when its geometric gap falls below the stroke-aware
@@ -1237,7 +1239,7 @@ def extract_bounds_from_plt(plt_content: str) -> Tuple[float, float, float, floa
 
     Parses PA, PU (Pen Up), and PD (Pen Down) commands to find the
     minimum and maximum coordinates. Converts from plotter units
-    (1 inch = 1000 units) to inches.
+    (``HPGL_UNITS_PER_INCH`` units = 1 inch) to inches.
 
     Args:
         plt_content: Raw HPGL text content.
@@ -1268,11 +1270,11 @@ def extract_bounds_from_plt(plt_content: str) -> Tuple[float, float, float, floa
     if not x_coords or not y_coords:
         raise ValueError("No valid coordinates found in PLT content")
 
-    # Convert from plotter units (1000 units = 1 inch) to inches
-    x_min = min(x_coords) / 1000.0
-    x_max = max(x_coords) / 1000.0
-    y_min = min(y_coords) / 1000.0
-    y_max = max(y_coords) / 1000.0
+    # Convert from plotter units (HPGL_UNITS_PER_INCH units = 1 inch) to inches
+    x_min = units_to_inches(min(x_coords))
+    x_max = units_to_inches(max(x_coords))
+    y_min = units_to_inches(min(y_coords))
+    y_max = units_to_inches(max(y_coords))
 
     return x_min, y_min, x_max, y_max
 
@@ -1293,7 +1295,8 @@ def _export_to_plt_with_postprocessing(
 
     Process:
     1. Extract coordinates directly from vpype LineCollection (units are inches)
-       and convert them losslessly to plotter units at 1:1000 scale. Arc-native
+       and convert them losslessly to integer plotter units
+       (``HPGL_UNITS_PER_INCH`` per inch). Arc-native
        text layers arrive as :class:`TextBlock` tuples (``text_blocks``) and
        emit their ``AA`` arcs verbatim.
     2. Center the text pen(s) vertically within label bounds (one shared
@@ -1328,7 +1331,7 @@ def _export_to_plt_with_postprocessing(
     output_path.write_text(hpgl_content, encoding="utf-8")
 
     # NOTE: No uniform scaling is applied here. ``_linecollection_to_hpgl``
-    # already converts vpype inches directly to plotter units (1 inch = 1000
+    # already converts vpype inches directly to plotter units (HPGL_UNITS_PER_INCH
     # units), so the boundary rectangle spans exactly [0,w]x[0,h]. Rescaling
     # against combined text+boundary bounds would compress geometry whenever
     # ftext glyph descenders extend below y=0, distorting label footprints and
@@ -1364,7 +1367,7 @@ def _linecollection_to_hpgl(
     complex coordinate transformations that distort text height.
 
     Coordinates are converted from inches (vpype units) to plotter units
-    (1 inch = 1000 units).
+    (``HPGL_UNITS_PER_INCH`` units = 1 inch).
 
     Args:
         doc: The vpype Document containing line collections for each pen.
@@ -1426,11 +1429,11 @@ def _linecollection_to_hpgl(
             if segment is None or len(segment) == 0:
                 continue
 
-            # Convert from inches to plotter units (1 inch = 1000 units)
+            # Convert from inches to plotter units (device scale)
             points = []
             for point in segment:
-                x_plotter = int(round(point.real * 1000))
-                y_plotter = int(round(point.imag * 1000))
+                x_plotter = inches_to_units(point.real)
+                y_plotter = inches_to_units(point.imag)
                 points.append((x_plotter, y_plotter))
 
             if not points:
@@ -1554,14 +1557,14 @@ def _center_text_layer_vertically(
     text_y_min = min(y_coords)
     text_y_max = max(y_coords)
 
-    # Expected center position (in plotter units: 1 inch = 1000 units). Band
-    # centering lowers the target by the ink-to-band offset so the band, not
-    # the ink, lands on the inner-area center.
-    v_margin_units = label.v_margin * 1000.0
-    label_height_units = label.height * 1000.0
+    # Expected center position (in plotter units: HPGL_UNITS_PER_INCH per
+    # inch). Band centering lowers the target by the ink-to-band offset so the
+    # band, not the ink, lands on the inner-area center.
+    v_margin_units = label.v_margin * HPGL_UNITS_PER_INCH
+    label_height_units = label.height * HPGL_UNITS_PER_INCH
     available_height_units = label_height_units - (2 * v_margin_units)
     expected_center_y = v_margin_units + available_height_units / 2.0
-    expected_center_y -= band_center_offset_inches * 1000.0
+    expected_center_y -= band_center_offset_inches * HPGL_UNITS_PER_INCH
 
     # Current center of text
     current_center_y = (text_y_min + text_y_max) / 2.0
@@ -4275,7 +4278,7 @@ def _render_holes_hpgl(label: ResolvedLabel) -> str:
     Returns:
         HPGL command string (without the ``SP`` wrapper), or an empty string
         when the label has no holes. Coordinates are in plotter units
-        (1 inch = 1000 units).
+        (``HPGL_UNITS_PER_INCH`` units = 1 inch).
     """
     commands: List[str] = []
 
@@ -4283,9 +4286,9 @@ def _render_holes_hpgl(label: ResolvedLabel) -> str:
         # Convert to plotter units so the emitted PU start and AA center are
         # mutually consistent integers (the parser derives the radius from
         # their distance).
-        cx = int(round(center_x * 1000))
-        cy = int(round(center_y * 1000))
-        r = int(round(radius * 1000))
+        cx = inches_to_units(center_x)
+        cy = inches_to_units(center_y)
+        r = inches_to_units(radius)
         if r <= 0:  # pragma: no cover - degenerate hole
             continue
 

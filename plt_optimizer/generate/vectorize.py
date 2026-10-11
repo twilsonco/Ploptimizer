@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from plt_optimizer.generate.schema import JobSpec
 
 from plt_optimizer.core.optimizer import OptimizationStrategy
+from plt_optimizer.core.units import inches_to_units
 from plt_optimizer.generate.label_renderer import (
     PLT_FOOTER,
     PLT_HEADER,
@@ -76,7 +77,7 @@ def translate_plt_coordinates(plt_content: str, dx: float, dy: float) -> str:
     """Translate all coordinates in a PLT file by an offset.
 
     Parses HPGL PA/PU/PD commands and applies x/y offsets, converting
-    from inches to plotter units (1 inch = 1000 units).
+    from inches to plotter units (``HPGL_UNITS_PER_INCH`` units = 1 inch).
 
     Args:
         plt_content: Raw HPGL PLT text content.
@@ -87,8 +88,8 @@ def translate_plt_coordinates(plt_content: str, dx: float, dy: float) -> str:
         Modified PLT content with translated coordinates (without header/footer).
     """
     # Convert offsets from inches to plotter units
-    dx_units = int(round(dx * 1000.0))
-    dy_units = int(round(dy * 1000.0))
+    dx_units = inches_to_units(dx)
+    dy_units = inches_to_units(dy)
 
     if dx_units == 0 and dy_units == 0:
         # No translation needed
@@ -148,7 +149,7 @@ def rotate_plt_content_90cw(plt_content: str) -> str:
 
     Args:
         plt_content: Raw HPGL PLT text content (plotter units,
-            1 inch = 1000 units).
+            ``HPGL_UNITS_PER_INCH`` units = 1 inch).
 
     Returns:
         Rotated PLT content. Content without any coordinates is returned
@@ -160,8 +161,8 @@ def rotate_plt_content_90cw(plt_content: str) -> str:
         # No coordinates at all: nothing to rotate.
         return plt_content
 
-    y_max_units = int(round(y_max * 1000.0))
-    x_min_units = int(round(x_min * 1000.0))
+    y_max_units = inches_to_units(y_max)
+    x_min_units = inches_to_units(x_min)
 
     def rotate_coordinates(match: re.Match[str]) -> str:
         """Rotate coordinates within one PA/PU/PD/AA command."""

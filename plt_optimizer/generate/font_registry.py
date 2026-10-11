@@ -6,8 +6,12 @@ attribute:
 1. **PLT-extracted fonts** -- keys of ``Fonts/plt_fonts.json``, produced by
    ``Fonts/extract_plt_fonts.py`` from engraved EngraveLab / Vision Pro
    sample sheets. Each glyph is a baseline-normalized HPGL
-   (``PU``/``PD``/``AA``) string in plotter units (1000 units = 1 inch,
-   ``+y`` up, baseline at ``y = 0``, left edge at ``x = 0``) with the
+   (``PU``/``PD``/``AA``) string in the library **design frame** (1000 units
+   per design inch -- see ``_DESIGN_UNITS_PER_INCH`` in
+   :mod:`plt_optimizer.generate.plt_font_renderer`; this is NOT the emitted
+   device scale, which is 1016 units/inch per
+   :mod:`plt_optimizer.core.units`), ``+y`` up, baseline at ``y = 0``,
+   left edge at ``x = 0``) with the
    reference character exactly 1000 units tall, accompanied by its bounding
    box and left/right profile envelopes used for kerning (see
    :class:`PltGlyphEntry`). These render natively with arcs preserved (see
@@ -122,14 +126,15 @@ class FontRef:
 class PltGlyphEntry:
     """One character's stored geometry from ``plt_fonts.json`` (v2 schema).
 
-    All numeric values are plotter units (1000 units = 1 inch) in the
+    All numeric values are library design-frame units (1000 units per design
+    inch -- not the emitted device scale) in the
     baseline-normalized storage frame: ``+y`` up, baseline at ``y = 0``,
     glyph left edge at ``x = 0``, and the font's reference character
     exactly ``normalized_ref_height * 1000`` units tall.
 
     Attributes:
         glyph: Self-contained ``PU``/``PD``/``AA`` HPGL command string.
-        bounding_box: ``(min_x, min_y, max_x, max_y)`` in plotter units;
+        bounding_box: ``(min_x, min_y, max_x, max_y)`` in design units;
             ``None`` when the library entry carries no bounding box (the
             renderer then measures the parsed glyph instead).
         left_envelope: Left-silhouette samples ``((x, y), ...)`` sorted by
@@ -158,7 +163,7 @@ class PltFontData:
             inches at the original sheet scale (metadata only).
         normalized_ref_height: Height of the reference character in stored
             design units (1.0 for every v2 library: the extractor scales
-            the reference char to exactly 1000 plotter units). The renderer
+            the reference char to exactly 1000 design units). The renderer
             derives its scale from this value.
     """
 

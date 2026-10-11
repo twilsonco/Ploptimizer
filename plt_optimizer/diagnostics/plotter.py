@@ -23,10 +23,12 @@ from plt_optimizer.core.models import (
     Segment,
     StrokePath,
 )
+from plt_optimizer.core.units import HPGL_UNITS_PER_INCH
 from plt_optimizer.utils.geometry import calculate_cumulative_distances
 
-# Plotter units are 1/1000ths of an inch; divide by 1000 for inches
-PLT_UNITS_TO_INCHES = 1 / 1000
+# One plotter unit is HPGL's default 0.025 mm step, i.e. 1/1016 inch (see
+# plt_optimizer.core.units); multiply units by this for inches.
+PLT_UNITS_TO_INCHES = 1 / HPGL_UNITS_PER_INCH
 
 
 def _safe_range(lo: float, hi: float, default_floor: float = 1.0) -> float:

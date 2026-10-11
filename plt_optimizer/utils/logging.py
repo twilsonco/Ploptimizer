@@ -16,6 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
 
+from plt_optimizer.core.units import units_to_inches
+
 # Log directory constant
 LOG_DIR = Path("logs")
 TEXT_LOG_FILE = LOG_DIR / "optimizer.log"
@@ -178,8 +180,8 @@ class CSVMetricsLogger:
             job_id,
             str(original_file.stem),
             str(optimized_file.stem) if optimized_file else "",
-            f"{original_distance / 1000:.1f}",
-            f"{optimized_distance / 1000:.1f}",
+            f"{units_to_inches(original_distance):.1f}",
+            f"{units_to_inches(optimized_distance):.1f}",
             f"{pct_improvement:.2f}%",
             status,
             method,

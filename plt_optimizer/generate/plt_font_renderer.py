@@ -1,9 +1,10 @@
 """Arc-native rendering of PLT-extracted fonts (``Fonts/plt_fonts.json``).
 
 PLT-extracted fonts store every glyph as baseline-normalized HPGL
-(``PU``/``PD``/``AA``) in plotter units (1000 units = 1 inch), ``+y`` up,
+(``PU``/``PD``/``AA``) in the **library design frame** (1000 units per design
+inch -- see :data:`_DESIGN_UNITS_PER_INCH`), ``+y`` up,
 baseline at ``y = 0`` and left edge at ``x = 0``, with the font's
-reference character exactly 1000 units tall. Each glyph also carries its
+reference character exactly 1000 design units tall. Each glyph also carries its
 bounding box and left/right profile envelopes (silhouette samples). This
 module lays a whole text line out by walking a cursor glyph-by-glyph and
 returns a :class:`~plt_optimizer.generate.text_geometry.TextBlock`: arcs
@@ -164,8 +165,17 @@ KERNING_MIN_GAP: float = 0.0
 # ``1.0`` = the left glyph's own width.
 FALLBACK_ADVANCE_FRACTION: float = 1.0
 
-# Glyphs are stored in plotter units (1000 units per design inch).
-_UNITS_PER_INCH: float = 1000.0
+# Glyphs are stored in the library design frame: 1000 units per *design* inch.
+#
+# This is deliberately NOT the device plotter scale
+# (``plt_optimizer.core.units.HPGL_UNITS_PER_INCH`` = 1016). The library is
+# self-normalizing: ``extract_plt_fonts`` stores ``raw * (1000 / H_ref_raw)``
+# and the renderer divides back out here before scaling to the requested text
+# height, so the two constants cancel and the emitted geometry lands on the
+# device scale via ``TextBlock.to_hpgl()``. Keep it at 1000 to match
+# ``LIBRARY_UNITS_PER_INCH`` in ``Fonts/extract_plt_fonts.py`` and the stored
+# ``Fonts/plt_fonts.json`` -- changing only one of them rescales every glyph.
+_DESIGN_UNITS_PER_INCH: float = 1000.0
 
 
 class PltFontRenderError(ValueError):
@@ -182,7 +192,7 @@ class _GlyphGeometry:
     """One glyph parsed into design-inch geometry (cached per font/char).
 
     Attributes:
-        block: Parsed glyph strokes in design inches (1000 units = 1.0),
+        block: Parsed glyph strokes in design inches (1000 design units = 1.0),
             +y up, baseline at y=0, left edge at x=0 (the storage frame,
             unit-converted only; arc sweeps verbatim).
         bounding_box: ``(min_x, min_y, max_x, max_y)`` in design inches;
@@ -211,10 +221,10 @@ def _entry_bounds(entry: PltGlyphEntry, block: TextBlock) -> Tuple[float, float,
     if entry.bounding_box is not None:
         min_x, min_y, max_x, max_y = entry.bounding_box
         return (
-            min_x / _UNITS_PER_INCH,
-            min_y / _UNITS_PER_INCH,
-            max_x / _UNITS_PER_INCH,
-            max_y / _UNITS_PER_INCH,
+            min_x / _DESIGN_UNITS_PER_INCH,
+            min_y / _DESIGN_UNITS_PER_INCH,
+            max_x / _DESIGN_UNITS_PER_INCH,
+            max_y / _DESIGN_UNITS_PER_INCH,
         )
     bounds = block.bounds()
     if bounds is None:
@@ -256,15 +266,16 @@ def _glyph_entry(
         block = TextBlock.empty()
     else:
         document = PLTParser().parse_string(entry.glyph)
-        block = block_from_parser_paths(document.stroke_paths, scale=1.0 / _UNITS_PER_INCH)
+        block = block_from_parser_paths(document.stroke_paths, scale=1.0 / _DESIGN_UNITS_PER_INCH)
     return _GlyphGeometry(
         block=block,
         bounding_box=_entry_bounds(entry, block),
         left_envelope=tuple(
-            (x / _UNITS_PER_INCH, y / _UNITS_PER_INCH) for x, y in entry.left_envelope
+            (x / _DESIGN_UNITS_PER_INCH, y / _DESIGN_UNITS_PER_INCH) for x, y in entry.left_envelope
         ),
         right_envelope=tuple(
-            (x / _UNITS_PER_INCH, y / _UNITS_PER_INCH) for x, y in entry.right_envelope
+            (x / _DESIGN_UNITS_PER_INCH, y / _DESIGN_UNITS_PER_INCH)
+            for x, y in entry.right_envelope
         ),
     )
 

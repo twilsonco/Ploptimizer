@@ -32,6 +32,7 @@ import numpy as np
 import pytest
 import vpype as vp
 
+from plt_optimizer.core.units import HPGL_UNITS_PER_INCH
 from plt_optimizer.generate import font_registry, label_renderer
 from plt_optimizer.generate.label_renderer import (
     _center_text_layer_vertically,
@@ -46,6 +47,10 @@ from plt_optimizer.generate.label_renderer import (
 )
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
 from plt_optimizer.generate.text_geometry import LineSeg, Stroke, TextBlock
+
+# Whole-plotter-scale in integer device units (1 inch), for hand-built HPGL
+# fixtures and the emission expectations of the HPGL writer helpers.
+U = int(HPGL_UNITS_PER_INCH)
 
 
 def _make_line(text: str, height: float = 0.3) -> ResolvedTextLine:
@@ -204,19 +209,19 @@ class TestRenderLabelOnceTerminator:
 
     def test_sp_footer_is_kept_without_percent(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A bare ``SP;`` footer is kept verbatim; no ``%`` is appended."""
-        self._patch_export(monkeypatch, "IN;PA;SP1;PU0,0;PD1000,1000;SP;")
+        self._patch_export(monkeypatch, f"IN;PA;SP1;PU0,0;PD{U},{U};SP;")
         rendered = render_label_to_plt(_label(content=[]))
 
-        assert rendered.plt_content == "IN;PA;SP1;PU0,0;PD1000,1000;SP;"
+        assert rendered.plt_content == f"IN;PA;SP1;PU0,0;PD{U},{U};SP;"
         assert "%" not in rendered.plt_content
         assert rendered.width == pytest.approx(1.0, abs=1e-9)
 
     def test_surrounding_whitespace_is_stripped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Leading/trailing whitespace is stripped, content otherwise kept."""
-        self._patch_export(monkeypatch, "\n  IN;PA;SP1;PU0,0;PD1000,1000;SP;  \n")
+        self._patch_export(monkeypatch, f"\n  IN;PA;SP1;PU0,0;PD{U},{U};SP;  \n")
         rendered = render_label_to_plt(_label(content=[]))
 
-        assert rendered.plt_content == "IN;PA;SP1;PU0,0;PD1000,1000;SP;"
+        assert rendered.plt_content == f"IN;PA;SP1;PU0,0;PD{U},{U};SP;"
 
 
 class TestCollectHpglGeometryArcGuard:
@@ -283,7 +288,7 @@ class TestLinecollectionToHpglDefensive:
 
         out = _linecollection_to_hpgl(doc)
 
-        assert out == "IN;PA;SP1;PU1000,1000;PD2000,2000;SP;"
+        assert out == f"IN;PA;SP1;PU{U},{U};PD{2 * U},{2 * U};SP;"
 
     def test_point_less_segment_is_skipped(self) -> None:
         """A segment with a length but no iterable points emits nothing."""
@@ -295,7 +300,7 @@ class TestLinecollectionToHpglDefensive:
 
         out = _linecollection_to_hpgl(doc)
 
-        assert out == "IN;PA;SP1;PU1000,1000;PD2000,2000;SP;"
+        assert out == f"IN;PA;SP1;PU{U},{U};PD{2 * U},{2 * U};SP;"
 
     def test_single_point_segment_emits_pen_up_only(self) -> None:
         """A lone vertex produces ``PU`` with no trailing ``PD``."""
@@ -308,8 +313,8 @@ class TestLinecollectionToHpglDefensive:
 
         out = _linecollection_to_hpgl(doc)
 
-        assert "PU500,500" in out
-        assert "PD500,500" not in out
+        assert f"PU{U // 2},{U // 2}" in out
+        assert f"PD{U // 2},{U // 2}" not in out
 
     def test_empty_document_has_no_footer(self) -> None:
         """A document with no content keeps the header-only output."""
@@ -359,13 +364,13 @@ class TestLinecollectionToHpglBlockPens:
         """Segment-less strokes inside a live block pen emit nothing."""
         out = _linecollection_to_hpgl(vp.Document(), text_blocks={1: (self._block(False, True),)})
 
-        assert out == "IN;PA;SP1;PU2000,1000;PD3000,2000;SP;"
+        assert out == f"IN;PA;SP1;PU{2 * U},{U};PD{3 * U},{2 * U};SP;"
 
     def test_block_pen_emits_without_document_layers(self) -> None:
         """A block-only document still gets header, pen section and footer."""
         out = _linecollection_to_hpgl(vp.Document(), text_blocks={1: (self._block(True),)})
 
-        assert out == "IN;PA;SP1;PU1000,1000;PD2000,2000;SP;"
+        assert out == f"IN;PA;SP1;PU{U},{U};PD{2 * U},{2 * U};SP;"
 
 
 class TestRenderLineBlockWordFallback:
@@ -525,7 +530,7 @@ class TestCenterTextLayerDefensive:
 
     @staticmethod
     def _label_for_centering() -> ResolvedLabel:
-        """Label whose expected text center is y=500 plotter units."""
+        """Label whose expected text center is y=U/2 plotter units."""
         return ResolvedLabel(
             id="centering", count=1, width=2.0, height=1.0, margin=0.1, h_margin=0.1, v_margin=0.1
         )
@@ -546,16 +551,18 @@ class TestCenterTextLayerDefensive:
         _center_text_layer_vertically(plt_file, self._label_for_centering())
 
         content = plt_file.read_text(encoding="utf-8")
-        # Valid ys [200, 300] center at 250; expected 500 -> +250 shift.
-        assert "PU100,450" in content
-        assert "PD900,550" in content
+        # Valid ys [200, 300] center at 250; expected U/2 -> +(U/2 - 250) shift.
+        shift = U // 2 - 250
+        assert f"PU100,{200 + shift}" in content
+        assert f"PD900,{300 + shift}" in content
         # The malformed token was returned unchanged by the adjuster.
         assert "PA500,-" in content
 
     def test_already_centered_text_is_left_untouched(self, tmp_path: Path) -> None:
         """A text block centered at the expected Y needs no adjustment."""
         plt_file = tmp_path / "label.plt"
-        original = "IN;PA;SP1;PU0,400;PD1000,600;SP;"
+        lo, hi = U // 2 - 100, U // 2 + 100
+        original = f"IN;PA;SP1;PU0,{lo};PD1000,{hi};SP;"
         plt_file.write_text(original, encoding="utf-8")
 
         _center_text_layer_vertically(plt_file, self._label_for_centering())

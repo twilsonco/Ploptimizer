@@ -16,8 +16,9 @@ This module defines an immutable, inch-space geometry model that keeps arcs
 as arcs end-to-end: rendering, positioning (stacking/compression/alignment),
 collision bounds, HPGL emission (``plt_content``), the plate-space chunk
 records, and the plate transform chain. Emitted HPGL uses integer plotter
-units (1 inch = 1000 units) exactly like the polyline path, so downstream
-transforms (Y-flip, slot translation, 90 CW rotation) stay exact.
+units, so downstream transforms (Y-flip, slot translation, 90 CW rotation)
+stay exact. The scale is :data:`~plt_optimizer.core.units.HPGL_UNITS_PER_INCH`
+(1016 units/inch -- HPGL's default 0.025 mm step), not a round 1000.
 
 Coordinate conventions match the rest of the render path:
 
@@ -49,6 +50,7 @@ import numpy as np
 import vpype as vp
 
 from plt_optimizer.core.models import ArcSegment, StrokePath, StrokeSegment
+from plt_optimizer.core.units import HPGL_UNITS_PER_INCH, inches_to_units
 from plt_optimizer.generate.geometry import TextBounds, arc_swept_bounds
 
 logger = logging.getLogger(__name__)
@@ -62,20 +64,21 @@ ARC_FLATTEN_CHORD_TOL_INCHES: float = 0.0002
 # Guard against absurd tessellation counts on degenerate huge sweeps.
 _MAX_ARC_SEGMENTS: int = 4096
 
-# Plotter units per inch used by every HPGL emission in the pipeline.
-_UNITS_PER_INCH: int = 1000
+# Plotter units per inch used by every HPGL emission in the pipeline
+# (re-exported so this module's transform helpers read self-contained).
+_UNITS_PER_INCH: float = HPGL_UNITS_PER_INCH
 
 
 def _units(value_inches: float) -> int:
-    """Convert inches to integer plotter units (the pipeline's 1:1000 scale).
+    """Convert inches to integer plotter units (the pipeline's device scale).
 
     Args:
         value_inches: Coordinate in inches.
 
     Returns:
-        ``round(value_inches * 1000)`` as an integer.
+        ``round(value_inches * HPGL_UNITS_PER_INCH)`` as an integer.
     """
-    return int(round(value_inches * _UNITS_PER_INCH))
+    return inches_to_units(value_inches)
 
 
 def arc_end_point(start: complex, center: complex, sweep_deg: float) -> complex:
@@ -752,10 +755,13 @@ def block_from_parser_paths(paths: Sequence[StrokePath], scale: float = 1.0) -> 
     """Convert core-parser stroke paths into an inch-space TextBlock.
 
     Args:
-        paths: Parsed paths in plotter units (e.g. glyph geometry from
+        paths: Parsed paths in some integer unit (e.g. glyph geometry from
             :class:`~plt_optimizer.core.parser.PLTParser`).
-        scale: Uniform factor converting path units to inches (``1/1000``
-            for plotter units).
+        scale: Uniform factor converting the path's units to inches. The
+            library loader passes ``1/_DESIGN_UNITS_PER_INCH`` (1/1000, the
+            *font-library design frame* -- see
+            :mod:`plt_optimizer.core.units`, which explains why that frame is
+            intentionally 1000 while the emitted device scale is 1016).
 
     Returns:
         An arc-preserving block in inches. Paths without segments are

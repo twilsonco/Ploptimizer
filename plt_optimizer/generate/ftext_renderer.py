@@ -557,7 +557,7 @@ def _contour_signature(contour: np.ndarray) -> str:
     render) produce identical signatures.
 
     Rounding is at 1e-5 inch (10 micro-inch) precision: 100x finer than the
-    plotter's 1/1000-inch unit and far below any real glyph-shape difference,
+    plotter's 1/1016-inch unit and far below any real glyph-shape difference,
     yet coarse enough that 1-ulp float noise in the scaled vertex products
     (whole-line vertices carry a glyph-position translation the standalone
     word render lacks, so their scaled offsets differ in the last ulp) cannot

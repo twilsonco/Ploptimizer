@@ -22,6 +22,7 @@ from plt_optimizer.core.models import (
     StrokePath,
     StrokeSegment,
 )
+from plt_optimizer.core.units import HPGL_UNITS_PER_INCH
 from plt_optimizer.diagnostics.plotter import (
     DEFAULT_FIGURE_SIZE,
     MINOR_TICK_INTERVAL_INCHES,
@@ -37,6 +38,10 @@ from plt_optimizer.diagnostics.plotter import (
     plot_stroke_path,
     save_figure,
 )
+
+# Whole-plotter-scale in integer device units (1 inch), so hand-built
+# coordinates keep meaning whole inches at the HPGL default step size.
+U = int(HPGL_UNITS_PER_INCH)
 
 
 class TestDefaultFigureSize:
@@ -1803,11 +1808,12 @@ class TestAxisLimitsSafeRangeIntegration:
     def test_axis_limits_include_padding_for_normal_range(self) -> None:
         """Normal range produces axis limits with 10% symmetric padding.
 
-        Plotter units are 1/1000 inch, so Coordinate(10000, 0) = 10 inches.
+        Plotter units are 1/1016 inch (HPGL's default 0.025 mm step), so
+        Coordinate(10 * U, 0) = 10 inches.
         """
         seg = StrokeSegment(
             start=Coordinate(0, 0),
-            end=Coordinate(10000, 0),  # 10 inches
+            end=Coordinate(10 * U, 0),  # 10 inches
             is_cutting=True,
         )
         path = StrokePath(segments=(seg,))
@@ -1823,8 +1829,8 @@ class TestAxisLimitsSafeRangeIntegration:
     def test_axis_limits_for_degenerate_x_use_magnitude_fallback(self) -> None:
         """When all x values are identical, fallback range is 10% of magnitude."""
         seg = StrokeSegment(
-            start=Coordinate(5000, 0),  # 5 inches
-            end=Coordinate(5000, 10000),
+            start=Coordinate(5 * U, 0),  # 5 inches
+            end=Coordinate(5 * U, 10 * U),
             is_cutting=True,
         )
         path = StrokePath(segments=(seg,))
@@ -1869,7 +1875,7 @@ class TestAxisLimitsSafeRangeIntegration:
         # PLT: y=20000 (top) → display y=0 (top of display after flip)
         seg = StrokeSegment(
             start=Coordinate(0, 0),
-            end=Coordinate(10000, 20000),
+            end=Coordinate(10 * U, 20 * U),
             is_cutting=True,
         )
         path = StrokePath(segments=(seg,))
@@ -1892,7 +1898,7 @@ class TestAxisLimitsSafeRangeIntegration:
         edge of ``abs_tol=1e-9``. The fallback path should produce a sensible
         window rather than collapsing the axis.
         """
-        v = 1000.0  # 1 inch in plotter units
+        v = float(U)  # 1 inch in plotter units
         seg = StrokeSegment(
             start=Coordinate(v, v),
             end=Coordinate(v + 1e-6, v + 1e-6),  # 1e-9 inch apart

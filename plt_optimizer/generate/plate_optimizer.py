@@ -26,11 +26,11 @@ Both paths re-emit integer-unit HPGL (``PU``/``PD``/``AA``) framed by the
 per-cutter files are single-tool streams and carry no ``SP`` pen selects.
 
 Coordinate chain (verified against the emitted per-cutter files; all
-values in plotter units, 1 inch = 1000 units):
+values in plotter units, ``HPGL_UNITS_PER_INCH`` = 1016 units per inch):
 
-1. ``x1 = round(x_local * 1000)``, ``y1 = round(y_local * 1000)``
+1. ``x1 = round(x_local * 1016)``, ``y1 = round(y_local * 1016)``
 2. vertical centering: ``y2 = round(y1 + shift)`` where
-   ``shift = (height / 2 - band_offset) * 1000 - (text_y_min + text_y_max) / 2``
+   ``shift = (height / 2 - band_offset) * 1016 - (text_y_min + text_y_max) / 2``
    over the union of the label's text-pen vertices (mirrors
    ``_center_text_layer_vertically``; the label margin cancels out).
    ``band_offset`` is ``RenderedLabel.band_center_offset_inches`` -- ``0.0`` for
@@ -67,6 +67,7 @@ from plt_optimizer.core.pipeline import (
     preprocess_document,
 )
 from plt_optimizer.core.profiler import ProfileResult
+from plt_optimizer.core.units import HPGL_UNITS_PER_INCH, inches_to_units
 from plt_optimizer.generate.geometry import arc_swept_bounds
 from plt_optimizer.generate.label_renderer import (
     PLT_FOOTER,
@@ -79,8 +80,11 @@ from plt_optimizer.generate.resolution import ResolvedLabel
 from plt_optimizer.generate.text_geometry import LineSeg, Stroke, TextBlock
 from plt_optimizer.utils.logging import TextLogger
 
-# Plotter units per inch (HPGL default used throughout the generate pipeline).
-_UNITS_PER_INCH: float = 1000.0
+# Plotter units per inch (HPGL's default 0.025 mm step; see
+# plt_optimizer.core.units for the derivation) used throughout the plate-space
+# transform chain. Kept in sync with the export centreing/flip math in
+# label_renderer by construction: both read the same constant.
+_UNITS_PER_INCH: float = HPGL_UNITS_PER_INCH
 
 # Factory building the optimization strategy for one routing problem, given
 # the unoptimized baseline rapid-travel distance (ParallelEnsemble uses it
@@ -131,9 +135,9 @@ def _units(value_inches: float) -> int:
         value_inches: Coordinate in inches.
 
     Returns:
-        Integer plotter units (``round(x * 1000)``).
+        Integer plotter units (``round(x * HPGL_UNITS_PER_INCH)``).
     """
-    return int(round(value_inches * _UNITS_PER_INCH))
+    return inches_to_units(value_inches)
 
 
 def _block_text_y_extents(block: TextBlock) -> List[int]:

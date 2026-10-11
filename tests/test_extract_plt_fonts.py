@@ -852,7 +852,10 @@ class TestVerticallyCenteredChars:
         assert box["min_y"] == pytest.approx(self.CENTERED_BOTTOM, abs=1e-6)
         assert box["max_y"] == pytest.approx(self.CENTERED_TOP, abs=1e-6)
         centre = (box["min_y"] + box["max_y"]) / 2.0
-        assert centre == pytest.approx(script.MIDLINE_FRACTION * script.UNITS_PER_INCH, abs=1e-6)
+        assert (
+            centre
+            == pytest.approx(script.MIDLINE_FRACTION * script.LIBRARY_UNITS_PER_INCH, abs=1e-6)
+        )
 
     def test_unlisted_glyph_is_untouched(self) -> None:
         """A character absent from the list keeps its engraved position."""

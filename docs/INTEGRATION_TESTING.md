@@ -233,10 +233,14 @@ non-negative, printing the X/Y ranges (plotter units and inches) per file:
 
 ```
 ✓ 0.015_bh_Test_123_-_Single_Column.plt:
-    X range: [       0,    19000] (0.000, 19.000 inches)
-    Y range: [       0,     2000] (0.000,  2.000 inches)
+    X range: [       0,    19304] (0.000, 19.000 inches)
+    Y range: [       0,     2032] (0.000,  2.000 inches)
     Coordinates valid: all X≥0, all Y≥0 ✓
 ```
+
+Coordinates are integer plotter units at the HPGL default step size of
+0.025 mm = 1/1016 inch (see `plt_optimizer/core/units.py`), so a 19in-wide
+plate spans 19304 units and a 2in-tall one spans 2032.
 
 ### Phase 4 — Visualization (Optional, opt-in)
 

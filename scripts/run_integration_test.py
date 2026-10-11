@@ -45,6 +45,7 @@ logger = logging.getLogger(__name__)
 GENERATE_DEFAULT_PLOTS = True
 
 # Import pipeline components
+from plt_optimizer.core.units import units_to_inches
 from plt_optimizer.generate.job_config import JobConfig, load_job_config
 from plt_optimizer.generate.label_renderer import measure_line_vertical_extents
 from plt_optimizer.generate.layout import generate_layout
@@ -452,12 +453,12 @@ def phase_3_5_validate_coordinates(exported_paths: list[Path]) -> None:
         assert min_y >= 0, f"{plt_path.name}: Y has negative values (min={min_y})"
 
         print(f"✓ {plt_path.name}:")
-        print(
-            f"    X range: [{min_x:8d}, {max_x:8d}] ({min_x / 1000:.3f}, {max_x / 1000:.3f} inches)"
-        )
-        print(
-            f"    Y range: [{min_y:8d}, {max_y:8d}] ({min_y / 1000:.3f}, {max_y / 1000:.3f} inches)"
-        )
+        x0_in = units_to_inches(min_x)
+        x1_in = units_to_inches(max_x)
+        y0_in = units_to_inches(min_y)
+        y1_in = units_to_inches(max_y)
+        print(f"    X range: [{min_x:8d}, {max_x:8d}] ({x0_in:.3f}, {x1_in:.3f} inches)")
+        print(f"    Y range: [{min_y:8d}, {max_y:8d}] ({y0_in:.3f}, {y1_in:.3f} inches)")
         print("    Coordinates valid: all X≥0, all Y≥0 ✓")
 
 

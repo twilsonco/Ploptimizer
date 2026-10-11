@@ -12,6 +12,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Optional
 
+from plt_optimizer.core.units import Z_UNITS_PER_INCH
+
 if TYPE_CHECKING:
     from plt_optimizer.generate.job_config import JobConfig
     from plt_optimizer.generate.schema import JobSpec
@@ -190,8 +192,12 @@ def _format_float_header(command: str, value: float) -> str:
     """
     # Special handling for commands that need scaling
     if command == "ZU":
-        # z clearance: convert inches to plotter units (multiply by 1000)
-        scaled = int(value * 1000)
+        # z clearance: the controller's Z axis is scaled independently of the
+        # XY plotter step size. The reference headers prove it: 0.2in ->
+        # `ZU200` and 0.3in -> `ZU300` (`examples/plt headers/
+        # z clearance *.plt`), i.e. Z_UNITS_PER_INCH = 1000 per inch while XY
+        # runs at HPGL_UNITS_PER_INCH = 1016. Do not "fix" this to 1016.
+        scaled = int(value * Z_UNITS_PER_INCH)
         return f"{command}{scaled};"
     # Default: format with 2 decimal places (matching HPGL conventions)
     return f"{command}{value:.2f};"

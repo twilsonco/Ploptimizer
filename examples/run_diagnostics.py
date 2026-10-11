@@ -38,6 +38,7 @@ from plt_optimizer.core.parser import PLTParser
 from plt_optimizer.core.pipeline import chunk_document, preprocess_document
 from plt_optimizer.core.profiler import Profiler
 from plt_optimizer.core.reassembler import MetricsCalculator, Reassembler
+from plt_optimizer.core.units import units_to_inches
 from plt_optimizer.core.writer import PLTWriter
 from plt_optimizer.diagnostics.plotter import plot_plt_document
 from plt_optimizer.utils.logging import (
@@ -89,7 +90,7 @@ def run_diagnostics_on_file(
             output_path=before_plot_path,
             title=f"Before: {input_path.name}",
             simple_mode=False,
-            rapid_travel_inches=original_rapid / 1000,
+            rapid_travel_inches=units_to_inches(original_rapid),
         )
         import matplotlib.pyplot as plt
         plt.close(fig_before)
@@ -151,7 +152,7 @@ def run_diagnostics_on_file(
             output_path=after_plot_path,
             title=f"After Optimization ({rapid_improvement_pct:+.1f}%): {input_path.name}",
             simple_mode=False,
-            rapid_travel_inches=optimized_rapid / 1000,
+            rapid_travel_inches=units_to_inches(optimized_rapid),
         )
         plt.close(fig_after)
         text_logger.info(f"Generated after plot: {after_plot_path.name}")

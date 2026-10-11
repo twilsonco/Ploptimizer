@@ -8,6 +8,7 @@ from typing import Optional
 
 import pytest
 
+from plt_optimizer.core.units import HPGL_UNITS_PER_INCH
 from plt_optimizer.generate.layout import LayoutMode
 from plt_optimizer.generate.resolution import (
     LineContentConfigError,
@@ -438,6 +439,83 @@ def _cutting_points(content: str) -> set[tuple[int, int]]:
     return points
 
 
+class TestDeviceScaleRegression:
+    """Generated toolpaths must land on the HPGL device scale (1016 units/inch).
+
+    Regression: the pipeline emitted 1000 units/inch, so every label engraved
+    1.6% undersized (a 16x24in label came out 15.75 x 23.594in). HPGL's default
+    step size is 0.025 mm, i.e. 25.4/0.025 = 1016 units per inch, which is what
+    the shop's plotter applies (the ``IN;PA;`` header ships no scale command).
+    """
+
+    @staticmethod
+    def _all_coordinates(content: str) -> list[tuple[int, int]]:
+        """Every ``(x, y)`` pair emitted by a PU/PD command in one PLT."""
+        points: list[tuple[int, int]] = []
+        for token in content.split(";"):
+            token = token.strip()
+            match = re.match(r"^(?:PU|PD)(.*)$", token)
+            if not match:
+                continue
+            values = match.group(1).split(",")
+            for i in range(0, len(values) - 1, 2):
+                try:
+                    points.append((int(values[i]), int(values[i + 1])))
+                except ValueError:
+                    continue
+        return points
+
+    @staticmethod
+    def _span(content: str) -> tuple[int, int]:
+        """Return the ``(width, height)`` in plotter units of all emitted geometry."""
+        points = TestDeviceScaleRegression._all_coordinates(content)
+        assert points, "Rendered label carries no coordinates"
+        xs = [p[0] for p in points]
+        ys = [p[1] for p in points]
+        return max(xs) - min(xs), max(ys) - min(ys)
+
+    def test_large_label_spans_nominal_inches(self) -> None:
+        """A 24x16in label emits exactly 24*1016 x 16*1016 plotter units.
+
+        This is the reported symptom: at the old 1000 units/inch the same label
+        spanned 24000 x 16000 units, i.e. 0.40625in short in X and 0.25in short
+        in Y once the plotter applied its 1016 scale.
+        """
+        from plt_optimizer.generate.label_renderer import render_label_to_plt
+
+        label = _label(label_id="big", width=24.0, height=16.0)
+        rendered = render_label_to_plt(label)
+
+        width_units, height_units = self._span(rendered.plt_content)
+        assert width_units == pytest.approx(24 * HPGL_UNITS_PER_INCH, abs=1)
+        assert height_units == pytest.approx(16 * HPGL_UNITS_PER_INCH, abs=1)
+
+    def test_three_by_two_cell_matches_reference_grid(self) -> None:
+        """A 3x2in label spans 3048 x 2032 units, like the EngraveLab sheet.
+
+        ``examples/test_rect_grid13sheet0.txt`` (EngraveLab reference output)
+        draws its 3x2in grid cells as exactly 3048 x 2032 units -- the proof
+        that the shop's plotter runs at 1016 units/inch. Our emission must
+        agree, cell for cell.
+        """
+        from plt_optimizer.generate.label_renderer import render_label_to_plt
+
+        label = _label(label_id="cell", width=3.0, height=2.0)
+        rendered = render_label_to_plt(label)
+
+        assert self._span(rendered.plt_content) == (3048, 2032)
+
+    def test_bounds_round_trip_reports_nominal_inches(self) -> None:
+        """``RenderedLabel`` bounds equal the nominal size under the device scale."""
+        from plt_optimizer.generate.label_renderer import render_label_to_plt
+
+        label = _label(label_id="rt", width=24.0, height=16.0)
+        rendered = render_label_to_plt(label)
+
+        assert rendered.width == pytest.approx(24.0, abs=1e-3)
+        assert rendered.height == pytest.approx(16.0, abs=1e-3)
+
+
 class TestExportWithoutPlates:
     """A job spec with no ``plates:`` uses the configured default plate."""
 
@@ -526,10 +604,10 @@ class TestExportWithoutPlates:
             default_plate_clearance=(1.0, 2.0),
         )
 
-        # 1 inch == 1000 plotter units; the left-most cut moves right by 1".
+        # One inch == the full plotter scale; the left-most cut moves right by 1".
         before = min(_first_cutting_x(p) for p in baseline.plt_paths if "_bh_" in p.name)
         after = min(_first_cutting_x(p) for p in shifted.plt_paths if "_bh_" in p.name)
-        assert after - before == 1000
+        assert after - before == int(HPGL_UNITS_PER_INCH)
 
     def test_empty_plate_list_is_unbounded(self, tmp_path: Path) -> None:
         """An explicit empty plate list behaves like omitting plates."""

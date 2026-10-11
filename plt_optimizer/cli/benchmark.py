@@ -70,6 +70,7 @@ from plt_optimizer.core.parser import ParseError, PLTParser
 from plt_optimizer.core.pipeline import chunk_document, preprocess_document
 from plt_optimizer.core.profiler import Profiler
 from plt_optimizer.core.reassembler import Reassembler
+from plt_optimizer.core.units import units_to_inches
 from plt_optimizer.core.writer import PLTWriter
 from plt_optimizer.diagnostics.plotter import plot_plt_document
 from plt_optimizer.utils.logging import get_metrics_logger, get_text_logger
@@ -254,13 +255,13 @@ def _populate_metrics(
     cutting_pct = (cutting_saved / before_cutting * 100) if before_cutting > 0 else 0.0
     total_pct = (total_saved / total_before * 100) if total_before > 0 else 0.0
 
-    row["rapid_after_in"] = round(optimized_rapid / 1000, 3)
-    row["cutting_after_in"] = round(optimized_cutting / 1000, 3)
-    row["total_before_in"] = round(total_before / 1000, 3)
-    row["total_after_in"] = round(total_after / 1000, 3)
-    row["rapid_saved_in"] = round(rapid_saved / 1000, 3)
-    row["cutting_saved_in"] = round(cutting_saved / 1000, 3)
-    row["total_saved_in"] = round(total_saved / 1000, 3)
+    row["rapid_after_in"] = round(units_to_inches(optimized_rapid), 3)
+    row["cutting_after_in"] = round(units_to_inches(optimized_cutting), 3)
+    row["total_before_in"] = round(units_to_inches(total_before), 3)
+    row["total_after_in"] = round(units_to_inches(total_after), 3)
+    row["rapid_saved_in"] = round(units_to_inches(rapid_saved), 3)
+    row["cutting_saved_in"] = round(units_to_inches(cutting_saved), 3)
+    row["total_saved_in"] = round(units_to_inches(total_saved), 3)
     row["rapid_improvement_pct"] = round(rapid_pct, 2)
     row["cutting_improvement_pct"] = round(cutting_pct, 2)
     row["total_improvement_pct"] = round(total_pct, 2)
@@ -374,7 +375,7 @@ def _run_strategy(
                 f"{input_path.name} [{strategy_name}]: "
                 f"Total {total_pct:+.1f}% ({opt_elapsed_ms:.0f} ms)"
             ),
-            rapid_travel_inches=optimized_rapid / 1000,
+            rapid_travel_inches=units_to_inches(optimized_rapid),
             text_logger=text_logger,
         )
 
@@ -470,10 +471,10 @@ def process_file(
         original_doc,
         output_dir / "plots" / f"{input_path.stem}_before.png",
         title=(
-            f"{input_path.name}: Rapid={before_rapid / 1000:.2f} in, "
-            f"Cutting={before_cutting / 1000:.2f} in"
+            f"{input_path.name}: Rapid={units_to_inches(before_rapid):.2f} in, "
+            f"Cutting={units_to_inches(before_cutting):.2f} in"
         ),
-        rapid_travel_inches=before_rapid / 1000,
+        rapid_travel_inches=units_to_inches(before_rapid),
         text_logger=text_logger,
     )
 
@@ -496,8 +497,8 @@ def process_file(
         row["strategy_name"] = _FILE_LEVEL_SENTINEL
         row["status"] = "setup_failed"
         row["error_message"] = f"[setup] {type(setup_err).__name__}: {setup_err}"
-        row["before_rapid_in"] = round(before_rapid / 1000, 3)
-        row["before_cutting_in"] = round(before_cutting / 1000, 3)
+        row["before_rapid_in"] = round(units_to_inches(before_rapid), 3)
+        row["before_cutting_in"] = round(units_to_inches(before_cutting), 3)
         row["before_paths"] = before_paths
         row["before_segments"] = before_segments
         row["_metrics_event"] = {
@@ -532,8 +533,8 @@ def process_file(
             text_logger=text_logger,
         )
         # Tag baseline file metrics on every per-strategy row.
-        row["before_rapid_in"] = round(before_rapid / 1000, 3)
-        row["before_cutting_in"] = round(before_cutting / 1000, 3)
+        row["before_rapid_in"] = round(units_to_inches(before_rapid), 3)
+        row["before_cutting_in"] = round(units_to_inches(before_cutting), 3)
         row["before_paths"] = before_paths
         row["before_segments"] = before_segments
         row["blocks_created"] = blocks_created

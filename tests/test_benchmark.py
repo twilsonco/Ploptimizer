@@ -39,6 +39,7 @@ from plt_optimizer.cli.benchmark import (
     process_file,
     write_report,
 )
+from plt_optimizer.core.units import HPGL_UNITS_PER_INCH
 
 # ---------------------------------------------------------------------------
 # Test fixtures
@@ -1202,12 +1203,13 @@ class TestPopulateMetrics:
     def test_populates_all_columns(self) -> None:
         """All metric-related columns should be filled in by the helper."""
         row = _row("a.plt", "nn2opt", "success")
+        u = HPGL_UNITS_PER_INCH
         _populate_metrics(
             row,
-            before_rapid=1000.0,
-            before_cutting=2000.0,
-            optimized_rapid=500.0,
-            optimized_cutting=1500.0,
+            before_rapid=1.0 * u,
+            before_cutting=2.0 * u,
+            optimized_rapid=0.5 * u,
+            optimized_cutting=1.5 * u,
             time_ms=123.4,
         )
         assert row["rapid_after_in"] == 0.5

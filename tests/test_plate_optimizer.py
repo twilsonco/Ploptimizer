@@ -14,6 +14,7 @@ import pytest
 
 from plt_optimizer.core.models import ArcSegment, Coordinate, StrokePath, StrokeSegment
 from plt_optimizer.core.optimizer import NearestNeighbor2OptStrategy
+from plt_optimizer.core.units import HPGL_UNITS_PER_INCH
 from plt_optimizer.generate.label_renderer import (
     RenderedLabel,
     TextChunkRecord,
@@ -38,6 +39,10 @@ from plt_optimizer.generate.plate_optimizer import (
 )
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
 from plt_optimizer.generate.text_geometry import ArcSeg, LineSeg, Stroke, TextBlock
+
+# Whole-plotter-scale in integer device units (1 inch), for readable
+# expectations of the label-local-inches -> device-units transform chain.
+U = int(HPGL_UNITS_PER_INCH)
 
 
 def _make_label(height: float = 1.0) -> ResolvedLabel:
@@ -256,14 +261,16 @@ class TestTransformChain:
         rendered = _make_rendered((record,), label=label)
         transform = _label_transform(rendered, label)
 
-        # shift = h*500 - center = 500.0 - 0.0
-        assert transform.shift == pytest.approx(500.0)
+        # shift = h*U/2 - center = U/2 - 0.0
+        assert transform.shift == pytest.approx(U / 2)
         # flip span from the rendered bounds (device units).
-        assert transform.flip_span == 1000
+        assert transform.flip_span == U
 
         x, y = _transform_point(transform, 0.5, -0.19, rotated=False, dx_units=0, dy_units=0)
-        # y1 = -190; y2 = round(-190 + 500) = 310; y3 = 1000 - 310 = 690.
-        assert (x, y) == (500, 690)
+        # y1 = round(-0.19*U); y2 = round(y1 + U/2); y3 = U - y2.
+        y1 = round(-0.19 * U)
+        y3 = U - round(y1 + U / 2)
+        assert (x, y) == (round(0.5 * U), y3)
 
     def test_rotation_maps_points(self) -> None:
         """Rotated labels map (x, y) -> (y_max - y, x - x_min) + slot."""
@@ -275,9 +282,11 @@ class TestTransformChain:
         transform = _label_transform(rendered, label)
 
         x, y = _transform_point(transform, 0.5, -0.19, rotated=True, dx_units=10, dy_units=20)
-        # Unrotated device point is (500, 690); rotation about (x_min=0, y_max=1000):
-        # (1000 - 690, 500 - 0) = (310, 500); plus slot (10, 20).
-        assert (x, y) == (320, 520)
+        # Unrotated device point is (U/2, y3); rotation about (x_min=0, y_max=U):
+        # (U - y3, U/2 - 0); plus slot (10, 20).
+        y1 = round(-0.19 * U)
+        y3 = U - round(y1 + U / 2)
+        assert (x, y) == (U - y3 + 10, round(0.5 * U) + 20)
 
     def test_shift_uses_union_of_all_chunks(self) -> None:
         """The centering shift spans every text-pen vertex of the label."""
@@ -288,15 +297,15 @@ class TestTransformChain:
         )
         rendered = _make_rendered(records, y_max=2.0, label=label)
         transform = _label_transform(rendered, label)
-        # Union y in [0, 1000] -> center 500; expected = h*500 = 1000.
-        assert transform.shift == pytest.approx(500.0)
+        # Union y in [0, U] -> center U/2; expected = h*U/2 = U.
+        assert transform.shift == pytest.approx(U / 2)
 
     def test_no_chunks_yields_zero_shift(self) -> None:
         """Labels without text skip centering."""
         label = _make_label()
         rendered = _make_rendered((), label=label)
         transform = _label_transform(rendered, label)
-        assert transform.shift == pytest.approx(label.height * 500.0)
+        assert transform.shift == pytest.approx(label.height * U / 2)
 
 
 def _arc_record(
@@ -372,40 +381,42 @@ class TestArcAwareYExtents:
             hpgl_ys.append(int(math.floor(y_min)))
             hpgl_ys.append(int(math.ceil(y_max)))
 
-        # PU0,0 + PU500,500 recorded; the half-circle (center 500,0, r=500)
-        # sweeps from 90 deg clockwise through 0 deg to -90 deg: y in [-500, 500].
-        assert min(local_ys) == -500
-        assert max(local_ys) == 500
+        # PU0,0 + PU(U/2,U/2) recorded; the half-circle (center U/2, 0,
+        # r=U/2) sweeps from 90 deg clockwise through 0 deg to -90 deg:
+        # y in [-U/2, U/2].
+        half = round(0.5 * U)
+        assert min(local_ys) == -half
+        assert max(local_ys) == half
         assert sorted(local_ys) == sorted(hpgl_ys)
 
     def test_line_run_start_away_from_pen_is_recorded(self) -> None:
         """A line run not starting at the pen records its run-start point."""
         stroke = Stroke(pen_up=0.0 + 0.0j, segments=(LineSeg(1 + 1j, 2 + 2j),))
         block = TextBlock(strokes=(stroke,))
-        # PU(pen_up)=0, re-anchoring PU(1000,1000), PD end (2000,2000).
-        assert _block_text_y_extents(block) == [0, 1000, 2000]
+        # PU(pen_up)=0, re-anchoring PU(U,U), PD end (2U,2U).
+        assert _block_text_y_extents(block) == [0, U, 2 * U]
 
     def test_shift_with_arcs_matches_centering(self) -> None:
         """The arc-aware center keeps the transform shift aligned with export."""
         label = _make_label(height=1.0)
-        # Arc sweeping y in [100, 700] device units (label-local y 100..700).
+        # Arc sweeping y in [U/10, 7U/10] device units (label-local 0.1..0.7).
         record = _arc_record(
             (ArcSeg(start=0.5 + 0.1j, center=0.5 + 0.4j, sweep_deg=180.0),),
             pen_up=0.5 + 0.1j,
         )
         rendered = _make_rendered((record,), y_min=0.0, y_max=1.0, label=label)
         transform = _label_transform(rendered, label)
-        # Union y in [100, 700] -> center 400; expected = 500 -> shift +100.
-        assert transform.shift == pytest.approx(100.0)
+        # Union y in [U/10, 7U/10] -> center 4U/10; expected = U/2 -> shift U/10.
+        assert transform.shift == pytest.approx(round(0.1 * U))
 
 
 class TestArcStrokeConversion:
     """Label-local arc strokes map to device ArcSegments exactly once mirrored."""
 
-    _TRANSFORM = _LabelTransform(shift=0.0, flip_span=1000, rot_y_max=1000, rot_x_min=0)
+    _TRANSFORM = _LabelTransform(shift=0.0, flip_span=U, rot_y_max=U, rot_x_min=0)
 
     def _arc_stroke(self) -> Stroke:
-        """One arc stroke: start (500,400), center (500,600), sweep +90."""
+        """One arc stroke: start (0.5,0.4)in, center (0.5,0.6)in, sweep +90."""
         return Stroke(
             pen_up=0.5 + 0.4j,
             segments=(ArcSeg(start=0.5 + 0.4j, center=0.5 + 0.6j, sweep_deg=90.0),),
@@ -417,13 +428,21 @@ class TestArcStrokeConversion:
         assert len(path.segments) == 1
         arc = path.segments[0]
         assert isinstance(arc, ArcSegment)
-        assert (arc.start.x, arc.start.y) == (500.0, 600.0)
-        assert (arc.center.x, arc.center.y) == (500.0, 400.0)
+        # start: y1 = round(0.4*U), y3 = U - y1. center: unrounded mirror of 0.6*U.
+        start_y = U - round(0.4 * U)
+        center_y = U - 0.6 * U
+        assert (arc.start.x, arc.start.y) == (0.5 * U, float(start_y))
+        assert (arc.center.x, arc.center.y) == pytest.approx((0.5 * U, center_y))
         assert arc.sweep_angle == pytest.approx(-90.0)
-        # Start sits due north of the center (radius 200); -90 deg lands due east.
-        assert arc.end.x == pytest.approx(700.0, abs=1e-6)
-        assert arc.end.y == pytest.approx(400.0, abs=1e-6)
-        assert emit_layer_document([path]) == "IN;PA;PU500,600;PD;AA500,400,-90;SP;"
+        # Start sits due north of the center (radius start_y - center_y); -90 deg
+        # lands due east.
+        radius = start_y - center_y
+        assert arc.end.x == pytest.approx(0.5 * U + radius, abs=1e-6)
+        assert arc.end.y == pytest.approx(center_y, abs=1e-6)
+        assert emit_layer_document([path]) == (
+            f"IN;PA;PU{round(0.5 * U)},{start_y};PD;"
+            f"AA{round(0.5 * U)},{round(center_y)},-90;SP;"
+        )
 
     def test_matches_hpgl_string_transform(self) -> None:
         """Object conversion equals _transform_hpgl_coordinates on the string."""
@@ -438,7 +457,7 @@ class TestArcStrokeConversion:
             ),
         )
         transformed = _transform_hpgl_coordinates(
-            stroke.to_hpgl(), flip_y_span=1000, flip_y_axis=True
+            stroke.to_hpgl(), flip_y_span=U, flip_y_axis=True
         )
         path = _stroke_to_path(self._TRANSFORM, stroke, False, 0, 0)
         emitted = emit_layer_document([path])
@@ -455,10 +474,13 @@ class TestArcStrokeConversion:
         assert len(paths) == 1
         arc = paths[0].segments[0]
         assert isinstance(arc, ArcSegment)
-        # Unrotated device start (500, 600) rotates to (1000-600, 500-0)=(400,500).
-        assert (arc.start.x, arc.start.y) == (410.0, 520.0)
-        # Unrotated center (500, 400) rotates to (1000-400, 500)=(600,500).
-        assert (arc.center.x, arc.center.y) == pytest.approx((610.0, 520.0))
+        # Unrotated device start (U/2, U - 0.4U) rotates to
+        # (U - y3, U/2 - 0); plus slot (10, 20).
+        start_y = U - round(0.4 * U)
+        assert (arc.start.x, arc.start.y) == (U - start_y + 10, round(0.5 * U) + 20)
+        # Unrotated center (U/2, U - 0.6U) rotates to (U - y_c, U/2); plus slot.
+        center_y = U - 0.6 * U
+        assert (arc.center.x, arc.center.y) == pytest.approx((U - center_y + 10, 0.5 * U + 20))
         assert arc.sweep_angle == pytest.approx(-90.0)
 
 
@@ -482,7 +504,7 @@ class TestRecordPathFiltering:
             ),
             bounds=(0.0, 0.0, 1.0, 1.0),
         )
-        transform = _LabelTransform(shift=0.0, flip_span=1000, rot_y_max=1000, rot_x_min=0)
+        transform = _LabelTransform(shift=0.0, flip_span=U, rot_y_max=U, rot_x_min=0)
         paths = _record_paths(transform, record, rotated=False, dx_units=0, dy_units=0)
         assert len(paths) == 1
         assert len(paths[0].segments) == 1
@@ -505,10 +527,10 @@ class TestBuildTextBlocks:
         assert len(blocks) == 1
         block = blocks[0]
         assert block.block_id == 0
-        # Chunk ys span [0, 500] -> center 250; shift = 500 - 250 = 250.
-        # Entrance (0, 0)in -> y1=0, y2=250, flip span 1000 -> y3=750.
-        assert block.entrance.x == 0.0 and block.entrance.y == 750.0
-        assert block.exit.x == 1000.0 and block.exit.y == 750.0
+        # Chunk ys span [0, U/2] -> center U/4; shift = U/2 - U/4 = U/4.
+        # Entrance (0, 0)in -> y1=0, y2=U/4, flip span U -> y3=3U/4.
+        assert block.entrance.x == 0.0 and block.entrance.y == round(0.75 * U)
+        assert block.exit.x == float(U) and block.exit.y == round(0.75 * U)
 
     def test_skips_unknown_and_empty_labels(self) -> None:
         """Missing cache entries and chunk-less labels contribute nothing."""
@@ -552,7 +574,7 @@ class TestRecordPathsWithGlyphs:
     """``_record_paths_with_glyphs`` remaps glyph groups onto surviving paths."""
 
     def _transform(self) -> _LabelTransform:
-        return _LabelTransform(shift=0.0, flip_span=1000, rot_y_max=1000, rot_x_min=0)
+        return _LabelTransform(shift=0.0, flip_span=U, rot_y_max=U, rot_x_min=0)
 
     def test_groups_remap_onto_path_indices(self) -> None:
         """Contiguous stroke groups map 1:1 when nothing is dropped."""
@@ -821,7 +843,8 @@ class TestOptimizeTextLayer:
         Five single-stroke chunks chosen (by random search over the real
         NearestNeighbor + 2-Opt path) so the strategy leaves a stale direction
         flag: the sweep reverses one chunk and cuts inter-chunk travel by
-        ~14% (1135.248 -> 979.359 plotter units).
+        ~14%. The distances are asserted as a ratio, not absolute plotter
+        units, so the fixture stays valid at any device scale.
         """
         label = _make_label()
         spans = [
@@ -843,8 +866,11 @@ class TestOptimizeTextLayer:
         outcome = result.outcome
         assert outcome.direction_sweep_passes == 1
         assert outcome.direction_sweep_flips == 1
-        assert outcome.direction_sweep_travel_before == pytest.approx(1135.2477, abs=1e-3)
-        assert outcome.direction_sweep_travel_after == pytest.approx(979.3592, abs=1e-3)
+        before = outcome.direction_sweep_travel_before
+        after = outcome.direction_sweep_travel_after
+        assert before is not None and after is not None
+        assert after < before
+        assert after / before == pytest.approx(0.8627, rel=1e-3)
         assert "direction_sweep=" in outcome.method_notes
 
     def test_intra_sweep_flips_glyphs_and_shrinks_emitted_travel(self) -> None:

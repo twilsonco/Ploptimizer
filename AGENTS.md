@@ -37,6 +37,7 @@ Testing is not an afterthought; it is a primary deliverable.
   1. Standard text logging (`logging` module) utilizing `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`.
   2. CSV Metrics logging for tracking optimization deltas (distance before/after).
 * **Silent Execution:** Unless logging an error or running in verbose mode, the standard path optimization loop should execute cleanly without cluttering standard output, as it will run as a headless hot-watch service.
+* **HPGL Device Scale (1016 units/inch, NOT 1000):** The plotter unit is metric by definition — HPGL's default step size is 0.025 mm, so `25.4 / 0.025 = 1016` units per inch (40 units/mm). The generate pipeline emits `IN;PA;` with **no** scale command (`IP`/`SC`/`SI`), so the plotter runs at that default. Every inch↔coordinate conversion on the emission/read-back path must go through `plt_optimizer/core/units.py` (`HPGL_UNITS_PER_INCH`, `inches_to_units()`, `units_to_inches()`); never hardcode 1000 there. The pipeline previously emitted 1000 units/inch and engraved every label 1.6% undersized (a 16in label came out 15.75in) — pinned by `tests/test_phase3_export.py::TestDeviceScaleRegression` and `tests/test_units.py` (which proves the reference sheet `examples/test_rect_grid13sheet0.txt` is engraved in exact multiples of 1016). Three distinct scales exist and only the first is the device scale: (1) device plotter units = 1016; (2) the font-library design frame = 1000 per *design* inch (`LIBRARY_UNITS_PER_INCH` in `Fonts/extract_plt_fonts.py`, `_DESIGN_UNITS_PER_INCH` in `plt_font_renderer.py` — a self-normalizing frame, do not "fix" it); (3) Z clearance = 1000 per inch (`Z_UNITS_PER_INCH`, proven by `examples/plt headers/z clearance *.plt`: 0.2in → `ZU200`).
 
 ## 5. Python 3.8 (Windows 7) compatibility requirement for watch directory function
 * **Watch Directory Function:** Ensure that the directory watching mechanism works correctly on Python 3.8 running on Windows 7. Avoid using features introduced in later Python versions. Test the function thoroughly on the target environment to confirm compatibility.
@@ -799,7 +800,8 @@ plate tier is schema parity only, like every render-affecting field.
   `_GAP_REPORT_RADIUS`, the grid's reporting radius, so a fully relieved glyph
   never prints `inf`).
 - **Ink is clipped at the emission floor** (`_INK_EMISSION_FLOOR` = half a
-  plotter unit = 5e-4in): emitted coordinates are integer 1/1000in, so ink
+  plotter unit = `0.5 / HPGL_UNITS_PER_INCH` ≈ 4.92e-4in): emitted coordinates
+  are integer plotter units (1016 per inch), so ink
   shallower than that cannot collide in the engraved output. `_clip_below_baseline`
   clips the sub-baseline ink at `-floor` (not `0`) and `_glyph_boxes` zeroes a
   `descender` at or below the floor, so a 0.0004in font-data sliver never

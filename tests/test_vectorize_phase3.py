@@ -6,6 +6,7 @@ from typing import Optional
 
 import pytest
 
+from plt_optimizer.core.units import HPGL_UNITS_PER_INCH
 from plt_optimizer.generate.label_renderer import RenderedLabel, render_label_to_plt
 from plt_optimizer.generate.layout import PackedLabel, PackedPlate
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
@@ -31,49 +32,54 @@ class TestTranslatePltCoordinates:
 
     def test_translate_x_offset(self) -> None:
         """Test X-axis translation."""
-        plt_content = "PU1000,2000;PD1000,2000,3000,2000"
-        # Offset 1 inch = 1000 units
+        u = int(HPGL_UNITS_PER_INCH)
+        plt_content = f"PU{u},2000;PD{u},2000,3000,2000"
+        # Offset 1 inch = one full plotter scale
         result = translate_plt_coordinates(plt_content, 1.0, 0.0)
 
-        # Check that coordinates were increased by 1000
-        assert "2000,2000" in result  # 1000 + 1000 = 2000
-        assert "4000,2000" in result  # 3000 + 1000 = 4000
+        # Check that coordinates were increased by one scale
+        assert f"{2 * u},2000" in result  # u + u
+        assert f"{3000 + u},2000" in result  # 3000 + u
 
     def test_translate_y_offset(self) -> None:
         """Test Y-axis translation."""
-        plt_content = "PU1000,2000;PD1000,2000,3000,4000"
-        # Offset 0.5 inch = 500 units
+        u = int(HPGL_UNITS_PER_INCH)
+        half = u // 2  # 0.5 inch
+        plt_content = f"PU{u},2000;PD{u},2000,3000,4000"
         result = translate_plt_coordinates(plt_content, 0.0, 0.5)
 
-        # Check that y coordinates were increased by 500
-        assert "1000,2500" in result  # 2000 + 500 = 2500
-        assert "3000,4500" in result  # 4000 + 500 = 4500
+        # Check that y coordinates were increased by half a scale
+        assert f"{u},{2000 + half}" in result
+        assert f"3000,{4000 + half}" in result
 
     def test_translate_both_offsets(self) -> None:
         """Test X and Y translation together."""
-        plt_content = "PA0,0;PD1000,1000"
+        u = int(HPGL_UNITS_PER_INCH)
+        dx, dy = u // 2, u // 4  # 0.5 inch, 0.25 inch
+        plt_content = f"PA0,0;PD{u},{u}"
         result = translate_plt_coordinates(plt_content, 0.5, 0.25)
 
-        # 0.5 inch = 500 units, 0.25 inch = 250 units
-        assert "500,250" in result  # (0+500, 0+250)
-        assert "1500,1250" in result  # (1000+500, 1000+250)
+        assert f"{dx},{dy}" in result  # (0+dx, 0+dy)
+        assert f"{u + dx},{u + dy}" in result
 
     def test_translate_negative_offset(self) -> None:
         """Test negative translation (moving in negative direction)."""
+        u = int(HPGL_UNITS_PER_INCH)
         plt_content = "PA2000,2000"
         result = translate_plt_coordinates(plt_content, -1.0, -0.5)
 
-        # -1.0 inch = -1000 units, -0.5 inch = -500 units
-        assert "1000,1500" in result  # (2000-1000, 2000-500)
+        # -1.0 inch = -one scale, -0.5 inch = -half a scale
+        assert f"{2000 - u},{2000 - u // 2}" in result
 
     def test_translate_arc_center_but_not_sweep(self) -> None:
         """AA centers translate; the trailing sweep angle must not."""
-        plt_content = "PU1000,0;PD1000,0;AA1000,2000,90"
+        u = int(HPGL_UNITS_PER_INCH)
+        plt_content = f"PU{u},0;PD{u},0;AA{u},2000,90"
         result = translate_plt_coordinates(plt_content, 1.0, 0.5)
 
-        # Center shifts by (1000, 500); the 90-degree sweep is untouched.
-        assert "AA2000,2500,90" in result
-        assert "PU2000,500" in result
+        # Center shifts by (u, u/2); the 90-degree sweep is untouched.
+        assert f"AA{2 * u},{2000 + u // 2},90" in result
+        assert f"PU{2 * u},{u // 2}" in result
 
     def test_translate_malformed_coordinates_left_untouched(self) -> None:
         """A command with unparseable coordinates is emitted verbatim."""
@@ -82,7 +88,7 @@ class TestTranslatePltCoordinates:
         # neighbouring well-formed commands still shift.
         result = translate_plt_coordinates("PU1,,2;PD5,5", 1.0, 0.0)
         assert "PU1,,2" in result
-        assert "PD1005,5" in result
+        assert f"PD{5 + int(HPGL_UNITS_PER_INCH)},5" in result
 
     def test_assembled_arcs_land_at_packed_positions(self) -> None:
         """Holes must follow their label when assembled onto a plate."""
@@ -127,7 +133,13 @@ class TestTranslatePltCoordinates:
         # Local center x = hole_margin + radius = 0.25; the device-convention
         # Y flip mirrors it to 1.0 - 0.25 = 0.75. Adding the packed offset
         # (5.0, 3.0) gives the expected plate position.
-        centers = {(round(a.center.x / 1000, 2), round(a.center.y / 1000, 2)) for a in arcs}
+        centers = {
+            (
+                round(a.center.x / HPGL_UNITS_PER_INCH, 2),
+                round(a.center.y / HPGL_UNITS_PER_INCH, 2),
+            )
+            for a in arcs
+        }
         assert len(centers) == 1
         center_x, center_y = centers.pop()
         assert center_x == pytest.approx(5.25, abs=0.01)
@@ -241,11 +253,11 @@ class TestRotatePltContent90cw:
             for seg in path.segments:
                 if isinstance(seg, ArcSegment):
                     arcs.append(seg)
-                    xs.append(seg.center.x / 1000)
-                    ys.append(seg.center.y / 1000)
+                    xs.append(seg.center.x / HPGL_UNITS_PER_INCH)
+                    ys.append(seg.center.y / HPGL_UNITS_PER_INCH)
                 elif isinstance(seg, StrokeSegment):
-                    xs.extend((seg.start.x / 1000, seg.end.x / 1000))
-                    ys.extend((seg.start.y / 1000, seg.end.y / 1000))
+                    xs.extend((seg.start.x / HPGL_UNITS_PER_INCH, seg.end.x / HPGL_UNITS_PER_INCH))
+                    ys.extend((seg.start.y / HPGL_UNITS_PER_INCH, seg.end.y / HPGL_UNITS_PER_INCH))
 
         assert arcs, "Rotated assembly lost the drill-hole arcs"
         # The rotated content occupies exactly the swapped slot:
@@ -260,10 +272,18 @@ class TestRotatePltContent90cw:
         # Hole center offset includes hole_cutter_diameter/2 (0.0075) + hole_margin (0.1875) + radius (0.0625) = 0.2575
         # Before rotation: (0.2575, 0.2575)
         # After rotation and offset: (5.2575, 3.2575) ≈ (5.26, 3.26) when rounded to 2 decimal places
-        centers = {(round(a.center.x / 1000, 2), round(a.center.y / 1000, 2)) for a in arcs}
+        centers = {
+            (
+                round(a.center.x / HPGL_UNITS_PER_INCH, 2),
+                round(a.center.y / HPGL_UNITS_PER_INCH, 2),
+            )
+            for a in arcs
+        }
         assert centers == {(5.26, 3.26)}
         # The rigid transform preserves the drill radius.
-        assert all(a.radius / 1000 == pytest.approx(0.0625, abs=0.001) for a in arcs)
+        assert all(
+            a.radius / HPGL_UNITS_PER_INCH == pytest.approx(0.0625, abs=0.001) for a in arcs
+        )
 
 
 class TestAssemblePltFromRenderedLabels:

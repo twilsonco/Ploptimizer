@@ -18,6 +18,7 @@ import pytest
 import vpype as vp
 
 from plt_optimizer.core.parser import PLTParser
+from plt_optimizer.core.units import HPGL_UNITS_PER_INCH
 from plt_optimizer.generate import text_geometry
 from plt_optimizer.generate.text_geometry import (
     ARC_FLATTEN_CHORD_TOL_INCHES,
@@ -106,7 +107,7 @@ class TestArcHelpers:
 
     def test_units_conversion(self) -> None:
         """Inches convert to integer plotter units with rounding."""
-        assert _units(1.0) == 1000
+        assert _units(1.0) == int(HPGL_UNITS_PER_INCH)
         assert _units(0.0004) == 0
         assert _units(-0.0006) == -1
 
@@ -257,25 +258,29 @@ class TestStrokeHpgl:
 
     def test_polyline_matches_historical_framing(self) -> None:
         """A pure polyline stroke emits the historical ``PU{first};PD{rest}``."""
+        u = int(HPGL_UNITS_PER_INCH)
         stroke = Stroke(pen_up=0j, segments=(LineSeg(0j, 1 + 1j), LineSeg(1 + 1j, 2 + 0j)))
-        assert stroke.to_hpgl() == "PU0,0;PD1000,1000,2000,0"
+        assert stroke.to_hpgl() == f"PU0,0;PD{u},{u},{2 * u},0"
 
     def test_arc_emits_plunge_form(self) -> None:
         """An arc emits ``PU{start};PD;AA{cx},{cy},{sweep}`` with decimal sweep."""
+        u = int(HPGL_UNITS_PER_INCH)
         stroke = Stroke(pen_up=1 + 0j, segments=(_quarter_arc(),))
-        assert stroke.to_hpgl() == "PU1000,0;PD;AA0,0,90.000"
+        assert stroke.to_hpgl() == f"PU{u},0;PD;AA0,0,90.000"
 
     def test_arc_after_line_chains_without_extra_pu(self) -> None:
         """An arc starting where the pen rests needs no extra PU."""
+        u = int(HPGL_UNITS_PER_INCH)
         arc = ArcSeg(start=2 + 0j, center=2 + 1j, sweep_deg=45.0)
         stroke = Stroke(pen_up=0j, segments=(LineSeg(0j, 2 + 0j), arc))
         hpgl = stroke.to_hpgl()
-        assert hpgl == "PU0,0;PD2000,0;PD;AA2000,1000,45.000"
+        assert hpgl == f"PU0,0;PD{2 * u},0;PD;AA{2 * u},{u},45.000"
 
     def test_repositioned_arc_gets_pu(self) -> None:
         """An arc whose start is elsewhere is preceded by a rapid PU."""
+        u = int(HPGL_UNITS_PER_INCH)
         stroke = Stroke(pen_up=0j, segments=(ArcSeg(start=5 + 5j, center=5 + 6j, sweep_deg=10),))
-        assert stroke.to_hpgl() == "PU0,0;PU5000,5000;PD;AA5000,6000,10.000"
+        assert stroke.to_hpgl() == f"PU0,0;PU{5 * u},{5 * u};PD;AA{5 * u},{6 * u},10.000"
 
     def test_line_after_arc_replays_start(self) -> None:
         """A line run following an arc replays its start (pen moved by the arc)."""
@@ -285,16 +290,18 @@ class TestStrokeHpgl:
             segments=(arc, LineSeg(arc.end, 5 + 5j)),
         )
         hpgl = stroke.to_hpgl()
-        assert hpgl.endswith(";PD5000,5000")
+        u = int(HPGL_UNITS_PER_INCH)
+        assert hpgl.endswith(f";PD{5 * u},{5 * u}")
 
     def test_roundtrip_through_parser(self) -> None:
         """Emitted geometry re-parses to the same swept bounds."""
+        u = int(HPGL_UNITS_PER_INCH)
         doc = PLTParser().parse_string(
-            "IN;PA;PU0,0;PD1000,0;PD;AA1000,1000,-90.000;PU3000,0;PD4000,1000;SP;"
+            f"IN;PA;PU0,0;PD{u},0;PD;AA{u},{u},-90.000;PU{3 * u},0;PD{4 * u},{u};SP;"
         )
-        block = block_from_parser_paths(doc.stroke_paths, scale=1 / 1000)
+        block = block_from_parser_paths(doc.stroke_paths, scale=1 / HPGL_UNITS_PER_INCH)
         reparsed = PLTParser().parse_string("IN;PA;" + block.to_hpgl() + ";SP;")
-        block2 = block_from_parser_paths(reparsed.stroke_paths, scale=1 / 1000)
+        block2 = block_from_parser_paths(reparsed.stroke_paths, scale=1 / HPGL_UNITS_PER_INCH)
         assert block.bounds() == pytest.approx(block2.bounds(), abs=1e-9)
         assert len(block2.strokes) == 2
 
@@ -368,8 +375,9 @@ class TestTextBlock:
         """Block output is the semicolon-joined strokes."""
         block = self._sample()
         hpgl = block.to_hpgl()
+        u = int(HPGL_UNITS_PER_INCH)
         assert hpgl.startswith("PU0,0;")
-        assert "PD;AA2000,0,90.000" in hpgl
+        assert f"PD;AA{2 * u},0,90.000" in hpgl
 
     def test_to_linecollection_flattens_arcs(self) -> None:
         """The vpype view keeps one polyline per pen-down run."""
@@ -560,7 +568,7 @@ class TestBlockFromLineCollection:
         lc.append(np.array([0j, 1 + 2j, 3 + 1j], dtype=complex))
         block = block_from_linecollection(lc)
         reparsed = PLTParser().parse_string("IN;PA;" + block.to_hpgl() + ";SP;")
-        block2 = block_from_parser_paths(reparsed.stroke_paths, scale=1 / 1000)
+        block2 = block_from_parser_paths(reparsed.stroke_paths, scale=1 / HPGL_UNITS_PER_INCH)
         assert block2.bounds() == pytest.approx(block.bounds(), abs=1e-9)
 
 
@@ -570,7 +578,7 @@ class TestBlockFromParserPaths:
     def test_skips_paths_without_segments(self) -> None:
         """Pen-up-only paths never reach the block."""
         doc = PLTParser().parse_string("IN;PA;PU100,100;PD200,200;SP;")
-        block = block_from_parser_paths(doc.stroke_paths, scale=1 / 1000)
+        block = block_from_parser_paths(doc.stroke_paths, scale=1 / HPGL_UNITS_PER_INCH)
         assert len(block.strokes) == 1
 
     def test_skips_segmentless_handbuilt_paths(self) -> None:
@@ -583,7 +591,7 @@ class TestBlockFromParserPaths:
     def test_pen_up_defaults_to_first_segment_start(self) -> None:
         """A path without an explicit pen-up uses its first vertex."""
         doc = PLTParser().parse_string("IN;PA;PU0,0;PD1000,0;SP;")
-        block = block_from_parser_paths(doc.stroke_paths, scale=1 / 1000)
+        block = block_from_parser_paths(doc.stroke_paths, scale=1 / HPGL_UNITS_PER_INCH)
         assert block.strokes[0].pen_up == pytest.approx(0j)
 
     def test_missing_pen_up_position_falls_back_to_start(self) -> None:
@@ -603,8 +611,9 @@ class TestBlockFromParserPaths:
 
     def test_scale_converts_units(self) -> None:
         """The scale maps plotter units to inches."""
-        doc = PLTParser().parse_string("IN;PA;PU0,0;PD1000,2000;SP;")
-        block = block_from_parser_paths(doc.stroke_paths, scale=1 / 1000)
+        u = int(HPGL_UNITS_PER_INCH)
+        doc = PLTParser().parse_string(f"IN;PA;PU0,0;PD{u},{2 * u};SP;")
+        block = block_from_parser_paths(doc.stroke_paths, scale=1 / HPGL_UNITS_PER_INCH)
         assert block.bounds() == pytest.approx((0.0, 0.0, 1.0, 2.0))
 
 
@@ -619,12 +628,12 @@ def test_real_glyphs_roundtrip(char: str) -> None:
     fonts = json.loads((REPO_ROOT / "Fonts" / "plt_fonts.json").read_text(encoding="utf-8"))
     glyph = fonts["Dino"]["characters"][char]["glyph"]
     doc = PLTParser().parse_string("IN;PA;" + glyph + "SP;")
-    block = block_from_parser_paths(doc.stroke_paths, scale=1 / 1000)
+    block = block_from_parser_paths(doc.stroke_paths, scale=1 / HPGL_UNITS_PER_INCH)
     bounds = block.bounds()
     assert bounds is not None
 
     reparsed = PLTParser().parse_string("IN;PA;" + block.to_hpgl() + ";SP;")
-    block2 = block_from_parser_paths(reparsed.stroke_paths, scale=1 / 1000)
+    block2 = block_from_parser_paths(reparsed.stroke_paths, scale=1 / HPGL_UNITS_PER_INCH)
     assert block2.bounds() == pytest.approx(bounds, abs=0.002)
 
 

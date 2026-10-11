@@ -192,7 +192,8 @@ Ink = Tuple[Polyline, ...]
 _Segment = Tuple[float, float, float, float]
 
 # Degenerate-segment threshold. Emitted geometry is integer plotter units
-# (1 unit = 0.001in) and the flattening chord tolerance is 0.0002in, so this
+# (1 unit = 1 / ``HPGL_UNITS_PER_INCH`` inch) and the flattening chord tolerance
+# is 0.0002in, so this
 # only absorbs float noise, never real geometry.
 _DEGENERATE_EPSILON: float = 1e-12
 

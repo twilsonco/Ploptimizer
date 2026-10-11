@@ -94,7 +94,8 @@ from typing import Callable, Mapping, Optional, Sequence
 from plt_optimizer.generate.geometry import Ink, InkGrid, aabb_vertical_gap, ink_gap
 
 # A glyph counts as descending when its ink reaches this far below its own
-# baseline. Emitted geometry is integer plotter units (1 unit = 0.001in), so
+# baseline. Emitted geometry is integer plotter units
+# (1 unit = 1 / ``HPGL_UNITS_PER_INCH`` inch), so
 # this epsilon only absorbs floating-point noise, never real ink.
 _DESCENDER_EPSILON: float = 1e-9
 

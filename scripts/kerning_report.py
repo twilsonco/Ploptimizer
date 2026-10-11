@@ -81,7 +81,10 @@ DEFAULT_JOB_CONFIG_PATH: Path = REPO_ROOT / "job-config.json"
 DEFAULT_FONTS_PATH: Path = REPO_ROOT / "Fonts" / "plt_fonts.json"
 
 # Design units per rendered inch (the PLT storage frame).
-_UNITS_PER_INCH: float = 1000.0
+# Library design frame (matches plt_font_renderer._DESIGN_UNITS_PER_INCH):
+# display-only conversion of design units to stored library units. NOT the
+# device plotter scale (1016 units/inch, see plt_optimizer.core.units).
+_DESIGN_UNITS_PER_INCH: float = 1000.0
 
 # Default recession multiplier, read from the resolution module when the
 # cascade already carries the field and falling back to the geometric 1.0.
@@ -531,8 +534,8 @@ def report_lines(
                     f"char_spacing={frame.character_spacing:.4f}in "
                     f"min_gap={frame.kerning_min_gap:.4f}in "
                     f"clearance={frame.clearance:.4f}in "
-                    f"min_glyph_width={frame.min_width_design * _UNITS_PER_INCH:.1f}u "
-                    f"window={frame.window_design * _UNITS_PER_INCH:.1f}u "
+                    f"min_glyph_width={frame.min_width_design * _DESIGN_UNITS_PER_INCH:.1f}u "
+                    f"window={frame.window_design * _DESIGN_UNITS_PER_INCH:.1f}u "
                     f"scale={frame.penetration_scale:g} "
                     f"recession={frame.recession_scale:g}"
                 )
@@ -578,12 +581,12 @@ def format_table(metrics: Sequence[PairMetrics]) -> str:
     lines = [header, "-" * len(header)]
     for metric in sorted(metrics, key=lambda m: m.advance, reverse=True):
         lines.append(
-            f"{metric.pair!r:>7}  {metric.left_width * _UNITS_PER_INCH:7.1f}  "
-            f"{metric.right_width * _UNITS_PER_INCH:7.1f}  "
-            f"{metric.penetration * _UNITS_PER_INCH:8.1f}  "
-            f"{metric.effective * _UNITS_PER_INCH:8.1f}  "
-            f"{metric.floor * _UNITS_PER_INCH:8.1f}  "
-            f"{metric.scaled * _UNITS_PER_INCH:8.1f}  "
+            f"{metric.pair!r:>7}  {metric.left_width * _DESIGN_UNITS_PER_INCH:7.1f}  "
+            f"{metric.right_width * _DESIGN_UNITS_PER_INCH:7.1f}  "
+            f"{metric.penetration * _DESIGN_UNITS_PER_INCH:8.1f}  "
+            f"{metric.effective * _DESIGN_UNITS_PER_INCH:8.1f}  "
+            f"{metric.floor * _DESIGN_UNITS_PER_INCH:8.1f}  "
+            f"{metric.scaled * _DESIGN_UNITS_PER_INCH:8.1f}  "
             f"{metric.advance:8.4f}  {metric.gap:8.4f}  {metric.bound_by}"
         )
     return "\n".join(lines)
@@ -630,10 +633,10 @@ def format_trace(metric: PairMetrics) -> str:
     ]
     for sample in metric.samples:
         lines.append(
-            f"  y={sample.y * _UNITS_PER_INCH:9.2f}  R={sample.left_sil * _UNITS_PER_INCH:8.2f}  "
-            f"L={sample.right_sil * _UNITS_PER_INCH:8.2f}  "
-            f"Lmin={sample.deepest_right * _UNITS_PER_INCH:8.2f}  "
-            f"p={sample.penetration * _UNITS_PER_INCH:8.2f}"
+            f"  y={sample.y * _DESIGN_UNITS_PER_INCH:9.2f}  R={sample.left_sil * _DESIGN_UNITS_PER_INCH:8.2f}  "
+            f"L={sample.right_sil * _DESIGN_UNITS_PER_INCH:8.2f}  "
+            f"Lmin={sample.deepest_right * _DESIGN_UNITS_PER_INCH:8.2f}  "
+            f"p={sample.penetration * _DESIGN_UNITS_PER_INCH:8.2f}"
         )
     return "\n".join(lines)
 

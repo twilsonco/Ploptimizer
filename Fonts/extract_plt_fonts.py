@@ -36,9 +36,10 @@ Each glyph is then normalized with one global similarity transform derived
 from the *measured* reference character:
 
 ``X_norm = S * (X_raw - X_min_glyph)`` and ``Y_norm = S * (Y_baseline_row - Y_raw)``
-with ``S = UNITS_PER_INCH / H_ref_raw``
+with ``S = LIBRARY_UNITS_PER_INCH / H_ref_raw``
 
-so stored values stay in plotter units (1000 units = 1 inch), the reference
+so stored values stay in the library design frame (1000 units = 1 design
+inch), the reference
 character stands exactly 1000 units tall, every glyph sits on ``y = 0`` with
 its left edge at ``x = 0``, and Y grows upward (descending characters get
 negative ``y``). The raw sheets are engraved in the device convention (+Y
@@ -49,7 +50,7 @@ the file-name height is *never* used to correct it (see
 
 One exception: a character listed in :data:`VERTICALLY_CENTERED_CHARS` is
 additionally *translated* (never scaled, X is never touched) so the centre of
-its own bounding box lands on the **midline** ``MIDLINE_FRACTION * UNITS_PER_INCH``
+its own bounding box lands on the **midline** ``MIDLINE_FRACTION * LIBRARY_UNITS_PER_INCH``
 (half the cap height) instead of sitting on the baseline. Round-symmetric
 glyphs such as ``S`` are engraved by EngraveLab hanging slightly below the
 baseline and short of the cap line, which reads as a low-sitting letter next
@@ -152,8 +153,19 @@ DEFAULT_INPUT_DIR = FONTS_DIR / "PLT"
 DEFAULT_OUTPUT = FONTS_DIR / "plt_fonts.json"
 DEFAULT_ASCII_FILE = FONTS_DIR / "ascii.txt"
 
-# Plotter units per inch (the HPGL unit the sample sheets are engraved in).
-UNITS_PER_INCH = 1000.0
+# Library design frame: the units per *design* inch that ``plt_fonts.json``
+# stores. This is NOT the device plotter scale -- HPGL's default step is
+# 0.025 mm = 1/1016 inch (see ``plt_optimizer/core/units.py``), and the sample
+# sheets are engraved at that 1016 scale.
+#
+# The value is a free choice because the normalization below is
+# *self-cancelling*: glyphs are stored as ``raw * (LIBRARY_UNITS_PER_INCH /
+# H_ref_raw)``, and the renderer converts back to inches by dividing by the
+# matching ``_DESIGN_UNITS_PER_INCH`` before scaling to the requested text
+# height. The two constants cancel, so any value works -- as long as both
+# sides agree. 1000 keeps the stored JSON readable (the reference character is
+# exactly 1000 units tall).
+LIBRARY_UNITS_PER_INCH = 1000.0
 
 # Vertical bands per left/right profile envelope; each band aggregates the
 # geometry within half a sampling step of its height. Overridable with
@@ -173,7 +185,8 @@ DRIFT_WARN_THRESHOLD = 0.05
 REFERENCE_MATCH_TOLERANCE = 1e-3
 
 # Characters whose stored geometry is *translated* so the centre of their own
-# bounding box sits on the midline (``MIDLINE_FRACTION * UNITS_PER_INCH``, i.e.
+# bounding box sits on the midline (``MIDLINE_FRACTION * LIBRARY_UNITS_PER_INCH``,
+# i.e.
 # half the cap height) instead of on the baseline. EngraveLab engraves
 # round-symmetric glyphs like ``S`` hanging below the baseline and short of the
 # cap line, which reads as a low-sitting letter beside ``H``/``O``/``C``; the
@@ -268,7 +281,7 @@ class GlyphTransform:
     negated to preserve the cut direction.
 
     Attributes:
-        scale: Uniform scale factor ``S = UNITS_PER_INCH / H_ref_raw``.
+        scale: Uniform scale factor ``S = LIBRARY_UNITS_PER_INCH / H_ref_raw``.
         origin_x: The glyph's raw left edge, mapped to ``x = 0``.
         baseline: The row's raw baseline Y, mapped to ``y = 0``.
     """
@@ -1001,7 +1014,7 @@ def _midline_centered(
         bounding box.
     """
     centre = (bounds[1] + bounds[3]) / 2.0
-    shift = MIDLINE_FRACTION * UNITS_PER_INCH - centre
+    shift = MIDLINE_FRACTION * LIBRARY_UNITS_PER_INCH - centre
     if abs(shift) <= _EPS:
         return transform, bounds
     # Y_norm = scale * (baseline - Y_raw), so raising the stored glyph by
@@ -1105,8 +1118,15 @@ def extract_font_from_document(
             f"tall; it cannot define the normalization scale. Choose a reference character "
             f"with real height."
         )
-    scale = UNITS_PER_INCH / reference_height_raw
-    reference_height_in = reference_height_raw / UNITS_PER_INCH
+    scale = LIBRARY_UNITS_PER_INCH / reference_height_raw
+    # NOTE: the measured height is expressed in the *library design frame*
+    # (raw / LIBRARY_UNITS_PER_INCH), not in true inches: the sheet is engraved
+    # at the device scale of 1016 units/inch, so this reading runs ~1.6% above
+    # the physical height. It is informational metadata only -- it feeds
+    # :func:`check_height_drift` (5% threshold) and the stored
+    # ``reference_char_height_in`` -- and the glyph geometry itself is
+    # unaffected, because the normalization is self-cancelling.
+    reference_height_in = reference_height_raw / LIBRARY_UNITS_PER_INCH
 
     characters_out: Dict[str, CharacterEntry] = {}
     centered: List[str] = []
@@ -1140,7 +1160,7 @@ def extract_font_from_document(
         "(reference char %r measures %.4f in, design ref height is 1.000 in)",
         median(
             [
-                (row.baseline - cluster.bounds[1]) * scale / UNITS_PER_INCH
+                (row.baseline - cluster.bounds[1]) * scale / LIBRARY_UNITS_PER_INCH
                 for row in rows
                 for cluster in row.content
             ]

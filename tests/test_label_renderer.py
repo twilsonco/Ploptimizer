@@ -7,6 +7,7 @@ import re
 import pytest
 import vpype as vp
 
+from plt_optimizer.core.units import HPGL_UNITS_PER_INCH
 from plt_optimizer.generate.label_renderer import (
     _INK_EMISSION_FLOOR,
     LAYER_TEXT,
@@ -32,6 +33,10 @@ from plt_optimizer.generate.resolution import (
 )
 from plt_optimizer.generate.schema import parse_yaml
 from plt_optimizer.generate.text_geometry import LineSeg, Stroke, TextBlock
+
+# Whole-plotter-scale in integer device units (1 inch). Hand-written HPGL
+# fixtures use it so their coordinates keep meaning whole inches.
+U = int(HPGL_UNITS_PER_INCH)
 
 
 def _render_text_local(label: ResolvedLabel) -> vp.LineCollection:
@@ -117,7 +122,7 @@ class TestExtractBoundsFromPlt:
 
     def test_extract_bounds_simple_rectangle(self) -> None:
         """Test bounds extraction from simple rectangle PLT."""
-        plt_content = "IN;PA;SP1;PA0,0;PD1000,0,1000,1000,0,1000,0,0;SP;"
+        plt_content = f"IN;PA;SP1;PA0,0;PD{U},0,{U},{U},0,{U},0,0;SP;"
         x_min, y_min, x_max, y_max = extract_bounds_from_plt(plt_content)
 
         assert x_min == 0.0
@@ -127,23 +132,26 @@ class TestExtractBoundsFromPlt:
 
     def test_extract_bounds_with_multiple_commands(self) -> None:
         """Test bounds extraction with multiple PA/PD commands."""
-        plt_content = "IN;PA;SP1;PA500,500;PD1000,1000;PA100,200;PD800,900;SP;"
+        plt_content = (
+            f"IN;PA;SP1;PA{U // 10},{U // 5};PD{U},{U};PA{U // 10},{U // 5};"
+            f"PD{4 * U // 5},{9 * U // 10};SP;"
+        )
         x_min, y_min, x_max, y_max = extract_bounds_from_plt(plt_content)
 
-        assert x_min == 0.1
-        assert y_min == 0.2
-        assert x_max == 1.0
-        assert y_max == 1.0
+        assert x_min == pytest.approx(0.1, abs=1e-3)
+        assert y_min == pytest.approx(0.2, abs=1e-3)
+        assert x_max == pytest.approx(1.0, abs=1e-3)
+        assert y_max == pytest.approx(1.0, abs=1e-3)
 
     def test_extract_bounds_negative_coordinates(self) -> None:
         """Test bounds with negative coordinates (should be converted by postprocessing)."""
         # Most PLT files have non-negative coordinates after postprocessing
         # but we should handle this gracefully
-        plt_content = "IN;PA;SP1;PA-500,0;PD500,1000;SP;"
+        plt_content = f"IN;PA;SP1;PA{-U // 2},0;PD{U // 2},{U};SP;"
         x_min, y_min, x_max, y_max = extract_bounds_from_plt(plt_content)
 
-        assert x_min == -0.5
-        assert x_max == 0.5
+        assert x_min == pytest.approx(-0.5, abs=1e-3)
+        assert x_max == pytest.approx(0.5, abs=1e-3)
 
     def test_extract_bounds_no_coordinates(self) -> None:
         """Test that ValueError is raised if no coordinates found."""
@@ -154,11 +162,11 @@ class TestExtractBoundsFromPlt:
     def test_extract_bounds_ignores_pu_commands(self) -> None:
         """Test that PU (pen-up) commands are included in bounds."""
         # PU coordinates define visual extent and should be included
-        plt_content = "IN;PA;SP1;PU10000,10000;PA0,0;PD1000,1000;SP;"
+        plt_content = f"IN;PA;SP1;PU{10 * U},{10 * U};PA0,0;PD{U},{U};SP;"
         x_min, y_min, x_max, y_max = extract_bounds_from_plt(plt_content)
 
         assert x_min == 0.0
-        assert x_max == 10.0  # Now includes PU coordinate
+        assert x_max == pytest.approx(10.0, abs=1e-2)  # Now includes PU coordinate
 
 
 class TestBoundaryClosure:
@@ -213,8 +221,8 @@ class TestBoundaryClosure:
         xs = [p[0] for p in points]
         ys = [p[1] for p in points]
 
-        width_inches = (max(xs) - min(xs)) / 1000.0
-        height_inches = (max(ys) - min(ys)) / 1000.0
+        width_inches = (max(xs) - min(xs)) / HPGL_UNITS_PER_INCH
+        height_inches = (max(ys) - min(ys)) / HPGL_UNITS_PER_INCH
 
         assert pytest.approx(width_inches, abs=0.01) == labels[0].width
         assert pytest.approx(height_inches, abs=0.01) == labels[0].height
@@ -464,7 +472,7 @@ class TestMultiLineStacking:
         for coord_match in re.finditer(r"(?:PA|PU|PD)([\d,\-]+)", match.group(1)):
             parts = coord_match.group(1).split(",")
             for i in range(1, len(parts), 2):
-                ys.append(int(parts[i]) / 1000.0)
+                ys.append(int(parts[i]) / HPGL_UNITS_PER_INCH)
         assert ys, "No text coordinates found"
 
         text_span = max(ys) - min(ys)
@@ -634,7 +642,7 @@ class TestMarginPrecedence:
         for coord_match in re.finditer(r"(?:PA|PU|PD)([\d,\-]+)", match.group(1)):
             parts = coord_match.group(1).split(",")
             for i in range(1, len(parts), 2):
-                ys.append(int(parts[i]) / 1000.0)
+                ys.append(int(parts[i]) / HPGL_UNITS_PER_INCH)
         assert ys, "No text coordinates found"
 
         # Text must stay inside the margin box (small tolerance for
@@ -858,7 +866,7 @@ class TestRenderHolesAsArcs:
 
         sx, sy = (int(v) for v in re.search(r"PU(\d+),(\d+)", hpgl).groups())  # type: ignore[union-attr]
         cx, cy = (int(v) for v in re.search(r"AA(\d+),(\d+),", hpgl).groups())  # type: ignore[union-attr]
-        radius_inches = math.hypot(sx - cx, sy - cy) / 1000.0
+        radius_inches = math.hypot(sx - cx, sy - cy) / HPGL_UNITS_PER_INCH
         assert radius_inches == pytest.approx(diameter / 2.0, abs=1e-3)
 
     def test_rendered_label_holes_layer_contains_arcs_not_polygon(self) -> None:
@@ -1029,7 +1037,7 @@ class TestHoleMarginRendering:
         radius_units = math.hypot(sx - cx, sy - cy)
 
         # The arc radius must stay diameter/2, not margin+radius.
-        assert radius_units / 1000.0 == pytest.approx(radius, abs=0.002)
+        assert radius_units / HPGL_UNITS_PER_INCH == pytest.approx(radius, abs=0.002)
         # Quarter arcs, one full revolution.
         assert sweep == -90  # negated by the Y-axis flip
 
@@ -1037,8 +1045,8 @@ class TestHoleMarginRendering:
         # so the closest point is at hole_margin + hole_cutter/2.
         # hole_cutter_diameter = 0.015 → 0.0075 half-width.
         expected_gap = hole_margin + 0.0075
-        left_gap = (cx - radius_units) / 1000.0
-        top_gap = label.height - (cy + radius_units) / 1000.0
+        left_gap = (cx - radius_units) / HPGL_UNITS_PER_INCH
+        top_gap = label.height - (cy + radius_units) / HPGL_UNITS_PER_INCH
         assert left_gap == pytest.approx(expected_gap, abs=0.002)
         assert top_gap == pytest.approx(expected_gap, abs=0.002)
 
@@ -1217,7 +1225,7 @@ class TestHorizontalCompressionRendering:
         for coord_match in re.finditer(r"(?:PA|PU|PD)([\d,\-]+)", match.group(1)):
             parts = coord_match.group(1).split(",")
             for i in range(0, len(parts) - 1, 2):
-                xs.append(int(parts[i]) / 1000.0)
+                xs.append(int(parts[i]) / HPGL_UNITS_PER_INCH)
         assert xs, "No text coordinates found"
 
         assert min(xs) >= margin - 0.02, f"Text breaches left margin: {min(xs):.3f}"
@@ -1252,7 +1260,7 @@ class TestCompressionByLineReporting:
         for coord_match in re.finditer(r"(?:PA|PU|PD)([\d,\-]+)", match.group(1)):
             parts = coord_match.group(1).split(",")
             for i in range(0, len(parts) - 1, 2):
-                xs.append(int(parts[i]) / 1000.0)
+                xs.append(int(parts[i]) / HPGL_UNITS_PER_INCH)
         assert xs, "No text coordinates found"
         return max(xs) - min(xs)
 
@@ -1783,7 +1791,7 @@ class TestInkExtraction:
     def test_clip_drops_ink_shallower_than_the_emission_floor(self) -> None:
         """Ink below the baseline but above the emission floor is not a descender.
 
-        Emitted coordinates are integer plotter units (1/1000in), so a sliver
+        Emitted coordinates are integer plotter units, so a sliver
         shallower than half a unit cannot collide in the engraved output.
         """
         assert _clip_below_baseline(((0.0, 0.0), (1.0, 0.0))) == ()
@@ -2345,7 +2353,7 @@ def _text_pen_y_extent(rendered: RenderedLabel) -> tuple[float, float]:
         for arc in arcs:
             _x_min, y_min, _x_max, y_max = arc.swept_bounds()
             ys.extend((y_min, y_max))
-    return min(ys) / 1000.0, max(ys) / 1000.0
+    return min(ys) / HPGL_UNITS_PER_INCH, max(ys) / HPGL_UNITS_PER_INCH
 
 
 class TestBandCentering:
