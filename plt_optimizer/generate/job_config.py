@@ -347,6 +347,26 @@ class JobDefaults(BaseModel):
             "to this fraction of the cap height). Unset falls back to 0.7."
         ),
     )
+    html_brackets: Optional[str] = Field(
+        default=None,
+        description=(
+            "Default inline-markup delimiter pair (job layer): an "
+            "even-length string whose first half is the left delimiter and "
+            "second half the right ('<>' -> '<' + '>'). Unset falls back "
+            "to '<>'."
+        ),
+    )
+    italic_angle: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=45.0,
+        description=(
+            "Default italic slant angle in degrees for <i> markup (job "
+            "layer; PLT glyphs and TTF glyphs without a native italic face "
+            "are sheared about the baseline). Bound to [0, 45]; 0 means "
+            "upright. Unset falls back to 12."
+        ),
+    )
     holes: Optional[list[HoleSpec]] = Field(
         default=None,
         description="Default drill-hole list (job layer; group locations expand like spec holes).",
@@ -589,6 +609,8 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "kerning_min_gap",
     "fallback_advance_fraction",
     "sc_scale",
+    "html_brackets",
+    "italic_angle",
     "cutter_downsize",
     "max_cutter_downsizes",
     "cutter_downsize_global",

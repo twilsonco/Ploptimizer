@@ -544,9 +544,7 @@ class TestBaselineSpacingStacking:
         """Baseline stacking reclaims exactly the descender depth of space."""
         content = [_make_line("gy", height=0.3, line_spacing=0.1), _make_line("ABC")]
 
-        baseline_lc, baseline_entries = _render_text_local_with_bounds(
-            _make_local_label(content)
-        )
+        baseline_lc, baseline_entries = _render_text_local_with_bounds(_make_local_label(content))
         inkbox_lc, _entries = _render_text_local_with_bounds(
             _make_local_label(content, use_baseline_spacing=False)
         )
@@ -588,7 +586,9 @@ class TestBaselineSpacingStacking:
     def test_margin_clamp_uses_the_baseline_block(self) -> None:
         """The render-time clamp sizes against the baseline-stacked block."""
         margin = 0.125
-        label = _make_local_label(self._cap_only_lines(spacing=0.3), width=3.0, height=1.0, margin=margin)
+        label = _make_local_label(
+            self._cap_only_lines(spacing=0.3), width=3.0, height=1.0, margin=margin
+        )
         lc, entries = _render_text_local_with_bounds(label)
         block_height = lc.bounds()[3] - lc.bounds()[1]
         available = label.height - 2 * margin
@@ -1742,7 +1742,10 @@ class TestInkExtraction:
         """Tip-to-tail segments share their junction vertex exactly once."""
         stroke = Stroke(
             pen_up=complex(0.0, 0.0),
-            segments=(LineSeg(complex(0.0, 0.0), complex(1.0, 0.0)), LineSeg(complex(1.0, 0.0), complex(1.0, 1.0))),
+            segments=(
+                LineSeg(complex(0.0, 0.0), complex(1.0, 0.0)),
+                LineSeg(complex(1.0, 0.0), complex(1.0, 1.0)),
+            ),
         )
         assert _stroke_polyline(stroke) == ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0))
 
@@ -1763,7 +1766,10 @@ class TestInkExtraction:
         """A glyph's ink is one polyline per non-empty stroke."""
         block = TextBlock(
             strokes=(
-                Stroke(pen_up=complex(0.0, 0.0), segments=(LineSeg(complex(0.0, 0.0), complex(0.2, 0.0)),)),
+                Stroke(
+                    pen_up=complex(0.0, 0.0),
+                    segments=(LineSeg(complex(0.0, 0.0), complex(0.2, 0.0)),),
+                ),
                 Stroke(pen_up=complex(1.0, 1.0), segments=()),
             )
         )
@@ -1877,7 +1883,10 @@ class TestDescendingCharacterRelief:
 
     def test_cap_only_content_is_never_relieved(self) -> None:
         """No descenders means no relief, and the geometry is untouched."""
-        content = [_make_line("HAPPY", height=0.5, line_spacing=0.05), _make_line("ROOTS", height=0.5)]
+        content = [
+            _make_line("HAPPY", height=0.5, line_spacing=0.05),
+            _make_line("ROOTS", height=0.5),
+        ]
         on = render_label_to_plt(_make_descender_label(content))
         off = render_label_to_plt(
             _make_descender_label(content, auto_descending_character_adjustment=False)
@@ -2273,9 +2282,7 @@ class TestDescendingCharacterBorderRelief:
         crosses the 0.25in v_margin. The margin is not the constraint, so
         nothing is relieved.
         """
-        rendered = render_label_to_plt(
-            _make_border_label(["charging"], height=2.7, v_margin=0.25)
-        )
+        rendered = render_label_to_plt(_make_border_label(["charging"], height=2.7, v_margin=0.25))
         assert rendered.descender_adjustments_by_line == {}
 
     def test_border_relief_never_grows_the_line_spacing(self) -> None:
@@ -2436,3 +2443,93 @@ class TestBandCentering:
 
         assert band.width == pytest.approx(ink.width, abs=1e-9)
         assert band.height == pytest.approx(ink.height, abs=1e-9)
+
+
+def _markup_job(*lines, **job_kwargs):
+    """Build a single-label JobSpec over raw (markup-carrying) text lines."""
+    from plt_optimizer.generate.schema import JobSpec, LabelSpec, TextLine
+
+    return JobSpec(
+        job_name="M",
+        width=6.0,
+        height=1.0,
+        text_height=0.5,
+        labels=[
+            LabelSpec(
+                id="lbl",
+                width=6.0,
+                height=1.0,
+                content=[TextLine(text=text, **kw) for text, kw in lines],
+            )
+        ],
+        **job_kwargs,
+    )
+
+
+class TestItalicRenderDispatch:
+    """``_render_line_block`` renders plain text with per-character italic."""
+
+    def test_markup_renders_plain_text_not_the_tags(self) -> None:
+        """The engraving measures the plain text; the tags never appear."""
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+        from plt_optimizer.generate.resolution import resolve_job_spec
+
+        line = resolve_job_spec(_markup_job(("<i>AV</i>", {})))[0].content[0]
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        bounds = block.bounds()
+        assert bounds is not None
+        # The glyph partition covers the PLAIN text (2 glyphs), not the 9 tag chars.
+        assert len(glyphs) == 2
+
+    def test_italic_line_is_sheared_from_its_plain_twin(self) -> None:
+        """The dispatch shears the flagged glyphs (baseline fixed, top rises)."""
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+        from plt_optimizer.generate.resolution import resolve_job_spec
+
+        italic = resolve_job_spec(_markup_job(("<i>AVX</i>", {})))[0].content[0]
+        plain = resolve_job_spec(_markup_job(("AVX", {})))[0].content[0]
+        iblock, _iw, iglyphs = _render_line_block(italic, TextChunkMode.LINE)
+        ib = iblock.bounds()
+        assert len(iglyphs) == 3
+        pb = _render_line_block(plain, TextChunkMode.LINE)[0].bounds()
+        assert ib is not None and pb is not None
+        # The shear about y = 0 keeps the baseline and lifts the cap line.
+        assert ib[1] == pytest.approx(pb[1], abs=1e-12)
+        assert ib[3] > pb[3]
+
+    def test_angle_zero_renders_like_plain(self) -> None:
+        """``italic_angle: 0`` keeps the historical (upright) geometry."""
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+        from plt_optimizer.generate.resolution import resolve_job_spec
+
+        upright = resolve_job_spec(_markup_job(("<i>AVX</i>", {"italic_angle": 0.0})))[0].content[0]
+        plain = resolve_job_spec(_markup_job(("AVX", {})))[0].content[0]
+        ub = _render_line_block(upright, TextChunkMode.LINE)[0].bounds()
+        pb = _render_line_block(plain, TextChunkMode.LINE)[0].bounds()
+        assert ub == pytest.approx(pb, abs=1e-12)
+
+    def test_italic_render_kwargs_gate(self) -> None:
+        """The kwargs dict is empty for plain / upright / non-italic lines."""
+        from plt_optimizer.generate.label_renderer import _italic_render_kwargs
+        from plt_optimizer.generate.resolution import resolve_job_spec
+
+        plain = resolve_job_spec(_markup_job(("AV", {})))[0].content[0]
+        assert _italic_render_kwargs(plain) == {}
+        upright = resolve_job_spec(_markup_job(("<i>AV</i>", {"italic_angle": 0.0})))[0].content[0]
+        assert _italic_render_kwargs(upright) == {}
+        italic = resolve_job_spec(_markup_job(("<i>AV</i>", {})))[0].content[0]
+        kwargs = _italic_render_kwargs(italic)
+        assert set(kwargs) == {"italic_tan", "italic_flags"}
+        assert kwargs["italic_flags"] == (True, True)
+        assert kwargs["italic_tan"] == pytest.approx(math.tan(math.radians(12.0)))
+
+    def test_word_chunk_mode_keeps_word_groups(self) -> None:
+        """Italic lines keep exact word groups in WORD chunk mode."""
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+        from plt_optimizer.generate.resolution import resolve_job_spec
+
+        line = resolve_job_spec(_markup_job(("<i>AB</i> CD", {})))[0].content[0]
+        _block, words, glyphs = _render_line_block(line, TextChunkMode.WORD)
+        assert [text for text, _ in words] == ["AB", "CD"]
+        # Four plain glyphs (the tags contribute nothing).
+        assert len(glyphs) == 4

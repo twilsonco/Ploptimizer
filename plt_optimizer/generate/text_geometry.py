@@ -215,6 +215,20 @@ class LineSeg:
             ),
         )
 
+    def sheared(self, tan: float) -> Tuple[TextSegment, ...]:
+        """Return this segment sheared about the baseline ``y = 0``.
+
+        A straight segment survives a shear exactly (a shear maps lines to
+        lines), so the result is a single :class:`LineSeg` (the tuple keeps
+        the return type uniform with :meth:`ArcSeg.sheared`, which must
+        flatten). The mapping is ``x' = x + y * tan``, ``y' = y``.
+        """
+
+        def _shear(z: complex) -> complex:
+            return complex(z.real + z.imag * tan, z.imag)
+
+        return (LineSeg(_shear(self.start), _shear(self.end)),)
+
     def mirrored_y(self, span: float) -> LineSeg:
         """Return this segment with Y mirrored (``y' = span - y``)."""
         return LineSeg(
@@ -282,6 +296,18 @@ class ArcSeg:
         Y-scaled -- the same contract as :meth:`TextBlock.compress_x`.
         """
         points = [complex(p.real, p.imag * factor) for p in self.flattened()]
+        return tuple(LineSeg(a, b) for a, b in zip(points[:-1], points[1:]))
+
+    def sheared(self, tan: float) -> Tuple[TextSegment, ...]:
+        """Return this arc sheared about the baseline ``y = 0``.
+
+        A shear is not a similarity: a circular arc maps to a *rotated*
+        ellipse, which :class:`ArcSeg` cannot represent, so it is flattened
+        to a chord-bounded polyline at :data:`ARC_FLATTEN_CHORD_TOL_INCHES`
+        and the flattened vertices are sheared -- the same contract as
+        :meth:`scaled_y`.
+        """
+        points = [complex(p.real + p.imag * tan, p.imag) for p in self.flattened()]
         return tuple(LineSeg(a, b) for a, b in zip(points[:-1], points[1:]))
 
     def mirrored_y(self, span: float) -> ArcSeg:
@@ -356,6 +382,23 @@ class Stroke:
             segments.extend(seg.scaled_y(factor))
         return Stroke(
             pen_up=complex(self.pen_up.real, self.pen_up.imag * factor),
+            segments=tuple(segments),
+        )
+
+    def sheared(self, tan: float) -> Stroke:
+        """Return this stroke sheared about the baseline ``y = 0``.
+
+        The italic shear ``x' = x + y * tan`` keeps the baseline fixed and
+        leans the glyph right. Line segments shear exactly; arcs flatten
+        (see :meth:`ArcSeg.sheared`), so the segment count may grow. The
+        pen-up rapid target shears with the geometry, so a plunge stays on
+        its glyph's slanted stroke.
+        """
+        segments: List[TextSegment] = []
+        for seg in self.segments:
+            segments.extend(seg.sheared(tan))
+        return Stroke(
+            pen_up=complex(self.pen_up.real + self.pen_up.imag * tan, self.pen_up.imag),
             segments=tuple(segments),
         )
 
@@ -574,6 +617,43 @@ class TextBlock:
             if 0 <= index < len(strokes):
                 strokes[index] = stroke
         return TextBlock(strokes=tuple(strokes))
+
+    def sheared(self, tan: float, context: str = "") -> TextBlock:
+        """Return this block sheared about the baseline ``y = 0``.
+
+        The italic shear ``x' = x + y * tan`` keeps the baseline (and every
+        point on it) fixed and leans the glyph right by ``tan`` per unit of
+        height -- the classic oblique transform. Line segments shear exactly;
+        arcs CANNOT survive a shear (a circular arc maps to a *rotated*
+        ellipse, which :class:`ArcSeg` cannot represent), so each arc is
+        flattened to a polyline at :data:`ARC_FLATTEN_CHORD_TOL_INCHES` and
+        the flattened vertices are sheared. A DEBUG log records when arcs
+        were flattened (the same policy as :meth:`scaled_y`: italic is a
+        routine render-time transform, not an authoring compromise like
+        :meth:`compress_x`).
+
+        Args:
+            tan: Shear factor ``tan(angle)``; ``0.0`` is a no-op.
+            context: Optional description for the arc-flattening log.
+
+        Returns:
+            The (possibly flattened + sheared) block.
+        """
+        if tan == 0.0:
+            return self
+        flattened_any = any(
+            isinstance(seg, ArcSeg) for stroke in self.strokes for seg in stroke.segments
+        )
+        strokes = tuple(stroke.sheared(tan) for stroke in self.strokes)
+        if flattened_any:
+            logger.debug(
+                "Text arcs flattened to polylines during italic shear%s "
+                "(chord error <= %gin); italic and native arcs are mutually "
+                "exclusive.",
+                f" {context}" if context else "",
+                ARC_FLATTEN_CHORD_TOL_INCHES,
+            )
+        return TextBlock(strokes=strokes)
 
     def mirrored_y(self, span: float) -> TextBlock:
         """Return this block with Y mirrored across ``y' = span - y``."""

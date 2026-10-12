@@ -351,6 +351,34 @@
       "description": "Default small-caps downscale applied to ASCII lowercase a-z by a ' SC' font variant (job layer; the lowercase character renders as the base font's uppercase glyph uniformly shrunk to this fraction of the cap height). Unset falls back to 0.7.",
       "title": "Sc Scale"
     },
+    "html_brackets": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default inline-markup delimiter pair (job layer): an even-length string whose first half is the left delimiter and second half the right ('<>' -> '<' + '>'). Unset falls back to '<>'.",
+      "title": "Html Brackets"
+    },
+    "italic_angle": {
+      "anyOf": [
+        {
+          "maximum": 45.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default italic slant angle in degrees for <i> markup (job layer; PLT glyphs and TTF glyphs without a native italic face are sheared about the baseline). Bound to [0, 45]; 0 means upright. Unset falls back to 12.",
+      "title": "Italic Angle"
+    },
     "holes": {
       "anyOf": [
         {

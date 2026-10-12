@@ -40,6 +40,7 @@ def _line(
     space_width_fraction: float = 0.3,
     max_lines: int | None = None,
     max_h_compress: float = 0.0,
+    html_brackets: str = "<>",
 ) -> ResolvedTextLine:
     """Build a resolved line with the reflow permission defaulting to enabled."""
     return ResolvedTextLine(
@@ -53,6 +54,7 @@ def _line(
         max_h_compress=max_h_compress,
         optimize_line_content=enabled,
         optimize_line_content_max_lines=max_lines,
+        html_brackets=html_brackets,
     )
 
 
@@ -763,3 +765,80 @@ class TestGrowthCap:
             scale_probe=_scale_probe(0.1, 0.2, inner=1.2),
         )
         assert len(result[0].content) == 3
+
+
+def _plain_probe(char_width: float = 0.1, space_width: float = 0.2):
+    """A probe charging widths by PLAIN text (markup tags cost nothing).
+
+    The production probe renders the line, so a tag contributes no ink; this
+    mirrors that for the markup reflow tests (the stock :func:`_char_probe`
+    reads ``line.text`` and would charge the tag characters).
+    """
+
+    def probe(line: ResolvedTextLine) -> float:
+        plain = line.plain_text
+        return char_width * len(plain) + space_width * plain.count(" ")
+
+    return probe
+
+
+class TestMarkupAwareReflow:
+    """Inline markup survives the reflow: words move as styled tokens."""
+
+    def test_word_tokens_carry_markup(self) -> None:
+        """A styled word serializes with its tags (the atomic reflow token)."""
+        from plt_optimizer.generate.line_content import _word_tokens
+
+        line = _line("<i>foo</i> bar")
+        assert _word_tokens(line) == ["<i>foo</i>", "bar"]
+
+    def test_word_tokens_plain_line_is_plain_split(self) -> None:
+        """A markup-free line keeps the historical whitespace split."""
+        from plt_optimizer.generate.line_content import _word_tokens
+
+        assert _word_tokens(_line("alpha beta")) == ["alpha", "beta"]
+
+    def test_span_across_words_decomposes_to_per_word_tags(self) -> None:
+        """``<i>foo bar</i>`` moves as two fully-styled words."""
+        from plt_optimizer.generate.line_content import _word_tokens
+
+        assert _word_tokens(_line("<i>foo bar</i>")) == ["<i>foo</i>", "<i>bar</i>"]
+
+    def test_reflow_moves_a_styled_word_and_keeps_its_style(self) -> None:
+        """A word crossing lines keeps its italic markup in the new line."""
+        label = _label(
+            "m",
+            _line("<i>AAAA</i> BB"),
+            _line("CC"),
+        )
+        result = _reflow_label(label, _plain_probe())
+        assert result is not None
+        first, second = result.content
+        # The italic token is the widest word, so it stays alone on line 1 and
+        # the plain 'BB' moves down beside 'CC' (the balanced fill).
+        assert first.text == "<i>AAAA</i>"
+        assert second.text == "BB CC"
+        # Every produced line re-parses: the tags never reach plain_text.
+        assert first.plain_text == "AAAA"
+        assert [run.style.italic for run in first.styled_runs] == [True]
+        assert second.styled_runs[0].style.italic is False
+
+    def test_custom_brackets_survive_the_reflow(self) -> None:
+        """A line's own delimiter pair is used to rebuild its text."""
+        first = _line("x", html_brackets="\u00ab\u00bb").with_markup(
+            "\u00abi\u00bbAAAA\u00ab/i\u00bb BB"
+        )
+        label = _label("m", first, _line("CC"))
+        result = _reflow_label(label, _plain_probe())
+        assert result is not None
+        assert result.content[0].text == "\u00abi\u00bbAAAA\u00ab/i\u00bb"
+        assert result.content[0].plain_text == "AAAA"
+        assert result.content[1].text == "BB CC"
+
+    def test_markup_free_reflow_is_unchanged(self) -> None:
+        """A markup-free job reflows exactly as before (bit-identical path)."""
+        label = _label("m", _line("AAAA BB"), _line("CC"))
+        result = _reflow_label(label, _char_probe())
+        baseline = _reflow_label(label, _plain_probe())
+        assert result is not None and baseline is not None
+        assert [line.text for line in result.content] == [line.text for line in baseline.content]

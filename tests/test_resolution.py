@@ -29,6 +29,8 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_H_COMPRESS_GLOBAL,
     DEFAULT_HOLE_MARGIN,
     DEFAULT_HOLE_TEXT_COLLISION_DISTANCE,
+    DEFAULT_HTML_BRACKETS,
+    DEFAULT_ITALIC_ANGLE,
     DEFAULT_KERNING_MIN_GAP,
     DEFAULT_KERNING_PENETRATION_SCALE,
     DEFAULT_KERNING_RECESSION_SCALE,
@@ -3269,9 +3271,7 @@ class TestUseBaselineSpacingCascade:
 
     def test_label_overrides_job(self) -> None:
         """Label-level True beats the job-level False."""
-        assert (
-            resolve_job_spec(self._job(job=False, label=True))[0].use_baseline_spacing is True
-        )
+        assert resolve_job_spec(self._job(job=False, label=True))[0].use_baseline_spacing is True
 
     def test_label_false_is_honored(self) -> None:
         """An intentional False (ink-box stacking) never falls through."""
@@ -3390,9 +3390,7 @@ class TestCenterTextByBandGate:
 
     def test_relief_off_forces_ink_centering(self) -> None:
         """With the relief off nothing adjusts descenders, so ink centers."""
-        label = self._label(
-            v_center_by_content=False, auto_descending_character_adjustment=False
-        )
+        label = self._label(v_center_by_content=False, auto_descending_character_adjustment=False)
         assert label.center_text_by_band is False
 
     def test_param_inert_when_relief_off(self) -> None:
@@ -3474,9 +3472,7 @@ class TestAutoLineSpacingBaselineProbe:
 
     def test_explicit_v_margin_uses_fill_solver(self) -> None:
         """An explicit v_margin fills the fixed inner area exactly."""
-        label = resolve_job_spec(
-            self._job(v_margin=0.3), extents_probe=self._probe
-        )[0]
+        label = resolve_job_spec(self._job(v_margin=0.3), extents_probe=self._probe)[0]
         heights = [line.toolpath_text_height for line in label.content]
         asc = [h for h in heights]
         desc = [0.20, 0.0]
@@ -3485,9 +3481,7 @@ class TestAutoLineSpacingBaselineProbe:
 
     def test_margin_fit_clamps_explicit_spacing(self) -> None:
         """Explicit spacing is clamped against the descender-extended block."""
-        label = resolve_job_spec(
-            self._job(line_spacing=1.0), extents_probe=self._probe
-        )[0]
+        label = resolve_job_spec(self._job(line_spacing=1.0), extents_probe=self._probe)[0]
         plain = resolve_job_spec(self._job(line_spacing=1.0))[0]
         # Inner height 2.0 - 2 * 0.2 = 1.6. The probe run stacks on cap heights
         # (0.44): the first line's descender hangs into the gap, so the block
@@ -3634,3 +3628,264 @@ class TestDescendingCharacterCascade:
             label.descending_character_reciprocal_scale
             == DEFAULT_DESCENDING_CHARACTER_RECIPROCAL_SCALE
         )
+
+
+class TestHtmlBracketsCascade:
+    """html_brackets must cascade line -> label -> job -> default."""
+
+    def test_default_when_all_omit(self) -> None:
+        """All levels omitting yields the '<>' default."""
+        job = JobSpec(
+            job_name="J",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.html_brackets == DEFAULT_HTML_BRACKETS
+        assert DEFAULT_HTML_BRACKETS == "<>"
+
+    def test_job_value_used_when_label_omits(self) -> None:
+        """Job-level value cascades to the line."""
+        job = JobSpec(
+            job_name="J",
+            html_brackets="\u00ab\u00bb",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].html_brackets == "\u00ab\u00bb"
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level value overrides the job-level value."""
+        job = JobSpec(
+            job_name="J",
+            html_brackets="\u00ab\u00bb",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    html_brackets="<<>>",
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].html_brackets == "<<>>"
+
+    def test_line_overrides_label_and_job(self) -> None:
+        """Line-level value wins over both parents."""
+        job = JobSpec(
+            job_name="J",
+            html_brackets="\u00ab\u00bb",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    html_brackets="<<>>",
+                    content=[TextLine(text="X", html_brackets="[[]]")],
+                )
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].html_brackets == "[[]]"
+
+    def test_brackets_drive_the_parse(self) -> None:
+        """The line's own resolved pair parses its markup."""
+        job = JobSpec(
+            job_name="J",
+            html_brackets="\u00ab\u00bb",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="\u00abi\u00bbslanted\u00ab/i\u00bb")],
+                )
+            ],
+        )
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.plain_text == "slanted"
+        assert [r.style.italic for r in line.styled_runs] == [True]
+
+    def test_chevron_data_survives_a_custom_pair(self) -> None:
+        """The motivating case: chevrons engrave verbatim under \u00ab\u00bb."""
+        job = JobSpec(
+            job_name="J",
+            html_brackets="\u00ab\u00bb",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="<i>not markup</i>")],
+                )
+            ],
+        )
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.plain_text == "<i>not markup</i>"
+        assert line.styled_runs[0].style.italic is False
+
+
+class TestItalicAngleCascade:
+    """italic_angle must cascade line -> label -> job -> default."""
+
+    def test_default_when_all_omit(self) -> None:
+        """All levels omitting yields the 12-degree default."""
+        job = JobSpec(
+            job_name="J",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        line = resolve_job_spec(job)[0].content[0]
+        assert math.isclose(line.italic_angle, DEFAULT_ITALIC_ANGLE)
+        assert DEFAULT_ITALIC_ANGLE == 12.0
+
+    def test_explicit_zero_is_honored(self) -> None:
+        """An intentional 0.0 (upright) is not treated as unset."""
+        job = JobSpec(
+            job_name="J",
+            italic_angle=30.0,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X", italic_angle=0.0)],
+                )
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].italic_angle == 0.0
+
+    def test_job_value_used_when_label_omits(self) -> None:
+        """Job-level value cascades to the line."""
+        job = JobSpec(
+            job_name="J",
+            italic_angle=20.0,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].italic_angle == 20.0
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level value overrides the job-level value."""
+        job = JobSpec(
+            job_name="J",
+            italic_angle=20.0,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    italic_angle=30.0,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].italic_angle == 30.0
+
+    def test_angle_bounds_are_enforced(self) -> None:
+        """The schema rejects an angle outside [0, 45]."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", italic_angle=-1.0)
+        with pytest.raises(ValidationError):
+            TextLine(text="X", italic_angle=46.0)
+
+
+class TestMarkupResolution:
+    """Resolution parses each line's markup with its resolved delimiters."""
+
+    @staticmethod
+    def _job(*lines: TextLine, **job_kwargs: object) -> JobSpec:
+        """Build a single-label job over ``lines``."""
+        return JobSpec(
+            job_name="J",
+            labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=list(lines))],
+            **job_kwargs,
+        )
+
+    def test_markup_resolves_to_plain_text_and_runs(self) -> None:
+        """The raw text keeps the tags; plain_text and runs carry the result."""
+        job = self._job(TextLine(text="Hello <i>World</i>!"))
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.text == "Hello <i>World</i>!"
+        assert line.plain_text == "Hello World!"
+        assert [(r.text, r.style.italic) for r in line.styled_runs] == [
+            ("Hello ", False),
+            ("World", True),
+            ("!", False),
+        ]
+
+    def test_markup_free_line_keeps_the_fast_path(self) -> None:
+        """A tag-free line resolves to one plain run and plain_text == text."""
+        line = resolve_job_spec(self._job(TextLine(text="plain")))[0].content[0]
+        assert line.plain_text == "plain"
+        assert line.styled_runs == (line.styled_runs[0],)
+        assert line.styled_runs[0].style.italic is False
+
+    def test_unclosed_tag_aborts_resolution(self) -> None:
+        """Malformed markup is a loud ValueError at resolution time."""
+        from plt_optimizer.generate.markup import MarkupError
+
+        with pytest.raises(MarkupError, match="Unclosed tag"):
+            resolve_job_spec(self._job(TextLine(text="<i>oops")))
+
+    def test_direct_construction_defaults_plain_text_to_text(self) -> None:
+        """A hand-built line (no parse) treats its text as markup-free."""
+        line = ResolvedTextLine(
+            text="3 < 5",
+            nominal_text_height=0.5,
+            toolpath_text_height=0.485,
+            cutter_diameter=0.015,
+            character_spacing=0.0,
+            line_spacing=0.0,
+        )
+        assert line.plain_text == "3 < 5"
+        assert line.styled_runs == ()
+
+    def test_with_markup_reparses_the_new_text(self) -> None:
+        """with_markup keeps plain_text/runs in sync with a text swap."""
+        line = resolve_job_spec(self._job(TextLine(text="plain")))[0].content[0]
+        updated = line.with_markup("a<i>b</i>")
+        assert updated.text == "a<i>b</i>"
+        assert updated.plain_text == "ab"
+        assert [r.style.italic for r in updated.styled_runs] == [False, True]
+
+    def test_with_markup_is_identity_for_unchanged_text(self) -> None:
+        """Swapping in the same text returns the same object."""
+        line = resolve_job_spec(self._job(TextLine(text="same")))[0].content[0]
+        assert line.with_markup("same") is line
+
+    def test_with_markup_reparses_with_the_line_pair(self) -> None:
+        """The re-parse honors the line's own resolved delimiters."""
+        job = JobSpec(
+            job_name="J",
+            html_brackets="\u00ab\u00bb",
+            labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="x")])],
+        )
+        line = resolve_job_spec(job)[0].content[0]
+        updated = line.with_markup("\u00abi\u00bbx\u00ab/i\u00bb")
+        assert updated.plain_text == "x"
+        assert [r.style.italic for r in updated.styled_runs] == [True]

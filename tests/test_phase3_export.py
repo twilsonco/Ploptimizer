@@ -1822,8 +1822,7 @@ class TestDescenderAdjustDemoExample:
             is True
         )
         assert (
-            result.rendered_labels["off"].source_label.auto_descending_character_adjustment
-            is False
+            result.rendered_labels["off"].source_label.auto_descending_character_adjustment is False
         )
         grow = result.rendered_labels["spacing_grow"].source_label
         assert grow.descending_character_v_scale == 1.0
@@ -1951,8 +1950,7 @@ class TestDescenderAdjustDemoExample:
 
         result = self._export(tmp_path)
         resolved = [
-            result.rendered_labels[label_id].source_label
-            for label_id in ("caponly", "trigger")
+            result.rendered_labels[label_id].source_label for label_id in ("caponly", "trigger")
         ]
         assert has_layout_findings(resolved, result.rendered_labels)
 
@@ -2052,7 +2050,9 @@ class TestDescenderCrookExample:
         label = next(label for label in labels if label.id == "crook")
         blocks, groups = [], []
         for line in label.content:
-            block, _wg, glyph_groups = renderer._render_line_block(line, renderer.TextChunkMode.LINE)
+            block, _wg, glyph_groups = renderer._render_line_block(
+                line, renderer.TextChunkMode.LINE
+            )
             blocks.append(block)
             groups.append(glyph_groups)
         pitch = [line.toolpath_text_height for line in label.content]
@@ -2120,11 +2120,15 @@ class TestDescenderReciprocalExample:
         shared = result.rendered_labels["shared"].source_label
         assert shared.descending_character_reciprocal_scale == 0.5
         assert (
-            result.rendered_labels["reciprocal_only"].source_label.descending_character_reciprocal_scale
+            result.rendered_labels[
+                "reciprocal_only"
+            ].source_label.descending_character_reciprocal_scale
             == 0.5
         )
         assert (
-            result.rendered_labels["reciprocal_off"].source_label.descending_character_reciprocal_scale
+            result.rendered_labels[
+                "reciprocal_off"
+            ].source_label.descending_character_reciprocal_scale
             == 1.0
         )
 
@@ -2195,9 +2199,7 @@ class TestDescenderReciprocalExample:
         assert partner.gap_before == pytest.approx(0.094, abs=0.01)
         assert partner.gap_after == pytest.approx(0.281, abs=0.01)
 
-    def test_the_opt_out_twin_engraves_the_collision_verbatim(
-        self, tmp_path: Path
-    ) -> None:
+    def test_the_opt_out_twin_engraves_the_collision_verbatim(self, tmp_path: Path) -> None:
         """``descending_character_reciprocal_scale: 1.0`` disables the half.
 
         The twin forbids the descending glyph's allowances too, so nothing can
@@ -2291,9 +2293,7 @@ class TestDescenderBorderExample:
         # gap is the margin-clamped value, not a relief-grown one.
         assert label.source_label.content[0].line_spacing >= label.line_spacing_by_line[0]
 
-    def test_disabled_label_engraves_the_border_descender_verbatim(
-        self, tmp_path: Path
-    ) -> None:
+    def test_disabled_label_engraves_the_border_descender_verbatim(self, tmp_path: Path) -> None:
         """The opt-out twin keeps the descender hanging into the border stroke."""
         result = self._export(tmp_path)
         off = result.rendered_labels["off"]
@@ -2391,9 +2391,7 @@ class TestVCenterByContentExample:
         assert label.band_center_offset_inches == 0.0
         assert label.descender_adjustments_by_line == {}
 
-    def test_band_centering_keeps_spacing_the_descenders_would_shrink(
-        self, tmp_path: Path
-    ) -> None:
+    def test_band_centering_keeps_spacing_the_descenders_would_shrink(self, tmp_path: Path) -> None:
         """The margin clamp sizes against the cap band, preserving spacing.
 
         Two descender lines whose descender-extended block overflows the inner
@@ -2414,4 +2412,165 @@ class TestVCenterByContentExample:
         assert sorted(p.name for p in result.plt_paths) == [
             "0.015_bh_vc.plt",
             "0.187_txt_vc.plt",
+        ]
+
+
+class TestItalicDemoExample:
+    """Regression tests for tests_deps/italic_job.yaml.
+
+    The fixture pins inline markup + italicization: ``<i>`` shears PLT
+    glyphs (and TTF glyphs with no native italic face) about the baseline,
+    ``x' = x + y * tan(italic_angle)``. The controls pin the baseline and ink
+    height as invariant, the plain line as strictly narrower, ``italic_angle:
+    0`` as upright, per-character selection between the two, a
+    multi-character bracket pair, chevrons engraved verbatim when the
+    delimiters are ``«»``, and the TTF shear fallback.
+    """
+
+    _SPEC = Path("tests_deps/italic_job.yaml")
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="it",
+            optimize=False,
+            plots=False,
+        )
+
+    @staticmethod
+    def _line_bounds(label: ResolvedLabel) -> tuple[float, float, float, float]:
+        """Rendered bounds of the label's single text line."""
+        from plt_optimizer.generate.label_renderer import _render_text_local_with_bounds
+
+        _lc, entries = _render_text_local_with_bounds(label)
+        return entries[0].bounds
+
+    def test_markup_parses_to_plain_text_and_runs(self, tmp_path: Path) -> None:
+        """Tags never engrave: plain_text strips them, runs carry the style."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+
+        italic = by_id["plt_italic"].content[0]
+        assert italic.text == "<i>AV</i>"
+        assert italic.plain_text == "AV"
+        assert [run.style.italic for run in italic.styled_runs] == [True]
+
+        plain = by_id["plt_plain"].content[0]
+        assert plain.plain_text == "AV"
+        # A markup-free line resolves to a single plain run (the renderers'
+        # fast path is "no italic run", not "no run").
+        assert [(r.text, r.style.italic) for r in plain.styled_runs] == [("AV", False)]
+
+        mixed = by_id["plt_mixed"].content[0]
+        assert mixed.plain_text == "AVX"
+        assert [(r.text, r.style.italic) for r in mixed.styled_runs] == [
+            ("A", False),
+            ("V", True),
+            ("X", False),
+        ]
+
+    def test_brackets_cascade_and_chevrons_stay_literal(self, tmp_path: Path) -> None:
+        """A multi-char pair parses its own tags and leaves chevrons alone."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+
+        assert by_id["brackets_multichar"].content[0].html_brackets == "«»"
+        assert by_id["brackets_multichar"].content[0].plain_text == "AV"
+        # With «» as delimiters the chevron tag is data: 11 glyphs engrave.
+        literal = by_id["chevrons_literal"].content[0]
+        assert literal.html_brackets == "«»"
+        assert literal.plain_text == "<i>AVXZ</i>"
+        assert [(r.text, r.style.italic) for r in literal.styled_runs] == [("<i>AVXZ</i>", False)]
+
+    def test_italic_angle_cascades(self, tmp_path: Path) -> None:
+        """``italic_angle`` defaults to 12 and honors an explicit 0 / 45."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+
+        assert by_id["plt_italic"].content[0].italic_angle == pytest.approx(12.0)
+        assert by_id["plt_angle0"].content[0].italic_angle == pytest.approx(0.0)
+        assert by_id["plt_angle45"].content[0].italic_angle == pytest.approx(45.0)
+
+    def test_plt_italic_keeps_baseline_and_height_and_widens(self, tmp_path: Path) -> None:
+        """The shear anchors the baseline, preserves ink height, widens ink."""
+        result = self._export(tmp_path)
+        italic = self._line_bounds(result.rendered_labels["plt_italic"].source_label)
+        plain = self._line_bounds(result.rendered_labels["plt_plain"].source_label)
+
+        # Shear about y = 0: the baseline (and the ink height above/below it)
+        # is untouched; only X moves.
+        assert italic[1] == pytest.approx(plain[1], abs=1e-12)
+        assert italic[3] == pytest.approx(plain[3], abs=1e-12)
+        assert italic[2] - italic[0] > plain[2] - plain[0]
+
+    def test_angle_zero_is_upright(self, tmp_path: Path) -> None:
+        """``italic_angle: 0`` skips the shear: identical to the plain line."""
+        result = self._export(tmp_path)
+        upright = self._line_bounds(result.rendered_labels["plt_angle0"].source_label)
+        plain = self._line_bounds(result.rendered_labels["plt_plain"].source_label)
+        assert upright == pytest.approx(plain, abs=1e-12)
+
+    def test_per_character_selection_is_between(self, tmp_path: Path) -> None:
+        """Shearing one of three glyphs widens the line, but less than all."""
+        result = self._export(tmp_path)
+        mixed = self._line_bounds(result.rendered_labels["plt_mixed"].source_label)
+        plain = self._line_bounds(result.rendered_labels["plt_mixed_plain"].source_label)
+        all_italic = self._line_bounds(result.rendered_labels["plt_italic"].source_label)
+        all_plain = self._line_bounds(result.rendered_labels["plt_plain"].source_label)
+
+        mixed_w = mixed[2] - mixed[0]
+        plain_w = plain[2] - plain[0]
+        gain_all = (all_italic[2] - all_italic[0]) - (all_plain[2] - all_plain[0])
+        assert plain_w < mixed_w
+        assert mixed_w - plain_w == pytest.approx(gain_all, rel=0.6)
+
+    def test_multichar_brackets_render_like_default_pair(self, tmp_path: Path) -> None:
+        """``«»`` markup engraves exactly like the default ``<>`` markup."""
+        result = self._export(tmp_path)
+        guillemet = self._line_bounds(result.rendered_labels["brackets_multichar"].source_label)
+        default = self._line_bounds(result.rendered_labels["plt_italic"].source_label)
+        assert guillemet == pytest.approx(default, abs=1e-12)
+
+    def test_chevron_literal_line_is_wider_than_the_tag_text(self, tmp_path: Path) -> None:
+        """A literal chevron line engraves its tag characters (far wider)."""
+        result = self._export(tmp_path)
+        literal = self._line_bounds(result.rendered_labels["chevrons_literal"].source_label)
+        tag_text = self._line_bounds(result.rendered_labels["chevrons_plain"].source_label)
+        assert (literal[2] - literal[0]) > (tag_text[2] - tag_text[0])
+
+    def test_steeper_angle_widens_more(self, tmp_path: Path) -> None:
+        """45 degrees (tan 1.0) overhangs further than the 12-degree default."""
+        result = self._export(tmp_path)
+        steep = self._line_bounds(result.rendered_labels["plt_angle45"].source_label)
+        default = self._line_bounds(result.rendered_labels["plt_italic"].source_label)
+        plain = self._line_bounds(result.rendered_labels["plt_plain"].source_label)
+        assert (steep[2] - steep[0]) > (default[2] - default[0]) > (plain[2] - plain[0])
+
+    def test_ttf_italic_grows_the_cap_height(self, tmp_path: Path) -> None:
+        """The TTF shear fallback raises the ink top by height * tan(angle)."""
+        result = self._export(tmp_path)
+        italic = self._line_bounds(result.rendered_labels["ttf_italic"].source_label)
+        plain = self._line_bounds(result.rendered_labels["ttf_plain"].source_label)
+
+        # The shear leaves y untouched, so the block's height grows by exactly
+        # `height * tan(angle)` (the baseline-anchored top rises). The label
+        # then re-centers the taller block, which is why the absolute ymin
+        # moves while the height delta is the invariant.
+        plain_height = plain[3] - plain[1]
+        italic_height = italic[3] - italic[1]
+        assert italic_height - plain_height == pytest.approx(
+            plain_height * math.tan(math.radians(12.0)), abs=1e-6
+        )
+
+    def test_italic_never_moves_the_cutter(self, tmp_path: Path) -> None:
+        """Italic is a geometry transform: the cutter set is unchanged."""
+        result = self._export(tmp_path)
+        assert sorted(p.name for p in result.plt_paths) == [
+            "0.015_bh_it.plt",
+            "0.060_txt_it.plt",
         ]

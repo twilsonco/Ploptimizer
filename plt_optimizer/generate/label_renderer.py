@@ -1914,20 +1914,30 @@ def _render_line_block(
     if ref.small_caps:
         plt_kwargs["lowercase_scale"] = line.sc_scale
 
+    # Inline markup: the renderers always receive the PLAIN text (tags never
+    # engrave) plus the per-character italic selection. A line without markup
+    # keeps the historical call shape (no italic kwargs at all) and renders
+    # bit-identically; italic_angle 0 is upright by contract (the shear is
+    # skipped, italic runs engrave like plain text).
+    render_text = line.plain_text
+    italic_kwargs = _italic_render_kwargs(line)
+
     if ref.kind == "plt":
         if chunk_mode is TextChunkMode.WORD:
-            block, groups = render_text_line_plt_font_with_words(line.text, **plt_kwargs)
+            block, groups = render_text_line_plt_font_with_words(
+                render_text, **plt_kwargs, **italic_kwargs
+            )
             _walk, _word_pairs, glyph_pairs = render_text_line_plt_font_with_glyphs(
-                line.text, **plt_kwargs
+                render_text, **plt_kwargs, **italic_kwargs
             )
             return (
                 block,
                 (groups or None),
                 _validated_glyph_groups(glyph_pairs, len(block.strokes)),
             )
-        block = render_text_line_plt_font(line.text, **plt_kwargs)
+        block = render_text_line_plt_font(render_text, **plt_kwargs, **italic_kwargs)
         _walk, _word_pairs, glyph_pairs = render_text_line_plt_font_with_glyphs(
-            line.text, **plt_kwargs
+            render_text, **plt_kwargs, **italic_kwargs
         )
         return block, None, _validated_glyph_groups(glyph_pairs, len(block.strokes))
 
@@ -1939,27 +1949,67 @@ def _render_line_block(
     }
     if ref.small_caps:
         ftext_kwargs["small_caps_scale"] = line.sc_scale
+    if italic_kwargs:
+        ftext_kwargs.update(italic_kwargs)
+        # The native italic face (registry sibling probe) splices italic
+        # glyphs; without it the shear fallback runs (PLT parity).
+        if ref.italic_path is not None:
+            ftext_kwargs["italic_face"] = ref.italic_path
     if chunk_mode is TextChunkMode.WORD:
-        filtered_lc, groups = render_text_line_ftext_with_words(line.text, **ftext_kwargs)
+        filtered_lc, groups = render_text_line_ftext_with_words(render_text, **ftext_kwargs)
         block = block_from_linecollection(filtered_lc)
         # Contour indices map 1:1 onto strokes only when every contour
         # survived adaptation; otherwise fall back to whole-line chunking.
         if groups and len(block.strokes) == len(filtered_lc):
             pairs = glyph_groups_for_line(
-                line.text, ref.path, len(filtered_lc), small_caps=ref.small_caps
+                render_text,
+                ref.path,
+                len(filtered_lc),
+                small_caps=ref.small_caps,
             )
             return block, groups, _validated_glyph_groups(pairs, len(block.strokes))
         return block, None, ()
-    filtered_lc = render_text_line_ftext(line.text, **ftext_kwargs)
+    filtered_lc = render_text_line_ftext(render_text, **ftext_kwargs)
     block = block_from_linecollection(filtered_lc)
     # Glyph groups slice the whole-line contours by per-glyph contour
     # counts; valid only while every contour survived adaptation (1:1).
     if len(block.strokes) == len(filtered_lc):
         pairs = glyph_groups_for_line(
-            line.text, ref.path, len(filtered_lc), small_caps=ref.small_caps
+            render_text,
+            ref.path,
+            len(filtered_lc),
+            small_caps=ref.small_caps,
         )
         return block, None, _validated_glyph_groups(pairs, len(block.strokes))
     return block, None, ()
+
+
+def _italic_render_kwargs(line: ResolvedTextLine) -> dict[str, Any]:
+    """Return the italic renderer kwargs for one resolved line.
+
+    Empty dict when the line carries no italic markup (the historical call
+    shape, bit-identical output): no parsed markup, no italic run, or
+    ``italic_angle == 0`` (upright by contract -- the shear is skipped and
+    italic runs engrave like plain text).
+
+    Args:
+        line: The resolved text line.
+
+    Returns:
+        ``{"italic_tan": ..., "italic_flags": ...}`` for a PLT line, the
+        same pair for a TTF line (the ``italic_face`` is added by the
+        caller from the font registry), or ``{}``.
+    """
+    if not line.styled_runs:
+        return {}
+    if not any(run.style.italic for run in line.styled_runs):
+        return {}
+    if line.italic_angle <= 0.0:
+        return {}
+    flags = tuple(
+        style.italic for run in line.styled_runs for style in (run.style,) * len(run.text)
+    )
+    return {"italic_tan": math.tan(math.radians(line.italic_angle)), "italic_flags": flags}
 
 
 def measure_line_natural_width(line: ResolvedTextLine) -> float:
@@ -2904,7 +2954,7 @@ def _apply_descender_relief(
     # ``_apply_glyph_ramps`` rebuilds from, so the reported scale/raise match
     # the geometry actually emitted.
     original_boxes: List[List[GlyphBox]] = [
-        _glyph_boxes(block, groups, label.content[line_index].text)
+        _glyph_boxes(block, groups, label.content[line_index].plain_text)
         for block, groups, line_index in zip(original, glyph_groups_by_line, line_indices)
     ]
 
@@ -2958,7 +3008,7 @@ def _apply_descender_relief(
         """Build the stacked-frame glyph boxes of one set of line blocks."""
         return [
             _shifted_boxes(
-                _glyph_boxes(block, groups, label.content[line_index].text),
+                _glyph_boxes(block, groups, label.content[line_index].plain_text),
                 baselines[index],
             )
             for index, (block, groups, line_index) in enumerate(
@@ -3194,7 +3244,7 @@ def _apply_descender_relief(
             rebuilt, _applied = _apply_glyph_ramps(
                 block,
                 glyph_groups_by_line[index],
-                label.content[line_indices[index]].text,
+                label.content[line_indices[index]].plain_text,
                 per_glyph,
                 label.descending_character_v_scale,
                 label.descending_character_raise,
@@ -3275,7 +3325,7 @@ def _apply_descender_relief(
             by_content=by_content,
         )
     final_boxes: List[List[GlyphBox]] = [
-        _glyph_boxes(block, groups, label.content[line_index].text)
+        _glyph_boxes(block, groups, label.content[line_index].plain_text)
         for block, groups, line_index in zip(current_blocks, glyph_groups_by_line, line_indices)
     ]
     stacked_boxes = [
@@ -3563,7 +3613,7 @@ def _format_unresolvable_descenders(
             continue
         upper = line_indices[gap_index] if gap_index < len(line_indices) else gap_index
         lower = line_indices[gap_index + 1] if gap_index + 1 < len(line_indices) else upper + 1
-        upper_text = label.content[upper].text if upper < len(label.content) else ""
+        upper_text = label.content[upper].plain_text if upper < len(label.content) else ""
         lower_text = label.content[lower] if lower < len(label.content) else None
         lines.append(
             f"  - lines {upper} ({upper_text!r}) / {lower} "
@@ -3704,7 +3754,7 @@ def _render_positioned_lines(
             )
         except (PltFontRenderError, FtextRenderError) as exc:
             raise LabelRenderError(
-                f"Label {label.id}: text line {line_index} ({line.text!r}) "
+                f"Label {label.id}: text line {line_index} ({line.plain_text!r}) "
                 f"cannot be rendered: {exc}"
             ) from exc
 
@@ -3721,7 +3771,7 @@ def _render_positioned_lines(
         # for lines that are colliding with holes. Only the identified colliding
         # lines get compressed; non-colliding lines remain at full width.
         compression_scale = label.collision_compress_by_line.get(line_index, 1.0)
-        line_desc = f"of label {label.id} line {line_index} ({line.text!r})"
+        line_desc = f"of label {label.id} line {line_index} ({line.plain_text!r})"
         block = _apply_collision_compress(block, compression_scale, context=line_desc)
         bounds = block.bounds()
         if bounds is None:  # pragma: no cover - measured just above
@@ -3860,7 +3910,7 @@ def _render_positioned_lines(
             compression_available_width,
             max_h_compress,
             label.id,
-            line_text=line.text,
+            line_text=line.plain_text,
         )
         bounds = block.bounds()
         if bounds is None:  # pragma: no cover - measured in first pass
@@ -4027,7 +4077,7 @@ def _render_positioned_lines(
                 block,
                 _LineEntry(
                     line_index=line_index,
-                    line_text=label.content[line_index].text,
+                    line_text=label.content[line_index].plain_text,
                     bounds=(min_x, min_y + y_offset, max_x, max_y + y_offset),
                     compression_scale=effective_scales[i],
                     line_spacing=reported_spacing,

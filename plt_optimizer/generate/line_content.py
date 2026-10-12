@@ -73,6 +73,12 @@ import math
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from plt_optimizer.generate.cutter_downsize import ScaleProbe
+from plt_optimizer.generate.markup import (
+    parse_markup,
+    serialize_word,
+    split_brackets,
+    split_styled_words,
+)
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
 
 logger = logging.getLogger(__name__)
@@ -266,6 +272,30 @@ def _partition_words(
     return segments
 
 
+def _word_tokens(line: ResolvedTextLine) -> List[str]:
+    """Split ``line``'s text into whitespace-free markup-carrying tokens.
+
+    A markup-free line yields its plain ``.split()`` words (the historical
+    behaviour, bit-identical). A line with inline markup yields one serialized
+    token per styled word: a tag span crossing a word boundary decomposes
+    into per-word tags (``<i>foo bar</i>`` -> ``<i>foo</i> <i>bar</i>``),
+    which renders identically for the shipped per-character styles (italic
+    spaces carry no ink on either font path) and keeps every word a fully
+    styled atomic unit the reflow can move between lines.
+
+    Args:
+        line: The resolved line whose text to tokenize.
+
+    Returns:
+        The word tokens (each re-parses standalone).
+    """
+    left, right = split_brackets(line.html_brackets)
+    styled = parse_markup(line.text, left, right)
+    if not styled.has_markup:
+        return line.text.split()
+    return [serialize_word(word, left, right) for word in split_styled_words(styled)]
+
+
 def _measure_space_advance(
     line: ResolvedTextLine,
     words: Sequence[str],
@@ -297,7 +327,7 @@ def _measure_space_advance(
         pair_key = (line_index, pair)
         pair_width = cache.get(pair_key)
         if pair_width is None:
-            pair_width = probe(dataclasses.replace(line, text=pair))
+            pair_width = probe(line.with_markup(pair))
             cache[pair_key] = pair_width
         first = cache[(line_index, words[0])]
         second = cache[(line_index, words[1])]
@@ -334,7 +364,7 @@ def _measure_typography(
         key = (cache_index, word)
         width = cache.get(key)
         if width is None:
-            width = probe(dataclasses.replace(line, text=word))
+            width = probe(line.with_markup(word))
             cache[key] = width
         widths.append(width)
     space_advance = _measure_space_advance(line, own_words, probe, cache, cache_index)
@@ -384,11 +414,11 @@ def _group_layout(
         if position < len(group):
             index = group[position]
             line = content[index]
-            layout[index] = line if line.text == text else dataclasses.replace(line, text=text)
+            layout[index] = line.with_markup(text)
         else:
             layout.insert(
                 group[-1] + 1 + (position - len(group)),
-                dataclasses.replace(donor, text=text),
+                donor.with_markup(text),
             )
     return layout
 
@@ -451,7 +481,7 @@ def _reflow_label(
     for group in groups:
         offset_group = [index + shift for index in group]
         lines = [new_content[index] for index in offset_group]
-        per_line_words = [line.text.split() for line in lines]
+        per_line_words = [_word_tokens(line) for line in lines]
         if any(not words for words in per_line_words):
             logger.debug(
                 "Label %s: skipping line-content reflow for lines %s-%s (a line has no words).",
@@ -491,7 +521,7 @@ def _reflow_label(
             )
 
         donor = lines[-1]
-        donor_words = donor.text.split()
+        donor_words = _word_tokens(donor)
         line_widths: List[List[float]] = []
         space_advances: List[float] = []
         accepted: Optional[List[ResolvedTextLine]] = None

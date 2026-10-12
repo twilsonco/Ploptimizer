@@ -114,12 +114,19 @@ class FontRef:
             uppercase glyphs render verbatim and ASCII lowercase ``a-z``
             renders as its uppercase glyph downscaled by ``sc_scale``.
             Geometry and library lookups always use :func:`base_font_name`.
+        italic_path: Absolute path to this font's **native italic face**
+            discovered by the sibling-file probe (:func:`find_italic_face_path`),
+            or ``None`` when the family ships no italic. The ``<i>`` markup
+            renders italic runs from this file when present; without it the
+            renderer falls back to the synthetic shear transform. ``None``
+            for PLT fonts (whose italics are always the shear).
     """
 
     kind: FontKind
     name: str
     path: Optional[Path] = None
     small_caps: bool = False
+    italic_path: Optional[Path] = None
 
 
 @dataclass(frozen=True)
@@ -367,6 +374,46 @@ def _small_caps_canonical(name: str) -> str:
     return f"{name}{_SMALL_CAPS_SEPARATOR}{SMALL_CAPS_SUFFIX}"
 
 
+# Filename stems probed (case-insensitively) next to a TTF for its native
+# italic face. ``<stem>-Italic``/``<stem>Italic`` are the family naming
+# convention (``Foo-Italic.ttf`` next to ``Foo.ttf``); ``Oblique`` is the
+# name italic families give the same slanted cut.
+_ITALIC_FACE_SUFFIXES: tuple[str, ...] = ("-Italic", "Italic", "-Oblique", "Oblique")
+
+
+@lru_cache(maxsize=None)
+def find_italic_face_path(font_path: Optional[Path]) -> Optional[Path]:
+    """Find the native italic face shipped next to a TrueType font file.
+
+    The probe is the family naming convention: a sibling file of ``font_path``
+    whose stem is the base stem plus an italic suffix (``Foo-Italic.ttf``,
+    ``FooItalic.ttf``, ``Foo-Oblique.ttf``, ...), matched case-insensitively
+    in the font's own directory. No schema surface: dropping an italic file
+    next to the regular face is all a shop does to enable native italics;
+    without one, ``<i>`` falls back to the synthetic shear transform.
+
+    Args:
+        font_path: The resolved ``.ttf`` path, or ``None`` (PLT fonts).
+
+    Returns:
+        The italic face's path, or ``None`` when the family ships none.
+    """
+    if font_path is None:
+        return None
+    directory = font_path.parent
+    if not directory.is_dir():  # pragma: no cover - resolved paths exist
+        return None
+    wanted = {f"{font_path.stem}{suffix}".lower() for suffix in _ITALIC_FACE_SUFFIXES}
+    for sibling in sorted(directory.iterdir()):
+        if (
+            sibling.suffix.lower() == ".ttf"
+            and sibling.stem.lower() in wanted
+            and sibling != font_path
+        ):
+            return sibling
+    return None
+
+
 def base_font_name(name: str) -> str:
     """Return the base font name of ``name``, stripping a trailing `` SC``.
 
@@ -470,7 +517,13 @@ def resolve_font(
         raise FontNotFoundError(name, font_name_choices(json_path, fonts_dir))
     kind, canonical, base, small_caps = entry
     path = available_ttf_fonts(fonts_dir)[base] if kind == "ttf" else None
-    return FontRef(kind=kind, name=canonical, path=path, small_caps=small_caps)
+    return FontRef(
+        kind=kind,
+        name=canonical,
+        path=path,
+        small_caps=small_caps,
+        italic_path=find_italic_face_path(path),
+    )
 
 
 def normalize_font_name(

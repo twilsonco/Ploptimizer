@@ -1,0 +1,113 @@
+# Fixture for inline HTML markup + italicization (`html_brackets`,
+# `italic_angle`, the `<i>` tag).
+#
+# Inline markup splits a text line into styled runs; the shipped tag is
+# `<i>`, which shears PLT-extracted glyphs (and TTF glyphs with no native
+# italic face) about the baseline: `x' = x + y * tan(italic_angle)`. The
+# baseline stays fixed, the glyph leans right, and the shear is applied to
+# the glyph geometry (block + bbox + both kerning envelopes) BEFORE kerning,
+# so the slanted silhouette kerns exactly and the italic overhang widens the
+# pair's advance automatically.
+#
+# `html_brackets` is an even-length string whose first half is the left
+# delimiter and second half the right: "<>" -> `<` / `>`, "<<>>" -> `<<` /
+# `>>`, "«»" -> `«` / `»`. Choosing a pair absent from the data keeps
+# chevrons from being read as markup, and a bracketed body that is not a
+# registered tag (`<3`, `<xyz>`) engraves verbatim.
+#
+# No plate declares a material and the job packs onto one sheet, so emitted
+# names carry no plate/material prefix. `max_h_compress` stays unset (0.0):
+# no line compresses, so every pinned number below is pure italic geometry.
+job:
+  job_name: Italic Demo
+
+  width: 3.0
+  height: 1.0
+  margin: 0.1
+  text_height: 0.5
+  line_spacing: 0.15
+  auto_descending_character_adjustment: false
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. PLT italic at the default 12 degrees: both glyphs shear right.
+    - id: plt_italic
+      font: Dino
+      content:
+        - text: "<i>AV</i>"
+
+    # 2. The plain control for label 1 (same text, no markup): the italic
+    #    line keeps its baseline and ink height and is strictly wider.
+    - id: plt_plain
+      font: Dino
+      content:
+        - text: "AV"
+
+    # 3. italic_angle 0 is upright by contract: the shear is skipped, so
+    #    this label is geometrically identical to label 2.
+    - id: plt_angle0
+      font: Dino
+      italic_angle: 0.0
+      content:
+        - text: "<i>AV</i>"
+
+    # 4. Per-character selection: only the V shears (its advance widens the
+    #    X's origin), so the line sits strictly between labels 2 and 1.
+    - id: plt_mixed
+      font: Dino
+      content:
+        - text: "A<i>V</i>X"
+
+    # 5. The plain control for label 4.
+    - id: plt_mixed_plain
+      font: Dino
+      content:
+        - text: "AVX"
+
+    # 6. A multi-character bracket pair drives the same markup: «» opens and
+    #    closes the italic span, rendering identically to label 1.
+    - id: brackets_multichar
+      font: Dino
+      html_brackets: "«»"
+      content:
+        - text: "«i»AV«/i»"
+
+    # 7. With «» as the delimiters, chevrons in the data are literal text:
+    #    the tag characters engrave verbatim (11 glyphs, not 2).
+    - id: chevrons_literal
+      width: 6.0
+      font: Dino
+      html_brackets: "«»"
+      content:
+        - text: "<i>AVXZ</i>"
+
+    # 8. The plain control for label 7 (the tag characters as data).
+    - id: chevrons_plain
+      width: 6.0
+      font: Dino
+      content:
+        - text: "<i>AVXZ</i>"
+
+    # 9. The ceiling of the allowed slant: 45 degrees (tan 1.0).
+    - id: plt_angle45
+      font: Dino
+      italic_angle: 45.0
+      content:
+        - text: "<i>AV</i>"
+
+    # 10. TrueType italic through the ftext path (polyline-only; the bundled
+    #     family ships no native italic face, so this is the shear fallback).
+    - id: ttf_italic
+      font: ReliefSingleLineCAD-Regular
+      content:
+        - text: "<i>AV</i>"
+
+    # 11. The TTF control for label 10.
+    - id: ttf_plain
+      font: ReliefSingleLineCAD-Regular
+      content:
+        - text: "AV"

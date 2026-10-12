@@ -999,7 +999,10 @@ class TestSmallCaps:
         )
         # Uppercase G descends (y -0.5..0.5): pins the top-down anchor.
         characters["G"] = _entry(
-            "PU0,-500;PD500,500;", (0, -500, 500, 500), [(0, -500), (500, 500)], [(0, -500), (500, 500)]
+            "PU0,-500;PD500,500;",
+            (0, -500, 500, 500),
+            [(0, -500), (500, 500)],
+            [(0, -500), (500, 500)],
         )
         return _write_library(tmp_path, characters)
 
@@ -1081,9 +1084,7 @@ class TestSmallCaps:
         assert small_bounds[3] == pytest.approx(caps_bounds[3] * 0.7, abs=1e-9)
         assert small_bounds[1] == pytest.approx(caps_bounds[1], abs=1e-9)
 
-    def test_lowercase_only_line_reports_no_glyph_for_missing_capital(
-        self, tmp_path: Path
-    ) -> None:
+    def test_lowercase_only_line_reports_no_glyph_for_missing_capital(self, tmp_path: Path) -> None:
         """A missing UPPERCASE glyph is reported under the mapped character."""
         root = tmp_path / "nolib"
         root.mkdir()
@@ -1335,3 +1336,133 @@ class TestDerivedGlyphRendering:
         for char in derived:
             block = render_text_line_plt_font(f"A{char}A", 0.4, "Dino")
             assert block.strokes, f"derived {char!r} rendered nothing"
+
+
+class TestItalicShear:
+    """The ``<i>`` shear transform (PLT family).
+
+    ``A`` is the diagonal ``(0,0)-(1,1)`` (its top leans right under a
+    positive shear), ``B`` is the zero-width vertical at ``x = 0``, ``C`` is
+    a full circle arc (the arc-flattening pin) and ``g`` descends to
+    ``y = -0.5`` (the sub-baseline lean pin). The shear is
+    ``x' = x + y * tan`` about the baseline.
+    """
+
+    _TAN = 0.5
+
+    @pytest.fixture
+    def sc_lib(self, tmp_path: Path) -> Path:
+        """The synthetic library extended with lowercase + descender glyphs.
+
+        Mirrors ``TestSmallCaps.sc_lib`` (a class-scoped fixture): ``a`` is
+        the font's own half-height lowercase and ``G`` descends, so a
+        small-caps + shear test can pin the uppercase source and the
+        baseline anchoring.
+        """
+        characters = dict(_SYNTH_CHARACTERS)
+        characters["a"] = _v2_entry(
+            "PU0,0;PD500,500;", (0, 0, 500, 500), [(0, 0), (500, 500)], [(0, 0), (500, 500)]
+        )
+        characters["G"] = _v2_entry(
+            "PU0,-500;PD500,500;",
+            (0, -500, 500, 500),
+            [(0, -500), (500, 500)],
+            [(0, -500), (500, 500)],
+        )
+        return _write_library(tmp_path, characters)
+
+    def test_glyph_shears_about_the_baseline(self, synth_lib: Path) -> None:
+        """The baseline stays fixed, the top leans right, height untouched."""
+        plain = _render("A", 1.0, synth_lib).bounds()
+        italic = _render("A", 1.0, synth_lib, italic_tan=self._TAN).bounds()
+        assert plain is not None and italic is not None
+        assert plain == pytest.approx((0.0, 0.0, 1.0, 1.0))
+        # x' = 1 + 1*0.5 at the cap line; y untouched.
+        assert italic == pytest.approx((0.0, 0.0, 1.5, 1.0))
+
+    def test_sub_baseline_ink_leans_left(self, synth_lib: Path) -> None:
+        """A descender (negative y) leans the other way (the shear is linear)."""
+        plain = _render("g", 1.0, synth_lib).bounds()
+        italic = _render("g", 1.0, synth_lib, italic_tan=self._TAN).bounds()
+        assert plain is not None and italic is not None
+        assert plain == pytest.approx((0.0, -0.5, 0.5, 0.5))
+        assert italic == pytest.approx((-0.25, -0.5, 0.75, 0.5))
+
+    def test_zero_tan_is_bit_identical(self, synth_lib: Path) -> None:
+        """``tan = 0`` (italic_angle 0) renders the untouched geometry."""
+        plain = _render("AB", 1.0, synth_lib)
+        upright = _render("AB", 1.0, synth_lib, italic_tan=0.0)
+        assert upright.to_hpgl() == plain.to_hpgl()
+
+    def test_flags_select_the_glyphs(self, synth_lib: Path) -> None:
+        """Only the flagged glyphs shear (per-character markup runs)."""
+        kwargs = {"cutter_diameter": 0.04, "character_spacing": 0.02}
+        plain = _render("AB", 1.0, synth_lib, **kwargs).bounds()
+        first = _render(
+            "AB", 1.0, synth_lib, italic_tan=self._TAN, italic_flags=(True, False), **kwargs
+        ).bounds()
+        both = _render("AB", 1.0, synth_lib, italic_tan=self._TAN, **kwargs).bounds()
+        assert plain is not None and first is not None and both is not None
+        # A's sheared right silhouette (x = 0.5 + y*0.5 at the top) penetrates
+        # B by 1.5, so B's origin lands 0.5in later than the plain pair.
+        assert plain == pytest.approx((0.0, 0.0, 1.06, 1.0))
+        assert first == pytest.approx((0.0, 0.0, 1.56, 1.0))
+        assert both is not None and both[2] == pytest.approx(1.56, abs=1e-9)
+
+    def test_kerning_uses_the_slanted_silhouette(self, synth_lib: Path) -> None:
+        """Shearing BOTH glyphs keeps the pair's advance geometrically exact.
+
+        A's sheared right edge and B's sheared left edge both shift by
+        ``y * tan``, so the penetration (and the advance) is the plain pair's
+        and the line widens by exactly one overhang, not two.
+        """
+        kwargs = {"cutter_diameter": 0.04, "character_spacing": 0.02}
+        plain = _render("AB", 1.0, synth_lib, **kwargs).bounds()
+        italic = _render("AB", 1.0, synth_lib, italic_tan=self._TAN, **kwargs).bounds()
+        assert plain is not None and italic is not None
+        assert italic[2] - plain[2] == pytest.approx(1.0 * self._TAN, abs=1e-9)
+
+    def test_arcs_flatten_under_the_shear(self, synth_lib: Path) -> None:
+        """A sheared circular arc is a rotated ellipse: it must flatten."""
+        plain = _render("C", 1.0, synth_lib)
+        italic = _render("C", 1.0, synth_lib, italic_tan=self._TAN)
+        assert _count_arcs(plain) == 1
+        assert _count_arcs(italic) == 0
+        assert _count_lines(italic) > _count_lines(plain)
+
+    def test_stroke_count_is_preserved_for_polylines(self, synth_lib: Path) -> None:
+        """The per-glyph stroke partition survives (the glyph sweep stays valid)."""
+        plain = _render("AB", 1.0, synth_lib)
+        italic = _render("AB", 1.0, synth_lib, italic_tan=self._TAN)
+        assert len(italic.strokes) == len(plain.strokes)
+
+    def test_flags_length_mismatch_is_rejected(self, synth_lib: Path) -> None:
+        """A flag map that does not cover the text is a programming error."""
+        with pytest.raises(ValueError, match="italic_flags length"):
+            render_text_line_plt_font(
+                "AB", 1.0, "Test", json_path=synth_lib, italic_tan=0.5, italic_flags=(True,)
+            )
+
+    def test_shear_composes_with_small_caps(self, sc_lib: Path) -> None:
+        """Small caps shrinks first, then the small glyph shears (SC + <i>)."""
+        kwargs = {"font": "Test SC", "lowercase_scale": 0.7, "italic_tan": self._TAN}
+        small_plain = _render("a", 1.0, sc_lib, font="Test SC", lowercase_scale=0.7).bounds()
+        small_italic = _render("a", 1.0, sc_lib, **kwargs).bounds()  # type: ignore[arg-type]
+        assert small_plain is not None and small_italic is not None
+        # The 0.7 capital's top (y = 0.7) leans by 0.7 * tan.
+        assert small_italic[2] == pytest.approx(0.7 + 0.7 * self._TAN, abs=1e-9)
+        assert small_italic[3] == pytest.approx(0.7, abs=1e-9)
+
+    def test_shear_composes_with_a_descender_glyph(self, sc_lib: Path) -> None:
+        """SC + shear on a descending base glyph anchors on y = 0, not its bottom."""
+        italic = _render(
+            "g", 1.0, sc_lib, font="Test SC", lowercase_scale=0.7, italic_tan=self._TAN
+        ).bounds()
+        assert italic is not None
+        # G spans -0.5..0.5; the 0.7 shrink (top-down) spans -0.5..0.2. The
+        # shear about y = 0 leans the top by 0.2*tan and the bottom-left point
+        # (x = 0 at y = -0.5) left by 0.5*tan: x' range = [-0.25, 0.45].
+        assert italic[1] == pytest.approx(-0.5, abs=1e-9)
+        assert italic[3] == pytest.approx(0.2, abs=1e-9)
+        assert italic[0] == pytest.approx(-0.25, abs=1e-9)
+        assert italic[2] == pytest.approx(0.45, abs=1e-9)

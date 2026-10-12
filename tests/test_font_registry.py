@@ -16,6 +16,7 @@ from plt_optimizer.generate.font_registry import (
     FontNotFoundError,
     PltFontData,
     available_ttf_fonts,
+    find_italic_face_path,
     font_name_choices,
     load_plt_fonts,
     normalize_font_name,
@@ -50,9 +51,11 @@ def _clear_caches() -> object:
     """Isolate the module's lru_caches between tests."""
     load_plt_fonts.cache_clear()
     available_ttf_fonts.cache_clear()
+    find_italic_face_path.cache_clear()
     yield
     load_plt_fonts.cache_clear()
     available_ttf_fonts.cache_clear()
+    find_italic_face_path.cache_clear()
 
 
 @pytest.fixture
@@ -175,13 +178,7 @@ class TestLoadPltFonts:
         """A character entry without a glyph string is skipped."""
         library = tmp_path / "plt_fonts.json"
         library.write_text(
-            json.dumps(
-                {
-                    "Test": _v2_font(
-                        {"A": "PU0,0;", "B": {"bounding_box": {"min_x": 0}}}
-                    )
-                }
-            ),
+            json.dumps({"Test": _v2_font({"A": "PU0,0;", "B": {"bounding_box": {"min_x": 0}}})}),
             encoding="utf-8",
         )
         with caplog.at_level("WARNING"):
@@ -211,9 +208,7 @@ class TestLoadPltFonts:
             assert load_plt_fonts(tmp_path / "nope.json") == {}
         assert "not found" in caplog.text
 
-    def test_malformed_json_warns(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_malformed_json_warns(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """Unparseable JSON degrades to no PLT fonts."""
         bad = tmp_path / "plt_fonts.json"
         bad.write_text("{not json", encoding="utf-8")
@@ -234,9 +229,7 @@ class TestLoadPltFonts:
     ) -> None:
         """A font entry that is not a v2 object is skipped."""
         bad = tmp_path / "plt_fonts.json"
-        bad.write_text(
-            json.dumps({"Good": _v2_font({"A": "x"}), "Bad": [1, 2]}), encoding="utf-8"
-        )
+        bad.write_text(json.dumps({"Good": _v2_font({"A": "x"}), "Bad": [1, 2]}), encoding="utf-8")
         with caplog.at_level("WARNING"):
             fonts = load_plt_fonts(bad)
         assert set(fonts) == {"Good"}
@@ -287,9 +280,7 @@ class TestResolveFont:
     @pytest.mark.parametrize("requested", ["dino", "DINO", "DiNo"])
     def test_case_insensitive(self, fonts_root: Path, requested: str) -> None:
         """Any casing resolves to the canonical name."""
-        ref = resolve_font(
-            requested, json_path=fonts_root / "plt_fonts.json", fonts_dir=fonts_root
-        )
+        ref = resolve_font(requested, json_path=fonts_root / "plt_fonts.json", fonts_dir=fonts_root)
         assert ref.name == "Dino"
 
     def test_surrounding_whitespace_tolerated(self, fonts_root: Path) -> None:
@@ -334,9 +325,7 @@ class TestSmallCapsVariants:
 
     def test_plt_variant_resolves_to_base_family(self, fonts_root: Path) -> None:
         """A PLT variant keeps the PLT kind, carries no path, and is flagged."""
-        ref = resolve_font(
-            "Dino SC", json_path=fonts_root / "plt_fonts.json", fonts_dir=fonts_root
-        )
+        ref = resolve_font("Dino SC", json_path=fonts_root / "plt_fonts.json", fonts_dir=fonts_root)
         assert (ref.kind, ref.name, ref.path, ref.small_caps) == ("plt", "Dino SC", None, True)
 
     def test_ttf_variant_carries_base_path(self, fonts_root: Path) -> None:
@@ -348,9 +337,7 @@ class TestSmallCapsVariants:
     @pytest.mark.parametrize("requested", ["dino sc", "DINO SC", "DiNo Sc", " dino sc "])
     def test_variant_matching_is_case_insensitive(self, fonts_root: Path, requested: str) -> None:
         """Any casing/whitespace of the variant name resolves canonically."""
-        ref = resolve_font(
-            requested, json_path=fonts_root / "plt_fonts.json", fonts_dir=fonts_root
-        )
+        ref = resolve_font(requested, json_path=fonts_root / "plt_fonts.json", fonts_dir=fonts_root)
         assert ref.name == "Dino SC"
         assert ref.small_caps is True
 
@@ -361,9 +348,7 @@ class TestSmallCapsVariants:
 
     def test_choices_include_variants(self, fonts_root: Path) -> None:
         """Every base contributes a variant to the valid-name list."""
-        choices = font_name_choices(
-            json_path=fonts_root / "plt_fonts.json", fonts_dir=fonts_root
-        )
+        choices = font_name_choices(json_path=fonts_root / "plt_fonts.json", fonts_dir=fonts_root)
         assert {"Dino SC", "Jhanuni SC", "Alpha SC", "Beta SC"} <= set(choices)
         assert choices == sorted(choices, key=str.lower)
 
@@ -400,3 +385,83 @@ class TestSmallCapsVariants:
             assert ref.small_caps is True
             assert ref.kind == resolve_font(base).kind
             assert ref.path == resolve_font(base).path
+
+
+class TestItalicFaceProbe:
+    """The sibling-file probe for a TTF family's native italic face."""
+
+    def test_none_path_yields_none(self) -> None:
+        """A PLT font (no path) has no native italic face."""
+        assert find_italic_face_path(None) is None
+
+    def test_family_without_italic_yields_none(self, fonts_root: Path) -> None:
+        """A family shipping only the regular face reports no italic."""
+        assert find_italic_face_path(fonts_root / "Alpha.ttf") is None
+
+    def test_hyphenated_italic_suffix(self, tmp_path: Path) -> None:
+        """``Foo-Italic.ttf`` next to ``Foo.ttf`` is the convention."""
+        regular = tmp_path / "Foo.ttf"
+        regular.write_bytes(b"1")
+        italic = tmp_path / "Foo-Italic.ttf"
+        italic.write_bytes(b"2")
+        assert find_italic_face_path(regular) == italic
+
+    def test_oblique_suffix(self, tmp_path: Path) -> None:
+        """``Foo-Oblique.ttf`` is the family's slanted cut."""
+        regular = tmp_path / "Foo.ttf"
+        regular.write_bytes(b"1")
+        oblique = tmp_path / "Foo-Oblique.ttf"
+        oblique.write_bytes(b"2")
+        assert find_italic_face_path(regular) == oblique
+
+    def test_concatenated_suffix(self, tmp_path: Path) -> None:
+        """``FooItalic.ttf`` (no separator) also matches."""
+        regular = tmp_path / "Foo.ttf"
+        regular.write_bytes(b"1")
+        italic = tmp_path / "FooItalic.ttf"
+        italic.write_bytes(b"2")
+        assert find_italic_face_path(regular) == italic
+
+    def test_probe_is_case_insensitive(self, tmp_path: Path) -> None:
+        """The stem match ignores case (``FOO-ITALIC.TTF``)."""
+        regular = tmp_path / "Foo.ttf"
+        regular.write_bytes(b"1")
+        italic = tmp_path / "FOO-ITALIC.TTF"
+        italic.write_bytes(b"2")
+        assert find_italic_face_path(regular) == italic
+
+    def test_unrelated_sibling_is_not_italic(self, tmp_path: Path) -> None:
+        """A neighbouring family's italic face is never picked up."""
+        regular = tmp_path / "Foo.ttf"
+        regular.write_bytes(b"1")
+        (tmp_path / "Bar-Italic.ttf").write_bytes(b"2")
+        assert find_italic_face_path(regular) is None
+
+    def test_resolve_font_populates_italic_path(self, tmp_path: Path) -> None:
+        """The resolved reference carries the probed face for a TTF."""
+        regular = tmp_path / "Alpha.ttf"
+        regular.write_bytes(b"1")
+        italic = tmp_path / "Alpha-Italic.ttf"
+        italic.write_bytes(b"2")
+        ref = resolve_font("Alpha", fonts_dir=tmp_path)
+        assert ref.italic_path == italic
+
+    def test_resolve_font_italic_path_none_without_face(self, fonts_root: Path) -> None:
+        """A family with no italic face resolves ``italic_path=None``."""
+        ref = resolve_font("Alpha", fonts_dir=fonts_root)
+        assert ref.italic_path is None
+
+    def test_small_caps_variant_carries_italic_path(self, tmp_path: Path) -> None:
+        """The SC variant carries the base family's probed italic face."""
+        regular = tmp_path / "Alpha.ttf"
+        regular.write_bytes(b"1")
+        italic = tmp_path / "Alpha-Italic.ttf"
+        italic.write_bytes(b"2")
+        ref = resolve_font("Alpha SC", fonts_dir=tmp_path)
+        assert ref.small_caps is True
+        assert ref.italic_path == italic
+
+    def test_plt_font_has_no_italic_path(self, fonts_root: Path) -> None:
+        """PLT fonts always take the shear path (no TTF file to probe)."""
+        ref = resolve_font("Dino", json_path=fonts_root / "plt_fonts.json", fonts_dir=fonts_root)
+        assert ref.italic_path is None

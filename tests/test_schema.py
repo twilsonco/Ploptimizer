@@ -1687,6 +1687,7 @@ class TestSmallCapsScaleField:
 
 class TestUseBaselineSpacing:
     """Tests for the use_baseline_spacing label-tier stacking field."""
+
     def test_inherited_on_label_and_job_tiers_only(self) -> None:
         """use_baseline_spacing lives on LabelAttributes, never on TextLine."""
         assert "use_baseline_spacing" in LabelAttributes.model_fields
@@ -1810,7 +1811,9 @@ class TestAutoDescendingCharacterAdjustment:
         """descending_character_clearance is ge=0.0 (an explicit 0.0 is legal)."""
         with pytest.raises(ValidationError, match="descending_character_clearance"):
             LabelSpec(id="lbl", content=[TextLine(text="X")], descending_character_clearance=-0.01)
-        label = LabelSpec(id="lbl", content=[TextLine(text="X")], descending_character_clearance=0.0)
+        label = LabelSpec(
+            id="lbl", content=[TextLine(text="X")], descending_character_clearance=0.0
+        )
         assert label.descending_character_clearance == 0.0
 
     def test_reciprocal_scale_bounds_are_enforced(self) -> None:
@@ -2361,3 +2364,88 @@ class TestOptimizeLineContentMaxLines:
             ],
         )
         assert job.optimize_line_content_max_lines == 3
+
+
+class TestHtmlBracketsField:
+    """The cascading ``html_brackets`` field (line -> label -> job + plate)."""
+
+    def test_defaults_to_none_everywhere(self) -> None:
+        """Job, label, line and plate all default html_brackets to None."""
+        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        assert job.html_brackets is None
+        assert (
+            LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")]).html_brackets
+            is None
+        )
+        assert TextLine(text="X").html_brackets is None
+        assert PlateSpec(id="p", width=24.0, height=16.0).html_brackets is None
+
+    def test_inherited_on_the_text_tiers(self) -> None:
+        """html_brackets lives on TextAttributes (so TextLine inherits it)."""
+        assert "html_brackets" in TextAttributes.model_fields
+        assert "html_brackets" in TextLine.model_fields
+        assert "html_brackets" in LabelSpec.model_fields
+        assert "html_brackets" in JobSpec.model_fields
+        assert "html_brackets" in PlateSpec.model_fields
+
+    @pytest.mark.parametrize(
+        "value",
+        ["<>", "<<>>", "[[]]", "{}", "\u00ab\u00bb", "((()))", "[]", ">%", "|<", " ~"],
+    )
+    def test_valid_pairs_accepted(self, value: str) -> None:
+        """Even-length non-alphanumeric pairs with distinct halves are legal."""
+        assert TextLine(text="X", html_brackets=value).html_brackets == value
+
+    @pytest.mark.parametrize(
+        ("value", "reason"),
+        [
+            ("<", "odd length"),
+            ("<>x", "odd length"),
+            ("<<", "identical halves"),
+            ("<><>", "identical halves"),
+            ("%%", "identical halves"),
+            ("//", "identical halves"),
+            ("||", "identical halves"),
+            ("ab", "alphanumeric"),
+            ("<a", "alphanumeric"),
+            ("a>", "alphanumeric"),
+            ("<\n>", "newline"),
+        ],
+    )
+    def test_invalid_pairs_rejected(self, value: str, reason: str) -> None:
+        """The validator rejects malformed pairs (reason in the message)."""
+        with pytest.raises(ValidationError) as excinfo:
+            TextLine(text="X", html_brackets=value)
+        assert "html_brackets" in str(excinfo.value)
+
+    def test_plate_validates_the_same_rule(self) -> None:
+        """The plate parity field enforces the identical rule."""
+        assert PlateSpec(id="p", width=24.0, height=16.0, html_brackets="\u00ab\u00bb")
+        with pytest.raises(ValidationError):
+            PlateSpec(id="p", width=24.0, height=16.0, html_brackets="ab")
+
+    def test_whitespace_delimiters_are_legal(self) -> None:
+        """Whitespace is not alphanumeric, so a whitespace half is accepted."""
+        assert TextLine(text="X", html_brackets=" ~").html_brackets == " ~"
+
+
+class TestItalicAngleField:
+    """The cascading ``italic_angle`` field (line -> label -> job + plate)."""
+
+    def test_defaults_to_none_everywhere(self) -> None:
+        """Every tier defaults italic_angle to None (unset)."""
+        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        assert job.italic_angle is None
+        assert TextLine(text="X").italic_angle is None
+        assert PlateSpec(id="p", width=24.0, height=16.0).italic_angle is None
+
+    @pytest.mark.parametrize("value", [0.0, 12.0, 45.0])
+    def test_in_range_accepted(self, value: float) -> None:
+        """The [0, 45] range is accepted, bounds included."""
+        assert TextLine(text="X", italic_angle=value).italic_angle == value
+
+    @pytest.mark.parametrize("value", [-0.1, 45.1, 90.0])
+    def test_out_of_range_rejected(self, value: float) -> None:
+        """An angle outside [0, 45] is a validation error."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", italic_angle=value)

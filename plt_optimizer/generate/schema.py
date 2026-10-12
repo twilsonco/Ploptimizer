@@ -323,6 +323,49 @@ def material_key(value: Optional[str]) -> Optional[str]:
     return value.strip().casefold()
 
 
+def _validate_html_brackets_value(v: Optional[str]) -> Optional[str]:
+    """Validate an ``html_brackets`` delimiter pair (shared by all levels).
+
+    The value is an even-length string whose first half is the left
+    delimiter and second half the right delimiter (``"<>"`` -> ``<`` and
+    ``>``; ``"<<>>"`` -> ``<<`` and ``>>``; ``"\u00ab\u00bb"`` -> ``\u00ab`` and
+    ``\u00bb``).
+
+    Args:
+        v: The configured bracket pair, or None (unset).
+
+    Returns:
+        The validated bracket pair.
+
+    Raises:
+        ValueError: If the length is odd, the two halves are identical, a
+            delimiter contains a newline, or a delimiter contains an
+            alphanumeric character.
+    """
+    if v is None:
+        return v
+    if len(v) % 2 != 0:
+        raise ValueError(
+            "html_brackets must have an even number of characters "
+            "(the first half is the left delimiter, the second half the "
+            f"right delimiter); got {len(v)} character(s): {v!r}"
+        )
+    left, right = v[: len(v) // 2], v[len(v) // 2 :]
+    if left == right:
+        raise ValueError(
+            f"html_brackets left and right delimiters must differ; both halves "
+            f"of {v!r} are {left!r}"
+        )
+    for part, name in ((left, "left"), (right, "right")):
+        if "\n" in part or "\r" in part:
+            raise ValueError(f"html_brackets {name} delimiter cannot contain a newline")
+        if any(ch.isalnum() for ch in part):
+            raise ValueError(
+                f"html_brackets {name} delimiter {part!r} must contain no alphanumeric characters"
+            )
+    return v
+
+
 class TextAttributes(BaseModel):
     """Attributes that can cascade down to individual text lines.
 
@@ -461,6 +504,27 @@ class TextAttributes(BaseModel):
             Defaults to ``0.7``; only ``None`` means unset. Cascades
             line -> label -> job (and is accepted on plates for schema
             parity, where it is not applied at that level).
+        html_brackets: Optional delimiter pair for the inline markup syntax
+            (``<i>`` italic and future tags). An **even-length** string whose
+            first half is the left delimiter and second half the right
+            delimiter: ``"<>"`` (the default) -> ``<`` / ``>``; ``"<<>>"`` ->
+            ``<<`` / ``>>``; ``"\u00ab\u00bb"`` -> ``\u00ab`` / ``\u00bb``. The two
+            halves must differ, and neither may contain alphanumeric
+            characters or newlines. Choosing a pair absent from the data
+            (e.g. chevrons in the text) keeps markup from misfiring: a
+            bracketed body that is not a registered tag (``<3``, ``<xyz>``)
+            engraves verbatim. Defaults to ``"<>"``; only ``None`` means
+            unset. Cascades line -> label -> job (and is accepted on plates
+            for schema parity, where it is not applied at that level).
+        italic_angle: Optional slant angle in **degrees** for italic markup
+            (``<i>``): PLT-extracted glyphs (and TTF glyphs with no native
+            italic face) are sheared about the baseline, ``x' = x +
+            y * tan(angle)``, so the baseline stays fixed and the glyph
+            leans right. Bound to ``[0, 45]`` (``0`` = upright: the shear is
+            skipped, italic runs engrave like plain text). Defaults to
+            ``12``; only ``None`` means unset. Cascades line -> label -> job
+            (and is accepted on plates for schema parity, where it is not
+            applied at that level).
         cutter_size: Optional cutter diameter in inches to use for the text
             instead of the tool auto-selected from ``text_height``. When set,
             the requested diameter is snapped to the shop inventory
@@ -695,6 +759,33 @@ class TextAttributes(BaseModel):
             "0.7); explicit 0.2/1.0 are honored."
         ),
     )
+    html_brackets: Optional[str] = Field(
+        default=None,
+        description=(
+            "Delimiter pair for the inline markup syntax (<i> italic and "
+            "future tags): an even-length string whose first half is the "
+            "left delimiter and second half the right delimiter ('<>' -> "
+            "'<' + '>', '<<>>' -> '<<' + '>>'). The halves must differ and "
+            "contain no alphanumeric characters or newlines. A bracketed "
+            "body that is not a registered tag engraves verbatim, so "
+            "choosing a pair absent from the data keeps chevrons from "
+            "being read as markup. Cascades line -> label -> job (fallback "
+            "'<>'); the slash is only special inside the delimiters."
+        ),
+    )
+    italic_angle: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=45.0,
+        description=(
+            "Slant angle in degrees for italic markup (<i>): PLT-extracted "
+            "glyphs (and TTF glyphs with no native italic face) are sheared "
+            "about the baseline, x' = x + y * tan(angle), so the baseline "
+            "stays fixed and the glyph leans right. Bound to [0, 45]; 0 "
+            "means upright (the shear is skipped). Cascades line -> label -> "
+            "job (fallback 12); explicit 0.0/45.0 are honored."
+        ),
+    )
     cutter_size: Optional[float] = Field(
         default=None,
         gt=0.0,
@@ -831,6 +922,24 @@ class TextAttributes(BaseModel):
                 "specified explicitly; omit the field instead"
             )
         return value
+
+    @field_validator("html_brackets")
+    @classmethod
+    def _validate_html_brackets(cls, value: Optional[str]) -> Optional[str]:
+        """Validate the markup delimiter pair (shared rule with plates).
+
+        Args:
+            value: The configured bracket pair, or ``None`` (unset).
+
+        Returns:
+            The validated bracket pair.
+
+        Raises:
+            ValueError: If the length is odd, the halves are identical, a
+                delimiter contains a newline, or a delimiter contains an
+                alphanumeric character.
+        """
+        return _validate_html_brackets_value(value)
 
     @field_validator("font")
     @classmethod
@@ -1438,6 +1547,12 @@ class PlateSpec(BaseModel):
             (a ``font`` name ending in `` SC``). Accepted for schema parity
             with the job/label ``sc_scale`` cascade (not applied at plate
             level).
+        html_brackets: Optional inline-markup delimiter pair. Accepted for
+            schema parity with the job/label ``html_brackets`` cascade (not
+            applied at plate level).
+        italic_angle: Optional italic slant angle in degrees. Accepted for
+            schema parity with the job/label ``italic_angle`` cascade (not
+            applied at plate level).
         cutter_size: Optional cutter diameter in inches. Accepted for schema
             parity with the job/label ``cutter_size`` cascade (not applied at
             plate level).
@@ -1618,6 +1733,22 @@ class PlateSpec(BaseModel):
             "font variant (schema parity; not applied at plate level)."
         ),
     )
+    html_brackets: Optional[str] = Field(
+        default=None,
+        description=(
+            "Inline-markup delimiter pair (even length; first half left, "
+            "second half right) (schema parity; not applied at plate level)."
+        ),
+    )
+    italic_angle: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=45.0,
+        description=(
+            "Italic slant angle in degrees for <i> markup (schema parity; "
+            "not applied at plate level)."
+        ),
+    )
     cutter_size: Optional[float] = Field(
         default=None,
         gt=0.0,
@@ -1779,6 +1910,24 @@ class PlateSpec(BaseModel):
                 newline, or is alphanumeric.
         """
         return _validate_replacement_delimiter_value(v)
+
+    @field_validator("html_brackets")
+    @classmethod
+    def _validate_html_brackets(cls, value: Optional[str]) -> Optional[str]:
+        """Validate the parity ``html_brackets`` field like the cascading one.
+
+        Args:
+            value: The configured bracket pair, or ``None`` (unset).
+
+        Returns:
+            The validated bracket pair.
+
+        Raises:
+            ValueError: If the length is odd, the halves are identical, a
+                delimiter contains a newline, or a delimiter contains an
+                alphanumeric character.
+        """
+        return _validate_html_brackets_value(value)
 
     @field_validator("font")
     @classmethod

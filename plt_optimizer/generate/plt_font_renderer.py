@@ -548,6 +548,47 @@ def _scale_geometry(geometry: _GlyphGeometry, factor: float) -> _GlyphGeometry:
     )
 
 
+def _shear_geometry(geometry: _GlyphGeometry, tan: float) -> _GlyphGeometry:
+    """Return ``geometry`` sheared about the baseline ``y = 0`` (italic).
+
+    The transform is ``x' = x + y * tan``, ``y' = y`` -- the classic oblique:
+    the baseline (and every point on it) stays exactly in place while the
+    glyph leans right. Applied to the block, bounding box **and both profile
+    envelopes** together, so kerning measures the *slanted* silhouette in the
+    shared baseline frame: an italic glyph's overhang to the right of its
+    neighbour widens the pair's advance automatically, with no fudge factor.
+
+    Arcs flatten inside :meth:`~plt_optimizer.generate.text_geometry.TextBlock.sheared`
+    (a sheared circular arc is a rotated ellipse), at the standard chord
+    tolerance.
+
+    Args:
+        geometry: Cached glyph geometry in design units.
+        tan: Shear factor ``tan(angle)``; ``0.0`` returns ``geometry`` itself.
+
+    Returns:
+        The sheared geometry, or ``geometry`` unchanged at ``0.0``.
+    """
+    if tan == 0.0:
+        return geometry
+    min_x, min_y, max_x, max_y = geometry.bounding_box
+
+    def _point(x: float, y: float) -> Tuple[float, float]:
+        return (x + y * tan, y)
+
+    # The shear is monotone in x for fixed y, so the new x extremes come from
+    # the bbox's two y-extremes.
+    new_min_x = min(min_x + min_y * tan, min_x + max_y * tan)
+    new_max_x = max(max_x + min_y * tan, max_x + max_y * tan)
+
+    return _GlyphGeometry(
+        block=geometry.block.sheared(tan),
+        bounding_box=(new_min_x, min_y, new_max_x, max_y),
+        left_envelope=tuple(_point(x, y) for x, y in geometry.left_envelope),
+        right_envelope=tuple(_point(x, y) for x, y in geometry.right_envelope),
+    )
+
+
 def _walk_line(
     text: str,
     target_height_inches: float,
@@ -565,6 +606,8 @@ def _walk_line(
     fonts_dir: Optional[Path] = None,
     *,
     lowercase_scale: Optional[float] = None,
+    italic_tan: Optional[float] = None,
+    italic_flags: Optional[Sequence[bool]] = None,
 ) -> Tuple[
     TextBlock,
     List[Tuple[str, List[int]]],
@@ -620,6 +663,18 @@ def _walk_line(
             only skips the shrink (the line engraves as full-height capitals).
             The caller dispatches on
             ``font_registry.resolve_font(...).small_caps``.
+        italic_tan: Italic shear factor ``tan(italic_angle)`` for italic
+            markup runs: each italic character's whole glyph geometry
+            (block + bbox + envelopes) is sheared about the baseline
+            ``x' = x + y * tan`` **before** kerning, so the slanted
+            silhouette kerns exactly and the italic overhang widens the
+            pair's advance automatically. ``None`` (the default) disables
+            the transform entirely, so every legacy call site renders
+            bit-identically. Combine with :attr:`italic_flags` for
+            per-character selection; without flags the whole line shears.
+        italic_flags: Per-character italic selection aligned with ``text``
+            (one flag per character, spaces included); only consulted when
+            :attr:`italic_tan` is set. ``None`` shears every character.
 
     Returns:
         ``(block, word_groups, glyph_groups)`` where ``block`` is the
@@ -637,10 +692,13 @@ def _walk_line(
     Raises:
         PltFontRenderError: If the font is unknown/not a PLT font, or a
             character has no glyph in the font.
+        ValueError: If ``italic_flags`` length differs from ``text``.
     """
     canonical = _resolve_plt_font(font_name, json_path, fonts_dir)
     if not text:
         return TextBlock.empty(), [], []
+    if italic_flags is not None and len(italic_flags) != len(text):
+        raise ValueError(f"italic_flags length {len(italic_flags)} != text length {len(text)}")
 
     json_path_key = str(json_path) if json_path is not None else ""
     # The small-caps variant is a render-time transform: the glyph library
@@ -693,6 +751,7 @@ def _walk_line(
     cursor = 0.0
     previous: Optional[_GlyphGeometry] = None
     previous_origin = 0.0
+    char_index = 0
     for word_index, word in enumerate(words):
         if word_index > 0:
             # Space: measures from the previous glyph's right edge; kerning
@@ -702,6 +761,7 @@ def _walk_line(
                 cursor = max(cursor, previous_origin + previous_width)
             cursor += space_advance
             previous = None
+            char_index += 1  # the space character between words
         start_index = len(strokes)
         for char in word:
             # Small caps: ASCII lowercase draws the uppercase glyph, the
@@ -712,6 +772,11 @@ def _walk_line(
             geometry = _glyph_entry(json_path_key, library_name, source)
             if source != char and lowercase_scale is not None:
                 geometry = _scale_geometry(geometry, lowercase_scale)
+            # Italic: shear the (already small-capped) geometry about the
+            # baseline BEFORE kerning, so the slanted silhouette kerns
+            # exactly (mirrors the small-caps transform contract).
+            if italic_tan is not None and (italic_flags is None or italic_flags[char_index]):
+                geometry = _shear_geometry(geometry, italic_tan)
             char_start = len(strokes)
             if previous is not None:
                 offset = kerning_offset(
@@ -729,6 +794,7 @@ def _walk_line(
             glyph_groups.append((char, list(range(char_start, len(strokes)))))
             previous_origin = cursor
             previous = geometry
+            char_index += 1
         word_groups.append((word, list(range(start_index, len(strokes)))))
 
     return TextBlock(strokes=tuple(strokes)), word_groups, glyph_groups
@@ -751,6 +817,8 @@ def render_text_line_plt_font_with_words(
     fonts_dir: Optional[Path] = None,
     *,
     lowercase_scale: Optional[float] = None,
+    italic_tan: Optional[float] = None,
+    italic_flags: Optional[Sequence[bool]] = None,
 ) -> Tuple[TextBlock, List[Tuple[str, List[int]]]]:
     """Render a text line in a PLT-extracted font, partitioned by word.
 
@@ -793,6 +861,10 @@ def render_text_line_plt_font_with_words(
         fonts_dir: Optional Fonts root override (tests).
         lowercase_scale: Small-caps mode for ASCII lowercase ``a-z``
             (``None`` = off; see :func:`_walk_line`).
+        italic_tan: Italic shear factor (``None`` = off; see
+            :func:`_walk_line`).
+        italic_flags: Per-character italic selection (``None`` = whole
+            line; see :func:`_walk_line`).
 
     Returns:
         ``(block, word_groups)`` with the semantics documented on
@@ -818,6 +890,8 @@ def render_text_line_plt_font_with_words(
         json_path,
         fonts_dir,
         lowercase_scale=lowercase_scale,
+        italic_tan=italic_tan,
+        italic_flags=italic_flags,
     )
     return block, word_groups
 
@@ -839,6 +913,8 @@ def render_text_line_plt_font_with_glyphs(
     fonts_dir: Optional[Path] = None,
     *,
     lowercase_scale: Optional[float] = None,
+    italic_tan: Optional[float] = None,
+    italic_flags: Optional[Sequence[bool]] = None,
 ) -> Tuple[
     TextBlock,
     List[Tuple[str, List[int]]],
@@ -875,6 +951,10 @@ def render_text_line_plt_font_with_glyphs(
         fonts_dir: Optional Fonts root override (tests).
         lowercase_scale: Small-caps mode for ASCII lowercase ``a-z``
             (``None`` = off; see :func:`_walk_line`).
+        italic_tan: Italic shear factor (``None`` = off; see
+            :func:`_walk_line`).
+        italic_flags: Per-character italic selection (``None`` = whole
+            line; see :func:`_walk_line`).
 
     Returns:
         ``(block, word_groups, glyph_groups)`` with the semantics
@@ -900,6 +980,8 @@ def render_text_line_plt_font_with_glyphs(
         json_path,
         fonts_dir,
         lowercase_scale=lowercase_scale,
+        italic_tan=italic_tan,
+        italic_flags=italic_flags,
     )
 
 
@@ -920,6 +1002,8 @@ def render_text_line_plt_font(
     fonts_dir: Optional[Path] = None,
     *,
     lowercase_scale: Optional[float] = None,
+    italic_tan: Optional[float] = None,
+    italic_flags: Optional[Sequence[bool]] = None,
 ) -> TextBlock:
     """Render a text line in a PLT-extracted font (arcs preserved).
 
@@ -957,6 +1041,10 @@ def render_text_line_plt_font(
         fonts_dir: Optional Fonts root override (tests).
         lowercase_scale: Small-caps mode for ASCII lowercase ``a-z``
             (``None`` = off; see :func:`_walk_line`).
+        italic_tan: Italic shear factor (``None`` = off; see
+            :func:`_walk_line`).
+        italic_flags: Per-character italic selection (``None`` = whole
+            line; see :func:`_walk_line`).
 
     Returns:
         The positioned :class:`TextBlock` (empty for blank input).
@@ -980,5 +1068,7 @@ def render_text_line_plt_font(
         json_path=json_path,
         fonts_dir=fonts_dir,
         lowercase_scale=lowercase_scale,
+        italic_tan=italic_tan,
+        italic_flags=italic_flags,
     )
     return block

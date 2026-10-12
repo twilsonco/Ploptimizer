@@ -559,7 +559,9 @@ class TestSmallCaps:
         small = ftext_renderer.render_text_line_ftext(
             "Aa", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.7
         )
-        cap = _extents(mapped, ftext_renderer.glyph_groups_for_line("AA", DEFAULT_FONT_PATH, len(mapped))[1][1])
+        cap = _extents(
+            mapped, ftext_renderer.glyph_groups_for_line("AA", DEFAULT_FONT_PATH, len(mapped))[1][1]
+        )
         shrunk = _extents(
             small,
             ftext_renderer.glyph_groups_for_line(
@@ -579,7 +581,9 @@ class TestSmallCaps:
         small = ftext_renderer.render_text_line_ftext(
             "Aa", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.7
         )
-        cap = _extents(mapped, ftext_renderer.glyph_groups_for_line("AA", DEFAULT_FONT_PATH, len(mapped))[0][1])
+        cap = _extents(
+            mapped, ftext_renderer.glyph_groups_for_line("AA", DEFAULT_FONT_PATH, len(mapped))[0][1]
+        )
         kept = _extents(
             small,
             ftext_renderer.glyph_groups_for_line(
@@ -591,7 +595,9 @@ class TestSmallCaps:
     def test_scale_one_renders_full_height_capitals(self) -> None:
         """``sc_scale=1.0`` maps lowercase to capitals and skips the shrink."""
         caps = ftext_renderer.render_text_line_ftext("AA", 1.0, DEFAULT_FONT_PATH)
-        one = ftext_renderer.render_text_line_ftext("Aa", 1.0, DEFAULT_FONT_PATH, small_caps_scale=1.0)
+        one = ftext_renderer.render_text_line_ftext(
+            "Aa", 1.0, DEFAULT_FONT_PATH, small_caps_scale=1.0
+        )
         assert _extents(one) == pytest.approx(_extents(caps), abs=1e-9)
 
     def test_transform_off_renders_the_fonts_own_lowercase(self) -> None:
@@ -602,7 +608,9 @@ class TestSmallCaps:
 
     def test_caseless_characters_stay_full_size(self) -> None:
         """Digits/punctuation engrave at full size on an SC line."""
-        sc = ftext_renderer.render_text_line_ftext("1-1", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.5)
+        sc = ftext_renderer.render_text_line_ftext(
+            "1-1", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.5
+        )
         plain = ftext_renderer.render_text_line_ftext("1-1", 1.0, DEFAULT_FONT_PATH)
         assert _extents(sc) == pytest.approx(_extents(plain), abs=1e-9)
 
@@ -686,3 +694,104 @@ class TestSmallCaps:
         assert not lc.is_empty()
         assert _extents(lc) == pytest.approx(_extents(caps), abs=1e-9)
         assert "rendering at full size" in caplog.text
+
+
+class TestItalicShear:
+    """The ``<i>`` transform (TTF family): shear fallback + native splice."""
+
+    @staticmethod
+    def _matplotlib_ttf(name: str) -> Path:
+        """Return a bundled matplotlib TTF by file name (test fixture)."""
+        import matplotlib
+
+        return Path(matplotlib.get_data_path()) / "fonts" / "ttf" / name
+
+    def test_shear_raises_the_cap_height(self) -> None:
+        """The shear fallback lifts the ink top by height * tan (baseline fixed)."""
+        plain = render_text_line_ftext("AV", 0.5, DEFAULT_FONT_PATH)
+        italic = render_text_line_ftext("AV", 0.5, DEFAULT_FONT_PATH, italic_tan=0.5)
+        _, _, y_min, y_max = _extents(plain)
+        _, _, iy_min, iy_max = _extents(italic)
+        assert iy_min == pytest.approx(y_min, abs=1e-9)
+        assert iy_max - y_max == pytest.approx((y_max - y_min) * 0.5, abs=1e-6)
+
+    def test_zero_tan_is_bit_identical(self) -> None:
+        """``italic_tan = 0`` (upright) leaves the render untouched."""
+        plain = render_text_line_ftext("AV", 0.5, DEFAULT_FONT_PATH)
+        upright = render_text_line_ftext("AV", 0.5, DEFAULT_FONT_PATH, italic_tan=0.0)
+        assert _extents(plain) == pytest.approx(_extents(upright), abs=1e-12)
+
+    def test_flags_shear_only_the_selected_glyphs(self) -> None:
+        """A per-character flag shears one glyph, not the whole line."""
+        plain = render_text_line_ftext("AV", 0.5, DEFAULT_FONT_PATH)
+        first = render_text_line_ftext(
+            "AV", 0.5, DEFAULT_FONT_PATH, italic_tan=0.5, italic_flags=(True, False)
+        )
+        both = render_text_line_ftext("AV", 0.5, DEFAULT_FONT_PATH, italic_tan=0.5)
+        plain_top = _extents(plain)[3]
+        first_top = _extents(first)[3]
+        both_top = _extents(both)[3]
+        # The line's top is the tallest sheared glyph, so shearing the shorter
+        # 'A' alone lifts the top less than shearing both: plain < A < both.
+        assert plain_top < first_top < both_top
+
+    def test_unrenderable_native_face_falls_back_to_shear(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """An unreadable italic face degrades to the shear, never a crash."""
+        bogus = tmp_path / "ReliefSingleLineCAD-Regular-Italic.ttf"
+        bogus.write_bytes(b"not a font")
+        plain = render_text_line_ftext("AV", 0.5, DEFAULT_FONT_PATH)
+        shear = render_text_line_ftext("AV", 0.5, DEFAULT_FONT_PATH, italic_tan=0.5)
+        with caplog.at_level("WARNING"):
+            result = render_text_line_ftext(
+                "AV", 0.5, DEFAULT_FONT_PATH, italic_tan=0.5, italic_face=bogus
+            )
+        # The shear geometry is what engraves (the splice was impossible).
+        assert not result.is_empty()
+        assert _extents(result)[3] == pytest.approx(_extents(shear)[3], abs=1e-9)
+        assert _extents(result)[3] > _extents(plain)[3]
+
+    def test_native_face_splices_without_raising_the_cap(self) -> None:
+        """A native italic face replaces the glyph (no synthetic shear lift)."""
+        regular = self._matplotlib_ttf("DejaVuSerif.ttf")
+        italic_face = self._matplotlib_ttf("DejaVuSerif-Italic.ttf")
+        plain = render_text_line_ftext("AV", 0.5, regular)
+        native = render_text_line_ftext("AV", 0.5, regular, italic_tan=0.5, italic_face=italic_face)
+        shear = render_text_line_ftext("AV", 0.5, regular, italic_tan=0.5)
+        # The native italic keeps the cap height; the shear lifts the top.
+        assert _extents(native)[3] == pytest.approx(_extents(plain)[3], abs=1e-6)
+        assert _extents(shear)[3] > _extents(native)[3]
+
+    def test_glyph_count_mismatch_renders_upright(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A contour-count drift leaves the natural upright render."""
+        monkeypatch.setattr(ftext_renderer, "_glyph_contour_count", lambda path, ch: 99)
+        with caplog.at_level(logging.WARNING):
+            lc = render_text_line_ftext("AV", 1.0, DEFAULT_FONT_PATH, italic_tan=0.5)
+        plain = render_text_line_ftext("AV", 1.0, DEFAULT_FONT_PATH)
+        assert not lc.is_empty()
+        assert _extents(lc) == pytest.approx(_extents(plain), abs=1e-9)
+        assert "rendering upright" in caplog.text
+
+    def test_italic_is_a_noop_for_blank_text(self) -> None:
+        """Blank text yields an empty collection (no glyph slicing)."""
+        empty = render_text_line_ftext("", 0.5, DEFAULT_FONT_PATH, italic_tan=0.5)
+        assert empty.is_empty()
+
+    def test_word_groups_survive_the_italic(self) -> None:
+        """Italic lines keep exact per-word contour groups (the slicing path)."""
+        whole, groups = ftext_renderer.render_text_line_ftext_with_words(
+            "AB CD", 0.5, DEFAULT_FONT_PATH, italic_tan=0.5
+        )
+        assert [text for text, _ in groups] == ["AB", "CD"]
+        covered = sorted(index for _, indices in groups for index in indices)
+        assert covered == list(range(len(whole)))
+
+    def test_glyph_groups_survive_the_italic(self) -> None:
+        """Italic lines keep exact per-glyph contour groups (the glyph sweep)."""
+        _whole, _words, glyph_groups = ftext_renderer.render_text_line_ftext_with_glyphs(
+            "AV", 0.5, DEFAULT_FONT_PATH, italic_tan=0.5
+        )
+        assert [char for char, _ in glyph_groups] == ["A", "V"]

@@ -401,9 +401,7 @@ class TestTextBlock:
     def test_to_vpype_polylines_joins_arc_to_line_vertices(self) -> None:
         """A chained arc drops its duplicate start when merged into the run."""
         arc = _quarter_arc()  # starts at 1+0j, exactly the line's end
-        block = TextBlock(
-            strokes=(Stroke(pen_up=0j, segments=(LineSeg(0j, 1 + 0j), arc)),)
-        )
+        block = TextBlock(strokes=(Stroke(pen_up=0j, segments=(LineSeg(0j, 1 + 0j), arc)),))
         lines = list(block.to_vpype_polylines())
         assert len(lines) == 1
         # Line contributes 2 points; the flattened arc adds its own vertices
@@ -417,7 +415,11 @@ class TestTextBlock:
         """The legacy view chains a stroke's vertices into a single polyline."""
         stroke = Stroke(
             pen_up=0j,
-            segments=(LineSeg(0j, 1 + 0j), _quarter_arc().translate(1.0, 0.0), LineSeg(2 + 1j, 3 + 1j)),
+            segments=(
+                LineSeg(0j, 1 + 0j),
+                _quarter_arc().translate(1.0, 0.0),
+                LineSeg(2 + 1j, 3 + 1j),
+            ),
         )
         block = TextBlock(strokes=(stroke,))
         lc = block.to_vpype_polylines()
@@ -541,9 +543,7 @@ class TestScaleY:
     def test_replaced_strokes_ignores_out_of_range(self) -> None:
         """Indices outside the block are dropped, never appended."""
         block = TextBlock(strokes=(Stroke(pen_up=0j, segments=(LineSeg(0j, 1j),)),))
-        replaced = block.replaced_strokes(
-            {5: Stroke(pen_up=0j, segments=(LineSeg(0j, 9j),))}
-        )
+        replaced = block.replaced_strokes({5: Stroke(pen_up=0j, segments=(LineSeg(0j, 9j),))})
         assert len(replaced.strokes) == 1
 
 
@@ -650,3 +650,102 @@ def test_module_exports() -> None:
         "block_from_parser_paths",
     ):
         assert hasattr(text_geometry, name)
+
+
+class TestSheared:
+    """The italic shear about the baseline (x' = x + y * tan)."""
+
+    def test_zero_tan_is_a_noop(self) -> None:
+        """tan 0 returns the identical block (upright by contract)."""
+        block = TextBlock(strokes=(Stroke(pen_up=0j, segments=(LineSeg(0j, 1 + 1j),)),))
+        assert block.sheared(0.0) is block
+
+    def test_baseline_points_are_fixed(self) -> None:
+        """Every point on y = 0 is exactly unchanged."""
+        block = TextBlock(strokes=(Stroke(pen_up=0j, segments=(LineSeg(0j, 2 + 0j),)),))
+        sheared = block.sheared(0.5)
+        assert sheared.strokes[0].segments[0].start == pytest.approx(0j)
+        assert sheared.strokes[0].segments[0].end == pytest.approx(2 + 0j)
+
+    def test_ink_above_the_baseline_leans_right(self) -> None:
+        """x' = x + y * tan, y' = y (the glyph leans right, height untouched)."""
+        block = TextBlock(strokes=(Stroke(pen_up=0j, segments=(LineSeg(1 + 0j, 1 + 2j),)),))
+        sheared = block.sheared(0.5)
+        assert sheared.strokes[0].segments[0].end == pytest.approx(2 + 2j)
+
+    def test_ink_below_the_baseline_leans_left(self) -> None:
+        """A descender (negative y) leans the opposite way (the shear is linear)."""
+        block = TextBlock(strokes=(Stroke(pen_up=0j, segments=(LineSeg(1 + 0j, 1 - 1j),)),))
+        sheared = block.sheared(0.5)
+        assert sheared.strokes[0].segments[0].end == pytest.approx(0.5 - 1j)
+
+    def test_y_extent_is_preserved(self) -> None:
+        """The shear is Y-identity, so the ink height never changes."""
+        block = TextBlock(strokes=(Stroke(pen_up=0j, segments=(LineSeg(0 - 0.5j, 3 + 2j),)),))
+        plain = block.bounds()
+        sheared = block.sheared(0.25).bounds()
+        assert sheared is not None and plain is not None
+        assert sheared[1] == pytest.approx(plain[1])
+        assert sheared[3] == pytest.approx(plain[3])
+        assert sheared[2] - sheared[0] > plain[2] - plain[0]
+
+    def test_pen_up_shears_with_the_segments(self) -> None:
+        """The rapid target follows, so a plunge stays on the slanted stroke."""
+        block = TextBlock(strokes=(Stroke(pen_up=2 + 4j, segments=(LineSeg(2 + 4j, 3 + 4j),)),))
+        stroke = block.sheared(0.5).strokes[0]
+        assert stroke.pen_up == pytest.approx(4 + 4j)
+        assert stroke.segments[0].start == pytest.approx(4 + 4j)
+
+    def test_stroke_count_is_preserved_for_polylines(self) -> None:
+        """A polyline glyph keeps its stroke count (the partition stays valid)."""
+        block = TextBlock(
+            strokes=(
+                Stroke(pen_up=0j, segments=(LineSeg(0j, 1 + 1j),)),
+                Stroke(pen_up=1j, segments=(LineSeg(1j, 2 + 1j), LineSeg(2 + 1j, 3 + 2j))),
+            )
+        )
+        sheared = block.sheared(0.25)
+        assert [len(s.segments) for s in sheared.strokes] == [1, 2]
+
+    def test_arcs_flatten_at_debug(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Arcs flatten (a sheared arc is a rotated ellipse) and log at DEBUG."""
+        block = TextBlock(strokes=(Stroke(pen_up=1 + 0j, segments=(_quarter_arc(),)),))
+        caplog.set_level("DEBUG", logger="plt_optimizer.generate.text_geometry")
+        sheared = block.sheared(0.5, context="label_1 line 0")
+        assert all(isinstance(seg, LineSeg) for seg in sheared.strokes[0].segments)
+        assert "flattened" in caplog.text
+        assert "italic" in caplog.text
+        assert "label_1 line 0" in caplog.text
+
+    def test_flattened_arc_vertices_are_sheared(self) -> None:
+        """Every flattened vertex is the original vertex mapped by the shear."""
+        arc = _quarter_arc()
+        block = TextBlock(strokes=(Stroke(pen_up=1 + 0j, segments=(arc,)),))
+        tan = 0.4
+        sheared = block.sheared(tan)
+        expected = [complex(p.real + p.imag * tan, p.imag) for p in arc.flattened()]
+        got = [sheared.strokes[0].segments[0].start] + [
+            seg.end for seg in sheared.strokes[0].segments
+        ]
+        assert got == pytest.approx(expected, abs=1e-12)
+
+    def test_chord_error_is_bounded_by_the_tolerance(self) -> None:
+        """The flattening honours the shared chord tolerance (pre-shear shape)."""
+        arc = ArcSeg(start=1 + 0j, center=0j, sweep_deg=180.0)
+        points = arc.flattened()
+        for point in points:
+            # Every flattened vertex sits within the chord tolerance of the
+            # unit circle (the same guarantee scaled_y / compress_x rely on).
+            assert abs(abs(point) - 1.0) <= ARC_FLATTEN_CHORD_TOL_INCHES + 1e-12
+
+    def test_shear_composes_with_scale_and_translate(self) -> None:
+        """scaled -> sheared -> translate matches the renderer's per-glyph chain."""
+        block = TextBlock(strokes=(Stroke(pen_up=0j, segments=(LineSeg(0j, 1 + 1j),)),))
+        placed = block.scaled(2.0).sheared(0.5).translate(10.0, 0.0)
+        # (0,0) -> (0,0) -> (0,0) -> (10,0); (1,1) -> (2,2) -> (3,2) -> (13,2).
+        assert placed.strokes[0].segments[0].start == pytest.approx(10 + 0j)
+        assert placed.strokes[0].segments[0].end == pytest.approx(13 + 2j)
+
+    def test_empty_block_shears_to_empty(self) -> None:
+        """An empty block (a space glyph) survives the transform."""
+        assert TextBlock.empty().sheared(0.5).is_empty()

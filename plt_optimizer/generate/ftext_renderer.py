@@ -57,7 +57,7 @@ from __future__ import annotations
 import logging
 from functools import lru_cache
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 import vpype as vp
@@ -411,6 +411,175 @@ def _apply_small_caps(
     return vp.LineCollection(lines)
 
 
+def _shear_contour(line: np.ndarray, tan: float) -> np.ndarray:
+    """Shear one contour about the baseline ``y = 0`` (``x' = x + y * tan``).
+
+    The synthetic italic for a TTF with no native italic face: the baseline
+    stays fixed and the glyph leans right, matching the PLT shear exactly.
+    """
+    sheared = line + 1j * (line.imag * tan)
+    return np.asarray(sheared, dtype=complex)
+
+
+def _render_glyph_contours(
+    char: str,
+    font_path: Path,
+    scale: float,
+) -> Optional[List[np.ndarray]]:
+    """Render one character's raw contours (font units scaled to inches).
+
+    Used to splice a native italic face's glyph into a whole-line render.
+    Closing chords are NOT removed (the caller runs chord removal on the
+    spliced whole line, matching the pre-chord-removal slice frame).
+
+    Args:
+        char: The single character to render.
+        font_path: The ``.ttf`` path (the italic face).
+        scale: Uniform scale from raw font units to inches.
+
+    Returns:
+        The scaled contours, or ``None`` when the render yields none.
+    """
+    try:
+        font_props = FontProperties(fname=str(font_path))
+        text_path = TextPath((0, 0), char, prop=font_props, size=_FTEXT_RESOLUTION)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("native-italic glyph render failed for %r: %s", char, exc)
+        return None
+    contours = _split_contours(text_path)
+    if not contours:  # pragma: no cover - defensive (a glyph slice is never blank)
+        return None
+    return [contour * scale for contour in contours]
+
+
+def _apply_italic(
+    scaled: vp.LineCollection,
+    text: str,
+    font_path: Path,
+    scale: float,
+    italic_tan: float,
+    italic_flags: Optional[Sequence[bool]],
+    italic_face: Optional[Path],
+    small_caps: bool = False,
+) -> vp.LineCollection:
+    """Italicize the flagged glyph contours of a scaled line.
+
+    The line's contours are sliced per character (see
+    :func:`_per_glyph_counts`); every flagged glyph is italicized in place.
+    With a native ``italic_face`` its glyph contours are spliced in
+    (translated onto the regular glyph's ink-left/baseline, keeping the
+    regular face's advance); without one -- or when the italic face's glyph
+    contour count does not match the regular glyph's -- the glyph is sheared
+    about the baseline (``x' = x + y * italic_tan``), the synthetic italic.
+
+    Args:
+        scaled: The line's contours in inches (baseline at y=0), before
+            closing-chord removal.
+        text: The line's text (spaces own no contours).
+        font_path: The regular ``.ttf`` path (per-glyph contour slicing).
+        scale: The whole line's uniform scale (for the native-face splice).
+        italic_tan: Shear factor for the synthetic fallback.
+        italic_flags: Per-character italic selection aligned with ``text``;
+            ``None`` italicizes every character.
+        italic_face: The native italic face path, or ``None`` (shear only).
+        small_caps: True when the render used the small-caps mapped string
+            (the per-glyph slicing then probes the uppercase sources, as in
+            :func:`_apply_small_caps`).
+
+    Returns:
+        The line with the flagged glyphs italicized. When the per-glyph
+        contour counts do not line up, the line is returned unchanged with a
+        WARNING (the natural upright render is the graceful fallback).
+    """
+    pairs = _per_glyph_counts(text, font_path, len(scaled), small_caps=small_caps)
+    if pairs is None:
+        counts_total = sum(_glyph_contour_count(font_path, ch) for ch in text if ch != " ")
+        logger.warning(
+            "italic TTF render: per-glyph contour counts (%d) do not sum to the "
+            "whole-line contour count (%d); rendering upright",
+            counts_total,
+            len(scaled),
+        )
+        return scaled
+
+    occurrences = [index for index, ch in enumerate(text) if ch != " "]
+    # Walk the text's non-space characters in order: the contour slices are
+    # glyph-major, so each occurrence owns its own slice and styles
+    # independently (the same character can be plain and italic on one line).
+    flags: Sequence[bool] = (True,) * len(text) if italic_flags is None else italic_flags
+    lines = [np.asarray(line) for line in scaled]
+    cursor = 0
+    for char, count in pairs:
+        glyph_indices = list(range(cursor, cursor + count))
+        cursor += count
+        text_index = _pop_occurrence(occurrences)
+        if not flags[text_index]:
+            continue
+        spliced: Optional[List[np.ndarray]] = None
+        # Under small caps the regular slice is already the shrunk uppercase
+        # glyph; splicing a full-height italic glyph would undo the shrink,
+        # so small-caps italics always take the shear (of the small glyph).
+        if italic_face is not None and not small_caps:
+            spliced = _splice_native_italic(lines, glyph_indices, char, italic_face, scale)
+        if spliced is not None:
+            for position, index in enumerate(glyph_indices):
+                lines[index] = spliced[position]
+        else:
+            for index in glyph_indices:
+                lines[index] = _shear_contour(lines[index], italic_tan)
+    return vp.LineCollection(lines)
+
+
+def _pop_occurrence(occurrences: List[int]) -> int:
+    """Return and remove the first text index in ``occurrences``.
+
+    Args:
+        occurrences: Remaining non-space character indices (ascending).
+
+    Returns:
+        The first index (the caller consumed its glyph slice).
+
+    Raises:
+        ValueError: When the pairs and the text disagree (contour counts
+            already validated against the text; this guards pathology).
+    """
+    if not occurrences:  # pragma: no cover - the counts validated the pairs
+        raise ValueError("italic glyph slice exceeds the text's characters")
+    return occurrences.pop(0)
+
+
+def _splice_native_italic(
+    lines: List[np.ndarray],
+    glyph_indices: List[int],
+    char: str,
+    italic_face: Path,
+    scale: float,
+) -> Optional[List[np.ndarray]]:
+    """Splice one glyph's contours from the native italic face.
+
+    The italic glyph is rendered standalone and translated so its ink-left
+    and baseline land on the regular glyph's ink-left and baseline (the
+    regular face keeps the advance). Returns ``None`` when the italic glyph's
+    contour count does not match the regular glyph's (the caller falls back
+    to the shear).
+    """
+    present = [lines[index] for index in glyph_indices if len(lines[index])]
+    if not present:  # pragma: no cover - a glyph slice carries contours
+        return None
+    italic_contours = _render_glyph_contours(char, italic_face, scale)
+    if italic_contours is None or len(italic_contours) != len(glyph_indices):
+        return None
+    regular = np.concatenate(present)
+    target_left = float(regular.real.min())
+    target_base = float(regular.imag.min())
+    italic_points = np.concatenate(italic_contours)
+    shift = complex(
+        target_left - float(italic_points.real.min()),
+        target_base - float(italic_points.imag.min()),
+    )
+    return [contour + shift for contour in italic_contours]
+
+
 def render_text_line_ftext(
     text: str,
     target_height_inches: float,
@@ -418,6 +587,9 @@ def render_text_line_ftext(
     *,
     check_glyph_coverage: bool = True,
     small_caps_scale: Optional[float] = None,
+    italic_tan: Optional[float] = None,
+    italic_flags: Optional[Sequence[bool]] = None,
+    italic_face: Optional[Path] = None,
 ) -> vp.LineCollection:
     """Render a single line of text with the Relief Single Line TTF font.
 
@@ -455,6 +627,17 @@ def render_text_line_ftext(
             transform, keeping every legacy render bit-identical; ``1.0``
             keeps the uppercase map and only skips the shrink (the line
             engraves as full-height capitals).
+        italic_tan: Italic shear factor ``tan(italic_angle)`` for ``<i>``
+            markup: flagged glyphs are italicized in place (see
+            :func:`_apply_italic`) -- spliced from the native ``italic_face``
+            when one exists, otherwise sheared about the baseline. ``None``
+            (the default) disables the transform entirely, keeping every
+            legacy render bit-identical.
+        italic_flags: Per-character italic selection aligned with ``text``
+            (one flag per character, spaces included); only consulted when
+            ``italic_tan`` is set. ``None`` italicizes every character.
+        italic_face: The family's native italic ``.ttf`` (the registry's
+            sibling-file probe), or ``None`` for the shear-only fallback.
 
     Returns:
         A vpype.LineCollection containing the rendered glyph outlines, or an
@@ -504,6 +687,21 @@ def render_text_line_ftext(
     # contour arrays still line up 1:1 with the per-glyph contour slicing.
     if small_caps_scale is not None:
         scaled = _apply_small_caps(scaled, text, resolved_font, small_caps_scale)
+
+    # Italicize the flagged glyphs in the same pre-chord-removal slicing
+    # frame (under small caps the render used the mapped string, so the
+    # per-glyph slicing probes the uppercase sources; the map is 1:1).
+    if italic_tan is not None:
+        scaled = _apply_italic(
+            scaled,
+            render_text,
+            resolved_font,
+            scale,
+            italic_tan,
+            italic_flags,
+            italic_face,
+            small_caps=small_caps,
+        )
 
     # Drop erroneous closing chords forced by TrueType's closed-path outlines,
     # so open strokes like "1", "4", "7" don't get a straight connector back to
@@ -581,6 +779,9 @@ def render_text_line_ftext_with_words(
     *,
     check_glyph_coverage: bool = True,
     small_caps_scale: Optional[float] = None,
+    italic_tan: Optional[float] = None,
+    italic_flags: Optional[Sequence[bool]] = None,
+    italic_face: Optional[Path] = None,
 ) -> Tuple[vp.LineCollection, List[Tuple[str, List[int]]]]:
     """Render a line of text and partition its contours by whitespace-delimited word.
 
@@ -628,19 +829,27 @@ def render_text_line_ftext_with_words(
         font_path=font_path,
         check_glyph_coverage=check_glyph_coverage,
         small_caps_scale=small_caps_scale,
+        italic_tan=italic_tan,
+        italic_flags=italic_flags,
+        italic_face=italic_face,
     )
     if whole.is_empty():
         return whole, []
 
     resolved_font = font_path if font_path is not None else DEFAULT_FONT_PATH
 
-    if small_caps_scale is not None:
-        pairs = _per_glyph_counts(text, resolved_font, len(whole), small_caps=True)
+    if small_caps_scale is not None or italic_tan is not None:
+        # The signature matcher cannot work: the shrunk/italicized glyphs no
+        # longer match their standalone render, so the word groups come from
+        # the exact per-glyph contour slicing instead.
+        pairs = _per_glyph_counts(
+            text, resolved_font, len(whole), small_caps=small_caps_scale is not None
+        )
         if pairs is None:
             logger.warning(
-                "ftext small-caps grouped render: per-glyph contour counts do not sum "
-                "to the whole-line contour count (%d); falling back to whole-line "
-                "grouping",
+                "ftext grouped render: per-glyph contour counts do not sum "
+                "to the whole-line contour count (%d); falling back to "
+                "whole-line grouping",
                 len(whole),
             )
             return whole, []
@@ -794,6 +1003,9 @@ def render_text_line_ftext_with_glyphs(
     *,
     check_glyph_coverage: bool = True,
     small_caps_scale: Optional[float] = None,
+    italic_tan: Optional[float] = None,
+    italic_flags: Optional[Sequence[bool]] = None,
+    italic_face: Optional[Path] = None,
 ) -> Tuple[
     vp.LineCollection,
     List[Tuple[str, List[int]]],
@@ -819,6 +1031,11 @@ def render_text_line_ftext_with_glyphs(
             lacks raises :class:`FtextRenderError`.
         small_caps_scale: Small-caps mode for ASCII lowercase ``a-z``
             (``None`` = off; see :func:`render_text_line_ftext`).
+        italic_tan: Italic shear factor (``None`` = off; see
+            :func:`render_text_line_ftext`).
+        italic_flags: Per-character italic selection (``None`` = whole
+            line; see :func:`render_text_line_ftext`).
+        italic_face: Native italic face path (``None`` = shear only).
 
     Returns:
         ``(whole_lc, word_groups, glyph_groups)`` where ``whole_lc`` and
@@ -836,6 +1053,9 @@ def render_text_line_ftext_with_glyphs(
         font_path,
         check_glyph_coverage=check_glyph_coverage,
         small_caps_scale=small_caps_scale,
+        italic_tan=italic_tan,
+        italic_flags=italic_flags,
+        italic_face=italic_face,
     )
     if whole.is_empty():
         return whole, word_groups, []

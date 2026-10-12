@@ -27,9 +27,10 @@ import logging
 import math
 import uuid
 from dataclasses import dataclass, field, replace
-from typing import Callable, Optional, Sequence, Union
+from typing import Callable, Optional, Sequence, Tuple, Union
 
 from plt_optimizer.generate.font_registry import DEFAULT_FONT_NAME
+from plt_optimizer.generate.markup import Run, parse_markup, split_brackets
 from plt_optimizer.generate.schema import JobSpec, LabelSpec
 
 logger = logging.getLogger(__name__)
@@ -168,6 +169,19 @@ DEFAULT_FALLBACK_ADVANCE_FRACTION: float = 1.0
 # 1.0 renders the variant identically to its base font. Inert on non-SC
 # fonts. See ``plt_optimizer.generate.font_registry``.
 DEFAULT_SC_SCALE: float = 0.7
+# Delimiter pair for the inline markup syntax (``<i>`` italic and future
+# tags): an even-length string whose first half is the left delimiter and
+# second half the right (``"<>"`` -> ``<`` / ``>``). Text that legitimately
+# contains chevrons opts out by declaring a pair absent from its data; a
+# bracketed body that is not a registered tag engraves verbatim. The forward
+# slash is only special inside the delimiters (``</i>``), never elsewhere.
+# See ``plt_optimizer.generate.markup``.
+DEFAULT_HTML_BRACKETS: str = "<>"
+# Slant angle (degrees) for italic markup: PLT-extracted glyphs (and TTF
+# glyphs with no native italic face) are sheared about the baseline,
+# ``x' = x + y * tan(angle)``, so the baseline stays fixed and the glyph
+# leans right. Bound to [0, 45] by the schema; 0 = upright (shear skipped).
+DEFAULT_ITALIC_ANGLE: float = 12.0
 # Horizontal text alignment defaults to centering (existing behaviour).
 DEFAULT_TEXT_H_ALIGNMENT: str = "center"
 # Explicit cutter diameter (inches) override. ``None`` (the default) means
@@ -634,6 +648,28 @@ class ResolvedTextLine:
             two *different* values in one group raise
             :class:`LineContentConfigError`, and so does declaring it while
             no line of the label enables ``optimize_line_content``.
+        html_brackets: Delimiter pair for the inline markup syntax
+            (cascaded line -> label -> job, default
+            ``DEFAULT_HTML_BRACKETS`` (``"<>"``)): an even-length string
+            whose first half is the left delimiter and second half the
+            right. Split by :func:`plt_optimizer.generate.markup.split_brackets`
+            at parse time; a bracketed body that is not a registered tag
+            engraves verbatim.
+        italic_angle: Italic slant angle in degrees for ``<i>`` markup
+            (cascaded line -> label -> job, default ``DEFAULT_ITALIC_ANGLE``
+            (12)). PLT glyphs (and TTF glyphs with no native italic face)
+            are sheared about the baseline, ``x' = x + y * tan(angle)``;
+            ``0.0`` is upright (the shear is skipped). Bound to [0, 45] by
+            the schema.
+        plain_text: :attr:`text` with all inline markup removed -- the text
+            reports, chunk records, and layout findings display. Equal to
+            :attr:`text` when the line contains no parsed tag.
+        styled_runs: The parsed markup runs (empty tuple when the line has
+            no markup -- the renderers' fast path, which keeps markup-free
+            jobs bit-identical). When non-empty, ``"".join(r.text for r in
+            styled_runs)`` equals :attr:`plain_text` and the renderers
+            dispatch per run (italic runs shear; plain runs render as
+            today). Populated by :func:`parse_markup` at resolution time.
     """
 
     text: str
@@ -654,6 +690,10 @@ class ResolvedTextLine:
     kerning_min_gap: float = DEFAULT_KERNING_MIN_GAP
     fallback_advance_fraction: float = DEFAULT_FALLBACK_ADVANCE_FRACTION
     sc_scale: float = DEFAULT_SC_SCALE
+    html_brackets: str = DEFAULT_HTML_BRACKETS
+    italic_angle: float = DEFAULT_ITALIC_ANGLE
+    plain_text: str = ""
+    styled_runs: Tuple[Run, ...] = ()
     cutter_size: Optional[float] = DEFAULT_CUTTER_SIZE
     cutter_downsize: bool = DEFAULT_CUTTER_DOWNSIZE
     max_cutter_downsizes: int = DEFAULT_MAX_CUTTER_DOWNSIZES
@@ -661,6 +701,43 @@ class ResolvedTextLine:
     h_compress_global: bool = DEFAULT_H_COMPRESS_GLOBAL
     optimize_line_content: bool = DEFAULT_OPTIMIZE_LINE_CONTENT
     optimize_line_content_max_lines: Optional[int] = DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES
+
+    def __post_init__(self) -> None:
+        """Default :attr:`plain_text` to :attr:`text` (markup-free fast path).
+
+        Direct API/test callers construct lines without going through
+        :func:`parse_markup`; an unset ``plain_text`` then means "no markup",
+        so the plain text is the raw text itself.
+        """
+        if not self.plain_text:
+            object.__setattr__(self, "plain_text", self.text)
+
+    def with_markup(self, text: str) -> ResolvedTextLine:
+        """Return a copy whose ``text`` is re-parsed for inline markup.
+
+        The pre-passes (line-content reflow, cutter reduction, shared
+        compression) rebuild lines with ``dataclasses.replace``; a raw text
+        swap would leave :attr:`plain_text` / :attr:`styled_runs` stale (the
+        renderers would engrave the old plain text). This helper is the only
+        supported way to change a resolved line's text: it re-parses with the
+        line's own resolved delimiters, so a markup-free line lands on the
+        historical fast path (empty runs, ``plain_text == text``).
+
+        Args:
+            text: The new raw text (may contain markup).
+
+        Returns:
+            The updated line (``self`` when the text is unchanged).
+
+        Raises:
+            MarkupError: If the new text carries malformed markup (a
+                :class:`ValueError`, so pre-pass callers abort the job).
+        """
+        if text == self.text:
+            return self
+        left, right = split_brackets(self.html_brackets)
+        styled = parse_markup(text, left, right)
+        return replace(self, text=text, plain_text=styled.plain_text, styled_runs=styled.runs)
 
 
 @dataclass(frozen=True)
@@ -1948,6 +2025,34 @@ def _resolve_content(
         else:
             line_sc_scale = DEFAULT_SC_SCALE
 
+        # Resolve the inline-markup delimiter pair with the same
+        # explicit-None precedence (line -> label -> job -> default).
+        if line.html_brackets is not None:
+            line_html_brackets: str = line.html_brackets
+        elif label_input.html_brackets is not None:
+            line_html_brackets = label_input.html_brackets
+        elif job.html_brackets is not None:
+            line_html_brackets = job.html_brackets
+        else:
+            line_html_brackets = DEFAULT_HTML_BRACKETS
+
+        # Resolve the italic slant angle with the same precedence; an
+        # intentional 0.0 (upright) is honored.
+        if line.italic_angle is not None:
+            line_italic_angle: float = line.italic_angle
+        elif label_input.italic_angle is not None:
+            line_italic_angle = label_input.italic_angle
+        elif job.italic_angle is not None:
+            line_italic_angle = job.italic_angle
+        else:
+            line_italic_angle = DEFAULT_ITALIC_ANGLE
+
+        # Parse the line's inline markup with its own resolved delimiters
+        # (validation-time loud failure, like an unknown font: a
+        # MarkupError propagates as a ValueError and aborts the job).
+        markup_left, markup_right = split_brackets(line_html_brackets)
+        styled = parse_markup(line.text, markup_left, markup_right)
+
         # Resolve the compression-driven cutter reduction permission with the
         # same explicit-None precedence (line -> label -> job -> default) so an
         # intentional ``False`` (opt-out) is honored instead of falling through
@@ -2036,6 +2141,10 @@ def _resolve_content(
                 kerning_min_gap=line_kerning_min_gap,
                 fallback_advance_fraction=line_fallback_advance_fraction,
                 sc_scale=line_sc_scale,
+                html_brackets=line_html_brackets,
+                italic_angle=line_italic_angle,
+                plain_text=styled.plain_text,
+                styled_runs=styled.runs,
                 cutter_size=line_cutter_size,
                 cutter_downsize=line_cutter_downsize,
                 max_cutter_downsizes=line_max_cutter_downsizes,

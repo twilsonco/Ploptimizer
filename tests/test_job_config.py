@@ -48,6 +48,8 @@ _FULL_CONFIG: dict[str, Any] = {
     "kerning_min_gap": 0.05,
     "fallback_advance_fraction": 0.9,
     "sc_scale": 0.45,
+    "html_brackets": "\u00ab\u00bb",
+    "italic_angle": 20.0,
     "use_baseline_spacing": False,
     "v_center_by_content": True,
     "auto_descending_character_adjustment": False,
@@ -161,7 +163,10 @@ class TestJobDefaultsModel:
         defaults = JobDefaults(optimize_line_content_max_lines=3)
         assert defaults.optimize_line_content_max_lines == 3
         assert JobDefaults().optimize_line_content_max_lines is None
-        assert JobDefaults(optimize_line_content_max_lines=None).optimize_line_content_max_lines is None
+        assert (
+            JobDefaults(optimize_line_content_max_lines=None).optimize_line_content_max_lines
+            is None
+        )
         with pytest.raises(ValidationError):
             JobDefaults(optimize_line_content_max_lines=0)  # type: ignore[arg-type]
 
@@ -171,20 +176,32 @@ class TestJobDefaultsModel:
 
     def test_descending_character_config_fields(self) -> None:
         """The relief fields are legal shop defaults with schema-mirrored bounds."""
-        assert JobDefaults(auto_descending_character_adjustment=True).auto_descending_character_adjustment is True
-        assert JobDefaults(auto_descending_character_adjustment=False).auto_descending_character_adjustment is False
-        assert JobDefaults().auto_descending_character_adjustment is None
         assert (
-            JobDefaults(descending_character_v_scale=0.2).descending_character_v_scale == 0.2
+            JobDefaults(
+                auto_descending_character_adjustment=True
+            ).auto_descending_character_adjustment
+            is True
         )
+        assert (
+            JobDefaults(
+                auto_descending_character_adjustment=False
+            ).auto_descending_character_adjustment
+            is False
+        )
+        assert JobDefaults().auto_descending_character_adjustment is None
+        assert JobDefaults(descending_character_v_scale=0.2).descending_character_v_scale == 0.2
         assert JobDefaults(descending_character_raise=1.0).descending_character_raise == 1.0
         assert JobDefaults(descending_character_clearance=0.0).descending_character_clearance == 0.0
         assert (
-            JobDefaults(descending_character_reciprocal_scale=0.2).descending_character_reciprocal_scale
+            JobDefaults(
+                descending_character_reciprocal_scale=0.2
+            ).descending_character_reciprocal_scale
             == 0.2
         )
         assert (
-            JobDefaults(descending_character_reciprocal_scale=1.0).descending_character_reciprocal_scale
+            JobDefaults(
+                descending_character_reciprocal_scale=1.0
+            ).descending_character_reciprocal_scale
             == 1.0
         )
         assert JobDefaults().descending_character_v_scale is None
@@ -245,6 +262,8 @@ class TestJobDefaultsModel:
         assert "kerning_min_gap" not in REQUIRED_WHEN_UNCONFIGURED
         assert "fallback_advance_fraction" not in REQUIRED_WHEN_UNCONFIGURED
         assert "sc_scale" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "html_brackets" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "italic_angle" not in REQUIRED_WHEN_UNCONFIGURED
         assert "cutter_size" not in REQUIRED_WHEN_UNCONFIGURED
         assert "cutter_downsize" not in REQUIRED_WHEN_UNCONFIGURED
         assert "max_cutter_downsizes" not in REQUIRED_WHEN_UNCONFIGURED
@@ -272,6 +291,14 @@ class TestJobDefaultsModel:
             JobDefaults(sc_scale=0.1)
         with pytest.raises(Exception):
             JobDefaults(sc_scale=1.1)
+        assert JobDefaults().html_brackets is None
+        assert JobDefaults(html_brackets="<<>>").html_brackets == "<<>>"
+        assert JobDefaults().italic_angle is None
+        assert JobDefaults(italic_angle=20.0).italic_angle == pytest.approx(20.0)
+        with pytest.raises(Exception):
+            JobDefaults(italic_angle=-1.0)
+        with pytest.raises(Exception):
+            JobDefaults(italic_angle=46.0)
         assert JobDefaults().use_baseline_spacing is None
         assert JobDefaults(use_baseline_spacing=False).use_baseline_spacing is False
         assert JobDefaults().v_center_by_content is None
@@ -356,6 +383,8 @@ class TestApplyJobConfigDefaults:
         assert filled["kerning_min_gap"] == 0.05
         assert filled["fallback_advance_fraction"] == 0.9
         assert filled["sc_scale"] == 0.45
+        assert filled["html_brackets"] == "\u00ab\u00bb"
+        assert filled["italic_angle"] == 20.0
 
     def test_cutter_downsize_job_layer_fill(self, tmp_path: Path) -> None:
         """Configured cutter-downsize defaults land as job-level values."""
@@ -436,9 +465,7 @@ class TestApplyJobConfigDefaults:
         config_data = dict(_FULL_CONFIG)
         config_data["optimize_line_content_max_lines"] = 4
         config = load_job_config(_write_config(tmp_path, config_data))
-        filled = apply_job_config_defaults(
-            _minimal_job(optimize_line_content_max_lines=2), config
-        )
+        filled = apply_job_config_defaults(_minimal_job(optimize_line_content_max_lines=2), config)
         assert filled["optimize_line_content_max_lines"] == 2
 
     def test_optimize_line_content_max_lines_null_stays_unset(self, tmp_path: Path) -> None:
@@ -884,6 +911,8 @@ class TestParseYamlWithJobConfig:
         assert job.kerning_min_gap == 0.02
         assert job.fallback_advance_fraction == 1.0
         assert job.sc_scale == 0.8
+        assert job.html_brackets == "<>"
+        assert job.italic_angle == 12.0
         assert job.cutter_downsize is True
         assert job.max_cutter_downsizes == 1
         assert job.cutter_downsize_global is True
