@@ -25,6 +25,7 @@ from plt_optimizer.generate.markup import (
 )
 
 ITALIC = Style(italic=True)
+UNDERLINE = Style(underline=True)
 
 
 class TestParsePlain:
@@ -374,3 +375,111 @@ def test_merge_runs_drops_empty_runs_directly() -> None:
     from plt_optimizer.generate.markup import _merge_runs
 
     assert _merge_runs([Run("", PLAIN), Run("a", PLAIN), Run("b", PLAIN)]) == (Run("ab", PLAIN),)
+
+
+class TestParseUnderline:
+    """The shipped <u> tag."""
+
+    def test_simple_span(self) -> None:
+        """<u>...</u> yields a plain run, an underlined run, and the tail."""
+        styled = parse_markup("Hello <u>World</u>!")
+        assert styled.runs == (
+            Run("Hello ", PLAIN),
+            Run("World", UNDERLINE),
+            Run("!", PLAIN),
+        )
+        assert styled.plain_text == "Hello World!"
+        assert styled.has_markup is True
+
+    def test_underline_flags_align_with_plain_text(self) -> None:
+        """Per-character underline flags cover exactly the plain text."""
+        styled = parse_markup("ab<u>cd</u>ef")
+        assert styled.underline_flags == (False, False, True, True, False, False)
+        assert len(styled.underline_flags) == len(styled.plain_text)
+
+    def test_italic_flags_stay_plain_on_an_underline(self) -> None:
+        """The two styles are independent fields of Style."""
+        styled = parse_markup("<u>cd</u>")
+        assert styled.underline_flags == (True, True)
+        assert styled.italic_flags == (False, False)
+
+    def test_underline_span_spanning_whitespace(self) -> None:
+        """A span crossing a space keeps the space inside the underlined run."""
+        styled = parse_markup("<u>foo bar</u>")
+        assert styled.runs == (Run("foo bar", UNDERLINE),)
+        assert styled.underline_flags == (True,) * 7
+
+
+class TestParseNested:
+    """Nested markup: the parser's stack composes every registered style."""
+
+    def test_underline_inside_italic(self) -> None:
+        """<i>...<u>...</u>...</i> styles the inner span with both flags."""
+        styled = parse_markup("<i>nested <u>markup</u> tail</i>")
+        assert styled.plain_text == "nested markup tail"
+        assert styled.italic_flags == (True,) * len(styled.plain_text)
+        # 'nested ' (7 chars) plain italic, 'markup' (6) italic+underline,
+        # ' tail' (5) plain italic again.
+        assert styled.underline_flags == (False,) * 7 + (True,) * 6 + (False,) * 5
+
+    def test_italic_inside_underline(self) -> None:
+        """The nesting order is symmetric: <u>...<i>...</i>...</u> composes."""
+        styled = parse_markup("<u>aa<i>bb</i>cc</u>")
+        assert styled.plain_text == "aabbcc"
+        assert styled.underline_flags == (True,) * 6
+        assert styled.italic_flags == (False, False, True, True, False, False)
+
+    def test_runs_carry_the_composed_style(self) -> None:
+        """A nested span's run carries both flags on one Style."""
+        styled = parse_markup("<i>a<u>b</u>c</i>")
+        assert [(r.text, r.style) for r in styled.runs] == [
+            ("a", Style(italic=True)),
+            ("b", Style(italic=True, underline=True)),
+            ("c", Style(italic=True)),
+        ]
+
+    def test_mismatched_nested_close_raises(self) -> None:
+        """Closing <i> while <u> is innermost is a hard error."""
+        with pytest.raises(MarkupError, match="does not match open tag"):
+            parse_markup("<i>x<u>y</i></u>")
+
+    def test_unclosed_nested_span_raises(self) -> None:
+        """An inner span closed by the outer tag's closer is a hard error."""
+        with pytest.raises(MarkupError, match="does not match open tag"):
+            parse_markup("<i>x<u>y</i>")
+        # A line ending inside the inner span reports the innermost opener.
+        with pytest.raises(MarkupError, match="Unclosed tag <u>"):
+            parse_markup("<i>x<u>y")
+
+    def test_nested_serialization_round_trips(self) -> None:
+        """The registry order fixes the nesting serialization recovers."""
+        styled = parse_markup("<i>nested <u>markup</u> tail</i>")
+        raw = serialize_runs(styled.runs)
+        assert parse_markup(raw).runs == styled.runs
+        assert parse_markup(raw).plain_text == styled.plain_text
+
+    def test_nested_word_serialization_round_trips(self) -> None:
+        """A nested word re-parses to the same pieces (the reflow contract)."""
+        styled = parse_markup("<i>ab<u>cd</u></i>")
+        (word,) = split_styled_words(styled)
+        reparsed = parse_markup(serialize_word(word))
+        assert reparsed.plain_text == word.text
+        assert reparsed.underline_flags == styled.underline_flags
+        assert reparsed.italic_flags == styled.italic_flags
+
+
+class TestUnderlineRegistry:
+    """The <u> registry entry."""
+
+    def test_underline_is_registered(self) -> None:
+        """The shipped tag is present, idempotent, and takes no args."""
+        spec = TAG_REGISTRY["u"]
+        assert spec.apply(PLAIN) == UNDERLINE
+        assert spec.apply(UNDERLINE) == UNDERLINE
+        # Applying <u> inside <i> composes (idempotent per field).
+        assert spec.apply(ITALIC) == Style(italic=True, underline=True)
+        assert spec.accepts_args is False
+
+    def test_italic_and_underline_are_distinct_tags(self) -> None:
+        """Registry order (i, u) fixes serialization nesting."""
+        assert list(TAG_REGISTRY) == ["i", "u"]

@@ -50,6 +50,7 @@ _FULL_CONFIG: dict[str, Any] = {
     "sc_scale": 0.45,
     "html_brackets": "\u00ab\u00bb",
     "italic_angle": 20.0,
+    "underline_offset": 0.08,
     "use_baseline_spacing": False,
     "v_center_by_content": True,
     "auto_descending_character_adjustment": False,
@@ -278,6 +279,7 @@ class TestJobDefaultsModel:
         assert "descending_character_raise" not in REQUIRED_WHEN_UNCONFIGURED
         assert "descending_character_clearance" not in REQUIRED_WHEN_UNCONFIGURED
         assert "descending_character_reciprocal_scale" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "underline_offset" not in REQUIRED_WHEN_UNCONFIGURED
         assert JobDefaults().space_width_fraction is None
         assert JobDefaults().min_glyph_width is None
         assert JobDefaults().kerning_window_fraction is None
@@ -299,6 +301,11 @@ class TestJobDefaultsModel:
             JobDefaults(italic_angle=-1.0)
         with pytest.raises(Exception):
             JobDefaults(italic_angle=46.0)
+        assert JobDefaults().underline_offset is None
+        assert JobDefaults(underline_offset=0.08).underline_offset == pytest.approx(0.08)
+        assert JobDefaults(underline_offset=0.0).underline_offset == 0.0
+        with pytest.raises(Exception):
+            JobDefaults(underline_offset=-0.1)
         assert JobDefaults().use_baseline_spacing is None
         assert JobDefaults(use_baseline_spacing=False).use_baseline_spacing is False
         assert JobDefaults().v_center_by_content is None
@@ -385,6 +392,7 @@ class TestApplyJobConfigDefaults:
         assert filled["sc_scale"] == 0.45
         assert filled["html_brackets"] == "\u00ab\u00bb"
         assert filled["italic_angle"] == 20.0
+        assert filled["underline_offset"] == 0.08
 
     def test_cutter_downsize_job_layer_fill(self, tmp_path: Path) -> None:
         """Configured cutter-downsize defaults land as job-level values."""
@@ -913,6 +921,7 @@ class TestParseYamlWithJobConfig:
         assert job.sc_scale == 0.8
         assert job.html_brackets == "<>"
         assert job.italic_angle == 12.0
+        assert job.underline_offset == 0.0
         assert job.cutter_downsize is True
         assert job.max_cutter_downsizes == 1
         assert job.cutter_downsize_global is True

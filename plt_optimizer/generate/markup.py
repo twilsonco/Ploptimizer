@@ -77,9 +77,15 @@ class Style:
         italic: True when the run is wrapped in a registered italic tag
             (``<i>`` with the default brackets). Renderers shear PLT glyphs
             (or use a native TTF italic) for italic runs.
+        underline: True when the run is wrapped in a registered underline tag
+            (``<u>`` with the default brackets). Renderers draw a centerline
+            underline (the line's own cutter) spanning each maximal
+            underlined run's ink width, gap-cut around glyphs whose ink
+            descends into the underline's clearance.
     """
 
     italic: bool = False
+    underline: bool = False
 
 
 #: The style of unmarked text (every field at its default).
@@ -137,6 +143,7 @@ def register_tag(
 
 
 register_tag("i", lambda style: replace(style, italic=True))
+register_tag("u", lambda style: replace(style, underline=True))
 
 
 @dataclass(frozen=True)
@@ -173,6 +180,11 @@ class StyledText:
     def italic_flags(self) -> Tuple[bool, ...]:
         """Per-character italic flags, aligned with :attr:`plain_text`."""
         return tuple(style.italic for style in _per_char_styles(self))
+
+    @property
+    def underline_flags(self) -> Tuple[bool, ...]:
+        """Per-character underline flags, aligned with :attr:`plain_text`."""
+        return tuple(style.underline for style in _per_char_styles(self))
 
 
 @dataclass(frozen=True)
@@ -402,7 +414,6 @@ def serialize_runs(
     out: List[str] = []
     open_tags: List[str] = []  # LIFO stack of open tag names
     open_styles: List[Style] = []  # style active inside each open tag
-    current = PLAIN
 
     for run in runs:
         if not run.text:
@@ -411,8 +422,12 @@ def serialize_runs(
         while open_tags and open_styles[-1] != run.style:
             top = open_tags.pop()
             open_styles.pop()
-            current = open_styles[-1] if open_styles else PLAIN
             out.append(f"{left}/{top}{right}")
+        # The style active on the stack after the closes above; the opens
+        # below compose onto it, so each tag's "already active?" test reads
+        # the stack as it stands -- not the style a sibling open just
+        # produced (which would hide a tag nested inside an earlier one).
+        current = open_styles[-1] if open_styles else PLAIN
         # Open registered tags missing for the target style (registry order).
         for spec in TAG_REGISTRY.values():
             if spec.apply(run.style) != run.style:
@@ -422,7 +437,7 @@ def serialize_runs(
             out.append(f"{left}{spec.name}{right}")
             open_tags.append(spec.name)
             open_styles.append(run.style)
-            current = run.style
+            current = spec.apply(current)
         out.append(run.text)
     while open_tags:
         top = open_tags.pop()

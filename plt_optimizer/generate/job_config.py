@@ -367,6 +367,18 @@ class JobDefaults(BaseModel):
             "upright. Unset falls back to 12."
         ),
     )
+    underline_offset: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Default underline (<u>) extra air in inches (job layer): the "
+            "underline centerline sits cutter diameter + this offset below "
+            "the baseline (the engraved underline's top edge floats exactly "
+            "this offset below the engraved baseline stroke), and the same "
+            "radius is the required air around colliding glyph ink. Unset "
+            "falls back to 0.0."
+        ),
+    )
     holes: Optional[list[HoleSpec]] = Field(
         default=None,
         description="Default drill-hole list (job layer; group locations expand like spec holes).",
@@ -611,6 +623,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "sc_scale",
     "html_brackets",
     "italic_angle",
+    "underline_offset",
     "cutter_downsize",
     "max_cutter_downsizes",
     "cutter_downsize_global",

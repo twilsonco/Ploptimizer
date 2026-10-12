@@ -1,0 +1,141 @@
+# Fixture for inline underline markup (`underline_offset`, the `<u>` tag) and
+# for NESTED markup (`<i>` wrapping `<u>`).
+#
+# `<u>` draws a centerline underline with the line's own text cutter: its
+# centerline sits `cutter_diameter + underline_offset` inches below the
+# baseline, so the engraved underline's top edge floats exactly
+# `underline_offset` below the engraved baseline stroke (0.0 = the two
+# strokes touch, the classic underline). Each maximal underlined run spans
+# its first glyph's bounding-box left edge to its last glyph's right edge.
+#
+# The line's own glyph ink is measured against the underline with the true
+# 2D ink distance: every glyph whose engraved stroke comes within the same
+# radius (`cutter + offset`) of the centerline cuts a MINIMAL gap into it, so
+# descenders punch through the underline and nowhere else does it break. With
+# the Dino library at text_height 0.5 (toolpath 0.44) the caps sit on the
+# baseline -- tangent to a 0.0-offset underline, so no gap -- while `p`/`g`
+# reach ~0.149in below it and cut gaps.
+#
+# Nesting is the framework's stack: `<i>nested <u>markup</u> tail</i>` shears
+# every glyph about the baseline AND underlines only `markup`. The underline
+# is computed on the FINAL (sheared, kerned) geometry, so it stays horizontal
+# under its run and its span follows the slanted bounding boxes.
+#
+# The underline is a stroke of its line's block, so it is text ink: it counts
+# toward the line's rendered bounds, the vertical margins, and the label's
+# vertical centering (an underlined bottom line raises the block).
+#
+# No plate declares a material and the job packs onto one sheet, so emitted
+# names carry no plate/material prefix. `max_h_compress` stays unset (0.0):
+# no line compresses, so every pinned number below is pure underline geometry.
+job:
+  job_name: Underline Demo
+
+  width: 3.0
+  height: 1.0
+  margin: 0.1
+  text_height: 0.5
+  line_spacing: 0.15
+  auto_descending_character_adjustment: false
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. PLT underline at the default 0.0 offset: `p` and `g` descend into the
+    #    underline and punch minimal gaps, so the one run engraves as several
+    #    collinear segments (all at y = -cutter).
+    - id: plt_underline
+      font: Dino
+      content:
+        - text: "<u>Depth</u>"
+
+    # 2. The plain control for label 1: same glyphs, no underline, so the
+    #    ink box stops at the descender's depth instead of at the underline.
+    - id: plt_plain
+      font: Dino
+      content:
+        - text: "Depth"
+
+    # 3. A descender-free run: the caps touch the underline exactly
+    #    (tangency is safe), so the underline is ONE segment spanning the
+    #    run's full ink width.
+    - id: plt_caps
+      font: Dino
+      content:
+        - text: "<u>AVX</u>"
+
+    # 4. The plain control for label 3.
+    - id: plt_caps_plain
+      font: Dino
+      content:
+        - text: "AVX"
+
+    # 5. underline_offset 0.1 lifts the required air: the centerline sits
+    #    deeper (-(cutter + 0.1)), so the caps' air grows to 0.1in and the
+    #    descenders' gaps widen -- the underline is strictly deeper than
+    #    label 1's.
+    - id: plt_offset
+      font: Dino
+      underline_offset: 0.1
+      content:
+        - text: "<u>Depth</u>"
+
+    # 6. Nested markup: every glyph shears (italic) while only `markup` is
+    #    underlined. The underline is horizontal and spans just that run.
+    - id: plt_nested
+      width: 6.0
+      font: Dino
+      content:
+        - text: "<i>nested <u>markup</u> tail</i>"
+
+    # 7. The italic control for label 6 (no underline at all).
+    - id: plt_nested_italic_only
+      width: 6.0
+      font: Dino
+      content:
+        - text: "<i>nested markup tail</i>"
+
+    # 8. Two underlined runs separated by a plain glyph: two independent
+    #    underlines, and the plain `C` keeps its air (no underline beneath).
+    - id: plt_multi_run
+      font: Dino
+      content:
+        - text: "A<u>bb</u>C<u>dd</u>"
+
+    # 9. A partial run: the underline spans only the underlined glyphs' ink,
+    #    strictly narrower than the whole line.
+    - id: plt_partial
+      font: Dino
+      content:
+        - text: "A<u>bb</u>C"
+
+    # 10. The plain control for label 9.
+    - id: plt_partial_plain
+      font: Dino
+      content:
+        - text: "AbbC"
+
+    # 11. TrueType underline through the ftext path: the same centerline
+    #     geometry as the PLT family (the font's own underline metrics are
+    #     deliberately not consulted).
+    - id: ttf_underline
+      font: ReliefSingleLineCAD-Regular
+      content:
+        - text: "<u>Depth</u>"
+
+    # 12. The TTF control for label 11.
+    - id: ttf_plain
+      font: ReliefSingleLineCAD-Regular
+      content:
+        - text: "Depth"
+
+    # 13. Underline + small caps: the shrunken lowercase glyphs sit on the
+    #     baseline, so a ` SC` font underlines its capitals' width and the
+    #     small glyphs cut no gaps of their own.
+    - id: plt_small_caps
+      font: "Dino SC"
+      content:
+        - text: "<u>Depth</u>"

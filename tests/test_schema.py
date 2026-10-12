@@ -2449,3 +2449,30 @@ class TestItalicAngleField:
         """An angle outside [0, 45] is a validation error."""
         with pytest.raises(ValidationError):
             TextLine(text="X", italic_angle=value)
+
+
+class TestUnderlineOffsetField:
+    """The cascading ``underline_offset`` field (line -> label -> job + plate)."""
+
+    def test_defaults_to_none_everywhere(self) -> None:
+        """Every tier defaults underline_offset to None (unset)."""
+        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        assert job.underline_offset is None
+        assert TextLine(text="X").underline_offset is None
+        assert PlateSpec(id="p", width=24.0, height=16.0).underline_offset is None
+
+    @pytest.mark.parametrize("value", [0.0, 0.1, 2.5])
+    def test_non_negative_accepted(self, value: float) -> None:
+        """Any non-negative offset is accepted, 0.0 included."""
+        assert TextLine(text="X", underline_offset=value).underline_offset == value
+
+    @pytest.mark.parametrize("value", [-0.1, -1.0])
+    def test_negative_rejected(self, value: float) -> None:
+        """A negative offset is a validation error."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", underline_offset=value)
+
+    def test_plate_parity_accepts_the_field(self) -> None:
+        """The plate tier carries the field for schema parity."""
+        plate = PlateSpec(id="p", width=24.0, height=16.0, underline_offset=0.1)
+        assert plate.underline_offset == 0.1

@@ -74,10 +74,12 @@ from plt_optimizer.generate.resolution import (
     fit_line_spacing_to_margins,
 )
 from plt_optimizer.generate.text_geometry import (
+    LineSeg,
     Stroke,
     TextBlock,
     block_from_linecollection,
 )
+from plt_optimizer.generate.underline import underline_runs, underline_segments
 
 logger = logging.getLogger(__name__)
 
@@ -1930,7 +1932,8 @@ def _render_line_block(
             _walk, _word_pairs, glyph_pairs = render_text_line_plt_font_with_glyphs(
                 render_text, **plt_kwargs, **italic_kwargs
             )
-            return (
+            return _apply_underline(
+                line,
                 block,
                 (groups or None),
                 _validated_glyph_groups(glyph_pairs, len(block.strokes)),
@@ -1939,7 +1942,9 @@ def _render_line_block(
         _walk, _word_pairs, glyph_pairs = render_text_line_plt_font_with_glyphs(
             render_text, **plt_kwargs, **italic_kwargs
         )
-        return block, None, _validated_glyph_groups(glyph_pairs, len(block.strokes))
+        return _apply_underline(
+            line, block, None, _validated_glyph_groups(glyph_pairs, len(block.strokes))
+        )
 
     # TrueType family: the historical ftext path, adapted to TextBlock.
     ftext_kwargs: dict[str, Any] = {
@@ -1967,8 +1972,10 @@ def _render_line_block(
                 len(filtered_lc),
                 small_caps=ref.small_caps,
             )
-            return block, groups, _validated_glyph_groups(pairs, len(block.strokes))
-        return block, None, ()
+            return _apply_underline(
+                line, block, groups, _validated_glyph_groups(pairs, len(block.strokes))
+            )
+        return _apply_underline(line, block, None, ())
     filtered_lc = render_text_line_ftext(render_text, **ftext_kwargs)
     block = block_from_linecollection(filtered_lc)
     # Glyph groups slice the whole-line contours by per-glyph contour
@@ -1980,8 +1987,175 @@ def _render_line_block(
             len(filtered_lc),
             small_caps=ref.small_caps,
         )
-        return block, None, _validated_glyph_groups(pairs, len(block.strokes))
-    return block, None, ()
+        return _apply_underline(
+            line, block, None, _validated_glyph_groups(pairs, len(block.strokes))
+        )
+    return _apply_underline(line, block, None, ())
+
+
+def _underline_render_gate(line: ResolvedTextLine) -> Tuple[Tuple[int, int], ...]:
+    """Return the underline runs of one resolved line, or ``()`` when unmarked.
+
+    The gate mirrors :func:`_italic_render_kwargs`: a line without parsed
+    markup, or with markup that carries no underline run, keeps the
+    historical render path (no underline geometry at all).
+
+    Args:
+        line: The resolved text line.
+
+    Returns:
+        ``(first_char_index, last_char_index)`` inclusive pairs per maximal
+        underlined run (indices into ``plain_text``), or ``()``.
+    """
+    if not line.styled_runs:
+        return ()
+    if not any(run.style.underline for run in line.styled_runs):
+        return ()
+    flags = tuple(
+        style.underline for run in line.styled_runs for style in (run.style,) * len(run.text)
+    )
+    return underline_runs(flags)
+
+
+def _underline_strokes(
+    line: ResolvedTextLine,
+    block: TextBlock,
+    glyph_groups: Tuple[Tuple[int, ...], ...],
+    runs: Tuple[Tuple[int, int], ...],
+) -> List[Stroke]:
+    """Build the ``<u>`` underline strokes of one rendered line.
+
+    Each maximal underlined run draws one centerline underline spanning its
+    first glyph's bounding-box left edge to its last glyph's right edge, at
+    ``cutter_diameter + underline_offset`` inches below the baseline (so the
+    engraved underline's top edge floats exactly ``underline_offset`` below
+    the engraved baseline stroke). The line's own glyph ink is measured
+    against the underline with the true 2D ink distance: every glyph whose
+    engraved stroke comes within the same radius of the centerline cuts a
+    minimal gap into it (see :mod:`plt_optimizer.generate.underline`), so
+    descenders punch through the underline and nowhere else does the line
+    break.
+
+    Args:
+        line: The resolved text line (cutter, offset, plain text).
+        block: The rendered line block (baseline at ``y = 0``, +y up).
+        glyph_groups: The validated per-glyph stroke partition of ``block``.
+        runs: The underlined character runs (from :func:`_underline_render_gate`).
+
+    Returns:
+        The underline strokes, in run order (empty when nothing is
+        underlined, the run has no geometry, or gaps consume the whole span).
+    """
+    if not runs or not glyph_groups:
+        return []
+
+    radius = line.cutter_diameter + line.underline_offset
+    line_y = -radius
+    chars = _glyph_chars(line.plain_text)
+    if len(chars) != len(glyph_groups):
+        return []
+
+    # Per-character geometry: the glyph's bbox (for the run span) and its ink
+    # (for the gap cuts), both in the block's baseline frame.
+    boxes: List[Tuple[float, float, float, float]] = []
+    inks: List[Ink] = []
+    for indices in glyph_groups:
+        glyph_block = TextBlock(strokes=tuple(block.strokes[i] for i in indices))
+        bounds = glyph_block.bounds()
+        boxes.append(bounds if bounds is not None else (0.0, 0.0, 0.0, 0.0))
+        inks.append(_glyph_ink(block, indices))
+    line_ink: Ink = tuple(polyline for ink in inks for polyline in ink)
+
+    strokes: List[Stroke] = []
+    for first, last in runs:
+        # The run's glyph indices: the run's bounds are plain_text indices
+        # (spaces included), while glyph_groups is indexed by the non-space
+        # character order, so walk the plain text and count glyphs.
+        glyph_positions: List[int] = []
+        glyph_index = -1
+        for text_index, char in enumerate(line.plain_text):
+            if char == " ":
+                continue
+            glyph_index += 1
+            if first <= text_index <= last and glyph_groups[glyph_index]:
+                glyph_positions.append(glyph_index)
+        if not glyph_positions:
+            continue
+        span = (
+            min(boxes[position][0] for position in glyph_positions),
+            max(boxes[position][2] for position in glyph_positions),
+        )
+        segments = underline_segments(
+            line_ink,
+            span,
+            line_y,
+            radius,
+            min_length=_INK_EMISSION_FLOOR,
+        )
+        for x_min, x_max in segments:
+            strokes.append(
+                Stroke(
+                    pen_up=complex(x_min, line_y),
+                    segments=(LineSeg(complex(x_min, line_y), complex(x_max, line_y)),),
+                )
+            )
+    if strokes:
+        logger.info(
+            "Underline: %d run(s), %d segment(s) on %r (y=%.4fin, radius=%.4fin).",
+            len(runs),
+            len(strokes),
+            line.plain_text,
+            line_y,
+            radius,
+        )
+    return strokes
+
+
+def _apply_underline(
+    line: ResolvedTextLine,
+    block: TextBlock,
+    word_groups: Optional[List[Tuple[str, List[int]]]],
+    glyph_groups: Tuple[Tuple[int, ...], ...],
+) -> Tuple[TextBlock, Optional[List[Tuple[str, List[int]]]], Tuple[Tuple[int, ...], ...]]:
+    """Append the ``<u>`` underline strokes to one rendered line.
+
+    The underline strokes are appended **after** the glyph partition is
+    validated, so ``glyph_groups`` stays the exact 1:1 character partition
+    (the descending-character relief maps characters to groups by index, and
+    the intra-chunk glyph sweep treats a group as one glyph -- neither may
+    see the underline as glyph ink). ``word_groups`` gains the underline
+    indices on its last non-empty word so WORD-mode chunking never drops the
+    underline.
+
+    A line without underline markup returns its inputs untouched, so every
+    other line keeps bit-identical geometry.
+
+    Args:
+        line: The resolved text line.
+        block: The validated render (baseline at ``y = 0``, +y up).
+        word_groups: Per-word stroke indices (``None`` in line mode).
+        glyph_groups: Per-glyph stroke indices (empty when unavailable).
+
+    Returns:
+        The ``(block, word_groups, glyph_groups)`` triple carrying the
+        underline.
+    """
+    runs = _underline_render_gate(line)
+    if not runs:
+        return block, word_groups, glyph_groups
+    strokes = _underline_strokes(line, block, glyph_groups, runs)
+    if not strokes:
+        return block, word_groups, glyph_groups
+
+    first_index = len(block.strokes)
+    underline_indices = list(range(first_index, first_index + len(strokes)))
+    extended = TextBlock(strokes=(*block.strokes, *strokes))
+    if word_groups is not None:
+        for _word_text, indices in reversed(word_groups):
+            if indices:
+                indices.extend(underline_indices)
+                break
+    return extended, word_groups, glyph_groups
 
 
 def _italic_render_kwargs(line: ResolvedTextLine) -> dict[str, Any]:

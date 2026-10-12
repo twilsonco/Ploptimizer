@@ -525,6 +525,20 @@ class TextAttributes(BaseModel):
             ``12``; only ``None`` means unset. Cascades line -> label -> job
             (and is accepted on plates for schema parity, where it is not
             applied at that level).
+        underline_offset: Optional extra air in **inches** for underline
+            markup (``<u>``). The underline is a centerline stroke cut with
+            the line's own text cutter, positioned
+            ``cutter diameter + underline_offset`` below the baseline, so
+            the engraved underline's top edge floats exactly
+            ``underline_offset`` below the engraved baseline stroke. The
+            same radius is the required air around colliding glyph ink: a
+            glyph whose ink comes within ``cutter diameter +
+            underline_offset`` of the underline's centerline cuts a minimal
+            gap into it. ``0.0`` (the default) makes the two strokes touch
+            (the classic underline) and gaps only where the engraved strokes
+            truly overlap. Must be ``>= 0``; only ``None`` means unset.
+            Cascades line -> label -> job (and is accepted on plates
+            for schema parity, where it is not applied at that level).
         cutter_size: Optional cutter diameter in inches to use for the text
             instead of the tool auto-selected from ``text_height``. When set,
             the requested diameter is snapped to the shop inventory
@@ -784,6 +798,22 @@ class TextAttributes(BaseModel):
             "stays fixed and the glyph leans right. Bound to [0, 45]; 0 "
             "means upright (the shear is skipped). Cascades line -> label -> "
             "job (fallback 12); explicit 0.0/45.0 are honored."
+        ),
+    )
+    underline_offset: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Extra air in inches for underline markup (<u>): the underline "
+            "centerline (cut with the line's own text cutter) sits cutter "
+            "diameter + this offset below the baseline, so the engraved "
+            "underline's top edge floats exactly this offset below the "
+            "engraved baseline stroke; the same radius is the required air "
+            "around colliding glyph ink (a glyph's ink within cutter + "
+            "offset of the centerline cuts a minimal gap). 0.0 = the two "
+            "strokes touch (the classic underline). Must "
+            "be >= 0. Cascades line -> label -> job (fallback 0.0); "
+            "explicit 0.0 is honored."
         ),
     )
     cutter_size: Optional[float] = Field(
@@ -1553,6 +1583,9 @@ class PlateSpec(BaseModel):
         italic_angle: Optional italic slant angle in degrees. Accepted for
             schema parity with the job/label ``italic_angle`` cascade (not
             applied at plate level).
+        underline_offset: Optional underline air in inches. Accepted for
+            schema parity with the job/label ``underline_offset`` cascade
+            (not applied at plate level).
         cutter_size: Optional cutter diameter in inches. Accepted for schema
             parity with the job/label ``cutter_size`` cascade (not applied at
             plate level).
@@ -1747,6 +1780,14 @@ class PlateSpec(BaseModel):
         description=(
             "Italic slant angle in degrees for <i> markup (schema parity; "
             "not applied at plate level)."
+        ),
+    )
+    underline_offset: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Underline (<u>) extra air in inches below the baseline stroke "
+            "(schema parity; not applied at plate level)."
         ),
     )
     cutter_size: Optional[float] = Field(

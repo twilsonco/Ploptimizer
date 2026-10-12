@@ -139,7 +139,7 @@ def _label_findings(
         findings.append(
             (
                 line_index,
-                line.text,
+                line.plain_text,
                 scale if compressed else None,
                 float(requested) if deviates else None,
                 effective if deviates else None,
@@ -222,33 +222,33 @@ def _label_lines(
             downsize = entry[3]
             if scale is not None:
                 lines.append(
-                    f"    Line {line_index}: {line.text!r} "
+                    f"    Line {line_index}: {line.plain_text!r} "
                     f"scale {scale:.3f} ({(1.0 - scale) * 100.0:.1f}% compressed)"
                 )
             if downsize is not None:
                 original, final = downsize
                 lines.append(
-                    f"    Line {line_index}: {line.text!r} "
+                    f"    Line {line_index}: {line.plain_text!r} "
                     f"cutter {original:.3f}in -> {final:.3f}in (downsized for compression)"
                 )
             if entry[4]:
                 for fix in rendered.descender_adjustments_by_line.get(line_index, ()):
                     if fix.reciprocal:
                         lines.append(
-                            f"    Line {line_index}: {line.text!r} glyph {fix.char!r} "
+                            f"    Line {line_index}: {line.plain_text!r} glyph {fix.char!r} "
                             f"shares relief, top-down scale {fix.scale_y:.3f} "
                             f"(gap {fix.gap_before:.3f}in -> {fix.gap_after:.3f}in)"
                         )
                         continue
                     lines.append(
-                        f"    Line {line_index}: {line.text!r} glyph {fix.char!r} "
+                        f"    Line {line_index}: {line.plain_text!r} glyph {fix.char!r} "
                         f"descender v-scale {fix.scale_y:.3f}, raised {fix.raise_amount:.3f}in "
                         f"(gap {fix.gap_before:.3f}in -> {fix.gap_after:.3f}in)"
                     )
             # In compact mode, print spacing deviations; in full mode, they're shown in the spacing section
             if not full and effective is not None:
                 lines.append(
-                    f"    Line {line_index}: {line.text!r} "
+                    f"    Line {line_index}: {line.plain_text!r} "
                     f"spacing below {effective:.3f}in (requested {requested:.3f}in)"
                 )
         elif full:
@@ -256,7 +256,7 @@ def _label_lines(
             scale = rendered.compression_by_line.get(line_index)
             if scale is not None and scale < 1.0:
                 lines.append(
-                    f"    Line {line_index}: {line.text!r} "
+                    f"    Line {line_index}: {line.plain_text!r} "
                     f"scale {scale:.3f} ({(1.0 - scale) * 100.0:.1f}% compressed)"
                 )
     return lines

@@ -2533,3 +2533,109 @@ class TestItalicRenderDispatch:
         assert [text for text, _ in words] == ["AB", "CD"]
         # Four plain glyphs (the tags contribute nothing).
         assert len(glyphs) == 4
+
+
+class TestUnderlineRenderDispatch:
+    """``_render_line_block`` renders plain text with per-character underlines."""
+
+    def test_markup_renders_plain_text_not_the_tags(self) -> None:
+        """The engraving measures the plain text; the tags never appear."""
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+        from plt_optimizer.generate.resolution import resolve_job_spec
+
+        line = resolve_job_spec(_markup_job(("<u>AV</u>", {})))[0].content[0]
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        # The glyph partition covers the PLAIN text (2 glyphs) -- the
+        # underline strokes are appended after it and never join a group.
+        assert len(glyphs) == 2
+        assert block.bounds() is not None
+
+    def test_underline_hangs_below_its_plain_twin(self) -> None:
+        """The centerline sits ``cutter + offset`` below the baseline."""
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+        from plt_optimizer.generate.resolution import resolve_job_spec
+
+        underlined = resolve_job_spec(_markup_job(("<u>AV</u>", {})))[0].content[0]
+        plain = resolve_job_spec(_markup_job(("AV", {})))[0].content[0]
+        ub = _render_line_block(underlined, TextChunkMode.LINE)[0].bounds()
+        pb = _render_line_block(plain, TextChunkMode.LINE)[0].bounds()
+        assert ub is not None and pb is not None
+        # Caps sit on the baseline (y_min = 0); the underline centerline is
+        # the block's new floor at -(cutter + offset), the caps' width intact.
+        assert pb[1] == pytest.approx(0.0, abs=1e-12)
+        assert ub[1] == pytest.approx(-(underlined.cutter_diameter), abs=1e-12)
+        assert ub[3] == pytest.approx(pb[3], abs=1e-12)
+        assert ub[2] - ub[0] == pytest.approx(pb[2] - pb[0], abs=1e-12)
+
+    def test_offset_deepens_the_underline(self) -> None:
+        """``underline_offset`` lowers the centerline by exactly its value."""
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+        from plt_optimizer.generate.resolution import resolve_job_spec
+
+        deep = resolve_job_spec(_markup_job(("<u>AV</u>", {"underline_offset": 0.1})))[0].content[0]
+        flush = resolve_job_spec(_markup_job(("<u>AV</u>", {})))[0].content[0]
+        db = _render_line_block(deep, TextChunkMode.LINE)[0].bounds()
+        fb = _render_line_block(flush, TextChunkMode.LINE)[0].bounds()
+        assert db is not None and fb is not None
+        assert db[1] == pytest.approx(fb[1] - 0.1, abs=1e-12)
+
+    def test_underline_render_gate(self) -> None:
+        """The gate is empty for plain / italic-only lines, runs for ``<u>``."""
+        from plt_optimizer.generate.label_renderer import _underline_render_gate
+        from plt_optimizer.generate.resolution import resolve_job_spec
+
+        plain = resolve_job_spec(_markup_job(("AV", {})))[0].content[0]
+        assert _underline_render_gate(plain) == ()
+        italic = resolve_job_spec(_markup_job(("<i>AV</i>", {})))[0].content[0]
+        assert _underline_render_gate(italic) == ()
+        underlined = resolve_job_spec(_markup_job(("<u>AV</u>", {})))[0].content[0]
+        assert _underline_render_gate(underlined) == ((0, 1),)
+        # Runs are plain_text indices (inclusive), spaces included.
+        partial = resolve_job_spec(_markup_job(("A<u>bb</u>C", {})))[0].content[0]
+        assert _underline_render_gate(partial) == ((1, 2),)
+        multi = resolve_job_spec(_markup_job(("A<u>bb</u>C<u>dd</u>", {})))[0].content[0]
+        assert _underline_render_gate(multi) == ((1, 2), (4, 5))
+
+    def test_word_chunk_mode_attaches_underline_to_last_word(self) -> None:
+        """WORD mode keeps the word split and never drops the underline."""
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+        from plt_optimizer.generate.resolution import resolve_job_spec
+
+        line = resolve_job_spec(_markup_job(("<u>AB</u> CD", {})))[0].content[0]
+        block, words, glyphs = _render_line_block(line, TextChunkMode.WORD)
+        assert [text for text, _ in words] == ["AB", "CD"]
+        # Four plain glyphs (the tags contribute nothing); the underline
+        # strokes are appended after the partition.
+        assert len(glyphs) == 4
+        underline_indices = set(range(sum(len(g) for g in glyphs), len(block.strokes)))
+        assert underline_indices, "the underline must be engraved"
+        # The last non-empty word carries the underline indices, and the word
+        # groups partition every stroke exactly once.
+        assert set(words[-1][1]) >= underline_indices
+        covered = [index for _text, indices in words for index in indices]
+        assert sorted(covered) == list(range(len(block.strokes)))
+
+    def test_nested_markup_shears_and_underlines(self) -> None:
+        """``<i>AV <u>WX</u> YZ</i>`` shears every glyph, underlines the run."""
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+            _underline_render_gate,
+        )
+        from plt_optimizer.generate.resolution import resolve_job_spec
+
+        nested = resolve_job_spec(_markup_job(("<i>AV <u>WX</u> YZ</i>", {})))[0].content[0]
+        assert nested.plain_text == "AV WX YZ"
+        # The gate sees exactly the inner run, in plain_text indices.
+        assert _underline_render_gate(nested) == ((3, 4),)
+
+        twin = resolve_job_spec(_markup_job(("<i>AV WX YZ</i>", {})))[0].content[0]
+        nb = _render_line_block(nested, TextChunkMode.LINE)[0].bounds()
+        tb = _render_line_block(twin, TextChunkMode.LINE)[0].bounds()
+        assert nb is not None and tb is not None
+        # Italic reaches every glyph (the twin is sheared too), so the widths
+        # match; the underline is the nested block's new floor at -cutter.
+        assert nb[1] == pytest.approx(-(nested.cutter_diameter), abs=1e-12)
+        assert tb[1] == pytest.approx(0.0, abs=1e-12)
+        assert nb[3] == pytest.approx(tb[3], abs=1e-12)
+        assert nb[2] - nb[0] == pytest.approx(tb[2] - tb[0], abs=1e-12)

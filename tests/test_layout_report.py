@@ -359,3 +359,37 @@ class TestDescenderReliefFindings:
         # The descending glyph's own record keeps the historical format.
         assert "glyph 'p' descender v-scale 0.600, raised 0.071in" in text
         assert has_layout_findings([resolved], {"l1": rendered})
+
+
+class TestMarkupUsesPlainText:
+    """The report engraves the plain text: markup tags never appear."""
+
+    def test_compression_finding_strips_markup(self) -> None:
+        """A compressed markup line reports its plain text, not the tags."""
+        # with_markup is a no-op when the text is unchanged, so the markup is
+        # swapped onto a plain line (exactly what resolution does).
+        line = _line("WIDE").with_markup("<i>WIDE</i>")
+        resolved, rendered = _label("l1", [line, _line("B")], compression={0: 0.87})
+
+        lines = format_layout_report([resolved], {"l1": rendered})
+        text = "\n".join(lines)
+
+        assert "'WIDE' scale 0.870 (13.0% compressed)" in text
+        assert "<i>" not in text
+
+    def test_spacing_and_downsize_findings_strip_markup(self) -> None:
+        """Spacing / cutter findings on a markup line use the plain text too."""
+        line = _line("WIDE", 0.5).with_markup("<u>WIDE</u>")
+        resolved, rendered = _label(
+            "l1",
+            [line, _line("B")],
+            spacing={0: 0.2},
+            downsizes={0: (0.06, 0.045)},
+        )
+
+        lines = format_layout_report([resolved], {"l1": rendered})
+        text = "\n".join(lines)
+
+        assert "'WIDE' cutter 0.060in -> 0.045in" in text
+        assert "'WIDE' spacing below 0.200in" in text
+        assert "<u>" not in text

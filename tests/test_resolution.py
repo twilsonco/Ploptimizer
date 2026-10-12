@@ -48,6 +48,7 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_TEXT_COLOR,
     DEFAULT_TEXT_H_ALIGNMENT,
     DEFAULT_TEXT_HEIGHT,
+    DEFAULT_UNDERLINE_OFFSET,
     DEFAULT_USE_BASELINE_SPACING,
     DEFAULT_V_CENTER_BY_CONTENT,
     IDEAL_CUTTER_MAP,
@@ -3889,3 +3890,95 @@ class TestMarkupResolution:
         updated = line.with_markup("\u00abi\u00bbx\u00ab/i\u00bb")
         assert updated.plain_text == "x"
         assert [r.style.italic for r in updated.styled_runs] == [True]
+
+
+class TestUnderlineOffsetCascade:
+    """underline_offset must cascade line -> label -> job -> default."""
+
+    def test_default_when_all_omit(self) -> None:
+        """All levels omitting yields the 0.0 default."""
+        job = JobSpec(
+            job_name="J",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        line = resolve_job_spec(job)[0].content[0]
+        assert math.isclose(line.underline_offset, DEFAULT_UNDERLINE_OFFSET)
+        assert DEFAULT_UNDERLINE_OFFSET == 0.0
+
+    def test_explicit_zero_is_honored(self) -> None:
+        """An intentional 0.0 (strokes touch) is not treated as unset."""
+        job = JobSpec(
+            job_name="J",
+            underline_offset=0.25,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X", underline_offset=0.0)],
+                )
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].underline_offset == 0.0
+
+    def test_job_value_used_when_label_omits(self) -> None:
+        """Job-level value cascades to the line."""
+        job = JobSpec(
+            job_name="J",
+            underline_offset=0.2,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].underline_offset == 0.2
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level value overrides the job-level value."""
+        job = JobSpec(
+            job_name="J",
+            underline_offset=0.2,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    underline_offset=0.3,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].underline_offset == 0.3
+
+    def test_line_overrides_label(self) -> None:
+        """Text-line value wins over label and job."""
+        job = JobSpec(
+            job_name="J",
+            underline_offset=0.2,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    underline_offset=0.3,
+                    content=[TextLine(text="X", underline_offset=0.05)],
+                )
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].underline_offset == 0.05
+
+    def test_negative_is_a_validation_error(self) -> None:
+        """The schema rejects a negative offset."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", underline_offset=-0.1)

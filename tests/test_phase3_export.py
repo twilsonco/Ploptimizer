@@ -2574,3 +2574,154 @@ class TestItalicDemoExample:
             "0.015_bh_it.plt",
             "0.060_txt_it.plt",
         ]
+
+
+class TestUnderlineDemoExample:
+    """Regression tests for tests_deps/underline_job.yaml.
+
+    The fixture pins inline underline markup (``<u>``, ``underline_offset``)
+    and nested markup (``<i>`` wrapping ``<u>``). ``<u>`` draws a centerline
+    underline with the line's own text cutter, ``cutter + underline_offset``
+    below the baseline, spanning each underlined run's ink; the line's own
+    glyph ink punches minimal gaps into it (descenders break the underline,
+    caps touch it tangentially).
+    """
+
+    _SPEC = Path("tests_deps/underline_job.yaml")
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="ul",
+            optimize=False,
+            plots=False,
+        )
+
+    @staticmethod
+    def _line_bounds(label: ResolvedLabel) -> tuple[float, float, float, float]:
+        """Rendered bounds of the label's single text line."""
+        from plt_optimizer.generate.label_renderer import _render_text_local_with_bounds
+
+        _lc, entries = _render_text_local_with_bounds(label)
+        return entries[0].bounds
+
+    @staticmethod
+    def _line_render(label: ResolvedLabel):
+        """Render the label's single text line (block + glyph partition)."""
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+        )
+
+        return _render_line_block(label.content[0], TextChunkMode.LINE)
+
+    @classmethod
+    def _underline_stroke_count(cls, label: ResolvedLabel) -> int:
+        """The number of underline strokes a rendered line carries.
+
+        The underline strokes are appended after the glyph partition, so the
+        count is the block's strokes minus the glyphs' strokes.
+        """
+        block, _wg, glyph_groups = cls._line_render(label)
+        return len(block.strokes) - sum(len(g) for g in glyph_groups)
+
+    def test_markup_parses_to_plain_text_and_runs(self, tmp_path: Path) -> None:
+        """Tags never engrave: plain_text strips them, runs carry the style."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+
+        underlined = by_id["plt_underline"].content[0]
+        assert underlined.text == "<u>Depth</u>"
+        assert underlined.plain_text == "Depth"
+        assert [run.style.underline for run in underlined.styled_runs] == [True]
+
+        plain = by_id["plt_plain"].content[0]
+        assert plain.plain_text == "Depth"
+        # A markup-free line resolves to a single plain run (the renderers'
+        # fast path is "no underline run", not "no run").
+        assert [(r.text, r.style.underline) for r in plain.styled_runs] == [("Depth", False)]
+
+    def test_descender_free_run_extends_the_block(self, tmp_path: Path) -> None:
+        """Caps touch the underline tangentially, so it extends the block."""
+        result = self._export(tmp_path)
+        caps = self._line_bounds(result.rendered_labels["plt_caps"].source_label)
+        caps_plain = self._line_bounds(result.rendered_labels["plt_caps_plain"].source_label)
+        # The underline (caps tangent, one segment) hangs below the baseline,
+        # growing the block's height; the plain caps stop at the baseline.
+        assert caps[3] - caps[1] > caps_plain[3] - caps_plain[1]
+        # The underline spans the run's ink width, so the block width is unchanged.
+        assert caps[2] - caps[0] == pytest.approx(caps_plain[2] - caps_plain[0], rel=1e-6)
+
+    def test_descender_run_engraves_without_moving_bounds(self, tmp_path: Path) -> None:
+        """A descender deeper than the underline leaves the block unchanged."""
+        result = self._export(tmp_path)
+        underlined = self._line_bounds(result.rendered_labels["plt_underline"].source_label)
+        plain = self._line_bounds(result.rendered_labels["plt_plain"].source_label)
+        # The `p`/`g` hang below the underline, so the block is unchanged --
+        # but the underline is still engraved (gaps punched around the descenders).
+        assert underlined == pytest.approx(plain, abs=1e-9)
+        assert self._underline_stroke_count(result.rendered_labels["plt_underline"].source_label) >= 2
+
+    def test_offset_pushes_the_underline_deeper(self, tmp_path: Path) -> None:
+        """A larger ``underline_offset`` lowers the centerline below the descender."""
+        result = self._export(tmp_path)
+        offset = self._line_bounds(result.rendered_labels["plt_offset"].source_label)
+        default = self._line_bounds(result.rendered_labels["plt_underline"].source_label)
+        # At 0.1in the centerline (-(cutter + 0.1)) sits below the `p`/`g`
+        # descenders, so the block grows; the width is unchanged.
+        assert offset[3] - offset[1] > default[3] - default[1]
+        assert offset[2] - offset[0] == pytest.approx(default[2] - default[0], rel=1e-6)
+
+    def test_multi_run_draws_independent_underlines(self, tmp_path: Path) -> None:
+        """Two underlined runs separated by a plain glyph draw two underlines."""
+        result = self._export(tmp_path)
+        label = result.rendered_labels["plt_multi_run"].source_label
+        # `A<u>bb</u>C<u>dd</u>`: two runs, each descender-free, so two segments.
+        assert self._underline_stroke_count(label) >= 2
+
+    def test_partial_run_engraves_within_the_line(self, tmp_path: Path) -> None:
+        """A partial run underlines only its glyphs, within the line's width."""
+        result = self._export(tmp_path)
+        partial = self._line_bounds(result.rendered_labels["plt_partial"].source_label)
+        plain = self._line_bounds(result.rendered_labels["plt_partial_plain"].source_label)
+        # The underline sits inside the line's ink, so the block width is the
+        # whole line's (same as the plain twin); the underline is present.
+        assert partial[2] - partial[0] == pytest.approx(plain[2] - plain[0], rel=1e-6)
+        assert self._underline_stroke_count(result.rendered_labels["plt_partial"].source_label) >= 1
+
+    def test_nested_markup_shears_and_underlines(self, tmp_path: Path) -> None:
+        """``<i>...<u>...</u>...</i>`` shears every glyph, underlines the run."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+
+        nested = by_id["plt_nested"].content[0]
+        assert nested.plain_text == "nested markup tail"
+        # Exactly one run is underlined, and it is the inner ``markup``.
+        underlined_runs = [run for run in nested.styled_runs if run.style.underline]
+        assert [run.text for run in underlined_runs] == ["markup"]
+        # Every run is italic (the outer ``<i>``), and the underline is engraved.
+        assert all(run.style.italic for run in nested.styled_runs)
+        assert self._underline_stroke_count(by_id["plt_nested"]) >= 1
+
+    def test_ttf_underline_engraves(self, tmp_path: Path) -> None:
+        """The TTF path underlines with the same centerline geometry."""
+        result = self._export(tmp_path)
+        underlined = self._line_bounds(result.rendered_labels["ttf_underline"].source_label)
+        plain = self._line_bounds(result.rendered_labels["ttf_plain"].source_label)
+        # The TTF `p` descender is deeper than the underline, so the block is
+        # unchanged -- but the underline is still engraved.
+        assert underlined == pytest.approx(plain, abs=1e-9)
+        assert self._underline_stroke_count(result.rendered_labels["ttf_underline"].source_label) >= 1
+
+    def test_underline_never_moves_the_cutter(self, tmp_path: Path) -> None:
+        """The underline is a geometry transform: the cutter set is unchanged."""
+        result = self._export(tmp_path)
+        assert sorted(p.name for p in result.plt_paths) == [
+            "0.015_bh_ul.plt",
+            "0.060_txt_ul.plt",
+        ]

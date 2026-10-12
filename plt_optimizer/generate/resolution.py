@@ -182,6 +182,16 @@ DEFAULT_HTML_BRACKETS: str = "<>"
 # ``x' = x + y * tan(angle)``, so the baseline stays fixed and the glyph
 # leans right. Bound to [0, 45] by the schema; 0 = upright (shear skipped).
 DEFAULT_ITALIC_ANGLE: float = 12.0
+# Extra air (inches) for underline markup (``<u>``). The underline is a
+# centerline stroke cut with the line's own text cutter, positioned
+# ``cutter diameter + underline_offset`` below the baseline, so the engraved
+# underline's top edge floats exactly ``underline_offset`` below the engraved
+# baseline stroke; the same radius is the required air around colliding glyph
+# ink (a glyph's ink within ``cutter + offset`` of the centerline cuts a
+# minimal gap). 0.0 = the two strokes touch (the classic underline) and gaps
+# only where strokes truly overlap.
+# See ``plt_optimizer.generate.underline``.
+DEFAULT_UNDERLINE_OFFSET: float = 0.0
 # Horizontal text alignment defaults to centering (existing behaviour).
 DEFAULT_TEXT_H_ALIGNMENT: str = "center"
 # Explicit cutter diameter (inches) override. ``None`` (the default) means
@@ -661,6 +671,13 @@ class ResolvedTextLine:
             are sheared about the baseline, ``x' = x + y * tan(angle)``;
             ``0.0`` is upright (the shear is skipped). Bound to [0, 45] by
             the schema.
+        underline_offset: Extra air in inches for ``<u>`` markup (cascaded
+            line -> label -> job, default ``DEFAULT_UNDERLINE_OFFSET``
+            (0.0)). The underline centerline (cut with the line's own text
+            cutter) sits ``font descender depth + cutter diameter +
+            underline_offset`` below the baseline, and the same value is
+            the required air around colliding descenders. Bound to
+            ``[0, inf)`` by the schema; an explicit ``0.0`` is honored.
         plain_text: :attr:`text` with all inline markup removed -- the text
             reports, chunk records, and layout findings display. Equal to
             :attr:`text` when the line contains no parsed tag.
@@ -692,6 +709,7 @@ class ResolvedTextLine:
     sc_scale: float = DEFAULT_SC_SCALE
     html_brackets: str = DEFAULT_HTML_BRACKETS
     italic_angle: float = DEFAULT_ITALIC_ANGLE
+    underline_offset: float = DEFAULT_UNDERLINE_OFFSET
     plain_text: str = ""
     styled_runs: Tuple[Run, ...] = ()
     cutter_size: Optional[float] = DEFAULT_CUTTER_SIZE
@@ -2047,6 +2065,18 @@ def _resolve_content(
         else:
             line_italic_angle = DEFAULT_ITALIC_ANGLE
 
+        # Resolve the underline extra air with the same precedence; an
+        # intentional 0.0 (strokes may touch, gaps only on true overlap) is
+        # honored.
+        if line.underline_offset is not None:
+            line_underline_offset: float = line.underline_offset
+        elif label_input.underline_offset is not None:
+            line_underline_offset = label_input.underline_offset
+        elif job.underline_offset is not None:
+            line_underline_offset = job.underline_offset
+        else:
+            line_underline_offset = DEFAULT_UNDERLINE_OFFSET
+
         # Parse the line's inline markup with its own resolved delimiters
         # (validation-time loud failure, like an unknown font: a
         # MarkupError propagates as a ValueError and aborts the job).
@@ -2143,6 +2173,7 @@ def _resolve_content(
                 sc_scale=line_sc_scale,
                 html_brackets=line_html_brackets,
                 italic_angle=line_italic_angle,
+                underline_offset=line_underline_offset,
                 plain_text=styled.plain_text,
                 styled_runs=styled.runs,
                 cutter_size=line_cutter_size,
