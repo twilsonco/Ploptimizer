@@ -9,12 +9,16 @@
 # its first glyph's bounding-box left edge to its last glyph's right edge.
 #
 # The line's own glyph ink is measured against the underline with the true
-# 2D ink distance: every glyph whose engraved stroke comes within the same
-# radius (`cutter + offset`) of the centerline cuts a MINIMAL gap into it, so
-# descenders punch through the underline and nowhere else does it break. With
-# the Dino library at text_height 0.5 (toolpath 0.44) the caps sit on the
-# baseline -- tangent to a 0.0-offset underline, so no gap -- while `p`/`g`
-# reach ~0.149in below it and cut gaps.
+# 2D ink distance: every glyph whose engraved stroke overlaps the engraved
+# underline (ink within `cutter` of the centerline -- the stroke-touching
+# floor, deliberately offset-free) cuts a MINIMAL gap into it, so descenders
+# punch through the underline and nowhere else does it break. The offset lives
+# in the centerline POSITION only, so raising it lifts the underline clear of
+# a glyph and stops it breaking. With the Dino library at text_height 0.5
+# (toolpath 0.44) the clean caps `AVX` sit on the baseline -- tangent to a
+# 0.0-offset underline, so no gap -- while the rounded caps `O`/`G` overshoot
+# ~0.0026in below it (a gap at 0.0, none once the offset drops the underline
+# clear), and `p`/`g` reach ~0.146in below and cut gaps at every offset.
 #
 # Nesting is the framework's stack: `<i>nested <u>markup</u> tail</i>` shears
 # every glyph about the baseline AND underlines only `markup`. The underline

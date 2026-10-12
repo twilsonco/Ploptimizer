@@ -2639,3 +2639,64 @@ class TestUnderlineRenderDispatch:
         assert tb[1] == pytest.approx(0.0, abs=1e-12)
         assert nb[3] == pytest.approx(tb[3], abs=1e-12)
         assert nb[2] - nb[0] == pytest.approx(tb[2] - tb[0], abs=1e-12)
+
+    def test_offset_lifts_the_underline_clear_of_a_glyph(self) -> None:
+        """The gap trigger is offset-free, so the offset stops the breaking.
+
+        The Dino ``O``/``G`` overshoot ~0.0026in below the baseline (a
+        rounded cap's bowl dips a hair under the baseline). At offset 0.0 the
+        centerline sits one cutter below the baseline and the overshoot
+        overlaps the engraved underline, so the run breaks around both. The
+        collision test compares the ink-to-centerline distance against the
+        stroke-touching floor (``cutter_diameter``) -- NOT ``cutter + offset``
+        -- so a small offset lowers the underline clear of the overshoot and
+        the run engraves in one piece. Folding the offset into the trigger
+        cancelled it out of the test (a glyph collides iff its ink dips below
+        the baseline at *any* offset) and no offset stopped the break -- the
+        reported bug.
+        """
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+            _underline_render_gate,
+            _underline_strokes,
+        )
+        from plt_optimizer.generate.resolution import resolve_job_spec
+
+        def segments(offset: float) -> int:
+            line = resolve_job_spec(
+                _markup_job(("<u>DOG</u>", {"underline_offset": offset}), font="Dino")
+            )[0].content[0]
+            block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+            return len(_underline_strokes(line, block, glyphs, _underline_render_gate(line)))
+
+        # O + G each punch a gap: three kept segments.
+        assert segments(0.0) == 3
+        # The underline drops clear of the caps' overshoot: one continuous run.
+        assert segments(0.01) == 1
+        assert segments(0.1) == 1
+
+    def test_offset_does_not_stop_a_real_descender_breaking(self) -> None:
+        """A descender deeper than the offset keeps punching its gap.
+
+        The offset is air, not a gag order on the descenders: the Dino ``p``
+        hangs ~0.146in below the baseline, so even a 0.1in offset leaves the
+        engraved strokes overlapping and the underline keeps breaking.
+        """
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+            _underline_render_gate,
+            _underline_strokes,
+        )
+        from plt_optimizer.generate.resolution import resolve_job_spec
+
+        def segments(offset: float) -> int:
+            line = resolve_job_spec(
+                _markup_job(("<u>Depth</u>", {"underline_offset": offset}), font="Dino")
+            )[0].content[0]
+            block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+            return len(_underline_strokes(line, block, glyphs, _underline_render_gate(line)))
+
+        assert segments(0.0) == 4
+        assert segments(0.1) == 2

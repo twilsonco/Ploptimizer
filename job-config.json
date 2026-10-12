@@ -16,7 +16,7 @@
   "sc_scale": 0.8,
   "html_brackets": "<>",
   "italic_angle": 12.0,
-  "underline_offset": 0.0,
+  "underline_offset": 0.1,
   "cutter_downsize": true,
   "max_cutter_downsizes": 1,
   "cutter_downsize_global": true,

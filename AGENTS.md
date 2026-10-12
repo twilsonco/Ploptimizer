@@ -1130,8 +1130,15 @@ geometry is the single contract for both families (TTF parity by construction).
   honored, only `None` means unset) cascades line → label → job (plate parity,
   `job-config.json` shop default, `JobDefaults` key, not
   `REQUIRED_WHEN_UNCONFIGURED`). It is the **only** new schema field: the
-  position AND the collision radius are the same
-  `radius = cutter_diameter + underline_offset`.
+  **position** radius `cutter_diameter + underline_offset` (the offset is
+  edge-to-edge air) is deliberately **decoupled** from the **gap trigger**
+  radius `cutter_diameter` (the engraved-stroke touching floor: half the
+  underline's stroke + half the glyph's stroke, both cut with the line's
+  cutter). Folding the offset into the trigger cancels it out of the
+  collision test — a glyph collides iff its ink dips below the baseline at
+  *any* offset — so raising `underline_offset` could never stop a break
+  (the reported bug: caps with a sub-baseline overshoot punched gaps no
+  matter how deep the underline was set).
 - **Per-run spans:** each maximal underlined run draws its underline from its
   first glyph's bounding-box **left edge** to its last glyph's **right edge**
   (the run's own ink, not the whole line). Plain glyphs between two runs keep
@@ -1141,8 +1148,8 @@ geometry is the single contract for both families (TTF parity by construction).
 - **Minimal gap cutting** (`plt_optimizer/generate/underline.py`, pure Python,
   matplotlib-free, Win7/3.8-safe): the line's own glyph ink is measured against
   the underline with the **true 2D ink distance** — a circle of diameter
-  `2 * radius` rolled along the underline centerline collides exactly when it
-  touches glyph ink (equivalently the capsule∩line intersection,
+  `2 * cutter_diameter` rolled along the underline centerline collides exactly
+  when it touches glyph ink (equivalently the capsule∩line intersection,
   `capsule_line_interval`, closed-form per polyline segment, touching = safe).
   The collision set is convex per segment, so each collision cuts ONE minimal
   gap (`underline_segments` = the gap complement over the span, gaps closer

@@ -12,13 +12,17 @@ touch at ``0.0``), and it spans each maximal underlined run's ink width
 The TODO contract is *minimal breaking*: a glyph whose engraved ink would
 collide with the engraved underline cuts a gap into it. The collision test
 is the true 2D ink distance (the same metric the descending-character
-relief uses): the gap trigger radius is
+relief uses): the gap trigger radius is the engraved-stroke touching floor
 
-    r = 0.5 * cutter(underline) + 0.5 * cutter(text) + underline_offset
+    r = 0.5 * cutter(underline) + 0.5 * cutter(text) = cutter_diameter
 
-which, with the underline sharing the text cutter, is exactly
-``cutter_diameter + underline_offset`` -- the same value that positions the
-centerline, so the position and the gap rule are one self-consistent knob.
+(both strokes are cut with the line's own cutter). The offset is *air*
+(edge-to-edge) and lives in the centerline **position** only -- it must stay
+out of the trigger. Were the trigger ``cutter + offset`` too, the offset
+cancelled out of the collision test (a glyph collides iff its ink dips below
+the baseline, at *any* offset), so raising ``underline_offset`` could never
+prevent a break -- the reported bug where caps punched gaps no matter how
+deep the underline was set.
 A glyph's ink within ``r`` of the centerline removes the underline over the
 exact X-interval where the ink's radius-``r`` capsule crosses it; the
 underline is cut nowhere else.
@@ -206,7 +210,8 @@ def underline_segments(
         span: ``(x_min, x_max)`` of the underline (the run's first glyph's
             bbox left to its last glyph's bbox right).
         line_y: The underline centerline's Y.
-        radius: Gap trigger radius (``cutter + offset``).
+        radius: Gap trigger radius (the stroke-touching floor
+            ``cutter_diameter``; see :func:`capsule_line_interval`).
         min_length: Kept segments shorter than this are dropped (a speck
             narrower than the emission floor cannot be engraved).
 

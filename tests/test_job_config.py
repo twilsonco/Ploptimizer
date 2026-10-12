@@ -921,7 +921,7 @@ class TestParseYamlWithJobConfig:
         assert job.sc_scale == 0.8
         assert job.html_brackets == "<>"
         assert job.italic_angle == 12.0
-        assert job.underline_offset == 0.0
+        assert job.underline_offset == 0.1
         assert job.cutter_downsize is True
         assert job.max_cutter_downsizes == 1
         assert job.cutter_downsize_global is True

@@ -530,13 +530,15 @@ class TextAttributes(BaseModel):
             the line's own text cutter, positioned
             ``cutter diameter + underline_offset`` below the baseline, so
             the engraved underline's top edge floats exactly
-            ``underline_offset`` below the engraved baseline stroke. The
-            same radius is the required air around colliding glyph ink: a
-            glyph whose ink comes within ``cutter diameter +
-            underline_offset`` of the underline's centerline cuts a minimal
-            gap into it. ``0.0`` (the default) makes the two strokes touch
-            (the classic underline) and gaps only where the engraved strokes
-            truly overlap. Must be ``>= 0``; only ``None`` means unset.
+            ``underline_offset`` below the engraved baseline stroke. The gap
+            trigger is separate and offset-free: a glyph's ink within
+            ``cutter diameter`` of the underline's centerline (the floor at
+            which the two engraved strokes touch) cuts a minimal gap into it,
+            so raising the offset lifts the underline clear of a glyph and
+            stops it breaking. ``0.0`` (the default) makes the underline's
+            top edge touch the baseline stroke and gaps only where the
+            engraved strokes truly overlap. Must be ``>= 0``; only ``None``
+            means unset.
             Cascades line -> label -> job (and is accepted on plates
             for schema parity, where it is not applied at that level).
         cutter_size: Optional cutter diameter in inches to use for the text
@@ -808,10 +810,12 @@ class TextAttributes(BaseModel):
             "centerline (cut with the line's own text cutter) sits cutter "
             "diameter + this offset below the baseline, so the engraved "
             "underline's top edge floats exactly this offset below the "
-            "engraved baseline stroke; the same radius is the required air "
-            "around colliding glyph ink (a glyph's ink within cutter + "
-            "offset of the centerline cuts a minimal gap). 0.0 = the two "
-            "strokes touch (the classic underline). Must "
+            "engraved baseline stroke. The gap trigger is separate and "
+            "offset-free: a glyph's ink within cutter diameter of the "
+            "centerline (the stroke-touching floor) cuts a minimal gap, so "
+            "raising this offset lifts the underline clear and stops it "
+            "breaking. 0.0 = the underline's top edge touches the baseline "
+            "stroke. Must "
             "be >= 0. Cascades line -> label -> job (fallback 0.0); "
             "explicit 0.0 is honored."
         ),

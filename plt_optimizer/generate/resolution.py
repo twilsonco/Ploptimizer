@@ -186,10 +186,11 @@ DEFAULT_ITALIC_ANGLE: float = 12.0
 # centerline stroke cut with the line's own text cutter, positioned
 # ``cutter diameter + underline_offset`` below the baseline, so the engraved
 # underline's top edge floats exactly ``underline_offset`` below the engraved
-# baseline stroke; the same radius is the required air around colliding glyph
-# ink (a glyph's ink within ``cutter + offset`` of the centerline cuts a
-# minimal gap). 0.0 = the two strokes touch (the classic underline) and gaps
-# only where strokes truly overlap.
+# baseline stroke. The gap trigger is separate and offset-free: a glyph's ink
+# within ``cutter diameter`` of the centerline (the stroke-touching floor)
+# cuts a minimal gap, so raising the offset lifts the underline clear and
+# stops it breaking. 0.0 = the underline's top edge touches the baseline
+# stroke and gaps only where strokes truly overlap.
 # See ``plt_optimizer.generate.underline``.
 DEFAULT_UNDERLINE_OFFSET: float = 0.0
 # Horizontal text alignment defaults to centering (existing behaviour).
@@ -674,9 +675,11 @@ class ResolvedTextLine:
         underline_offset: Extra air in inches for ``<u>`` markup (cascaded
             line -> label -> job, default ``DEFAULT_UNDERLINE_OFFSET``
             (0.0)). The underline centerline (cut with the line's own text
-            cutter) sits ``font descender depth + cutter diameter +
-            underline_offset`` below the baseline, and the same value is
-            the required air around colliding descenders. Bound to
+            cutter) sits ``cutter diameter + underline_offset`` below the
+            baseline; the gap trigger is the separate, offset-free
+            stroke-touching floor (``cutter diameter``), so raising this
+            offset lifts the underline clear of a glyph and stops it
+            breaking. Bound to
             ``[0, inf)`` by the schema; an explicit ``0.0`` is honored.
         plain_text: :attr:`text` with all inline markup removed -- the text
             reports, chunk records, and layout findings display. Equal to
