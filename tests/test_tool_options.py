@@ -55,7 +55,7 @@ class TestToolOptionHeaderGeneration:
         
         # Check defaults (from job-config.json)
         header_strs = "\n".join(headers)
-        assert "VS0.80;" in header_strs  # default cutting velocity
+        assert "VS1.50;" in header_strs  # default cutting velocity (text)
         assert "ZO124,50;" in header_strs  # default dwell time
 
     def test_bool_formatting(self):

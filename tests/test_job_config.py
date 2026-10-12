@@ -878,7 +878,7 @@ class TestParseYamlWithJobConfig:
         assert job.hole_text_collision_distance == 0.1
         assert job.space_width_fraction == 0.6
         assert job.min_glyph_width == 0.06
-        assert job.kerning_window_fraction == 0.1
+        assert job.kerning_window_fraction == 0.01
         assert job.kerning_penetration_scale == 1.0
         assert job.kerning_recession_scale == 0.0
         assert job.kerning_min_gap == 0.02
