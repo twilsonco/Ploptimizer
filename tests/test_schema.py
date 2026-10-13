@@ -2476,3 +2476,32 @@ class TestUnderlineOffsetField:
         """The plate tier carries the field for schema parity."""
         plate = PlateSpec(id="p", width=24.0, height=16.0, underline_offset=0.1)
         assert plate.underline_offset == 0.1
+
+
+class TestUnderlineBreakClearanceField:
+    """The cascading ``underline_break_clearance`` field (line -> label -> job + plate)."""
+
+    def test_defaults_to_none_everywhere(self) -> None:
+        """Every tier defaults underline_break_clearance to None (unset)."""
+        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        assert job.underline_break_clearance is None
+        assert TextLine(text="X").underline_break_clearance is None
+        assert PlateSpec(id="p", width=24.0, height=16.0).underline_break_clearance is None
+
+    @pytest.mark.parametrize("value", [0.0, 0.1, 2.5])
+    def test_non_negative_accepted(self, value: float) -> None:
+        """Any non-negative clearance is accepted, 0.0 included."""
+        assert (
+            TextLine(text="X", underline_break_clearance=value).underline_break_clearance == value
+        )
+
+    @pytest.mark.parametrize("value", [-0.1, -1.0])
+    def test_negative_rejected(self, value: float) -> None:
+        """A negative clearance is a validation error."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", underline_break_clearance=value)
+
+    def test_plate_parity_accepts_the_field(self) -> None:
+        """The plate tier carries the field for schema parity."""
+        plate = PlateSpec(id="p", width=24.0, height=16.0, underline_break_clearance=0.1)
+        assert plate.underline_break_clearance == 0.1

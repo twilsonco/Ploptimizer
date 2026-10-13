@@ -13,16 +13,19 @@ The TODO contract is *minimal breaking*: a glyph whose engraved ink would
 collide with the engraved underline cuts a gap into it. The collision test
 is the true 2D ink distance (the same metric the descending-character
 relief uses): the gap trigger radius is the engraved-stroke touching floor
+plus the requested break clearance
 
-    r = 0.5 * cutter(underline) + 0.5 * cutter(text) = cutter_diameter
+    r = 0.5 * cutter(underline) + 0.5 * cutter(text) + underline_break_clearance
+      = cutter_diameter + underline_break_clearance
 
-(both strokes are cut with the line's own cutter). The offset is *air*
-(edge-to-edge) and lives in the centerline **position** only -- it must stay
-out of the trigger. Were the trigger ``cutter + offset`` too, the offset
-cancelled out of the collision test (a glyph collides iff its ink dips below
-the baseline, at *any* offset), so raising ``underline_offset`` could never
-prevent a break -- the reported bug where caps punched gaps no matter how
-deep the underline was set.
+(both strokes are cut with the line's own cutter, so the floor is one cutter
+diameter; the clearance is the engraved air left at each cut edge, 0.0 = the
+strokes touch). The **offset** is *air* (edge-to-edge) and lives in the
+centerline **position** only -- it must stay out of the trigger. Were the
+trigger ``cutter + offset`` too, the offset cancelled out of the collision
+test (a glyph collides iff its ink dips below the baseline, at *any* offset),
+so raising ``underline_offset`` could never prevent a break -- the reported
+bug where caps punched gaps no matter how deep the underline was set.
 A glyph's ink within ``r`` of the centerline removes the underline over the
 exact X-interval where the ink's radius-``r`` capsule crosses it; the
 underline is cut nowhere else.

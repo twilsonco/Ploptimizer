@@ -541,6 +541,16 @@ class TextAttributes(BaseModel):
             means unset.
             Cascades line -> label -> job (and is accepted on plates
             for schema parity, where it is not applied at that level).
+        underline_break_clearance: Extra air in **inches** at each underline
+            break. The gap trigger radius is ``cutter diameter +
+            underline_break_clearance``, so the engraved gap between a
+            descending glyph's stroke and the underline's cut edge is exactly
+            this clearance (``0.0`` = the cut sits at stroke tangency, the two
+            strokes touch). Independent of ``underline_offset`` (which moves
+            the centerline); this field adds air at the break itself.
+            Must be ``>= 0``; only ``None`` means unset.
+            Cascades line -> label -> job (and is accepted on plates
+            for schema parity, where it is not applied at that level).
         cutter_size: Optional cutter diameter in inches to use for the text
             instead of the tool auto-selected from ``text_height``. When set,
             the requested diameter is snapped to the shop inventory
@@ -818,6 +828,20 @@ class TextAttributes(BaseModel):
             "stroke. Must "
             "be >= 0. Cascades line -> label -> job (fallback 0.0); "
             "explicit 0.0 is honored."
+        ),
+    )
+    underline_break_clearance: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Extra air in inches at each underline (<u>) break: the gap "
+            "trigger radius is cutter diameter + this clearance, so the "
+            "engraved gap between a descending glyph's stroke and the "
+            "underline's cut edge is exactly this value. 0.0 = the cut sits "
+            "at stroke tangency (the strokes touch). Independent of "
+            "underline_offset (which moves the centerline). Must be >= 0. "
+            "Cascades line -> label -> job (fallback 0.0); explicit 0.0 "
+            "is honored."
         ),
     )
     cutter_size: Optional[float] = Field(
@@ -1590,6 +1614,10 @@ class PlateSpec(BaseModel):
         underline_offset: Optional underline air in inches. Accepted for
             schema parity with the job/label ``underline_offset`` cascade
             (not applied at plate level).
+        underline_break_clearance: Optional air in inches at each underline
+            break. Accepted for schema parity with the job/label
+            ``underline_break_clearance`` cascade (not applied at plate
+            level).
         cutter_size: Optional cutter diameter in inches. Accepted for schema
             parity with the job/label ``cutter_size`` cascade (not applied at
             plate level).
@@ -1792,6 +1820,14 @@ class PlateSpec(BaseModel):
         description=(
             "Underline (<u>) extra air in inches below the baseline stroke "
             "(schema parity; not applied at plate level)."
+        ),
+    )
+    underline_break_clearance: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Underline (<u>) extra air in inches at each break (schema "
+            "parity; not applied at plate level)."
         ),
     )
     cutter_size: Optional[float] = Field(

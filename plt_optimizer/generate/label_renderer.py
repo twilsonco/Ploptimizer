@@ -2037,11 +2037,12 @@ def _underline_strokes(
 
     The centerline **position** and the **gap trigger** are two distinct
     radii. The position is ``cutter + offset`` below the baseline (the offset
-    is the edge-to-edge air the user asked for). The gap trigger is the pure
+    is the edge-to-edge air the user asked for). The gap trigger is the
     engraved-stroke touching floor ``cutter`` -- half the underline's own
-    stroke plus half the glyph's stroke (both cut with the line's cutter):
-    the two strokes collide exactly when the ink sits within ``cutter`` of the
-    centerline. The offset must stay out of the trigger: were the trigger
+    stroke plus half the glyph's stroke (both cut with the line's cutter) --
+    **plus** ``underline_break_clearance``, the air left at each cut edge
+    (0.0 = the cut sits at tangency, the strokes touch). The offset must stay
+    out of the trigger: were the trigger
     ``cutter + offset`` too, the offset would cancel out of the collision
     test (a glyph collides iff its ink dips below the baseline, at *any*
     offset), so raising ``underline_offset`` could never prevent a break --
@@ -2065,8 +2066,10 @@ def _underline_strokes(
     # the baseline, so the engraved underline's top edge floats `offset` clear.
     line_y = -(line.cutter_diameter + line.underline_offset)
     # Gap trigger: the engraved-stroke touching floor (underline half-width +
-    # glyph half-width, both = cutter / 2). Offset-free (see the docstring).
-    gap_radius = line.cutter_diameter
+    # glyph half-width, both = cutter / 2) plus the requested break clearance,
+    # so the engraved gap at each cut edge equals `underline_break_clearance`
+    # (0.0 = tangency). Offset-free (see the docstring).
+    gap_radius = line.cutter_diameter + line.underline_break_clearance
     chars = _glyph_chars(line.plain_text)
     if len(chars) != len(glyph_groups):
         return []

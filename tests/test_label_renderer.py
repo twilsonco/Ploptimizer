@@ -2700,3 +2700,46 @@ class TestUnderlineRenderDispatch:
 
         assert segments(0.0) == 4
         assert segments(0.1) == 2
+
+    def test_break_clearance_widens_the_gap_around_a_descender(self) -> None:
+        """``underline_break_clearance`` is the air at each underline break.
+
+        The gap trigger radius is ``cutter + clearance``, so the engraved gap
+        between a descending glyph's stroke and the underline's cut edge equals
+        the clearance (0.0 = the cut sits at stroke tangency, the strokes
+        touch). ``pay`` on Dino keeps the same break count at clearance 0.0 and
+        0.02, so every break width grows -- the clearance is the knob the
+        offset is not (the offset moves the centerline; it cannot add air at
+        the cut).
+        """
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+            _underline_render_gate,
+            _underline_strokes,
+        )
+        from plt_optimizer.generate.resolution import resolve_job_spec
+
+        def break_widths(clearance: float) -> list[float]:
+            line = resolve_job_spec(
+                _markup_job(
+                    ("<u>pay</u>", {"underline_break_clearance": clearance}),
+                    font="Dino",
+                )
+            )[0].content[0]
+            block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+            strokes = _underline_strokes(line, block, glyphs, _underline_render_gate(line))
+            spans = sorted(
+                (stroke.segments[0].start.real, stroke.segments[0].end.real) for stroke in strokes
+            )
+            return [spans[index + 1][0] - spans[index][1] for index in range(len(spans) - 1)]
+
+        tight = break_widths(0.0)
+        wide = break_widths(0.02)
+        assert len(tight) == len(wide) == 3
+        # Every break grows by (at least) the clearance on each side.
+        assert all(w > t for w, t in zip(wide, tight))
+        # A larger clearance keeps widening (monotone, no oscillation).
+        wider = break_widths(0.05)
+        assert len(wider) >= 1
+        assert max(wider) > max(wide)

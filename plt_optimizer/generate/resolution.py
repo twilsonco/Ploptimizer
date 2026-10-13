@@ -193,6 +193,15 @@ DEFAULT_ITALIC_ANGLE: float = 12.0
 # stroke and gaps only where strokes truly overlap.
 # See ``plt_optimizer.generate.underline``.
 DEFAULT_UNDERLINE_OFFSET: float = 0.0
+# Extra air (inches) at each underline break. The gap trigger radius is
+# ``cutter diameter + underline_break_clearance``, so the engraved gap between
+# a descending glyph's stroke and the underline's cut edge is exactly this
+# clearance (0.0 = the cut sits at stroke tangency, the strokes touch).
+# Independent of the offset (which moves the centerline); this adds air at the
+# break itself. The code fallback is 0.0 (tangency, the historical cut);
+# job-config.json supplies the shop default (0.1).
+# See ``plt_optimizer.generate.underline``.
+DEFAULT_UNDERLINE_BREAK_CLEARANCE: float = 0.0
 # Horizontal text alignment defaults to centering (existing behaviour).
 DEFAULT_TEXT_H_ALIGNMENT: str = "center"
 # Explicit cutter diameter (inches) override. ``None`` (the default) means
@@ -681,6 +690,16 @@ class ResolvedTextLine:
             offset lifts the underline clear of a glyph and stops it
             breaking. Bound to
             ``[0, inf)`` by the schema; an explicit ``0.0`` is honored.
+        underline_break_clearance: Extra air in inches at each ``<u>`` break
+            (cascaded line -> label -> job, default
+            ``DEFAULT_UNDERLINE_BREAK_CLEARANCE`` (0.0)). The gap trigger
+            radius is ``cutter diameter + underline_break_clearance``, so the
+            engraved gap between a descending glyph's stroke and the
+            underline's cut edge is exactly this clearance (0.0 = the cut sits
+            at stroke tangency). Independent of :attr:`underline_offset`
+            (which moves the centerline); this adds air at the break itself.
+            Bound to ``[0, inf)`` by the schema; an explicit ``0.0`` is
+            honored.
         plain_text: :attr:`text` with all inline markup removed -- the text
             reports, chunk records, and layout findings display. Equal to
             :attr:`text` when the line contains no parsed tag.
@@ -713,6 +732,7 @@ class ResolvedTextLine:
     html_brackets: str = DEFAULT_HTML_BRACKETS
     italic_angle: float = DEFAULT_ITALIC_ANGLE
     underline_offset: float = DEFAULT_UNDERLINE_OFFSET
+    underline_break_clearance: float = DEFAULT_UNDERLINE_BREAK_CLEARANCE
     plain_text: str = ""
     styled_runs: Tuple[Run, ...] = ()
     cutter_size: Optional[float] = DEFAULT_CUTTER_SIZE
@@ -2080,6 +2100,17 @@ def _resolve_content(
         else:
             line_underline_offset = DEFAULT_UNDERLINE_OFFSET
 
+        # Resolve the underline break clearance with the same precedence; an
+        # intentional 0.0 (the cut sits at stroke tangency) is honored.
+        if line.underline_break_clearance is not None:
+            line_underline_break_clearance: float = line.underline_break_clearance
+        elif label_input.underline_break_clearance is not None:
+            line_underline_break_clearance = label_input.underline_break_clearance
+        elif job.underline_break_clearance is not None:
+            line_underline_break_clearance = job.underline_break_clearance
+        else:
+            line_underline_break_clearance = DEFAULT_UNDERLINE_BREAK_CLEARANCE
+
         # Parse the line's inline markup with its own resolved delimiters
         # (validation-time loud failure, like an unknown font: a
         # MarkupError propagates as a ValueError and aborts the job).
@@ -2177,6 +2208,7 @@ def _resolve_content(
                 html_brackets=line_html_brackets,
                 italic_angle=line_italic_angle,
                 underline_offset=line_underline_offset,
+                underline_break_clearance=line_underline_break_clearance,
                 plain_text=styled.plain_text,
                 styled_runs=styled.runs,
                 cutter_size=line_cutter_size,

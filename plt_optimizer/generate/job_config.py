@@ -381,6 +381,17 @@ class JobDefaults(BaseModel):
             "falls back to 0.0."
         ),
     )
+    underline_break_clearance: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Default underline (<u>) break clearance in inches (job layer): "
+            "the gap trigger radius is cutter diameter + this clearance, so "
+            "the engraved gap between a descending glyph's stroke and the "
+            "underline's cut edge is exactly this value. 0.0 = the cut sits "
+            "at stroke tangency (the strokes touch). Unset falls back to 0.0."
+        ),
+    )
     holes: Optional[list[HoleSpec]] = Field(
         default=None,
         description="Default drill-hole list (job layer; group locations expand like spec holes).",
@@ -626,6 +637,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "html_brackets",
     "italic_angle",
     "underline_offset",
+    "underline_break_clearance",
     "cutter_downsize",
     "max_cutter_downsizes",
     "cutter_downsize_global",

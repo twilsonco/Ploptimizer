@@ -2665,7 +2665,9 @@ class TestUnderlineDemoExample:
         # The `p`/`g` hang below the underline, so the block is unchanged --
         # but the underline is still engraved (gaps punched around the descenders).
         assert underlined == pytest.approx(plain, abs=1e-9)
-        assert self._underline_stroke_count(result.rendered_labels["plt_underline"].source_label) >= 2
+        assert (
+            self._underline_stroke_count(result.rendered_labels["plt_underline"].source_label) >= 2
+        )
 
     def test_offset_pushes_the_underline_deeper(self, tmp_path: Path) -> None:
         """A larger ``underline_offset`` lowers the centerline below the descender."""
@@ -2676,6 +2678,27 @@ class TestUnderlineDemoExample:
         # descenders, so the block grows; the width is unchanged.
         assert offset[3] - offset[1] > default[3] - default[1]
         assert offset[2] - offset[0] == pytest.approx(default[2] - default[0], rel=1e-6)
+
+    def test_break_clearance_widens_the_breaks(self, tmp_path: Path) -> None:
+        """``underline_break_clearance`` adds air at each break, not depth.
+
+        The centerline stays at the default offset (one cutter below the
+        baseline), so the block's depth matches the clearance-0.0 control; the
+        clearance widens each break, splitting the run into more segments.
+        """
+        result = self._export(tmp_path)
+        wide = result.rendered_labels["plt_break_clearance"].source_label
+        tight = result.rendered_labels["plt_break_clearance_plain"].source_label
+        wb = self._line_bounds(wide)
+        tb = self._line_bounds(tight)
+        # Same centerline Y (the clearance never moves the underline): the
+        # block's floor is identical.
+        assert wb[1] == pytest.approx(tb[1], abs=1e-9)
+        # Clearance 0.05 cuts a WIDER gap around the `p`/`y` descenders, so
+        # the neighbouring tangency gaps merge: fewer, wider breaks than the
+        # clearance-0.0 control (which cuts the minimal tangency gaps).
+        assert self._underline_stroke_count(wide) < self._underline_stroke_count(tight)
+        assert self._underline_stroke_count(wide) >= 1
 
     def test_multi_run_draws_independent_underlines(self, tmp_path: Path) -> None:
         """Two underlined runs separated by a plain glyph draw two underlines."""
@@ -2716,7 +2739,9 @@ class TestUnderlineDemoExample:
         # The TTF `p` descender is deeper than the underline, so the block is
         # unchanged -- but the underline is still engraved.
         assert underlined == pytest.approx(plain, abs=1e-9)
-        assert self._underline_stroke_count(result.rendered_labels["ttf_underline"].source_label) >= 1
+        assert (
+            self._underline_stroke_count(result.rendered_labels["ttf_underline"].source_label) >= 1
+        )
 
     def test_underline_never_moves_the_cutter(self, tmp_path: Path) -> None:
         """The underline is a geometry transform: the cutter set is unchanged."""

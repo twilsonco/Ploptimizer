@@ -10,8 +10,9 @@
 #
 # The line's own glyph ink is measured against the underline with the true
 # 2D ink distance: every glyph whose engraved stroke overlaps the engraved
-# underline (ink within `cutter` of the centerline -- the stroke-touching
-# floor, deliberately offset-free) cuts a MINIMAL gap into it, so descenders
+# underline (ink within `cutter + underline_break_clearance` of the centerline
+# -- the stroke-touching floor plus the break clearance, deliberately
+# offset-free) cuts a MINIMAL gap into it, so descenders
 # punch through the underline and nowhere else does it break. The offset lives
 # in the centerline POSITION only, so raising it lifts the underline clear of
 # a glyph and stops it breaking. With the Dino library at text_height 0.5
@@ -86,6 +87,24 @@ job:
       underline_offset: 0.1
       content:
         - text: "<u>Depth</u>"
+
+    # 5b. underline_break_clearance 0.05 adds air at each break (the gap
+    #     trigger radius becomes cutter + 0.05), so the engraved gap between a
+    #     descender's stroke and the underline's cut edge is 0.05in. The
+    #     centerline stays at the default offset (one cutter below the
+    #     baseline), so this isolates the break-clearance knob from the
+    #     position knob.
+    - id: plt_break_clearance
+      font: Dino
+      underline_break_clearance: 0.05
+      content:
+        - text: "<u>pay</u>"
+
+    # 5c. The clearance-0.0 control for label 5b (the classic tangency cut).
+    - id: plt_break_clearance_plain
+      font: Dino
+      content:
+        - text: "<u>pay</u>"
 
     # 6. Nested markup: every glyph shears (italic) while only `markup` is
     #    underlined. The underline is horizontal and spans just that run.
