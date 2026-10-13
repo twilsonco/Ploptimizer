@@ -883,6 +883,42 @@ class TextAttributes(BaseModel):
             "line -> label -> job."
         ),
     )
+    target_boldness_factor: Optional[float] = Field(
+        default=None,
+        ge=0.05,
+        le=0.30,
+        description=(
+            "Target engraved stroke width as a fraction of text height for "
+            "multi-stroke (bold) PLT fonts - fonts whose glyphs carry N > 1 "
+            "parallel cutter passes (the stroke_count stored in "
+            "plt_fonts.json). The automatic cutter is sized so the N passes "
+            "plus their overlaps engrave this total width, with "
+            "multistroke_overlap_ratio guarding against unengraved stripes; "
+            "the resulting cutter is snapped to the shop inventory. The "
+            "implicit pass overlap is derived and logged. Inert on "
+            "single-stroke fonts, TTF fonts, and lines with an explicit "
+            "cutter_size. Bound to [0.05, 0.30]. Cascades line -> label -> "
+            "job (fallback 0.14); accepted on plates for schema parity only."
+        ),
+    )
+    multistroke_overlap_ratio: Optional[float] = Field(
+        default=None,
+        ge=0.1,
+        le=0.5,
+        description=(
+            "Minimum overlap fraction between adjacent cutter passes of a "
+            "multi-stroke (bold) PLT font: the automatic cutter is never "
+            "smaller than pass_spacing / (1 - this ratio), so adjacent "
+            "engraved strokes always overlap by at least this fraction and "
+            "no unengraved stripe can appear between passes (an overlap of "
+            "0.25 means the stepover stays within 75% of the cutter width). "
+            "The actual overlap is derived from the chosen cutter and "
+            "logged. Inert on single-stroke fonts, TTF fonts, and lines "
+            "with an explicit cutter_size. Bound to [0.1, 0.5]. Cascades "
+            "line -> label -> job (fallback 0.25); accepted on plates for "
+            "schema parity only."
+        ),
+    )
     cutter_downsize: Optional[bool] = Field(
         default=None,
         description=(
@@ -1870,6 +1906,23 @@ class PlateSpec(BaseModel):
         description=(
             "Cutter diameter in inches overriding automatic selection "
             "(schema parity; not applied at plate level)."
+        ),
+    )
+    target_boldness_factor: Optional[float] = Field(
+        default=None,
+        ge=0.05,
+        le=0.30,
+        description=(
+            "Multi-stroke target engraved stroke width as a fraction of "
+            "text height (schema parity; not applied at plate level)."
+        ),
+    )
+    multistroke_overlap_ratio: Optional[float] = Field(
+        default=None,
+        ge=0.1,
+        le=0.5,
+        description=(
+            "Multi-stroke minimum pass overlap ratio (schema parity; not applied at plate level)."
         ),
     )
     cutter_downsize: Optional[bool] = Field(

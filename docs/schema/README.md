@@ -175,6 +175,7 @@ always wins at its level. Precedence per attribute:
 |---|---|---|
 | `text_height`, `character_spacing`, `line_spacing`, `max_h_compress`, `text_h_alignment` | line → label → job → config | see fallback table in `JOB_SPEC.md` |
 | `cutter_size` | line → label → job (no config tier) | `null` = auto-select from `text_height` |
+| `target_boldness_factor`, `multistroke_overlap_ratio` | line → label → job → config (plate parity) | `0.14` / `0.25` (multi-stroke PLT fonts only) |
 | `cutter_downsize`, `max_cutter_downsizes`, `cutter_downsize_global` | line → label → job → config | `true` / `1` / `true` |
 | `h_compress_global` | line → label → job → config | `false` |
 | `use_baseline_spacing` | label → job → config (never lines; plate parity) | `true` |
@@ -230,7 +231,8 @@ entries that omit it).
   (`<material>_default_plate_{i}`). Not a `job-config.json` key.
 - **Per-plate typographic fields** (`hole_margin`, `max_h_compress`,
   `text_h_alignment`, `min_hole_margin`, `hole_text_collision_distance`,
-  `cutter_size`, `cutter_downsize`, `max_cutter_downsizes`,
+  `cutter_size`, `target_boldness_factor`, `multistroke_overlap_ratio`,
+  `cutter_downsize`, `max_cutter_downsizes`,
   `cutter_downsize_global`, `h_compress_global`, `use_baseline_spacing`,
   `v_center_by_content`,
   `auto_descending_character_adjustment`, `descending_character_v_scale`,
@@ -238,6 +240,23 @@ entries that omit it).
   `descending_character_reciprocal_scale`) are
   accepted on plates for schema parity but **not applied** at plate level —
   labels render once before packing.
+- **Multi-stroke (bold) fonts** (`target_boldness_factor` default 0.14, bounds
+  [0.05, 0.30]; `multistroke_overlap_ratio` default 0.25, bounds [0.1, 0.5]):
+  a PLT font whose glyphs carry N > 1 parallel cutter passes (the `_S<n>`
+  sample-sheet suffix recorded as `stroke_count` in `Fonts/plt_fonts.json`)
+  gets its automatic cutter from the boldness ladder: the engraved passes must
+  total `text_height * target_boldness_factor` of width, with
+  `multistroke_overlap_ratio` as the gap-free floor (the cutter is never
+  smaller than `pass_spacing / (1 - ratio)`, so adjacent passes always
+  overlap), then snapped to the `tools.json` inventory (stepping up when the
+  snap-down breaks the floor). The implicit pass overlap is derived and logged.
+  The stored glyph geometry is emitted verbatim (the sheet is the source of
+  truth for the bold shape), so the stroke count drives cutter sizing only —
+  kerning, collision, descender relief, the pen map and per-cutter files all
+  read the per-line `cutter_diameter` and pick the result up. Inert on
+  single-stroke fonts, TTF fonts, and lines with an explicit `cutter_size`
+  (which bypasses the ladder). Both cascade line → label → job → config
+  (plate parity only).
 - **`cutter_size` (default null)**: an explicit cutter diameter (inches)
   overriding the automatic height→cutter lookup. The requested diameter is
   snapped to `tools.json` `available_cutters` (next size down, else next up,

@@ -83,6 +83,18 @@ _FALLBACK_NOTES: dict[str, str] = {
     "(IDEAL_CUTTER_MAP + inventory snapping). An explicit cutter_size (line/label/job, no "
     "job-config tier) overrides the lookup: it snaps to the inventory (next size down, else "
     "up) and the toolpath height becomes text_height - cutter_size.",
+    "DEFAULT_TARGET_BOLDNESS_FACTOR": "0.14 = the target engraved stroke width (as a fraction "
+    "of text height) for multi-stroke (bold) PLT fonts (stroke_count > 1 in plt_fonts.json). "
+    "The automatic cutter is sized so the N engraved passes total this width, then snapped to "
+    "the inventory (stepping up when the snap-down breaks the gap-free floor). Inert on "
+    "single-stroke fonts, TTF fonts, and lines with an explicit cutter_size. Cascades "
+    "line/label/job; job-config supplies the shop default.",
+    "DEFAULT_MULTISTROKE_OVERLAP_RATIO": "0.25 = the minimum overlap fraction between adjacent "
+    "cutter passes of a multi-stroke (bold) PLT font: the derived cutter is never smaller than "
+    "pass_spacing / (1 - ratio), so engraved passes always overlap and no unengraved stripe "
+    "appears. The actual overlap is derived from the chosen cutter and logged. Inert on "
+    "single-stroke fonts, TTF fonts, and lines with an explicit cutter_size. Cascades "
+    "line/label/job; job-config supplies the shop default.",
     "DEFAULT_CUTTER_DOWNSIZE": "True = the automatic cutter may be reduced one rung per "
     "allowed step when a text line is horizontally compressed past the midpoint between the "
     "current cutter and the next smaller inventory cutter (requires tools.json inventory; an "

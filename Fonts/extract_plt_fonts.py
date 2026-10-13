@@ -12,8 +12,12 @@ VisionPro.md`` beside this script) is:
    character** (e.g. ``E``), which acts as structural framing only.
 2. Engrave the sheet to a PLT file.
 3. Drop the PLT into ``Fonts/PLT/`` named
-   ``<font name>_<declared height in>_<reference char>.plt`` (e.g.
-   ``dino_0.5_E.plt``).
+   ``<font name>_<declared height in>_<reference char>[_S<strokes>].plt``
+   (e.g. ``dino_0.5_E.plt``, ``avenge5_0.55_E_S5.plt``). The optional
+   ``_S<n>`` suffix declares how many parallel cutter passes each glyph
+   carries (a multi-stroke/bold font); omitted means a single-stroke font.
+   The count is stored as the font's ``stroke_count`` metadata and drives
+   the renderer's automatic cutter sizing.
 4. Run this script::
 
        uv run python Fonts/extract_plt_fonts.py
@@ -66,6 +70,7 @@ The result is merged into ``Fonts/plt_fonts.json``::
     {
       "<Font Name>": {
         "file_path": "Fonts/PLT/dino_0.5_E.plt",
+        "stroke_count": 1,
         "reference_char": "E",
         "declared_height_in": 0.5,
         "reference_char_height_in": 0.508017,
@@ -110,6 +115,7 @@ import argparse
 import json
 import logging
 import math
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -177,12 +183,16 @@ ENVELOPE_SAMPLES = 30
 # EngraveLab setup mistakes (wrong reference char, mis-sized framing).
 DRIFT_WARN_THRESHOLD = 0.05
 
-# Maximum coordinate difference, in raw plotter units, between the internal
-# reference glyph and a row-framing copy for the sheet to be accepted. The
-# core parser rounds every :class:`~plt_optimizer.core.models.Coordinate` to
-# 3 decimals, so two *identical* glyphs can differ by up to 0.001 units; the
-# comparison therefore accepts this bound (plus a tiny float slack).
-REFERENCE_MATCH_TOLERANCE = 1e-3
+# Maximum nearest-neighbour point gap, in raw plotter units, between the
+# internal reference glyph and a row-framing copy for the sheet to be
+# accepted. The core parser rounds every :class:`~plt_optimizer.core.models.Coordinate`
+# to 3 decimals, and the framing comparison works in *left-bottom-relative*
+# coordinates, so a point and its cluster origin are each rounded - two
+# identical engraved copies therefore measure up to ~0.003 units apart. The
+# comparison accepts this bound (plus a tiny float slack); a genuine geometry
+# difference (a wider framing glyph, a mis-split row) measures tens to
+# hundreds of units, four orders of magnitude larger.
+REFERENCE_MATCH_TOLERANCE = 5e-3
 
 # Characters whose stored geometry is *translated* so the centre of their own
 # bounding box sits on the midline (``MIDLINE_FRACTION * LIBRARY_UNITS_PER_INCH``,
@@ -362,31 +372,50 @@ def load_characters(ascii_file: Path) -> List[str]:
     return list(characters)
 
 
-def parse_font_file_name(plt_path: Path) -> Tuple[str, float, str]:
-    """Split an engraved sample file name into font name, height and reference.
+_STROKE_SUFFIX_RE = re.compile(r"^(.*)_S(\d+)$")
 
-    The convention is ``<font name>_<declared height in>_<ref char>.plt``
-    (e.g. ``dino_0.5_E.plt``). The declared height is the text height typed
-    into EngraveLab/Vision Pro; it is stored as metadata only - the actual
-    normalization scale comes from the *measured* reference character. The
-    font name may contain underscores, which become spaces.
+
+def parse_font_file_name(plt_path: Path) -> Tuple[str, float, str, int]:
+    """Split an engraved sample file name into name, height, reference, strokes.
+
+    The convention is
+    ``<font name>_<declared height in>_<ref char>[_S<strokes>].plt``
+    (e.g. ``dino_0.5_E.plt``, ``avenge5_0.55_E_S5.plt``). The declared height
+    is the text height typed into EngraveLab/Vision Pro; it is stored as
+    metadata only - the actual normalization scale comes from the *measured*
+    reference character. The font name may contain underscores, which become
+    spaces. The optional ``_S<n>`` suffix (parsed *before* the name split) is
+    the number of parallel cutter passes each glyph carries; omitted means a
+    single-stroke font (``stroke_count = 1``).
 
     Args:
         plt_path: Path to the engraved sample PLT.
 
     Returns:
-        Tuple of ``(font_name, declared_height_inches, reference_char)``.
+        Tuple of ``(font_name, declared_height_inches, reference_char,
+        stroke_count)``.
 
     Raises:
         FontExtractionError: If the file name is malformed, carries a
-            non-positive/non-finite height, or a reference character that is
-            not a single character.
+            non-positive/non-finite height, a reference character that is
+            not a single character, or a stroke suffix below one.
     """
-    parts = plt_path.stem.rsplit("_", 2)
+    stem = plt_path.stem
+    stroke_count = 1
+    suffix = _STROKE_SUFFIX_RE.match(stem)
+    if suffix is not None:
+        stem = suffix.group(1)
+        stroke_count = int(suffix.group(2))
+        if stroke_count < 1:
+            raise FontExtractionError(
+                f"{plt_path.name}: stroke count suffix must be >= 1 "
+                f"(got S{suffix.group(2)}); omit the suffix for a single-stroke font"
+            )
+    parts = stem.rsplit("_", 2)
     usage = (
         f"{plt_path.name}: file name must be "
-        f"'<font name>_<declared height in>_<ref char>.plt' "
-        f"(e.g. 'dino_0.5_E.plt')"
+        f"'<font name>_<declared height in>_<ref char>[_S<strokes>].plt' "
+        f"(e.g. 'dino_0.5_E.plt' or 'avenge5_0.55_E_S5.plt')"
     )
     if len(parts) != 3:
         raise FontExtractionError(f"{usage}; expected three '_' separated parts")
@@ -403,7 +432,7 @@ def parse_font_file_name(plt_path: Path) -> Tuple[str, float, str]:
         raise FontExtractionError(f"{usage}; declared text height must be positive and finite")
     if len(reference_char) != 1:
         raise FontExtractionError(f"{usage}; reference character must be exactly one character")
-    return name_part.replace("_", " ").title(), declared_height, reference_char
+    return name_part.replace("_", " ").title(), declared_height, reference_char, stroke_count
 
 
 def merge_intervals(intervals: Sequence[Interval], threshold: float) -> List[Interval]:
@@ -571,6 +600,77 @@ def glyph_points(cluster: Cluster) -> List[Tuple[float, float]]:
     return sorted(points)
 
 
+# Grid size (plotter units) for the jitter-tolerant framing comparison.
+# Engraved copies of one glyph differ by sub-unit jitter, which reorders
+# *lexicographically tied* points (multi-stroke glyphs stack several passes
+# at the same X, so a 1e-4 jitter swaps their sort order and a positional
+# comparison reports a phantom deviation of hundreds of units). Matching each
+# point to its nearest neighbour on a grid this coarse - far above the jitter,
+# far below any glyph feature - is order-independent while keeping real
+# geometry shifts (tens of units) fully visible.
+_FRAMING_MATCH_GRID = 1.0
+
+
+def framing_points_match(
+    reference: List[Tuple[float, float]],
+    framing: List[Tuple[float, float]],
+    tolerance: float,
+) -> float:
+    """Return the worst nearest-neighbour gap between two glyph point sets.
+
+    Each reference point is matched to its closest framing point (and the
+    reverse, so a stray framing point counts too) via a spatial hash of cell
+    :data:`_FRAMING_MATCH_GRID`; the returned maximum is the largest such gap.
+    Two engraved copies of one glyph differ only by sub-unit jitter, so the
+    gap stays within ``tolerance``; a genuinely different glyph (a wider
+    framing, a mis-split row) leaves a point with no near partner, so the gap
+    jumps to the size of the geometry difference.
+
+    Args:
+        reference: The internal reference glyph's left-bottom-relative points.
+        framing: A row-framing copy's points in the same frame.
+        tolerance: The accepted per-point gap, in plotter units.
+
+    Returns:
+        The worst nearest-neighbour gap in plotter units (0.0 when both sets
+        are empty).
+    """
+    if not reference or not framing:
+        return 0.0
+
+    def _index(points: Sequence[Tuple[float, float]]) -> Dict[Tuple[int, int], List[Tuple[float, float]]]:
+        grid: Dict[Tuple[int, int], List[Tuple[float, float]]] = {}
+        for x, y in points:
+            grid.setdefault((math.floor(x / _FRAMING_MATCH_GRID), math.floor(y / _FRAMING_MATCH_GRID)), []).append((x, y))
+        return grid
+
+    def _worst(
+        sources: Sequence[Tuple[float, float]],
+        grid: Dict[Tuple[int, int], List[Tuple[float, float]]],
+    ) -> float:
+        worst = 0.0
+        for x, y in sources:
+            cx = math.floor(x / _FRAMING_MATCH_GRID)
+            cy = math.floor(y / _FRAMING_MATCH_GRID)
+            best = math.inf
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for px, py in grid.get((cx + dx, cy + dy), ()):
+                        gap = max(abs(x - px), abs(y - py))
+                        if gap < best:
+                            best = gap
+            if best == math.inf:
+                # No framing point within one grid cell: the gap is at least a
+                # cell wide, already far past the tolerance.
+                return _FRAMING_MATCH_GRID
+            worst = max(worst, best)
+            if worst > tolerance:
+                return worst
+        return worst
+
+    return max(_worst(reference, _index(framing)), _worst(framing, _index(reference)))
+
+
 def build_rows(
     paths: Sequence[StrokePath],
     row_threshold: float,
@@ -653,10 +753,13 @@ def verify_layout(rows: Sequence[SheetRow], characters: Sequence[str], reference
                     f"{len(points)} points but the internal copy has {len(internal)}; "
                     f"the row split does not match the engraved layout."
                 )
-            deviation = max(
-                (max(abs(a[0] - b[0]), abs(a[1] - b[1])) for a, b in zip(internal, points)),
-                default=0.0,
-            )
+            # Jitter-tolerant nearest-neighbour comparison (not positional):
+            # multi-stroke glyphs stack passes at tied coordinates, so a
+            # sub-unit engraving jitter reorders the lexicographic sort and a
+            # positional zip reports a phantom deviation. A real geometry
+            # difference (wider framing glyph, mis-split row) leaves a point
+            # with no near partner and is caught.
+            deviation = framing_points_match(internal, points, REFERENCE_MATCH_TOLERANCE)
             # The float slack absorbs representation noise at the tolerance
             # boundary (identical glyphs measure 0.001 +/- 1e-9 here); any
             # real misalignment is orders of magnitude larger.
@@ -1217,7 +1320,7 @@ def extract_font_file(
         FontExtractionError: If the file name is malformed, the PLT cannot be
             parsed, or the sheet's layout fails verification.
     """
-    default_name, declared_height, reference_char = parse_font_file_name(plt_path)
+    default_name, declared_height, reference_char, stroke_count = parse_font_file_name(plt_path)
     name = font_name or default_name
     parser = PLTParser()
     try:
@@ -1242,15 +1345,20 @@ def extract_font_file(
         reference_char,
         entry["reference_char_height_in"],
     )
-    full_entry: FontEntry = {"file_path": _repo_relative(plt_path), **entry}
+    full_entry: FontEntry = {
+        "file_path": _repo_relative(plt_path),
+        "stroke_count": stroke_count,
+        **entry,
+    }
     logger.info(
-        "Extracted font %r from %s: %d glyphs across %d rows, "
+        "Extracted font %r from %s: %d glyphs across %d rows, %d stroke(s), "
         "row_threshold=%.1f units, cluster_threshold=%.1f units, "
         "declared height=%.4g in, measured reference height=%.6g in",
         name,
         plt_path.name,
         len(entry["characters"]),
         row_count,
+        stroke_count,
         used_row,
         used_cluster,
         declared_height,

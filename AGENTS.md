@@ -221,6 +221,23 @@ JobSpec (job-level defaults)
   `label_renderer._render_text_lines_by_pen` and `export_per_cutter_plts` need
   no change). See also the sibling `cutter_downsize` (render-time downsize
   driven by horizontal compression — implemented, see below).
+- `target_boldness_factor`: Target engraved stroke width for a **multi-stroke
+  (bold) PLT font** as a fraction of `text_height` (`ge=0.05`, `le=0.30`,
+  default `None` → **0.14**). A PLT font whose glyphs carry `stroke_count > 1`
+  parallel cutter passes (the `_S<n>` sample-sheet suffix recorded in
+  `Fonts/plt_fonts.json`) gets its automatic cutter from the boldness ladder
+  (see Multi-Stroke (Bold) PLT Fonts below) instead of the height-based
+  lookup. Inert on single-stroke fonts, TTF fonts, and lines with an explicit
+  `cutter_size` (which bypasses the ladder). Cascades line → label → job →
+  `job-config.json` (accepted on plates for schema parity only).
+- `multistroke_overlap_ratio`: Minimum overlap fraction between adjacent cutter
+  passes of a multi-stroke PLT font (`ge=0.1`, `le=0.5`, default `None` →
+  **0.25**). The ladder's cutter is never smaller than
+  `pass_spacing / (1 - ratio)`, so adjacent engraved passes always overlap by
+  at least this fraction and no unengraved stripe appears between them; the
+  actual overlap is derived from the chosen cutter and logged (an overlap of
+  0.25 means the stepover stays within 75% of the cutter width). Same cascade
+  tiers and inertness as `target_boldness_factor`.
 - `cutter_downsize`: Boolean gate for compression-driven cutter reduction
   (`default None` → **true**). When true, a text line whose *effective*
   horizontal compression scale (margin scale × collision scale, measured at
@@ -356,6 +373,77 @@ line → label → job (accepted on plates for schema parity only).
   resolve the overflow (limit too small), a WARNING is logged.
 - The *applied* per-line scale is reported (not stored on the schema) via
   `RenderedLabel.compression_by_line` — see Applied Layout Reporting.
+
+### Multi-Stroke (Bold) PLT Fonts (`target_boldness_factor`, `multistroke_overlap_ratio`)
+
+A PLT sample sheet may be engraved with **N parallel cutter passes per glyph**
+(a bold font). The naming convention carries the count:
+`<font name>_<text height in>_<ref char>_S<n>.plt` (e.g.
+`avenge5_0.55_E_S5.plt`); omitting `_S<n>` means a single-stroke font. The
+extractor stores the engraved passes **verbatim** — the sheet is the source of
+truth for the bold shape — and records the count as the per-font
+`stroke_count` key in `Fonts/plt_fonts.json`. The renderer therefore emits the
+stored geometry unchanged (arcs stay native, envelopes/glyph groups untouched);
+the stroke count drives **cutter sizing only**.
+
+- `Fonts/extract_plt_fonts.py::parse_font_file_name` strips the `_S<n>` suffix
+  **before** the existing `rsplit("_", 2)` (so font names with underscores and
+  symbol reference chars like `^` keep working) and returns
+  `(name, height, ref_char, stroke_count)`. `_S0` is a
+  `FontExtractionError`; a non-numeric suffix (`_Sx`) is not stripped and
+  fails the normal name parse. `extract_font_file` writes
+  `"stroke_count": n` into the font entry.
+- `font_registry.PltFontData.stroke_count: int = 1` (lenient parse: missing /
+  garbage / `< 1` → 1 with a WARNING, so pre-convention libraries keep
+  loading). `font_registry.plt_font_stroke_count(name)` is the
+  resolution-time lookup: case-insensitive, strips a trailing ` SC`
+  small-caps variant, and returns **1** for TTF/unknown fonts — multi-stroke
+  sizing is a PLT-font feature.
+- The framing verification is **jitter-tolerant** (`framing_points_match`):
+  multi-stroke glyphs stack passes at tied coordinates, so a sub-unit
+  engraving jitter reorders the lexicographic point sort and a positional
+  comparison reports a phantom deviation of hundreds of units. Each point is
+  matched to its nearest partner over a spatial hash (cell
+  `_FRAMING_MATCH_GRID`) in both directions; `REFERENCE_MATCH_TOLERANCE`
+  (5e-3 units) covers the parser's 3-decimal rounding in the
+  left-bottom-relative frame, while a genuine geometry difference (a wider
+  framing glyph, a mis-split row) is tens to hundreds of units.
+- **The ladder** (`resolution.multi_stroke_cutter_diameter`, matplotlib-free):
+  the passes sit at `design_pass_spacing` = `(1 - DESIGN_MULTISTROKE_OVERLAP)
+  * text_height * 0.14 / (1 + (N-1) * (1 - DESIGN_MULTISTROKE_OVERLAP))`
+  (the spacing baked into the sheet at the design point), so the engraved
+  width is `W + (N-1) * d` and the boldness target inverts to
+  `W = text_height * target_boldness_factor - (N-1) * d`. The
+  `multistroke_overlap_ratio` floor raises `W` to `d / (1 - ratio)` when the
+  target asks for a thinner cutter (adjacent passes must overlap, so no
+  unengraved stripe appears). At the defaults (`0.14` / `0.25`) the ladder
+  equals the classic `text_height * 0.14 / (1 + (N-1) * 0.75)` exactly — the
+  design point sits on the floor, and the TODO's rules of thumb (≈5.6/3.5/2.5%
+  of text height for N=3/5/7) are its output. A heavier factor grows the
+  cutter and the **implicit** overlap `1 - d/W` with it (the escape hatch
+  past the floor); a lighter one clamps to the floor (WARNING).
+- `_resolve_content` resolves the font name **before** the cutter block (the
+  two cascades are independent) and, when no explicit `cutter_size` is set and
+  `stroke_count > 1`, runs the ladder, snaps with
+  `snap_boundary_hole_cutter`, and **steps up** one rung
+  (`next_larger_cutter`) when the snap-down lands below the gap-free floor
+  (WARNING). An INFO names the font, stroke count, factor, floor, cutter and
+  implicit overlap. `toolpath_text_height = nominal - cutter` and the
+  `CutterSizeError` guard are unchanged; the ladder cutter is always below
+  the text height at the schema bounds.
+- **Everything downstream is free**: `cutter_diameter` is already per-line
+  end-to-end, so the kerning clearance, the text-hole/underline/descender
+  stroke floors, `build_cutter_pen_map` and the per-cutter PLT files all see
+  the ladder's tool. The floors are *exact*: the stored geometry is the bold
+  pass centerlines, so the outermost pass's engraved stroke extends exactly
+  `0.5 * cutter_diameter` past the ink. A multi-stroke line also participates
+  in the `cutter_downsize` ladder normally (it reads `cutter_diameter`).
+- Fixture: `tests_deps/multistroke_job.yaml` (pinned by
+  `tests/test_phase3_export.py::TestMultistrokeDemoExample`) — the S1 control
+  (Dino, plain height lookup), Avenge5 S5 (snap-down breaks the floor →
+  stepped up), Helter2 S2, a heavier factor (bigger cutter), a lighter factor
+  (clamped to the floor, WARNING), and an explicit `cutter_size` on the S5
+  font (ladder bypassed).
 
 ### Compression-Driven Cutter Downsizing (`cutter_downsize`)
 
@@ -1686,7 +1774,7 @@ already knows each toolpath's kind, the `Profiler` is skipped entirely.
   **removed**; optimization now happens pre-write in plate space.
 
 ### Cascading Resolution
-When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.15), `space_width_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.3), `min_glyph_width` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `kerning_window_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.05), `kerning_penetration_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_recession_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_min_gap` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `fallback_advance_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `underline_offset` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), `underline_break_clearance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0; the air at each underline break, never a position) and `underline_break_spaces` (explicit `false` is honored; only `None` means unset, falling back to the config or false; whether the underline breaks at inter-word spaces) and `html_brackets` (explicit pair is honored; only `None` means unset, falling back to the config or `"<>";` the value is an even-length string, first half left delimiter / second half right, halves must differ and contain no alphanumeric/newline characters) and `italic_angle` (explicit 0.0 is honored = upright; only `None` means unset, falling back to the config or 12; schema bounds `[0, 45]`), `cutter_downsize` (explicit `false` is honored; only `None` means unset, falling back to the config or true), `max_cutter_downsizes` (explicit 0 is honored; only `None` means unset, falling back to the config or 1) and `cutter_downsize_global` (explicit `false` is honored; only `None` means unset, falling back to the config or true) and `h_compress_global` (explicit `true` is honored; only `None` means unset, falling back to the config or false) and `optimize_line_content` (explicit `true` is honored; only `None` means unset, falling back to the config or false) and `optimize_line_content_max_lines` (explicit `None` means unset = no growth, no fallback; only an explicit cap > 0 applies) and `use_baseline_spacing` (explicit `false` is honored; only `None` means unset, falling back to the config or true; cascades job → plate → label, never text lines, plate parity only) and `v_center_by_content` (explicit `true` is honored; only `None` means unset, falling back to the config or false; cascades job → plate → label, never text lines, plate parity only; inert while `auto_descending_character_adjustment` is false) and `auto_descending_character_adjustment` (explicit `false` is honored; only `None` means unset, falling back to the config or true; cascades job → plate → label, never text lines, plate parity only) and `descending_character_v_scale` (explicit `0.2` is honored; only `None` means unset, falling back to the config or 0.5) and `descending_character_raise` (explicit `0.0` is honored; only `None` means unset, falling back to the config or 0.7) and `descending_character_clearance` (explicit `0.0` is honored; only `None` means unset, falling back to the config or 0.0; a unitless factor of the engraved-stroke floor, not inches) and `descending_character_reciprocal_scale` (explicit `0.2` is honored; only `None` means unset, falling back to the config or 0.5; `[0.2, 1.0]`, `1.0` = reciprocal downscaling forbidden; all four floats cascade job → plate → label, never text lines, plate parity only). `cutter_size` (explicit-`None` precedence line → label → job → auto-select; no config tier, `gt=0.0` so an explicit `0.0` is a validation error, not a cascade value). `material` cascades label → job (and plate → job via the clearance-style plate cascade): an explicit label/plate value wins, an explicit `null` counts as unset, and empty-after-trim strings are validation errors.
+When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.15), `space_width_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.3), `min_glyph_width` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `kerning_window_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.05), `kerning_penetration_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_recession_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_min_gap` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `fallback_advance_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `underline_offset` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), `underline_break_clearance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0; the air at each underline break, never a position) and `underline_break_spaces` (explicit `false` is honored; only `None` means unset, falling back to the config or false; whether the underline breaks at inter-word spaces) and `html_brackets` (explicit pair is honored; only `None` means unset, falling back to the config or `"<>";` the value is an even-length string, first half left delimiter / second half right, halves must differ and contain no alphanumeric/newline characters) and `italic_angle` (explicit 0.0 is honored = upright; only `None` means unset, falling back to the config or 12; schema bounds `[0, 45]`), `cutter_downsize` (explicit `false` is honored; only `None` means unset, falling back to the config or true), `max_cutter_downsizes` (explicit 0 is honored; only `None` means unset, falling back to the config or 1) and `cutter_downsize_global` (explicit `false` is honored; only `None` means unset, falling back to the config or true) and `h_compress_global` (explicit `true` is honored; only `None` means unset, falling back to the config or false) and `optimize_line_content` (explicit `true` is honored; only `None` means unset, falling back to the config or false) and `optimize_line_content_max_lines` (explicit `None` means unset = no growth, no fallback; only an explicit cap > 0 applies) and `use_baseline_spacing` (explicit `false` is honored; only `None` means unset, falling back to the config or true; cascades job → plate → label, never text lines, plate parity only) and `v_center_by_content` (explicit `true` is honored; only `None` means unset, falling back to the config or false; cascades job → plate → label, never text lines, plate parity only; inert while `auto_descending_character_adjustment` is false) and `auto_descending_character_adjustment` (explicit `false` is honored; only `None` means unset, falling back to the config or true; cascades job → plate → label, never text lines, plate parity only) and `descending_character_v_scale` (explicit `0.2` is honored; only `None` means unset, falling back to the config or 0.5) and `descending_character_raise` (explicit `0.0` is honored; only `None` means unset, falling back to the config or 0.7) and `descending_character_clearance` (explicit `0.0` is honored; only `None` means unset, falling back to the config or 0.0; a unitless factor of the engraved-stroke floor, not inches) and `descending_character_reciprocal_scale` (explicit `0.2` is honored; only `None` means unset, falling back to the config or 0.5; `[0.2, 1.0]`, `1.0` = reciprocal downscaling forbidden; all four floats cascade job → plate → label, never text lines, plate parity only). `cutter_size` (explicit-`None` precedence line → label → job → auto-select; no config tier, `gt=0.0` so an explicit `0.0` is a validation error, not a cascade value) and `target_boldness_factor` / `multistroke_overlap_ratio` (explicit-`None` precedence line → label → job → config, plate parity; falling back to 0.14 / 0.25; multi-stroke PLT fonts only, inert on an explicit `cutter_size`). `material` cascades label → job (and plate → job via the clearance-style plate cascade): an explicit label/plate value wins, an explicit `null` counts as unset, and empty-after-trim strings are validation errors.
 
 ### Stroke-Color Toolpath Splitting (`text_color`)
 
@@ -1900,6 +1988,7 @@ top-most layer:
   `kerning_min_gap`, `fallback_advance_fraction`, `sc_scale`, `underline_offset`,
   `underline_break_clearance`,
   `underline_break_spaces`,
+  `target_boldness_factor`, `multistroke_overlap_ratio`,
   `cutter_downsize`,
   `max_cutter_downsizes`, `cutter_downsize_global`, `h_compress_global`,
   `optimize_line_content`, `holes`, `allow_rotation`,

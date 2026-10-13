@@ -2526,3 +2526,57 @@ class TestUnderlineBreakSpacesField:
         """The plate tier carries the field for schema parity."""
         plate = PlateSpec(id="p", width=24.0, height=16.0, underline_break_spaces=True)
         assert plate.underline_break_spaces is True
+
+
+class TestTargetBoldnessFactorField:
+    """The cascading ``target_boldness_factor`` field (line -> label -> job + plate)."""
+
+    def test_defaults_to_none_everywhere(self) -> None:
+        """Every tier defaults target_boldness_factor to None (unset)."""
+        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        assert job.target_boldness_factor is None
+        assert TextLine(text="X").target_boldness_factor is None
+        assert PlateSpec(id="p", width=24.0, height=16.0).target_boldness_factor is None
+
+    @pytest.mark.parametrize("value", [0.05, 0.14, 0.30])
+    def test_in_range_accepted(self, value: float) -> None:
+        """Any factor in [0.05, 0.30] is accepted, bounds included."""
+        assert TextLine(text="X", target_boldness_factor=value).target_boldness_factor == value
+
+    @pytest.mark.parametrize("value", [0.04, 0.0, -0.1, 0.31, 1.0])
+    def test_out_of_range_rejected(self, value: float) -> None:
+        """A factor outside [0.05, 0.30] is a validation error."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", target_boldness_factor=value)
+
+    def test_plate_parity_accepts_the_field(self) -> None:
+        """The plate tier carries the field for schema parity."""
+        plate = PlateSpec(id="p", width=24.0, height=16.0, target_boldness_factor=0.2)
+        assert plate.target_boldness_factor == 0.2
+
+
+class TestMultistrokeOverlapRatioField:
+    """The cascading ``multistroke_overlap_ratio`` field (line -> label -> job + plate)."""
+
+    def test_defaults_to_none_everywhere(self) -> None:
+        """Every tier defaults multistroke_overlap_ratio to None (unset)."""
+        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        assert job.multistroke_overlap_ratio is None
+        assert TextLine(text="X").multistroke_overlap_ratio is None
+        assert PlateSpec(id="p", width=24.0, height=16.0).multistroke_overlap_ratio is None
+
+    @pytest.mark.parametrize("value", [0.1, 0.25, 0.5])
+    def test_in_range_accepted(self, value: float) -> None:
+        """Any ratio in [0.1, 0.5] is accepted, bounds included."""
+        assert TextLine(text="X", multistroke_overlap_ratio=value).multistroke_overlap_ratio == value
+
+    @pytest.mark.parametrize("value", [0.0, 0.05, 0.55, 1.0, -0.1])
+    def test_out_of_range_rejected(self, value: float) -> None:
+        """A ratio outside [0.1, 0.5] is a validation error."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", multistroke_overlap_ratio=value)
+
+    def test_plate_parity_accepts_the_field(self) -> None:
+        """The plate tier carries the field for schema parity."""
+        plate = PlateSpec(id="p", width=24.0, height=16.0, multistroke_overlap_ratio=0.4)
+        assert plate.multistroke_overlap_ratio == 0.4

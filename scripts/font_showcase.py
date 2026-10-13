@@ -68,7 +68,7 @@ from matplotlib import pyplot as plt  # noqa: E402
 
 from plt_optimizer.core.parser import PLTParser  # noqa: E402
 from plt_optimizer.diagnostics.plotter import plot_plt_document  # noqa: E402
-from plt_optimizer.generate.font_registry import font_name_choices  # noqa: E402
+from plt_optimizer.generate.font_registry import font_name_choices, plt_font_has_glyph  # noqa: E402
 from plt_optimizer.generate.label_renderer import (  # noqa: E402
     RenderedLabel,
     render_label_to_plt,
@@ -151,9 +151,46 @@ def build_showcase_job(font_name: str, width: float = LABEL_WIDTH) -> JobSpec:
         max_h_compress=0.0,
         content=[
             TextLine(text=font_name, text_height=NAME_TEXT_HEIGHT),
-            *[TextLine(text=line, text_height=BODY_TEXT_HEIGHT) for line in SHOWCASE_LINES],
+            *[
+                TextLine(text=line, text_height=BODY_TEXT_HEIGHT)
+                for line in _covered_showcase_lines(font_name)
+            ],
         ],
     )
+
+
+def _covered_showcase_lines(font_name: str) -> Tuple[str, ...]:
+    """Return :data:`SHOWCASE_LINES` pruned to the glyphs ``font_name`` has.
+
+    A PLT symbol font (Wingdings) engraves its ASCII slots with symbols, so
+    the derived-glyph recipes cannot build every derived Unicode character;
+    rendering a missing character raises. The derived-glyph line is pruned to
+    the characters the font carries - the PLT analogue of a TrueType font
+    drawing its ``.notdef`` box (missing glyphs are simply absent, which is
+    the coverage information a showcase reports). TrueType fonts report full
+    coverage here and rely on ``check_glyph_coverage=False`` to draw
+    ``.notdef``.
+
+    Args:
+        font_name: Canonical font name.
+
+    Returns:
+        The sample lines, with the derived-glyph line pruned to covered chars.
+    """
+    pruned: List[str] = []
+    for line in SHOWCASE_LINES:
+        if line.startswith("Unicode: "):
+            kept = [
+                char
+                for char in line.removeprefix("Unicode: ").split(" ")
+                if plt_font_has_glyph(font_name, char)
+            ]
+            if not kept:
+                continue
+            pruned.append("Unicode: " + " ".join(kept))
+        else:
+            pruned.append(line)
+    return tuple(pruned)
 
 
 def _widest_text_width(rendered: RenderedLabel) -> float:

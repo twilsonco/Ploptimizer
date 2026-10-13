@@ -41,10 +41,12 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_MAX_H_COMPRESS,
     DEFAULT_MIN_GLYPH_WIDTH,
     DEFAULT_MIN_HOLE_MARGIN,
+    DEFAULT_MULTISTROKE_OVERLAP_RATIO,
     DEFAULT_OPTIMIZE_LINE_CONTENT,
     DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES,
     DEFAULT_SC_SCALE,
     DEFAULT_SPACE_WIDTH_FRACTION,
+    DEFAULT_TARGET_BOLDNESS_FACTOR,
     DEFAULT_TEXT_COLOR,
     DEFAULT_TEXT_H_ALIGNMENT,
     DEFAULT_TEXT_HEIGHT,
@@ -53,9 +55,11 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_UNDERLINE_OFFSET,
     DEFAULT_USE_BASELINE_SPACING,
     DEFAULT_V_CENTER_BY_CONTENT,
+    DESIGN_MULTISTROKE_OVERLAP,
     IDEAL_CUTTER_MAP,
     CutterSizeError,
     LineContentConfigError,
+    MultiStrokeCutter,
     ResolvedHoleSpec,
     ResolvedLabel,
     ResolvedTextLine,
@@ -65,10 +69,13 @@ from plt_optimizer.generate.resolution import (
     build_cutter_pen_map,
     compute_horizontal_offset,
     compute_horizontal_scale,
+    design_pass_spacing,
     fit_baseline_spacing_to_margins,
     fit_line_spacing_to_margins,
     get_cutter_diameter,
     memoize_extents_probe,
+    multi_stroke_cutter_diameter,
+    next_larger_cutter,
     next_smaller_cutter,
     resolve_job_spec,
     should_downsize_cutter,
@@ -2469,6 +2476,262 @@ class TestCutterSizeCascade:
         assert math.isclose(content[0].cutter_diameter, 0.09)
         assert content[1].cutter_size is None
         assert math.isclose(content[1].cutter_diameter, get_cutter_diameter(0.5))
+
+
+class TestNextLargerCutter:
+    """next_larger_cutter walks the inventory up (the downsize ladder's mirror)."""
+
+    def test_returns_next_up(self) -> None:
+        assert next_larger_cutter(0.02, [0.01, 0.015, 0.02, 0.03, 0.045]) == 0.03
+
+    def test_none_when_largest(self) -> None:
+        assert next_larger_cutter(0.25, [0.01, 0.06, 0.25]) is None
+
+    def test_none_without_inventory(self) -> None:
+        assert next_larger_cutter(0.02, None) is None
+        assert next_larger_cutter(0.02, []) is None
+
+    def test_tie_is_not_larger(self) -> None:
+        """A tool within tolerance of current is not 'larger' (no self-bump)."""
+        assert next_larger_cutter(0.02, [0.02, 0.03]) == 0.03
+
+
+class TestMultiStrokeCutterMath:
+    """The pure boldness ladder: pass spacing, cutter, floor, implicit overlap."""
+
+    def test_defaults_reproduce_the_classic_formula(self) -> None:
+        """At the defaults the ladder equals text_height * 0.14 / U (N-1)*0.75."""
+        # The TODO's rules of thumb: 3/5/7-stroke fonts at 25% overlap.
+        for strokes, fraction in ((3, 0.056), (5, 0.035), (7, 0.025)):
+            ladder = multi_stroke_cutter_diameter(1.0, strokes)
+            units = 1.0 + (strokes - 1) * (1.0 - DESIGN_MULTISTROKE_OVERLAP)
+            assert math.isclose(ladder.cutter, 0.14 / units, rel_tol=1e-9)
+            assert math.isclose(ladder.cutter, fraction, rel_tol=0.02)
+            # The design point sits exactly on the gap-free floor.
+            assert not ladder.clamped
+            assert math.isclose(ladder.implicit_overlap, 0.25, abs_tol=1e-9)
+
+    def test_pass_spacing_scales_with_height(self) -> None:
+        """The baked spacing is linear in the text height and zero for N<=1."""
+        assert design_pass_spacing(0.5, 1) == 0.0
+        assert math.isclose(design_pass_spacing(1.0, 5), 2.0 * design_pass_spacing(0.5, 5))
+
+    def test_boldness_escape_grows_cutter_and_overlap(self) -> None:
+        """A heavier factor grows the cutter and the implicit overlap past the floor."""
+        ladder = multi_stroke_cutter_diameter(0.5, 5, boldness_factor=0.20)
+        # W = 0.20*0.5 - 4*d; d = 0.75*0.14*0.5/4 = 0.013125.
+        assert math.isclose(ladder.cutter, 0.0475, rel_tol=1e-9)
+        assert not ladder.clamped
+        assert math.isclose(ladder.implicit_overlap, 1.0 - 0.013125 / 0.0475, rel_tol=1e-9)
+        assert ladder.implicit_overlap > 0.25
+
+    def test_thin_target_clamps_to_the_floor(self) -> None:
+        """A light factor wants a thinner cutter than the floor allows -> clamped."""
+        ladder = multi_stroke_cutter_diameter(0.5, 5, boldness_factor=0.08)
+        assert ladder.clamped
+        assert math.isclose(ladder.cutter, ladder.floor, rel_tol=1e-9)
+        # The floor is d / (1 - 0.25) with d = 0.013125.
+        assert math.isclose(ladder.floor, 0.013125 / 0.75, rel_tol=1e-9)
+        assert math.isclose(ladder.implicit_overlap, 0.25, abs_tol=1e-9)
+
+    def test_higher_floor_lowers_the_floor_bound(self) -> None:
+        """A lower overlap floor permits a thinner cutter (thinning)."""
+        strict = multi_stroke_cutter_diameter(0.5, 5, boldness_factor=0.08, overlap_floor=0.25)
+        loose = multi_stroke_cutter_diameter(0.5, 5, boldness_factor=0.08, overlap_floor=0.1)
+        assert loose.floor < strict.floor
+
+    def test_floor_at_half_is_two_pass_spacings(self) -> None:
+        """At floor 0.5 the cutter floor is exactly 2 * pass spacing."""
+        ladder = multi_stroke_cutter_diameter(0.5, 3, boldness_factor=0.14, overlap_floor=0.5)
+        spacing = design_pass_spacing(0.5, 3)
+        assert math.isclose(ladder.floor, 2.0 * spacing, rel_tol=1e-9)
+        assert ladder.clamped  # the 0.14 target sits below this heavier floor
+
+    def test_single_stroke_spacing_is_zero(self) -> None:
+        assert design_pass_spacing(0.5, 1) == 0.0
+
+
+class TestMultistrokeCascade:
+    """The two multi-stroke fields cascade line -> label -> job -> default."""
+
+    @staticmethod
+    def _job(**levels: float | None) -> JobSpec:
+        """Build a single-line job applying both fields at the given levels."""
+        job_kwargs: dict[str, float | None] = {}
+        label_kwargs: dict[str, float | None] = {}
+        line_kwargs: dict[str, float | None] = {}
+        for key, value in levels.items():
+            field, tier = key.split("__")
+            {"job": job_kwargs, "label": label_kwargs, "line": line_kwargs}[tier][field] = value
+        return JobSpec(
+            job_name="J",
+            text_height=0.5,
+            **job_kwargs,  # type: ignore[arg-type]
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    **label_kwargs,  # type: ignore[arg-type]
+                    content=[TextLine(text="X", **line_kwargs)],  # type: ignore[arg-type]
+                )
+            ],
+        )
+
+    def test_defaults(self) -> None:
+        """Unset fields resolve to the module defaults."""
+        assert DEFAULT_TARGET_BOLDNESS_FACTOR == 0.14
+        assert DEFAULT_MULTISTROKE_OVERLAP_RATIO == 0.25
+        line = resolve_job_spec(self._job())[0].content[0]
+        assert math.isclose(line.target_boldness_factor, 0.14)
+        assert math.isclose(line.multistroke_overlap_ratio, 0.25)
+
+    def test_job_tier(self) -> None:
+        line = resolve_job_spec(
+            self._job(**{"target_boldness_factor__job": 0.2, "multistroke_overlap_ratio__job": 0.4})
+        )[0].content[0]
+        assert math.isclose(line.target_boldness_factor, 0.2)
+        assert math.isclose(line.multistroke_overlap_ratio, 0.4)
+
+    def test_label_overrides_job(self) -> None:
+        line = resolve_job_spec(
+            self._job(
+                **{
+                    "target_boldness_factor__job": 0.2,
+                    "target_boldness_factor__label": 0.1,
+                    "multistroke_overlap_ratio__job": 0.4,
+                    "multistroke_overlap_ratio__label": 0.15,
+                }
+            )
+        )[0].content[0]
+        assert math.isclose(line.target_boldness_factor, 0.1)
+        assert math.isclose(line.multistroke_overlap_ratio, 0.15)
+
+    def test_line_overrides_label(self) -> None:
+        line = resolve_job_spec(
+            self._job(
+                **{
+                    "target_boldness_factor__label": 0.1,
+                    "target_boldness_factor__line": 0.25,
+                    "multistroke_overlap_ratio__label": 0.15,
+                    "multistroke_overlap_ratio__line": 0.5,
+                }
+            )
+        )[0].content[0]
+        assert math.isclose(line.target_boldness_factor, 0.25)
+        assert math.isclose(line.multistroke_overlap_ratio, 0.5)
+
+    def test_explicit_bounds_honored(self) -> None:
+        """Explicit 0.05/0.1 (the field floors) are honored, not treated unset."""
+        line = resolve_job_spec(
+            self._job(
+                **{
+                    "target_boldness_factor__line": 0.05,
+                    "multistroke_overlap_ratio__line": 0.1,
+                }
+            )
+        )[0].content[0]
+        assert math.isclose(line.target_boldness_factor, 0.05)
+        assert math.isclose(line.multistroke_overlap_ratio, 0.1)
+
+
+class TestMultiStrokeCutterResolution:
+    """The ladder drives the resolved cutter for a multi-stroke PLT font.
+
+    Uses the shipped library's real multi-stroke fonts (Avenge5 = S5,
+    Helter2 = S2) so the stroke_count lookup is exercised end-to-end.
+    """
+
+    @staticmethod
+    def _job(font: str, **line_kwargs: object) -> JobSpec:
+        return JobSpec(
+            job_name="J",
+            text_height=0.5,
+            font=font,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=4.0,
+                    height=2.0,
+                    content=[TextLine(text="X", **line_kwargs)],  # type: ignore[arg-type]
+                )
+            ],
+        )
+
+    def test_single_stroke_font_uses_auto_selection(self) -> None:
+        """A S1 font (Dino) keeps the height-based cutter exactly (bit-identical)."""
+        line = resolve_job_spec(self._job("Dino"))[0].content[0]
+        assert math.isclose(line.cutter_diameter, get_cutter_diameter(0.5))
+
+    def test_multi_stroke_default_cutter_no_inventory(self) -> None:
+        """Avenge5 (S5) at the defaults resolves to 3.5% of the text height."""
+        line = resolve_job_spec(self._job("Avenge5"))[0].content[0]
+        # W = 0.14*0.5 / (1 + 4*0.75) = 0.0175, no inventory -> verbatim.
+        assert math.isclose(line.cutter_diameter, 0.0175, rel_tol=1e-9)
+        assert math.isclose(line.toolpath_text_height, 0.5 - 0.0175, rel_tol=1e-9)
+        assert math.isclose(line.nominal_text_height, 0.5)
+
+    def test_multi_stroke_snaps_up_to_the_floor(self, caplog: pytest.LogCaptureFixture) -> None:
+        """The snap-down tool breaks the gap-free floor, so the ladder steps up."""
+        with caplog.at_level("WARNING"):
+            line = resolve_job_spec(
+                self._job("Avenge5"), available_cutters=[0.01, 0.015, 0.02, 0.03]
+            )[0].content[0]
+        # Ideal 0.0175 snaps down to 0.015 (< floor 0.0175) -> bumped to 0.02.
+        assert math.isclose(line.cutter_diameter, 0.02)
+        assert "stepped up" in caplog.text
+
+    def test_multi_stroke_logs_implicit_overlap(self, caplog: pytest.LogCaptureFixture) -> None:
+        """The INFO line names the font, stroke count and implicit overlap."""
+        with caplog.at_level("INFO"):
+            resolve_job_spec(self._job("Avenge5"))
+        assert "multi-stroke font 'Avenge5' (S5)" in caplog.text
+        assert "implicit pass overlap" in caplog.text
+
+    def test_multi_stroke_boldness_escape(self) -> None:
+        """A heavier factor grows the cutter above the design point."""
+        line = resolve_job_spec(self._job("Avenge5", target_boldness_factor=0.2))[0].content[0]
+        assert math.isclose(line.cutter_diameter, 0.0475, rel_tol=1e-9)
+
+    def test_multi_stroke_thin_target_clamps(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A light factor clamps to the gap-free floor with a WARNING."""
+        with caplog.at_level("WARNING"):
+            line = resolve_job_spec(
+                self._job("Avenge5", target_boldness_factor=0.08)
+            )[0].content[0]
+        assert math.isclose(line.cutter_diameter, 0.0175, rel_tol=1e-9)
+        assert "gap-free floor" in caplog.text
+
+    def test_explicit_cutter_size_wins_over_ladder(self) -> None:
+        """An explicit cutter_size bypasses the multi-stroke ladder entirely."""
+        line = resolve_job_spec(self._job("Avenge5", cutter_size=0.09))[0].content[0]
+        assert math.isclose(line.cutter_diameter, 0.09)
+
+    def test_ttf_font_uses_auto_selection(self) -> None:
+        """A TTF font is single-stroke: the ladder never fires."""
+        line = resolve_job_spec(self._job(DEFAULT_FONT))[0].content[0]
+        assert math.isclose(line.cutter_diameter, get_cutter_diameter(0.5))
+
+    def test_multi_stroke_cutter_always_leaves_material(self) -> None:
+        """The ladder cutter stays below the text height at every bound.
+
+        With the factor bounded to 0.30 and the pass spacing subtracted, the
+        derived cutter is always a fraction of the height, so the
+        ``CutterSizeError`` guard on the multi-stroke path is a defensive
+        net rather than a reachable abort - pinned so a future widening of
+        the schema bounds notices.
+        """
+        line = resolve_job_spec(
+            self._job("Avenge5", target_boldness_factor=0.30)
+        )[0].content[0]
+        assert line.toolpath_text_height > 0.0
+
+    def test_multi_stroke_cutter_is_frozen_dataclass(self) -> None:
+        """The ladder result is an immutable value object."""
+        ladder = multi_stroke_cutter_diameter(0.5, 5)
+        assert isinstance(ladder, MultiStrokeCutter)
+        with pytest.raises(Exception):
+            ladder.cutter = 0.0  # type: ignore[misc]
 
 
 class TestCutterDownsizeCascade:

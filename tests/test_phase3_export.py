@@ -1128,6 +1128,94 @@ class TestCutterSizeDemoExample:
             resolve_job_spec(job)
 
 
+class TestMultistrokeDemoExample:
+    """Regression tests for tests_deps/multistroke_job.yaml.
+
+    The fixture mixes a single-stroke control (Dino, S1 - the plain height
+    lookup), a five-stroke (Avenge5) and a two-stroke (Helter2) font on the
+    default boldness ladder, a heavier/lighter boldness factor, and an
+    explicit ``cutter_size`` on a multi-stroke font. It pins that the ladder
+    sizes the cutter at resolution time (the snap-down stepping up to keep
+    the passes overlapping), that the boldness factor moves the cutter, that
+    a light target clamps to the gap-free floor, and that an explicit cutter
+    bypasses the ladder - each cutter becoming its own per-cutter text file.
+    """
+
+    _INVENTORY = [0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.09, 0.125, 0.25]
+    _SPEC = Path("tests_deps/multistroke_job.yaml")
+
+    def _resolve(self) -> dict[str, ResolvedLabel]:
+        """Resolve the demo fixture against the test inventory."""
+        job = parse_yaml(self._SPEC)
+        return {label.id: label for label in resolve_job_spec(job, self._INVENTORY)}
+
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled against the inventory."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job, available_cutters=self._INVENTORY)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="ms",
+            optimize=False,
+            plots=False,
+            available_cutters=self._INVENTORY,
+        )
+
+    def test_single_stroke_font_uses_height_lookup(self) -> None:
+        """The S1 control keeps the plain height-based cutter (0.060in)."""
+        line = self._resolve()["single_stroke"].content[0]
+        assert math.isclose(line.cutter_diameter, 0.06)
+        assert math.isclose(line.toolpath_text_height, 0.5 - 0.06)
+
+    def test_five_stroke_steps_up_to_the_floor(self) -> None:
+        """Avenge5's ideal 0.0175 snaps to 0.015, below the floor -> 0.020."""
+        line = self._resolve()["multistroke_default"].content[0]
+        assert math.isclose(line.cutter_diameter, 0.02)
+        assert math.isclose(line.toolpath_text_height, 0.5 - 0.02)
+
+    def test_two_stroke_resolves_larger(self) -> None:
+        """Helter2 (S2) sizes a larger cutter (0.040 -> stepped up to 0.045)."""
+        line = self._resolve()["two_stroke"].content[0]
+        assert math.isclose(line.cutter_diameter, 0.045)
+
+    def test_heavier_factor_grows_the_cutter(self) -> None:
+        """A 0.20 factor on Avenge5 lands above the design point (0.045)."""
+        line = self._resolve()["multistroke_bold"].content[0]
+        assert math.isclose(line.cutter_diameter, 0.045)
+
+    def test_light_factor_clamps_to_the_floor(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A 0.08 factor clamps to the gap-free floor (stepped up to 0.020)."""
+        with caplog.at_level("WARNING"):
+            line = self._resolve()["multistroke_thin"].content[0]
+        assert math.isclose(line.cutter_diameter, 0.02)
+        assert "gap-free floor" in caplog.text
+
+    def test_explicit_cutter_bypasses_the_ladder(self) -> None:
+        """An explicit cutter_size on a multi-stroke font wins verbatim."""
+        line = self._resolve()["explicit_cutter"].content[0]
+        assert math.isclose(line.cutter_diameter, 0.09)
+        assert math.isclose(line.cutter_size, 0.09)
+
+    def test_nominal_height_untouched(self) -> None:
+        """Every ladder cutter keeps the nominal height (vertical fit)."""
+        for label in self._resolve().values():
+            assert math.isclose(label.content[0].nominal_text_height, 0.5)
+
+    def test_fixture_exports_one_file_per_cutter(self, tmp_path: Path) -> None:
+        """Each distinct cutter (ladder, factor, explicit, auto) is its own file."""
+        result = self._export(tmp_path)
+        assert sorted(p.name for p in result.plt_paths) == [
+            "0.015_bh_ms.plt",
+            "0.020_txt_ms.plt",  # Avenge5 default + thin (stepped up to the floor)
+            "0.045_txt_ms.plt",  # Helter2 + Avenge5 factor 0.20
+            "0.060_txt_ms.plt",  # Dino single-stroke (height lookup)
+            "0.090_txt_ms.plt",  # explicit cutter_size
+        ]
+
+
 class TestCutterDownsizeDemoExample:
     """Regression tests for tests_deps/cutter_downsize_job.yaml.
 

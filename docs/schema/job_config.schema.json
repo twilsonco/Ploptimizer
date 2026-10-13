@@ -420,6 +420,36 @@
       "description": "Default underline (<u>) break-at-spaces flag (job layer): false (default) draws one continuous underline across the whole underlined run (spaces included, broken only by descending glyphs); true ends the underline at each space so every word gets its own underline and the inter-word space stays bare. Unset falls back to false.",
       "title": "Underline Break Spaces"
     },
+    "target_boldness_factor": {
+      "anyOf": [
+        {
+          "maximum": 0.3,
+          "minimum": 0.05,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default multi-stroke target engraved stroke width as a fraction of text height (job layer; sizes the automatic cutter of multi-stroke/bold PLT fonts so the engraved passes total this width; inert on single-stroke fonts, TTF fonts, and lines with an explicit cutter_size). Unset falls back to 0.14.",
+      "title": "Target Boldness Factor"
+    },
+    "multistroke_overlap_ratio": {
+      "anyOf": [
+        {
+          "maximum": 0.5,
+          "minimum": 0.1,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default multi-stroke minimum pass overlap ratio (job layer; the automatic cutter of a multi-stroke/bold PLT font is never smaller than pass_spacing / (1 - ratio), so adjacent engraved passes always overlap and no unengraved stripe appears). Unset falls back to 0.25.",
+      "title": "Multistroke Overlap Ratio"
+    },
     "holes": {
       "anyOf": [
         {

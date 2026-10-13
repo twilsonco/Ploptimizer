@@ -261,16 +261,67 @@ class TestParseFontFileName:
     """Tests for parse_font_file_name() (new underscore format)."""
 
     def test_parses_name_height_reference(self) -> None:
-        name, height, ref = script.parse_font_file_name(Path("dino_0.5_E.plt"))
+        name, height, ref, strokes = script.parse_font_file_name(Path("dino_0.5_E.plt"))
         assert name == "Dino"
         assert height == pytest.approx(0.5)
         assert ref == "E"
+        assert strokes == 1
 
     def test_underscores_in_font_name_become_spaces(self) -> None:
-        name, height, ref = script.parse_font_file_name(Path("heavy_engraving_0.75_H.plt"))
+        name, height, ref, strokes = script.parse_font_file_name(
+            Path("heavy_engraving_0.75_H.plt")
+        )
         assert name == "Heavy Engraving"
         assert height == pytest.approx(0.75)
         assert ref == "H"
+        assert strokes == 1
+
+    def test_stroke_suffix_parsed(self) -> None:
+        name, height, ref, strokes = script.parse_font_file_name(Path("avenge5_0.55_E_S5.plt"))
+        assert name == "Avenge5"
+        assert height == pytest.approx(0.55)
+        assert ref == "E"
+        assert strokes == 5
+
+    def test_stroke_suffix_single_digit_one(self) -> None:
+        _name, _height, _ref, strokes = script.parse_font_file_name(Path("dino_0.67_E_S1.plt"))
+        assert strokes == 1
+
+    def test_stroke_suffix_multi_digit(self) -> None:
+        _name, _height, _ref, strokes = script.parse_font_file_name(Path("fat_font_1.25_X_S12.plt"))
+        assert strokes == 12
+
+    def test_stroke_suffix_with_underscored_font_name(self) -> None:
+        name, height, ref, strokes = script.parse_font_file_name(
+            Path("heavy_engraving_0.75_H_S3.plt")
+        )
+        assert name == "Heavy Engraving"
+        assert height == pytest.approx(0.75)
+        assert ref == "H"
+        assert strokes == 3
+
+    def test_stroke_suffix_with_symbol_reference(self) -> None:
+        name, _height, ref, strokes = script.parse_font_file_name(
+            Path("wingdings_0.35_^_S4.plt")
+        )
+        assert name == "Wingdings"
+        assert ref == "^"
+        assert strokes == 4
+
+    def test_zero_stroke_suffix_raises(self) -> None:
+        with pytest.raises(script.FontExtractionError, match="stroke count suffix must be >= 1"):
+            script.parse_font_file_name(Path("dino_0.5_E_S0.plt"))
+
+    def test_non_numeric_stroke_suffix_is_not_stripped(self) -> None:
+        # 'Sx' is not a stroke suffix, so the stem is split as-is: the
+        # reference slot keeps 'Sx' and the height slot lands on 'E',
+        # which fails the height parse (the suffix never silently vanishes).
+        with pytest.raises(script.FontExtractionError, match="not a declared text height"):
+            script.parse_font_file_name(Path("dino_0.5_E_Sx.plt"))
+
+    def test_suffix_without_three_parts_raises(self) -> None:
+        with pytest.raises(script.FontExtractionError, match="three '_' separated parts"):
+            script.parse_font_file_name(Path("dino_S3.plt"))
 
     def test_missing_parts_raises(self) -> None:
         with pytest.raises(script.FontExtractionError, match="three '_' separated parts"):

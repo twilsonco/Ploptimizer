@@ -29,7 +29,7 @@ import uuid
 from dataclasses import dataclass, field, replace
 from typing import Callable, Optional, Sequence, Tuple, Union
 
-from plt_optimizer.generate.font_registry import DEFAULT_FONT_NAME
+from plt_optimizer.generate.font_registry import DEFAULT_FONT_NAME, plt_font_stroke_count
 from plt_optimizer.generate.markup import Run, parse_markup, split_brackets
 from plt_optimizer.generate.schema import JobSpec, LabelSpec
 
@@ -222,6 +222,29 @@ DEFAULT_TEXT_H_ALIGNMENT: str = "center"
 # the toolpath height is recomputed as ``text_height - cutter_size``.
 # There is deliberately no job-config.json counterpart to this field.
 DEFAULT_CUTTER_SIZE: Optional[float] = None
+# Target engraved stroke width for multi-stroke (bold) PLT fonts, as a
+# fraction of the nominal text height. A multi-stroke font's glyphs carry
+# ``stroke_count`` parallel cutter passes (stored in ``plt_fonts.json`` by
+# the extractor's ``_S<n>`` file-name suffix); the automatic cutter is
+# sized so the passes plus their overlaps engrave exactly
+# ``text_height * factor`` of total width. Inert on single-stroke fonts,
+# TTF fonts, and lines with an explicit ``cutter_size``. Bound to
+# ``[0.05, 0.30]`` by the schema; job-config.json supplies the shop default.
+DEFAULT_TARGET_BOLDNESS_FACTOR: float = 0.14
+# Minimum overlap fraction between adjacent cutter passes of a multi-stroke
+# font (the gap-free floor): the derived cutter is never smaller than
+# ``pass_spacing / (1 - ratio)``, so engraved strokes always overlap by at
+# least this fraction and no unengraved stripe can appear between passes.
+# The actual overlap is derived from the chosen cutter and logged. Bound to
+# ``[0.1, 0.5]`` by the schema; job-config.json supplies the shop default.
+DEFAULT_MULTISTROKE_OVERLAP_RATIO: float = 0.25
+# The overlap ratio the multi-stroke sample sheets are assumed to have been
+# engraved at, so the pass spacing baked into the stored glyph geometry is
+# ``design_stepover * design_cutter`` with ``design_stepover = 1 - this``.
+# At the default boldness factor and overlap floor the cutter ladder
+# reproduces the classic formula ``W = text_height * 0.14 / (1 +
+# (N - 1) * 0.75)`` exactly (the design point sits on the floor).
+DESIGN_MULTISTROKE_OVERLAP: float = 0.25
 # Permission for the compression-driven cutter reduction (see
 # ``plt_optimizer.generate.cutter_downsize``). ``True`` (the default) lets the
 # pipeline swap the *automatic* cutter for the next smaller inventory tool
@@ -472,6 +495,35 @@ def next_smaller_cutter(
     return max(strictly_smaller) if strictly_smaller else None
 
 
+def next_larger_cutter(
+    current: float,
+    available_inventory: Optional[list[float]] = None,
+) -> Optional[float]:
+    """Find the next larger cutter in the shop inventory.
+
+    The multi-stroke cutter ladder snaps down like ``snap_boundary_hole_cutter``
+    and then re-checks its gap-free floor: when the snapped tool falls below
+    the floor, the ladder steps *up* to the smallest inventory diameter at or
+    above the floor, so adjacent engraved passes always overlap.
+
+    Args:
+        current: The cutter diameter currently in use, in inches.
+        available_inventory: Shop cutter diameters in inches (``None`` or
+            empty disables the mechanism).
+
+    Returns:
+        The smallest inventory diameter strictly above ``current``, or ``None``
+        when the inventory is empty or ``current`` is already the largest (or
+        larger than every) tool.
+    """
+    if not available_inventory:
+        return None
+    strictly_larger = [
+        c for c in available_inventory if c > current and not math.isclose(c, current, abs_tol=1e-9)
+    ]
+    return min(strictly_larger) if strictly_larger else None
+
+
 def should_downsize_cutter(
     effective_scale: float,
     current_cutter: float,
@@ -500,6 +552,117 @@ def should_downsize_cutter(
     ratio = next_cutter / current_cutter
     midpoint = (1.0 + ratio) / 2.0
     return effective_scale < midpoint - _DOWNSIZE_SCALE_TOLERANCE
+
+
+@dataclass(frozen=True)
+class MultiStrokeCutter:
+    """The cutter a multi-stroke (bold) font line resolves to.
+
+    Attributes:
+        cutter: Ideal (pre-snap) cutter diameter in inches - one engraved
+            pass width. The N passes of the glyph sit at
+            :func:`design_pass_spacing` apart, so the total engraved stroke
+            width is ``cutter + (N - 1) * spacing``.
+        ideal: The boldness target's cutter before the gap-free floor is
+            applied (``text_height * factor - (N - 1) * spacing``); equal to
+            :attr:`cutter` unless :attr:`clamped`.
+        floor: The gap-free minimum cutter in inches
+            (``spacing / (1 - overlap_floor)``): any cutter below it would
+            leave an unengraved stripe between adjacent passes.
+        clamped: ``True`` when the boldness target asked for a thinner
+            cutter than the floor allows and the floor won (the engraved
+            width exceeds the requested boldness).
+        implicit_overlap: The overlap fraction the resolved cutter produces
+            at the baked pass spacing, ``1 - spacing / cutter`` (reported,
+            never an input).
+    """
+
+    cutter: float
+    ideal: float
+    floor: float
+    clamped: bool
+    implicit_overlap: float
+
+
+def design_pass_spacing(
+    nominal_height: float,
+    stroke_count: int,
+    design_overlap: float = DESIGN_MULTISTROKE_OVERLAP,
+    boldness_factor: float = DEFAULT_TARGET_BOLDNESS_FACTOR,
+) -> float:
+    """Return the pass spacing baked into a multi-stroke font's glyphs.
+
+    The sample sheets are engraved at the *design* point: boldness factor
+    ``DEFAULT_TARGET_BOLDNESS_FACTOR`` with adjacent passes overlapping by
+    ``design_overlap``, so the design cutter is
+    ``text_height * factor / (1 + (N - 1) * (1 - design_overlap))`` and the
+    passes sit ``design_stepover * design_cutter`` apart. The extractor
+    stores those engraved passes verbatim, so this spacing is a pure
+    function of the text height - the renderer scales the glyph geometry
+    linearly, carrying the spacing with it.
+
+    Args:
+        nominal_height: The line's nominal text height in inches.
+        stroke_count: Number of engraved passes per glyph (>= 1).
+        design_overlap: The overlap ratio the sheets were engraved at.
+        boldness_factor: The design boldness factor.
+
+    Returns:
+        The pass spacing in inches; 0.0 for a single-stroke font.
+    """
+    if stroke_count <= 1:
+        return 0.0
+    units = 1.0 + (stroke_count - 1) * (1.0 - design_overlap)
+    design_cutter = nominal_height * boldness_factor / units
+    return (1.0 - design_overlap) * design_cutter
+
+
+def multi_stroke_cutter_diameter(
+    nominal_height: float,
+    stroke_count: int,
+    overlap_floor: float = DEFAULT_MULTISTROKE_OVERLAP_RATIO,
+    boldness_factor: float = DEFAULT_TARGET_BOLDNESS_FACTOR,
+) -> MultiStrokeCutter:
+    """Size the cutter for a multi-stroke (bold) font line.
+
+    The engraved width of a glyph's N passes at spacing ``d`` with cutter
+    ``W`` is ``W + (N - 1) * d``, so the boldness target
+    ``W_total = text_height * boldness_factor`` inverts to
+    ``W = W_total - (N - 1) * d``. The overlap floor
+    ``overlap_floor`` (the ``multistroke_overlap_ratio`` field) guards the
+    result from below: adjacent passes must overlap by at least that
+    fraction, i.e. ``W >= d / (1 - overlap_floor)``. At the defaults the
+    result equals the classic ``text_height * 0.14 / (1 + (N - 1) * 0.75)``
+    (the design point sits exactly on the floor); a larger boldness factor
+    grows the cutter and the *implicit* overlap with it, which is how the
+    ladder escapes the floor toward heavier engraving without stripes.
+
+    Args:
+        nominal_height: The line's nominal text height in inches.
+        stroke_count: Number of engraved passes per glyph (>= 2; a
+            single-stroke font uses the height-based auto-selection).
+        overlap_floor: Minimum pass overlap fraction in [0, 1).
+        boldness_factor: Target engraved width as a fraction of height.
+
+    Returns:
+        The :class:`MultiStrokeCutter` recommendation (pre-snap).
+    """
+    spacing = design_pass_spacing(nominal_height, stroke_count)
+    floor = spacing / (1.0 - overlap_floor) if overlap_floor < 1.0 else math.inf
+    ideal = nominal_height * boldness_factor - (stroke_count - 1) * spacing
+    # The design point (default factor + default floor) lands *exactly* on the
+    # floor; the division in ``floor`` makes that a few ULPs apart in binary,
+    # so the comparison needs the same tolerance the downsize midpoint uses.
+    clamped = ideal < floor - _DOWNSIZE_SCALE_TOLERANCE
+    cutter = max(ideal, floor)
+    implicit_overlap = 1.0 - spacing / cutter if cutter > 0.0 else 1.0
+    return MultiStrokeCutter(
+        cutter=cutter,
+        ideal=ideal,
+        floor=floor,
+        clamped=clamped,
+        implicit_overlap=implicit_overlap,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -759,6 +922,8 @@ class ResolvedTextLine:
     plain_text: str = ""
     styled_runs: Tuple[Run, ...] = ()
     cutter_size: Optional[float] = DEFAULT_CUTTER_SIZE
+    target_boldness_factor: float = DEFAULT_TARGET_BOLDNESS_FACTOR
+    multistroke_overlap_ratio: float = DEFAULT_MULTISTROKE_OVERLAP_RATIO
     cutter_downsize: bool = DEFAULT_CUTTER_DOWNSIZE
     max_cutter_downsizes: int = DEFAULT_MAX_CUTTER_DOWNSIZES
     cutter_downsize_global: bool = DEFAULT_CUTTER_DOWNSIZE_GLOBAL
@@ -1863,6 +2028,14 @@ def _resolve_content(
     cutter leaves no material to engrave (toolpath height <= 0),
     :class:`CutterSizeError` is raised.
 
+    When no explicit cutter is set and the line's font is a multi-stroke
+    (bold) PLT font (``stroke_count > 1`` in ``plt_fonts.json``), the
+    automatic selection is replaced by the boldness ladder
+    (:func:`multi_stroke_cutter_diameter`): the cutter is sized so the
+    engraved passes total ``text_height * target_boldness_factor``, with
+    ``multistroke_overlap_ratio`` guarding the gap-free floor, then snapped
+    to the shop inventory (stepping up when the snap breaks the floor).
+
     Args:
         label_input: The label (or root-level job) being processed.
         job: The outer JobSpec providing fallback values.
@@ -1878,9 +2051,9 @@ def _resolve_content(
         A list of fully resolved text lines with cutter compensation.
 
     Raises:
-        CutterSizeError: If an explicit ``cutter_size`` is greater than or
-            equal to the line's nominal text height (no material left to
-            engrave).
+        CutterSizeError: If an explicit ``cutter_size`` (or a multi-stroke
+            ladder cutter) is greater than or equal to the line's nominal
+            text height (no material left to engrave).
         LineContentConfigError: If a line declares
             ``optimize_line_content_max_lines`` while its reflow permission
             resolves ``False``, or one reflow group declares two different
@@ -1907,10 +2080,48 @@ def _resolve_content(
         else:
             line_cutter_size = DEFAULT_CUTTER_SIZE
 
+        # Resolve the font name (line -> label -> job -> default). Schema
+        # validation already canonicalized every explicit value, so the
+        # cascade only picks the first tier that is set. Resolved *before*
+        # the cutter block: a multi-stroke (bold) PLT font needs its
+        # stroke_count to size the cutter.
+        if line.font is not None:
+            line_font: str = line.font
+        elif label_input.font is not None:
+            line_font = label_input.font
+        elif job.font is not None:
+            line_font = job.font
+        else:
+            line_font = DEFAULT_FONT
+
+        # Resolve the multi-stroke boldness target with the same
+        # explicit-None precedence (line -> label -> job -> default).
+        if line.target_boldness_factor is not None:
+            line_target_boldness_factor: float = line.target_boldness_factor
+        elif label_input.target_boldness_factor is not None:
+            line_target_boldness_factor = label_input.target_boldness_factor
+        elif job.target_boldness_factor is not None:
+            line_target_boldness_factor = job.target_boldness_factor
+        else:
+            line_target_boldness_factor = DEFAULT_TARGET_BOLDNESS_FACTOR
+
+        # Resolve the multi-stroke minimum pass overlap with the same
+        # precedence; an intentional 0.1 (thinnest permitted cutter) is honored.
+        if line.multistroke_overlap_ratio is not None:
+            line_multistroke_overlap_ratio: float = line.multistroke_overlap_ratio
+        elif label_input.multistroke_overlap_ratio is not None:
+            line_multistroke_overlap_ratio = label_input.multistroke_overlap_ratio
+        elif job.multistroke_overlap_ratio is not None:
+            line_multistroke_overlap_ratio = job.multistroke_overlap_ratio
+        else:
+            line_multistroke_overlap_ratio = DEFAULT_MULTISTROKE_OVERLAP_RATIO
+
         # Determine cutter and compensate for toolpath. An explicit cutter
         # replaces the height-based lookup, snapped to the shop inventory
         # (next size down, else next size up); an unset value keeps the
-        # automatic selection from the nominal height (current behaviour).
+        # automatic selection from the nominal height (current behaviour),
+        # except for a multi-stroke (bold) PLT font, whose stroke_count
+        # drives the boldness ladder below.
         if line_cutter_size is not None:
             cutter_dia = snap_boundary_hole_cutter(line_cutter_size, available_cutters)
             if not math.isclose(cutter_dia, line_cutter_size, abs_tol=1e-9):
@@ -1931,8 +2142,74 @@ def _resolve_content(
                     f"must be smaller than text_height"
                 )
         else:
-            cutter_dia = get_cutter_diameter(nominal_height, available_cutters, tolerance_factor)
+            stroke_count = plt_font_stroke_count(line_font)
+            if stroke_count > 1:
+                ladder = multi_stroke_cutter_diameter(
+                    nominal_height,
+                    stroke_count,
+                    overlap_floor=line_multistroke_overlap_ratio,
+                    boldness_factor=line_target_boldness_factor,
+                )
+                cutter_dia = snap_boundary_hole_cutter(ladder.cutter, available_cutters)
+                if ladder.clamped:
+                    logger.warning(
+                        "Label %s line %d (%r): multi-stroke font %r (S%d) "
+                        "boldness factor %g wants a %.4fin cutter, below the "
+                        "gap-free floor %.4fin at overlap >= %g; using the floor "
+                        "(engraved stroke width exceeds the target).",
+                        label_id,
+                        line_index,
+                        line.text,
+                        line_font,
+                        stroke_count,
+                        line_target_boldness_factor,
+                        max(ladder.ideal, 0.0),
+                        ladder.floor,
+                        line_multistroke_overlap_ratio,
+                    )
+                if available_cutters and cutter_dia < ladder.floor - 1e-12:
+                    bumped = next_larger_cutter(cutter_dia, available_cutters)
+                    if bumped is not None:
+                        logger.warning(
+                            "Label %s line %d (%r): multi-stroke font %r (S%d) "
+                            "snapped to %.4fin, below the gap-free floor "
+                            "%.4fin; stepped up to %.4fin to keep the passes "
+                            "overlapping.",
+                            label_id,
+                            line_index,
+                            line.text,
+                            line_font,
+                            stroke_count,
+                            cutter_dia,
+                            ladder.floor,
+                            bumped,
+                        )
+                        cutter_dia = bumped
+                logger.info(
+                    "Label %s line %d: multi-stroke font %r (S%d), boldness "
+                    "factor %g, overlap floor %g -> cutter %.4fin (implicit "
+                    "pass overlap %.3f).",
+                    label_id,
+                    line_index,
+                    line_font,
+                    stroke_count,
+                    line_target_boldness_factor,
+                    line_multistroke_overlap_ratio,
+                    cutter_dia,
+                    ladder.implicit_overlap,
+                )
+            else:
+                cutter_dia = get_cutter_diameter(
+                    nominal_height, available_cutters, tolerance_factor
+                )
             toolpath_height = nominal_height - cutter_dia
+            if stroke_count > 1 and toolpath_height <= 0.0:
+                raise CutterSizeError(
+                    f"label {label_id!r} line {line_index} ({line.text!r}): "
+                    f"multi-stroke cutter {cutter_dia:g}in leaves no material "
+                    f"to engrave (text_height {nominal_height:g}in); lower the "
+                    f"boldness factor or increase text_height"
+                )
 
         # Resolve spacing (kerning can now dynamically rely on cutter_dia if omitted)
         char_spacing = (
@@ -1992,18 +2269,6 @@ def _resolve_content(
             line_text_color = label_input.text_color.value
         else:
             line_text_color = DEFAULT_TEXT_COLOR
-
-        # Resolve the font name (line -> label -> job -> default). Schema
-        # validation already canonicalized every explicit value, so the
-        # cascade only picks the first tier that is set.
-        if line.font is not None:
-            line_font: str = line.font
-        elif label_input.font is not None:
-            line_font = label_input.font
-        elif job.font is not None:
-            line_font = job.font
-        else:
-            line_font = DEFAULT_FONT
 
         # Resolve the PLT-font space advance fraction explicitly so an
         # intentional ``0.0`` is honored instead of falling through to a
@@ -2248,6 +2513,8 @@ def _resolve_content(
                 plain_text=styled.plain_text,
                 styled_runs=styled.runs,
                 cutter_size=line_cutter_size,
+                target_boldness_factor=line_target_boldness_factor,
+                multistroke_overlap_ratio=line_multistroke_overlap_ratio,
                 cutter_downsize=line_cutter_downsize,
                 max_cutter_downsizes=line_max_cutter_downsizes,
                 cutter_downsize_global=line_cutter_downsize_global,

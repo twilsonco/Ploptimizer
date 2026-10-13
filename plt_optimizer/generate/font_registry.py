@@ -46,7 +46,7 @@ import logging
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, Iterable, List, Literal, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +172,12 @@ class PltFontData:
             design units (1.0 for every v2 library: the extractor scales
             the reference char to exactly 1000 design units). The renderer
             derives its scale from this value.
+        stroke_count: Number of parallel cutter passes each glyph carries
+            (from the sample sheet's ``_S<n>`` file-name suffix). 1 is a
+            single-stroke font; N > 1 is a multi-stroke (bold) font whose
+            stored glyphs already contain all N engraved passes, so the
+            renderer emits them verbatim and the count drives automatic
+            cutter sizing only.
     """
 
     characters: Dict[str, PltGlyphEntry]
@@ -179,6 +185,7 @@ class PltFontData:
     declared_height_in: Optional[float] = None
     reference_char_height_in: Optional[float] = None
     normalized_ref_height: float = 1.0
+    stroke_count: int = 1
 
 
 def _parse_bounding_box(raw: object) -> Optional[Tuple[float, float, float, float]]:
@@ -310,7 +317,39 @@ def _parse_font_data(name: str, raw: object, path: Path) -> Optional[PltFontData
         declared_height_in=_opt_float("declared_height_in"),
         reference_char_height_in=_opt_float("reference_char_height_in"),
         normalized_ref_height=normalized_ref_height,
+        stroke_count=_parse_stroke_count(name, path, raw.get("stroke_count")),
     )
+
+
+def _parse_stroke_count(name: str, path: Path, raw: Any) -> int:
+    """Parse a font's ``stroke_count`` metadata leniently.
+
+    Args:
+        name: The font key (for logging).
+        path: Library path (for logging).
+        raw: The raw JSON value for the ``stroke_count`` key.
+
+    Returns:
+        The stroke count; 1 (single-stroke) when absent, malformed,
+        non-integral, or below one - libraries written before the
+        multi-stroke convention simply carry no key.
+    """
+    if raw is None:
+        return 1
+    if isinstance(raw, bool):
+        logger.warning("PLT font %r in %s has boolean stroke_count %r; using 1", name, path, raw)
+        return 1
+    try:
+        count: int = int(raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "PLT font %r in %s has non-integer stroke_count %r; using 1", name, path, raw
+        )
+        return 1
+    if count < 1:
+        logger.warning("PLT font %r in %s has stroke_count %r below 1; using 1", name, path, raw)
+        return 1
+    return count
 
 
 @lru_cache(maxsize=8)
@@ -545,3 +584,63 @@ def normalize_font_name(
         FontNotFoundError: If no font matches ``name``.
     """
     return resolve_font(name, json_path, fonts_dir).name
+
+
+def plt_font_stroke_count(name: str, json_path: Optional[Path] = None) -> int:
+    """Return the multi-stroke pass count of a PLT-extracted font.
+
+    Resolution-time cutter sizing uses this to recognise multi-stroke
+    (bold) fonts: their stored glyphs already carry all N engraved passes,
+    so the count drives the cutter-width formula only. Lookup is
+    case-insensitive and strips a trailing `` SC`` small-caps suffix (the
+    variant renders from the base library). Anything that is not a PLT
+    library font - a TTF name, an unknown name, a missing library - is
+    single-stroke (1): multi-stroke sizing is a PLT-font feature.
+
+    Args:
+        name: Font name (canonical, lowercase, or a ``"<base> SC"``
+            variant).
+        json_path: Optional ``plt_fonts.json`` override.
+
+    Returns:
+        The font's stroke count (>= 1); 1 for TTF/unknown fonts.
+    """
+    if not name or not name.strip():
+        return 1
+    base = base_font_name(name.strip()).lower()
+    for font_name, data in load_plt_fonts(json_path).items():
+        if font_name.lower() == base:
+            return data.stroke_count
+    return 1
+
+
+def plt_font_has_glyph(
+    name: str,
+    character: str,
+    json_path: Optional[Path] = None,
+) -> bool:
+    """Return whether a PLT-extracted font carries ``character``.
+
+    Symbol fonts (e.g. Wingdings) engrave their ASCII slots with symbols, so
+    the derived-glyph recipes cannot build every derived Unicode character;
+    coverage tools (the font showcase) use this to render only the glyphs a
+    font actually has - the PLT analogue of a TrueType font drawing its
+    ``.notdef`` box. A TTF name, an unknown name, or a missing library
+    reports ``True`` (only PLT fonts have a discrete glyph set to probe).
+
+    Args:
+        name: Font name (canonical, lowercase, or a ``"<base> SC"`` variant).
+        character: The single character to probe.
+        json_path: Optional ``plt_fonts.json`` override.
+
+    Returns:
+        ``True`` when the font is a PLT font carrying ``character`` (or is
+        not a PLT font at all); ``False`` for a PLT font missing it.
+    """
+    if not name or not name.strip():
+        return True
+    base = base_font_name(name.strip()).lower()
+    for font_name, data in load_plt_fonts(json_path).items():
+        if font_name.lower() == base:
+            return character in data.characters
+    return True

@@ -1253,12 +1253,15 @@ class TestPltFontDemoExample:
 
         Re-pinned for the v2 envelope-kerned typesetter: tighter kerning
         keeps lines narrower, so less width-compression flattens arcs and
-        more native ``AA`` commands survive end-to-end.
+        more native ``AA`` commands survive end-to-end. Re-pinned again for
+        the multi-stroke library regen: the shipped Dino/Jhanuni sheets are
+        now the 0.67/0.6 ``_S1`` engravings, so the demo fonts' geometry (and
+        the compression that flattens arcs) shifted.
         """
         rendered = self._rendered()
         counts = {key: content.plt_content.count("AA") for key, (_rl, content) in rendered.items()}
         assert counts["dino_banner"] == 177
-        assert counts["mixed_tag"] == 373
+        assert counts["mixed_tag"] == 383
         assert counts["ttf_card"] == 0
 
 

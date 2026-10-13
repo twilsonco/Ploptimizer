@@ -1,0 +1,80 @@
+# Fixture for multi-stroke (bold) PLT font support.
+#
+# Multi-stroke fonts carry N parallel cutter passes per glyph (the `_S<n>`
+# suffix recorded in Fonts/plt_fonts.json). The automatic cutter is sized by
+# the boldness ladder: the engraved passes must total
+# `text_height * target_boldness_factor` of width, with
+# `multistroke_overlap_ratio` guarding the gap-free floor, then snapped to the
+# shop inventory (stepping up when the snap-down breaks the floor).
+#
+# All labels are 0.5in text. Against the test inventory
+# [0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.09, 0.125, 0.25] the ladder lands
+# on:
+#   - single_stroke (Dino, S1) ....... 0.060  (auto height lookup, unchanged)
+#   - multistroke_default (Avenge5, S5) 0.020  (ideal 0.0175 snapped down to
+#                                              0.015, below the 0.0175 floor,
+#                                              so stepped up to 0.020)
+#   - two_stroke (Helter2, S2) ....... 0.045  (ideal 0.040 -> 0.030, below the
+#                                              0.040 floor, stepped up to 0.045)
+#   - multistroke_bold (Avenge5, factor 0.20) 0.045 (ideal 0.0475 snaps down
+#                                              to 0.045, above the floor, kept)
+#   - multistroke_thin (Avenge5, factor 0.08) 0.020 (target below the floor,
+#                                              clamped to 0.0175, stepped up)
+#   - explicit_cutter (Avenge5, cutter_size 0.09) 0.090 (ladder bypassed)
+job:
+  job_name: Multistroke Demo
+
+  width: 3.0
+  height: 1.0
+  margin: 0.1
+  text_height: 0.5
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # Single-stroke control: Dino is an S1 font, so the ladder never fires and
+    # the cutter is the plain height-based lookup (0.060in).
+    - id: single_stroke
+      font: Dino
+      content:
+        - text: "SINGLE"
+
+    # Avenge5 is an S5 font: the default factor/overlap ladder sizes the
+    # cutter and the inventory snap steps up to keep the passes overlapping.
+    - id: multistroke_default
+      font: Avenge5
+      content:
+        - text: "BOLD"
+
+    # Helter2 is an S2 font: fewer passes, so the same target boldness
+    # resolves to a larger cutter.
+    - id: two_stroke
+      font: Helter2
+      content:
+        - text: "PAIR"
+
+    # A heavier boldness target grows the cutter (and the implicit pass
+    # overlap) above the design point.
+    - id: multistroke_bold
+      font: Avenge5
+      target_boldness_factor: 0.2
+      content:
+        - text: "HEAVY"
+
+    # A light target asks for a thinner cutter than the gap-free floor
+    # allows, so it clamps to the floor (logged at WARNING).
+    - id: multistroke_thin
+      font: Avenge5
+      target_boldness_factor: 0.08
+      content:
+        - text: "LIGHT"
+
+    # An explicit cutter_size bypasses the ladder entirely.
+    - id: explicit_cutter
+      font: Avenge5
+      cutter_size: 0.09
+      content:
+        - text: "EXPLICIT"

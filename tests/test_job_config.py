@@ -53,6 +53,8 @@ _FULL_CONFIG: dict[str, Any] = {
     "underline_offset": 0.08,
     "underline_break_clearance": 0.12,
     "underline_break_spaces": True,
+    "target_boldness_factor": 0.18,
+    "multistroke_overlap_ratio": 0.35,
     "use_baseline_spacing": False,
     "v_center_by_content": True,
     "auto_descending_character_adjustment": False,
@@ -320,6 +322,27 @@ class TestJobDefaultsModel:
         assert JobDefaults().underline_break_spaces is None
         assert JobDefaults(underline_break_spaces=True).underline_break_spaces is True
         assert JobDefaults(underline_break_spaces=False).underline_break_spaces is False
+        assert JobDefaults().target_boldness_factor is None
+        assert JobDefaults(target_boldness_factor=0.18).target_boldness_factor == pytest.approx(
+            0.18
+        )
+        assert JobDefaults(target_boldness_factor=0.05).target_boldness_factor == 0.05
+        assert JobDefaults(target_boldness_factor=0.30).target_boldness_factor == 0.30
+        with pytest.raises(Exception):
+            JobDefaults(target_boldness_factor=0.04)
+        with pytest.raises(Exception):
+            JobDefaults(target_boldness_factor=0.31)
+        assert JobDefaults().multistroke_overlap_ratio is None
+        assert (
+            JobDefaults(multistroke_overlap_ratio=0.35).multistroke_overlap_ratio
+            == pytest.approx(0.35)
+        )
+        assert JobDefaults(multistroke_overlap_ratio=0.1).multistroke_overlap_ratio == 0.1
+        assert JobDefaults(multistroke_overlap_ratio=0.5).multistroke_overlap_ratio == 0.5
+        with pytest.raises(Exception):
+            JobDefaults(multistroke_overlap_ratio=0.05)
+        with pytest.raises(Exception):
+            JobDefaults(multistroke_overlap_ratio=0.6)
         assert JobDefaults().use_baseline_spacing is None
         assert JobDefaults(use_baseline_spacing=False).use_baseline_spacing is False
         assert JobDefaults().v_center_by_content is None
@@ -409,6 +432,8 @@ class TestApplyJobConfigDefaults:
         assert filled["underline_offset"] == 0.08
         assert filled["underline_break_clearance"] == 0.12
         assert filled["underline_break_spaces"] is True
+        assert filled["target_boldness_factor"] == 0.18
+        assert filled["multistroke_overlap_ratio"] == 0.35
 
     def test_cutter_downsize_job_layer_fill(self, tmp_path: Path) -> None:
         """Configured cutter-downsize defaults land as job-level values."""
@@ -940,6 +965,8 @@ class TestParseYamlWithJobConfig:
         assert job.underline_offset == 0.05
         assert job.underline_break_clearance == 0.1
         assert job.underline_break_spaces is False
+        assert job.target_boldness_factor == 0.14
+        assert job.multistroke_overlap_ratio == 0.25
         assert job.cutter_downsize is True
         assert job.max_cutter_downsizes == 1
         assert job.cutter_downsize_global is True

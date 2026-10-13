@@ -19,6 +19,8 @@
   "underline_offset": 0.05,
   "underline_break_clearance": 0.1,
   "underline_break_spaces": false,
+  "target_boldness_factor": 0.14,
+  "multistroke_overlap_ratio": 0.25,
   "cutter_downsize": true,
   "max_cutter_downsizes": 1,
   "cutter_downsize_global": true,

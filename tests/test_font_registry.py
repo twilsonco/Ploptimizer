@@ -235,6 +235,100 @@ class TestLoadPltFonts:
         assert set(fonts) == {"Good"}
         assert "Bad" in caplog.text
 
+    def test_stroke_count_defaults_to_one(self, tmp_path: Path) -> None:
+        """A library written before the multi-stroke convention loads as 1."""
+        library = tmp_path / "plt_fonts.json"
+        library.write_text(json.dumps({"Test": _v2_font({"A": "PU0,0;"})}), encoding="utf-8")
+        assert load_plt_fonts(library)["Test"].stroke_count == 1
+
+    def test_stroke_count_parsed(self, tmp_path: Path) -> None:
+        """The extractor's stroke_count metadata lands on the font data."""
+        library = tmp_path / "plt_fonts.json"
+        library.write_text(
+            json.dumps({"Test": _v2_font({"A": "PU0,0;"}, stroke_count=5)}),
+            encoding="utf-8",
+        )
+        assert load_plt_fonts(library)["Test"].stroke_count == 5
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [("5", 5), (5.0, 5), (0, 1), (-3, 1), ("five", 1), (True, 1), (None, 1)],
+    )
+    def test_stroke_count_lenient_parse(
+        self, tmp_path: Path, raw: object, expected: int
+    ) -> None:
+        """Garbage/stale stroke_count values fall back to single-stroke."""
+        library = tmp_path / "plt_fonts.json"
+        library.write_text(
+            json.dumps({"Test": _v2_font({"A": "PU0,0;"}, stroke_count=raw)}),
+            encoding="utf-8",
+        )
+        assert load_plt_fonts(library)["Test"].stroke_count == expected
+
+    def test_stroke_count_garbage_warns(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A malformed stroke_count logs a WARNING and falls back to 1."""
+        library = tmp_path / "plt_fonts.json"
+        library.write_text(
+            json.dumps({"Test": _v2_font({"A": "PU0,0;"}, stroke_count="five")}),
+            encoding="utf-8",
+        )
+        with caplog.at_level("WARNING"):
+            fonts = load_plt_fonts(library)
+        assert fonts["Test"].stroke_count == 1
+        assert "stroke_count" in caplog.text
+
+
+class TestPltFontStrokeCount:
+    """The resolution-time stroke-count lookup."""
+
+    @pytest.fixture
+    def stroke_lib(self, tmp_path: Path) -> Path:
+        """A library with a single-stroke and a five-stroke PLT font."""
+        library = tmp_path / "plt_fonts.json"
+        library.write_text(
+            json.dumps(
+                {
+                    "Dino": _v2_font({"A": "PU0,0;"}),
+                    "Avenge5": _v2_font({"A": "PU0,0;"}, stroke_count=5),
+                }
+            ),
+            encoding="utf-8",
+        )
+        return library
+
+    def test_multi_stroke_font_found(self, stroke_lib: Path) -> None:
+        assert font_registry.plt_font_stroke_count("Avenge5", stroke_lib) == 5
+
+    def test_single_stroke_font_defaults(self, stroke_lib: Path) -> None:
+        assert font_registry.plt_font_stroke_count("Dino", stroke_lib) == 1
+
+    def test_lookup_is_case_insensitive(self, stroke_lib: Path) -> None:
+        assert font_registry.plt_font_stroke_count("avenge5", stroke_lib) == 5
+
+    def test_small_caps_variant_strips_suffix(self, stroke_lib: Path) -> None:
+        assert font_registry.plt_font_stroke_count("Avenge5 SC", stroke_lib) == 5
+
+    def test_unknown_font_is_single_stroke(self, stroke_lib: Path) -> None:
+        assert font_registry.plt_font_stroke_count("Nope", stroke_lib) == 1
+
+    def test_ttf_font_is_single_stroke(self, fonts_root: Path) -> None:
+        """TTF names are not PLT library keys -> single-stroke."""
+        assert (
+            font_registry.plt_font_stroke_count("Alpha", fonts_root / "plt_fonts.json") == 1
+        )
+
+    def test_blank_name_is_single_stroke(self, stroke_lib: Path) -> None:
+        assert font_registry.plt_font_stroke_count("  ", stroke_lib) == 1
+
+    def test_missing_library_is_single_stroke(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A missing library degrades (WARNING from the loader) to 1."""
+        with caplog.at_level("WARNING"):
+            assert font_registry.plt_font_stroke_count("Avenge5", tmp_path / "nope.json") == 1
+
 
 class TestAvailableTtfFonts:
     """TrueType discovery under the Fonts tree."""

@@ -405,6 +405,30 @@ class JobDefaults(BaseModel):
             "Unset falls back to false."
         ),
     )
+    target_boldness_factor: Optional[float] = Field(
+        default=None,
+        ge=0.05,
+        le=0.30,
+        description=(
+            "Default multi-stroke target engraved stroke width as a fraction "
+            "of text height (job layer; sizes the automatic cutter of "
+            "multi-stroke/bold PLT fonts so the engraved passes total this "
+            "width; inert on single-stroke fonts, TTF fonts, and lines with "
+            "an explicit cutter_size). Unset falls back to 0.14."
+        ),
+    )
+    multistroke_overlap_ratio: Optional[float] = Field(
+        default=None,
+        ge=0.1,
+        le=0.5,
+        description=(
+            "Default multi-stroke minimum pass overlap ratio (job layer; the "
+            "automatic cutter of a multi-stroke/bold PLT font is never "
+            "smaller than pass_spacing / (1 - ratio), so adjacent engraved "
+            "passes always overlap and no unengraved stripe appears). Unset "
+            "falls back to 0.25."
+        ),
+    )
     holes: Optional[list[HoleSpec]] = Field(
         default=None,
         description="Default drill-hole list (job layer; group locations expand like spec holes).",
@@ -652,6 +676,8 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "underline_offset",
     "underline_break_clearance",
     "underline_break_spaces",
+    "target_boldness_factor",
+    "multistroke_overlap_ratio",
     "cutter_downsize",
     "max_cutter_downsizes",
     "cutter_downsize_global",
