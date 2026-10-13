@@ -74,10 +74,14 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from plt_optimizer.generate.cutter_downsize import ScaleProbe
 from plt_optimizer.generate.markup import (
+    PLAIN,
+    Run,
+    Style,
     parse_markup,
+    serialize_runs,
     serialize_word,
     split_brackets,
-    split_styled_words,
+    split_styled_words_with_separators,
 )
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
 
@@ -272,33 +276,44 @@ def _partition_words(
     return segments
 
 
-def _word_tokens(line: ResolvedTextLine) -> List[str]:
-    """Split ``line``'s text into whitespace-free markup-carrying tokens.
+#: One reflow token: a serialized word plus the style of the whitespace that
+#: followed it in its source line (PLAIN for the last word of the line). A
+#: styled separator (``<u>foo bar</u>`` styles its space) survives the rebuild
+#: only if it travels with the word it precedes.
+_WordToken = Tuple[str, Style]
 
-    A markup-free line yields its plain ``.split()`` words (the historical
-    behaviour, bit-identical). A line with inline markup yields one serialized
-    token per styled word: a tag span crossing a word boundary decomposes
-    into per-word tags (``<i>foo bar</i>`` -> ``<i>foo</i> <i>bar</i>``),
-    which renders identically for the shipped per-character styles (italic
-    spaces carry no ink on either font path) and keeps every word a fully
-    styled atomic unit the reflow can move between lines.
+
+def _word_tokens(line: ResolvedTextLine) -> List[_WordToken]:
+    """Split ``line``'s text into markup-carrying word tokens + separator styles.
+
+    A markup-free line yields its plain ``.split()`` words with PLAIN
+    separators (the historical behaviour, bit-identical). A line with inline
+    markup yields one serialized token per styled word plus the style of the
+    whitespace that followed it: a tag span crossing a word boundary
+    decomposes into per-word tags (``<i>foo bar</i>`` -> ``<i>foo</i>
+    <i>bar</i>``), and the space between them carries that span's style, so
+    rebuilding the text with :func:`serialize_runs` keeps the span continuous
+    (``<u>foo bar</u>`` stays ONE underline, not two).
 
     Args:
         line: The resolved line whose text to tokenize.
 
     Returns:
-        The word tokens (each re-parses standalone).
+        ``(token, separator_style)`` pairs (each token re-parses standalone).
     """
     left, right = split_brackets(line.html_brackets)
     styled = parse_markup(line.text, left, right)
     if not styled.has_markup:
-        return line.text.split()
-    return [serialize_word(word, left, right) for word in split_styled_words(styled)]
+        return [(word, PLAIN) for word in line.text.split()]
+    words, separators = split_styled_words_with_separators(styled)
+    tokens = [serialize_word(word, left, right) for word in words]
+    trailing = separators + (PLAIN,)
+    return list(zip(tokens, trailing))
 
 
 def _measure_space_advance(
     line: ResolvedTextLine,
-    words: Sequence[str],
+    words: Sequence[_WordToken],
     probe: LineWidthProbe,
     cache: Dict[Tuple[int, str], float],
     line_index: int,
@@ -314,7 +329,7 @@ def _measure_space_advance(
 
     Args:
         line: The resolved line providing the typography.
-        words: The line's whitespace-split words.
+        words: The line's word tokens (the serialized text is measured).
         probe: The line-width probe.
         cache: Shared word-width cache (mutated for the pair measurement).
         line_index: Index of the line (cache key).
@@ -323,14 +338,19 @@ def _measure_space_advance(
         The space advance in inches.
     """
     if len(words) >= 2:
-        pair = f"{words[0]} {words[1]}"
+        first_token = words[0][0]
+        second_token = words[1][0]
+        left, right = split_brackets(line.html_brackets)
+        # Join with the first token's separator style, so a styled junction
+        # measures the same geometry the rebuild produces.
+        pair = _join_tokens(words[:2], left, right)
         pair_key = (line_index, pair)
         pair_width = cache.get(pair_key)
         if pair_width is None:
             pair_width = probe(line.with_markup(pair))
             cache[pair_key] = pair_width
-        first = cache[(line_index, words[0])]
-        second = cache[(line_index, words[1])]
+        first = cache[(line_index, first_token)]
+        second = cache[(line_index, second_token)]
         return max(pair_width - first - second, 0.0)
     return line.space_width_fraction * line.toolpath_text_height + line.character_spacing
 
@@ -338,8 +358,8 @@ def _measure_space_advance(
 def _measure_typography(
     line: ResolvedTextLine,
     cache_index: int,
-    words: Sequence[str],
-    own_words: Sequence[str],
+    words: Sequence[_WordToken],
+    own_words: Sequence[_WordToken],
     probe: LineWidthProbe,
     cache: Dict[Tuple[int, str], float],
 ) -> Tuple[List[float], float]:
@@ -350,9 +370,9 @@ def _measure_typography(
         cache_index: Index identifying this typography in the shared cache.
             Inserted (grown) lines pass their donor line's index, because
             they clone its typography exactly and the measurements coincide.
-        words: The words to measure.
-        own_words: The line's own whitespace-split words, used to measure the
-            space advance from its own text when it has two of them.
+        words: The word tokens to measure.
+        own_words: The line's own word tokens, used to measure the space
+            advance from its own text when it has two of them.
         probe: The line-width probe.
         cache: Shared word-width cache (mutated).
 
@@ -360,11 +380,11 @@ def _measure_typography(
         ``(word_widths, space_advance)`` for this typography.
     """
     widths: List[float] = []
-    for word in words:
-        key = (cache_index, word)
+    for token, _separator in words:
+        key = (cache_index, token)
         width = cache.get(key)
         if width is None:
-            width = probe(line.with_markup(word))
+            width = probe(line.with_markup(token))
             cache[key] = width
         widths.append(width)
     space_advance = _measure_space_advance(line, own_words, probe, cache, cache_index)
@@ -386,11 +406,42 @@ def _group_cap(lines: Sequence[ResolvedTextLine]) -> Optional[int]:
     return None
 
 
+def _join_tokens(
+    tokens: Sequence[_WordToken],
+    left: str,
+    right: str,
+) -> str:
+    """Rebuild raw markup text from a segment's word tokens.
+
+    Each token is serialized markup; the separator that followed it in its
+    source line carries that source line's style at the junction. Joining
+    word i's runs with ``Run(" ", token[i].separator)`` then word i+1's runs
+    (and dropping the last token's trailing separator) reproduces a tag span
+    that covered the space -- ``<u>foo bar</u>`` stays ONE underline. A
+    segment of PLAIN tokens (a markup-free line, or plain junctions) rebuilds
+    to the historical ``" ".join`` exactly.
+
+    Args:
+        tokens: The segment's ``(token, separator_style)`` pairs in order.
+        left: Left delimiter to emit.
+        right: Right delimiter to emit.
+
+    Returns:
+        The rebuilt raw markup text (empty for an empty segment).
+    """
+    runs: List[Run] = []
+    for position, (token, separator) in enumerate(tokens):
+        runs.extend(parse_markup(token, left, right).runs)
+        if position < len(tokens) - 1:
+            runs.append(Run(" ", separator))
+    return serialize_runs(runs, left, right)
+
+
 def _group_layout(
     content: Sequence[ResolvedTextLine],
     group: Sequence[int],
     segments: Sequence[Tuple[int, int]],
-    all_words: Sequence[str],
+    all_words: Sequence[_WordToken],
 ) -> List[ResolvedTextLine]:
     """Build the label content realising one group's partition.
 
@@ -399,7 +450,7 @@ def _group_layout(
         group: The group's line indices in ``content``.
         segments: One ``(start, end)`` word-index pair per layout line
             (``len(segments) >= len(group)``; the surplus is inserted).
-        all_words: The group's concatenated word list.
+        all_words: The group's concatenated word tokens.
 
     Returns:
         A new content list: the group's existing lines carry the leading
@@ -410,10 +461,15 @@ def _group_layout(
     donor = content[group[-1]]
     layout = list(content)
     for position, (start, end) in enumerate(segments):
-        text = " ".join(all_words[start:end])
         if position < len(group):
             index = group[position]
             line = content[index]
+        else:
+            line = donor
+        left, right = split_brackets(line.html_brackets)
+        text = _join_tokens(all_words[start:end], left, right)
+        if position < len(group):
+            index = group[position]
             layout[index] = line.with_markup(text)
         else:
             layout.insert(

@@ -21,6 +21,7 @@ from plt_optimizer.generate.markup import (
     serialize_word,
     split_brackets,
     split_styled_words,
+    split_styled_words_with_separators,
     style_boundaries,
 )
 
@@ -281,6 +282,52 @@ class TestStyledWords:
     def test_blank_line_yields_no_words(self) -> None:
         """Whitespace-only text has no words (the reflow's scope guard)."""
         assert split_styled_words(parse_markup("   ")) == ()
+
+
+class TestStyledWordsWithSeparators:
+    """The word + separator-style partition the reflow rebuild consumes."""
+
+    def test_plain_separators_are_plain(self) -> None:
+        """A plain line yields PLAIN separators between its words."""
+        words, separators = split_styled_words_with_separators(parse_markup("a b c"))
+        assert [w.text for w in words] == ["a", "b", "c"]
+        assert separators == (PLAIN, PLAIN)
+
+    def test_span_covering_a_space_styles_the_separator(self) -> None:
+        """``<u>foo bar</u>`` styles the space, so the rebuild stays continuous."""
+        words, separators = split_styled_words_with_separators(parse_markup("<u>foo bar</u>"))
+        assert [w.text for w in words] == ["foo", "bar"]
+        assert separators == (UNDERLINE,)
+
+    def test_plain_span_between_words_is_plain_separator(self) -> None:
+        """Two separately-styled words share a PLAIN separator."""
+        words, separators = split_styled_words_with_separators(
+            parse_markup("<i>foo</i> <u>bar</u>")
+        )
+        assert [w.style for w in words] == [ITALIC, UNDERLINE]
+        assert separators == (PLAIN,)
+
+    def test_trailing_whitespace_is_dropped(self) -> None:
+        """Trailing whitespace yields no trailing separator (one per junction)."""
+        words, separators = split_styled_words_with_separators(parse_markup("a b  "))
+        assert [w.text for w in words] == ["a", "b"]
+        assert separators == (PLAIN,)
+
+    def test_leading_whitespace_is_dropped(self) -> None:
+        """Leading whitespace is skipped; the first word has no separator."""
+        words, separators = split_styled_words_with_separators(parse_markup("  a b"))
+        assert [w.text for w in words] == ["a", "b"]
+        assert separators == (PLAIN,)
+
+    def test_blank_line_yields_no_words(self) -> None:
+        """Whitespace-only text yields no words and no separators."""
+        assert split_styled_words_with_separators(parse_markup("   ")) == ((), ())
+
+    def test_single_word_has_no_separator(self) -> None:
+        """One word yields an empty separator tuple."""
+        words, separators = split_styled_words_with_separators(parse_markup("<i>x</i>"))
+        assert [w.text for w in words] == ["x"]
+        assert separators == ()
 
 
 class TestStyleBoundaries:

@@ -1087,12 +1087,21 @@ rebuilding raw markup.
   WARNING, never a crash. SC + italic always shears the small glyph (splicing a
   full-height italic glyph would undo the shrink).
 - **Markup-aware reflow** (`line_content._word_tokens`): a markup-free line
-  keeps the historical `.split()`; a line with markup yields one
-  `serialize_word` token per styled word, so a span crossing a whitespace
-  boundary decomposes into per-word tags (`<i>foo bar</i>` → `<i>foo</i>
-  <i>bar</i>`) — identical engraving for the shipped per-character styles, and
-  every word stays a fully styled atomic token the DP can move. Probes measure
-  lines through `line.with_markup(...)`, so word widths include the styling.
+  keeps the historical `.split()` (PLAIN separators, bit-identical); a line
+  with markup yields one `serialize_word` token per styled word **plus the
+  style of the whitespace that followed it**
+  (`markup.split_styled_words_with_separators`), so a span crossing a
+  whitespace boundary decomposes into per-word tags (`<i>foo bar</i>` →
+  `<i>foo</i> <i>bar</i>`) and the junction's style travels with the word it
+  precedes. `_group_layout` rebuilds each line with `_join_tokens` (a
+  `serialize_runs` pass over the segment's runs interleaved with
+  `Run(" ", separator)`), NOT a plain `" ".join`: a span that **covers a
+  space** (`<u>foo bar</u>`) styles that space, and a plain join would drop it
+  — which splits a continuous underline per word, visible engraving (italic
+  spaces carry no ink, so the loss was invisible there; underline spaces carry
+  ink, so it is not). A PLAIN-junction segment rebuilds to the historical
+  `" ".join` exactly. Probes measure lines through `line.with_markup(...)`, so
+  word widths include the styling.
 - **Interaction notes**: `measure_line_natural_width` /
   `measure_line_vertical_extents` route through `_render_line_block`, so the
   reflow / compression / extents pre-passes are italic-aware for free; the

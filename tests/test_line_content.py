@@ -21,8 +21,10 @@ from plt_optimizer.generate.line_content import (
     _partition_words,
     _reflow_groups,
     _reflow_label,
+    _word_tokens,
     apply_line_content_reflow,
 )
+from plt_optimizer.generate.markup import PLAIN, Style
 from plt_optimizer.generate.resolution import (
     DEFAULT_OPTIMIZE_LINE_CONTENT,
     ResolvedLabel,
@@ -263,7 +265,7 @@ class TestMeasureSpaceAdvance:
         probe = _char_probe(char_width=0.3, space_width=0.25)
         for word in ("AA", "BB"):
             cache[(0, word)] = probe(_line(word))
-        advance = _measure_space_advance(line, ["AA", "BB"], probe, cache, 0)
+        advance = _measure_space_advance(line, [("AA", PLAIN), ("BB", PLAIN)], probe, cache, 0)
         # The pair probe charges the space both as a character (0.3) and as
         # the extra space width (0.25), so the measured advance is their sum.
         assert advance == pytest.approx(0.55)
@@ -276,14 +278,14 @@ class TestMeasureSpaceAdvance:
         def probe(_line_obj: ResolvedTextLine) -> float:
             return 1.5  # pair narrower than the two words alone
 
-        advance = _measure_space_advance(line, ["AA", "BB"], probe, cache, 0)
+        advance = _measure_space_advance(line, [("AA", PLAIN), ("BB", PLAIN)], probe, cache, 0)
         assert advance == 0.0
 
     def test_single_word_line_uses_the_formula(self) -> None:
         """A one-word line falls back to the documented PLT formula."""
         line = _line("AA", space_width_fraction=0.4, character_spacing=0.09)
         cache: Dict[tuple, float] = {}
-        advance = _measure_space_advance(line, ["AA"], _char_probe(), cache, 0)
+        advance = _measure_space_advance(line, [("AA", PLAIN)], _char_probe(), cache, 0)
         assert advance == pytest.approx(0.4 * line.toolpath_text_height + 0.09)
 
 
@@ -787,22 +789,53 @@ class TestMarkupAwareReflow:
 
     def test_word_tokens_carry_markup(self) -> None:
         """A styled word serializes with its tags (the atomic reflow token)."""
-        from plt_optimizer.generate.line_content import _word_tokens
-
         line = _line("<i>foo</i> bar")
-        assert _word_tokens(line) == ["<i>foo</i>", "bar"]
+        assert _word_tokens(line) == [("<i>foo</i>", PLAIN), ("bar", PLAIN)]
 
     def test_word_tokens_plain_line_is_plain_split(self) -> None:
         """A markup-free line keeps the historical whitespace split."""
-        from plt_optimizer.generate.line_content import _word_tokens
-
-        assert _word_tokens(_line("alpha beta")) == ["alpha", "beta"]
+        assert _word_tokens(_line("alpha beta")) == [("alpha", PLAIN), ("beta", PLAIN)]
 
     def test_span_across_words_decomposes_to_per_word_tags(self) -> None:
-        """``<i>foo bar</i>`` moves as two fully-styled words."""
-        from plt_optimizer.generate.line_content import _word_tokens
+        """``<i>foo bar</i>`` moves as two words with a styled separator.
 
-        assert _word_tokens(_line("<i>foo bar</i>")) == ["<i>foo</i>", "<i>bar</i>"]
+        The space between the words sits inside the tag span, so its style is
+        the span's -- the rebuild re-joins them into ONE continuous span.
+        """
+        italic = Style(italic=True)
+        assert _word_tokens(_line("<i>foo bar</i>")) == [
+            ("<i>foo</i>", italic),
+            ("<i>bar</i>", PLAIN),
+        ]
+
+    def test_styled_space_survives_the_reflow(self) -> None:
+        """A ``<u>`` span covering a space stays ONE underline after reflow.
+
+        The rebuild joins words with their separator styles, so the styled
+        space is not dropped and the underline gate sees one continuous run
+        (the reported bug: the reflow emitted a plain space, splitting the
+        underline per word regardless of ``underline_break_spaces``).
+        """
+        from plt_optimizer.generate.label_renderer import _underline_render_gate
+
+        label = _label(
+            "m",
+            _line("<u>AAAA BB</u> CC"),
+            _line("DD"),
+        )
+        result = _reflow_label(label, _plain_probe())
+        assert result is not None
+        underlined = [line for line in result.content if _underline_render_gate(line)]
+        assert underlined
+        for line in underlined:
+            runs = _underline_render_gate(line)
+            # One continuous run, never one per word: the run spans a space
+            # and every character it covers (the space included) is underlined.
+            assert len(runs) == 1
+            first, last = runs[0]
+            assert " " in line.plain_text[first : last + 1]
+            flags = [run.style.underline for run in line.styled_runs for _ in run.text]
+            assert all(flags[first : last + 1])
 
     def test_reflow_moves_a_styled_word_and_keeps_its_style(self) -> None:
         """A word crossing lines keeps its italic markup in the new line."""

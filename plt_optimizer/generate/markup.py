@@ -57,6 +57,7 @@ __all__ = [
     "serialize_word",
     "split_brackets",
     "split_styled_words",
+    "split_styled_words_with_separators",
     "style_boundaries",
 ]
 
@@ -499,6 +500,60 @@ def split_styled_words(styled: StyledText) -> Tuple[StyledWord, ...]:
             pieces.append(Piece(plain[piece_start:index], style))
         words.append(StyledWord(pieces=tuple(pieces), text=plain[start:index]))
     return tuple(words)
+
+
+def split_styled_words_with_separators(
+    styled: StyledText,
+) -> Tuple[Tuple[StyledWord, ...], Tuple[Style, ...]]:
+    """Split a parsed line into styled words plus the styles of their separators.
+
+    The line-content reflow joins words with a single space; a tag span that
+    covers a space (``<u>foo bar</u>``) styles that space, and a plain
+    ``" ".join`` of per-word serialized tokens would drop it (the joined
+    space becomes unstyled, so a ``<u>`` run splits in two). This variant
+    returns the separator styles alongside the words so the reflow can rebuild
+    the text with a :func:`serialize_runs` pass that keeps the span continuous.
+
+    Separators are runs of whitespace between words, each collapsed to a
+    single space (matching the reflow's join): the returned tuple has exactly
+    ``len(words) - 1`` entries, the style of the whitespace between
+    consecutive words. Leading/trailing whitespace is dropped. Whitespace
+    inside a tag span carries that span's style; whitespace between two
+    differently styled words carries the PLAIN style.
+
+    Args:
+        styled: The parsed line.
+
+    Returns:
+        ``(words, separator_styles)`` in document order.
+    """
+    styles = _per_char_styles(styled)
+    plain = styled.plain_text
+    words: List[StyledWord] = []
+    separators: List[Style] = []
+    index = 0
+    length = len(plain)
+    while index < length:
+        while index < length and plain[index].isspace():
+            index += 1
+        if index >= length:
+            break
+        if words:
+            # The whitespace run just skipped is this word's separator; its
+            # style is the style of its first character (a run of whitespace
+            # inside one tag span is style-uniform, and a boundary between
+            # differently styled words is PLAIN on the space itself).
+            separators.append(styles[index - 1])
+        start = index
+        pieces: List[Piece] = []
+        while index < length and not plain[index].isspace():
+            style = styles[index]
+            piece_start = index
+            while index < length and not plain[index].isspace() and styles[index] == style:
+                index += 1
+            pieces.append(Piece(plain[piece_start:index], style))
+        words.append(StyledWord(pieces=tuple(pieces), text=plain[start:index]))
+    return tuple(words), tuple(separators)
 
 
 def style_boundaries(styled: StyledText) -> Tuple[int, ...]:
