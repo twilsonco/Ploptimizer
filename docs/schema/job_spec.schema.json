@@ -305,7 +305,7 @@
             }
           ],
           "default": null,
-          "description": "Extra air in inches for underline markup (<u>): the underline centerline (cut with the line's own text cutter) sits cutter diameter + this offset below the baseline, so the engraved underline's top edge floats exactly this offset below the engraved baseline stroke. The gap trigger is separate and offset-free: a glyph's ink within cutter diameter of the centerline (the stroke-touching floor) cuts a minimal gap, so raising this offset lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+          "description": "Extra air in inches for underline markup (<u>): the underline centerline (cut with the line's own text cutter) sits cutter diameter + this offset below the baseline, so the engraved underline's top edge floats exactly this offset below the engraved baseline stroke. The break test is strictly horizontal: a glyph breaks the underline iff its ink dips more than this offset below the baseline, so raising it lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
           "title": "Underline Offset"
         },
         "underline_break_clearance": {
@@ -319,7 +319,7 @@
             }
           ],
           "default": null,
-          "description": "Extra air in inches at each underline (<u>) break: the gap trigger radius is cutter diameter + this clearance, so the engraved gap between a descending glyph's stroke and the underline's cut edge is exactly this value. 0.0 = the cut sits at stroke tangency (the strokes touch). Independent of underline_offset (which moves the centerline). Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+          "description": "Extra air in inches at each underline (<u>) break: each cut is padded horizontally by 0.5 * cutter + this clearance (the half cutter is the glyph stroke's own half-width), so the engraved air between a descending glyph's stroke and the underline's cut edge is exactly this value. 0.0 = the cut sits at the ink. Independent of underline_offset (which decides which glyphs break). Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
           "title": "Underline Break Clearance"
         },
         "cutter_size": {
@@ -1584,7 +1584,7 @@
             }
           ],
           "default": null,
-          "description": "Extra air in inches for underline markup (<u>): the underline centerline (cut with the line's own text cutter) sits cutter diameter + this offset below the baseline, so the engraved underline's top edge floats exactly this offset below the engraved baseline stroke. The gap trigger is separate and offset-free: a glyph's ink within cutter diameter of the centerline (the stroke-touching floor) cuts a minimal gap, so raising this offset lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+          "description": "Extra air in inches for underline markup (<u>): the underline centerline (cut with the line's own text cutter) sits cutter diameter + this offset below the baseline, so the engraved underline's top edge floats exactly this offset below the engraved baseline stroke. The break test is strictly horizontal: a glyph breaks the underline iff its ink dips more than this offset below the baseline, so raising it lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
           "title": "Underline Offset"
         },
         "underline_break_clearance": {
@@ -1598,7 +1598,7 @@
             }
           ],
           "default": null,
-          "description": "Extra air in inches at each underline (<u>) break: the gap trigger radius is cutter diameter + this clearance, so the engraved gap between a descending glyph's stroke and the underline's cut edge is exactly this value. 0.0 = the cut sits at stroke tangency (the strokes touch). Independent of underline_offset (which moves the centerline). Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+          "description": "Extra air in inches at each underline (<u>) break: each cut is padded horizontally by 0.5 * cutter + this clearance (the half cutter is the glyph stroke's own half-width), so the engraved air between a descending glyph's stroke and the underline's cut edge is exactly this value. 0.0 = the cut sits at the ink. Independent of underline_offset (which decides which glyphs break). Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
           "title": "Underline Break Clearance"
         },
         "cutter_size": {
@@ -1992,7 +1992,7 @@
         }
       ],
       "default": null,
-      "description": "Extra air in inches for underline markup (<u>): the underline centerline (cut with the line's own text cutter) sits cutter diameter + this offset below the baseline, so the engraved underline's top edge floats exactly this offset below the engraved baseline stroke. The gap trigger is separate and offset-free: a glyph's ink within cutter diameter of the centerline (the stroke-touching floor) cuts a minimal gap, so raising this offset lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+      "description": "Extra air in inches for underline markup (<u>): the underline centerline (cut with the line's own text cutter) sits cutter diameter + this offset below the baseline, so the engraved underline's top edge floats exactly this offset below the engraved baseline stroke. The break test is strictly horizontal: a glyph breaks the underline iff its ink dips more than this offset below the baseline, so raising it lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
       "title": "Underline Offset"
     },
     "underline_break_clearance": {
@@ -2006,7 +2006,7 @@
         }
       ],
       "default": null,
-      "description": "Extra air in inches at each underline (<u>) break: the gap trigger radius is cutter diameter + this clearance, so the engraved gap between a descending glyph's stroke and the underline's cut edge is exactly this value. 0.0 = the cut sits at stroke tangency (the strokes touch). Independent of underline_offset (which moves the centerline). Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+      "description": "Extra air in inches at each underline (<u>) break: each cut is padded horizontally by 0.5 * cutter + this clearance (the half cutter is the glyph stroke's own half-width), so the engraved air between a descending glyph's stroke and the underline's cut edge is exactly this value. 0.0 = the cut sits at the ink. Independent of underline_offset (which decides which glyphs break). Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
       "title": "Underline Break Clearance"
     },
     "cutter_size": {

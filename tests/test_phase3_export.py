@@ -2684,7 +2684,8 @@ class TestUnderlineDemoExample:
 
         The centerline stays at the default offset (one cutter below the
         baseline), so the block's depth matches the clearance-0.0 control; the
-        clearance widens each break, splitting the run into more segments.
+        clearance widens each break, merging neighbouring gaps into fewer,
+        wider segments.
         """
         result = self._export(tmp_path)
         wide = result.rendered_labels["plt_break_clearance"].source_label

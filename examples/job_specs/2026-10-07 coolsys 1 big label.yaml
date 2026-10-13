@@ -13,5 +13,5 @@ job:
   labels:
     - id: a
       content:
-        - text: "Always charge secondary CO2 system through a filter drier. Do not trap liquid by closing charging station and isolation valves while servicing. Always vacuum charging line after charging is complete. Charge secondary CO2 system with 99.9% pure or higher food and beverage grade CO2."
+        - text: "Always charge secondary CO2 system through a filter drier. Do not trap liquid by closing charging station and isolation valves while servicing. Always vacuum charging line after charging is complete. Charge secondary CO2 system with 99.9% pure or higher food and <u>beverage, grade</u> CO2."
   

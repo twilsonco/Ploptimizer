@@ -2029,25 +2029,25 @@ def _underline_strokes(
     first glyph's bounding-box left edge to its last glyph's right edge, at
     ``cutter_diameter + underline_offset`` inches below the baseline (so the
     engraved underline's top edge floats exactly ``underline_offset`` below
-    the engraved baseline stroke). The line's own glyph ink is measured
-    against the underline with the true 2D ink distance: every glyph whose
-    engraved stroke *overlaps* the engraved underline stroke cuts a minimal
-    gap into it (see :mod:`plt_optimizer.generate.underline`), so descenders
-    punch through the underline and nowhere else does the line break.
+    the engraved baseline stroke). The break test is **strictly horizontal**:
+    only glyph ink that reaches down into the underline's stroke band cuts a
+    gap, so descenders punch through the underline and a glyph merely standing
+    beside it (a cap, a neighbour) never breaks it (see
+    :mod:`plt_optimizer.generate.underline`).
 
-    The centerline **position** and the **gap trigger** are two distinct
-    radii. The position is ``cutter + offset`` below the baseline (the offset
-    is the edge-to-edge air the user asked for). The gap trigger is the
-    engraved-stroke touching floor ``cutter`` -- half the underline's own
-    stroke plus half the glyph's stroke (both cut with the line's cutter) --
-    **plus** ``underline_break_clearance``, the air left at each cut edge
-    (0.0 = the cut sits at tangency, the strokes touch). The offset must stay
-    out of the trigger: were the trigger
-    ``cutter + offset`` too, the offset would cancel out of the collision
-    test (a glyph collides iff its ink dips below the baseline, at *any*
-    offset), so raising ``underline_offset`` could never prevent a break --
-    the reported bug where caps punched gaps no matter how deep the underline
-    was set.
+    The centerline **position** and the **break band** are two distinct
+    quantities. The position is ``cutter + offset`` below the baseline (the
+    offset is the edge-to-edge air the user asked for). The band's trigger
+    level is the engraved-stroke touching floor -- ink at ``line_y + cutter``
+    (the two same-width strokes touch there) -- reached ``0.2 *
+    underline_break_clearance`` above that floor, and each cut is padded
+    horizontally by ``underline_break_clearance`` (the engraved air left at
+    each edge, 0.0 = the cut sits at the ink). The offset must stay out of the
+    trigger: were the band keyed off ``cutter + offset``, the offset would
+    cancel out of the test (a glyph breaks the underline iff its ink dips
+    below the baseline, at *any* offset), so raising ``underline_offset``
+    could never prevent a break -- the reported bug where caps punched gaps no
+    matter how deep the underline was set.
 
     Args:
         line: The resolved text line (cutter, offset, plain text).
@@ -2065,11 +2065,6 @@ def _underline_strokes(
     # Position: the centerline sits one full cutter + the requested air below
     # the baseline, so the engraved underline's top edge floats `offset` clear.
     line_y = -(line.cutter_diameter + line.underline_offset)
-    # Gap trigger: the engraved-stroke touching floor (underline half-width +
-    # glyph half-width, both = cutter / 2) plus the requested break clearance,
-    # so the engraved gap at each cut edge equals `underline_break_clearance`
-    # (0.0 = tangency). Offset-free (see the docstring).
-    gap_radius = line.cutter_diameter + line.underline_break_clearance
     chars = _glyph_chars(line.plain_text)
     if len(chars) != len(glyph_groups):
         return []
@@ -2108,7 +2103,8 @@ def _underline_strokes(
             line_ink,
             span,
             line_y,
-            gap_radius,
+            line.cutter_diameter,
+            line.underline_break_clearance,
             min_length=_INK_EMISSION_FLOOR,
         )
         for x_min, x_max in segments:
@@ -2120,12 +2116,12 @@ def _underline_strokes(
             )
     if strokes:
         logger.info(
-            "Underline: %d run(s), %d segment(s) on %r (y=%.4fin, gap radius=%.4fin).",
+            "Underline: %d run(s), %d segment(s) on %r (y=%.4fin, clearance=%.4fin).",
             len(runs),
             len(strokes),
             line.plain_text,
             line_y,
-            gap_radius,
+            line.underline_break_clearance,
         )
     return strokes
 

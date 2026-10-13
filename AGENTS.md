@@ -1126,36 +1126,46 @@ baseline stroke (`0.0` = the two strokes touch, the classic underline). The
 font's own underline metrics are deliberately never consulted — the PLT-style
 geometry is the single contract for both families (TTF parity by construction).
 
+- **The break test is strictly horizontal** (the model's core, and the fix
+  for the shattering bug): a glyph cuts the underline only where its ink
+  reaches **down into** the underline's stroke band, never merely for standing
+  beside it. A 2D radial (capsule) test is *wrong* here — its distance grows
+  with the vertical separation too, so a cap sitting happily above the
+  underline collides through the vertical component and shatters the underline
+  into per-glyph segments. The trigger level is the engraved-stroke touching
+  floor `line_y + cutter` (the two same-width strokes touch there, i.e.
+  `-underline_offset` in baseline terms), reached `0.2 *
+  underline_break_clearance` above that floor (`BAND_TOLERANCE_FRACTION`) so a
+  glyph stopping just short of the underline still cuts. **A glyph breaks the
+  underline iff its ink dips more than `underline_offset` below the
+  baseline** — so the **offset** alone decides *which* glyphs break, and the
+  **clearance** alone decides the air at each break. Folding the offset into
+  the trigger cancels it out of the test (a glyph breaks iff its ink dips
+  below the baseline at *any* offset), so raising `underline_offset` could
+  never stop a break — the earlier bug where caps punched gaps no matter how
+  deep the underline was set.
 - **`underline_offset`** (`ge=0.0`, default `None` → **0.0**; explicit `0.0`
   honored, only `None` means unset) cascades line → label → job (plate parity,
   `job-config.json` shop default, `JobDefaults` key, not
-  `REQUIRED_WHEN_UNCONFIGURED`). It sets the **position** radius
-  `cutter_diameter + underline_offset` (the offset is
-  edge-to-edge air) and is deliberately **decoupled** from the **gap trigger**
-  radius `cutter_diameter + underline_break_clearance` (the engraved-stroke
-  touching floor: half the
-  underline's stroke + half the glyph's stroke, both cut with the line's
-  cutter, plus the break clearance). Folding the offset into the trigger
-  cancels it out of the
-  collision test — a glyph collides iff its ink dips below the baseline at
-  *any* offset — so raising `underline_offset` could never stop a break
-  (the reported bug: caps with a sub-baseline overshoot punched gaps no
-  matter how deep the underline was set).
+  `REQUIRED_WHEN_UNCONFIGURED`). It sets the centerline depth
+  `cutter_diameter + underline_offset` (the offset is edge-to-edge air) and so
+  the break threshold: glyphs descending past `underline_offset` break the
+  underline, everything above stays whole. `0.0` = the underline's top edge
+  touches the baseline stroke.
 - **`underline_break_clearance`** (`ge=0.0`, default `None` → **0.0**; explicit
   `0.0` honored, only `None` means unset) cascades line → label → job (plate
   parity, `job-config.json` shop default **0.1**, `JobDefaults` key, not
-  `REQUIRED_WHEN_UNCONFIGURED`). It is the **air at each break**: the gap
-  trigger radius is `cutter_diameter + underline_break_clearance`, so the
-  engraved gap between a descending glyph's stroke and the underline's cut
-  edge equals the clearance (`0.0` = the cut sits at stroke tangency, the two
-  strokes touch — the historical cut). The **code** fallback is `0.0`
-  (`DEFAULT_UNDERLINE_BREAK_CLEARANCE`, keeping bare-API/test callers
-  bit-identical); `job-config.json` ships the shop default **0.1**. It is
-  independent of `underline_offset`: the offset moves the centerline (and so
-  *whether* a glyph breaks it and the chord width), the clearance adds air at
-  the cut (and so merges neighbouring minimal gaps into fewer, wider breaks).
-  The clearance is a *trigger*, never a position: it never moves the
-  centerline, the block's floor, the cutter, the pen map, or the file names.
+  `REQUIRED_WHEN_UNCONFIGURED`). It is the **air at each break**: every cut is
+  padded horizontally by `0.5 * cutter + clearance` (the half cutter is the
+  glyph stroke's own half-width — the ink is a centerline — so a vertical
+  descender engraves a one-cutter-wide stroke and the gap is `cutter +
+  2 * clearance`), so the engraved air between a descending glyph's stroke and
+  the underline's cut edge equals the clearance (`0.0` = the cut sits at the
+  ink). The **code** fallback is `0.0` (`DEFAULT_UNDERLINE_BREAK_CLEARANCE`,
+  keeping bare-API/test callers bit-identical); `job-config.json` ships the
+  shop default **0.1**. It is a *trigger*, never a position: it never moves
+  the centerline, the block's floor, the cutter, the pen map, or the file
+  names, and it cannot cause a break the offset prevents.
 - **Per-run spans:** each maximal underlined run draws its underline from its
   first glyph's bounding-box **left edge** to its last glyph's **right edge**
   (the run's own ink, not the whole line). Plain glyphs between two runs keep
@@ -1163,17 +1173,17 @@ geometry is the single contract for both families (TTF parity by construction).
   inclusive `plain_text` indices (`markup.StyledText.underline_flags` →
   `underline_runs`).
 - **Minimal gap cutting** (`plt_optimizer/generate/underline.py`, pure Python,
-  matplotlib-free, Win7/3.8-safe): the line's own glyph ink is measured against
-  the underline with the **true 2D ink distance** — a circle of diameter
-  `2 * (cutter_diameter + underline_break_clearance)` rolled along the underline
-  centerline collides exactly
-  when it touches glyph ink (equivalently the capsule∩line intersection,
-  `capsule_line_interval`, closed-form per polyline segment, touching = safe).
-  The collision set is convex per segment, so each collision cuts ONE minimal
-  gap (`underline_segments` = the gap complement over the span, gaps closer
-  than `_INK_EMISSION_FLOOR` merge). Descenders punch through the underline
-  and nowhere else does the line break; caps tangent to a 0.0-offset underline
-  cut nothing (tangency is safe, the repo-wide convention).
+  matplotlib-free, Win7/3.8-safe): each ink segment is clipped to the half-
+  plane **below** the band's trigger level (`segment_band_interval`); the part
+  of a segment below a horizontal level is convex, so its X-extent is one
+  interval, read off the endpoints plus the level crossing (closed-form, no
+  sampling, touching = safe). Each interval, padded by `0.5 * cutter +
+  clearance`, cuts ONE gap (`underline_segments` = the gap complement over the
+  span, gaps closer than `_INK_EMISSION_FLOOR` merge). Descenders punch through
+  the underline and nowhere else does the line break: a glyph beside the
+  underline (its X outside the run) and a glyph above it (its ink short of the
+  band) are invisible to the cut. Caps tangent to a 0.0-offset underline cut
+  nothing (tangency is safe, the repo-wide convention).
 - **Render wiring** (`label_renderer`): `_underline_render_gate` (per-char
   flags → runs; `()` for plain / italic-only lines, keeping those lines
   bit-identical) → `_underline_strokes` (centerline geometry on the FINAL

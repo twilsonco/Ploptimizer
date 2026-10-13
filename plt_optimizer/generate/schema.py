@@ -530,24 +530,26 @@ class TextAttributes(BaseModel):
             the line's own text cutter, positioned
             ``cutter diameter + underline_offset`` below the baseline, so
             the engraved underline's top edge floats exactly
-            ``underline_offset`` below the engraved baseline stroke. The gap
-            trigger is separate and offset-free: a glyph's ink within
-            ``cutter diameter`` of the underline's centerline (the floor at
-            which the two engraved strokes touch) cuts a minimal gap into it,
-            so raising the offset lifts the underline clear of a glyph and
-            stops it breaking. ``0.0`` (the default) makes the underline's
+            ``underline_offset`` below the engraved baseline stroke. The break
+            test is strictly horizontal: a glyph breaks the underline iff its
+            ink dips more than ``underline_offset`` below the baseline (the
+            level at which the two engraved strokes touch), so the offset alone
+            decides *which* glyphs break and raising it lifts the underline
+            clear of a glyph. ``0.0`` (the default) makes the underline's
             top edge touch the baseline stroke and gaps only where the
             engraved strokes truly overlap. Must be ``>= 0``; only ``None``
             means unset.
             Cascades line -> label -> job (and is accepted on plates
             for schema parity, where it is not applied at that level).
         underline_break_clearance: Extra air in **inches** at each underline
-            break. The gap trigger radius is ``cutter diameter +
-            underline_break_clearance``, so the engraved gap between a
-            descending glyph's stroke and the underline's cut edge is exactly
-            this clearance (``0.0`` = the cut sits at stroke tangency, the two
-            strokes touch). Independent of ``underline_offset`` (which moves
-            the centerline); this field adds air at the break itself.
+            break. Each cut is padded horizontally by ``0.5 * cutter +
+            underline_break_clearance`` (the half cutter is the glyph stroke's
+            own half-width -- the ink is a centerline), so the engraved air
+            between a descending glyph's stroke and the underline's cut edge
+            is exactly this clearance (``0.0`` = the cut sits at the ink).
+            Independent of ``underline_offset`` (which decides *which* glyphs
+            break); this field adds air at the break itself and never causes a
+            break the offset prevents.
             Must be ``>= 0``; only ``None`` means unset.
             Cascades line -> label -> job (and is accepted on plates
             for schema parity, where it is not applied at that level).
@@ -820,11 +822,11 @@ class TextAttributes(BaseModel):
             "centerline (cut with the line's own text cutter) sits cutter "
             "diameter + this offset below the baseline, so the engraved "
             "underline's top edge floats exactly this offset below the "
-            "engraved baseline stroke. The gap trigger is separate and "
-            "offset-free: a glyph's ink within cutter diameter of the "
-            "centerline (the stroke-touching floor) cuts a minimal gap, so "
-            "raising this offset lifts the underline clear and stops it "
-            "breaking. 0.0 = the underline's top edge touches the baseline "
+            "engraved baseline stroke. The break test is strictly horizontal: "
+            "a glyph breaks the underline iff its ink dips more than this "
+            "offset below the baseline, so raising it lifts the underline "
+            "clear and stops it breaking. 0.0 = the underline's top edge "
+            "touches the baseline "
             "stroke. Must "
             "be >= 0. Cascades line -> label -> job (fallback 0.0); "
             "explicit 0.0 is honored."
@@ -834,12 +836,13 @@ class TextAttributes(BaseModel):
         default=None,
         ge=0.0,
         description=(
-            "Extra air in inches at each underline (<u>) break: the gap "
-            "trigger radius is cutter diameter + this clearance, so the "
-            "engraved gap between a descending glyph's stroke and the "
+            "Extra air in inches at each underline (<u>) break: each cut is "
+            "padded horizontally by 0.5 * cutter + this clearance (the half "
+            "cutter is the glyph stroke's own half-width), so the "
+            "engraved air between a descending glyph's stroke and the "
             "underline's cut edge is exactly this value. 0.0 = the cut sits "
-            "at stroke tangency (the strokes touch). Independent of "
-            "underline_offset (which moves the centerline). Must be >= 0. "
+            "at the ink. Independent of "
+            "underline_offset (which decides which glyphs break). Must be >= 0. "
             "Cascades line -> label -> job (fallback 0.0); explicit 0.0 "
             "is honored."
         ),

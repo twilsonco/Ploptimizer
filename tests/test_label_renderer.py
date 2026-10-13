@@ -2641,18 +2641,18 @@ class TestUnderlineRenderDispatch:
         assert nb[2] - nb[0] == pytest.approx(tb[2] - tb[0], abs=1e-12)
 
     def test_offset_lifts_the_underline_clear_of_a_glyph(self) -> None:
-        """The gap trigger is offset-free, so the offset stops the breaking.
+        """The break threshold is the offset, so the offset stops the breaking.
 
         The Dino ``O``/``G`` overshoot ~0.0026in below the baseline (a
         rounded cap's bowl dips a hair under the baseline). At offset 0.0 the
-        centerline sits one cutter below the baseline and the overshoot
-        overlaps the engraved underline, so the run breaks around both. The
-        collision test compares the ink-to-centerline distance against the
-        stroke-touching floor (``cutter_diameter``) -- NOT ``cutter + offset``
-        -- so a small offset lowers the underline clear of the overshoot and
-        the run engraves in one piece. Folding the offset into the trigger
-        cancelled it out of the test (a glyph collides iff its ink dips below
-        the baseline at *any* offset) and no offset stopped the break -- the
+        band's trigger level is the baseline itself, so the overshoot reaches
+        into the engraved underline and the run breaks around both. The test is
+        **strictly horizontal** -- a glyph breaks the underline iff its ink
+        dips more than ``underline_offset`` below the baseline -- so a small
+        offset lowers the underline clear of the overshoot and the run engraves
+        in one piece. Folding the offset into the trigger cancelled it out of
+        the test (a glyph broke the underline iff its ink dipped below the
+        baseline at *any* offset) and no offset stopped the break -- the
         reported bug.
         """
         from plt_optimizer.generate.label_renderer import (
@@ -2704,13 +2704,13 @@ class TestUnderlineRenderDispatch:
     def test_break_clearance_widens_the_gap_around_a_descender(self) -> None:
         """``underline_break_clearance`` is the air at each underline break.
 
-        The gap trigger radius is ``cutter + clearance``, so the engraved gap
+        Every cut is padded horizontally by ``0.5 * cutter + clearance`` (the
+        half cutter is the glyph stroke's own half-width), so the engraved air
         between a descending glyph's stroke and the underline's cut edge equals
-        the clearance (0.0 = the cut sits at stroke tangency, the strokes
-        touch). ``pay`` on Dino keeps the same break count at clearance 0.0 and
-        0.02, so every break width grows -- the clearance is the knob the
-        offset is not (the offset moves the centerline; it cannot add air at
-        the cut).
+        the clearance (0.0 = the cut sits at the ink). ``pay`` on Dino keeps
+        the same break count at clearance 0.0 and 0.02, so every break width
+        grows -- the clearance is the knob the offset is not (the offset decides
+        *which* glyphs break; it cannot add air at the cut).
         """
         from plt_optimizer.generate.label_renderer import (
             TextChunkMode,

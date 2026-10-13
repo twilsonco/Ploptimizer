@@ -9,46 +9,58 @@ baseline (so the engraved underline's top edge floats exactly
 touch at ``0.0``), and it spans each maximal underlined run's ink width
 (the first glyph's bounding-box left edge to the last glyph's right edge).
 
-The TODO contract is *minimal breaking*: a glyph whose engraved ink would
-collide with the engraved underline cuts a gap into it. The collision test
-is the true 2D ink distance (the same metric the descending-character
-relief uses): the gap trigger radius is the engraved-stroke touching floor
-plus the requested break clearance
+The TODO contract is *minimal breaking*: a **descending** glyph cuts a gap
+into the underline where it crosses *through* it. The test is **strictly
+horizontal**: the underline is a stroke of width ``cutter`` centered on
+``line_y``, so its top edge sits at ``line_y + cutter`` in ink-centerline
+terms (the ink of a same-width glyph stroke touches it exactly there -- the
+level ``-underline_offset`` below the baseline). Only ink that reaches down
+into that band breaks the underline; ink beside it (a cap's stem, a glyph
+to the left or right) never does. A 2D radial (capsule) test is wrong here:
+its distance grows with the *vertical* separation too, so a cap sitting
+happily ABOVE the underline collides through the vertical component and
+shatters the underline into per-glyph segments.
 
-    r = 0.5 * cutter(underline) + 0.5 * cutter(text) + underline_break_clearance
-      = cutter_diameter + underline_break_clearance
+The break interval is the X-extent of the ink inside the trigger band, padded
+by ``0.5 * cutter + underline_break_clearance`` on each side: the half cutter
+is the glyph stroke's own half-width (the ink is a CENTERLINE, so a vertical
+descender engraves a stroke one cutter wide and the underline must break by
+that much), and the clearance is the engraved air left at each cut edge. The
+band reaches ``band_tolerance`` **above** the touching level -- a fraction of
+the clearance (``BAND_TOLERANCE_FRACTION * clearance``) -- so a glyph whose ink
+stops just short of the underline still cuts, while ink far above it never
+does.
 
-(both strokes are cut with the line's own cutter, so the floor is one cutter
-diameter; the clearance is the engraved air left at each cut edge, 0.0 = the
-strokes touch). The **offset** is *air* (edge-to-edge) and lives in the
-centerline **position** only -- it must stay out of the trigger. Were the
-trigger ``cutter + offset`` too, the offset cancelled out of the collision
-test (a glyph collides iff its ink dips below the baseline, at *any* offset),
-so raising ``underline_offset`` could never prevent a break -- the reported
-bug where caps punched gaps no matter how deep the underline was set.
-A glyph's ink within ``r`` of the centerline removes the underline over the
-exact X-interval where the ink's radius-``r`` capsule crosses it; the
-underline is cut nowhere else.
+The resulting rule is intuitive: a glyph breaks the underline iff its ink
+dips more than ``underline_offset`` below the baseline (the touching level is
+``line_y + cutter == -underline_offset``), so the **offset** alone decides
+*which* glyphs break, and the **clearance** alone decides the air at each
+break. Neither knob can cause a break the other one prevents.
+
+The **offset** is *air* (edge-to-edge) and lives in the centerline
+**position** only -- it must stay out of the trigger. Were the trigger
+``cutter + offset`` too, the offset cancelled out of the collision test (a
+glyph collides iff its ink dips below the baseline, at *any* offset), so
+raising ``underline_offset`` could never prevent a break -- the reported bug
+where caps punched gaps no matter how deep the underline was set.
 
 Design guarantees (mirroring ``markup.py`` / ``descender_adjust.py``):
 
 * **Pure Python** -- matplotlib-free, numpy-free, Python 3.8 compatible
   (Windows 7 import guarantee). No pipeline imports at all.
-* **Closed-form intervals** -- a capsule (segment + radius disk) is convex,
-  so its intersection with the horizontal centerline is a single interval,
-  computed from the capsule rectangle's line crossings plus the endpoint
-  disks. No sampling, no bisection.
+* **Closed-form intervals** -- the part of a segment at or below a horizontal
+  level is convex, so its X-extent is a single interval, read off the
+  endpoints plus the level crossing. No sampling, no bisection.
 """
 
 from __future__ import annotations
 
-import math
 from typing import List, Optional, Sequence, Tuple
 
 from plt_optimizer.generate.geometry import Ink, Point
 
 __all__ = [
-    "capsule_line_interval",
+    "segment_band_interval",
     "underline_runs",
     "underline_segments",
 ]
@@ -56,6 +68,13 @@ __all__ = [
 # Ink intervals closer than this merge into one gap (a sliver narrower than
 # half a plotter unit cannot exist in the emitted geometry).
 _INTERVAL_MERGE_TOLERANCE: float = 0.5 / 1016.0
+
+# How far ABOVE the stroke-touching level the trigger band reaches, as a
+# fraction of ``underline_break_clearance``. The breaks exist for descending
+# glyphs, so the band is essentially the underline's own stroke; the small
+# reach above lets a glyph whose ink stops just short of the underline cut
+# too, while ink well above it (a cap, an ascender) never does.
+BAND_TOLERANCE_FRACTION: float = 0.2
 
 
 def underline_runs(flags: Sequence[bool]) -> Tuple[Tuple[int, int], ...]:
@@ -83,116 +102,75 @@ def underline_runs(flags: Sequence[bool]) -> Tuple[Tuple[int, int], ...]:
     return tuple(runs)
 
 
-def capsule_line_interval(
+def segment_band_interval(
     start: Point,
     end: Point,
-    radius: float,
-    line_y: float,
+    level: float,
+    pad: float,
 ) -> Optional[Tuple[float, float]]:
-    """Intersect a capsule (segment + radius disk) with a horizontal line.
+    """Intersect a segment with the half-plane at or below a horizontal level.
 
-    The capsule ``segment (+) disk(radius)`` is convex, so its intersection
-    with ``y = line_y`` is a single interval (or empty). The capsule is the
-    swept area of a point kept within ``radius`` of the segment -- exactly
-    the region where an engraved stroke centered on ``y = line_y`` would
-    touch the segment's stroke.
+    The part of a segment strictly below ``level`` is convex, so its X-extent
+    is a single interval (or empty). This is the strictly horizontal break
+    test: a glyph cuts the underline only where its ink reaches down INTO the
+    underline's stroke band, never merely for standing beside it.
 
     Args:
         start: Segment start ``(x, y)``.
         end: Segment end ``(x, y)``.
-        radius: Capsule radius (must be > 0; ``<= 0`` yields ``None``).
-        line_y: The horizontal line's Y coordinate.
+        level: The band's trigger level (ink strictly below it cuts).
+        pad: Horizontal air added to each side of the interval (the engraved
+            gap left at each cut edge).
 
     Returns:
-        The ``(x_min, x_max)`` interval of the intersection, or ``None``
-        when the capsule never reaches the line. Exact tangency (the capsule
-        grazing the line) yields ``None``: touching strokes are safe (the
-        repo-wide convention), so only a strict crossing cuts a gap.
+        The padded ``(x_min, x_max)`` interval, or ``None`` when no part of
+        the segment reaches below the level. Ink exactly ON the level touches
+        the band and cuts nothing -- touching strokes are safe (the repo-wide
+        convention).
     """
-    if radius <= 0.0:
-        return None
-
     x1, y1 = start
     x2, y2 = end
-    lows: List[float] = []
-    highs: List[float] = []
+    first_in = y1 < level
+    second_in = y2 < level
 
-    dx = x2 - x1
-    dy = y2 - y1
-    length = math.hypot(dx, dy)
-
-    if length == 0.0:
-        # Degenerate segment: the capsule is a single disk.
-        dy0 = abs(y1 - line_y)
-        if dy0 >= radius:
-            return None
-        span = math.sqrt(max(0.0, radius * radius - dy0 * dy0))
-        return (x1 - span, x1 + span)
-
-    if dy == 0.0:
-        # Horizontal segment: the capsule is a horizontal stadium; its
-        # intersection with a parallel line is one interval (empty --
-        # tangency included -- when the line does not cut into the band).
-        dy0 = abs(y1 - line_y)
-        if dy0 >= radius:
-            return None
-        span = math.sqrt(max(0.0, radius * radius - dy0 * dy0))
-        return (min(x1, x2) - span, max(x1, x2) + span)
-
-    # Rectangle part: the segment thickened by the radius along its
-    # perpendicular. Crossing scan of the convex quad with y = line_y.
-    nx = -dy / length * radius
-    ny = dx / length * radius
-    quad = (
-        (x1 + nx, y1 + ny),
-        (x2 + nx, y2 + ny),
-        (x2 - nx, y2 - ny),
-        (x1 - nx, y1 - ny),
-    )
-    for index in range(4):
-        ax, ay = quad[index]
-        bx, by = quad[(index + 1) % 4]
-        da = ay - line_y
-        db = by - line_y
-        # A half-open crossing test: a vertex exactly on the line is counted
-        # once per edge pair, and a segment tangent to the line (no strict
-        # crossing) contributes nothing -- touching strokes are safe.
-        if (da <= 0.0 < db) or (db <= 0.0 < da):
-            t = (line_y - ay) / (by - ay)
-            crossing = ax + t * (bx - ax)
-            lows.append(crossing)
-            highs.append(crossing)
-
-    # Endpoint disks (a disk tangent to the line contributes a zero-width
-    # interval, which the caller's strict inequality drops).
-    for px, py in (start, end):
-        dy0 = abs(py - line_y)
-        if dy0 >= radius:
-            continue
-        span = math.sqrt(max(0.0, radius * radius - dy0 * dy0))
-        lows.append(px - span)
-        highs.append(px + span)
-
-    if not lows:
+    if not first_in and not second_in:
         return None
-    return (min(lows), max(highs))
+
+    if first_in and second_in:
+        low, high = (x1, x2) if x1 <= x2 else (x2, x1)
+    else:
+        # Exactly one endpoint is in the band: clip at the level crossing.
+        # The crossing exists because the endpoints straddle the level, so
+        # y2 != y1 here.
+        ratio = (level - y1) / (y2 - y1)
+        crossing = x1 + ratio * (x2 - x1)
+        if first_in:
+            low, high = (x1, crossing) if x1 <= crossing else (crossing, x1)
+        else:
+            low, high = (crossing, x2) if crossing <= x2 else (x2, crossing)
+
+    return (low - pad, high + pad)
 
 
-def _ink_line_intervals(ink: Ink, radius: float, line_y: float) -> List[Tuple[float, float]]:
-    """Collect the capsule-line intervals of every ink segment.
+def _ink_band_intervals(
+    ink: Ink,
+    level: float,
+    pad: float,
+) -> List[Tuple[float, float]]:
+    """Collect the band intervals of every ink segment.
 
     Args:
         ink: A glyph's ink polylines (render frame, inches).
-        radius: Gap trigger radius (see :func:`capsule_line_interval`).
-        line_y: The underline centerline's Y.
+        level: The band's trigger level (see :func:`segment_band_interval`).
+        pad: Horizontal air added to each side of each interval.
 
     Returns:
-        One interval per segment whose capsule reaches the line.
+        One interval per segment whose ink reaches the level.
     """
     intervals: List[Tuple[float, float]] = []
     for polyline in ink:
         for index in range(len(polyline) - 1):
-            interval = capsule_line_interval(polyline[index], polyline[index + 1], radius, line_y)
+            interval = segment_band_interval(polyline[index], polyline[index + 1], level, pad)
             if interval is not None:
                 intervals.append(interval)
     return intervals
@@ -202,7 +180,8 @@ def underline_segments(
     ink: Ink,
     span: Tuple[float, float],
     line_y: float,
-    radius: float,
+    cutter: float,
+    clearance: float,
     min_length: float = 0.0,
 ) -> Tuple[Tuple[float, float], ...]:
     """Cut the minimal descender gaps out of one underline span.
@@ -213,8 +192,14 @@ def underline_segments(
         span: ``(x_min, x_max)`` of the underline (the run's first glyph's
             bbox left to its last glyph's bbox right).
         line_y: The underline centerline's Y.
-        radius: Gap trigger radius (the stroke-touching floor
-            ``cutter_diameter``; see :func:`capsule_line_interval`).
+        cutter: The cutter diameter cutting both the underline and the glyphs
+            (so the two strokes touch at ``line_y + cutter``, the band's
+            trigger level).
+        clearance: Horizontal air left at each cut edge (and the source of the
+            band's small reach above the touching level, see
+            :data:`BAND_TOLERANCE_FRACTION`). The cut is padded by
+            ``0.5 * cutter + clearance``: the half cutter is the glyph
+            stroke's own half-width (the ink is a centerline).
         min_length: Kept segments shorter than this are dropped (a speck
             narrower than the emission floor cannot be engraved).
 
@@ -227,9 +212,14 @@ def underline_segments(
     if x_hi <= x_lo:
         return ()
 
+    # The touching level: ink at `line_y + cutter` is exactly one full stroke
+    # width from the centerline, i.e. the two same-width strokes touch. In
+    # baseline terms that level is `-underline_offset`.
+    level = line_y + cutter + BAND_TOLERANCE_FRACTION * clearance
+    pad = 0.5 * cutter + clearance
     intervals = [
         (max(lo, x_lo), min(hi, x_hi))
-        for lo, hi in _ink_line_intervals(ink, radius, line_y)
+        for lo, hi in _ink_band_intervals(ink, level, pad)
         if min(hi, x_hi) > max(lo, x_lo)
     ]
     if not intervals:

@@ -186,20 +186,21 @@ DEFAULT_ITALIC_ANGLE: float = 12.0
 # centerline stroke cut with the line's own text cutter, positioned
 # ``cutter diameter + underline_offset`` below the baseline, so the engraved
 # underline's top edge floats exactly ``underline_offset`` below the engraved
-# baseline stroke. The gap trigger is separate and offset-free: a glyph's ink
-# within ``cutter diameter`` of the centerline (the stroke-touching floor)
-# cuts a minimal gap, so raising the offset lifts the underline clear and
-# stops it breaking. 0.0 = the underline's top edge touches the baseline
-# stroke and gaps only where strokes truly overlap.
+# baseline stroke. The break test is strictly horizontal: a glyph breaks the
+# underline iff its ink dips more than ``underline_offset`` below the baseline
+# (the stroke-touching level), so the offset alone decides which glyphs break.
+# 0.0 = the underline's top edge touches the baseline stroke and gaps only
+# where strokes truly overlap.
 # See ``plt_optimizer.generate.underline``.
 DEFAULT_UNDERLINE_OFFSET: float = 0.0
-# Extra air (inches) at each underline break. The gap trigger radius is
-# ``cutter diameter + underline_break_clearance``, so the engraved gap between
-# a descending glyph's stroke and the underline's cut edge is exactly this
-# clearance (0.0 = the cut sits at stroke tangency, the strokes touch).
-# Independent of the offset (which moves the centerline); this adds air at the
-# break itself. The code fallback is 0.0 (tangency, the historical cut);
-# job-config.json supplies the shop default (0.1).
+# Extra air (inches) at each underline break. Each cut is padded horizontally
+# by ``0.5 * cutter + underline_break_clearance`` (the half cutter is the glyph
+# stroke's own half-width -- the ink is a centerline), so the engraved air
+# between a descending glyph's stroke and the underline's cut edge is exactly
+# this clearance (0.0 = the cut sits at the ink). Independent of the offset
+# (which decides which glyphs break); this adds air at the break itself. The
+# code fallback is 0.0 (the historical cut); job-config.json supplies the shop
+# default (0.1).
 # See ``plt_optimizer.generate.underline``.
 DEFAULT_UNDERLINE_BREAK_CLEARANCE: float = 0.0
 # Horizontal text alignment defaults to centering (existing behaviour).
@@ -685,19 +686,21 @@ class ResolvedTextLine:
             line -> label -> job, default ``DEFAULT_UNDERLINE_OFFSET``
             (0.0)). The underline centerline (cut with the line's own text
             cutter) sits ``cutter diameter + underline_offset`` below the
-            baseline; the gap trigger is the separate, offset-free
-            stroke-touching floor (``cutter diameter``), so raising this
-            offset lifts the underline clear of a glyph and stops it
-            breaking. Bound to
+            baseline; the break test is strictly horizontal, so a glyph breaks
+            the underline iff its ink dips more than this offset below the
+            baseline. Raising it lifts the underline clear of a glyph and
+            stops it breaking. Bound to
             ``[0, inf)`` by the schema; an explicit ``0.0`` is honored.
         underline_break_clearance: Extra air in inches at each ``<u>`` break
             (cascaded line -> label -> job, default
-            ``DEFAULT_UNDERLINE_BREAK_CLEARANCE`` (0.0)). The gap trigger
-            radius is ``cutter diameter + underline_break_clearance``, so the
-            engraved gap between a descending glyph's stroke and the
-            underline's cut edge is exactly this clearance (0.0 = the cut sits
-            at stroke tangency). Independent of :attr:`underline_offset`
-            (which moves the centerline); this adds air at the break itself.
+            ``DEFAULT_UNDERLINE_BREAK_CLEARANCE`` (0.0)). Each cut is padded
+            horizontally by ``0.5 * cutter + underline_break_clearance`` (the
+            half cutter is the glyph stroke's own half-width), so the engraved
+            air between a descending glyph's stroke and the underline's cut
+            edge is exactly this clearance (0.0 = the cut sits at the ink).
+            Independent of :attr:`underline_offset`
+            (which decides which glyphs break); this adds air at the break
+            itself.
             Bound to ``[0, inf)`` by the schema; an explicit ``0.0`` is
             honored.
         plain_text: :attr:`text` with all inline markup removed -- the text
