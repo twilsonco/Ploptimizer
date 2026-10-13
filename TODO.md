@@ -6,8 +6,13 @@
   - The number of strokes will be looked up from the `plt_fonts.json` file during rendering.
   - We'll create a new float field, cascading job -> plate -> label -> line, and in job-config.json, defaulting to 0.25, bounded to [0.1, 0.5], that will control the amount of desired stroke overlap for multi-stroke fonts. Example: An overlap_ratio of 0.25 means a stepover distance of $75\%$ of the cutter width ($1 - \text{overlap\_ratio}$).
   - Implement an algorithm to calculate the recommended cutter tip width ($W_{\text{cutter}}$) based on the target text height, stroke count, and overlap setting.
-    - Single-Stroke Logic (Existing):$$W_{\text{cutter}} = \text{text\_height} \times 0.12$$
-    - Multi-Stroke Logic:Multi-stroke fonts are engineered to produce an overall target stroke width ($W_{\text{total}}$) proportional to the text height. Base target stroke width scales with character proportion (typically $12\%$ to $16\%$ of text_height for bold multi-stroke glyphs).$$\text{Stepover Factor } (S_f) = 1 - \text{overlap\_ratio}$$$$\text{Effective Stroke Units } (U) = 1 + (N - 1) \times S_f$$$$W_{\text{cutter}} = \frac{W_{\text{total}}}{U}$$Where $N$ is stroke_count and $W_{\text{total}} = \text{text\_height} \times \text{target\_boldness\_factor}$ (default 0.14).
+    - Single-Stroke Logic (Existing): $W_{\text{cutter}} = \text{text\_height} \times 0.12$
+    - Multi-Stroke Logic:Multi-stroke fonts are engineered to produce an overall target stroke width ($W_{\text{total}}$) proportional to the text height. 
+      - Base target stroke width scales with character proportion (typically $12\%$ to $16\%$ of text_height for bold multi-stroke glyphs).
+      - $\text{Stepover Factor } (S_f) = 1 - \text{overlap\_ratio}$.
+      - $\text{Effective Stroke Units } (U) = 1 + (N - 1) \times S_f$.
+      - $W_{\text{cutter}} = \frac{W_{\text{total}}}{U}$ 
+      - Where $N$ is stroke_count and $W_{\text{total}} = \text{text\_height} \times \text{target\_boldness\_factor}$ (default 0.14).
     - Standard Fallback Rules of Thumb (Relative to Text Height):If $W_{\text{total}}$ is not explicitly defined by font metadata, derive cutter tip width as a ratio of text_height:
       - 3-Stroke: $\approx 5.5\%$ of text height (with $25\%$ overlap)
       - 5-Stroke: $\approx 3.8\%$ of text height (with $25\%$ overlap)
