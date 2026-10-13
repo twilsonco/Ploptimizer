@@ -2596,6 +2596,58 @@ class TestUnderlineRenderDispatch:
         multi = resolve_job_spec(_markup_job(("A<u>bb</u>C<u>dd</u>", {})))[0].content[0]
         assert _underline_render_gate(multi) == ((1, 2), (4, 5))
 
+    def test_break_spaces_splits_runs_at_spaces(self) -> None:
+        """``underline_break_spaces`` ends each run at a space (bare gap).
+
+        False (the default) keeps one continuous run across the spaces, so a
+        multi-word run draws a single underline. True splits the run at each
+        space, so every word gets its own underline spanning its own ink and
+        the inter-word space stays bare.
+        """
+        from plt_optimizer.generate.label_renderer import _underline_render_gate
+        from plt_optimizer.generate.resolution import resolve_job_spec
+
+        # 'beverage grade' is 14 chars; the space is index 8.
+        continuous = resolve_job_spec(_markup_job(("<u>beverage grade</u>", {})))[0].content[0]
+        assert _underline_render_gate(continuous) == ((0, 13),)
+
+        broken = resolve_job_spec(
+            _markup_job(("<u>beverage grade</u>", {"underline_break_spaces": True}))
+        )[0].content[0]
+        # The run ends at the space (index 8 excluded): two word runs.
+        assert _underline_render_gate(broken) == ((0, 7), (9, 13))
+
+        # Three words split into three runs.
+        three = resolve_job_spec(_markup_job(("<u>a b c</u>", {"underline_break_spaces": True})))[
+            0
+        ].content[0]
+        assert _underline_render_gate(three) == ((0, 0), (2, 2), (4, 4))
+
+    def test_break_spaces_leaves_the_space_bare(self) -> None:
+        """With the flag on, no underline stroke covers the inter-word space."""
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+            _underline_render_gate,
+            _underline_strokes,
+        )
+        from plt_optimizer.generate.resolution import resolve_job_spec
+        from plt_optimizer.generate.text_geometry import TextBlock
+
+        line = resolve_job_spec(
+            _markup_job(("<u>hello world</u>", {"underline_break_spaces": True}), font="Dino")
+        )[0].content[0]
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        strokes = _underline_strokes(line, block, glyphs, _underline_render_gate(line))
+        # 'hello world': the space is plain_text index 5. Its neighbours' ink
+        # boxes bound the bare gap; no underline segment may cover it.
+        boxes = [TextBlock(strokes=tuple(block.strokes[i] for i in g)).bounds() for g in glyphs]
+        space_lo = boxes[4][2]  # 'o' right edge
+        space_hi = boxes[5][0]  # 'w' left edge
+        for stroke in strokes:
+            seg = stroke.segments[0]
+            assert not (seg.start.real <= space_lo + 1e-9 and seg.end.real >= space_hi - 1e-9)
+
     def test_word_chunk_mode_attaches_underline_to_last_word(self) -> None:
         """WORD mode keeps the word split and never drops the underline."""
         from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block

@@ -204,6 +204,15 @@ DEFAULT_UNDERLINE_OFFSET: float = 0.0
 # default (0.1).
 # See ``plt_optimizer.generate.underline``.
 DEFAULT_UNDERLINE_BREAK_CLEARANCE: float = 0.0
+# Whether an underline (``<u>``) breaks at the spaces between words. ``False``
+# (the default) draws one continuous underline across the whole underlined run
+# (spaces included, broken only by descending glyphs); ``True`` ends the
+# underline at each space, so every word gets its own underline spanning its
+# own ink and the inter-word space stays bare. The code fallback is ``False``
+# (the historical continuous underline); job-config.json supplies the shop
+# default.
+# See ``plt_optimizer.generate.label_renderer._underline_render_gate``.
+DEFAULT_UNDERLINE_BREAK_SPACES: bool = False
 # Horizontal text alignment defaults to centering (existing behaviour).
 DEFAULT_TEXT_H_ALIGNMENT: str = "center"
 # Explicit cutter diameter (inches) override. ``None`` (the default) means
@@ -705,6 +714,14 @@ class ResolvedTextLine:
             itself.
             Bound to ``[0, inf)`` by the schema; an explicit ``0.0`` is
             honored.
+        underline_break_spaces: Whether a ``<u>`` underline breaks at the
+            spaces between words (cascaded line -> label -> job, default
+            ``DEFAULT_UNDERLINE_BREAK_SPACES`` (False)). False draws one
+            continuous underline across the whole underlined run (spaces
+            included, broken only by descending glyphs); True ends the
+            underline at each space, so every word gets its own underline
+            spanning its own ink and the inter-word space stays bare. An
+            explicit ``False`` is honored.
         plain_text: :attr:`text` with all inline markup removed -- the text
             reports, chunk records, and layout findings display. Equal to
             :attr:`text` when the line contains no parsed tag.
@@ -738,6 +755,7 @@ class ResolvedTextLine:
     italic_angle: float = DEFAULT_ITALIC_ANGLE
     underline_offset: float = DEFAULT_UNDERLINE_OFFSET
     underline_break_clearance: float = DEFAULT_UNDERLINE_BREAK_CLEARANCE
+    underline_break_spaces: bool = DEFAULT_UNDERLINE_BREAK_SPACES
     plain_text: str = ""
     styled_runs: Tuple[Run, ...] = ()
     cutter_size: Optional[float] = DEFAULT_CUTTER_SIZE
@@ -2116,6 +2134,18 @@ def _resolve_content(
         else:
             line_underline_break_clearance = DEFAULT_UNDERLINE_BREAK_CLEARANCE
 
+        # Resolve the underline break-at-spaces permission with the same
+        # explicit-None precedence (line -> label -> job -> default) so an
+        # intentional ``False`` (continuous underline) is honored.
+        if line.underline_break_spaces is not None:
+            line_underline_break_spaces: bool = line.underline_break_spaces
+        elif label_input.underline_break_spaces is not None:
+            line_underline_break_spaces = label_input.underline_break_spaces
+        elif job.underline_break_spaces is not None:
+            line_underline_break_spaces = job.underline_break_spaces
+        else:
+            line_underline_break_spaces = DEFAULT_UNDERLINE_BREAK_SPACES
+
         # Parse the line's inline markup with its own resolved delimiters
         # (validation-time loud failure, like an unknown font: a
         # MarkupError propagates as a ValueError and aborts the job).
@@ -2214,6 +2244,7 @@ def _resolve_content(
                 italic_angle=line_italic_angle,
                 underline_offset=line_underline_offset,
                 underline_break_clearance=line_underline_break_clearance,
+                underline_break_spaces=line_underline_break_spaces,
                 plain_text=styled.plain_text,
                 styled_runs=styled.runs,
                 cutter_size=line_cutter_size,

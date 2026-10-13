@@ -2768,3 +2768,36 @@ class TestUnderlineDemoExample:
             "0.015_bh_ul.plt",
             "0.060_txt_ul.plt",
         ]
+
+    def test_break_spaces_splits_a_multi_word_run(self, tmp_path: Path) -> None:
+        """``underline_break_spaces`` breaks a multi-word run at the space.
+
+        ``plt_continuous_words`` (the default) draws one continuous underline
+        across the space; ``plt_break_spaces_words`` ends the underline at the
+        space, so each word gets its own underline and the space stays bare.
+        """
+        result = self._export(tmp_path)
+        continuous = result.rendered_labels["plt_continuous_words"].source_label
+        broken = result.rendered_labels["plt_break_spaces_words"].source_label
+
+        # The default run is one continuous underline; the flag splits it in two.
+        assert self._underline_stroke_count(continuous) == 1
+        assert self._underline_stroke_count(broken) == 2
+
+        # The flag's two spans leave the inter-word space bare: the first ends
+        # at 'hello' ink, the second starts at 'world' ink.
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+            _underline_render_gate,
+            _underline_strokes,
+        )
+
+        block, _words, glyphs = _render_line_block(broken.content[0], TextChunkMode.LINE)
+        strokes = _underline_strokes(
+            broken.content[0], block, glyphs, _underline_render_gate(broken.content[0])
+        )
+        spans = sorted((s.segments[0].start.real, s.segments[0].end.real) for s in strokes)
+        assert len(spans) == 2
+        # A visible bare gap between the two words' underlines.
+        assert spans[1][0] - spans[0][1] > 0.1

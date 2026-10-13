@@ -407,6 +407,19 @@
       "description": "Default underline (<u>) break clearance in inches (job layer): each cut is padded horizontally by 0.5 * cutter + this clearance (the half cutter is the glyph stroke's own half-width), so the engraved air between a descending glyph's stroke and the underline's cut edge is exactly this value. 0.0 = the cut sits at the ink. Unset falls back to 0.0.",
       "title": "Underline Break Clearance"
     },
+    "underline_break_spaces": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default underline (<u>) break-at-spaces flag (job layer): false (default) draws one continuous underline across the whole underlined run (spaces included, broken only by descending glyphs); true ends the underline at each space so every word gets its own underline and the inter-word space stays bare. Unset falls back to false.",
+      "title": "Underline Break Spaces"
+    },
     "holes": {
       "anyOf": [
         {

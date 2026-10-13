@@ -2000,6 +2000,11 @@ def _underline_render_gate(line: ResolvedTextLine) -> Tuple[Tuple[int, int], ...
     markup, or with markup that carries no underline run, keeps the
     historical render path (no underline geometry at all).
 
+    When ``underline_break_spaces`` is set, each maximal run is split at the
+    spaces inside it, so every word gets its own underline spanning its own
+    ink and the inter-word space stays bare. ``False`` (the default) keeps one
+    continuous run across the spaces.
+
     Args:
         line: The resolved text line.
 
@@ -2014,7 +2019,42 @@ def _underline_render_gate(line: ResolvedTextLine) -> Tuple[Tuple[int, int], ...
     flags = tuple(
         style.underline for run in line.styled_runs for style in (run.style,) * len(run.text)
     )
-    return underline_runs(flags)
+    runs = underline_runs(flags)
+    if line.underline_break_spaces:
+        runs = _split_runs_at_spaces(line.plain_text, runs)
+    return runs
+
+
+def _split_runs_at_spaces(
+    plain_text: str,
+    runs: Tuple[Tuple[int, int], ...],
+) -> Tuple[Tuple[int, int], ...]:
+    """Split each underlined run at the spaces, leaving the spaces bare.
+
+    A space (and any run of spaces) terminates an underline, so each word of a
+    multi-word run draws its own underline spanning its own ink. A run made
+    entirely of spaces yields no sub-run (nothing to engrave).
+
+    Args:
+        plain_text: The line's markup-free text.
+        runs: The maximal underlined runs (inclusive ``plain_text`` indices).
+
+    Returns:
+        The runs split at spaces, in order.
+    """
+    split: List[Tuple[int, int]] = []
+    for first, last in runs:
+        start: Optional[int] = None
+        for index in range(first, last + 1):
+            if plain_text[index] == " ":
+                if start is not None:
+                    split.append((start, index - 1))
+                    start = None
+            elif start is None:
+                start = index
+        if start is not None:
+            split.append((start, last))
+    return tuple(split)
 
 
 def _underline_strokes(

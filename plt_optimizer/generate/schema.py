@@ -554,6 +554,15 @@ class TextAttributes(BaseModel):
             Must be ``>= 0``; only ``None`` means unset.
             Cascades line -> label -> job (and is accepted on plates
             for schema parity, where it is not applied at that level).
+        underline_break_spaces: Whether an underline (``<u>``) **breaks at the
+            spaces** between words. ``False`` (the default) draws one
+            continuous underline across the whole underlined run, spaces
+            included (only descending glyphs that cross the centerline break
+            it). ``True`` ends the underline at each space, so every word gets
+            its own underline spanning its own ink and the space between words
+            stays bare. Cascades line -> label -> job (and is accepted on
+            plates for schema parity, where it is not applied at that level);
+            explicit ``False`` is honored.
         cutter_size: Optional cutter diameter in inches to use for the text
             instead of the tool auto-selected from ``text_height``. When set,
             the requested diameter is snapped to the shop inventory
@@ -845,6 +854,18 @@ class TextAttributes(BaseModel):
             "at the ink. Independent of "
             "underline_offset (which decides which glyphs break). Must be >= 0. "
             "Cascades line -> label -> job (fallback 0.0); explicit 0.0 "
+            "is honored."
+        ),
+    )
+    underline_break_spaces: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Break an underline (<u>) at the spaces between words: false "
+            "(default) draws one continuous underline across the whole "
+            "underlined run (spaces included, broken only by descending "
+            "glyphs); true ends the underline at each space so every word "
+            "gets its own underline and the inter-word space stays bare. "
+            "Cascades line -> label -> job (fallback false); explicit false "
             "is honored."
         ),
     )
@@ -1622,6 +1643,9 @@ class PlateSpec(BaseModel):
             break. Accepted for schema parity with the job/label
             ``underline_break_clearance`` cascade (not applied at plate
             level).
+        underline_break_spaces: Optional break-at-spaces flag. Accepted for
+            schema parity with the job/label ``underline_break_spaces``
+            cascade (not applied at plate level).
         cutter_size: Optional cutter diameter in inches. Accepted for schema
             parity with the job/label ``cutter_size`` cascade (not applied at
             plate level).
@@ -1832,6 +1856,12 @@ class PlateSpec(BaseModel):
         description=(
             "Underline (<u>) extra air in inches at each break (schema "
             "parity; not applied at plate level)."
+        ),
+    )
+    underline_break_spaces: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Underline (<u>) break-at-spaces flag (schema parity; not applied at plate level)."
         ),
     )
     cutter_size: Optional[float] = Field(

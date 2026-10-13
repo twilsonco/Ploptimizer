@@ -49,6 +49,7 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_TEXT_H_ALIGNMENT,
     DEFAULT_TEXT_HEIGHT,
     DEFAULT_UNDERLINE_BREAK_CLEARANCE,
+    DEFAULT_UNDERLINE_BREAK_SPACES,
     DEFAULT_UNDERLINE_OFFSET,
     DEFAULT_USE_BASELINE_SPACING,
     DEFAULT_V_CENTER_BY_CONTENT,
@@ -4075,3 +4076,90 @@ class TestUnderlineBreakClearanceCascade:
         """The schema rejects a negative clearance."""
         with pytest.raises(ValidationError):
             TextLine(text="X", underline_break_clearance=-0.1)
+
+
+class TestUnderlineBreakSpacesCascade:
+    """underline_break_spaces must cascade line -> label -> job -> default."""
+
+    def test_default_when_all_omit(self) -> None:
+        """All levels omitting yields the False default."""
+        job = JobSpec(
+            job_name="J",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.underline_break_spaces is DEFAULT_UNDERLINE_BREAK_SPACES
+        assert DEFAULT_UNDERLINE_BREAK_SPACES is False
+
+    def test_explicit_false_is_honored(self) -> None:
+        """An intentional False (continuous underline) is not treated as unset."""
+        job = JobSpec(
+            job_name="J",
+            underline_break_spaces=True,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X", underline_break_spaces=False)],
+                )
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].underline_break_spaces is False
+
+    def test_job_value_used_when_label_omits(self) -> None:
+        """Job-level value cascades to the line."""
+        job = JobSpec(
+            job_name="J",
+            underline_break_spaces=True,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].underline_break_spaces is True
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level value wins over job."""
+        job = JobSpec(
+            job_name="J",
+            underline_break_spaces=False,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    underline_break_spaces=True,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].underline_break_spaces is True
+
+    def test_line_overrides_label(self) -> None:
+        """Text-line value wins over label and job."""
+        job = JobSpec(
+            job_name="J",
+            underline_break_spaces=True,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    underline_break_spaces=True,
+                    content=[TextLine(text="X", underline_break_spaces=False)],
+                )
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].underline_break_spaces is False

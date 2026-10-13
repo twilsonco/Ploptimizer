@@ -394,6 +394,17 @@ class JobDefaults(BaseModel):
             "= the cut sits at the ink. Unset falls back to 0.0."
         ),
     )
+    underline_break_spaces: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Default underline (<u>) break-at-spaces flag (job layer): false "
+            "(default) draws one continuous underline across the whole "
+            "underlined run (spaces included, broken only by descending "
+            "glyphs); true ends the underline at each space so every word "
+            "gets its own underline and the inter-word space stays bare. "
+            "Unset falls back to false."
+        ),
+    )
     holes: Optional[list[HoleSpec]] = Field(
         default=None,
         description="Default drill-hole list (job layer; group locations expand like spec holes).",
@@ -640,6 +651,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "italic_angle",
     "underline_offset",
     "underline_break_clearance",
+    "underline_break_spaces",
     "cutter_downsize",
     "max_cutter_downsizes",
     "cutter_downsize_global",

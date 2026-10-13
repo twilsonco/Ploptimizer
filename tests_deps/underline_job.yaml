@@ -170,3 +170,22 @@ job:
       font: "Dino SC"
       content:
         - text: "<u>Depth</u>"
+
+    # 14. A multi-word run at the default (continuous) underline: the space
+    #     between the words is underlined too, so the descender-free run
+    #     engraves as ONE segment spanning both words.
+    - id: plt_continuous_words
+      width: 6.0
+      font: Dino
+      content:
+        - text: "<u>hello world</u>"
+
+    # 15. The same run with underline_break_spaces: true -- the underline ends
+    #     at the space, so each word gets its own underline spanning its own
+    #     ink and the inter-word space stays bare (two segments).
+    - id: plt_break_spaces_words
+      width: 6.0
+      font: Dino
+      underline_break_spaces: true
+      content:
+        - text: "<u>hello world</u>"

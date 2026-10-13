@@ -2505,3 +2505,24 @@ class TestUnderlineBreakClearanceField:
         """The plate tier carries the field for schema parity."""
         plate = PlateSpec(id="p", width=24.0, height=16.0, underline_break_clearance=0.1)
         assert plate.underline_break_clearance == 0.1
+
+
+class TestUnderlineBreakSpacesField:
+    """The cascading ``underline_break_spaces`` field (line -> label -> job + plate)."""
+
+    def test_defaults_to_none_everywhere(self) -> None:
+        """Every tier defaults underline_break_spaces to None (unset)."""
+        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        assert job.underline_break_spaces is None
+        assert TextLine(text="X").underline_break_spaces is None
+        assert PlateSpec(id="p", width=24.0, height=16.0).underline_break_spaces is None
+
+    @pytest.mark.parametrize("value", [True, False])
+    def test_bool_accepted(self, value: bool) -> None:
+        """Both True and False are accepted (explicit False honored)."""
+        assert TextLine(text="X", underline_break_spaces=value).underline_break_spaces is value
+
+    def test_plate_parity_accepts_the_field(self) -> None:
+        """The plate tier carries the field for schema parity."""
+        plate = PlateSpec(id="p", width=24.0, height=16.0, underline_break_spaces=True)
+        assert plate.underline_break_spaces is True
