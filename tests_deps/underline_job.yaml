@@ -9,21 +9,25 @@
 # its first glyph's bounding-box left edge to its last glyph's right edge.
 #
 # The break test is STRICTLY HORIZONTAL: a glyph cuts the underline only where
-# its ink reaches down into the underline's stroke band (below the touching
-# level `line_y + cutter`, i.e. `-underline_offset` in baseline terms), never
-# merely for standing beside it. A 2D radial test would be wrong: its distance
-# grows with the vertical separation too, so a cap sitting above the underline
-# collides through the vertical component and shatters the underline.
-# Equivalently: **a glyph breaks the underline iff its ink dips more than
-# `underline_offset` below the baseline**, so the offset alone decides *which*
+# its ink crosses the underline's CENTERLINE (`line_y`), inside a thin band of
+# `0.2 * underline_break_clearance` above and below it -- never merely for
+# standing beside it, and never merely for dipping below it. A 2D radial test
+# would be wrong: its distance grows with the vertical separation too, so a cap
+# sitting above the underline collides through the vertical component and
+# shatters the underline. A half-plane test (everything below the underline's
+# top edge) is also wrong: a `g`'s open J-hook dips its whole bowl below the
+# underline, so the break swallows the glyph's full width instead of just the
+# stem that crosses through.
+# Equivalently: **a glyph breaks the underline where its ink crosses the
+# centerline, i.e. dips more than `cutter + underline_offset` below the
+# baseline**, so the offset alone decides *which*
 # glyphs break and `underline_break_clearance` alone decides the air at each
 # break (each cut is padded by `0.5 * cutter + clearance`; the half cutter is
 # the glyph stroke's own half-width, the ink being a centerline). With the Dino
-# library at text_height 0.5 (toolpath 0.44) the clean caps `AVX` sit on the
-# baseline -- tangent to a 0.0-offset underline, so no gap -- while the rounded
-# caps `O`/`G` overshoot ~0.0026in below it (a gap at offset 0.0, none once the
-# offset drops the underline clear), and `p`/`g` reach ~0.146in below and cut
-# gaps at every offset below that.
+# library at text_height 0.5 (toolpath 0.44) the caps `AVX`/`O`/`G` sit on (or
+# a hair under) the baseline and never reach the centerline a full cutter
+# below, so they cut no gap at any offset; `p`/`g` reach ~0.146in below and
+# cross the centerline at every offset below that.
 #
 # Nesting is the framework's stack: `<i>nested <u>markup</u> tail</i>` shears
 # every glyph about the baseline AND underlines only `markup`. The underline
@@ -53,9 +57,9 @@ job:
       height: 16.0
 
   labels:
-    # 1. PLT underline at the default 0.0 offset: `p` and `g` descend into the
-    #    underline and punch minimal gaps, so the one run engraves as several
-    #    collinear segments (all at y = -cutter).
+    # 1. PLT underline at the default 0.0 offset: the `p` stem crosses the
+    #    underline's centerline and punches its gap, so the one run engraves as
+    #    two collinear segments (both at y = -cutter).
     - id: plt_underline
       font: Dino
       content:
@@ -68,9 +72,9 @@ job:
       content:
         - text: "Depth"
 
-    # 3. A descender-free run: the caps touch the underline exactly
-    #    (tangency is safe), so the underline is ONE segment spanning the
-    #    run's full ink width.
+    # 3. A descender-free run: the caps sit a full cutter above the
+    #    centerline and never cross it, so the underline is ONE segment
+    #    spanning the run's full ink width.
     - id: plt_caps
       font: Dino
       content:
@@ -104,7 +108,7 @@ job:
       content:
         - text: "<u>pay</u>"
 
-    # 5c. The clearance-0.0 control for label 5b (the classic tangency cut).
+    # 5c. The clearance-0.0 control for label 5b (the cut sits at the ink).
     - id: plt_break_clearance_plain
       font: Dino
       content:

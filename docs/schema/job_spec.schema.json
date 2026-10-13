@@ -305,7 +305,7 @@
             }
           ],
           "default": null,
-          "description": "Extra air in inches for underline markup (<u>): the underline centerline (cut with the line's own text cutter) sits cutter diameter + this offset below the baseline, so the engraved underline's top edge floats exactly this offset below the engraved baseline stroke. The break test is strictly horizontal: a glyph breaks the underline iff its ink dips more than this offset below the baseline, so raising it lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+          "description": "Extra air in inches for underline markup (<u>): the underline centerline (cut with the line's own text cutter) sits cutter diameter + this offset below the baseline, so the engraved underline's top edge floats exactly this offset below the engraved baseline stroke. The break test is strictly horizontal: a glyph breaks the underline where its ink crosses the underline's centerline, so raising it lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
           "title": "Underline Offset"
         },
         "underline_break_clearance": {
@@ -1584,7 +1584,7 @@
             }
           ],
           "default": null,
-          "description": "Extra air in inches for underline markup (<u>): the underline centerline (cut with the line's own text cutter) sits cutter diameter + this offset below the baseline, so the engraved underline's top edge floats exactly this offset below the engraved baseline stroke. The break test is strictly horizontal: a glyph breaks the underline iff its ink dips more than this offset below the baseline, so raising it lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+          "description": "Extra air in inches for underline markup (<u>): the underline centerline (cut with the line's own text cutter) sits cutter diameter + this offset below the baseline, so the engraved underline's top edge floats exactly this offset below the engraved baseline stroke. The break test is strictly horizontal: a glyph breaks the underline where its ink crosses the underline's centerline, so raising it lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
           "title": "Underline Offset"
         },
         "underline_break_clearance": {
@@ -1992,7 +1992,7 @@
         }
       ],
       "default": null,
-      "description": "Extra air in inches for underline markup (<u>): the underline centerline (cut with the line's own text cutter) sits cutter diameter + this offset below the baseline, so the engraved underline's top edge floats exactly this offset below the engraved baseline stroke. The break test is strictly horizontal: a glyph breaks the underline iff its ink dips more than this offset below the baseline, so raising it lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+      "description": "Extra air in inches for underline markup (<u>): the underline centerline (cut with the line's own text cutter) sits cutter diameter + this offset below the baseline, so the engraved underline's top edge floats exactly this offset below the engraved baseline stroke. The break test is strictly horizontal: a glyph breaks the underline where its ink crosses the underline's centerline, so raising it lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
       "title": "Underline Offset"
     },
     "underline_break_clearance": {

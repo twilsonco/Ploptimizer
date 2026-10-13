@@ -531,13 +531,14 @@ class TextAttributes(BaseModel):
             ``cutter diameter + underline_offset`` below the baseline, so
             the engraved underline's top edge floats exactly
             ``underline_offset`` below the engraved baseline stroke. The break
-            test is strictly horizontal: a glyph breaks the underline iff its
-            ink dips more than ``underline_offset`` below the baseline (the
-            level at which the two engraved strokes touch), so the offset alone
-            decides *which* glyphs break and raising it lifts the underline
-            clear of a glyph. ``0.0`` (the default) makes the underline's
+            test is strictly horizontal: a glyph breaks the underline where its
+            ink crosses the underline's centerline (dipping past ``cutter
+            diameter + underline_offset`` below the baseline), so the offset
+            alone decides *which* glyphs break and raising it lifts the
+            underline clear of a glyph. ``0.0`` (the default) makes the
+            underline's
             top edge touch the baseline stroke and gaps only where the
-            engraved strokes truly overlap. Must be ``>= 0``; only ``None``
+            engraved strokes truly cross. Must be ``>= 0``; only ``None``
             means unset.
             Cascades line -> label -> job (and is accepted on plates
             for schema parity, where it is not applied at that level).
@@ -823,8 +824,8 @@ class TextAttributes(BaseModel):
             "diameter + this offset below the baseline, so the engraved "
             "underline's top edge floats exactly this offset below the "
             "engraved baseline stroke. The break test is strictly horizontal: "
-            "a glyph breaks the underline iff its ink dips more than this "
-            "offset below the baseline, so raising it lifts the underline "
+            "a glyph breaks the underline where its ink crosses the underline's "
+            "centerline, so raising it lifts the underline "
             "clear and stops it breaking. 0.0 = the underline's top edge "
             "touches the baseline "
             "stroke. Must "

@@ -2683,9 +2683,10 @@ class TestUnderlineDemoExample:
         """``underline_break_clearance`` adds air at each break, not depth.
 
         The centerline stays at the default offset (one cutter below the
-        baseline), so the block's depth matches the clearance-0.0 control; the
-        clearance widens each break, merging neighbouring gaps into fewer,
-        wider segments.
+        baseline), so the block's depth matches the clearance-0.0 control. The
+        ``pay`` ``p``/``y`` stems each cross the centerline, so both labels
+        break once; the clearance widens that break (the engraved air at the
+        cut edge equals the clearance).
         """
         result = self._export(tmp_path)
         wide = result.rendered_labels["plt_break_clearance"].source_label
@@ -2695,11 +2696,27 @@ class TestUnderlineDemoExample:
         # Same centerline Y (the clearance never moves the underline): the
         # block's floor is identical.
         assert wb[1] == pytest.approx(tb[1], abs=1e-9)
-        # Clearance 0.05 cuts a WIDER gap around the `p`/`y` descenders, so
-        # the neighbouring tangency gaps merge: fewer, wider breaks than the
-        # clearance-0.0 control (which cuts the minimal tangency gaps).
-        assert self._underline_stroke_count(wide) < self._underline_stroke_count(tight)
-        assert self._underline_stroke_count(wide) >= 1
+
+        def gap(label: ResolvedLabel) -> float:
+            from plt_optimizer.generate.label_renderer import (
+                TextChunkMode,
+                _render_line_block,
+                _underline_render_gate,
+                _underline_strokes,
+            )
+
+            block, _words, glyphs = _render_line_block(label.content[0], TextChunkMode.LINE)
+            strokes = _underline_strokes(
+                label.content[0], block, glyphs, _underline_render_gate(label.content[0])
+            )
+            spans = sorted((s.segments[0].start.real, s.segments[0].end.real) for s in strokes)
+            assert len(spans) == 2  # the `p`/`y` stems cross: one break
+            return spans[1][0] - spans[0][1]
+
+        # Clearance 0.05 leaves air on each side of the cut (and reaches a
+        # little further up/down the stem), so the gap is strictly wider than
+        # the clearance-0.0 control (which cuts at the ink).
+        assert gap(wide) > gap(tight)
 
     def test_multi_run_draws_independent_underlines(self, tmp_path: Path) -> None:
         """Two underlined runs separated by a plain glyph draw two underlines."""

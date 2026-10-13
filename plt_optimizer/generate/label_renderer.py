@@ -2029,25 +2029,27 @@ def _underline_strokes(
     first glyph's bounding-box left edge to its last glyph's right edge, at
     ``cutter_diameter + underline_offset`` inches below the baseline (so the
     engraved underline's top edge floats exactly ``underline_offset`` below
-    the engraved baseline stroke). The break test is **strictly horizontal**:
-    only glyph ink that reaches down into the underline's stroke band cuts a
-    gap, so descenders punch through the underline and a glyph merely standing
-    beside it (a cap, a neighbour) never breaks it (see
+    the engraved baseline stroke). The break test is **strictly horizontal**
+    and keyed to the underline's **centerline**: a glyph cuts a gap only where
+    its ink crosses the centerline (inside a thin band of ``0.2 *
+    underline_break_clearance`` around it), so a descender's stem punches
+    through the underline, a ``g``'s bowl that dips below without crossing the
+    centerline keeps its underline, and a glyph merely standing beside it (a
+    cap, a neighbour) never breaks it (see
     :mod:`plt_optimizer.generate.underline`).
 
     The centerline **position** and the **break band** are two distinct
     quantities. The position is ``cutter + offset`` below the baseline (the
-    offset is the edge-to-edge air the user asked for). The band's trigger
-    level is the engraved-stroke touching floor -- ink at ``line_y + cutter``
-    (the two same-width strokes touch there) -- reached ``0.2 *
-    underline_break_clearance`` above that floor, and each cut is padded
-    horizontally by ``underline_break_clearance`` (the engraved air left at
-    each edge, 0.0 = the cut sits at the ink). The offset must stay out of the
-    trigger: were the band keyed off ``cutter + offset``, the offset would
-    cancel out of the test (a glyph breaks the underline iff its ink dips
-    below the baseline, at *any* offset), so raising ``underline_offset``
-    could never prevent a break -- the reported bug where caps punched gaps no
-    matter how deep the underline was set.
+    offset is the edge-to-edge air the user asked for). The band is a thin
+    strip on the centerline, reaching ``0.2 * underline_break_clearance``
+    above and below it, and each cut is padded horizontally by ``0.5 * cutter
+    + underline_break_clearance`` (the half cutter is the glyph stroke's own
+    half-width, the clearance the engraved air left at each edge). The offset
+    must stay out of the trigger: were the band keyed off ``cutter + offset``,
+    the offset would cancel out of the test (a glyph breaks the underline iff
+    its ink dips below the baseline, at *any* offset), so raising
+    ``underline_offset`` could never prevent a break -- the reported bug where
+    caps punched gaps no matter how deep the underline was set.
 
     Args:
         line: The resolved text line (cutter, offset, plain text).

@@ -1128,19 +1128,21 @@ geometry is the single contract for both families (TTF parity by construction).
 
 - **The break test is strictly horizontal** (the model's core, and the fix
   for the shattering bug): a glyph cuts the underline only where its ink
-  reaches **down into** the underline's stroke band, never merely for standing
-  beside it. A 2D radial (capsule) test is *wrong* here — its distance grows
-  with the vertical separation too, so a cap sitting happily above the
-  underline collides through the vertical component and shatters the underline
-  into per-glyph segments. The trigger level is the engraved-stroke touching
-  floor `line_y + cutter` (the two same-width strokes touch there, i.e.
-  `-underline_offset` in baseline terms), reached `0.2 *
-  underline_break_clearance` above that floor (`BAND_TOLERANCE_FRACTION`) so a
-  glyph stopping just short of the underline still cuts. **A glyph breaks the
-  underline iff its ink dips more than `underline_offset` below the
-  baseline** — so the **offset** alone decides *which* glyphs break, and the
-  **clearance** alone decides the air at each break. Folding the offset into
-  the trigger cancels it out of the test (a glyph breaks iff its ink dips
+  **crosses the underline's centerline**, never merely for standing beside it
+  or dipping below it. A 2D radial (capsule) test is *wrong* here — its
+  distance grows with the vertical separation too, so a cap sitting happily
+  above the underline collides through the vertical component and shatters the
+  underline into per-glyph segments. A half-plane test (everything below the
+  underline's top edge) is *also wrong*: a `g`'s open J-hook dips its whole
+  bowl below the underline, so the break swallows the glyph's full width
+  instead of just the stem that crosses through. The trigger is a thin band on
+  the centerline `line_y`, reaching `0.2 * underline_break_clearance` above
+  and below it (`BAND_TOLERANCE_FRACTION`) so a glyph stopping a hair short of
+  the centerline still cuts. **A glyph breaks the underline where its ink
+  crosses the centerline — i.e. dips more than `cutter + underline_offset`
+  below the baseline** — so the **offset** alone decides *which* glyphs break,
+  and the **clearance** alone decides the air at each break. Folding the offset
+  into the trigger cancels it out of the test (a glyph breaks iff its ink dips
   below the baseline at *any* offset), so raising `underline_offset` could
   never stop a break — the earlier bug where caps punched gaps no matter how
   deep the underline was set.
@@ -1149,8 +1151,9 @@ geometry is the single contract for both families (TTF parity by construction).
   `job-config.json` shop default, `JobDefaults` key, not
   `REQUIRED_WHEN_UNCONFIGURED`). It sets the centerline depth
   `cutter_diameter + underline_offset` (the offset is edge-to-edge air) and so
-  the break threshold: glyphs descending past `underline_offset` break the
-  underline, everything above stays whole. `0.0` = the underline's top edge
+  the break threshold: glyphs crossing the centerline (dipping past
+  `cutter + underline_offset` below the baseline) break the underline,
+  everything above stays whole. `0.0` = the underline's top edge
   touches the baseline stroke.
 - **`underline_break_clearance`** (`ge=0.0`, default `None` → **0.0**; explicit
   `0.0` honored, only `None` means unset) cascades line → label → job (plate
@@ -1173,17 +1176,20 @@ geometry is the single contract for both families (TTF parity by construction).
   inclusive `plain_text` indices (`markup.StyledText.underline_flags` →
   `underline_runs`).
 - **Minimal gap cutting** (`plt_optimizer/generate/underline.py`, pure Python,
-  matplotlib-free, Win7/3.8-safe): each ink segment is clipped to the half-
-  plane **below** the band's trigger level (`segment_band_interval`); the part
-  of a segment below a horizontal level is convex, so its X-extent is one
-  interval, read off the endpoints plus the level crossing (closed-form, no
+  matplotlib-free, Win7/3.8-safe): each ink segment is clipped to the thin
+  **strip around the centerline** (`segment_band_interval`); the part of a
+  segment inside a horizontal strip is convex, so its X-extent is one
+  interval, read off the two band-edge crossings (closed-form, no
   sampling, touching = safe). Each interval, padded by `0.5 * cutter +
   clearance`, cuts ONE gap (`underline_segments` = the gap complement over the
-  span, gaps closer than `_INK_EMISSION_FLOOR` merge). Descenders punch through
+  span, gaps closer than `_INK_EMISSION_FLOOR` merge). A hook that crosses the
+  centerline twice (a `g`) cuts one gap per crossing, so the underline shows
+  the stem, not the whole glyph. Descenders punch through
   the underline and nowhere else does the line break: a glyph beside the
-  underline (its X outside the run) and a glyph above it (its ink short of the
-  band) are invisible to the cut. Caps tangent to a 0.0-offset underline cut
-  nothing (tangency is safe, the repo-wide convention).
+  underline (its X outside the run), a glyph above it (its ink short of the
+  band), and a bowl that dips below the underline without crossing the
+  centerline are all invisible to the cut. Caps tangent to a 0.0-offset
+  underline cut nothing (tangency is safe, the repo-wide convention).
 - **Render wiring** (`label_renderer`): `_underline_render_gate` (per-char
   flags → runs; `()` for plain / italic-only lines, keeping those lines
   bit-identical) → `_underline_strokes` (centerline geometry on the FINAL

@@ -390,7 +390,7 @@
         }
       ],
       "default": null,
-      "description": "Default underline (<u>) extra air in inches (job layer): the underline centerline sits cutter diameter + this offset below the baseline (the engraved underline's top edge floats exactly this offset below the engraved baseline stroke). The break test is strictly horizontal, so a glyph breaks the underline iff its ink dips more than this offset below the baseline; raising it lifts the underline clear of a glyph and stops it breaking. Unset falls back to 0.0.",
+      "description": "Default underline (<u>) extra air in inches (job layer): the underline centerline sits cutter diameter + this offset below the baseline (the engraved underline's top edge floats exactly this offset below the engraved baseline stroke). The break test is strictly horizontal, so a glyph breaks the underline where its ink crosses the underline's centerline; raising it lifts the underline clear of a glyph and stops it breaking. Unset falls back to 0.0.",
       "title": "Underline Offset"
     },
     "underline_break_clearance": {

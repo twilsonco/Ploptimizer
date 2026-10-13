@@ -187,10 +187,11 @@ DEFAULT_ITALIC_ANGLE: float = 12.0
 # ``cutter diameter + underline_offset`` below the baseline, so the engraved
 # underline's top edge floats exactly ``underline_offset`` below the engraved
 # baseline stroke. The break test is strictly horizontal: a glyph breaks the
-# underline iff its ink dips more than ``underline_offset`` below the baseline
-# (the stroke-touching level), so the offset alone decides which glyphs break.
+# underline where its ink crosses the underline's centerline (dipping past
+# ``cutter diameter + underline_offset`` below the baseline), so the offset
+# alone decides which glyphs break.
 # 0.0 = the underline's top edge touches the baseline stroke and gaps only
-# where strokes truly overlap.
+# where strokes truly cross.
 # See ``plt_optimizer.generate.underline``.
 DEFAULT_UNDERLINE_OFFSET: float = 0.0
 # Extra air (inches) at each underline break. Each cut is padded horizontally
@@ -687,8 +688,9 @@ class ResolvedTextLine:
             (0.0)). The underline centerline (cut with the line's own text
             cutter) sits ``cutter diameter + underline_offset`` below the
             baseline; the break test is strictly horizontal, so a glyph breaks
-            the underline iff its ink dips more than this offset below the
-            baseline. Raising it lifts the underline clear of a glyph and
+            the underline where its ink crosses the underline's centerline
+            (dipping past ``cutter diameter + underline_offset`` below the
+            baseline). Raising it lifts the underline clear of a glyph and
             stops it breaking. Bound to
             ``[0, inf)`` by the schema; an explicit ``0.0`` is honored.
         underline_break_clearance: Extra air in inches at each ``<u>`` break

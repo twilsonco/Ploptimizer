@@ -11,31 +11,33 @@ touch at ``0.0``), and it spans each maximal underlined run's ink width
 
 The TODO contract is *minimal breaking*: a **descending** glyph cuts a gap
 into the underline where it crosses *through* it. The test is **strictly
-horizontal**: the underline is a stroke of width ``cutter`` centered on
-``line_y``, so its top edge sits at ``line_y + cutter`` in ink-centerline
-terms (the ink of a same-width glyph stroke touches it exactly there -- the
-level ``-underline_offset`` below the baseline). Only ink that reaches down
-into that band breaks the underline; ink beside it (a cap's stem, a glyph
-to the left or right) never does. A 2D radial (capsule) test is wrong here:
-its distance grows with the *vertical* separation too, so a cap sitting
-happily ABOVE the underline collides through the vertical component and
-shatters the underline into per-glyph segments.
+horizontal** and keyed to the underline's **centerline**: a glyph breaks the
+underline only where its ink crosses the centerline ``line_y``, inside a thin
+band of ``+/- BAND_TOLERANCE_FRACTION * underline_break_clearance`` around it
+(so a glyph whose ink stops a hair short of the centerline still cuts, while
+ink above it never does). Ink beside the underline (a cap's stem, a neighbour)
+and ink that dips *below* the underline without crossing its centerline (a
+shallow graze of the lower half) never break it. A 2D radial (capsule) test is
+wrong here: its distance grows with the *vertical* separation too, so a cap
+sitting happily ABOVE the underline collides through the vertical component and
+shatters the underline into per-glyph segments. A half-plane test (everything
+below the underline's top edge) is also wrong: a ``g``'s open J-hook dips its
+whole bowl below the underline, so the break swallows the glyph's full width
+instead of just the stem that crosses through.
 
-The break interval is the X-extent of the ink inside the trigger band, padded
-by ``0.5 * cutter + underline_break_clearance`` on each side: the half cutter
-is the glyph stroke's own half-width (the ink is a CENTERLINE, so a vertical
-descender engraves a stroke one cutter wide and the underline must break by
-that much), and the clearance is the engraved air left at each cut edge. The
-band reaches ``band_tolerance`` **above** the touching level -- a fraction of
-the clearance (``BAND_TOLERANCE_FRACTION * clearance``) -- so a glyph whose ink
-stops just short of the underline still cuts, while ink far above it never
-does.
+The break interval is the X-extent of the ink inside the centerline band,
+padded by ``0.5 * cutter + underline_break_clearance`` on each side: the half
+cutter is the glyph stroke's own half-width (the ink is a CENTERLINE, so a
+vertical descender engraves a stroke one cutter wide and the underline must
+break by that much), and the clearance is the engraved air left at each cut
+edge. A hook that crosses the centerline twice (a ``g``) cuts one gap per
+crossing, so the underline shows the stem, not the whole glyph.
 
-The resulting rule is intuitive: a glyph breaks the underline iff its ink
-dips more than ``underline_offset`` below the baseline (the touching level is
-``line_y + cutter == -underline_offset``), so the **offset** alone decides
-*which* glyphs break, and the **clearance** alone decides the air at each
-break. Neither knob can cause a break the other one prevents.
+The resulting rule is intuitive: a glyph breaks the underline where its ink
+crosses the centerline (``line_y = -(cutter + underline_offset)``), so the
+**offset** alone decides *which* glyphs break (the deeper the underline, the
+fewer), and the **clearance** alone decides the air at each break. Neither knob
+can cause a break the other one prevents.
 
 The **offset** is *air* (edge-to-edge) and lives in the centerline
 **position** only -- it must stay out of the trigger. Were the trigger
@@ -69,11 +71,12 @@ __all__ = [
 # half a plotter unit cannot exist in the emitted geometry).
 _INTERVAL_MERGE_TOLERANCE: float = 0.5 / 1016.0
 
-# How far ABOVE the stroke-touching level the trigger band reaches, as a
-# fraction of ``underline_break_clearance``. The breaks exist for descending
-# glyphs, so the band is essentially the underline's own stroke; the small
-# reach above lets a glyph whose ink stops just short of the underline cut
-# too, while ink well above it (a cap, an ascender) never does.
+# How far ABOVE and BELOW the underline's centerline the trigger band reaches,
+# as a fraction of ``underline_break_clearance``. The breaks exist for glyphs
+# that cross the underline, so the band is a thin strip on the centerline; the
+# small reach lets a glyph whose ink stops a hair short of the centerline cut
+# too, while a shallow graze of the underline's lower half (a ``g`` bowl
+# bottom) and ink above it (a cap, an ascender) never do.
 BAND_TOLERANCE_FRACTION: float = 0.2
 
 
@@ -105,72 +108,92 @@ def underline_runs(flags: Sequence[bool]) -> Tuple[Tuple[int, int], ...]:
 def segment_band_interval(
     start: Point,
     end: Point,
-    level: float,
+    band_lo: float,
+    band_hi: float,
     pad: float,
 ) -> Optional[Tuple[float, float]]:
-    """Intersect a segment with the half-plane at or below a horizontal level.
+    """Intersect a segment with a horizontal strip (the centerline band).
 
-    The part of a segment strictly below ``level`` is convex, so its X-extent
-    is a single interval (or empty). This is the strictly horizontal break
-    test: a glyph cuts the underline only where its ink reaches down INTO the
-    underline's stroke band, never merely for standing beside it.
+    The part of a segment inside the strip ``[band_lo, band_hi]`` is convex,
+    so its X-extent is a single interval (or empty). This is the strictly
+    horizontal crossing test: a glyph cuts the underline only where its ink
+    crosses the underline's centerline strip -- never for dipping *below* it
+    (a ``g`` bowl) and never for standing beside it.
 
     Args:
         start: Segment start ``(x, y)``.
         end: Segment end ``(x, y)``.
-        level: The band's trigger level (ink strictly below it cuts).
+        band_lo: The strip's lower Y edge (``band_lo == band_hi`` is the
+            degenerate band: the centerline itself, at zero clearance).
+        band_hi: The strip's upper Y edge.
         pad: Horizontal air added to each side of the interval (the engraved
             gap left at each cut edge).
 
     Returns:
-        The padded ``(x_min, x_max)`` interval, or ``None`` when no part of
-        the segment reaches below the level. Ink exactly ON the level touches
-        the band and cuts nothing -- touching strokes are safe (the repo-wide
+        The padded ``(x_min, x_max)`` interval, or ``None`` when the segment
+        never crosses the strip. A segment merely touching a band edge (a
+        graze) cuts nothing -- touching strokes are safe (the repo-wide
         convention).
     """
     x1, y1 = start
     x2, y2 = end
-    first_in = y1 < level
-    second_in = y2 < level
 
-    if not first_in and not second_in:
+    if y1 == y2:
+        # Horizontal segment: cuts only when it lies strictly inside the strip
+        # (or runs exactly along a degenerate centerline band).
+        inside = band_lo < y1 < band_hi or (band_lo == band_hi == y1)
+        if not inside:
+            return None
+        low, high = (x1, x2) if x1 <= x2 else (x2, x1)
+        return (low - pad, high + pad)
+
+    # Clip the segment's parameter range to the strip, then read off the
+    # X-extent of the kept part (convex, so one interval).
+    ta = (band_lo - y1) / (y2 - y1)
+    tb = (band_hi - y1) / (y2 - y1)
+    t_in = min(ta, tb)
+    t_out = max(ta, tb)
+    t0 = max(0.0, t_in)
+    t1 = min(1.0, t_out)
+
+    if t1 > t0:
+        xa = x1 + t0 * (x2 - x1)
+        xb = x1 + t1 * (x2 - x1)
+    elif t1 == t0 and band_lo == band_hi and 0.0 < t0 < 1.0:
+        # Degenerate band (zero clearance): the segment crosses the centerline
+        # exactly at t0, strictly inside the segment (an endpoint graze is
+        # safe).
+        xa = xb = x1 + t0 * (x2 - x1)
+    else:
         return None
 
-    if first_in and second_in:
-        low, high = (x1, x2) if x1 <= x2 else (x2, x1)
-    else:
-        # Exactly one endpoint is in the band: clip at the level crossing.
-        # The crossing exists because the endpoints straddle the level, so
-        # y2 != y1 here.
-        ratio = (level - y1) / (y2 - y1)
-        crossing = x1 + ratio * (x2 - x1)
-        if first_in:
-            low, high = (x1, crossing) if x1 <= crossing else (crossing, x1)
-        else:
-            low, high = (crossing, x2) if crossing <= x2 else (x2, crossing)
-
+    low, high = (xa, xb) if xa <= xb else (xb, xa)
     return (low - pad, high + pad)
 
 
 def _ink_band_intervals(
     ink: Ink,
-    level: float,
+    band_lo: float,
+    band_hi: float,
     pad: float,
 ) -> List[Tuple[float, float]]:
-    """Collect the band intervals of every ink segment.
+    """Collect the centerline-band intervals of every ink segment.
 
     Args:
         ink: A glyph's ink polylines (render frame, inches).
-        level: The band's trigger level (see :func:`segment_band_interval`).
+        band_lo: The strip's lower Y edge (see :func:`segment_band_interval`).
+        band_hi: The strip's upper Y edge.
         pad: Horizontal air added to each side of each interval.
 
     Returns:
-        One interval per segment whose ink reaches the level.
+        One interval per segment whose ink crosses the strip.
     """
     intervals: List[Tuple[float, float]] = []
     for polyline in ink:
         for index in range(len(polyline) - 1):
-            interval = segment_band_interval(polyline[index], polyline[index + 1], level, pad)
+            interval = segment_band_interval(
+                polyline[index], polyline[index + 1], band_lo, band_hi, pad
+            )
             if interval is not None:
                 intervals.append(interval)
     return intervals
@@ -191,15 +214,13 @@ def underline_segments(
             glyph is measured; the result is clipped to ``span``.
         span: ``(x_min, x_max)`` of the underline (the run's first glyph's
             bbox left to its last glyph's bbox right).
-        line_y: The underline centerline's Y.
-        cutter: The cutter diameter cutting both the underline and the glyphs
-            (so the two strokes touch at ``line_y + cutter``, the band's
-            trigger level).
+        line_y: The underline centerline's Y (the band is centered on it).
+        cutter: The cutter diameter cutting both the underline and the glyphs.
+            The cut is padded by ``0.5 * cutter + clearance``: the half cutter
+            is the glyph stroke's own half-width (the ink is a centerline).
         clearance: Horizontal air left at each cut edge (and the source of the
-            band's small reach above the touching level, see
-            :data:`BAND_TOLERANCE_FRACTION`). The cut is padded by
-            ``0.5 * cutter + clearance``: the half cutter is the glyph
-            stroke's own half-width (the ink is a centerline).
+            band's thin reach above and below the centerline, see
+            :data:`BAND_TOLERANCE_FRACTION`).
         min_length: Kept segments shorter than this are dropped (a speck
             narrower than the emission floor cannot be engraved).
 
@@ -212,14 +233,15 @@ def underline_segments(
     if x_hi <= x_lo:
         return ()
 
-    # The touching level: ink at `line_y + cutter` is exactly one full stroke
-    # width from the centerline, i.e. the two same-width strokes touch. In
-    # baseline terms that level is `-underline_offset`.
-    level = line_y + cutter + BAND_TOLERANCE_FRACTION * clearance
+    # The trigger band is a thin strip on the underline's centerline: ink
+    # crosses it (and cuts) where the glyph passes through the underline. A
+    # shallow graze of the lower half (a `g` bowl bottom) stays below the
+    # band and cuts nothing.
+    reach = BAND_TOLERANCE_FRACTION * clearance
     pad = 0.5 * cutter + clearance
     intervals = [
         (max(lo, x_lo), min(hi, x_hi))
-        for lo, hi in _ink_band_intervals(ink, level, pad)
+        for lo, hi in _ink_band_intervals(ink, line_y - reach, line_y + reach, pad)
         if min(hi, x_hi) > max(lo, x_lo)
     ]
     if not intervals:

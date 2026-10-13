@@ -2640,20 +2640,16 @@ class TestUnderlineRenderDispatch:
         assert nb[3] == pytest.approx(tb[3], abs=1e-12)
         assert nb[2] - nb[0] == pytest.approx(tb[2] - tb[0], abs=1e-12)
 
-    def test_offset_lifts_the_underline_clear_of_a_glyph(self) -> None:
-        """The break threshold is the offset, so the offset stops the breaking.
+    def test_caps_never_break_the_underline(self) -> None:
+        """A cap breaks the underline at no offset and no clearance.
 
-        The Dino ``O``/``G`` overshoot ~0.0026in below the baseline (a
-        rounded cap's bowl dips a hair under the baseline). At offset 0.0 the
-        band's trigger level is the baseline itself, so the overshoot reaches
-        into the engraved underline and the run breaks around both. The test is
-        **strictly horizontal** -- a glyph breaks the underline iff its ink
-        dips more than ``underline_offset`` below the baseline -- so a small
-        offset lowers the underline clear of the overshoot and the run engraves
-        in one piece. Folding the offset into the trigger cancelled it out of
-        the test (a glyph broke the underline iff its ink dipped below the
-        baseline at *any* offset) and no offset stopped the break -- the
-        reported bug.
+        The Dino ``O``/``G`` overshoot ~0.0026in below the baseline (a rounded
+        cap's bowl dips a hair under it), and clean caps ``AVX`` rest on the
+        baseline. None of them reaches the underline's centerline (one cutter
+        below the baseline), so the centerline-crossing test never fires: every
+        run engraves in one piece. The earlier 2D radial test collided with the
+        caps through the vertical component of the distance and shattered the
+        underline -- the reported bug.
         """
         from plt_optimizer.generate.label_renderer import (
             TextChunkMode,
@@ -2663,25 +2659,62 @@ class TestUnderlineRenderDispatch:
         )
         from plt_optimizer.generate.resolution import resolve_job_spec
 
-        def segments(offset: float) -> int:
+        def segments(text: str, offset: float, clearance: float) -> int:
             line = resolve_job_spec(
-                _markup_job(("<u>DOG</u>", {"underline_offset": offset}), font="Dino")
+                _markup_job(
+                    (
+                        f"<u>{text}</u>",
+                        {"underline_offset": offset, "underline_break_clearance": clearance},
+                    ),
+                    font="Dino",
+                )
             )[0].content[0]
             block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
             return len(_underline_strokes(line, block, glyphs, _underline_render_gate(line)))
 
-        # O + G each punch a gap: three kept segments.
-        assert segments(0.0) == 3
-        # The underline drops clear of the caps' overshoot: one continuous run.
-        assert segments(0.01) == 1
-        assert segments(0.1) == 1
+        for text in ("AVX", "DOG"):
+            for offset in (0.0, 0.05, 0.1):
+                for clearance in (0.0, 0.05, 0.1, 0.2):
+                    assert segments(text, offset, clearance) == 1
 
-    def test_offset_does_not_stop_a_real_descender_breaking(self) -> None:
-        """A descender deeper than the offset keeps punching its gap.
+    def test_descender_breaks_only_where_it_crosses(self) -> None:
+        """A ``g`` breaks the underline at its stem, not across its whole width.
 
-        The offset is air, not a gag order on the descenders: the Dino ``p``
-        hangs ~0.146in below the baseline, so even a 0.1in offset leaves the
-        engraved strokes overlapping and the underline keeps breaking.
+        The Dino ``g`` is an open J-hook: the stem descends through the
+        underline at the glyph's right edge, the bowl sweeps below and back up.
+        Only the stem crosses the underline's centerline, so the break is a
+        narrow gap at the stem -- the bowl keeps its underline. A whole-glyph
+        gap (the half-plane model's behaviour) is the bug this pins out.
+        """
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+            _underline_render_gate,
+            _underline_strokes,
+        )
+        from plt_optimizer.generate.resolution import resolve_job_spec
+
+        line = resolve_job_spec(
+            _markup_job(("<u>g</u>", {"underline_break_clearance": 0.05}), font="Dino")
+        )[0].content[0]
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        strokes = _underline_strokes(line, block, glyphs, _underline_render_gate(line))
+        # The stem sits at the glyph's right edge, so the gap trims the
+        # underline's right end: the kept span covers the whole bowl width.
+        assert len(strokes) == 1
+        kept = strokes[0].segments[0]
+        # The `g` spans ~0.246in; the kept underline keeps most of it (the
+        # stem's gap is ~0.165in at this clearance, at the far right).
+        assert kept.end.real - kept.start.real > 0.15
+
+    def test_offset_drops_the_centerline_clear_of_a_descender(self) -> None:
+        """A deeper underline stops a descender breaking it.
+
+        The Dino ``p`` hangs ~0.146in below the baseline. At offset 0.0 the
+        centerline (one cutter below the baseline) sits above the ``p``'s
+        bottom, so the stem crosses it and the underline breaks. At offset 0.15
+        the centerline drops below the ``p``'s bottom, so nothing crosses and
+        the underline stays whole.
         """
         from plt_optimizer.generate.label_renderer import (
             TextChunkMode,
@@ -2698,8 +2731,8 @@ class TestUnderlineRenderDispatch:
             block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
             return len(_underline_strokes(line, block, glyphs, _underline_render_gate(line)))
 
-        assert segments(0.0) == 4
-        assert segments(0.1) == 2
+        assert segments(0.0) == 2  # the `p` crosses the centerline: one gap
+        assert segments(0.15) == 1  # the underline drops below the `p`: whole
 
     def test_break_clearance_widens_the_gap_around_a_descender(self) -> None:
         """``underline_break_clearance`` is the air at each underline break.
@@ -2736,7 +2769,7 @@ class TestUnderlineRenderDispatch:
 
         tight = break_widths(0.0)
         wide = break_widths(0.02)
-        assert len(tight) == len(wide) == 3
+        assert len(tight) == len(wide) == 1
         # Every break grows by (at least) the clearance on each side.
         assert all(w > t for w, t in zip(wide, tight))
         # A larger clearance keeps widening (monotone, no oscillation).
