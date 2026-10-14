@@ -260,8 +260,11 @@ Rules:
   build nonsense: the extractor skips the derivation step entirely for it.
   The same list exempts the font from the Unicode line in
   `scripts/font_showcase.py` and from the synthetic `<base> SC` small-caps
-  variant (`plt_optimizer/generate/font_registry.py`). The base font itself
-  stays fully selectable.
+  variant (`plt_optimizer/generate/font_registry.py`). Such a font's showcase
+  is a **key -> symbol mapping** grid instead of the letter sample block: one
+  cell per `ascii.txt` character, engraving the ASCII key (`a:`, `b:`, ...) in
+  the readable default face beside the symbol the font produces for it. The
+  base font itself stays fully selectable.
 
 ### Height drift
 

@@ -121,8 +121,13 @@ JobSpec (job-level defaults)
   as `Wingdings`; the shared list is read by
   `font_registry.non_text_font_names()`) engrave their ASCII slots with
   symbols, so they are exempt from derivation, from the showcase's Unicode
-  line, and from the `SC` variant (see Small Caps Fonts below). List every
-  valid name with
+  line, and from the `SC` variant (see Small Caps Fonts below). Their font
+  showcase (`scripts/font_showcase.py`) is a **key -> symbol mapping** grid
+  instead of the letter sample block: one cell per `Fonts/ascii.txt`
+  character, each engraving the ASCII key (`a:`, `b:`, ...) in
+  `ftext_renderer.DEFAULT_FONT_PATH` beside the font's symbol, under a
+  header naming the mapping (see the showcase's `render_mapping_layout`).
+  List every valid name with
   `python docs/schema/generate_schema_docs.py --show-fonts`.
 - `character_spacing`: Extra spacing between characters
 - `line_spacing`: Extra spacing between text lines

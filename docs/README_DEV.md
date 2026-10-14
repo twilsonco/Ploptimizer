@@ -46,7 +46,7 @@ PLT-Optimizer/
 ├── run_tray.py             # GUI entry point (system tray application)
 ├── scripts/                # Developer-facing helper scripts
 │   ├── run_integration_test.py # End-to-end generate-pipeline test runner
-│   └── font_showcase.py    # Per-font showcase PDF renderer
+│   └── font_showcase.py    # Per-font showcase PDF (letter sample block; key->symbol grid for non-text fonts)
 ├── tools.json              # Cutter inventory + boundary/hole cutter size
 ├── tests/                  # Test suite (pytest)
 ├── tests_deps/             # Frozen fixtures used by unit tests (do not move/edit)

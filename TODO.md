@@ -1,5 +1,5 @@
 # TODO List
-- [ ] For the `non_text_fonts.txt` list, their font showcase needs to label each characters so that users know which ascii character to use in order to get the shown characters. Something like `a: α`, `b: β`, etc. For the a, b, c, etc. we can use the font specified by the `DEFAULT_FONT_PATH` in `ftext_renderer.py`. 
+- [x] For the `non_text_fonts.txt` list, their font showcase needs to label each characters so that users know which ascii character to use in order to get the shown characters. Something like `a: α`, `b: β`, etc. For the a, b, c, etc. we can use the font specified by the `DEFAULT_FONT_PATH` in `ftext_renderer.py`. 
   - The showcase will be different for these non-text fonts. Rather than "The quick brown..." and ABC and abc, it will simply be the printable ascii characters specified in `Fonts/ascii.txt` with the mapping described above.
   - The font showcase title for such non-text fonts should specify that it is a mapping of text characters to symbols.
 - [ ] Run profiler for toolpath generation (using one or more sufficiently complex test cases to test all available features). Identify bottlenecks and optimize performance accordingly. Consider writing rust library called from python for demanding computations.

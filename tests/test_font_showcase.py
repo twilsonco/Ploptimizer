@@ -8,6 +8,7 @@ The script is not part of the installed package, so it is loaded via
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -23,12 +24,18 @@ SCRIPT_PATH = REPO_ROOT / "scripts" / "font_showcase.py"
 def _load_script() -> Any:
     """Import ``scripts/font_showcase.py`` as a module by path.
 
+    The module is registered in :data:`sys.modules` before execution: the
+    mapping-mode :class:`~dataclasses.dataclass` resolves its annotations
+    through ``sys.modules[cls.__module__]``, which fails for a module loaded
+    by path and left unregistered.
+
     Returns:
         The loaded script module.
     """
     spec = importlib.util.spec_from_file_location("font_showcase", SCRIPT_PATH)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
+    sys.modules["font_showcase"] = module
     spec.loader.exec_module(module)
     return module
 
@@ -147,3 +154,146 @@ class TestMain:
         rc = script.main(["--output", str(out)])
         assert rc == 0
         assert len(list(out.glob("*.pdf"))) == len(font_name_choices()) - 1
+
+
+class TestLoadAsciiCharacters:
+    """The mapping walks the shipped printable-ASCII list."""
+
+    def test_shipped_file(self) -> None:
+        """The shipped ``Fonts/ascii.txt`` yields the 94 printable chars."""
+        chars = script.load_ascii_characters()
+        assert len(chars) == 94
+        assert chars[0] == "!"
+        assert chars[-1] == "~"
+        assert all(len(char) == 1 for char in chars)
+        assert not any(char.isspace() for char in chars)
+
+    def test_custom_file_whitespace_runs_separate(self, tmp_path: Path) -> None:
+        """Every whitespace run separates characters (extractor parity)."""
+        path = tmp_path / "ascii.txt"
+        path.write_text("a  b\tc\nd\n", encoding="utf-8")
+        assert script.load_ascii_characters(path) == ["a", "b", "c", "d"]
+
+    def test_missing_file_raises(self, tmp_path: Path) -> None:
+        """An unreadable character file is a hard error."""
+        with pytest.raises(ValueError, match="Failed to read"):
+            script.load_ascii_characters(tmp_path / "absent.txt")
+
+    def test_empty_file_raises(self, tmp_path: Path) -> None:
+        """A file carrying no characters is a hard error."""
+        path = tmp_path / "ascii.txt"
+        path.write_text("   \n\t\n", encoding="utf-8")
+        with pytest.raises(ValueError, match="no characters"):
+            script.load_ascii_characters(path)
+
+
+class TestIsNonTextFont:
+    """The non-text membership test is the shared, case-insensitive gate."""
+
+    def test_bundled_symbol_font(self) -> None:
+        """Wingdings (shipped non-text list) is a symbol font."""
+        assert script.is_non_text_font("Wingdings")
+
+    def test_case_insensitive(self) -> None:
+        """Lookup matches the registry's lowercased list."""
+        assert script.is_non_text_font("wingdings")
+        assert script.is_non_text_font("WINGDINGS")
+
+    def test_letter_font_is_not(self) -> None:
+        """A letter font is not a symbol font."""
+        assert not script.is_non_text_font("Dino")
+
+
+class TestShowcaseTitles:
+    """Letter fonts keep their title; symbol fonts name the mapping mode."""
+
+    def test_letter_title_unchanged(self) -> None:
+        """The letter-font title is the historical string."""
+        assert script.showcase_pdf_title("Dino") == "Font showcase - Dino"
+
+    def test_mapping_title_names_the_mode(self) -> None:
+        """The symbol-font title says the page maps chars to symbols."""
+        title = script.mapping_pdf_title("Wingdings")
+        assert "Wingdings" in title
+        assert "mapping" in title.lower()
+        assert title.startswith("Font showcase - ")
+
+
+class TestBuildMappingCells:
+    """One key/symbol cell per ASCII character, keys always in the default face."""
+
+    def test_one_cell_per_character(self) -> None:
+        """Every requested character yields exactly one cell, in order."""
+        chars = ["a", "b", "c"]
+        cells = script.build_mapping_cells("Wingdings", chars)
+        assert [cell.character for cell in cells] == chars
+
+    def test_key_is_colon_label(self) -> None:
+        """The key block carries the ``<char>:`` label (it has ink)."""
+        cell = script.build_mapping_cells("Wingdings", ["a"])[0]
+        assert not cell.key_block.is_empty()
+        assert cell.key_width > 0.0
+
+    def test_symbol_carries_glyph_width(self) -> None:
+        """A covered slot renders a symbol block with positive width."""
+        cell = script.build_mapping_cells("Wingdings", ["a"])[0]
+        assert cell.symbol_block is not None
+        assert not cell.symbol_block.is_empty()
+        assert cell.symbol_width > 0.0
+        assert cell.width >= cell.key_width + cell.symbol_width
+
+    def test_missing_glyph_keeps_key_blank_symbol(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An ASCII slot the font lacks keeps its key with a blank symbol."""
+        monkeypatch.setattr(script, "plt_font_has_glyph", lambda name, char: False)
+        cell = script.build_mapping_cells("Wingdings", ["q"])[0]
+        assert cell.symbol_block is None
+        assert cell.symbol_width == 0.0
+        assert not cell.key_block.is_empty()
+        assert cell.width == cell.key_width + script.MAPPING_KEY_SYMBOL_GAP
+
+
+class TestRenderMappingLayout:
+    """The composed mapping grid is a parseable, framed HPGL document."""
+
+    def test_framing_and_parseable(self) -> None:
+        """The layout carries the pipeline framing and parses to segments."""
+        from plt_optimizer.core.parser import PLTParser
+
+        hpgl = script.render_mapping_layout("Wingdings", ["a", "b", "c"])
+        assert hpgl.startswith(script.PLT_HEADER)
+        assert hpgl.endswith(script.PLT_FOOTER)
+        document = PLTParser().parse_string(hpgl)
+        segments = sum(len(path.segments) for path in document.stroke_paths)
+        assert segments > 0
+
+    def test_empty_characters_raises(self) -> None:
+        """A layout with no characters is a hard error."""
+        with pytest.raises(ValueError, match="at least one character"):
+            script.render_mapping_layout("Wingdings", [])
+
+    def test_ttf_symbol_font_branch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A TrueType name on the non-text list renders through ftext."""
+        ttf = "ReliefSingleLineCAD-Regular"
+        monkeypatch.setattr(script, "non_text_font_names", lambda *a, **k: frozenset({ttf.lower()}))
+        assert script.is_non_text_font(ttf)
+        hpgl = script.render_mapping_layout(ttf, ["a", "b"])
+        assert hpgl.startswith(script.PLT_HEADER)
+        assert hpgl.endswith(script.PLT_FOOTER)
+
+
+class TestMappingPdfDispatch:
+    """Symbol fonts write a mapping PDF; letter fonts keep the sample block."""
+
+    def test_write_showcase_pdf_dispatches_symbol_font(self, tmp_path: Path) -> None:
+        """The symbol font's PDF is the mapping grid, named ``<font>.pdf``."""
+        path = script.write_showcase_pdf("Wingdings", tmp_path)
+        assert path == tmp_path / "Wingdings.pdf"
+        assert path.exists()
+        assert path.read_bytes().startswith(b"%PDF")
+        assert path.stat().st_size > 1000
+
+    def test_write_mapping_pdf_matches_dispatch(self, tmp_path: Path) -> None:
+        """Direct and dispatched calls produce the same path."""
+        direct = script.write_mapping_pdf("Wingdings", tmp_path)
+        dispatched = script.write_showcase_pdf("Wingdings", tmp_path)
+        assert direct == dispatched
