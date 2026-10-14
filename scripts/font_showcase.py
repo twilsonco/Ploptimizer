@@ -108,8 +108,8 @@ SHOWCASE_LINES: Tuple[str, ...] = (
 # Nominal label geometry (inches). The width is generous so the widest
 # sample line fits uncompressed in most fonts; over-wide fonts trigger the
 # single widening re-render in :func:`render_showcase`. The height stacks the
-# seven sample lines (the derived arrows overshoot the cap height, so the
-# auto line-spacing fit compresses spacing slightly to preserve the margins).
+# seven sample lines (the derived glyphs all fit the cap band, so the auto
+# line-spacing fit keeps the requested spacing in most fonts).
 LABEL_WIDTH: float = 12.0
 LABEL_HEIGHT: float = 4.5
 MARGIN: float = 0.25

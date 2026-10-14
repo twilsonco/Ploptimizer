@@ -99,9 +99,6 @@ MIDLINE_FRACTION: float = 0.5
 EN_DASH_SCALE: float = 1.8
 EM_DASH_SCALE: float = 2.8
 
-# Arrow multiplier for hyphen length
-ARROW_HYPHEN_SCALE: float = 4.0
-
 # Cent sign: the vertical bar's shortened height as a fraction of its own,
 # and the additional uniform downscale applied to the lowercase c.
 CENT_BAR_SCALE: float = 0.5
@@ -1298,13 +1295,14 @@ def _align_to_tip(
     tip), and the head is translated along the axis so its own extreme meets
     that point. The crossing coordinate is measured from the tip primitives
     (the strokes carrying the extreme), so the head lands exactly on the
-    material that ends there: a caret's base centre lands on a stem's tip,
-    and a chevron's tip centre lands on the shaft's end at mid-height.
+    material that ends there: the caret's base centre lands on a shaft's end
+    (at mid-height for the horizontal arrows, on the stem's tip for the
+    vertical ones).
     Perpendicular placement centres the head on the tip's crossing extent.
 
     Args:
         elements: The composition *without* the head.
-        head: The element to place (chevron, caret, ...).
+        head: The element to place (the arrows' caret, ...).
         axis: ``"x"`` for left/right arrows, ``"y"`` for up/down arrows.
         maximum: ``True`` to align on the maximal extreme (right / top).
 
@@ -1329,13 +1327,11 @@ def _align_to_tip(
     if not crossing:  # defensive: an extreme always carries geometry
         crossing = [center_x(elements_bounds(elements))]
 
-    # Along the axis: the head's tip edge lands on the union's extreme (the
-    # stem's tip / the shaft's end). Perpendicular: the head centres on the
-    # crossing extent of the tip primitives, so a caret's base centre lands
-    # on a stem's tip and a chevron's tip centre lands on the shaft's end.
     bounds = elements_bounds(elements)
     head_bounds = head.bounds
     crossing_centre = (max(crossing) + min(crossing)) / 2.0
+    # The head's tip edge lands on the union's extreme; perpendicular to it,
+    # the head centres on the crossing extent of the tip primitives.
     if axis == "y":
         along = bounds[3] if maximum else bounds[1]
         head_along = head_bounds[3] if maximum else head_bounds[1]
@@ -1528,44 +1524,107 @@ def _dagger_double(context: DerivedContext) -> Sequence[GlyphElement]:
     return _dagger(context, DOUBLE_DAGGER_CROSS_FRACTIONS)
 
 
+def _arrow_shaft(context: DerivedContext, *, vertical: bool) -> GlyphElement:
+    """Return the arrows' shaft: the hyphen stretched to exactly the cap height.
+
+    The hyphen is stretched horizontally to ``cap`` units (the capline minus
+    the baseline, so every arrow measures exactly one cap height) and then:
+
+    - ``vertical=True``: rotated 90 degrees counter-clockwise, so the shaft
+      spans the baseline to the cap line (the up/down arrows' stem); the
+      font's own ``|`` is deliberately unused - it overshoots both lines
+      (e.g. -143..1143), which pushed the derived arrows outside the cap;
+    - ``vertical=False``: kept horizontal and centred on the midline (the
+      left/right arrows' shaft).
+
+    Args:
+        context: The recipe context carrying the ``-`` base and the cap.
+        vertical: Whether the shaft is the up/down stem (rotated) or the
+            left/right shaft (horizontal).
+
+    Returns:
+        The placed shaft element.
+
+    Raises:
+        GlyphTransformError: If the hyphen is degenerate (zero width) or
+            carries arcs (a non-uniform stretch turns arcs into ellipses).
+    """
+    geometry = context.g("-")
+    bounds = context.b("-")
+    width = bounds[2] - bounds[0]
+    if width <= 0.0:
+        raise GlyphTransformError("Arrow shaft hyphen carries no width")
+    stretch = Affine.scaling(context.cap / width, 1.0)
+    _require_similarity(geometry, stretch)
+    if vertical:
+        return GlyphElement(geometry, stretch.then(Affine.rotation(90.0)))
+    stretched = stretch.map_bounds(bounds)
+    shift = Affine.translation(0.0, context.midline - center_y(stretched))
+    return GlyphElement(geometry, stretch.then(shift))
+
+
+def _arrow_head(context: DerivedContext, rotate_deg: float) -> GlyphElement:
+    """Return the arrows' head: the caret, rotated to point along the axis.
+
+    The caret's apex is the arrow's tip. A rotation about the caret's own
+    centre is a similarity (determinant ``+1``), so a font whose caret carries
+    ``AA`` arcs keeps them native - the chevron bases ``<``/``>`` are
+    deliberately unused, the caret is the single arrowhead for all four
+    directions.
+
+    Args:
+        context: The recipe context carrying the ``^`` base.
+        rotate_deg: Counter-clockwise rotation (0 up, -90 right, 90 left;
+            down is a mirror, handled by the caller).
+
+    Returns:
+        The placed head element (unrotated for ``rotate_deg == 0``).
+    """
+    geometry = context.g("^")
+    if rotate_deg == 0.0:
+        return GlyphElement(geometry)
+    bounds = context.b("^")
+    pivot = (center_x(bounds), center_y(bounds))
+    return GlyphElement(geometry, Affine.rotation(rotate_deg, pivot))
+
+
 def _arrow_up(context: DerivedContext) -> Sequence[GlyphElement]:
-    """Up arrow: a caret whose base centre meets the stem's top tip."""
-    stem = GlyphElement(context.g("|"))
-    return _align_to_tip([stem], GlyphElement(context.g("^")), "y", maximum=True)
+    """Up arrow: a caret whose apex meets the cap-length stem's top tip."""
+    stem = _arrow_shaft(context, vertical=True)
+    return _align_to_tip([stem], _arrow_head(context, 0.0), "y", maximum=True)
 
 
 def _arrow_down(context: DerivedContext) -> Sequence[GlyphElement]:
-    """Down arrow: an inverted caret whose apex centre meets the stem's foot."""
-    stem = GlyphElement(context.g("|"))
+    """Down arrow: an inverted caret whose apex meets the stem's foot."""
+    stem = _arrow_shaft(context, vertical=True)
     caret = context.b("^")
     flip = Affine.mirror_y(caret[1] + caret[3])
-    return _align_to_tip([stem], GlyphElement(context.g("^"), flip), "y", maximum=False)
+    head = GlyphElement(context.g("^"), flip)
+    return _align_to_tip([stem], head, "y", maximum=False)
 
 
-def _arrow(context: DerivedContext, head_base: str, head_on_left: bool) -> Sequence[GlyphElement]:
-    """Left/right arrow: a chevron whose tip shares the em dash's end.
+def _arrow(
+    context: DerivedContext, rotate_deg: float, head_on_left: bool
+) -> Sequence[GlyphElement]:
+    """Left/right arrow: a rotated caret whose apex shares the shaft's end.
 
-    The chevron's apex lands exactly on the shaft's terminal point (the
-    union's maximal/minimal X, at the shaft's bar height), so head and body
-    share one extreme and one point - no disconnected arrowhead.
+    The caret's apex lands exactly on the shaft's terminal point (the union's
+    maximal/minimal X, at the shaft's midline), so head and body share one
+    extreme and one point - no disconnected arrowhead.
     """
-    shaft = Affine.scaling(ARROW_HYPHEN_SCALE, 1.0)
-    _require_similarity(context.g("-"), shaft)
-    dash_bounds = shaft.map_bounds(context.b("-"))
-    shift = Affine.translation(0.0, context.midline - center_y(dash_bounds))
-    body = GlyphElement(context.g("-"), shaft.then(shift))
-    head = GlyphElement(context.g(head_base))
+    body = _arrow_shaft(context, vertical=False)
+    head = _arrow_head(context, rotate_deg)
     return _align_to_tip([body], head, "x", maximum=not head_on_left)
 
 
 def _arrow_left(context: DerivedContext) -> Sequence[GlyphElement]:
-    """Left arrow: a less-than sign at the left of an em dash."""
-    return _arrow(context, "<", head_on_left=True)
+    """Left arrow: a caret pointing left on the cap-length shaft's left end."""
+    return _arrow(context, 90.0, head_on_left=True)
 
 
 def _arrow_right(context: DerivedContext) -> Sequence[GlyphElement]:
-    """Right arrow: a greater-than sign at the right of an em dash."""
-    return _arrow(context, ">", head_on_left=False)
+    """Right arrow: a caret pointing right on the cap-length shaft's right end."""
+    return _arrow(context, -90.0, head_on_left=False)
 
 
 DERIVED_GLYPHS: Tuple[GlyphRecipe, ...] = (
@@ -1605,17 +1664,28 @@ DERIVED_GLYPHS: Tuple[GlyphRecipe, ...] = (
         "two crosses on a stem, downscaled, top at cap line",
     ),
     GlyphRecipe(
-        "\u2191", ("|", "^"), _arrow_up, "caret centred on the stem's tip (shared top extreme)"
+        "\u2191",
+        ("-", "^"),
+        _arrow_up,
+        "caret apex on the cap-height stem's top tip (shared top extreme)",
     ),
     GlyphRecipe(
         "\u2193",
-        ("|", "^"),
+        ("-", "^"),
         _arrow_down,
-        "inverted caret centred on the stem's foot (shared bottom extreme)",
+        "inverted caret apex on the stem's foot (shared bottom extreme)",
     ),
-    GlyphRecipe("\u2190", ("-", "<"), _arrow_left, "less-than tip on the left end of an em dash"),
     GlyphRecipe(
-        "\u2192", ("-", ">"), _arrow_right, "greater-than tip on the right end of an em dash"
+        "\u2190",
+        ("-", "^"),
+        _arrow_left,
+        "left-pointing caret apex on the left end of a cap-height shaft",
+    ),
+    GlyphRecipe(
+        "\u2192",
+        ("-", "^"),
+        _arrow_right,
+        "right-pointing caret apex on the right end of a cap-height shaft",
     ),
 )
 

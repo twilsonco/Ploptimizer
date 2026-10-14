@@ -223,10 +223,10 @@ font gains these 17 keys after extraction:
 | `¡` | 00A1 | `!` mirrored in the baseline, shifted by `INVERTED_EXCLAMATION_DESCENT` |
 | `†` | 2020 | cross on a stem, downscaled `DAGGER_SCALE`, top at the cap line |
 | `‡` | 2021 | two crosses on a stem, downscaled `DAGGER_SCALE`, top at the cap line |
-| `↑` | 2191 | caret centred on the stem's tip (heads share the top extreme) |
-| `↓` | 2193 | inverted caret centred on the stem's foot (shared bottom extreme) |
-| `←` | 2190 | `<` with its tip on the em dash's left end |
-| `→` | 2192 | `>` with its tip on the em dash's right end |
+| `↑` | 2191 | caret apex on the cap-height stem's top tip (shared top extreme) |
+| `↓` | 2193 | inverted caret apex on the stem's foot (shared bottom extreme) |
+| `←` | 2190 | left-pointing caret apex on the left end of a cap-height shaft |
+| `→` | 2192 | right-pointing caret apex on the right end of a cap-height shaft |
 
 The tuning constants live at the top of
 [`glyph_transforms.py`](glyph_transforms.py) (`EN_DASH_SCALE`, `CENT_C_SCALE`,

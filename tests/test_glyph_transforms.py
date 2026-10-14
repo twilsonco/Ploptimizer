@@ -468,44 +468,49 @@ class TestRecipes:
         ]
         assert len(crosses) == 2
 
-    def test_arrow_up_caret_tops_stem(self, derived: Dict[str, Any]) -> None:
-        # Stem -100..1100; the caret's base centre lands on the stem's tip, so
-        # the head shares the stem's maximal y -> union -100..1100.
+    def test_arrow_up_caret_tops_shaft(self, derived: Dict[str, Any]) -> None:
+        # Stem: the hyphen stretched to exactly the cap height (1000) and
+        # rotated upright, spanning baseline to cap line; the caret's base
+        # centre lands on the stem's top tip, so head and stem share the cap
+        # line -> union 0..1000 (no cap overshoot, unlike the old | stem).
         box = _bbox(derived["\u2191"])
-        assert box == pytest.approx((0.0, -100.0, 600.0, 1100.0))
+        assert box == pytest.approx((0.0, 0.0, 600.0, 1000.0))
         document = PLTParser().parse_string(derived["\u2191"]["glyph"])
         tips = [
             coord.x
             for path in document.stroke_paths
             for seg in path.segments
             for coord in (seg.start, seg.end)
-            if abs(coord.y - 1100.0) < 1e-9
+            if abs(coord.y - 1000.0) < 1e-9
         ]
         # The stem's tip and the caret's apex meet at one point (x = 300).
         assert len(tips) >= 3
         assert all(abs(coord - 300.0) < 1e-9 for coord in tips)
 
-    def test_arrow_down_caret_under_stem(self, derived: Dict[str, Any]) -> None:
-        # The inverted caret's apex centre lands on the stem's foot -> -100..1100.
+    def test_arrow_down_caret_under_shaft(self, derived: Dict[str, Any]) -> None:
+        # The inverted caret's apex centre lands on the stem's foot (baseline)
+        # -> union 0..1000, the cap band exactly.
         box = _bbox(derived["\u2193"])
-        assert box == pytest.approx((0.0, -100.0, 600.0, 1100.0))
+        assert box == pytest.approx((0.0, 0.0, 600.0, 1000.0))
         document = PLTParser().parse_string(derived["\u2193"]["glyph"])
         tips = [
             coord.x
             for path in document.stroke_paths
             for seg in path.segments
             for coord in (seg.start, seg.end)
-            if abs(coord.y + 100.0) < 1e-9
+            if abs(coord.y - 0.0) < 1e-9
         ]
         assert len(tips) >= 3
         assert all(abs(coord - 300.0) < 1e-9 for coord in tips)
 
-    def test_arrow_left_chevron_leads(self, derived: Dict[str, Any]) -> None:
-        # Shaft (ARROW_HYPHEN_SCALE x hyphen) with the chevron's tip on its
-        # left end (re-anchored); the chevron sets the vertical extent.
-        shaft = 400.0 * gt.ARROW_HYPHEN_SCALE
+    def test_arrow_left_caret_leads(self, derived: Dict[str, Any]) -> None:
+        # Shaft: the hyphen stretched to exactly the cap height (1000) and
+        # centred on the midline; the caret (rotated 90 CCW, apex left) has
+        # its apex on the shaft's left end at midline. The caret head sets
+        # the vertical extent (400 tall, centred on the midline).
+        cap = 1000.0
         box = _bbox(derived["\u2190"])
-        assert box == pytest.approx((0.0, 100.0, shaft, 900.0))
+        assert box == pytest.approx((0.0, 200.0, cap, 800.0))
         document = PLTParser().parse_string(derived["\u2190"]["glyph"])
         midline_xs = [
             coord.x
@@ -514,14 +519,14 @@ class TestRecipes:
             for coord in (seg.start, seg.end)
             if abs(coord.y - 500.0) < 1e-9
         ]
-        # The chevron's tip shares the shaft's left end (x = 0) at midline.
+        # The caret's apex shares the shaft's left end (x = 0) at midline.
         assert min(midline_xs) == pytest.approx(0.0)
-        assert max(midline_xs) == pytest.approx(shaft)
+        assert max(midline_xs) == pytest.approx(cap)
 
-    def test_arrow_right_chevron_trails(self, derived: Dict[str, Any]) -> None:
-        shaft = 400.0 * gt.ARROW_HYPHEN_SCALE
+    def test_arrow_right_caret_trails(self, derived: Dict[str, Any]) -> None:
+        cap = 1000.0
         box = _bbox(derived["\u2192"])
-        assert box == pytest.approx((0.0, 100.0, shaft, 900.0))
+        assert box == pytest.approx((0.0, 200.0, cap, 800.0))
         document = PLTParser().parse_string(derived["\u2192"]["glyph"])
         midline_xs = [
             coord.x
@@ -530,8 +535,8 @@ class TestRecipes:
             for coord in (seg.start, seg.end)
             if abs(coord.y - 500.0) < 1e-9
         ]
-        # The chevron's tip shares the shaft's right end (x = shaft).
-        assert max(midline_xs) == pytest.approx(shaft)
+        # The caret's apex shares the shaft's right end (x = cap).
+        assert max(midline_xs) == pytest.approx(cap)
         assert min(midline_xs) == pytest.approx(0.0)
 
     def test_all_recipes_re_emit_parseable_glyphs(self, derived: Dict[str, Any]) -> None:
@@ -567,12 +572,25 @@ class TestDeriveGlyphEntries:
         del bases["|"]
         log = _RecordingLogger()
         derived = _derive(_characters(bases), log=log)
-        # | drives cent, both daggers and both arrows.
+        # | drives cent and both daggers (the arrows are caret + hyphen).
         assert set(derived) == {
             recipe.character for recipe in gt.DERIVED_GLYPHS if "|" not in recipe.bases
         }
         warnings = [message for level, message in log.records if level == "warning"]
         assert any("'|' unavailable" in message for message in warnings)
+
+    def test_missing_caret_skips_the_arrows(self) -> None:
+        bases = dict(BASE_GLYPHS)
+        del bases["^"]
+        log = _RecordingLogger()
+        derived = _derive(_characters(bases), log=log)
+        # ^ drives exactly the four arrows.
+        assert set(derived) == {
+            recipe.character for recipe in gt.DERIVED_GLYPHS if "^" not in recipe.bases
+        }
+        assert {"\u2191", "\u2193", "\u2190", "\u2192"}.isdisjoint(derived)
+        warnings = [message for level, message in log.records if level == "warning"]
+        assert any("'^' unavailable" in message for message in warnings)
 
     def test_existing_key_never_overwritten(self) -> None:
         characters = _characters()
@@ -589,7 +607,9 @@ class TestDeriveGlyphEntries:
         bases["-"] = ARC_GLYPH  # hyphen with arcs cannot be stretched
         log = _RecordingLogger()
         derived = _derive(_characters(bases), log=log)
-        for char in ("\u2013", "\u2014", "\u2261", "\u2190", "\u2192"):
+        # Every hyphen-stretching recipe: dashes, identical-to, all four
+        # arrows (their shaft is the cap-height hyphen stretch).
+        for char in ("\u2013", "\u2014", "\u2261", "\u2191", "\u2193", "\u2190", "\u2192"):
             assert char not in derived
         assert "\u2020" in derived  # dagger scales uniformly -> fine
         warnings = [message for level, message in log.records if level == "warning"]
