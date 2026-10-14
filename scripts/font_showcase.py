@@ -28,15 +28,27 @@ the coverage information a showcase is for.
 
 Fonts listed in ``Fonts/VP-EL-Fonts/non_text_fonts.txt`` (symbol fonts such
 as ``Wingdings``) are **non-text**: they engrave their ASCII slots with
-symbols, so the derived-glyph pair is meaningless for them and the Unicode
-line is dropped from their showcase entirely (the small-caps variant is
-exempted at the registry, so those fonts contribute no ``"<base> SC"`` PDF
-either).
+symbols, so the letter sample block above is meaningless for them (the
+derived-glyph pair is dropped, the small-caps variant is exempted at the
+registry, and those fonts contribute no ``"<base> SC"`` PDF either). Their
+showcase is a **key -> symbol mapping** instead: one cell per character of
+``Fonts/ascii.txt``, each cell engraving the ASCII key (``a:``, ``b:``, ...)
+in :data:`plt_optimizer.generate.ftext_renderer.DEFAULT_FONT_PATH` followed by
+the symbol the showcased font engraves for that key, laid out as a
+:data:`MAPPING_COLUMNS`-column grid under a header naming the mapping. The key
+font is deliberately the readable default face, never the symbol font, so the
+character the user must type always reads clearly. An ASCII slot the font
+lacks (Wingdings has no ``"``) keeps its key with a blank symbol slot -- the
+coverage information a showcase reports -- and is logged at WARNING.
 
 Each label is rendered directly through the label renderer (no bin-packing,
 no plate assembly, no PLT files) and plotted with
 :func:`plt_optimizer.diagnostics.plotter.plot_plt_document` in ``simple_mode``,
-so the PDF shows the engraved text plus the label boundary rectangle.
+so the PDF shows the engraved text plus the label boundary rectangle. The
+mapping grid mixes two fonts in one drawing, which a single label cannot do, so
+its geometry is composed from the renderers directly and emitted as HPGL (the
+same ``IN;PA;``/``SP;`` framing the pipeline uses, Y-mirrored into the device
+convention the plotter expects).
 
 Labels are sized generously and ``max_h_compress`` is pinned to ``0.0`` so
 horizontal compression never fires -- compression would flatten the native
@@ -58,8 +70,10 @@ from __future__ import annotations
 
 import argparse
 import logging
+import math
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
@@ -71,21 +85,37 @@ import matplotlib  # noqa: E402
 
 matplotlib.use("Agg")  # headless: never open interactive windows
 
+import vpype as vp  # noqa: E402
 from matplotlib import pyplot as plt  # noqa: E402
 
 from plt_optimizer.core.parser import PLTParser  # noqa: E402
 from plt_optimizer.diagnostics.plotter import plot_plt_document  # noqa: E402
-from plt_optimizer.generate.font_registry import (
+from plt_optimizer.generate.font_registry import (  # noqa: E402
+    FONTS_DIR,
     font_name_choices,
     non_text_font_names,
     plt_font_has_glyph,
-)  # noqa: E402
+    resolve_font,
+)
+from plt_optimizer.generate.ftext_renderer import (  # noqa: E402
+    DEFAULT_FONT_PATH,
+    render_text_line_ftext,
+)
 from plt_optimizer.generate.label_renderer import (  # noqa: E402
+    PLT_FOOTER,
+    PLT_HEADER,
     RenderedLabel,
     render_label_to_plt,
 )
+from plt_optimizer.generate.plt_font_renderer import (  # noqa: E402
+    render_text_line_plt_font,
+)
 from plt_optimizer.generate.resolution import resolve_job_spec  # noqa: E402
 from plt_optimizer.generate.schema import JobSpec, TextLine  # noqa: E402
+from plt_optimizer.generate.text_geometry import (  # noqa: E402
+    TextBlock,
+    block_from_linecollection,
+)
 
 logger = logging.getLogger(__name__)
 
