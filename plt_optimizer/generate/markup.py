@@ -34,7 +34,11 @@ validates its argument inside ``apply`` (raising :class:`MarkupError` for a
 bad value) and supplies an ``arg(style)`` serializer so
 :func:`serialize_runs` re-emits the value (the line-content reflow
 round-trips raw text through the serializer, so an arg-unaware serializer
-would silently drop it). Adding a markup type (``<b>``, ``<u>``, ...) is a
+would silently drop it). An ``args_optional`` tag (``<sup>``, ``<sub>``)
+makes the ``name:args`` argument optional: the bare ``<name>`` IS markup
+(``apply`` receives ``""`` and derives its value) and the canonical
+serializer returns ``""`` for the bare form so serialization stays
+round-trip exact. Adding a markup type (``<b>``, ``<u>``, ...) is a
 one-line registry entry plus the render-side handling of the new
 :class:`Style` field; the parser, cascade, and serialization need no change.
 """
@@ -47,14 +51,19 @@ from typing import Callable, Dict, List, Optional, Pattern, Sequence, Tuple
 
 __all__ = [
     "MAX_SCALE_ARG",
+    "MAX_SHIFT_ARG",
     "MIN_SCALE_ARG",
+    "MIN_SHIFT_ARG",
     "MarkupError",
     "PLAIN",
     "Piece",
     "Run",
+    "SUB_DIRECTION",
+    "SUP_DIRECTION",
     "StyledText",
     "StyledWord",
     "Style",
+    "SupSub",
     "TAG_REGISTRY",
     "TagSpec",
     "UNSET_SCALE",
@@ -75,6 +84,33 @@ class MarkupError(ValueError):
     Subclass of :class:`ValueError` so the CLI surfaces the abort as a
     non-zero exit, like the other spec-level validation errors.
     """
+
+
+@dataclass(frozen=True)
+class SupSub:
+    """The ``<sup>``/``<sub>`` baseline shift active on a markup run.
+
+    Frozen (hashable, value-equal) so :func:`serialize_runs` can recover the
+    tag stack from styles like every other :class:`Style` field.
+
+    Attributes:
+        direction: ``+1`` (:data:`SUP_DIRECTION`) for a superscript run,
+            ``-1`` (:data:`SUB_DIRECTION`) for a subscript run. The tag name
+            fixes the direction, so the two tags are mutually exclusive
+            (each ``is_active`` reads its own sign) and nesting one inside
+            the other composes like the other value tags.
+        shift: The explicit baseline shift in cap-height units (``0`` = the
+            current baseline, ``1`` = the capline, ``-1`` = one cap height
+            below), from the tag's optional argument (``<sup:0.3>``).
+            ``None`` marks the bare ``<sup>``/``<sub>`` form: the pipeline
+            derives the shift from the cascading
+            ``supersubscript_downscale`` ``d`` (superscript ``1 - d``,
+            subscript ``-d``), so the downscaled glyph tops out exactly at
+            the capline (sup) / sits on the baseline (sub).
+    """
+
+    direction: int
+    shift: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -103,12 +139,19 @@ class Style:
             geometry scales by ``(scale * nominal - cutter) /
             (nominal - cutter)`` uniformly about the baseline, so ``AA``
             arcs stay native).
+        sup_sub: The ``<sup>``/``<sub>`` baseline shift active on the run
+            (``None`` = unmarked). The run's glyphs engrave shifted
+            vertically by :attr:`SupSub.shift` cap-height units (the bare
+            tag derives the shift -- and a uniform downscale by the
+            cascading ``supersubscript_downscale`` -- in the pipeline),
+            composed multiplicatively with :attr:`scale`.
     """
 
     italic: bool = False
     underline: bool = False
     bold: bool = False
     scale: float = 1.0
+    sup_sub: Optional[SupSub] = None
 
 
 #: The style of unmarked text (every field at its default).
@@ -123,6 +166,20 @@ MAX_SCALE_ARG: float = 4.0
 
 #: The identity scale -- :attr:`Style.scale`'s default, "no scale tag".
 UNSET_SCALE: float = 1.0
+
+#: Lower bound of the ``<sup:N>``/``<sub:N>`` shift argument, in cap-height
+#: units (``-1`` = one cap height below the baseline).
+MIN_SHIFT_ARG: float = -1.0
+
+#: Upper bound of the ``<sup:N>``/``<sub:N>`` shift argument, in cap-height
+#: units (``1`` = the capline).
+MAX_SHIFT_ARG: float = 1.0
+
+#: :attr:`SupSub.direction` for a superscript run (``<sup>``).
+SUP_DIRECTION: int = 1
+
+#: :attr:`SupSub.direction` for a subscript run (``<sub>``).
+SUB_DIRECTION: int = -1
 
 
 def _parse_scale_arg(arg: str) -> float:
@@ -158,6 +215,51 @@ def _format_scale_arg(scale: float) -> str:
     return f"{scale:g}"
 
 
+def _parse_shift_arg(arg: str) -> Optional[float]:
+    """Parse the optional ``<sup:N>``/``<sub:N>`` shift argument.
+
+    Args:
+        arg: The raw ``name:args`` argument text; ``""`` for the bare tag.
+
+    Returns:
+        The baseline shift in cap-height units, or ``None`` for the bare
+        ``<sup>``/``<sub>`` form (the pipeline derives the shift from the
+        cascading ``supersubscript_downscale``).
+
+    Raises:
+        MarkupError: If the argument is not a float in
+            ``[MIN_SHIFT_ARG, MAX_SHIFT_ARG]`` (fail-loud, like an
+            unclosed tag).
+    """
+    if not arg:
+        return None
+    try:
+        shift = float(arg)
+    except ValueError:
+        raise MarkupError(
+            f"sup/sub tag argument {arg!r} is not a number (expected e.g. <sup:0.3>)."
+        ) from None
+    if not MIN_SHIFT_ARG <= shift <= MAX_SHIFT_ARG:
+        raise MarkupError(
+            f"sup/sub tag argument {arg!r} is outside the supported range "
+            f"[{MIN_SHIFT_ARG}, {MAX_SHIFT_ARG}]."
+        )
+    return shift
+
+
+def _format_sup_sub_arg(sup_sub: Optional[SupSub], direction: int) -> str:
+    """Format :attr:`Style.sup_sub` back into the canonical tag argument.
+
+    Returns the empty string for the bare (no-argument) form --
+    :func:`serialize_runs` then emits the bare ``<name>``, which re-parses
+    to the identical style. The direction guard keeps each tag serializing
+    only its own runs (the pair is mutually exclusive by ``is_active``).
+    """
+    if sup_sub is None or sup_sub.direction != direction:
+        return ""
+    return "" if sup_sub.shift is None else f"{sup_sub.shift:g}"
+
+
 @dataclass(frozen=True)
 class TagSpec:
     """A registered inline markup tag.
@@ -175,8 +277,16 @@ class TagSpec:
             active tag is a no-op); value tags (``<scale:N>``) supply an
             explicit predicate since their ``apply`` needs the argument.
         accepts_args: True when the ``name:args`` open form (e.g.
-            ``<scale:0.5>``) is legal for this tag. A bare ``<name>`` on an
-            args tag is literal text (the value is mandatory).
+            ``<scale:0.5>``) is legal for this tag. Without
+            :attr:`args_optional`, a bare ``<name>`` on an args tag is
+            literal text (the value is mandatory).
+        args_optional: True when the argument is OPTIONAL for an
+            :attr:`accepts_args` tag: a bare ``<name>`` IS markup (the
+            ``apply`` receives ``""`` and derives its value -- ``<sup>``
+            derives its shift from ``supersubscript_downscale``) and the
+            canonical :attr:`arg` returns ``""`` for the bare form so
+            :func:`serialize_runs` re-emits the bare tag. Ignored when
+            :attr:`accepts_args` is False.
         arg: Serializes a style back to the tag's canonical argument (used
             by :func:`serialize_runs` to re-emit ``name:arg``). Required
             when :attr:`accepts_args` is True.
@@ -186,6 +296,7 @@ class TagSpec:
     apply: Callable[[Style, str], Style]
     is_active: Callable[[Style], bool]
     accepts_args: bool = False
+    args_optional: bool = False
     arg: Optional[Callable[[Style], str]] = None
 
 
@@ -204,6 +315,7 @@ def register_tag(
     accepts_args: bool = False,
     arg: Optional[Callable[[Style], str]] = None,
     is_active: Optional[Callable[[Style], bool]] = None,
+    args_optional: bool = False,
 ) -> None:
     """Register an inline markup tag (idempotent overwrite by name).
 
@@ -216,6 +328,9 @@ def register_tag(
             ``accepts_args``).
         is_active: Style -> bool activity predicate. Defaults to the flag-tag
             rule ``apply(style, "") == style``.
+        args_optional: Whether the argument is optional on an args tag (the
+            bare ``<name>`` is markup, ``apply`` receives ``""``). Ignored
+            when ``accepts_args`` is False.
 
     Raises:
         ValueError: If ``name`` is not one or more ASCII letters, or an
@@ -236,6 +351,7 @@ def register_tag(
         apply=apply,
         is_active=is_active,
         accepts_args=accepts_args,
+        args_optional=args_optional,
         arg=arg,
     )
 
@@ -250,6 +366,30 @@ register_tag(
     accepts_args=True,
     arg=lambda style: _format_scale_arg(style.scale),
     is_active=lambda style: style.scale != UNSET_SCALE,
+)
+# The first optional-argument tags (registered after "scale" so every
+# existing serialization order stays bit-identical): a bare <sup>/<sub>
+# derives its baseline shift -- and a uniform downscale -- from the
+# cascading supersubscript_downscale (resolved by the pipeline, never the
+# parser), while <sup:0.3> sets the shift explicitly and applies no scaling.
+# The per-direction is_active makes the pair mutually exclusive, so nesting
+# <sup>a<sub>b</sub>c</sup> restores <sup> for c for free (the close pops
+# the pre-open Style).
+register_tag(
+    "sup",
+    lambda style, arg: replace(style, sup_sub=SupSub(SUP_DIRECTION, _parse_shift_arg(arg))),
+    accepts_args=True,
+    args_optional=True,
+    arg=lambda style: _format_sup_sub_arg(style.sup_sub, SUP_DIRECTION),
+    is_active=lambda style: style.sup_sub is not None and style.sup_sub.direction == SUP_DIRECTION,
+)
+register_tag(
+    "sub",
+    lambda style, arg: replace(style, sup_sub=SupSub(SUB_DIRECTION, _parse_shift_arg(arg))),
+    accepts_args=True,
+    args_optional=True,
+    arg=lambda style: _format_sup_sub_arg(style.sup_sub, SUB_DIRECTION),
+    is_active=lambda style: style.sup_sub is not None and style.sup_sub.direction == SUB_DIRECTION,
 )
 
 
@@ -305,6 +445,16 @@ class StyledText:
         ``1.0`` (:data:`UNSET_SCALE`) marks an unscaled character.
         """
         return tuple(style.scale for style in _per_char_styles(self))
+
+    @property
+    def sup_sub_values(self) -> Tuple[Optional[SupSub], ...]:
+        """Per-character ``<sup>``/``<sub>`` shifts, aligned with :attr:`plain_text`.
+
+        ``None`` marks an unmarked character. Mirrors :attr:`scale_values`
+        so the pipeline derives each character's downscale and baseline
+        shift from the style (never a stored positional array).
+        """
+        return tuple(style.sup_sub for style in _per_char_styles(self))
 
 
 @dataclass(frozen=True)
@@ -458,9 +608,11 @@ def parse_markup(
                 if not spec.accepts_args:
                     # ``name:args`` on a tag that takes no args is not markup.
                     spec = None
-            elif spec is not None and spec.accepts_args:
-                # A bare ``<name>`` on an args tag is not markup either --
+            elif spec is not None and spec.accepts_args and not spec.args_optional:
+                # A bare ``<name>`` on a mandatory-arg tag is not markup --
                 # the value is mandatory (``<scale>`` engraves literally).
+                # An ``args_optional`` tag (``<sup>``) keeps the bare form:
+                # ``apply`` receives ``""`` and derives its value.
                 spec = None
 
         if spec is None and not is_close:
@@ -568,7 +720,10 @@ def serialize_runs(
             if spec.is_active(current):
                 continue  # Already active on the current stack.
             arg_text = spec.arg(run.style) if spec.arg is not None else ""
-            name = f"{spec.name}:{arg_text}" if spec.accepts_args else spec.name
+            # An empty canonical arg is the bare form (``<sup>`` derives its
+            # value), so no ``:arg`` is emitted -- ``scale``'s canonical arg
+            # is never empty while active.
+            name = f"{spec.name}:{arg_text}" if spec.accepts_args and arg_text else spec.name
             out.append(f"{left}{name}{right}")
             open_tags.append(spec.name)
             open_styles.append(run.style)

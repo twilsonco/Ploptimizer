@@ -47,6 +47,7 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES,
     DEFAULT_SC_SCALE,
     DEFAULT_SPACE_WIDTH_FRACTION,
+    DEFAULT_SUPERSUBSCRIPT_DOWNSCALE,
     DEFAULT_TARGET_BOLDNESS_FACTOR,
     DEFAULT_TEXT_COLOR,
     DEFAULT_TEXT_H_ALIGNMENT,
@@ -4893,3 +4894,281 @@ class TestGlyphRenderPlan:
         assert plan is not None
         _diameters, scales = plan
         assert scales[0] > 1.0
+
+
+class TestSupersubscriptDownscaleCascade:
+    """supersubscript_downscale must cascade line -> label -> job -> default."""
+
+    @staticmethod
+    def _resolved(**kwargs: object) -> ResolvedTextLine:
+        """Resolve a one-line job with ``kwargs`` spread over the tiers."""
+        line_kwargs = {
+            k[len("line_") :]: v for k, v in kwargs.items() if k.startswith("line_")
+        }
+        label_kwargs = {k[len("label_") :]: v for k, v in kwargs.items() if k.startswith("label_")}
+        job_kwargs = {k[len("job_") :]: v for k, v in kwargs.items() if k.startswith("job_")}
+        job = JobSpec(
+            job_name="J",
+            width=3.0,
+            height=1.0,
+            text_height=0.5,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=3.0,
+                    height=1.0,
+                    content=[TextLine(text="X", **line_kwargs)],  # type: ignore[arg-type]
+                    **label_kwargs,  # type: ignore[arg-type]
+                )
+            ],
+            **job_kwargs,  # type: ignore[arg-type]
+        )
+        return resolve_job_spec(job)[0].content[0]
+
+    def test_default_when_all_omit(self) -> None:
+        """All levels omitting yields the 0.5 default."""
+        assert self._resolved().supersubscript_downscale == DEFAULT_SUPERSUBSCRIPT_DOWNSCALE
+        assert DEFAULT_SUPERSUBSCRIPT_DOWNSCALE == 0.5
+
+    def test_explicit_bounds_are_honored(self) -> None:
+        """An intentional 0.2 / 1.0 is not treated as unset."""
+        assert self._resolved(line_supersubscript_downscale=0.2).supersubscript_downscale == 0.2
+        assert self._resolved(line_supersubscript_downscale=1.0).supersubscript_downscale == 1.0
+
+    def test_job_value_used_when_label_omits(self) -> None:
+        """Job-level value cascades to the line."""
+        assert self._resolved(job_supersubscript_downscale=0.8).supersubscript_downscale == 0.8
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level value beats the job-level one."""
+        resolved = self._resolved(
+            label_supersubscript_downscale=0.3, job_supersubscript_downscale=0.8
+        )
+        assert resolved.supersubscript_downscale == 0.3
+
+    def test_line_overrides_label_and_job(self) -> None:
+        """Line-level value wins over both parents."""
+        resolved = self._resolved(
+            line_supersubscript_downscale=0.9,
+            label_supersubscript_downscale=0.3,
+            job_supersubscript_downscale=0.8,
+        )
+        assert resolved.supersubscript_downscale == 0.9
+
+    def test_bounds_are_enforced(self) -> None:
+        """The schema rejects a downscale outside [0.2, 1.0]."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", supersubscript_downscale=0.1)
+        with pytest.raises(ValidationError):
+            TextLine(text="X", supersubscript_downscale=1.1)
+
+
+class TestSupSubResolution:
+    """``<sup>``/``<sub>`` resolve the shift, the downscale and the run cutter."""
+
+    @staticmethod
+    def _job(*lines: TextLine, **job_kwargs: object) -> JobSpec:
+        """Build a single-label job over ``lines``."""
+        job_kwargs.setdefault("text_height", 0.5)
+        return JobSpec(
+            job_name="J",
+            width=3.0,
+            height=1.0,
+            labels=[LabelSpec(id="lbl", width=3.0, height=1.0, content=list(lines))],
+            **job_kwargs,
+        )
+
+    def _line(self, *lines: TextLine, **job_kwargs: object) -> ResolvedTextLine:
+        """Resolve the job's first line against the test inventory."""
+        return resolve_job_spec(
+            self._job(*lines, **job_kwargs), available_cutters=_INVENTORY
+        )[0].content[0]
+
+    def test_no_markup_has_no_sup_sub(self) -> None:
+        """A markup-free line has no shift (the renderers' fast path)."""
+        line = self._line(TextLine(text="PLAIN", font="Dino"))
+        assert line.has_sup_sub is False
+        # The resolved line carries one plain run, so the per-character arrays
+        # are all-neutral (a hand-built line has styled_runs == () and empty
+        # arrays -- the renderers' fast-path gate reads has_sup_sub).
+        assert line.sup_sub_values == (None, None, None, None, None)
+        assert line.sup_sub_scales == (1.0,) * 5
+        assert line.sup_sub_shifts == (0.0,) * 5
+
+    def test_bare_sup_scales_and_shifts(self) -> None:
+        """A bare <sup> downscales to d and rises 1 - d cap heights."""
+        line = self._line(TextLine(text="1<sup>st</sup>", font="Dino"))
+        assert line.plain_text == "1st"
+        assert line.has_sup_sub is True
+        assert line.sup_sub_scales == (1.0, 0.5, 0.5)
+        assert line.sup_sub_shifts == (0.0, 0.5, 0.5)
+
+    def test_bare_sub_scales_and_drops(self) -> None:
+        """A bare <sub> downscales to d and drops d cap heights."""
+        line = self._line(TextLine(text="x<sub>ij</sub>", font="Dino"))
+        assert line.plain_text == "xij"
+        assert line.sup_sub_scales == (1.0, 0.5, 0.5)
+        assert line.sup_sub_shifts == (0.0, -0.5, -0.5)
+
+    def test_shift_values_align_with_plain_text(self) -> None:
+        """The per-character arrays are aligned with plain_text (spaces included)."""
+        line = self._line(TextLine(text="a<sup>b c</sup>d", font="Dino"))
+        assert line.plain_text == "ab cd"
+        assert line.sup_sub_scales == (1.0, 0.5, 0.5, 0.5, 1.0)
+        assert line.sup_sub_shifts == (0.0, 0.5, 0.5, 0.5, 0.0)
+
+    def test_argumented_form_shifts_only(self) -> None:
+        """<sup:0.3> sets the shift explicitly and applies no scaling."""
+        line = self._line(TextLine(text="1<sup:0.3>st</sup>", font="Dino"))
+        assert line.sup_sub_scales == (1.0, 1.0, 1.0)
+        assert line.sup_sub_shifts == (0.0, 0.3, 0.3)
+
+    def test_argumented_form_keeps_the_line_cutter(self) -> None:
+        """A shift-only run engraves with the line's own tool (no pen split)."""
+        line = self._line(TextLine(text="A<sup:0.3>b</sup>", font="Dino"), text_height=1.0)
+        assert math.isclose(line.cutter_diameter, 0.125)
+        assert line.per_char_cutters == (0.125, 0.125)
+        assert line.used_cutters == (0.125,)
+
+    def test_bare_run_gets_the_downscaled_height_cutter(self) -> None:
+        """A bare <sup> on 1in text engraves with the 0.5in text's cutter."""
+        line = self._line(TextLine(text="A<sup>b</sup>", font="Dino"), text_height=1.0)
+        assert math.isclose(line.cutter_diameter, 0.125)
+        # d = 0.5 -> 0.5in of text -> the 0.06 tool (the <scale:0.5> ladder).
+        assert math.isclose(line.per_char_cutters[0], 0.125)
+        assert math.isclose(line.per_char_cutters[1], 0.06)
+        assert line.used_cutters == (0.06, 0.125)
+
+    def test_downscale_follows_the_cascaded_field(self) -> None:
+        """supersubscript_downscale drives both the scale and the shift."""
+        line = self._line(
+            TextLine(text="A<sup>b</sup>", font="Dino"),
+            text_height=1.0,
+            supersubscript_downscale=0.8,
+        )
+        assert line.sup_sub_scales == (1.0, 0.8)
+        # 1 - d = 0.2: the sup's top still lands on the capline.
+        assert line.sup_sub_shifts[0] == 0.0
+        assert math.isclose(line.sup_sub_shifts[1], 0.2)
+        # 0.8in of text -> the 0.09 tool.
+        assert math.isclose(line.per_char_cutters[1], 0.09)
+
+    def test_scale_and_sup_compose_multiplicatively(self) -> None:
+        """A <scale:N> run inside <sup> composes to N * d."""
+        line = self._line(
+            TextLine(text="A<sup><scale:0.5>b</scale></sup>", font="Dino"), text_height=1.0
+        )
+        assert line.sup_sub_scales == (1.0, 0.5)
+        assert line.scale_values == (1.0, 0.5)
+        # The effective silhouette factor is 0.5 * 0.5 = 0.25 -> 0.25in of text.
+        assert math.isclose(line.per_char_cutters[1], 0.03)
+
+    def test_shift_survives_the_reflow_text_swap(self) -> None:
+        """with_markup() keeps every run's cutter derived from its own style.
+
+        The line-content reflow rewrites a line's text; a positional per-
+        character cutter array would stay at the old indices and hand a
+        downscaled run its neighbour's (larger) tool. The cutters derive from
+        each character's style, so they follow the moved words.
+        """
+        line = self._line(
+            TextLine(text="AA<sup>b</sup>", font="Dino"), text_height=1.0
+        )
+        swapped = line.with_markup("AA<sup>b</sup> CC")
+        assert swapped.plain_text == "AAb CC"
+        # The scaled run (index 2) keeps the downscaled-height tool; the plain
+        # characters (including the appended ones) keep the line's tool. The
+        # space owns no glyph and carries the line's cutter.
+        assert swapped.per_char_cutters == (0.125, 0.125, 0.06, 0.125, 0.125, 0.125)
+
+    def test_explicit_cutter_size_governs_the_plain_runs(self) -> None:
+        """An explicit cutter_size is a human decision, never overridden."""
+        line = self._line(
+            TextLine(text="A<sup>b</sup>", font="Dino", cutter_size=0.09), text_height=1.0
+        )
+        assert math.isclose(line.cutter_diameter, 0.09)
+        # The plain run keeps the explicit tool; the bare sup run still takes
+        # the ladder for its own (downscaled) height.
+        assert math.isclose(line.per_char_cutters[0], 0.09)
+        assert math.isclose(line.per_char_cutters[1], 0.06)
+
+    def test_sup_with_bold_takes_the_bold_rung(self) -> None:
+        """A bold + bare-sup character takes the bold rung at the effective height."""
+        line = self._line(
+            TextLine(text="A<b><sup>b</sup></b>", font="Dino"), text_height=1.0
+        )
+        assert line.bold_cutter_diameter is not None
+        # 0.5in of text: plain ladder 0.06, bold rung 0.09. The bold+sup
+        # character is plain_text index 1 (the tags engrave nothing).
+        assert math.isclose(line.per_char_cutters[1], 0.09)
+        assert 0.09 in line.used_cutters
+
+
+class TestGlyphRenderPlanSupSub:
+    """The per-glyph plan folds the bare <sup>/<sub> downscale into the scale."""
+
+    @staticmethod
+    def _line(text: str, **kwargs: object) -> ResolvedTextLine:
+        """Build a resolved line directly (no markup parsing)."""
+        from plt_optimizer.generate.markup import PLAIN, Run
+
+        nominal = float(kwargs.pop("nominal", 0.5))
+        cutter = float(kwargs.pop("cutter", 0.06))
+        kwargs.setdefault("plain_text", text)
+        kwargs.setdefault("styled_runs", (Run(text, PLAIN),))
+        return ResolvedTextLine(
+            text=text,
+            nominal_text_height=nominal,
+            toolpath_text_height=nominal - cutter,
+            cutter_diameter=cutter,
+            character_spacing=0.0,
+            line_spacing=0.0,
+            **kwargs,  # type: ignore[arg-type]
+        )
+
+    def test_shift_only_plan_is_all_unity(self) -> None:
+        """<sup:0.3> scales nothing: the plan is all-unity (shift-only render)."""
+        from plt_optimizer.generate.markup import PLAIN, Run, Style, SupSub
+
+        line = self._line(
+            "aB",
+            styled_runs=(Run("a", PLAIN), Run("B", Style(sup_sub=SupSub(1, 0.3)))),
+        )
+        plan = glyph_render_plan(line)
+        assert plan is not None
+        diameters, scales = plan
+        assert diameters == (0.06, 0.06)
+        assert scales == (1.0, 1.0)
+
+    def test_bare_sup_plan_is_the_centerline_formula(self) -> None:
+        """A bare <sup> is exactly a <scale:d> run in the plan."""
+        from plt_optimizer.generate.markup import PLAIN, Run, Style, SupSub
+
+        line = self._line(
+            "aB",
+            styled_runs=(Run("a", PLAIN), Run("B", Style(sup_sub=SupSub(1)))),
+            scale_cutter_inventory=tuple(_INVENTORY),
+        )
+        plan = glyph_render_plan(line)
+        assert plan is not None
+        diameters, scales = plan
+        # d = 0.5 -> 0.25in of text -> the 0.03 ladder cutter.
+        assert diameters == (0.06, 0.03)
+        expected = (0.5 * 0.5 - 0.03) / (0.5 - 0.06)
+        assert scales[0] == 1.0
+        assert scales[1] == pytest.approx(expected)
+
+    def test_downscale_of_one_is_inert(self) -> None:
+        """supersubscript_downscale 1.0 leaves the bare tag unscaled."""
+        from plt_optimizer.generate.markup import PLAIN, Run, Style, SupSub
+
+        line = self._line(
+            "aB",
+            styled_runs=(Run("a", PLAIN), Run("B", Style(sup_sub=SupSub(-1)))),
+            supersubscript_downscale=1.0,
+            scale_cutter_inventory=tuple(_INVENTORY),
+        )
+        plan = glyph_render_plan(line)
+        assert plan is not None
+        _diameters, scales = plan
+        assert scales == (1.0, 1.0)

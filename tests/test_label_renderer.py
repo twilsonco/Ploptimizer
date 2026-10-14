@@ -3166,3 +3166,151 @@ class TestScaleRenderDispatch:
         # the first run) then the scaled word 'deep'.
         assert line.plain_text[first[0] : first[1] + 1] == "pay "
         assert line.plain_text[second[0] : second[1] + 1] == "deep"
+
+
+class TestSupSubRenderDispatch:
+    """``_render_line_block`` renders ``<sup>``/``<sub>`` runs shifted + downscaled."""
+
+    _INVENTORY = [0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.09, 0.125, 0.25]
+
+    @classmethod
+    def _resolve(cls, *lines, **job_kwargs):
+        """Resolve a markup job against the inventory (so a step has rungs)."""
+        from plt_optimizer.generate.resolution import resolve_job_spec
+
+        return resolve_job_spec(_markup_job(*lines, **job_kwargs), cls._INVENTORY)
+
+    def test_sup_line_renders_plain_text_not_the_tags(self) -> None:
+        """The engraving measures the plain text; the tags never appear."""
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+
+        line = self._resolve(("1<sup>st</sup>", {"font": "Dino"}))[0].content[0]
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        assert block.bounds() is not None
+        assert len(glyphs) == 3
+
+    def test_bare_sup_rises_and_shrinks_vs_the_plain_twin(self) -> None:
+        """The bare <sup> run's ink sits above and inside the plain twin's."""
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+        from plt_optimizer.generate.text_geometry import TextBlock
+
+        sup = self._resolve(("A<sup>B</sup>", {"font": "Dino"}))[0].content[0]
+        plain = self._resolve(("AB", {"font": "Dino"}))[0].content[0]
+        sup_block, _w, sup_glyphs = _render_line_block(sup, TextChunkMode.LINE)
+        plain_block, _pw, plain_glyphs = _render_line_block(plain, TextChunkMode.LINE)
+        assert sup_block.bounds() is not None and plain_block.bounds() is not None
+        sup_b = TextBlock(strokes=tuple(sup_block.strokes[i] for i in sup_glyphs[1])).bounds()
+        plain_b = TextBlock(strokes=tuple(plain_block.strokes[i] for i in plain_glyphs[1])).bounds()
+        assert sup_b is not None and plain_b is not None
+        # The shifted glyph's lowest ink rides above the baseline, and its
+        # height is the downscaled one (well below the plain cap).
+        assert sup_b[1] > 0.0
+        assert (sup_b[3] - sup_b[1]) < (plain_b[3] - plain_b[1])
+
+    def test_bare_sub_drops_below_the_baseline(self) -> None:
+        """The bare <sub> run's ink hangs below the baseline."""
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+        from plt_optimizer.generate.text_geometry import TextBlock
+
+        sub = self._resolve(("A<sub>b</sub>", {"font": "Dino"}))[0].content[0]
+        block, _words, glyphs = _render_line_block(sub, TextChunkMode.LINE)
+        assert block.bounds() is not None
+        dropped = TextBlock(strokes=tuple(block.strokes[i] for i in glyphs[1])).bounds()
+        assert dropped is not None
+        # The downscaled glyph hangs below the baseline (its top sits back at
+        # it): the whole ink box moved down by the shift.
+        assert dropped[1] < 0.0
+        assert dropped[3] < 0.01
+
+    def test_argumented_shift_keeps_the_full_size(self) -> None:
+        """<sup:0.3> shifts without scaling: the glyph height is the plain one."""
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+        from plt_optimizer.generate.text_geometry import TextBlock
+
+        shifted = self._resolve(("A<sup:0.3>B</sup>", {"font": "Dino"}))[0].content[0]
+        plain = self._resolve(("AB", {"font": "Dino"}))[0].content[0]
+        s_block, _w, s_glyphs = _render_line_block(shifted, TextChunkMode.LINE)
+        p_block, _pw, p_glyphs = _render_line_block(plain, TextChunkMode.LINE)
+        s_b = TextBlock(strokes=tuple(s_block.strokes[i] for i in s_glyphs[1])).bounds()
+        p_b = TextBlock(strokes=tuple(p_block.strokes[i] for i in p_glyphs[1])).bounds()
+        assert s_b is not None and p_b is not None
+        assert (s_b[3] - s_b[1]) == pytest.approx(p_b[3] - p_b[1], abs=1e-9)
+        # ... and rides 0.3 cap heights above the baseline.
+        assert s_b[1] == pytest.approx(0.3 * shifted.toolpath_text_height, abs=1e-6)
+
+    def test_shift_is_aware_in_vertical_extents(self) -> None:
+        """measure_line_vertical_extents sees the shift (spacing/centering)."""
+        from plt_optimizer.generate.label_renderer import measure_line_vertical_extents
+
+        sup = self._resolve(("A<sup>B</sup>", {"font": "Dino"}))[0].content[0]
+        plain = self._resolve(("AB", {"font": "Dino"}))[0].content[0]
+        sup_asc, _sup_desc = measure_line_vertical_extents(sup)
+        plain_asc, _plain_desc = measure_line_vertical_extents(plain)
+        # The shifted + downscaled glyph's top lands on the capline, so the
+        # ascender matches the plain line's (the bare-sup geometry contract).
+        assert sup_asc == pytest.approx(plain_asc, abs=1e-3)
+
+    def test_natural_width_is_unchanged_by_a_shift_only_run(self) -> None:
+        """A shift-only run never changes the width (the reflow stays exact)."""
+        from plt_optimizer.generate.label_renderer import measure_line_natural_width
+
+        shifted = self._resolve(("A<sup:0.3>B</sup>", {"font": "Dino"}))[0].content[0]
+        plain = self._resolve(("AB", {"font": "Dino"}))[0].content[0]
+        assert measure_line_natural_width(shifted) == pytest.approx(
+            measure_line_natural_width(plain), abs=1e-9
+        )
+
+    def test_underline_splits_at_the_sup_cutter_boundary(self) -> None:
+        """A bare <sup> inside <u> splits the underline (two tools, one line)."""
+        from plt_optimizer.generate.label_renderer import _underline_render_gate
+
+        line = self._resolve(("<u>ab<sup>c</sup></u>", {"font": "Dino"}))[0].content[0]
+        runs = _underline_render_gate(line)
+        assert len(runs) == 2
+        # The plain run 'ab' then the downscaled run 'c' (its own ladder tool).
+        assert line.plain_text[runs[0][0] : runs[0][1] + 1] == "ab"
+        assert line.plain_text[runs[1][0] : runs[1][1] + 1] == "c"
+
+    def test_shift_only_run_keeps_one_pen(self) -> None:
+        """A shift-only run engraves with the line's tool (no pen split)."""
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+            _stroke_cutter_map,
+        )
+
+        line = self._resolve(("A<sup:0.3>B</sup>", {"font": "Dino"}))[0].content[0]
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        assert _stroke_cutter_map(line, block, glyphs) == ()
+
+    def test_bare_sup_splits_onto_two_pens(self) -> None:
+        """A bare <sup> run lands on its own per-cutter pen."""
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+            _stroke_cutter_map,
+        )
+
+        line = self._resolve(("A<sup>B</sup>", {"font": "Dino"}))[0].content[0]
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        cutters = _stroke_cutter_map(line, block, glyphs)
+        assert cutters
+        assert len(set(cutters)) == 2
+
+    def test_ttf_sup_shifts_the_glyph(self) -> None:
+        """The TTF path shifts the flagged glyph (the PLT parity contract)."""
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+        from plt_optimizer.generate.text_geometry import TextBlock
+
+        sup = self._resolve(("A<sup:0.4>B</sup>", {}))[0].content[0]
+        plain = self._resolve(("AB", {}))[0].content[0]
+        s_block, _w, s_glyphs = _render_line_block(sup, TextChunkMode.LINE)
+        p_block, _pw, p_glyphs = _render_line_block(plain, TextChunkMode.LINE)
+        assert s_block.bounds() is not None and p_block.bounds() is not None
+        shifted = TextBlock(strokes=tuple(s_block.strokes[i] for i in s_glyphs[1])).bounds()
+        plain_b = TextBlock(strokes=tuple(p_block.strokes[i] for i in p_glyphs[1])).bounds()
+        assert shifted is not None and plain_b is not None
+        # A pure translate by the shift (the glyph's own ink box is unchanged).
+        expected = 0.4 * sup.toolpath_text_height
+        assert shifted[1] - plain_b[1] == pytest.approx(expected, abs=1e-3)
+        assert shifted[3] - plain_b[3] == pytest.approx(expected, abs=1e-3)

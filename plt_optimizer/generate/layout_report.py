@@ -32,6 +32,11 @@ what is engraved without appearing in the YAML spec:
   the ``<scale:N>`` factor range a line's runs engrave at, alongside the
   cutter the line stepped down to when a run needed a smaller tool -- the
   geometry change the markup caused, which the YAML spec never states.
+- **Superscript/subscript markup**
+  (:attr:`plt_optimizer.generate.resolution.ResolvedTextLine.sup_sub_shifts`):
+  the baseline-shift range a line's ``<sup>``/``<sub>`` runs engrave at (in
+  cap-height units), alongside the cutter the downscaled runs stepped to --
+  the geometry change the markup caused, which the YAML spec never states.
 
 This module is the single source of truth for the report text: the
 ``generate`` CLI (compact by default, full under ``-v``) and
@@ -83,17 +88,19 @@ def _spacing_deviation(requested: float, effective: float) -> bool:
 
 
 def _scale_run_cutters(line: ResolvedTextLine) -> tuple[float, ...]:
-    """Return the distinct cutters a line's ``<scale:N>`` runs engrave with.
+    """Return the distinct cutters a line's ``<scale:N>``/``<sup>``/``<sub>`` runs use.
 
     Ascending, de-duplicated, read from the derived per-character cutters.
     Falls back to the line's own cutter when no character scales.
     """
     scales = line.scale_values
+    sup_scales = line.sup_sub_scales
     cutters = line.per_char_cutters
     used = {
         cutter
         for index, cutter in enumerate(cutters)
-        if index < len(scales) and scales[index] != 1.0
+        if (index < len(scales) and scales[index] != 1.0)
+        or (index < len(sup_scales) and sup_scales[index] != 1.0)
     }
     return tuple(sorted(used)) if used else (line.cutter_diameter,)
 
@@ -111,9 +118,10 @@ def _label_findings(
         int,
         tuple[float, float] | None,
         tuple[float, float] | None,
+        tuple[float, float] | None,
     ]
 ]:
-    """Collect the per-line findings (compression / spacing / downsize / relief / bold / scale).
+    """Collect the per-line findings (compression / spacing / downsize / relief / bold / scale / sup-sub).
 
     Args:
         rendered: The rendered label carrying the render-time maps plus the
@@ -122,16 +130,19 @@ def _label_findings(
 
     Returns:
         One ``(line_index, line_text, scale, requested, effective, downsize,
-        relief_count, bold, markup_scale)`` tuple per finding, in content
-        order. ``scale`` is set (below ``1.0``) only for compressed lines;
-        ``requested``/``effective`` are set only for spacing gaps (always in
-        full mode, or when deviating in compact mode); ``downsize`` is the
-        ``(original, final)`` cutter pair only for lines whose automatic
-        cutter was reduced; ``relief_count`` is how many descending glyphs the
-        automatic descending-character adjustment relieved on that line (``0``
-        for none); ``bold`` is the ``(plain, bold)`` cutter pair only for lines
-        carrying a ``<b>`` run; ``markup_scale`` is the ``(min, max)``
-        ``<scale:N>`` factor range only for lines carrying a ``<scale:N>`` run.
+        relief_count, bold, markup_scale, sup_sub)`` tuple per finding, in
+        content order. ``scale`` is set (below ``1.0``) only for compressed
+        lines; ``requested``/``effective`` are set only for spacing gaps
+        (always in full mode, or when deviating in compact mode);
+        ``downsize`` is the ``(original, final)`` cutter pair only for lines
+        whose automatic cutter was reduced; ``relief_count`` is how many
+        descending glyphs the automatic descending-character adjustment
+        relieved on that line (``0`` for none); ``bold`` is the ``(plain,
+        bold)`` cutter pair only for lines carrying a ``<b>`` run;
+        ``markup_scale`` is the ``(min, max)`` ``<scale:N>`` factor range
+        only for lines carrying a ``<scale:N>`` run; ``sup_sub`` is the
+        ``(min, max)`` baseline-shift range (cap-height units) only for lines
+        carrying a ``<sup>``/``<sub>`` run.
     """
     content = rendered.source_label.content
     downsizes = rendered.source_label.cutter_downsize_by_line
@@ -147,6 +158,7 @@ def _label_findings(
             int,
             tuple[float, float] | None,
             tuple[float, float] | None,
+            tuple[float, float] | None,
         ]
     ] = []
     for line_index in sorted(
@@ -156,6 +168,7 @@ def _label_findings(
         | set(reliefs)
         | {index for index, line in enumerate(content) if line.bold_cutter_diameter is not None}
         | {index for index, line in enumerate(content) if line.has_scale}
+        | {index for index, line in enumerate(content) if line.has_sup_sub}
     ):
         if line_index >= len(content):  # pragma: no cover - defensive
             continue
@@ -176,6 +189,10 @@ def _label_findings(
         if line.has_scale:
             values = line.scale_values
             markup_scale = (min(values), max(values))
+        sup_sub: tuple[float, float] | None = None
+        if line.has_sup_sub:
+            shifts = line.sup_sub_shifts
+            sup_sub = (min(shifts), max(shifts))
         if (
             not compressed
             and not deviates
@@ -183,6 +200,7 @@ def _label_findings(
             and relief_count == 0
             and bold is None
             and markup_scale is None
+            and sup_sub is None
         ):
             continue
         findings.append(
@@ -196,6 +214,7 @@ def _label_findings(
                 relief_count,
                 bold,
                 markup_scale,
+                sup_sub,
             )
         )
     return findings
@@ -231,10 +250,20 @@ def _label_lines(
             int,
             tuple[float, float] | None,
             tuple[float, float] | None,
+            tuple[float, float] | None,
         ],
     ] = {
-        index: (scale, requested, effective, downsize, relief_count, bold, markup_scale)
-        for index, _t, scale, requested, effective, downsize, relief_count, bold, markup_scale in findings
+        index: (
+            scale,
+            requested,
+            effective,
+            downsize,
+            relief_count,
+            bold,
+            markup_scale,
+            sup_sub,
+        )
+        for index, _t, scale, requested, effective, downsize, relief_count, bold, markup_scale, sup_sub in findings
     }
 
     if not full and not findings:
@@ -313,6 +342,24 @@ def _label_lines(
                 lines.append(
                     f"    Line {line_index}: {line.plain_text!r} "
                     f"scaled {factor_text} (run cutter {cutter_text}, "
+                    f"line cutter {line.cutter_diameter:.3f}in)"
+                )
+            sup_sub = entry[7]
+            if sup_sub is not None:
+                low, high = sup_sub
+                shift_text = f"{low:.3f}" if low == high else f"{low:.3f}-{high:.3f}"
+                # A bare <sup>/<sub> also downscales, so its run engraves with
+                # the cutter for the downscaled height (the <scale:N> ladder);
+                # the argumented form shifts only and keeps the line's tool.
+                run_cutters = _scale_run_cutters(line)
+                cutter_text = (
+                    f"{run_cutters[0]:.3f}in"
+                    if len(run_cutters) == 1
+                    else "-".join(f"{cutter:.3f}" for cutter in run_cutters) + "in"
+                )
+                lines.append(
+                    f"    Line {line_index}: {line.plain_text!r} "
+                    f"sup/sub shift {shift_text} cap (run cutter {cutter_text}, "
                     f"line cutter {line.cutter_diameter:.3f}in)"
                 )
             if entry[4]:

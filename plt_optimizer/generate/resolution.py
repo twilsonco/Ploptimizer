@@ -31,7 +31,7 @@ from functools import lru_cache
 from typing import Callable, List, Optional, Sequence, Tuple, Union
 
 from plt_optimizer.generate.font_registry import DEFAULT_FONT_NAME, plt_font_stroke_count
-from plt_optimizer.generate.markup import Run, parse_markup, split_brackets
+from plt_optimizer.generate.markup import Run, SupSub, parse_markup, split_brackets
 from plt_optimizer.generate.schema import JobSpec, LabelSpec
 
 logger = logging.getLogger(__name__)
@@ -170,6 +170,16 @@ DEFAULT_FALLBACK_ADVANCE_FRACTION: float = 1.0
 # 1.0 renders the variant identically to its base font. Inert on non-SC
 # fonts. See ``plt_optimizer.generate.font_registry``.
 DEFAULT_SC_SCALE: float = 0.7
+# Downscale applied to a bare ``<sup>``/``<sub>`` markup run: the run's glyphs
+# engrave uniformly shrunk to this fraction of the line's size, and the
+# baseline shift derives from it -- a superscript rises ``1 - d`` cap heights
+# (its top lands exactly on the capline) and a subscript drops ``d`` cap
+# heights (it sits on the baseline). The argumented forms ``<sup:0.3>`` /
+# ``<sub:-0.2>`` set the shift explicitly (cap-height units) and apply no
+# scaling, so this field is inert on them. The run engraves with the cutter
+# for its downscaled height (the ``<scale:N>`` ladder). Bound to [0.2, 1.0]
+# by the schema. See ``plt_optimizer.generate.markup``.
+DEFAULT_SUPERSUBSCRIPT_DOWNSCALE: float = 0.5
 # Delimiter pair for the inline markup syntax (``<i>`` italic and future
 # tags): an even-length string whose first half is the left delimiter and
 # second half the right (``"<>"`` -> ``<`` / ``>``). Text that legitimately
@@ -804,6 +814,19 @@ class ResolvedTextLine:
             ``1.0`` (base-identical rendering) is honored; only ``None``
             means unset. Inert when the resolved ``font`` is not an SC
             variant.
+        supersubscript_downscale: Downscale applied to a **bare**
+            ``<sup>``/``<sub>`` markup run: the run's glyphs engrave
+            uniformly shrunk to this fraction of the line's size, and the
+            baseline shift derives from it (superscript rises ``1 - d`` cap
+            heights, its top landing on the capline; subscript drops ``d``
+            cap heights, sitting on the baseline). The argumented forms
+            ``<sup:0.3>`` / ``<sub:-0.2>`` set the shift explicitly (in
+            cap-height units) and apply **no** scaling, so this field is
+            inert on them. The run engraves with the cutter for its
+            downscaled height (the ``<scale:N>`` ladder). Cascaded line ->
+            label -> job, default ``DEFAULT_SUPERSUBSCRIPT_DOWNSCALE``
+            (0.5). Explicit ``0.2``/``1.0`` are honored; only ``None``
+            means unset.
         cutter_size: The explicit cutter diameter in inches requested for
             this line (cascaded line -> label -> job), verbatim as declared,
             or ``None`` when unset. ``None`` means the cutter was
@@ -977,6 +1000,7 @@ class ResolvedTextLine:
     kerning_min_gap: float = DEFAULT_KERNING_MIN_GAP
     fallback_advance_fraction: float = DEFAULT_FALLBACK_ADVANCE_FRACTION
     sc_scale: float = DEFAULT_SC_SCALE
+    supersubscript_downscale: float = DEFAULT_SUPERSUBSCRIPT_DOWNSCALE
     html_brackets: str = DEFAULT_HTML_BRACKETS
     italic_angle: float = DEFAULT_ITALIC_ANGLE
     underline_offset: float = DEFAULT_UNDERLINE_OFFSET
@@ -1072,6 +1096,64 @@ class ResolvedTextLine:
         return any(run.style.scale != 1.0 for run in self.styled_runs)
 
     @property
+    def sup_sub_values(self) -> Tuple[Optional[SupSub], ...]:
+        """Per-character ``<sup>``/``<sub>`` shifts aligned with :attr:`plain_text`.
+
+        Empty tuple when the line carries no parsed markup (the renderers'
+        fast path); ``None`` marks an unmarked character. Mirrors
+        :meth:`markup.StyledText.sup_sub_values`.
+        """
+        return tuple(
+            style.sup_sub for run in self.styled_runs for style in (run.style,) * len(run.text)
+        )
+
+    @property
+    def has_sup_sub(self) -> bool:
+        """True when any markup run of this line carries a ``<sup>``/``<sub>`` tag."""
+        return any(run.style.sup_sub is not None for run in self.styled_runs)
+
+    @property
+    def sup_sub_scales(self) -> Tuple[float, ...]:
+        """Per-character ``<sup>``/``<sub>`` geometry scales, aligned with plain text.
+
+        The **bare** tag downscales to :attr:`supersubscript_downscale`;
+        the argumented form (``<sup:0.3>``) scales by ``1.0`` (it shifts
+        only), and unmarked characters are ``1.0``. Derived from the style
+        (never a stored positional array), so it stays correct when a
+        pre-pass rewrites the line's text.
+        """
+        downscale = self.supersubscript_downscale
+        return tuple(
+            (1.0 if style.sup_sub is None else (downscale if style.sup_sub.shift is None else 1.0))
+            for run in self.styled_runs
+            for style in (run.style,) * len(run.text)
+        )
+
+    @property
+    def sup_sub_shifts(self) -> Tuple[float, ...]:
+        """Per-character ``<sup>``/``<sub>`` baseline shifts in cap-height units.
+
+        The bare tag derives the shift from :attr:`supersubscript_downscale`
+        ``d`` (superscript ``1 - d`` so its top lands on the capline,
+        subscript ``-d`` so it sits on the baseline); the argumented form
+        uses its explicit shift; unmarked characters are ``0.0``. The
+        renderer converts to inches by multiplying with the line's
+        ``toolpath_text_height`` (the per-font cap height).
+        """
+        downscale = self.supersubscript_downscale
+        shifts: List[float] = []
+        for run in self.styled_runs:
+            for style in (run.style,) * len(run.text):
+                sup_sub = style.sup_sub
+                if sup_sub is None:
+                    shifts.append(0.0)
+                elif sup_sub.shift is not None:
+                    shifts.append(sup_sub.shift)
+                else:
+                    shifts.append(1.0 - downscale if sup_sub.direction > 0 else -downscale)
+        return tuple(shifts)
+
+    @property
     def used_cutters(self) -> Tuple[float, ...]:
         """Every distinct cutter diameter this line engraves with, ascending.
 
@@ -1094,7 +1176,10 @@ class ResolvedTextLine:
         Each character's engraving tool: a ``<scale:N>`` character takes the
         ladder cutter for its effective height (``N * nominal_text_height``)
         -- the tool that size of text gets authored on its own, so a downscaled
-        run engraves *lighter*, not heavier -- a ``<b>`` character takes
+        run engraves *lighter*, not heavier -- a bare ``<sup>``/``<sub>``
+        character takes the same ladder at its downscaled height
+        (``supersubscript_downscale * nominal_text_height``, the composition
+        ``scale_values * sup_sub_scales``), a ``<b>`` character takes
         :attr:`bold_cutter_diameter` (when one resolved), and every other
         character takes the line's :attr:`cutter_diameter`. A bold+scaled
         character takes the bold rung at the effective height.
@@ -1110,6 +1195,15 @@ class ResolvedTextLine:
         if not self.styled_runs:
             return ()
         scales = self.scale_values
+        # The <sup>/<sub> downscale composes multiplicatively with <scale:N>
+        # into one effective silhouette factor per character (the same
+        # composition glyph_render_plan uses for the geometry scale).
+        sup_scales = self.sup_sub_scales
+        if sup_scales:
+            scales = tuple(
+                scale * (sup_scales[index] if index < len(sup_scales) else 1.0)
+                for index, scale in enumerate(scales)
+            )
         bolds = self.bold_flags
         bold_cutter = self.bold_cutter_diameter
         # A bold rung at the effective height is only needed when some
@@ -2230,9 +2324,14 @@ def glyph_render_plan(
     """
     bold_cutter = line.bold_cutter_diameter
     has_bold = line.has_bold and bold_cutter is not None
-    if not has_bold and not line.has_scale:
+    if not has_bold and not line.has_scale and not line.has_sup_sub:
         return None
     scale_flags = line.scale_values
+    # The <sup>/<sub> downscale composes multiplicatively with <scale:N>:
+    # the effective silhouette factor drives the centerline scale below, so
+    # a bare <sup> on plain text is exactly a <scale:d> run (the argumented
+    # form contributes 1.0 here and rides the renderer's baseline shift).
+    sup_flags = line.sup_sub_scales
     # The per-character engraving cutters (derived from each character's scale
     # factor, so they follow the text through a reflow): a scaled run's
     # effective-height ladder cutter, the bold rung, or the line's own tool.
@@ -2242,6 +2341,7 @@ def glyph_render_plan(
     clamped = False
     for index, diameter in enumerate(diameters):
         scale = scale_flags[index] if index < len(scale_flags) else 1.0
+        scale *= sup_flags[index] if index < len(sup_flags) else 1.0
         factor = (scale * line.nominal_text_height - diameter) / plain
         if factor <= 0.0:
             factor = MIN_SCALED_GLYPH_FACTOR
@@ -2249,9 +2349,10 @@ def glyph_render_plan(
         scales.append(factor)
     if clamped:
         logger.warning(
-            "Label line %r: <scale:N> run leaves no material with cutter "
-            "%.4fin (N * text_height <= cutter); the scaled glyphs clamp to a "
-            "minimal geometry (engraving heavier than the requested scale).",
+            "Label line %r: a <scale:N>/<sup>/<sub> run leaves no material with "
+            "cutter %.4fin (effective height * text_height <= cutter); the "
+            "affected glyphs clamp to a minimal geometry (engraving heavier "
+            "than the requested scale).",
             line.plain_text,
             line.cutter_diameter,
         )
@@ -2836,6 +2937,18 @@ def _resolve_content(
         else:
             line_sc_scale = DEFAULT_SC_SCALE
 
+        # Resolve the bare <sup>/<sub> run downscale with the same
+        # explicit-None precedence (line -> label -> job -> default); an
+        # explicit 1.0 (full-size shift) is honored.
+        if line.supersubscript_downscale is not None:
+            line_supersubscript_downscale: float = line.supersubscript_downscale
+        elif label_input.supersubscript_downscale is not None:
+            line_supersubscript_downscale = label_input.supersubscript_downscale
+        elif job.supersubscript_downscale is not None:
+            line_supersubscript_downscale = job.supersubscript_downscale
+        else:
+            line_supersubscript_downscale = DEFAULT_SUPERSUBSCRIPT_DOWNSCALE
+
         # Resolve the inline-markup delimiter pair with the same
         # explicit-None precedence (line -> label -> job -> default).
         if line.html_brackets is not None:
@@ -3044,6 +3157,7 @@ def _resolve_content(
                 kerning_min_gap=line_kerning_min_gap,
                 fallback_advance_fraction=line_fallback_advance_fraction,
                 sc_scale=line_sc_scale,
+                supersubscript_downscale=line_supersubscript_downscale,
                 html_brackets=line_html_brackets,
                 italic_angle=line_italic_angle,
                 underline_offset=line_underline_offset,

@@ -1590,3 +1590,89 @@ class TestBoldMarkup:
         assert plain is not None and bold is not None
         # R's right edge halves (1.0 -> 0.5), so A's origin lands earlier.
         assert bold[2] < plain[2]
+
+
+class TestBaselineShiftMarkup:
+    """The ``<sup>``/``<sub>`` per-character baseline shift (a pure translate).
+
+    ``A`` is the diagonal ``(0,0)-(1,1)``, ``g`` descends to ``y = -0.5`` and
+    ``C`` is a full circle arc. The shift is applied at placement, so the
+    glyph rides above (positive) or below (negative) the baseline with its
+    shape untouched, the advance is unchanged, and ``AA`` arcs stay native.
+    """
+
+    def test_shift_moves_the_glyph_up(self, synth_lib: Path) -> None:
+        """A positive shift lifts the whole glyph; the shape is untouched."""
+        plain = _render("A", 1.0, synth_lib).bounds()
+        raised = _render("A", 1.0, synth_lib, baseline_shifts=(0.5,)).bounds()
+        assert plain is not None and raised is not None
+        assert plain == pytest.approx((0.0, 0.0, 1.0, 1.0))
+        assert raised == pytest.approx((0.0, 0.5, 1.0, 1.5))
+
+    def test_shift_moves_the_glyph_down(self, synth_lib: Path) -> None:
+        """A negative shift drops the glyph (the subscript direction)."""
+        plain = _render("A", 1.0, synth_lib).bounds()
+        dropped = _render("A", 1.0, synth_lib, baseline_shifts=(-0.5,)).bounds()
+        assert plain is not None and dropped is not None
+        assert dropped == pytest.approx((0.0, -0.5, 1.0, 0.5))
+
+    def test_shift_composes_with_the_glyph_scale(self, synth_lib: Path) -> None:
+        """The bare <sup> shape: scaled about the baseline, then shifted."""
+        shifted = _render(
+            "A", 1.0, synth_lib, glyph_scales=(0.5,), baseline_shifts=(0.5,)
+        ).bounds()
+        assert shifted is not None
+        # Scale first (0..1 -> 0..0.5), then the translate (+0.5).
+        assert shifted == pytest.approx((0.0, 0.5, 0.5, 1.0))
+
+    def test_shift_leaves_the_advance_alone(self, synth_lib: Path) -> None:
+        """A shifted glyph's pair advance is the unshifted pair's.
+
+        Kerning compares the **unshifted** envelopes, so a vertical shift can
+        never narrow (or widen) the advance -- the line's width is exactly the
+        unshifted line's.
+        """
+        kwargs = {"character_spacing": 0.02, "cutter_diameter": 0.04}
+        plain = _render("AB", 1.0, synth_lib, **kwargs).bounds()
+        shifted = _render("AB", 1.0, synth_lib, baseline_shifts=(0.0, 0.5), **kwargs).bounds()
+        assert plain is not None and shifted is not None
+        assert shifted[2] == pytest.approx(plain[2])
+
+    def test_zero_shift_is_bit_identical(self, synth_lib: Path) -> None:
+        """``baseline_shifts = 0.0`` renders the untouched geometry."""
+        plain = _render("AB", 1.0, synth_lib)
+        shifted = _render("AB", 1.0, synth_lib, baseline_shifts=(0.0, 0.0))
+        assert shifted.to_hpgl() == plain.to_hpgl()
+
+    def test_none_is_bit_identical(self, synth_lib: Path) -> None:
+        """Omitting the kwarg keeps the historical render."""
+        kwargs = {"cutter_diameter": 0.04, "character_spacing": 0.02}
+        legacy = _render("AB", 1.0, synth_lib, **kwargs)
+        explicit = _render("AB", 1.0, synth_lib, baseline_shifts=None, **kwargs)
+        assert explicit.to_hpgl() == legacy.to_hpgl()
+
+    def test_arcs_stay_native_under_the_shift(self, synth_lib: Path) -> None:
+        """A pure translate keeps ``AA`` arcs native."""
+        plain = _render("C", 1.0, synth_lib)
+        shifted = _render("C", 1.0, synth_lib, baseline_shifts=(0.25,))
+        assert _count_arcs(plain) == 1
+        assert _count_arcs(shifted) == 1
+
+    def test_stroke_count_is_preserved(self, synth_lib: Path) -> None:
+        """The per-glyph stroke partition survives (the glyph sweep stays valid)."""
+        plain = _render("AB", 1.0, synth_lib)
+        shifted = _render("AB", 1.0, synth_lib, baseline_shifts=(0.5, -0.5))
+        assert len(shifted.strokes) == len(plain.strokes)
+
+    def test_pen_up_target_shifts_with_the_glyph(self, synth_lib: Path) -> None:
+        """A shifted glyph's plunge stays on the shifted geometry."""
+        shifted = _render("A", 1.0, synth_lib, baseline_shifts=(0.5,))
+        plain = _render("A", 1.0, synth_lib)
+        assert shifted.strokes[0].pen_up == pytest.approx(
+            plain.strokes[0].pen_up + 0.5j
+        )
+
+    def test_shift_length_mismatch_is_rejected(self, synth_lib: Path) -> None:
+        """A baseline_shifts length that is not the text length raises ValueError."""
+        with pytest.raises(ValueError, match="baseline_shifts length"):
+            _render("AB", 1.0, synth_lib, baseline_shifts=(0.5,))

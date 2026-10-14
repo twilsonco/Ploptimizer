@@ -526,3 +526,81 @@ class TestScaleMarkupFindings:
 
         assert format_layout_report([resolved], {"l1": rendered}) == []
         assert has_layout_findings([resolved], {"l1": rendered}) is False
+
+
+class TestSupSubMarkupFindings:
+    """A ``<sup>``/``<sub>`` run's baseline shift is a report finding."""
+
+    def test_bare_sup_is_a_compact_finding(self) -> None:
+        """A bare <sup> prints its shift range plus the run + line cutter."""
+        line = _line("1st").with_markup("1<sup>st</sup>")
+        resolved, rendered = _label("l1", [line])
+
+        lines = format_layout_report([resolved], {"l1": rendered})
+        text = "\n".join(lines)
+
+        # d = 0.5 -> shift 1 - d = 0.5 for the run; 0.5 * 0.3in nominal =
+        # 0.15in of text -> the ladder's 0.015 rung.
+        assert (
+            "'1st' sup/sub shift 0.000-0.500 cap (run cutter 0.015in, "
+            "line cutter 0.030in)" in text
+        )
+        assert has_layout_findings([resolved], {"l1": rendered}) is True
+
+    def test_bare_sub_shift_is_negative(self) -> None:
+        """A bare <sub> reports the negative (below-baseline) shift."""
+        line = _line("x2").with_markup("x<sub>2</sub>")
+        resolved, rendered = _label("l1", [line])
+
+        text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
+
+        assert "sup/sub shift -0.500-0.000 cap" in text
+
+    def test_uniform_shift_prints_one_value(self) -> None:
+        """A fully shifted line prints its single shift."""
+        line = _line("up").with_markup("<sup>up</sup>")
+        resolved, rendered = _label("l1", [line])
+
+        text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
+
+        assert (
+            "'up' sup/sub shift 0.500 cap (run cutter 0.015in, line cutter 0.030in)" in text
+        )
+
+    def test_shift_only_run_keeps_the_line_cutter(self) -> None:
+        """<sup:0.3> shifts without scaling: the run cutter is the line's."""
+        line = _line("1st").with_markup("1<sup:0.3>st</sup>")
+        resolved, rendered = _label("l1", [line])
+
+        text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
+
+        assert (
+            "'1st' sup/sub shift 0.000-0.300 cap (run cutter 0.030in, "
+            "line cutter 0.030in)" in text
+        )
+
+    def test_sup_finding_strips_markup(self) -> None:
+        """The finding reports the plain text, never the tags."""
+        line = _line("up").with_markup("<sup>up</sup>")
+        resolved, rendered = _label("l1", [line])
+
+        text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
+
+        assert "<sup" not in text
+
+    def test_unity_downscale_shifts_only(self) -> None:
+        """supersubscript_downscale 1.0 leaves the run unscaled (line cutter)."""
+        from dataclasses import replace as dc_replace
+
+        line = dc_replace(
+            _line("up").with_markup("<sup>up</sup>"), supersubscript_downscale=1.0
+        )
+        resolved, rendered = _label("l1", [line])
+
+        text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
+
+        # d = 1.0 -> shift 1 - d = 0.0 (the glyph rides the capline's baseline)
+        # and no downscale, so the run keeps the line's own tool.
+        assert (
+            "'up' sup/sub shift 0.000 cap (run cutter 0.030in, line cutter 0.030in)" in text
+        )

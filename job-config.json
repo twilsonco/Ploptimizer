@@ -14,6 +14,7 @@
   "kerning_min_gap": 0.02,
   "fallback_advance_fraction": 1.0,
   "sc_scale": 0.8,
+  "supersubscript_downscale": 0.6,
   "html_brackets": "<>",
   "italic_angle": 12.0,
   "underline_offset": 0.05,

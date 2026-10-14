@@ -956,3 +956,81 @@ class TestApplyGlyphScales:
             "AV", 0.5, DEFAULT_FONT_PATH, glyph_scales=(0.5, 1.5)
         )
         assert [char for char, _ in glyph_groups] == ["A", "V"]
+
+
+class TestApplyBaselineShifts:
+    """The ``<sup>``/``<sub>`` per-glyph baseline shift (TTF family).
+
+    The shifted glyph's contours translate straight up (positive) or down
+    (negative) by the per-character ``baseline_shifts`` array -- a pure
+    translate, so the shape, the ink width and the pen advance are untouched
+    (the italic/bold/scale precedent: TTF shaping owns the advances).
+    """
+
+    def test_shifted_glyph_rides_above_the_baseline(self) -> None:
+        """The flagged glyph's whole ink box moves up by the shift."""
+        plain = render_text_line_ftext("AA", 1.0, DEFAULT_FONT_PATH)
+        raised = render_text_line_ftext("AA", 1.0, DEFAULT_FONT_PATH, baseline_shifts=(0.0, 0.5))
+        groups = ftext_renderer.glyph_groups_for_line("AA", DEFAULT_FONT_PATH, len(plain))
+        cap = _extents(plain, groups[1][1])
+        lifted = _extents(raised, groups[1][1])
+        # A pure translate: every extent moves by exactly the shift.
+        assert lifted[2] == pytest.approx(cap[2] + 0.5, abs=1e-9)
+        assert lifted[3] == pytest.approx(cap[3] + 0.5, abs=1e-9)
+        # X is untouched (no horizontal motion, advance unchanged).
+        assert lifted[0] == pytest.approx(cap[0], abs=1e-9)
+        assert lifted[1] == pytest.approx(cap[1], abs=1e-9)
+
+    def test_negative_shift_drops_the_glyph(self) -> None:
+        """A negative shift moves the glyph below the baseline (subscript)."""
+        plain = render_text_line_ftext("A", 1.0, DEFAULT_FONT_PATH)
+        dropped = render_text_line_ftext("A", 1.0, DEFAULT_FONT_PATH, baseline_shifts=(-0.5,))
+        assert _extents(dropped)[2] == pytest.approx(_extents(plain)[2] - 0.5, abs=1e-9)
+        assert _extents(dropped)[3] == pytest.approx(_extents(plain)[3] - 0.5, abs=1e-9)
+
+    def test_unshifted_glyph_is_untouched(self) -> None:
+        """The 0.0 character of a mixed line keeps its exact geometry."""
+        plain = render_text_line_ftext("AA", 1.0, DEFAULT_FONT_PATH)
+        shifted = render_text_line_ftext(
+            "AA", 1.0, DEFAULT_FONT_PATH, baseline_shifts=(0.0, 0.4)
+        )
+        groups = ftext_renderer.glyph_groups_for_line("AA", DEFAULT_FONT_PATH, len(plain))
+        assert _extents(shifted, groups[0][1]) == pytest.approx(
+            _extents(plain, groups[0][1]), abs=1e-9
+        )
+
+    def test_all_zero_is_bit_identical(self) -> None:
+        """An all-zero ``baseline_shifts`` renders the untouched line."""
+        plain = render_text_line_ftext("AB", 1.0, DEFAULT_FONT_PATH)
+        explicit = render_text_line_ftext(
+            "AB", 1.0, DEFAULT_FONT_PATH, baseline_shifts=(0.0, 0.0)
+        )
+        assert _extents(explicit) == pytest.approx(_extents(plain), abs=1e-9)
+
+    def test_shift_composes_with_the_glyph_scale(self) -> None:
+        """The bare <sup> shape: scaled about the baseline, then translated."""
+        plain = render_text_line_ftext("AA", 1.0, DEFAULT_FONT_PATH)
+        both = render_text_line_ftext(
+            "AA",
+            1.0,
+            DEFAULT_FONT_PATH,
+            glyph_scales=(1.0, 0.5),
+            baseline_shifts=(0.0, 0.5),
+        )
+        groups = ftext_renderer.glyph_groups_for_line("AA", DEFAULT_FONT_PATH, len(plain))
+        cap = _extents(plain, groups[1][1])
+        result = _extents(both, groups[1][1])
+        # Scale about the baseline (y=0) first, then the +0.5 translate.
+        assert result[2] == pytest.approx(0.5 * 0.0 + 0.5, abs=1e-9)
+        assert result[3] == pytest.approx(0.5 * cap[3] + 0.5, abs=1e-9)
+
+    def test_contour_partition_survives_the_shift(self) -> None:
+        """The per-glyph contour partition stays 1:1 (the sweep stays valid)."""
+        shifted = render_text_line_ftext(
+            "AV", 0.5, DEFAULT_FONT_PATH, baseline_shifts=(0.3, -0.3)
+        )
+        _lc, _words, glyph_groups = ftext_renderer.render_text_line_ftext_with_glyphs(
+            "AV", 0.5, DEFAULT_FONT_PATH, baseline_shifts=(0.3, -0.3)
+        )
+        assert [char for char, _ in glyph_groups] == ["A", "V"]
+        assert len(shifted) == sum(len(indices) for _char, indices in glyph_groups)

@@ -505,6 +505,21 @@ class TextAttributes(BaseModel):
             Defaults to ``0.7``; only ``None`` means unset. Cascades
             line -> label -> job (and is accepted on plates for schema
             parity, where it is not applied at that level).
+        supersubscript_downscale: Optional downscale applied to a **bare**
+            ``<sup>``/``<sub>`` markup run (``<sup>text</sup>``): the run's
+            glyphs engrave uniformly shrunk to this fraction of the line's
+            size, and the baseline shift is derived from it -- a
+            superscript rises ``1 - d`` cap heights (its top lands exactly
+            on the capline) and a subscript drops ``d`` cap heights (it
+            sits on the baseline). The argumented forms ``<sup:0.3>`` /
+            ``<sub:-0.2>`` set the baseline shift explicitly (in cap-height
+            units, ``0`` = baseline, ``1`` = capline) and apply **no**
+            scaling, so this field is inert on them. The run engraves with
+            the cutter that ``d * text_height`` of text gets on its own
+            (the ``<scale:N>`` ladder). Bound to ``[0.2, 1.0]``; defaults
+            to ``0.5``; only ``None`` means unset. Cascades
+            line -> label -> job (and is accepted on plates for schema
+            parity, where it is not applied at that level).
         html_brackets: Optional delimiter pair for the inline markup syntax
             (``<i>`` italic and future tags). An **even-length** string whose
             first half is the left delimiter and second half the right
@@ -797,6 +812,24 @@ class TextAttributes(BaseModel):
             "text_height is untouched (no cutter change). "
             "Inert on non-SC fonts. Cascades line -> label -> job (fallback "
             "0.7); explicit 0.2/1.0 are honored."
+        ),
+    )
+    supersubscript_downscale: Optional[float] = Field(
+        default=None,
+        ge=0.2,
+        le=1.0,
+        description=(
+            "Downscale applied to a bare <sup>/<sub> markup run: the run's "
+            "glyphs engrave uniformly shrunk to this fraction of the line's "
+            "size, and the baseline shift derives from it (superscript "
+            "rises 1 - d cap heights, its top landing on the capline; "
+            "subscript drops d cap heights, sitting on the baseline). The "
+            "argumented forms <sup:0.3>/<sub:-0.2> set the shift explicitly "
+            "(cap-height units) and apply no scaling, so this field is "
+            "inert on them. The run engraves with the cutter for its "
+            "downscaled height (the <scale:N> ladder). Cascades "
+            "line -> label -> job (fallback 0.5); explicit 0.2/1.0 are "
+            "honored."
         ),
     )
     html_brackets: Optional[str] = Field(
@@ -1684,6 +1717,10 @@ class PlateSpec(BaseModel):
             (a ``font`` name ending in `` SC``). Accepted for schema parity
             with the job/label ``sc_scale`` cascade (not applied at plate
             level).
+        supersubscript_downscale: Optional bare ``<sup>``/``<sub>`` run
+            downscale. Accepted for schema parity with the job/label
+            ``supersubscript_downscale`` cascade (not applied at plate
+            level).
         html_brackets: Optional inline-markup delimiter pair. Accepted for
             schema parity with the job/label ``html_brackets`` cascade (not
             applied at plate level).
@@ -1878,6 +1915,14 @@ class PlateSpec(BaseModel):
         description=(
             "Small-caps downscale applied to ASCII lowercase a-z by a ' SC' "
             "font variant (schema parity; not applied at plate level)."
+        ),
+    )
+    supersubscript_downscale: Optional[float] = Field(
+        default=None,
+        ge=0.2,
+        le=1.0,
+        description=(
+            "Bare <sup>/<sub> markup run downscale (schema parity; not applied at plate level)."
         ),
     )
     html_brackets: Optional[str] = Field(

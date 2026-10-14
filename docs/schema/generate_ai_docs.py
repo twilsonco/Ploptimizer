@@ -183,6 +183,14 @@ _FALLBACK_NOTES: dict[str, str] = {
     "DEFAULT_PLATE_HEIGHT": "Auto-allocated (unbounded mode) default plate height when job-config "
     "plate_height is unset. Required from config when a job-config is in play and plates are "
     "undeclared.",
+    "DEFAULT_SUPERSUBSCRIPT_DOWNSCALE": "0.5 = a bare <sup>/<sub> markup run engraves its glyphs "
+    "uniformly shrunk to 50% of the line's size, and the baseline shift derives from the same "
+    "number: a superscript rises 1 - d = 0.5 cap heights (its top lands exactly on the capline) "
+    "and a subscript drops d = 0.5 cap heights (it sits on the baseline). The argumented forms "
+    "<sup:0.3>/<sub:-0.2> set the shift explicitly in cap-height units (bound [-1.0, 1.0]) and "
+    "apply no scaling, so this field is inert on them. A downscaled run engraves with the cutter "
+    "for its downscaled height (the <scale:N> ladder), so it lands on its own per-cutter layer. "
+    "Bound [0.2, 1.0]. Cascades line/label/job; job-config supplies the shop default.",
 }
 
 

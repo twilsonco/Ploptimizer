@@ -1121,8 +1121,9 @@ rebuilding raw markup.
   (`</i>`), never elsewhere, so no slash-escape field exists.
 - **Literal-first scanning**: the leftmost left delimiter is scanned and the
   body up to the first right delimiter is a tag only when it matches
-  `[A-Za-z]+` (open; the reserved `name:args` form is recognized but only legal
-  for a tag registered with `accepts_args=True` — none ship yet) or
+  `[A-Za-z]+` (open; the `name:args` form is legal for a tag registered with
+  `accepts_args=True` — `<scale:N>` requires the argument, `<sup>`/`<sub>`
+  make it optional via `args_optional`) or
   `/[A-Za-z]+` (close) **and names a registered tag**. Anything else — a lone
   `<` in `3 < 5`, an unregistered `<xyz>` / `</xyz>`, an opener with no closer —
   is literal text. Broken markup is a **hard error**: a close tag that is not
@@ -1132,7 +1133,7 @@ rebuilding raw markup.
   (`_resolve_content`), so the abort lands with the other spec-level errors.
 - **The tag registry** (`TAG_REGISTRY` + `register_tag(name, apply,
   accepts_args)`) is the extension point for the remaining TODO tags
-  (`<b>`, `<f:name>`, `<sup:0.3>`, `<sc>`): one registry entry plus
+  (`<f:name>`, `<sc>`, `<s>`): one registry entry plus
   render-side handling of the new `Style` field. The parser, cascade,
   serialization and reflow need no change. `apply` must be **idempotent** so
   `serialize_runs` can recover the tag stack from styles; with several tags
@@ -1140,6 +1141,8 @@ rebuilding raw markup.
   round-trips). `<u>` (see Inline Underline below) is the second shipped tag:
   `Style.underline` + `register_tag("u", ...)`, and nested `<i>...<u>...</u>
   ...</i>` composes (every transformation applies to its runs, in stack order).
+  The registry order is `i, u, b, scale, sup, sub` (each tag registers last so
+  every earlier tag's serialization stays bit-identical).
 - **Resolved fields**: `ResolvedTextLine` gains `html_brackets`,
   `italic_angle`, `plain_text` (the markup-free text) and `styled_runs`
   (`()` for a markup-free line — the renderers' fast path). Every line resolves
@@ -1564,8 +1567,8 @@ small-caps field / ` SC` font suffix (and the planned inline `<sc>` tag).
   `Line N: '<text>' scaled 0.500-1.200 (run cutter 0.030-0.125in, line cutter
   0.090in)` (the factor range over the line's runs + the run cutters the
   markup caused; a uniform range/factor set prints one value; reads
-  `plain_text`, compact-mode finding). The finding tuple is 9-wide (9th = the
-  factor range).
+  `plain_text`, compact-mode finding). The finding tuple is 10-wide (9th = the
+  factor range, 10th = the sup/sub shift range).
 - **Accepted staleness**: an upscaled run grows ink above the capline while
   the baseline pitch stays per-line -- the author adds `line_spacing` (the
   descender relief fixes descenders-vs-following-line only); spaces inside a
@@ -1587,6 +1590,109 @@ small-caps field / ` SC` font suffix (and the planned inline `<sc>` tag).
   `TestScaleRenderDispatch` (`tests/test_label_renderer.py`),
   `TestScaleMarkupFindings` (`tests/test_layout_report.py`), and the
   scale-argument reflow round-trip (`tests/test_line_content.py`).
+
+### Inline Superscript/Subscript (`supersubscript_downscale`, `<sup>`, `<sub>`)
+
+`<sup>...</sup>` / `<sub>...</sub>` are the fifth and sixth shipped markup
+tags: the wrapped characters engrave **downscaled** (uniform, about the
+baseline -- arcs stay native) **and vertically shifted** (a pure translate, in
+cap-height units). A **bare** tag derives both from the cascading
+`supersubscript_downscale` `d`; the **argumented** form (`<sup:0.3>`,
+`<sub:-0.2>`) sets the shift explicitly (in cap-height units: `0` = the
+current baseline, `1` = the capline, `-1` = one cap height below) and applies
+**no** scaling, so the field is inert on it.
+
+- **The shift derivation (the whole design).** A bare superscript rises
+  `1 - d` cap heights, so the downscaled glyph's **top lands exactly on the
+capline**; a bare subscript drops `d` cap heights, so it **sits on the
+baseline**. Raising `supersubscript_downscale` to 0.8 therefore gives sup
+`t = 0.2` with the top still on the capline -- the field drives the geometry
+and the placement with one number, and the line's ink box is unchanged by a
+bare tag (the `plt_sup` / `plt_plain` export pin).
+- **The centerline contract, shared with `<scale:N>`.** The downscale is a
+  *scale factor*, so it composes multiplicatively with `<scale:N>` into one
+  effective silhouette factor `s_eff = scale_values * sup_sub_scales` and
+  rides the existing `glyph_scales` array: `resolution.glyph_render_plan`
+  divides nothing new, and `g = (s_eff * nominal - cutter) /
+  (nominal - cutter)` stays the single geometry formula (uniform, about the
+  baseline, `AA` arcs native). A bare `<sup>` on plain text **is** a
+  `<scale:d>` run plus a translate. The shift is the only new renderer input.
+- **The run cutter = the ladder for the downscaled height** (the `<scale:N>`
+  contract, `per_char_cutters` reading `s_eff`): the run lands on its own
+  pen, `<cutter>_txt_` file, per-pair kerning floor and underline run-split
+  for free. A **shift-only** run (the argumented form, `s_eff == 1.0`) keeps
+  the line's own cutter, so it never splits the pen.
+- **The framework upgrade (optional args) is the durable part.**
+  `TagSpec.args_optional` makes the `name:arg` argument optional: a bare
+  `<sup>` IS markup (`apply` receives `""` and derives), and the canonical
+  `arg(style)` returns `""` for the bare form so `serialize_runs` emits the
+  bare tag -- the line-content reflow round-trip depends on it (emitting
+  `<sup:>` would engrave literally). `scale`'s arg stays mandatory (a bare
+  `<scale>` is literal text).
+- **`Style.sup_sub` is a frozen `SupSub(direction, shift)`** (`+1` sup /
+  `-1` sub). Frozen ⇒ hashable + value-equal, which `serialize_runs`' tag-
+  stack recovery needs. The per-direction `is_active` makes the two tags
+  mutually exclusive, so `<sup>a<sub>b</sub>c</sup>` restores `sup` for `c`
+  for free (the close pops the pre-open `Style`), and `<sup>x</sub>` is a
+  mismatched-close `MarkupError`.
+- **The shift is a pure translate applied at placement, after the scale.**
+  PLT: keyword-only `baseline_shifts` (inches, per character) on `_walk_line`
+  + the three wrappers, used in `translate(cursor, shift)`. TTF:
+  `_apply_baseline_shifts` (the `_apply_glyph_scales` contour-slicing idiom,
+  `line + 1j * shift`), called after `_apply_glyph_scales` and before chord
+  removal. `label_renderer._baseline_shift_inches` converts cap units →
+  inches with `toolpath_text_height` (the per-font cap height, the same basis
+  as the baseline pitch) and `_glyph_render_kwargs` gates it (empty dict for
+  every markup-free line ⇒ bit-identical output).
+- **Kerning deliberately compares the unshifted envelopes.** A vertical
+  translate changes no envelope X, so a shifted pair's advance is exactly the
+  unshifted pair's: the shift can never narrow a pair (no engraved overlap)
+  and a shift-only run never changes the line's width
+  (`measure_line_natural_width` is shift-blind ⇒ the reflow stays exact).
+- **Everything downstream is free**: the pen split (`_stroke_cutter_map` reads
+  `per_char_cutters`), the underline run-split, `_line_cutter` /
+  `_collision_threshold` (`max(used_cutters)`), the descender relief, the
+  band centering, `measure_line_vertical_extents` and the plate-space chunk
+  records all read the resolved/rendered geometry. A bare tag leaves the
+  ascender unchanged (its top is the capline), so spacing/centering need no
+  new model.
+- **`supersubscript_downscale`** (`ge=0.2, le=1.0`, explicit-`None` cascade
+  line → label → job, plate parity, `JobDefaults` key, default **0.5**, not
+  `REQUIRED_WHEN_UNCONFIGURED`). The shift argument is bound to
+  `[-1.0, 1.0]` cap units; a non-numeric or out-of-bounds argument is
+  `MarkupError` → CLI non-zero (the fail-loud contract).
+- **Reporting**: `layout_report.py` prints a per-line finding
+  `Line N: '<text>' sup/sub shift 0.000-0.500 cap (run cutter 0.015in, line
+  cutter 0.030in)` (the shift range over the line's runs + the run cutters;
+  a uniform range prints one value; reads `plain_text`, compact-mode
+  finding; the 10th slot of the findings tuple).
+- **Accepted staleness**: a **shift-only** run has no downscale to
+  compensate, so its top rises above the capline and the line's ink box
+  grows by exactly the shift -- the author adds `line_spacing` (the
+  `<scale:N>` upscale precedent; the relief fixes descenders-vs-following-
+  line only). The band-centering margin clamp charges the per-font cap
+  height, so a shifted run can cross the top margin (the relief's
+  border/below-line checks still see the shifted ink -- they measure the
+  rendered geometry).
+- Fixture: `tests_deps/sup_sub_job.yaml` (pinned by
+  `tests/test_phase3_export.py::TestSupSubDemoExample`) -- the bare sup vs
+  its plain twin (the capline invariant), the bare sub (the floor drops),
+  `<sup:0.3>` (shift, no scale, one pen), a per-glyph selection, the
+  `supersubscript_downscale: 0.8` label (shift 0.2, the 0.045 rung),
+  `<scale:0.5>` inside `<sup>` (the 0.015 rung), `<sup>`+`<u>` (the run
+  split), `<sup>`+`<i>`, sup+sub on one line, and the TTF pair; the export
+  test pins the four per-cutter files (0.015 bh / 0.030 / 0.045 / 0.060).
+  Unit tests: `TestSupSubRegistry` / `TestSupSubParse` /
+  `TestSupSubSerialize` / `TestSupSubWords` (`tests/test_markup.py`),
+  `TestSupersubscriptDownscaleCascade` / `TestSupSubResolution` /
+  `TestGlyphRenderPlanSupSub` (`tests/test_resolution.py`),
+  `TestSupersubscriptDownscaleField` (`tests/test_schema.py`),
+  `TestBaselineShiftMarkup` (`tests/test_plt_font_renderer.py`),
+  `TestApplyBaselineShifts` (`tests/test_ftext_renderer.py`),
+  `TestSupSubRenderDispatch` (`tests/test_label_renderer.py`),
+  `TestSupSubMarkupFindings` (`tests/test_layout_report.py`), the bare +
+  argumented reflow round-trips (`tests/test_line_content.py`), and the
+  `supersubscript_downscale` job-config key tests (`tests/test_job_config.py`).
 
 ### Horizontal Text Alignment
 
@@ -2022,7 +2128,7 @@ already knows each toolpath's kind, the `Profiler` is skipped entirely.
   **removed**; optimization now happens pre-write in plate space.
 
 ### Cascading Resolution
-When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.15), `space_width_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.3), `min_glyph_width` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `kerning_window_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.05), `kerning_penetration_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_recession_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_min_gap` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `fallback_advance_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `underline_offset` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), `underline_break_clearance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0; the air at each underline break, never a position) and `underline_break_spaces` (explicit `false` is honored; only `None` means unset, falling back to the config or false; whether the underline breaks at inter-word spaces) and `html_brackets` (explicit pair is honored; only `None` means unset, falling back to the config or `"<>";` the value is an even-length string, first half left delimiter / second half right, halves must differ and contain no alphanumeric/newline characters) and `italic_angle` (explicit 0.0 is honored = upright; only `None` means unset, falling back to the config or 12; schema bounds `[0, 45]`), `cutter_downsize` (explicit `false` is honored; only `None` means unset, falling back to the config or true), `max_cutter_downsizes` (explicit 0 is honored; only `None` means unset, falling back to the config or 1) and `cutter_downsize_global` (explicit `false` is honored; only `None` means unset, falling back to the config or true) and `h_compress_global` (explicit `true` is honored; only `None` means unset, falling back to the config or false) and `optimize_line_content` (explicit `true` is honored; only `None` means unset, falling back to the config or false) and `optimize_line_content_max_lines` (explicit `None` means unset = no growth, no fallback; only an explicit cap > 0 applies) and `use_baseline_spacing` (explicit `false` is honored; only `None` means unset, falling back to the config or true; cascades job → plate → label, never text lines, plate parity only) and `v_center_by_content` (explicit `true` is honored; only `None` means unset, falling back to the config or false; cascades job → plate → label, never text lines, plate parity only; inert while `auto_descending_character_adjustment` is false) and `auto_descending_character_adjustment` (explicit `false` is honored; only `None` means unset, falling back to the config or true; cascades job → plate → label, never text lines, plate parity only) and `descending_character_v_scale` (explicit `0.2` is honored; only `None` means unset, falling back to the config or 0.5) and `descending_character_raise` (explicit `0.0` is honored; only `None` means unset, falling back to the config or 0.7) and `descending_character_clearance` (explicit `0.0` is honored; only `None` means unset, falling back to the config or 0.0; a unitless factor of the engraved-stroke floor, not inches) and `descending_character_reciprocal_scale` (explicit `0.2` is honored; only `None` means unset, falling back to the config or 0.5; `[0.2, 1.0]`, `1.0` = reciprocal downscaling forbidden; all four floats cascade job → plate → label, never text lines, plate parity only). `cutter_size` (explicit-`None` precedence line → label → job → auto-select; no config tier, `gt=0.0` so an explicit `0.0` is a validation error, not a cascade value) and `target_boldness_factor` / `multistroke_overlap_ratio` (explicit-`None` precedence line → label → job → config, plate parity; falling back to 0.14 / 0.25; multi-stroke PLT fonts only, inert on an explicit `cutter_size`). `material` cascades label → job (and plate → job via the clearance-style plate cascade): an explicit label/plate value wins, an explicit `null` counts as unset, and empty-after-trim strings are validation errors.
+When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.15), `space_width_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.3), `min_glyph_width` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `kerning_window_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.05), `kerning_penetration_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_recession_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_min_gap` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `fallback_advance_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `underline_offset` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), `underline_break_clearance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0; the air at each underline break, never a position) and `underline_break_spaces` (explicit `false` is honored; only `None` means unset, falling back to the config or false; whether the underline breaks at inter-word spaces) and `html_brackets` (explicit pair is honored; only `None` means unset, falling back to the config or `"<>";` the value is an even-length string, first half left delimiter / second half right, halves must differ and contain no alphanumeric/newline characters) and `italic_angle` (explicit 0.0 is honored = upright; only `None` means unset, falling back to the config or 12; schema bounds `[0, 45]`), `cutter_downsize` (explicit `false` is honored; only `None` means unset, falling back to the config or true), `max_cutter_downsizes` (explicit 0 is honored; only `None` means unset, falling back to the config or 1) and `cutter_downsize_global` (explicit `false` is honored; only `None` means unset, falling back to the config or true) and `h_compress_global` (explicit `true` is honored; only `None` means unset, falling back to the config or false) and `optimize_line_content` (explicit `true` is honored; only `None` means unset, falling back to the config or false) and `optimize_line_content_max_lines` (explicit `None` means unset = no growth, no fallback; only an explicit cap > 0 applies) and `use_baseline_spacing` (explicit `false` is honored; only `None` means unset, falling back to the config or true; cascades job → plate → label, never text lines, plate parity only) and `v_center_by_content` (explicit `true` is honored; only `None` means unset, falling back to the config or false; cascades job → plate → label, never text lines, plate parity only; inert while `auto_descending_character_adjustment` is false) and `auto_descending_character_adjustment` (explicit `false` is honored; only `None` means unset, falling back to the config or true; cascades job → plate → label, never text lines, plate parity only) and `descending_character_v_scale` (explicit `0.2` is honored; only `None` means unset, falling back to the config or 0.5) and `descending_character_raise` (explicit `0.0` is honored; only `None` means unset, falling back to the config or 0.7) and `descending_character_clearance` (explicit `0.0` is honored; only `None` means unset, falling back to the config or 0.0; a unitless factor of the engraved-stroke floor, not inches) and `descending_character_reciprocal_scale` (explicit `0.2` is honored; only `None` means unset, falling back to the config or 0.5; `[0.2, 1.0]`, `1.0` = reciprocal downscaling forbidden; all four floats cascade job → plate → label, never text lines, plate parity only). `cutter_size` (explicit-`None` precedence line → label → job → auto-select; no config tier, `gt=0.0` so an explicit `0.0` is a validation error, not a cascade value) and `target_boldness_factor` / `multistroke_overlap_ratio` (explicit-`None` precedence line → label → job → config, plate parity; falling back to 0.14 / 0.25; multi-stroke PLT fonts only, inert on an explicit `cutter_size`) and `supersubscript_downscale` (explicit `0.2` is honored; only `None` means unset, falling back to the config or 0.5; `[0.2, 1.0]`; the bare `<sup>`/`<sub>` run downscale + baseline-shift derivation, inert on the argumented `<sup:0.3>`/`<sub:-0.2>` form). `material` cascades label → job (and plate → job via the clearance-style plate cascade): an explicit label/plate value wins, an explicit `null` counts as unset, and empty-after-trim strings are validation errors.
 
 ### Stroke-Color Toolpath Splitting (`text_color`)
 

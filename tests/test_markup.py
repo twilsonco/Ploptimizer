@@ -11,10 +11,13 @@ import pytest
 
 from plt_optimizer.generate.markup import (
     PLAIN,
+    SUB_DIRECTION,
+    SUP_DIRECTION,
     TAG_REGISTRY,
     MarkupError,
     Run,
     Style,
+    SupSub,
     parse_markup,
     register_tag,
     serialize_runs,
@@ -530,8 +533,8 @@ class TestUnderlineRegistry:
         assert spec.accepts_args is False
 
     def test_italic_and_underline_are_distinct_tags(self) -> None:
-        """Registry order (i, u, b, scale) fixes serialization nesting."""
-        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale"]
+        """Registry order (i, u, b, scale, sup, sub) fixes serialization nesting."""
+        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale", "sup", "sub"]
 
 
 class TestParseBold:
@@ -616,10 +619,11 @@ class TestScaleRegistry:
     """The <scale> registry entry (the first args tag)."""
 
     def test_scale_is_registered_with_args(self) -> None:
-        """The tag is registered, accepts args, and is registered last."""
+        """The tag is registered, accepts args, and is registered last (of the
+        mandatory-arg tags; sup/sub joined after it)."""
         spec = TAG_REGISTRY["scale"]
         assert spec.accepts_args is True
-        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale"]
+        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale", "sup", "sub"]
         assert spec.apply(PLAIN, "0.5") == SCALED_HALF
         # Set-to-value: re-applying with the same argument is idempotent.
         assert spec.apply(SCALED_HALF, "0.5") == SCALED_HALF
@@ -745,4 +749,194 @@ class TestScaleWords:
     def test_style_boundaries_see_the_scale_change(self) -> None:
         """A scale span's edges are style boundaries (the reflow's guard)."""
         styled = parse_markup("big<scale:0.5>small</scale>")
+        assert style_boundaries(styled) == (3,)
+
+
+SUP = Style(sup_sub=SupSub(SUP_DIRECTION))
+SUP_03 = Style(sup_sub=SupSub(SUP_DIRECTION, 0.3))
+SUB = Style(sup_sub=SupSub(SUB_DIRECTION))
+# The bare SupSub values the per-character properties yield (the properties
+# expand styles to their sup_sub field, so tests compare against these).
+SUP_SS = SupSub(SUP_DIRECTION)
+SUP_SS_03 = SupSub(SUP_DIRECTION, 0.3)
+SUB_SS = SupSub(SUB_DIRECTION)
+
+
+class TestSupSubRegistry:
+    """The <sup>/<sub> registry entries (the first optional-arg tags)."""
+
+    def test_sup_sub_are_registered_last(self) -> None:
+        """Both tags accept an optional arg and are registered after scale."""
+        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale", "sup", "sub"]
+        for name in ("sup", "sub"):
+            spec = TAG_REGISTRY[name]
+            assert spec.accepts_args is True
+            assert spec.args_optional is True
+
+    def test_bare_form_derives_and_is_idempotent(self) -> None:
+        """The bare form applies with shift None; re-applying is a no-op."""
+        sup = TAG_REGISTRY["sup"]
+        assert sup.apply(PLAIN, "") == SUP
+        assert sup.apply(SUP, "") == SUP
+        assert sup.apply(SUP_03, "") == SUP
+        # A new argument replaces the active shift.
+        assert sup.apply(SUP_03, "0.5") == Style(sup_sub=SupSub(SUP_DIRECTION, 0.5))
+        # Applying <sup> inside <i> composes.
+        assert sup.apply(ITALIC, "") == Style(italic=True, sup_sub=SupSub(SUP_DIRECTION))
+
+    def test_is_active_is_direction_specific(self) -> None:
+        """Each tag is active exactly for its own direction (mutual exclusion)."""
+        assert TAG_REGISTRY["sup"].is_active(PLAIN) is False
+        assert TAG_REGISTRY["sup"].is_active(SUP) is True
+        assert TAG_REGISTRY["sup"].is_active(SUP_03) is True
+        assert TAG_REGISTRY["sup"].is_active(SUB) is False
+        assert TAG_REGISTRY["sub"].is_active(SUB) is True
+        assert TAG_REGISTRY["sub"].is_active(SUP) is False
+
+    def test_arg_serializer_round_trip(self) -> None:
+        """The bare form serializes to '' (bare tag); the arg form to the value."""
+        sup = TAG_REGISTRY["sup"]
+        assert sup.arg is not None
+        assert sup.arg(SUP) == ""
+        assert sup.arg(SUP_03) == "0.3"
+        # The other direction's style serializes empty (its is_active is False,
+        # so serialize_runs never asks -- the guard keeps it total).
+        assert sup.arg(SUB) == ""
+        assert sup.apply(PLAIN, sup.arg(SUP_03)) == SUP_03
+
+    def test_args_optional_registration_shape(self) -> None:
+        """args_optional is stored on the spec (a mandatory-arg tag keeps False)."""
+        assert TAG_REGISTRY["scale"].args_optional is False
+        assert TAG_REGISTRY["i"].args_optional is False
+
+
+class TestSupSubParse:
+    """Parsing the <sup>/<sub> tags (bare and argumented forms)."""
+
+    def test_bare_sup_run_and_values(self) -> None:
+        """The run carries the shift and sup_sub_values align with plain_text."""
+        styled = parse_markup("1<sup>st</sup>")
+        assert styled.plain_text == "1st"
+        assert styled.has_markup is True
+        assert styled.runs == (Run("1", PLAIN), Run("st", SUP))
+        assert styled.sup_sub_values == (None, SUP_SS, SUP_SS)
+
+    def test_bare_tags_are_markup(self) -> None:
+        """Unlike <scale>, a bare <sup>/<sub> IS markup (args_optional)."""
+        styled = parse_markup("a <sup>x</sup> <sub>y</sub>")
+        assert styled.plain_text == "a x y"
+        assert styled.has_markup is True
+        assert styled.sup_sub_values == (None, None, SUP_SS, None, SUB_SS)
+
+    def test_argumented_shift(self) -> None:
+        """<sup:0.3> carries the explicit shift; the bare form carries None."""
+        styled = parse_markup("1<sup:0.3>st</sup>")
+        assert styled.sup_sub_values == (None, SUP_SS_03, SUP_SS_03)
+
+    def test_space_in_argument_is_literal(self) -> None:
+        """``<sup: 0.3>`` never matches the tag body: literal engraving."""
+        styled = parse_markup("<sup: 0.3>x")
+        assert styled.plain_text == "<sup: 0.3>x"
+        assert styled.has_markup is False
+
+    @pytest.mark.parametrize(
+        ("raw", "reason"),
+        [
+            ("<sup:abc>x</sup>", "is not a number"),
+            ("<sub:abc>x</sub>", "is not a number"),
+            ("<sup:2>x</sup>", "outside the supported range"),
+            ("<sup:-1.5>x</sup>", "outside the supported range"),
+            ("<sub:-2>x</sub>", "outside the supported range"),
+        ],
+    )
+    def test_bad_argument_is_a_hard_error(self, raw: str, reason: str) -> None:
+        """A bad argument aborts loudly (MarkupError, fail-loud contract)."""
+        with pytest.raises(MarkupError, match=reason):
+            parse_markup(raw)
+
+    def test_bounds_are_inclusive(self) -> None:
+        """The [-1.0, 1.0] endpoints parse."""
+        assert parse_markup("<sup:-1>x</sup>").sup_sub_values[0] == SupSub(
+            SUP_DIRECTION, -1.0
+        )
+        assert parse_markup("<sub:1>x</sub>").sup_sub_values[0] == SupSub(
+            SUB_DIRECTION, 1.0
+        )
+
+    def test_mismatched_close_is_a_hard_error(self) -> None:
+        """<sup>...</sub> aborts (the close must match the innermost open)."""
+        with pytest.raises(MarkupError, match="does not match open tag"):
+            parse_markup("<sup>x</sub>")
+
+    def test_nested_sup_sub_restores_the_outer(self) -> None:
+        """<sup>a<sub>b</sub>c</sup> restores the superscript for c."""
+        styled = parse_markup("<sup>a<sub>b</sub>c</sup>")
+        assert styled.sup_sub_values == (SUP_SS, SUB_SS, SUP_SS)
+
+    def test_sup_sub_inside_italic_composes(self) -> None:
+        """A shift span nested in italic carries both styles."""
+        styled = parse_markup("<i>it <sup>mix</sup></i>")
+        assert styled.italic_flags == (True,) * 6
+        assert styled.sup_sub_values == (None, None, None, SUP_SS, SUP_SS, SUP_SS)
+
+    def test_sup_sub_with_scale_composes(self) -> None:
+        """A scale span nested in sup carries both values."""
+        styled = parse_markup("<sup>a<scale:0.5>b</scale></sup>")
+        assert styled.scale_values == (1.0, 0.5)
+        assert styled.sup_sub_values == (SUP_SS, SUP_SS)
+
+
+class TestSupSubSerialize:
+    """The serialize round-trip keeps the bare/argumented forms distinct."""
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "1<sup>st</sup> 2<sub>nd</sub>",
+            "1<sup:0.3>st</sup>",
+            "<sup>a<sub>b</sub>c</sup>",
+            "<i>it </i><i><sup>mix</sup></i>",
+            "<b>bd <sup>small</sup></b>",
+            "<scale:0.5>a<sup>b</sup></scale>",
+        ],
+    )
+    def test_round_trip_is_lossless(self, raw: str) -> None:
+        """Serialization re-emits the bare/arg form and re-parses identically."""
+        styled = parse_markup(raw)
+        serialized = serialize_runs(styled.runs)
+        assert parse_markup(serialized).runs == styled.runs
+
+    def test_bare_form_serializes_bare(self) -> None:
+        """A derived-shift run emits the bare tag (no ':arg')."""
+        assert serialize_runs(parse_markup("1<sup>st</sup>").runs) == "1<sup>st</sup>"
+        assert serialize_runs(parse_markup("<sub>x</sub>").runs) == "<sub>x</sub>"
+
+    def test_nested_sup_sub_flattens(self) -> None:
+        """The nesting flattens into per-span pairs re-parsing to the same shifts."""
+        styled = parse_markup("<sup>a<sub>b</sub>c</sup>")
+        reparsed = parse_markup(serialize_runs(styled.runs))
+        assert reparsed.sup_sub_values == (SUP_SS, SUB_SS, SUP_SS)
+
+    def test_flag_tag_serialization_is_unchanged(self) -> None:
+        """The i/u/b/scale round-trip stays exactly the historical text."""
+        raw = "<i>it</i> <b>bd</b> <u>un</u> <scale:0.5>sc</scale>"
+        assert serialize_runs(parse_markup(raw).runs) == raw
+
+
+class TestSupSubWords:
+    """The reflow's word tokens keep the sup/sub form."""
+
+    def test_serialize_word_keeps_the_form(self) -> None:
+        """A styled word token round-trips bare and argumented."""
+        styled = parse_markup("x <sup>up</sup> y<sup:0.3>z</sup>")
+        words = split_styled_words(styled)
+        assert [word.text for word in words] == ["x", "up", "yz"]
+        assert serialize_word(words[1]) == "<sup>up</sup>"
+        assert serialize_word(words[0]) == "x"
+        # The last word mixes a plain piece with the shifted piece.
+        assert serialize_word(words[2]) == "y<sup:0.3>z</sup>"
+
+    def test_style_boundaries_see_the_shift_change(self) -> None:
+        """A shift span's edges are style boundaries (the reflow's guard)."""
+        styled = parse_markup("big<sup>small</sup>")
         assert style_boundaries(styled) == (3,)

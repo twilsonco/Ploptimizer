@@ -648,6 +648,7 @@ def _walk_line(
     italic_flags: Optional[Sequence[bool]] = None,
     cutter_diameters: Optional[Sequence[float]] = None,
     glyph_scales: Optional[Sequence[float]] = None,
+    baseline_shifts: Optional[Sequence[float]] = None,
 ) -> Tuple[
     TextBlock,
     List[Tuple[str, List[int]]],
@@ -737,6 +738,18 @@ def _walk_line(
             arcs native. Applied after small caps, before italic, and the
             scaled silhouette kerns. ``None`` (the default) renders every
             glyph at ``1.0``.
+        baseline_shifts: Per-character vertical baseline shift in inches
+            (``<sup>``/``<sub>`` markup: the shift in cap-height units times
+            the line's toolpath height), aligned with ``text``. Each shifted
+            glyph is placed ``shift`` inches above (positive) or below
+            (negative) the baseline -- a **pure translate** applied at
+            placement, so ``AA`` arcs stay native and the stroke/glyph
+            partition is untouched. Kerning deliberately keeps comparing the
+            **unshifted** envelopes: a shifted pair can only ever widen the
+            advance relative to the unshifted pair, never narrow it, so the
+            envelope math stays exact and no pair is engraved tighter than
+            the geometry asks. ``None`` (the default) places every glyph on
+            the baseline, so every legacy call site renders bit-identically.
 
     Returns:
         ``(block, word_groups, glyph_groups)`` where ``block`` is the
@@ -754,8 +767,9 @@ def _walk_line(
     Raises:
         PltFontRenderError: If the font is unknown/not a PLT font, or a
             character has no glyph in the font.
-        ValueError: If ``italic_flags``, ``cutter_diameters`` or
-            ``glyph_scales`` length differs from ``text``.
+        ValueError: If ``italic_flags``, ``cutter_diameters``,
+            ``glyph_scales`` or ``baseline_shifts`` length differs from
+            ``text``.
     """
     canonical = _resolve_plt_font(font_name, library_dir, fonts_dir)
     if not text:
@@ -768,6 +782,10 @@ def _walk_line(
         )
     if glyph_scales is not None and len(glyph_scales) != len(text):
         raise ValueError(f"glyph_scales length {len(glyph_scales)} != text length {len(text)}")
+    if baseline_shifts is not None and len(baseline_shifts) != len(text):
+        raise ValueError(
+            f"baseline_shifts length {len(baseline_shifts)} != text length {len(text)}"
+        )
 
     library_dir_key = str(library_dir) if library_dir is not None else ""
     # The small-caps variant is a render-time transform: the glyph library
@@ -882,7 +900,10 @@ def _walk_line(
                     + character_spacing
                     + min_gap_inches
                 )
-            placed = geometry.block.scaled(scale).translate(cursor, 0.0)
+            placed = geometry.block.scaled(scale).translate(
+                cursor,
+                0.0 if baseline_shifts is None else baseline_shifts[char_index],
+            )
             strokes.extend(placed.strokes)
             glyph_groups.append((char, list(range(char_start, len(strokes)))))
             previous_origin = cursor
@@ -915,6 +936,7 @@ def render_text_line_plt_font_with_words(
     italic_flags: Optional[Sequence[bool]] = None,
     cutter_diameters: Optional[Sequence[float]] = None,
     glyph_scales: Optional[Sequence[float]] = None,
+    baseline_shifts: Optional[Sequence[float]] = None,
 ) -> Tuple[TextBlock, List[Tuple[str, List[int]]]]:
     """Render a text line in a PLT-extracted font, partitioned by word.
 
@@ -965,6 +987,9 @@ def render_text_line_plt_font_with_words(
             markup (``None`` = off; see :func:`_walk_line`).
         glyph_scales: Per-character glyph scales for ``<b>`` bold markup
             (``None`` = off; see :func:`_walk_line`).
+        baseline_shifts: Per-character baseline shift in inches for
+            ``<sup>``/``<sub>`` markup (``None`` = off; see
+            :func:`_walk_line`).
 
     Returns:
         ``(block, word_groups)`` with the semantics documented on
@@ -994,6 +1019,7 @@ def render_text_line_plt_font_with_words(
         italic_flags=italic_flags,
         cutter_diameters=cutter_diameters,
         glyph_scales=glyph_scales,
+        baseline_shifts=baseline_shifts,
     )
     return block, word_groups
 
@@ -1019,6 +1045,7 @@ def render_text_line_plt_font_with_glyphs(
     italic_flags: Optional[Sequence[bool]] = None,
     cutter_diameters: Optional[Sequence[float]] = None,
     glyph_scales: Optional[Sequence[float]] = None,
+    baseline_shifts: Optional[Sequence[float]] = None,
 ) -> Tuple[
     TextBlock,
     List[Tuple[str, List[int]]],
@@ -1063,6 +1090,9 @@ def render_text_line_plt_font_with_glyphs(
             markup (``None`` = off; see :func:`_walk_line`).
         glyph_scales: Per-character glyph scales for ``<b>`` bold markup
             (``None`` = off; see :func:`_walk_line`).
+        baseline_shifts: Per-character baseline shift in inches for
+            ``<sup>``/``<sub>`` markup (``None`` = off; see
+            :func:`_walk_line`).
 
     Returns:
         ``(block, word_groups, glyph_groups)`` with the semantics
@@ -1092,6 +1122,7 @@ def render_text_line_plt_font_with_glyphs(
         italic_flags=italic_flags,
         cutter_diameters=cutter_diameters,
         glyph_scales=glyph_scales,
+        baseline_shifts=baseline_shifts,
     )
 
 
@@ -1116,6 +1147,7 @@ def render_text_line_plt_font(
     italic_flags: Optional[Sequence[bool]] = None,
     cutter_diameters: Optional[Sequence[float]] = None,
     glyph_scales: Optional[Sequence[float]] = None,
+    baseline_shifts: Optional[Sequence[float]] = None,
 ) -> TextBlock:
     """Render a text line in a PLT-extracted font (arcs preserved).
 
@@ -1161,6 +1193,9 @@ def render_text_line_plt_font(
             markup (``None`` = off; see :func:`_walk_line`).
         glyph_scales: Per-character glyph scales for ``<b>`` bold markup
             (``None`` = off; see :func:`_walk_line`).
+        baseline_shifts: Per-character baseline shift in inches for
+            ``<sup>``/``<sub>`` markup (``None`` = off; see
+            :func:`_walk_line`).
 
     Returns:
         The positioned :class:`TextBlock` (empty for blank input).
@@ -1188,5 +1223,6 @@ def render_text_line_plt_font(
         italic_flags=italic_flags,
         cutter_diameters=cutter_diameters,
         glyph_scales=glyph_scales,
+        baseline_shifts=baseline_shifts,
     )
     return block

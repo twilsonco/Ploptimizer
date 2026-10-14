@@ -2355,15 +2355,42 @@ def _stroke_cutter_map(
     return resolved
 
 
-def _glyph_render_kwargs(line: ResolvedTextLine, *, plt: bool) -> dict[str, Any]:
-    """Return the per-glyph (cutter, scale) renderer kwargs for one resolved line.
+def _baseline_shift_inches(line: ResolvedTextLine) -> Optional[Tuple[float, ...]]:
+    """Return the per-character baseline shift in inches, or ``None`` when unset.
 
-    The unified gate for the ``<b>`` and ``<scale:N>`` markup: the geometry
-    plan (:func:`resolution.glyph_render_plan`) carries each character's
-    cutter diameter and baseline-anchored uniform scale, so a bold run, a
-    scaled run, and a bold+scaled run all flow through the same per-character
-    arrays. Empty dict when the line carries neither markup kind -- the
-    historical call shape, bit-identical output.
+    The ``<sup>``/``<sub>`` baseline shift (cap-height units, from
+    :attr:`ResolvedTextLine.sup_sub_shifts`) converted to inches by the
+    line's ``toolpath_text_height`` (the per-font cap height -- the same
+    basis as the baseline pitch). ``None`` when the line carries no shift
+    (markup-free fast path: the renderers keep the historical call shape).
+
+    Args:
+        line: The resolved text line.
+
+    Returns:
+        One shift in inches per character of ``plain_text``, or ``None``.
+    """
+    if not line.has_sup_sub:
+        return None
+    shifts = line.sup_sub_shifts
+    if not shifts or all(shift == 0.0 for shift in shifts):
+        return None
+    cap = line.toolpath_text_height
+    return tuple(shift * cap for shift in shifts)
+
+
+def _glyph_render_kwargs(line: ResolvedTextLine, *, plt: bool) -> dict[str, Any]:
+    """Return the per-glyph (cutter, scale, shift) renderer kwargs for one resolved line.
+
+    The unified gate for the ``<b>``, ``<scale:N>`` and ``<sup>``/``<sub>``
+    markup: the geometry plan (:func:`resolution.glyph_render_plan`) carries
+    each character's cutter diameter and baseline-anchored uniform scale, so
+    a bold run, a scaled run, a bold+scaled run, and a bare ``<sup>``/
+    ``<sub>`` run (whose downscale composes into the plan's scale) all flow
+    through the same per-character arrays; the ``<sup>``/``<sub>`` baseline
+    shift rides the extra ``baseline_shifts`` array (inches). Empty dict when
+    the line carries none of these markup kinds -- the historical call shape,
+    bit-identical output.
 
     Args:
         line: The resolved text line.
@@ -2378,14 +2405,25 @@ def _glyph_render_kwargs(line: ResolvedTextLine, *, plt: bool) -> dict[str, Any]
         line whose plan is all-unity -- the top-of-inventory bold fallback).
     """
     plan = glyph_render_plan(line)
+    shifts = _baseline_shift_inches(line)
     if plan is None:
-        return {}
+        return {} if shifts is None else {"baseline_shifts": shifts}
     diameters, scales = plan
     if not plt and all(scale == 1.0 for scale in scales):
-        return {}
+        # The all-unity fallback (e.g. top-of-inventory bold): no geometry
+        # scale to pass, but a <sup>/<sub> shift still rides along.
+        return {} if shifts is None else {"baseline_shifts": shifts}
+    if shifts is None:
+        if plt:
+            return {"cutter_diameters": diameters, "glyph_scales": scales}
+        return {"glyph_scales": scales}
     if plt:
-        return {"cutter_diameters": diameters, "glyph_scales": scales}
-    return {"glyph_scales": scales}
+        return {
+            "cutter_diameters": diameters,
+            "glyph_scales": scales,
+            "baseline_shifts": shifts,
+        }
+    return {"glyph_scales": scales, "baseline_shifts": shifts}
 
 
 def _italic_render_kwargs(line: ResolvedTextLine) -> dict[str, Any]:

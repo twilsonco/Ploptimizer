@@ -15,5 +15,5 @@ job:
   labels:
     - id: a
       content:
-        - text: "<u>Always charge</u> secondary CO2 system through a filter drier. <i>Do not trap</i> liquid by closing charging station and isolation valves while servicing. Always vacuum charging line <scale:0.5>after</scale> <scale:1.2>charging</scale> is complete. Charge secondary CO2 system with 99.9% pure or <b>higher food</b> and <u>beverage grade</u> CO2."
+        - text: "<u>Always charge</u> 2<sup>nd</sup>ary CO<sub>2</sub> system through a filter drier. <i>Do not trap</i> liquid by closing charging station and isolation valves while servicing. Always vacuum charging line <scale:0.5>after</scale> <scale:1.2>charging</scale> is complete. Charge secondary CO<sub>2</sub> system with 99.9% pure or <b>higher food</b> and <u>beverage grade</u> CO<sub>2</sub>."
   

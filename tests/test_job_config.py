@@ -48,6 +48,7 @@ _FULL_CONFIG: dict[str, Any] = {
     "kerning_min_gap": 0.05,
     "fallback_advance_fraction": 0.9,
     "sc_scale": 0.45,
+    "supersubscript_downscale": 0.6,
     "html_brackets": "\u00ab\u00bb",
     "italic_angle": 20.0,
     "underline_offset": 0.08,
@@ -268,6 +269,7 @@ class TestJobDefaultsModel:
         assert "kerning_min_gap" not in REQUIRED_WHEN_UNCONFIGURED
         assert "fallback_advance_fraction" not in REQUIRED_WHEN_UNCONFIGURED
         assert "sc_scale" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "supersubscript_downscale" not in REQUIRED_WHEN_UNCONFIGURED
         assert "html_brackets" not in REQUIRED_WHEN_UNCONFIGURED
         assert "italic_angle" not in REQUIRED_WHEN_UNCONFIGURED
         assert "cutter_size" not in REQUIRED_WHEN_UNCONFIGURED
@@ -300,6 +302,14 @@ class TestJobDefaultsModel:
             JobDefaults(sc_scale=0.1)
         with pytest.raises(Exception):
             JobDefaults(sc_scale=1.1)
+        assert JobDefaults().supersubscript_downscale is None
+        assert JobDefaults(supersubscript_downscale=0.6).supersubscript_downscale == pytest.approx(
+            0.6
+        )
+        with pytest.raises(Exception):
+            JobDefaults(supersubscript_downscale=0.1)
+        with pytest.raises(Exception):
+            JobDefaults(supersubscript_downscale=1.1)
         assert JobDefaults().html_brackets is None
         assert JobDefaults(html_brackets="<<>>").html_brackets == "<<>>"
         assert JobDefaults().italic_angle is None
@@ -438,6 +448,7 @@ class TestApplyJobConfigDefaults:
         assert filled["kerning_min_gap"] == 0.05
         assert filled["fallback_advance_fraction"] == 0.9
         assert filled["sc_scale"] == 0.45
+        assert filled["supersubscript_downscale"] == 0.6
         assert filled["html_brackets"] == "\u00ab\u00bb"
         assert filled["italic_angle"] == 20.0
         assert filled["underline_offset"] == 0.08
@@ -972,6 +983,7 @@ class TestParseYamlWithJobConfig:
         assert job.kerning_min_gap == 0.02
         assert job.fallback_advance_fraction == 1.0
         assert job.sc_scale == 0.8
+        assert job.supersubscript_downscale == 0.5
         assert job.html_brackets == "<>"
         assert job.italic_angle == 12.0
         assert job.underline_offset == 0.05

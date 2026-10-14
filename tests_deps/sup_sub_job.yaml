@@ -1,0 +1,101 @@
+# Fixture for inline superscript/subscript markup (<sup>/<sub>).
+#
+# A bare <sup>/<sub> downscales the run to `supersubscript_downscale` (d) and
+# derives the baseline shift from the same number: a superscript rises 1 - d
+# cap heights (its top lands exactly on the capline) and a subscript drops d
+# cap heights (it sits on the baseline). The downscaled run engraves with the
+# cutter for its downscaled height (the <scale:N> ladder), so it lands on its
+# own per-cutter file. The argumented forms <sup:0.3>/<sub:-0.2> set the shift
+# explicitly (cap-height units) and apply NO scaling, so they keep the line's
+# own cutter (one pen).
+#
+# text_height 0.5 -> plain cutter 0.06 on the test inventory; a bare sup run
+# (0.5 * 0.5 = 0.25in of text) takes the 0.03 rung.
+job:
+  job_name: Sup Sub Demo
+  width: 3.0
+  height: 1.0
+  margin: 0.1
+  text_height: 0.5
+  line_spacing: 0.15
+  auto_descending_character_adjustment: false
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. Bare superscript inside a plain line.
+    - id: plt_sup
+      font: Dino
+      content:
+        - text: "Hello <sup>Small</sup>"
+
+    # 2. Plain control for #1/#3/#7.
+    - id: plt_plain
+      font: Dino
+      content:
+        - text: "Hello Small"
+
+    # 3. Bare subscript (drops below the baseline).
+    - id: plt_sub
+      font: Dino
+      content:
+        - text: "Hello <sub>Small</sub>"
+
+    # 4. Explicit shift, no scaling: the run keeps the line's own cutter.
+    - id: plt_shift
+      font: Dino
+      content:
+        - text: "Hello <sup:0.3>Small</sup>"
+
+    # 5. Per-glyph selection (plain / sup / plain).
+    - id: plt_partial
+      font: Dino
+      content:
+        - text: "A<sup>B</sup>C"
+
+    # 6. The cascading downscale: d = 0.8 -> shift 1 - d = 0.2, no pen split
+    #    below the 0.09 rung.
+    - id: plt_downscale08
+      font: Dino
+      supersubscript_downscale: 0.8
+      content:
+        - text: "A<sup>B</sup>C"
+
+    # 7. <scale:N> nested in <sup>: the factors compose (0.5 * 0.5 = 0.25).
+    - id: plt_scale_sup
+      font: Dino
+      content:
+        - text: "<sup><scale:0.5>tiny</scale></sup>"
+
+    # 8. Underline + sup: the run splits at the cutter boundary.
+    - id: plt_sup_underline
+      font: Dino
+      content:
+        - text: "<u>pay <sup>deep</sup></u>"
+
+    # 9. Italic + sup: shear, then baseline scale, then the shift.
+    - id: plt_sup_italic
+      font: Dino
+      content:
+        - text: "<i>lean <sup>small</sup></i>"
+
+    # 10. Superscript + subscript on one line (mutually exclusive runs).
+    - id: plt_sup_sub_line
+      font: Dino
+      content:
+        - text: "1<sup>st</sup> & 2<sub>nd</sub>"
+
+    # 11. TTF path.
+    - id: ttf_sup
+      font: ReliefSingleLineCAD-Regular
+      content:
+        - text: "Hello <sup>Small</sup>"
+
+    # 12. TTF control for #11.
+    - id: ttf_plain
+      font: ReliefSingleLineCAD-Regular
+      content:
+        - text: "Hello Small"

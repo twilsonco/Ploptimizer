@@ -2607,3 +2607,30 @@ class TestBoldBoldnessMultiplierField:
         """The plate tier carries the field for schema parity."""
         plate = PlateSpec(id="p", width=24.0, height=16.0, bold_boldness_multiplier=2.0)
         assert plate.bold_boldness_multiplier == 2.0
+
+
+class TestSupersubscriptDownscaleField:
+    """The cascading ``supersubscript_downscale`` field (line -> label -> job + plate)."""
+
+    def test_defaults_to_none_everywhere(self) -> None:
+        """Every tier defaults supersubscript_downscale to None (unset)."""
+        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        assert job.supersubscript_downscale is None
+        assert TextLine(text="X").supersubscript_downscale is None
+        assert PlateSpec(id="p", width=24.0, height=16.0).supersubscript_downscale is None
+
+    @pytest.mark.parametrize("value", [0.2, 0.5, 1.0])
+    def test_in_range_accepted(self, value: float) -> None:
+        """The [0.2, 1.0] range is accepted, bounds included."""
+        assert TextLine(text="X", supersubscript_downscale=value).supersubscript_downscale == value
+
+    @pytest.mark.parametrize("value", [0.1, 1.1, 2.0])
+    def test_out_of_range_rejected(self, value: float) -> None:
+        """A downscale outside [0.2, 1.0] is a validation error."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", supersubscript_downscale=value)
+
+    def test_plate_parity_accepts_the_field(self) -> None:
+        """The plate tier carries the field for schema parity."""
+        plate = PlateSpec(id="p", width=24.0, height=16.0, supersubscript_downscale=0.8)
+        assert plate.supersubscript_downscale == 0.8

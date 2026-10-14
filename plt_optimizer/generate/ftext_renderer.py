@@ -675,6 +675,73 @@ def _apply_bold(
     return _apply_glyph_scales(scaled, text, font_path, factors, small_caps=small_caps)
 
 
+def _apply_baseline_shifts(
+    scaled: vp.LineCollection,
+    text: str,
+    font_path: Path,
+    shifts: Sequence[float],
+    small_caps: bool = False,
+) -> vp.LineCollection:
+    """Translate the flagged glyph contours of a scaled line vertically.
+
+    The line's contours are sliced per character (see :func:`_per_glyph_counts`);
+    every glyph whose shift differs from ``0.0`` is translated **straight up
+    (positive) or down (negative)** by that many inches -- a pure translate,
+    the TTF counterpart of the PLT walker's per-glyph ``translate(cursor,
+    shift)`` placement. This is the ``<sup>``/``<sub>`` baseline shift: the
+    downscale is already folded into ``glyph_scales`` by the render gate, so
+    this transform only moves the finished glyph.
+
+    The pen advance is untouched (the glyph keeps its natural advance),
+    matching the italic/bold/scale contract: TTF shaping owns the advances.
+
+    Args:
+        scaled: The line's contours in inches (baseline at y=0), before
+            closing-chord removal.
+        text: The line's text (spaces own no contours).
+        font_path: The ``.ttf`` path (per-glyph contour slicing).
+        shifts: One vertical shift in inches per character of ``text``
+            (spaces included; 0.0 = untouched glyph).
+        small_caps: True when the render used the small-caps mapped string
+            (the per-glyph slicing then probes the uppercase sources, as in
+            :func:`_apply_small_caps`).
+
+    Returns:
+        The line with the flagged glyphs shifted. When the per-glyph contour
+        counts do not line up, the line is returned unchanged with a WARNING
+        (the natural baseline-aligned render is the graceful fallback).
+    """
+    if all(shift == 0.0 for shift in shifts):
+        return scaled
+    pairs = _per_glyph_counts(text, font_path, len(scaled), small_caps=small_caps)
+    if pairs is None:
+        counts_total = sum(_glyph_contour_count(font_path, ch) for ch in text if ch != " ")
+        logger.warning(
+            "shifted TTF render: per-glyph contour counts (%d) do not sum to the "
+            "whole-line contour count (%d); rendering on the baseline",
+            counts_total,
+            len(scaled),
+        )
+        return scaled
+
+    occurrences = [index for index, ch in enumerate(text) if ch != " "]
+    lines = [np.asarray(line) for line in scaled]
+    cursor = 0
+    for _char, count in pairs:
+        glyph_indices = list(range(cursor, cursor + count))
+        cursor += count
+        text_index = _pop_occurrence(occurrences)
+        shift = shifts[text_index]
+        if shift == 0.0:
+            continue
+        # A pure vertical translate (baseline at y=0): every point moves by
+        # shift inches, so the glyph rides above/below the baseline intact.
+        offset = 1j * shift
+        for index in glyph_indices:
+            lines[index] = lines[index] + offset
+    return vp.LineCollection(lines)
+
+
 def _pop_occurrence(occurrences: List[int]) -> int:
     """Return and remove the first text index in ``occurrences``.
 
@@ -738,6 +805,7 @@ def render_text_line_ftext(
     bold_scale: Optional[float] = None,
     bold_flags: Optional[Sequence[bool]] = None,
     glyph_scales: Optional[Sequence[float]] = None,
+    baseline_shifts: Optional[Sequence[float]] = None,
 ) -> vp.LineCollection:
     """Render a single line of text with the Relief Single Line TTF font.
 
@@ -803,6 +871,13 @@ def render_text_line_ftext(
             per glyph about its ink-left/baseline (see
             :func:`_apply_glyph_scales`). ``None`` (the default) disables
             the markup scale, keeping every legacy render bit-identical.
+        baseline_shifts: Per-character vertical baseline shift in inches
+            aligned with ``text`` (spaces included; 0.0 = on the baseline),
+            for ``<sup>``/``<sub>`` markup: the (already scaled) glyph is
+            translated straight up (positive) or down (negative) -- see
+            :func:`_apply_baseline_shifts`. ``None`` (the default) keeps
+            every glyph on the baseline, keeping every legacy render
+            bit-identical.
 
     Returns:
         A vpype.LineCollection containing the rendered glyph outlines, or an
@@ -877,6 +952,15 @@ def render_text_line_ftext(
     if factors is not None:
         scaled = _apply_glyph_scales(
             scaled, render_text, resolved_font, factors, small_caps=small_caps
+        )
+
+    # Translate the <sup>/<sub> glyphs last: the shift is a pure translate in
+    # the final (inch) frame, so it composes with every transform above
+    # (small caps, shear, baseline scale) exactly like the PLT walker's
+    # per-glyph placement translate.
+    if baseline_shifts is not None:
+        scaled = _apply_baseline_shifts(
+            scaled, render_text, resolved_font, baseline_shifts, small_caps=small_caps
         )
 
     # Drop erroneous closing chords forced by TrueType's closed-path outlines,
@@ -961,6 +1045,7 @@ def render_text_line_ftext_with_words(
     bold_scale: Optional[float] = None,
     bold_flags: Optional[Sequence[bool]] = None,
     glyph_scales: Optional[Sequence[float]] = None,
+    baseline_shifts: Optional[Sequence[float]] = None,
 ) -> Tuple[vp.LineCollection, List[Tuple[str, List[int]]]]:
     """Render a line of text and partition its contours by whitespace-delimited word.
 
@@ -999,6 +1084,9 @@ def render_text_line_ftext_with_words(
             see :func:`render_text_line_ftext`).
         glyph_scales: Per-character ``<scale:N>`` geometry factors
             (``None`` = off; see :func:`render_text_line_ftext`).
+        baseline_shifts: Per-character baseline shift in inches for
+            ``<sup>``/``<sub>`` markup (``None`` = off; see
+            :func:`render_text_line_ftext`).
 
     Returns:
         ``(whole_lc, word_groups)`` where ``whole_lc`` is identical to
@@ -1020,6 +1108,7 @@ def render_text_line_ftext_with_words(
         bold_scale=bold_scale,
         bold_flags=bold_flags,
         glyph_scales=glyph_scales,
+        baseline_shifts=baseline_shifts,
     )
     if whole.is_empty():
         return whole, []
@@ -1031,6 +1120,7 @@ def render_text_line_ftext_with_words(
         or italic_tan is not None
         or bold_scale is not None
         or (glyph_scales is not None and any(scale != 1.0 for scale in glyph_scales))
+        or (baseline_shifts is not None and any(shift != 0.0 for shift in baseline_shifts))
     ):
         # The signature matcher cannot work: the shrunk/italicized glyphs no
         # longer match their standalone render, so the word groups come from
@@ -1202,6 +1292,7 @@ def render_text_line_ftext_with_glyphs(
     bold_scale: Optional[float] = None,
     bold_flags: Optional[Sequence[bool]] = None,
     glyph_scales: Optional[Sequence[float]] = None,
+    baseline_shifts: Optional[Sequence[float]] = None,
 ) -> Tuple[
     vp.LineCollection,
     List[Tuple[str, List[int]]],
@@ -1238,6 +1329,9 @@ def render_text_line_ftext_with_glyphs(
             see :func:`render_text_line_ftext`).
         glyph_scales: Per-character ``<scale:N>`` geometry factors
             (``None`` = off; see :func:`render_text_line_ftext`).
+        baseline_shifts: Per-character baseline shift in inches for
+            ``<sup>``/``<sub>`` markup (``None`` = off; see
+            :func:`render_text_line_ftext`).
 
     Returns:
         ``(whole_lc, word_groups, glyph_groups)`` where ``whole_lc`` and
@@ -1261,6 +1355,7 @@ def render_text_line_ftext_with_glyphs(
         bold_scale=bold_scale,
         bold_flags=bold_flags,
         glyph_scales=glyph_scales,
+        baseline_shifts=baseline_shifts,
     )
     if whole.is_empty():
         return whole, word_groups, []

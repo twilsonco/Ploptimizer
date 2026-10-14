@@ -347,6 +347,19 @@ class JobDefaults(BaseModel):
             "to this fraction of the cap height). Unset falls back to 0.7."
         ),
     )
+    supersubscript_downscale: Optional[float] = Field(
+        default=None,
+        ge=0.2,
+        le=1.0,
+        description=(
+            "Default downscale applied to a bare <sup>/<sub> markup run "
+            "(job layer; the run's glyphs engrave uniformly shrunk to this "
+            "fraction and the baseline shift derives from it -- superscript "
+            "rises 1 - d cap heights, subscript drops d). The argumented "
+            "forms <sup:0.3>/<sub:-0.2> set the shift explicitly and apply "
+            "no scaling. Unset falls back to 0.5."
+        ),
+    )
     html_brackets: Optional[str] = Field(
         default=None,
         description=(
@@ -684,6 +697,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "kerning_min_gap",
     "fallback_advance_fraction",
     "sc_scale",
+    "supersubscript_downscale",
     "html_brackets",
     "italic_angle",
     "underline_offset",

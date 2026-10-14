@@ -3239,3 +3239,186 @@ class TestScaleDemoExample:
         result = self._export(tmp_path)
         text_file = next(p for p in result.plt_paths if p.name.endswith("0.060_txt_sc.plt"))
         assert "AA" in text_file.read_text()
+
+class TestSupSubDemoExample:
+    """Regression tests for tests_deps/sup_sub_job.yaml.
+
+    The fixture pins inline superscript/subscript markup (``<sup>``/``<sub>``):
+    a bare tag downscales the run to ``supersubscript_downscale`` (d) and
+    derives the baseline shift from the same number (superscript rises
+    ``1 - d`` cap heights so its top lands on the capline, subscript drops
+    ``d`` so it sits on the baseline), and the downscaled run engraves with
+    the cutter for its downscaled height (the ``<scale:N>`` ladder, so it
+    lands on its own per-cutter file). The argumented forms ``<sup:0.3>`` /
+    ``<sub:-0.2>`` set the shift explicitly and apply no scaling, so they keep
+    the line's own cutter (one pen).
+    """
+
+    _SPEC = Path("tests_deps/sup_sub_job.yaml")
+    _INVENTORY = [0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.09, 0.125, 0.25]
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled (against the inventory)."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job, available_cutters=self._INVENTORY)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="ss",
+            optimize=False,
+            plots=False,
+            available_cutters=self._INVENTORY,
+        )
+
+    @staticmethod
+    def _line_bounds(label: ResolvedLabel) -> tuple[float, float, float, float]:
+        """Rendered bounds of the label's single text line."""
+        from plt_optimizer.generate.label_renderer import _render_text_local_with_bounds
+
+        _lc, entries = _render_text_local_with_bounds(label)
+        return entries[0].bounds
+
+    def test_markup_parses_to_plain_text_and_shifts(self, tmp_path: Path) -> None:
+        """Tags never engrave: plain_text strips them, runs carry the shift."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+
+        sup = by_id["plt_sup"].content[0]
+        assert sup.text == "Hello <sup>Small</sup>"
+        assert sup.plain_text == "Hello Small"
+        assert sup.has_sup_sub is True
+        # The 6 plain chars are unmarked, the 5 sup chars rise 1 - d = 0.5.
+        assert sup.sup_sub_shifts == (0.0,) * 6 + (0.5,) * 5
+        assert sup.sup_sub_scales == (1.0,) * 6 + (0.5,) * 5
+
+        plain = by_id["plt_plain"].content[0]
+        assert plain.plain_text == "Hello Small"
+        assert plain.has_sup_sub is False
+
+    def test_bare_sup_rises_vs_the_plain_twin(self, tmp_path: Path) -> None:
+        """The bare sup's ink reaches the same capline, its block is unchanged.
+
+        The bare-sup geometry contract: the downscaled glyph's top lands
+        exactly on the capline, so the line's ink box matches the plain twin's
+        while the small glyphs ride above the baseline.
+        """
+        result = self._export(tmp_path)
+        sup = self._line_bounds(result.rendered_labels["plt_sup"].source_label)
+        plain = self._line_bounds(result.rendered_labels["plt_plain"].source_label)
+        # Same top (the capline) and same bottom (the plain glyphs' baseline).
+        assert sup[3] == pytest.approx(plain[3], abs=1e-3)
+        assert sup[1] == pytest.approx(plain[1], abs=1e-3)
+
+    def test_bare_sub_drops_the_line_floor(self, tmp_path: Path) -> None:
+        """The bare sub's ink hangs below the plain twin's baseline floor."""
+        result = self._export(tmp_path)
+        sub = self._line_bounds(result.rendered_labels["plt_sub"].source_label)
+        plain = self._line_bounds(result.rendered_labels["plt_plain"].source_label)
+        assert sub[1] < plain[1]
+
+    def test_shift_only_run_matches_the_plain_twin_size(self, tmp_path: Path) -> None:
+        """<sup:0.3> shifts without scaling: the glyph height is the plain one.
+
+        The shift-only run has no downscale to compensate, so its top rises
+        above the capline and the line's ink box grows by exactly the shift
+        (the accepted staleness: the author adds ``line_spacing``).
+        """
+        result = self._export(tmp_path)
+        shifted = self._line_bounds(result.rendered_labels["plt_shift"].source_label)
+        plain = self._line_bounds(result.rendered_labels["plt_plain"].source_label)
+        # The plain prefix keeps the baseline; the shifted glyph's top rises,
+        # so the (centered) ink box grows by exactly the shift.
+        line = result.rendered_labels["plt_shift"].source_label.content[0]
+        growth = (shifted[3] - shifted[1]) - (plain[3] - plain[1])
+        assert growth == pytest.approx(0.3 * line.toolpath_text_height, abs=1e-3)
+
+    def test_partial_shift_moves_only_the_shifted_glyph(self, tmp_path: Path) -> None:
+        """Per-glyph selection: the plain neighbours keep the baseline."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        line = by_id["plt_partial"].content[0]
+        assert line.plain_text == "ABC"
+        assert line.sup_sub_shifts == (0.0, 0.5, 0.0)
+        assert line.sup_sub_scales == (1.0, 0.5, 1.0)
+
+    def test_downscale_field_drives_scale_and_shift(self, tmp_path: Path) -> None:
+        """supersubscript_downscale 0.8 -> shift 0.2 and the 0.4in-text tool."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        line = by_id["plt_downscale08"].content[0]
+        assert line.supersubscript_downscale == 0.8
+        assert line.sup_sub_scales == (1.0, 0.8, 1.0)
+        assert line.sup_sub_shifts[0] == 0.0
+        assert math.isclose(line.sup_sub_shifts[1], 0.2)
+        # 0.8 * 0.5in = 0.4in of text -> the 0.045 rung (not the 0.03 one).
+        assert line.used_cutters == (0.045, 0.06)
+
+    def test_scale_and_sup_compose_onto_the_smallest_tool(self, tmp_path: Path) -> None:
+        """<scale:0.5> inside <sup> composes to 0.25 -> the 0.015 rung."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        line = by_id["plt_scale_sup"].content[0]
+        assert line.plain_text == "tiny"
+        assert line.scale_values == (0.5,) * 4
+        assert line.sup_sub_scales == (0.5,) * 4
+        # 0.5 * 0.5 * 0.5in = 0.125in of text -> the 0.015 rung.
+        assert line.used_cutters == (0.015, 0.06)
+
+    def test_underline_splits_at_the_sup_boundary(self, tmp_path: Path) -> None:
+        """The underline is cut with each run's own tool (two runs)."""
+        from plt_optimizer.generate.label_renderer import _underline_render_gate
+
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        line = by_id["plt_sup_underline"].content[0]
+        runs = _underline_render_gate(line)
+        assert len(runs) == 2
+        assert line.plain_text[runs[0][0] : runs[0][1] + 1] == "pay "
+        assert line.plain_text[runs[1][0] : runs[1][1] + 1] == "deep"
+
+    def test_sup_and_sub_coexist_on_one_line(self, tmp_path: Path) -> None:
+        """The two tags are mutually exclusive per character, both on one line."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        line = by_id["plt_sup_sub_line"].content[0]
+        assert line.plain_text == "1st & 2nd"
+        assert line.sup_sub_shifts == (0.0, 0.5, 0.5, 0.0, 0.0, 0.0, 0.0, -0.5, -0.5)
+
+    def test_ttf_sup_shifts_vs_the_plain_twin(self, tmp_path: Path) -> None:
+        """The TTF path shifts the flagged glyph (the PLT parity contract)."""
+        result = self._export(tmp_path)
+        sup = self._line_bounds(result.rendered_labels["ttf_sup"].source_label)
+        plain = self._line_bounds(result.rendered_labels["ttf_plain"].source_label)
+        # The downscaled run's top lands on the capline; the plain prefix keeps
+        # the baseline, so the ink box matches while the small glyphs ride up.
+        assert sup[3] == pytest.approx(plain[3], abs=1e-3)
+
+    def test_sup_adds_the_downscaled_height_cutter_file(self, tmp_path: Path) -> None:
+        """A bare sup run engraves with its own tool, so it gets its own file.
+
+        Dino auto-selects 0.060 for 0.5in text. A bare sup run (d = 0.5) is
+        0.25in of text -> the 0.030 rung; the d = 0.8 label is 0.4in -> 0.045;
+        the <scale:0.5>-inside-<sup> label is 0.125in -> 0.015. The shift-only
+        labels (<sup:0.3>) keep the line's 0.060 tool.
+        """
+        result = self._export(tmp_path)
+        assert sorted(p.name for p in result.plt_paths) == [
+            "0.015_bh_ss.plt",
+            "0.030_txt_ss.plt",  # the d = 0.5 runs (0.25in of text -> 0.030)
+            "0.045_txt_ss.plt",  # the d = 0.8 run (0.4in of text -> 0.045)
+            "0.060_txt_ss.plt",  # the plain runs + the shift-only runs
+        ]
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        sup = by_id["plt_sup"].content[0]
+        assert sup.used_cutters == (0.03, 0.06)
+        assert math.isclose(sup.per_char_cutters[6], 0.03)  # the 'S' of 'Small'
+        assert math.isclose(sup.per_char_cutters[0], 0.06)  # the plain 'H'
+        # A shift-only run never splits the pen.
+        assert by_id["plt_shift"].content[0].used_cutters == (0.06,)
+
+    def test_arcs_stay_native_under_the_shift(self, tmp_path: Path) -> None:
+        """A pure translate keeps PLT ``AA`` arcs native end-to-end."""
+        result = self._export(tmp_path)
+        text_file = next(p for p in result.plt_paths if p.name.endswith("0.030_txt_ss.plt"))
+        assert "AA" in text_file.read_text()

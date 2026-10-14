@@ -899,3 +899,40 @@ def test_scale_argument_survives_the_reflow() -> None:
     assert first.scale_values == (0.5, 0.5, 0.5, 0.5)
     assert second.text == "BB CC"
     assert second.has_scale is False
+
+
+def test_bare_sup_tag_survives_the_reflow() -> None:
+    """A bare ``<sup>`` word keeps its tag when it moves between lines.
+
+    The reflow round-trips words through ``serialize_word`` into raw text and
+    re-parses; an args-optional tag whose canonical argument is empty must
+    re-emit the *bare* ``<sup>`` (emitting ``<sup:>`` would engrave literally).
+    """
+    label = _label(
+        "m",
+        _line("<sup>AAAA</sup> BB"),
+        _line("CC"),
+    )
+    result = _reflow_label(label, _plain_probe())
+    assert result is not None
+    first, second = result.content
+    assert first.text == "<sup>AAAA</sup>"
+    assert first.plain_text == "AAAA"
+    assert first.has_sup_sub is True
+    assert first.sup_sub_shifts == (0.5, 0.5, 0.5, 0.5)
+    assert second.text == "BB CC"
+    assert second.has_sup_sub is False
+
+
+def test_sup_shift_argument_survives_the_reflow() -> None:
+    """An argumented ``<sup:0.3>`` word keeps its explicit shift."""
+    label = _label(
+        "m",
+        _line("<sup:0.3>AAAA</sup> BB"),
+        _line("CC"),
+    )
+    result = _reflow_label(label, _plain_probe())
+    assert result is not None
+    first = result.content[0]
+    assert first.text == "<sup:0.3>AAAA</sup>"
+    assert first.sup_sub_shifts == (0.3, 0.3, 0.3, 0.3)
