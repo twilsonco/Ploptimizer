@@ -1,7 +1,4 @@
 # TODO List
-- [x] Fix unicode arrow symbols generated in @extract_plt_fonts.py.
-  - Use the caret `^` for all arrows, rotated as necessary. No more use of chevrons.
-  - Expand hyphen `-` as necessary to be exactly $capline - baseline$ in length.
 - [ ] For the `non_text_fonts.txt` list, their font showcase needs to label each characters so that users know which ascii character to use in order to get the shown characters. Something like `a: α`, `b: β`, etc. For the a, b, c, etc. we can use the font specified by the `DEFAULT_FONT_PATH` in `ftext_renderer.py`. 
   - The showcase will be different for these non-text fonts. Rather than "The quick brown..." and ABC and abc, it will simply be the printable ascii characters specified in `Fonts/ascii.txt` with the mapping described above.
   - The font showcase title for such non-text fonts should specify that it is a mapping of text characters to symbols.
