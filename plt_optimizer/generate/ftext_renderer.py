@@ -530,6 +530,80 @@ def _apply_italic(
     return vp.LineCollection(lines)
 
 
+def _apply_bold(
+    scaled: vp.LineCollection,
+    text: str,
+    font_path: Path,
+    factor: float,
+    bold_flags: Optional[Sequence[bool]],
+    small_caps: bool = False,
+) -> vp.LineCollection:
+    """Shrink the bold glyph contours of a scaled line in place.
+
+    The line's contours are sliced per character (see :func:`_per_glyph_counts`);
+    every flagged glyph is scaled uniformly by ``factor`` **about its own
+    ink-left / baseline** (``y' = y * factor`` with the baseline at ``y = 0``,
+    ``x' = left + (x - left) * factor``). This is the centerline contract: the
+    line renders at ``nominal - plain_cutter`` and a bold glyph's centerlines
+    shrink to ``nominal - bold_cutter``, so the thicker tool's fatter engraved
+    stroke stays inside the box the plain glyph occupies -- the same silhouette
+    the PLT path produces with :func:`_scale_baseline_geometry`.
+
+    The pen advance is deliberately untouched (the glyph keeps its natural
+    advance), matching the italic path: TTF shaping owns the advances, and a
+    per-glyph advance rewrite would need a TTF layout path (out of scope).
+
+    Args:
+        scaled: The line's contours in inches (baseline at y=0), before
+            closing-chord removal.
+        text: The line's text (spaces own no contours).
+        font_path: The ``.ttf`` path (per-glyph contour slicing).
+        factor: The bold downscale to apply (``<= 1``).
+        bold_flags: Per-character bold selection aligned with ``text`` (one
+            flag per character, spaces included); ``None`` scales every glyph.
+        small_caps: True when the render used the small-caps mapped string
+            (the per-glyph slicing then probes the uppercase sources, as in
+            :func:`_apply_small_caps`).
+
+    Returns:
+        The line with the flagged glyphs shrunk. When the per-glyph contour
+        counts do not line up, the line is returned unchanged with a WARNING
+        (the natural full-size render is the graceful fallback).
+    """
+    pairs = _per_glyph_counts(text, font_path, len(scaled), small_caps=small_caps)
+    if pairs is None:
+        counts_total = sum(_glyph_contour_count(font_path, ch) for ch in text if ch != " ")
+        logger.warning(
+            "bold TTF render: per-glyph contour counts (%d) do not sum to the "
+            "whole-line contour count (%d); rendering at full size",
+            counts_total,
+            len(scaled),
+        )
+        return scaled
+
+    occurrences = [index for index, ch in enumerate(text) if ch != " "]
+    flags: Sequence[bool] = (True,) * len(text) if bold_flags is None else bold_flags
+    lines = [np.asarray(line) for line in scaled]
+    cursor = 0
+    for _char, count in pairs:
+        glyph_indices = list(range(cursor, cursor + count))
+        cursor += count
+        text_index = _pop_occurrence(occurrences)
+        if not flags[text_index]:
+            continue
+        present = [lines[index] for index in glyph_indices if len(lines[index])]
+        if not present:  # pragma: no cover - a glyph slice carries contours
+            continue
+        # Anchor = the glyph's ink-left on the baseline (y = 0), so the shrink
+        # is inward/downward and the baseline stays exactly in place.
+        left = float(np.concatenate(present).real.min())
+        anchor = complex(left, 0.0)
+        for index in glyph_indices:
+            line = lines[index]
+            lines[index] = anchor + (line - anchor) * factor
+    return vp.LineCollection(lines)
+
+
 def _pop_occurrence(occurrences: List[int]) -> int:
     """Return and remove the first text index in ``occurrences``.
 
@@ -544,7 +618,7 @@ def _pop_occurrence(occurrences: List[int]) -> int:
             already validated against the text; this guards pathology).
     """
     if not occurrences:  # pragma: no cover - the counts validated the pairs
-        raise ValueError("italic glyph slice exceeds the text's characters")
+        raise ValueError("styled glyph slice exceeds the text's characters")
     return occurrences.pop(0)
 
 
@@ -590,6 +664,8 @@ def render_text_line_ftext(
     italic_tan: Optional[float] = None,
     italic_flags: Optional[Sequence[bool]] = None,
     italic_face: Optional[Path] = None,
+    bold_scale: Optional[float] = None,
+    bold_flags: Optional[Sequence[bool]] = None,
 ) -> vp.LineCollection:
     """Render a single line of text with the Relief Single Line TTF font.
 
@@ -638,6 +714,16 @@ def render_text_line_ftext(
             ``italic_tan`` is set. ``None`` italicizes every character.
         italic_face: The family's native italic ``.ttf`` (the registry's
             sibling-file probe), or ``None`` for the shear-only fallback.
+        bold_scale: Bold markup (``<b>``) downscale for the flagged glyphs
+            (``(nominal - bold_cutter) / (nominal - plain_cutter) <= 1``). The
+            line renders at the plain toolpath height and each bold glyph's
+            centerlines shrink uniformly about its own ink-left/baseline to
+            the bold toolpath height (see :func:`_apply_bold`). ``None`` (the
+            default) disables the transform, keeping every legacy render
+            bit-identical.
+        bold_flags: Per-character bold selection aligned with ``text`` (one
+            flag per character, spaces included); only consulted when
+            :attr:`bold_scale` is set. ``None`` emboldens every character.
 
     Returns:
         A vpype.LineCollection containing the rendered glyph outlines, or an
@@ -701,6 +787,14 @@ def render_text_line_ftext(
             italic_flags,
             italic_face,
             small_caps=small_caps,
+        )
+
+    # Shrink the bold glyphs last: the italic shear is applied to the glyph
+    # at its natural size first, so a bold+italic glyph leans and shrinks
+    # exactly like the PLT path (shear then baseline scale).
+    if bold_scale is not None:
+        scaled = _apply_bold(
+            scaled, render_text, resolved_font, bold_scale, bold_flags, small_caps=small_caps
         )
 
     # Drop erroneous closing chords forced by TrueType's closed-path outlines,
@@ -782,6 +876,8 @@ def render_text_line_ftext_with_words(
     italic_tan: Optional[float] = None,
     italic_flags: Optional[Sequence[bool]] = None,
     italic_face: Optional[Path] = None,
+    bold_scale: Optional[float] = None,
+    bold_flags: Optional[Sequence[bool]] = None,
 ) -> Tuple[vp.LineCollection, List[Tuple[str, List[int]]]]:
     """Render a line of text and partition its contours by whitespace-delimited word.
 
@@ -814,6 +910,10 @@ def render_text_line_ftext_with_words(
             lacks raise :class:`FtextRenderError`.
         small_caps_scale: Small-caps mode for ASCII lowercase ``a-z``
             (``None`` = off; see :func:`render_text_line_ftext`).
+        bold_scale: Bold markup (``<b>``) downscale for flagged glyphs
+            (``None`` = off; see :func:`render_text_line_ftext`).
+        bold_flags: Per-character bold selection (``None`` = whole line;
+            see :func:`render_text_line_ftext`).
 
     Returns:
         ``(whole_lc, word_groups)`` where ``whole_lc`` is identical to
@@ -832,13 +932,15 @@ def render_text_line_ftext_with_words(
         italic_tan=italic_tan,
         italic_flags=italic_flags,
         italic_face=italic_face,
+        bold_scale=bold_scale,
+        bold_flags=bold_flags,
     )
     if whole.is_empty():
         return whole, []
 
     resolved_font = font_path if font_path is not None else DEFAULT_FONT_PATH
 
-    if small_caps_scale is not None or italic_tan is not None:
+    if small_caps_scale is not None or italic_tan is not None or bold_scale is not None:
         # The signature matcher cannot work: the shrunk/italicized glyphs no
         # longer match their standalone render, so the word groups come from
         # the exact per-glyph contour slicing instead.
@@ -1006,6 +1108,8 @@ def render_text_line_ftext_with_glyphs(
     italic_tan: Optional[float] = None,
     italic_flags: Optional[Sequence[bool]] = None,
     italic_face: Optional[Path] = None,
+    bold_scale: Optional[float] = None,
+    bold_flags: Optional[Sequence[bool]] = None,
 ) -> Tuple[
     vp.LineCollection,
     List[Tuple[str, List[int]]],
@@ -1036,6 +1140,10 @@ def render_text_line_ftext_with_glyphs(
         italic_flags: Per-character italic selection (``None`` = whole
             line; see :func:`render_text_line_ftext`).
         italic_face: Native italic face path (``None`` = shear only).
+        bold_scale: Bold markup (``<b>``) downscale for flagged glyphs
+            (``None`` = off; see :func:`render_text_line_ftext`).
+        bold_flags: Per-character bold selection (``None`` = whole line;
+            see :func:`render_text_line_ftext`).
 
     Returns:
         ``(whole_lc, word_groups, glyph_groups)`` where ``whole_lc`` and
@@ -1056,6 +1164,8 @@ def render_text_line_ftext_with_glyphs(
         italic_tan=italic_tan,
         italic_flags=italic_flags,
         italic_face=italic_face,
+        bold_scale=bold_scale,
+        bold_flags=bold_flags,
     )
     if whole.is_empty():
         return whole, word_groups, []

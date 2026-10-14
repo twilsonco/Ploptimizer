@@ -450,6 +450,21 @@
       "description": "Default multi-stroke minimum pass overlap ratio (job layer; the automatic cutter of a multi-stroke/bold PLT font is never smaller than pass_spacing / (1 - ratio), so adjacent engraved passes always overlap and no unengraved stripe appears). Unset falls back to 0.25.",
       "title": "Multistroke Overlap Ratio"
     },
+    "bold_boldness_multiplier": {
+      "anyOf": [
+        {
+          "maximum": 4.0,
+          "minimum": 1.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default bold markup (<b>) boldness multiplier (job layer): the bold runs of a multi-stroke (bold) PLT font re-run the cutter ladder at target_boldness_factor * this multiplier (clamped to 0.30). Inert on single-stroke PLT and TTF fonts, where <b> steps to the next larger inventory cutter. Unset falls back to 1.5.",
+      "title": "Bold Boldness Multiplier"
+    },
     "holes": {
       "anyOf": [
         {

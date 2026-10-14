@@ -55,6 +55,7 @@ _FULL_CONFIG: dict[str, Any] = {
     "underline_break_spaces": True,
     "target_boldness_factor": 0.18,
     "multistroke_overlap_ratio": 0.35,
+    "bold_boldness_multiplier": 2.0,
     "use_baseline_spacing": False,
     "v_center_by_content": True,
     "auto_descending_character_adjustment": False,
@@ -322,6 +323,16 @@ class TestJobDefaultsModel:
         assert JobDefaults().underline_break_spaces is None
         assert JobDefaults(underline_break_spaces=True).underline_break_spaces is True
         assert JobDefaults(underline_break_spaces=False).underline_break_spaces is False
+
+    def test_bold_boldness_multiplier_defaults_and_bounds(self) -> None:
+        """The job layer defaults the multiplier to None and bounds it [1.0, 4.0]."""
+        assert JobDefaults().bold_boldness_multiplier is None
+        assert JobDefaults(bold_boldness_multiplier=1.0).bold_boldness_multiplier == 1.0
+        assert JobDefaults(bold_boldness_multiplier=4.0).bold_boldness_multiplier == 4.0
+        with pytest.raises(ValidationError):
+            JobDefaults(bold_boldness_multiplier=0.5)
+        with pytest.raises(ValidationError):
+            JobDefaults(bold_boldness_multiplier=4.5)
         assert JobDefaults().target_boldness_factor is None
         assert JobDefaults(target_boldness_factor=0.18).target_boldness_factor == pytest.approx(
             0.18
@@ -434,6 +445,7 @@ class TestApplyJobConfigDefaults:
         assert filled["underline_break_spaces"] is True
         assert filled["target_boldness_factor"] == 0.18
         assert filled["multistroke_overlap_ratio"] == 0.35
+        assert filled["bold_boldness_multiplier"] == 2.0
 
     def test_cutter_downsize_job_layer_fill(self, tmp_path: Path) -> None:
         """Configured cutter-downsize defaults land as job-level values."""
@@ -967,6 +979,7 @@ class TestParseYamlWithJobConfig:
         assert job.underline_break_spaces is False
         assert job.target_boldness_factor == 0.14
         assert job.multistroke_overlap_ratio == 0.25
+        assert job.bold_boldness_multiplier == 1.5
         assert job.cutter_downsize is True
         assert job.max_cutter_downsizes == 1
         assert job.cutter_downsize_global is True

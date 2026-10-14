@@ -921,6 +921,22 @@ class TextAttributes(BaseModel):
             "schema parity only."
         ),
     )
+    bold_boldness_multiplier: Optional[float] = Field(
+        default=None,
+        ge=1.0,
+        le=4.0,
+        description=(
+            "Boldness boost applied by inline <b> markup to a multi-stroke "
+            "(bold) PLT font: the bold runs re-run the cutter ladder at "
+            "target_boldness_factor * this multiplier (clamped to 0.30 with "
+            "a WARNING), so their parallel passes engrave heavier than the "
+            "line's plain text. On single-stroke PLT and TTF fonts <b> "
+            "instead steps to the next larger inventory cutter and this "
+            "multiplier is inert. Bound to [1.0, 4.0]; 1.0 disables the "
+            "boost. Cascades line -> label -> job (fallback 1.5); accepted "
+            "on plates for schema parity only."
+        ),
+    )
     cutter_downsize: Optional[bool] = Field(
         default=None,
         description=(
@@ -1925,6 +1941,15 @@ class PlateSpec(BaseModel):
         le=0.5,
         description=(
             "Multi-stroke minimum pass overlap ratio (schema parity; not applied at plate level)."
+        ),
+    )
+    bold_boldness_multiplier: Optional[float] = Field(
+        default=None,
+        ge=1.0,
+        le=4.0,
+        description=(
+            "Bold markup (<b>) boldness multiplier for multi-stroke fonts "
+            "(schema parity; not applied at plate level)."
         ),
     )
     cutter_downsize: Optional[bool] = Field(

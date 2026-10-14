@@ -2580,3 +2580,30 @@ class TestMultistrokeOverlapRatioField:
         """The plate tier carries the field for schema parity."""
         plate = PlateSpec(id="p", width=24.0, height=16.0, multistroke_overlap_ratio=0.4)
         assert plate.multistroke_overlap_ratio == 0.4
+
+
+class TestBoldBoldnessMultiplierField:
+    """The cascading ``bold_boldness_multiplier`` field (line -> label -> job + plate)."""
+
+    def test_defaults_to_none_everywhere(self) -> None:
+        """Every tier defaults bold_boldness_multiplier to None (unset)."""
+        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        assert job.bold_boldness_multiplier is None
+        assert TextLine(text="X").bold_boldness_multiplier is None
+        assert PlateSpec(id="p", width=24.0, height=16.0).bold_boldness_multiplier is None
+
+    @pytest.mark.parametrize("value", [1.0, 1.5, 4.0])
+    def test_in_range_accepted(self, value: float) -> None:
+        """The [1.0, 4.0] range is accepted, bounds included."""
+        assert TextLine(text="X", bold_boldness_multiplier=value).bold_boldness_multiplier == value
+
+    @pytest.mark.parametrize("value", [0.9, 4.1, 0.0, -1.0])
+    def test_out_of_range_rejected(self, value: float) -> None:
+        """A multiplier outside [1.0, 4.0] is a validation error."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", bold_boldness_multiplier=value)
+
+    def test_plate_parity_accepts_the_field(self) -> None:
+        """The plate tier carries the field for schema parity."""
+        plate = PlateSpec(id="p", width=24.0, height=16.0, bold_boldness_multiplier=2.0)
+        assert plate.bold_boldness_multiplier == 2.0

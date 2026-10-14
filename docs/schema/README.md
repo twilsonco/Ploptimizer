@@ -176,6 +176,7 @@ always wins at its level. Precedence per attribute:
 | `text_height`, `character_spacing`, `line_spacing`, `max_h_compress`, `text_h_alignment` | line → label → job → config | see fallback table in `JOB_SPEC.md` |
 | `cutter_size` | line → label → job (no config tier) | `null` = auto-select from `text_height` |
 | `target_boldness_factor`, `multistroke_overlap_ratio` | line → label → job → config (plate parity) | `0.14` / `0.25` (multi-stroke PLT fonts only) |
+| `bold_boldness_multiplier` | line → label → job → config (plate parity) | `1.5` (`<b>` markup on multi-stroke PLT fonts only) |
 | `cutter_downsize`, `max_cutter_downsizes`, `cutter_downsize_global` | line → label → job → config | `true` / `1` / `true` |
 | `h_compress_global` | line → label → job → config | `false` |
 | `use_baseline_spacing` | label → job → config (never lines; plate parity) | `true` |

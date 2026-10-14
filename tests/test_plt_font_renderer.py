@@ -1477,3 +1477,116 @@ class TestItalicShear:
         assert italic[3] == pytest.approx(0.2, abs=1e-9)
         assert italic[0] == pytest.approx(-0.25, abs=1e-9)
         assert italic[2] == pytest.approx(0.45, abs=1e-9)
+
+
+class TestBoldMarkup:
+    """The ``<b>`` per-character cutter diameters + baseline-anchored glyph scale.
+
+    ``A`` is the diagonal ``(0,0)-(1,1)`` (bbox ``(0,0,1,1)`` at height 1.0),
+    ``B`` is the zero-width vertical at ``x = 0`` (so the pair's advance is
+    exactly the kerning offset plus the clearance), ``C`` is a full circle arc
+    (the arc-native pin) and ``g`` descends to ``y = -0.5`` (the baseline
+    anchoring pin). The bold scale is ``x' = x*f, y' = y*f`` about the baseline.
+    """
+
+    def test_glyph_scale_shrinks_about_the_baseline(self, synth_lib: Path) -> None:
+        """A bold glyph scales uniformly toward the baseline (top descends)."""
+        plain = _render("A", 1.0, synth_lib).bounds()
+        bold = _render("A", 1.0, synth_lib, glyph_scales=(0.5,)).bounds()
+        assert plain is not None and bold is not None
+        assert plain == pytest.approx((0.0, 0.0, 1.0, 1.0))
+        # x' = 1*0.5, y' = 1*0.5; the baseline (y=0) stays fixed.
+        assert bold == pytest.approx((0.0, 0.0, 0.5, 0.5))
+
+    def test_descender_shrinks_toward_the_baseline(self, synth_lib: Path) -> None:
+        """A sub-baseline overshoot shrinks with the rest of the glyph."""
+        plain = _render("g", 1.0, synth_lib).bounds()
+        bold = _render("g", 1.0, synth_lib, glyph_scales=(0.5,)).bounds()
+        assert plain is not None and bold is not None
+        assert plain == pytest.approx((0.0, -0.5, 0.5, 0.5))
+        assert bold == pytest.approx((0.0, -0.25, 0.25, 0.25))
+
+    def test_scale_one_is_bit_identical(self, synth_lib: Path) -> None:
+        """``glyph_scales = 1.0`` renders the untouched geometry."""
+        plain = _render("AB", 1.0, synth_lib)
+        bold = _render("AB", 1.0, synth_lib, glyph_scales=(1.0, 1.0))
+        assert bold.to_hpgl() == plain.to_hpgl()
+
+    def test_flags_select_the_glyphs(self, synth_lib: Path) -> None:
+        """Only the scaled glyph shrinks (per-character bold runs)."""
+        plain = _render("AB", 1.0, synth_lib).bounds()
+        first = _render("AB", 1.0, synth_lib, glyph_scales=(0.5, 1.0)).bounds()
+        assert plain is not None and first is not None
+        # A shrinks to width 0.5; the A->B pair's advance is unchanged (the
+        # clearance is the same), so B lands at the plain origin and the line
+        # is narrower only by A's shrink.
+        assert plain[2] > first[2]
+
+    def test_per_pair_clearance_uses_the_two_cutters(self, synth_lib: Path) -> None:
+        """A bold neighbour widens the pair's clearance to 0.5*(dL+dR)."""
+        kwargs = {"character_spacing": 0.02}
+        plain = _render(
+            "AB", 1.0, synth_lib, cutter_diameter=0.04, **kwargs
+        ).bounds()
+        bold = _render(
+            "AB",
+            1.0,
+            synth_lib,
+            cutter_diameter=0.04,
+            cutter_diameters=(0.04, 0.09),
+            **kwargs,
+        ).bounds()
+        assert plain is not None and bold is not None
+        # Plain clearance 0.04+0.02 = 0.06 -> advance 1.06; bold pair
+        # clearance 0.5*(0.04+0.09)+0.02 = 0.085 -> advance 1.085.
+        assert plain[2] == pytest.approx(1.06, abs=1e-9)
+        assert bold[2] == pytest.approx(1.085, abs=1e-9)
+
+    def test_arcs_stay_native_under_the_scale(self, synth_lib: Path) -> None:
+        """A uniform scale keeps ``AA`` arcs native (a scaled circle is a circle)."""
+        plain = _render("C", 1.0, synth_lib)
+        bold = _render("C", 1.0, synth_lib, glyph_scales=(0.7,))
+        assert _count_arcs(plain) == 1
+        assert _count_arcs(bold) == 1
+
+    def test_stroke_count_is_preserved(self, synth_lib: Path) -> None:
+        """The per-glyph stroke partition survives (the glyph sweep stays valid)."""
+        plain = _render("AB", 1.0, synth_lib)
+        bold = _render("AB", 1.0, synth_lib, glyph_scales=(0.8, 0.8))
+        assert len(bold.strokes) == len(plain.strokes)
+
+    def test_scale_length_mismatch_is_rejected(self, synth_lib: Path) -> None:
+        """A glyph_scales length that is not the text length raises ValueError."""
+        with pytest.raises(ValueError, match="glyph_scales length"):
+            _render("AB", 1.0, synth_lib, glyph_scales=(0.5,))
+
+    def test_cutter_diameters_length_mismatch_is_rejected(self, synth_lib: Path) -> None:
+        """A cutter_diameters length that is not the text length raises ValueError."""
+        with pytest.raises(ValueError, match="cutter_diameters length"):
+            _render("AB", 1.0, synth_lib, cutter_diameters=(0.04,))
+
+    def test_none_kwargs_are_bit_identical(self, synth_lib: Path) -> None:
+        """Omitting the bold kwargs keeps the historical render."""
+        kwargs = {"cutter_diameter": 0.04, "character_spacing": 0.02}
+        legacy = _render("AB", 1.0, synth_lib, **kwargs)
+        explicit = _render(
+            "AB", 1.0, synth_lib, cutter_diameters=None, glyph_scales=None, **kwargs
+        )
+        assert explicit.to_hpgl() == legacy.to_hpgl()
+
+    def test_bold_scales_the_silhouette_the_kerning_measures(self, synth_lib: Path) -> None:
+        """A scaled left glyph's shrunken silhouette penetrates its neighbour less.
+
+        ``R`` sits at design x = 0.95..1.0 (a right-edge sliver). Scaling the
+        left glyph about the baseline scales its x too, so a smaller left glyph
+        leaves the pair's advance driven by the (unchanged) clearance, not the
+        penetration -- the scaled silhouette is what kerns.
+        """
+        kwargs = {"character_spacing": 0.0}
+        plain = _render("RA", 1.0, synth_lib, cutter_diameter=0.0, **kwargs).bounds()
+        bold = _render(
+            "RA", 1.0, synth_lib, cutter_diameter=0.0, glyph_scales=(0.5, 1.0), **kwargs
+        ).bounds()
+        assert plain is not None and bold is not None
+        # R's right edge halves (1.0 -> 0.5), so A's origin lands earlier.
+        assert bold[2] < plain[2]

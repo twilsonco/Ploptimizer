@@ -24,6 +24,10 @@ what is engraved without appearing in the YAML spec:
   descending glyphs the automatic descending-character adjustment vertically
   downscaled and raised because a glyph on the following line came close to
   colliding with them (``auto_descending_character_adjustment``).
+- **Bold markup** (:attr:`plt_optimizer.generate.resolution.ResolvedTextLine.bold_cutter_diameter`):
+  the thicker cutter a ``<b>`` run of the line engraves with, alongside the
+  line's own (plain) cutter -- the tool swap the markup caused, which the YAML
+  spec never states.
 
 This module is the single source of truth for the report text: the
 ``generate`` CLI (compact by default, full under ``-v``) and
@@ -85,9 +89,10 @@ def _label_findings(
         float | None,
         tuple[float, float] | None,
         int,
+        tuple[float, float] | None,
     ]
 ]:
-    """Collect the per-line findings (compression / spacing / downsize / relief).
+    """Collect the per-line findings (compression / spacing / downsize / relief / bold).
 
     Args:
         rendered: The rendered label carrying the render-time maps plus the
@@ -96,13 +101,15 @@ def _label_findings(
 
     Returns:
         One ``(line_index, line_text, scale, requested, effective, downsize,
-        relief_count)`` tuple per finding, in content order. ``scale`` is set
-        (below ``1.0``) only for compressed lines; ``requested``/``effective``
-        are set only for spacing gaps (always in full mode, or when deviating
-        in compact mode); ``downsize`` is the ``(original, final)`` cutter
-        pair only for lines whose automatic cutter was reduced;
-        ``relief_count`` is how many descending glyphs the automatic
-        descending-character adjustment relieved on that line (``0`` for none).
+        relief_count, bold)`` tuple per finding, in content order. ``scale`` is
+        set (below ``1.0``) only for compressed lines; ``requested``/
+        ``effective`` are set only for spacing gaps (always in full mode, or
+        when deviating in compact mode); ``downsize`` is the ``(original,
+        final)`` cutter pair only for lines whose automatic cutter was
+        reduced; ``relief_count`` is how many descending glyphs the automatic
+        descending-character adjustment relieved on that line (``0`` for none);
+        ``bold`` is the ``(plain, bold)`` cutter pair only for lines carrying a
+        ``<b>`` run.
     """
     content = rendered.source_label.content
     downsizes = rendered.source_label.cutter_downsize_by_line
@@ -116,6 +123,7 @@ def _label_findings(
             float | None,
             tuple[float, float] | None,
             int,
+            tuple[float, float] | None,
         ]
     ] = []
     for line_index in sorted(
@@ -123,6 +131,7 @@ def _label_findings(
         | set(rendered.line_spacing_by_line)
         | set(downsizes)
         | set(reliefs)
+        | {index for index, line in enumerate(content) if line.bold_cutter_diameter is not None}
     ):
         if line_index >= len(content):  # pragma: no cover - defensive
             continue
@@ -134,7 +143,18 @@ def _label_findings(
         deviates = effective is not None and _spacing_deviation(requested, effective)
         downsize = downsizes.get(line_index)
         relief_count = len(reliefs.get(line_index, ()))
-        if not compressed and not deviates and downsize is None and relief_count == 0:
+        bold = (
+            (line.cutter_diameter, line.bold_cutter_diameter)
+            if line.bold_cutter_diameter is not None
+            else None
+        )
+        if (
+            not compressed
+            and not deviates
+            and downsize is None
+            and relief_count == 0
+            and bold is None
+        ):
             continue
         findings.append(
             (
@@ -145,6 +165,7 @@ def _label_findings(
                 effective if deviates else None,
                 downsize,
                 relief_count,
+                bold,
             )
         )
     return findings
@@ -172,10 +193,17 @@ def _label_lines(
     findings = _label_findings(rendered)
     finding_by_index: dict[
         int,
-        tuple[float | None, float | None, float | None, tuple[float, float] | None, int],
+        tuple[
+            float | None,
+            float | None,
+            float | None,
+            tuple[float, float] | None,
+            int,
+            tuple[float, float] | None,
+        ],
     ] = {
-        index: (scale, requested, effective, downsize, relief_count)
-        for index, _t, scale, requested, effective, downsize, relief_count in findings
+        index: (scale, requested, effective, downsize, relief_count, bold)
+        for index, _t, scale, requested, effective, downsize, relief_count, bold in findings
     }
 
     if not full and not findings:
@@ -230,6 +258,13 @@ def _label_lines(
                 lines.append(
                     f"    Line {line_index}: {line.plain_text!r} "
                     f"cutter {original:.3f}in -> {final:.3f}in (downsized for compression)"
+                )
+            bold = entry[5]
+            if bold is not None:
+                plain_cutter, bold_cutter = bold
+                lines.append(
+                    f"    Line {line_index}: {line.plain_text!r} "
+                    f"bold cutter {bold_cutter:.3f}in (line cutter {plain_cutter:.3f}in)"
                 )
             if entry[4]:
                 for fix in rendered.descender_adjustments_by_line.get(line_index, ()):

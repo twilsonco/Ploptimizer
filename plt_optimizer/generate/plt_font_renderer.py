@@ -589,6 +589,44 @@ def _shear_geometry(geometry: _GlyphGeometry, tan: float) -> _GlyphGeometry:
     )
 
 
+def _scale_baseline_geometry(geometry: _GlyphGeometry, factor: float) -> _GlyphGeometry:
+    """Return ``geometry`` uniformly scaled about the **baseline** ``y = 0``.
+
+    The transform is ``x' = x * factor``, ``y' = y * factor`` -- the bold
+    markup's centerline contract: a thicker tool engraves a fatter stroke, so
+    the glyph's centerlines shrink toward the baseline to keep the engraved
+    silhouette inside the box the plain glyph occupies. The baseline (and
+    every point on it) stays exactly in place, so a bold glyph sits on the
+    same baseline as its plain neighbours and its sub-baseline overshoot
+    shrinks with it. The map is a pure uniform scale, so ``AA`` arcs stay
+    native circular arcs (sweeps untouched) -- the same guarantee
+    :func:`_scale_geometry` gives for small caps.
+
+    The block, bounding box and both profile envelopes transform together,
+    so kerning measures the *scaled* silhouette in the shared baseline frame.
+
+    Args:
+        geometry: Cached glyph geometry in design units.
+        factor: Uniform scale factor (``1.0`` returns ``geometry`` itself).
+
+    Returns:
+        The scaled geometry, or ``geometry`` unchanged at ``1.0``.
+    """
+    if factor == 1.0:
+        return geometry
+    min_x, min_y, max_x, max_y = geometry.bounding_box
+
+    def _point(x: float, y: float) -> Tuple[float, float]:
+        return (x * factor, y * factor)
+
+    return _GlyphGeometry(
+        block=geometry.block.scaled(factor),
+        bounding_box=(*_point(min_x, min_y), *_point(max_x, max_y)),
+        left_envelope=tuple(_point(x, y) for x, y in geometry.left_envelope),
+        right_envelope=tuple(_point(x, y) for x, y in geometry.right_envelope),
+    )
+
+
 def _walk_line(
     text: str,
     target_height_inches: float,
@@ -608,6 +646,8 @@ def _walk_line(
     lowercase_scale: Optional[float] = None,
     italic_tan: Optional[float] = None,
     italic_flags: Optional[Sequence[bool]] = None,
+    cutter_diameters: Optional[Sequence[float]] = None,
+    glyph_scales: Optional[Sequence[float]] = None,
 ) -> Tuple[
     TextBlock,
     List[Tuple[str, List[int]]],
@@ -675,6 +715,28 @@ def _walk_line(
         italic_flags: Per-character italic selection aligned with ``text``
             (one flag per character, spaces included); only consulted when
             :attr:`italic_tan` is set. ``None`` shears every character.
+        cutter_diameters: Per-character resolved cutter diameters in inches
+            (``<b>`` bold markup: bold characters carry the line's thicker
+            bold cutter, every other character the plain one), aligned with
+            ``text`` (spaces included -- a space carries no ink, so its
+            entry only feeds the pair clearances). Each kerned pair's
+            clearance becomes ``0.5 * (diameter_left + diameter_right) +
+            character_spacing + kerning_min_gap`` -- the exact engraved-
+            stroke floor of the two strokes, matching the ``0.5 * (a + b)``
+            collision floors elsewhere. ``None`` (the default) keeps the
+            line-level :attr:`cutter_diameter` clearance for every pair, so
+            every legacy call site renders bit-identically.
+        glyph_scales: Per-character uniform glyph scale (``<b>`` bold: the
+            ratio ``(nominal - bold_cutter) / (nominal - plain_cutter) <=
+            1``; every other character ``1.0``), aligned with ``text``.
+            Each scaled glyph shrinks **about its own baseline** (the
+            baseline stays exactly in place, the top descends -- the
+            centerline contract: a thicker tool engraves a fatter stroke,
+            so the centerlines shrink to keep the engraved silhouette in its
+            box) via :func:`_scale_baseline_geometry`, which keeps ``AA``
+            arcs native. Applied after small caps, before italic, and the
+            scaled silhouette kerns. ``None`` (the default) renders every
+            glyph at ``1.0``.
 
     Returns:
         ``(block, word_groups, glyph_groups)`` where ``block`` is the
@@ -692,13 +754,20 @@ def _walk_line(
     Raises:
         PltFontRenderError: If the font is unknown/not a PLT font, or a
             character has no glyph in the font.
-        ValueError: If ``italic_flags`` length differs from ``text``.
+        ValueError: If ``italic_flags``, ``cutter_diameters`` or
+            ``glyph_scales`` length differs from ``text``.
     """
     canonical = _resolve_plt_font(font_name, library_dir, fonts_dir)
     if not text:
         return TextBlock.empty(), [], []
     if italic_flags is not None and len(italic_flags) != len(text):
         raise ValueError(f"italic_flags length {len(italic_flags)} != text length {len(text)}")
+    if cutter_diameters is not None and len(cutter_diameters) != len(text):
+        raise ValueError(
+            f"cutter_diameters length {len(cutter_diameters)} != text length {len(text)}"
+        )
+    if glyph_scales is not None and len(glyph_scales) != len(text):
+        raise ValueError(f"glyph_scales length {len(glyph_scales)} != text length {len(text)}")
 
     library_dir_key = str(library_dir) if library_dir is not None else ""
     # The small-caps variant is a render-time transform: the glyph library
@@ -708,7 +777,6 @@ def _walk_line(
     font_data = fonts[library_name]  # resolved above; presence guaranteed
     scale = target_height_inches / font_data.normalized_ref_height
     min_gap_inches = KERNING_MIN_GAP if kerning_min_gap is None else kerning_min_gap
-    clearance = cutter_diameter + character_spacing + min_gap_inches
     space_fraction = SPACE_HEIGHT_FRACTION if space_width_fraction is None else space_width_fraction
     space_advance = space_fraction * target_height_inches + character_spacing
     min_width_inches = MIN_GLYPH_WIDTH if min_glyph_width is None else min_glyph_width
@@ -751,6 +819,7 @@ def _walk_line(
     cursor = 0.0
     previous: Optional[_GlyphGeometry] = None
     previous_origin = 0.0
+    previous_cutter = cutter_diameter
     char_index = 0
     for word_index, word in enumerate(words):
         if word_index > 0:
@@ -762,6 +831,10 @@ def _walk_line(
             cursor += space_advance
             previous = None
             char_index += 1  # the space character between words
+            # Kerning breaks at the space (previous is None), so the pair
+            # bookkeeping resets; the space's own cutter entry never feeds
+            # a clearance (a space carries no ink).
+            previous_cutter = cutter_diameter
         start_index = len(strokes)
         for char in word:
             # Small caps: ASCII lowercase draws the uppercase glyph, the
@@ -772,6 +845,17 @@ def _walk_line(
             geometry = _glyph_entry(library_dir_key, library_name, source)
             if source != char and lowercase_scale is not None:
                 geometry = _scale_geometry(geometry, lowercase_scale)
+            # Bold markup: the thicker-cutter glyphs shrink uniformly about
+            # their baseline BEFORE kerning, so the smaller silhouette kerns
+            # exactly (the centerline contract; mirrors the small-caps
+            # transform, anchored on the baseline instead of the bottom).
+            char_cutter = (
+                cutter_diameter if cutter_diameters is None else cutter_diameters[char_index]
+            )
+            if glyph_scales is not None:
+                scale_factor = glyph_scales[char_index]
+                if scale_factor != 1.0:
+                    geometry = _scale_baseline_geometry(geometry, scale_factor)
             # Italic: shear the (already small-capped) geometry about the
             # baseline BEFORE kerning, so the slanted silhouette kerns
             # exactly (mirrors the small-caps transform contract).
@@ -788,12 +872,22 @@ def _walk_line(
                     recession_scale,
                     fallback_fraction,
                 )
-                cursor = previous_origin + offset * scale + clearance
+                # Per-pair stroke floor: the two engraved strokes touch at
+                # half each cutter, so a bold neighbour widens the pair.
+                pair_clearance = 0.5 * (previous_cutter + char_cutter)
+                cursor = (
+                    previous_origin
+                    + offset * scale
+                    + pair_clearance
+                    + character_spacing
+                    + min_gap_inches
+                )
             placed = geometry.block.scaled(scale).translate(cursor, 0.0)
             strokes.extend(placed.strokes)
             glyph_groups.append((char, list(range(char_start, len(strokes)))))
             previous_origin = cursor
             previous = geometry
+            previous_cutter = char_cutter
             char_index += 1
         word_groups.append((word, list(range(start_index, len(strokes)))))
 
@@ -819,6 +913,8 @@ def render_text_line_plt_font_with_words(
     lowercase_scale: Optional[float] = None,
     italic_tan: Optional[float] = None,
     italic_flags: Optional[Sequence[bool]] = None,
+    cutter_diameters: Optional[Sequence[float]] = None,
+    glyph_scales: Optional[Sequence[float]] = None,
 ) -> Tuple[TextBlock, List[Tuple[str, List[int]]]]:
     """Render a text line in a PLT-extracted font, partitioned by word.
 
@@ -865,6 +961,10 @@ def render_text_line_plt_font_with_words(
             :func:`_walk_line`).
         italic_flags: Per-character italic selection (``None`` = whole
             line; see :func:`_walk_line`).
+        cutter_diameters: Per-character cutter diameters for ``<b>`` bold
+            markup (``None`` = off; see :func:`_walk_line`).
+        glyph_scales: Per-character glyph scales for ``<b>`` bold markup
+            (``None`` = off; see :func:`_walk_line`).
 
     Returns:
         ``(block, word_groups)`` with the semantics documented on
@@ -892,6 +992,8 @@ def render_text_line_plt_font_with_words(
         lowercase_scale=lowercase_scale,
         italic_tan=italic_tan,
         italic_flags=italic_flags,
+        cutter_diameters=cutter_diameters,
+        glyph_scales=glyph_scales,
     )
     return block, word_groups
 
@@ -915,6 +1017,8 @@ def render_text_line_plt_font_with_glyphs(
     lowercase_scale: Optional[float] = None,
     italic_tan: Optional[float] = None,
     italic_flags: Optional[Sequence[bool]] = None,
+    cutter_diameters: Optional[Sequence[float]] = None,
+    glyph_scales: Optional[Sequence[float]] = None,
 ) -> Tuple[
     TextBlock,
     List[Tuple[str, List[int]]],
@@ -955,6 +1059,10 @@ def render_text_line_plt_font_with_glyphs(
             :func:`_walk_line`).
         italic_flags: Per-character italic selection (``None`` = whole
             line; see :func:`_walk_line`).
+        cutter_diameters: Per-character cutter diameters for ``<b>`` bold
+            markup (``None`` = off; see :func:`_walk_line`).
+        glyph_scales: Per-character glyph scales for ``<b>`` bold markup
+            (``None`` = off; see :func:`_walk_line`).
 
     Returns:
         ``(block, word_groups, glyph_groups)`` with the semantics
@@ -982,6 +1090,8 @@ def render_text_line_plt_font_with_glyphs(
         lowercase_scale=lowercase_scale,
         italic_tan=italic_tan,
         italic_flags=italic_flags,
+        cutter_diameters=cutter_diameters,
+        glyph_scales=glyph_scales,
     )
 
 
@@ -1004,6 +1114,8 @@ def render_text_line_plt_font(
     lowercase_scale: Optional[float] = None,
     italic_tan: Optional[float] = None,
     italic_flags: Optional[Sequence[bool]] = None,
+    cutter_diameters: Optional[Sequence[float]] = None,
+    glyph_scales: Optional[Sequence[float]] = None,
 ) -> TextBlock:
     """Render a text line in a PLT-extracted font (arcs preserved).
 
@@ -1045,6 +1157,10 @@ def render_text_line_plt_font(
             :func:`_walk_line`).
         italic_flags: Per-character italic selection (``None`` = whole
             line; see :func:`_walk_line`).
+        cutter_diameters: Per-character cutter diameters for ``<b>`` bold
+            markup (``None`` = off; see :func:`_walk_line`).
+        glyph_scales: Per-character glyph scales for ``<b>`` bold markup
+            (``None`` = off; see :func:`_walk_line`).
 
     Returns:
         The positioned :class:`TextBlock` (empty for blank input).
@@ -1070,5 +1186,7 @@ def render_text_line_plt_font(
         lowercase_scale=lowercase_scale,
         italic_tan=italic_tan,
         italic_flags=italic_flags,
+        cutter_diameters=cutter_diameters,
+        glyph_scales=glyph_scales,
     )
     return block

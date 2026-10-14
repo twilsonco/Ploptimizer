@@ -2889,3 +2889,173 @@ class TestUnderlineDemoExample:
         assert len(spans) == 2
         # A visible bare gap between the two words' underlines.
         assert spans[1][0] - spans[0][1] > 0.1
+
+
+class TestBoldDemoExample:
+    """Regression tests for tests_deps/bold_job.yaml (the ``<b>`` tag).
+
+    The fixture resolves a bold run to a thicker cutter -- the next inventory
+    rung for single-stroke PLT/TTF fonts, the boosted boldness ladder for a
+    multi-stroke font -- and splits the line's strokes onto the plain and the
+    bold pen. It pins the resolution-time cutter pair, the per-cutter file
+    split, the top-of-inventory / explicit-cutter / multiplier-1.0 inert cases
+    (each a WARNING), the per-run underline depth, and the compression-driven
+    cutter reduction stepping BOTH cutters down in lockstep.
+    """
+
+    _INVENTORY = [0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.09, 0.125, 0.25]
+    _SPEC = Path("tests_deps/bold_job.yaml")
+
+    def _resolve(self) -> dict[str, ResolvedLabel]:
+        """Resolve the demo fixture against the test inventory."""
+        job = parse_yaml(self._SPEC)
+        return {label.id: label for label in resolve_job_spec(job, self._INVENTORY)}
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled against the inventory."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job, available_cutters=self._INVENTORY)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="bd",
+            optimize=False,
+            plots=False,
+            available_cutters=self._INVENTORY,
+        )
+
+    def test_single_stroke_bold_steps_one_rung(self) -> None:
+        """Dino (S1, auto 0.060) bolds to the next rung 0.090; nominal kept."""
+        line = self._resolve()["plt_bold"].content[0]
+        assert math.isclose(line.cutter_diameter, 0.06)
+        assert math.isclose(line.bold_cutter_diameter, 0.09)
+        assert math.isclose(line.bold_toolpath_text_height, 0.5 - 0.09)
+        # The uniform centerline scale: (0.5-0.09)/(0.5-0.06).
+        assert math.isclose(line._bold_glyph_scale(), (0.5 - 0.09) / (0.5 - 0.06))
+        # The nominal height is untouched (vertical fit math).
+        assert math.isclose(line.nominal_text_height, 0.5)
+
+    def test_plain_control_has_no_bold_cutter(self) -> None:
+        """A markup-free line carries no bold cutter at all."""
+        line = self._resolve()["plt_plain"].content[0]
+        assert line.bold_cutter_diameter is None
+        assert line.bold_toolpath_text_height is None
+        assert line._bold_glyph_scale() == 1.0
+
+    def test_multistroke_bold_uses_boosted_ladder(self) -> None:
+        """Avenge5 (S5) plain 0.020, bold ladder at 0.14*1.5=0.21 -> 0.045."""
+        line = self._resolve()["plt_multistroke"].content[0]
+        assert math.isclose(line.cutter_diameter, 0.02)
+        assert math.isclose(line.bold_cutter_diameter, 0.045)
+
+    def test_multistroke_multiplier_clamps_to_ceiling(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A 3.0 multiplier (0.14*3=0.42) clamps to 0.30 -> bold 0.090, WARNING."""
+        with caplog.at_level("WARNING"):
+            line = self._resolve()["plt_multistroke_clamped"].content[0]
+        assert math.isclose(line.bold_cutter_diameter, 0.09)
+        assert "clamped" in caplog.text
+
+    def test_multistroke_multiplier_one_is_inert(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A 1.0 multiplier resolves no rung above the plain cutter -> None, WARNING."""
+        with caplog.at_level("WARNING"):
+            line = self._resolve()["plt_multistroke_inert"].content[0]
+        assert line.bold_cutter_diameter is None
+        assert "not above the line cutter" in caplog.text
+
+    def test_top_of_inventory_bold_warns(self, caplog: pytest.LogCaptureFixture) -> None:
+        """At the 0.25in top rung there is no larger tool -> None, WARNING."""
+        with caplog.at_level("WARNING"):
+            line = self._resolve()["plt_top_rung"].content[0]
+        assert math.isclose(line.cutter_diameter, 0.25)
+        assert line.bold_cutter_diameter is None
+        assert "next larger cutter" in caplog.text
+
+    def test_explicit_cutter_disables_bold(self, caplog: pytest.LogCaptureFixture) -> None:
+        """An explicit cutter_size makes <b> inert (WARNING); whole line 0.090."""
+        with caplog.at_level("WARNING"):
+            line = self._resolve()["plt_explicit_cutter"].content[0]
+        assert math.isclose(line.cutter_diameter, 0.09)
+        assert line.bold_cutter_diameter is None
+        assert "inert on a line with an explicit cutter_size" in caplog.text
+
+    def test_bold_flags_and_plain_text(self) -> None:
+        """The markup parses to per-character bold flags over the plain text."""
+        line = self._resolve()["plt_bold"].content[0]
+        assert line.plain_text == "plain BOLD plain"
+        assert line.has_bold is True
+        # 'plain BOLD plain': the BOLD span (indices 6..9) is bold.
+        flags = line.bold_flags
+        assert len(flags) == len(line.plain_text)
+        assert [i for i, f in enumerate(flags) if f] == list(range(6, 10))
+
+    def test_export_splits_bold_onto_its_own_pen(self, tmp_path: Path) -> None:
+        """A bold line's strokes land on two pens (plain + bold cutter)."""
+        result = self._export(tmp_path)
+        pens = sorted({c.pen for c in result.rendered_labels["plt_bold"].text_chunks})
+        assert len(pens) == 2
+
+    def test_all_bold_line_uses_one_pen(self, tmp_path: Path) -> None:
+        """A fully bold line lands on the bold pen alone."""
+        result = self._export(tmp_path)
+        pens = sorted({c.pen for c in result.rendered_labels["plt_all_bold"].text_chunks})
+        assert len(pens) == 1
+
+    def test_ttf_bold_splits_too(self, tmp_path: Path) -> None:
+        """The TTF path splits its bold run onto the thicker pen (PLT parity)."""
+        result = self._export(tmp_path)
+        pens = sorted({c.pen for c in result.rendered_labels["ttf_bold"].text_chunks})
+        assert len(pens) == 2
+
+    def test_bold_underline_uses_bold_depth(self) -> None:
+        """A bold run's underline centerline sits one bold cutter below the baseline."""
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+            _underline_render_gate,
+            _underline_strokes,
+        )
+
+        line = self._resolve()["plt_bold_underline"].content[0]
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        strokes = _underline_strokes(line, block, glyphs, _underline_render_gate(line))
+        # The whole run is bold, so every underline stroke sits at
+        # -(bold_cutter + offset), deeper than the plain centerline.
+        plain_y = -(line.cutter_diameter + line.underline_offset)
+        bold_y = -(line.bold_cutter_diameter + line.underline_offset)
+        assert strokes
+        for stroke in strokes:
+            y = stroke.segments[0].start.imag
+            assert math.isclose(y, bold_y, abs_tol=1e-6)
+            assert y < plain_y
+
+    def test_lockstep_steps_both_cutters(self, tmp_path: Path) -> None:
+        """Compression steps plain 0.060->0.045 AND bold 0.090->0.060 (lockstep)."""
+        result = self._export(tmp_path)
+        line = result.rendered_labels["lockstep"].source_label.content[0]
+        assert math.isclose(line.cutter_diameter, 0.045)
+        assert math.isclose(line.bold_cutter_diameter, 0.06)
+        # Bold stays exactly one rung above the final plain cutter.
+        assert math.isclose(line.bold_cutter_diameter - line.cutter_diameter, 0.015)
+
+    def test_lockstep_plain_control_steps_only_plain(self, tmp_path: Path) -> None:
+        """The no-bold control steps only its plain cutter (0.060 -> 0.045)."""
+        result = self._export(tmp_path)
+        line = result.rendered_labels["lockstep_plain"].source_label.content[0]
+        assert math.isclose(line.cutter_diameter, 0.045)
+        assert line.bold_cutter_diameter is None
+
+    def test_fixture_exports_one_file_per_cutter(self, tmp_path: Path) -> None:
+        """Each distinct cutter in play (plain, bold, ladder, top rung) is a file."""
+        result = self._export(tmp_path)
+        assert sorted(p.name for p in result.plt_paths) == [
+            "0.015_bh_bd.plt",
+            "0.020_txt_bd.plt",  # Avenge5 plain ladder (multistroke/controls)
+            "0.045_txt_bd.plt",  # Avenge5 boosted ladder + lockstep plain step
+            "0.060_txt_bd.plt",  # Dino plain + lockstep bold step
+            "0.090_txt_bd.plt",  # Dino bold + explicit cutter + clamped ladder
+            "0.250_txt_bd.plt",  # top-of-inventory line (bold inert)
+        ]
+

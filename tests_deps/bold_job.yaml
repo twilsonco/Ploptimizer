@@ -1,0 +1,196 @@
+# Fixture for inline bold markup (`<b>`, `bold_boldness_multiplier`).
+#
+# `<b>...</b>` engraves the wrapped characters with a THICKER cutter than the
+# rest of the line, so one text line splits across two per-cutter layers:
+#
+#   - single-stroke PLT fonts and TTF fonts step to the next larger rung of the
+#     tools.json inventory above the line's own cutter;
+#   - multi-stroke (bold) PLT fonts (stroke_count > 1) re-run the boldness
+#     ladder at `target_boldness_factor * bold_boldness_multiplier` (clamped to
+#     the schema ceiling 0.30 with a WARNING).
+#
+# The bold glyphs scale UNIFORMLY about their own baseline by
+# `(nominal - bold_cutter) / (nominal - plain_cutter) <= 1` -- the centerline
+# contract: a thicker tool engraves a fatter stroke, so the centerlines shrink
+# to keep the engraved silhouette inside the box the plain glyph occupies. The
+# nominal text height (and therefore the cutter-independent vertical fit math)
+# is untouched, and the kerning clearance becomes per-pair
+# `0.5 * (cutter_left + cutter_right) + character_spacing + kerning_min_gap`,
+# the exact engraved-stroke floor of the two strokes.
+#
+# Against the test inventory
+# [0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.09, 0.125, 0.25] at text_height 0.5:
+#   - Dino (S1, auto) ................. plain 0.060 -> bold 0.090
+#   - Avenge5 (S5, ladder) ............ plain 0.020 -> bold 0.045 (0.14 * 1.5)
+#   - ReliefSingleLineCAD (TTF, auto) . plain 0.060 -> bold 0.090
+#   - Dino at text_height 2.0 ......... plain 0.250 = the top rung: no larger
+#                                       tool exists, so the bold runs engrave
+#                                       with the plain cutter (WARNING)
+#   - explicit cutter_size 0.09 ....... <b> is inert (an explicit tool is a
+#                                       human decision, WARNING)
+#
+# `cutter_downsize` steps BOTH cutters down in lockstep (one rung each), so a
+# compressed bold line keeps its bold run exactly one rung above its final
+# plain cutter -- see `lockstep`.
+#
+# No plate declares a material and the job packs onto one sheet, so emitted
+# names carry no plate/material prefix.
+job:
+  job_name: Bold Demo
+
+  width: 3.0
+  height: 1.0
+  margin: 0.1
+  text_height: 0.5
+  line_spacing: 0.15
+  auto_descending_character_adjustment: false
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. The headline case: a bold run inside a plain line. `BOLD` engraves
+    #    with the 0.090in tool, `plain` with 0.060in, so the label contributes
+    #    two per-cutter text files.
+    - id: plt_bold
+      font: Dino
+      content:
+        - text: "plain <b>BOLD</b> plain"
+
+    # 2. The plain control for label 1 (same text, no markup): one cutter, and
+    #    the reference the bold line's plain half is measured against.
+    - id: plt_plain
+      font: Dino
+      content:
+        - text: "plain BOLD plain"
+
+    # 3. A fully bold line: every glyph rides the thicker tool, so the line
+    #    lands on the bold pen alone.
+    - id: plt_all_bold
+      font: Dino
+      content:
+        - text: "<b>CAPITALS</b>"
+
+    # 4. A multi-stroke (bold) font: `<b>` boosts the boldness ladder
+    #    (0.14 * 1.5 = 0.21), so the plain runs keep the design-point cutter
+    #    (0.020) and the bold runs re-run the ladder at 0.045.
+    - id: plt_multistroke
+      font: Avenge5
+      content:
+        - text: "soft <b>heavy</b>"
+
+    # 5. The multi-stroke control: no markup, so the ladder runs at the plain
+    #    factor alone (0.020).
+    - id: plt_multistroke_plain
+      font: Avenge5
+      content:
+        - text: "soft heavy"
+
+    # 6. A heavier multiplier: 0.14 * 3.0 = 0.42, clamped to the 0.30 ceiling
+    #    (WARNING), so the bold runs land on the 0.090 rung.
+    - id: plt_multistroke_clamped
+      font: Avenge5
+      bold_boldness_multiplier: 3.0
+      content:
+        - text: "soft <b>heavy</b>"
+
+    # 7. multiplier 1.0 disables the boost: the boosted ladder resolves to the
+    #    same rung as the plain ladder, so there is no thicker tool to step to
+    #    and the bold runs engrave with the plain cutter (WARNING).
+    - id: plt_multistroke_inert
+      font: Avenge5
+      bold_boldness_multiplier: 1.0
+      content:
+        - text: "soft <b>heavy</b>"
+
+    # 8. Top of the inventory: text_height 2.0 auto-selects the 0.25in tool,
+    #    the largest the shop owns, so `<b>` has nowhere to step (WARNING) and
+    #    the line engraves with one cutter.
+    - id: plt_top_rung
+      font: Dino
+      height: 2.6
+      text_height: 2.0
+      content:
+        - text: "<b>TALL</b>"
+
+    # 9. An explicit cutter_size is a human decision: `<b>` never overrides it
+    #    (WARNING), so the whole line engraves with 0.090in.
+    - id: plt_explicit_cutter
+      font: Dino
+      cutter_size: 0.09
+      content:
+        - text: "plain <b>BOLD</b> plain"
+
+    # 10. Nested markup: `<i>` shears every glyph about the baseline while
+    #    `<b>` thickens only `BOLD`. The shear is applied to the glyph at its
+    #    natural size, then the bold scale shrinks the sheared result about the
+    #    same baseline, so the lean survives.
+    - id: plt_bold_italic
+      font: Dino
+      content:
+        - text: "<i>lean <b>BOLD</b> lean</i>"
+
+    # 11. The italic control for label 10 (no bold): every glyph shears at full
+    #    size, so the bold line's plain half is comparable to it.
+    - id: plt_italic_plain
+      font: Dino
+      content:
+        - text: "<i>lean BOLD lean</i>"
+
+    # 12. `<b>` + `<u>`: the underline is cut with the RUN's own tool, so the
+    #    bold run's centerline sits one bold cutter below the baseline (deeper
+    #    than a plain run's) and its strokes join the bold pen.
+    - id: plt_bold_underline
+      font: Dino
+      content:
+        - text: "<b><u>pay</u></b>"
+
+    # 13. The underline control for label 12: the same run, plain cutter, so
+    #    its centerline is one plain cutter below the baseline.
+    - id: plt_underline_plain
+      font: Dino
+      content:
+        - text: "<u>pay</u>"
+
+    # 14. Two runs, two tools: only the middle word is bold, so the line
+    #    contributes both pens and the plain runs keep their own advance.
+    - id: plt_partial
+      font: Dino
+      content:
+        - text: "AAA <b>BBB</b> CCC"
+
+    # 15. The TTF path: no native bold face is consulted (the PLT-style
+    #    contract for both families), so the bold glyphs shrink about their
+    #    baseline exactly like the PLT ones.
+    - id: ttf_bold
+      font: ReliefSingleLineCAD-Regular
+      content:
+        - text: "plain <b>BOLD</b> plain"
+
+    # 16. The TTF control for label 15.
+    - id: ttf_plain
+      font: ReliefSingleLineCAD-Regular
+      content:
+        - text: "plain BOLD plain"
+
+    # 17. Compression lockstep: the line is over-wide, so the cutter-reduction
+    #    pre-pass steps the plain cutter 0.060 -> 0.045 AND the bold cutter
+    #    0.090 -> 0.060 in lockstep, keeping the bold run exactly one rung
+    #    above the line's final plain cutter.
+    - id: lockstep
+      font: Dino
+      width: 5.4
+      max_h_compress: 0.5
+      content:
+        - text: "plain <b>COMPRESSION</b> LOCKSTEP"
+
+    # 18. The lockstep control: the same over-wide line with no bold markup, so
+    #    only the plain cutter steps (0.060 -> 0.045).
+    - id: lockstep_plain
+      font: Dino
+      width: 5.4
+      max_h_compress: 0.5
+      content:
+        - text: "plain COMPRESSION LOCKSTEP"

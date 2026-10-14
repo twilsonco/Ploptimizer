@@ -96,6 +96,11 @@ _FALLBACK_NOTES: dict[str, str] = {
     "appears. The actual overlap is derived from the chosen cutter and logged. Inert on "
     "single-stroke fonts, TTF fonts, and lines with an explicit cutter_size. Cascades "
     "line/label/job; job-config supplies the shop default.",
+    "DEFAULT_BOLD_BOLDNESS_MULTIPLIER": "1.5 = the multiplier inline <b> markup applies to "
+    "target_boldness_factor on a multi-stroke (bold) PLT font (the bold runs re-run the cutter "
+    "ladder at factor * multiplier, clamped to 0.30 with a WARNING). On single-stroke PLT and "
+    "TTF fonts <b> instead steps to the next larger inventory cutter and this multiplier is "
+    "inert. Cascades line/label/job; job-config supplies the shop default.",
     "DEFAULT_CUTTER_DOWNSIZE": "True = the automatic cutter may be reduced one rung per "
     "allowed step when a text line is horizontally compressed past the midpoint between the "
     "current cutter and the next smaller inventory cutter (requires tools.json inventory; an "

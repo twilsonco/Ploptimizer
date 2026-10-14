@@ -16,6 +16,7 @@ from plt_optimizer.generate.job_config import (
 )
 from plt_optimizer.generate.resolution import (
     DEFAULT_AUTO_DESCENDING_CHARACTER_ADJUSTMENT,
+    DEFAULT_BOLD_BOLDNESS_MULTIPLIER,
     DEFAULT_BOUNDARY_HOLE_CUTTER,
     DEFAULT_CUTTER_DOWNSIZE,
     DEFAULT_CUTTER_DOWNSIZE_GLOBAL,
@@ -57,6 +58,7 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_V_CENTER_BY_CONTENT,
     DESIGN_MULTISTROKE_OVERLAP,
     IDEAL_CUTTER_MAP,
+    MAX_TARGET_BOLDNESS_FACTOR,
     CutterSizeError,
     LineContentConfigError,
     MultiStrokeCutter,
@@ -4426,3 +4428,216 @@ class TestUnderlineBreakSpacesCascade:
             ],
         )
         assert resolve_job_spec(job)[0].content[0].underline_break_spaces is False
+
+
+_INVENTORY = [0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.09, 0.125, 0.25]
+
+
+class TestBoldBoldnessMultiplierCascade:
+    """bold_boldness_multiplier must cascade line -> label -> job -> default."""
+
+    def test_default_when_all_omit(self) -> None:
+        """All levels omitting yields the 1.5 default."""
+        job = JobSpec(
+            job_name="J",
+            labels=[
+                LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])
+            ],
+        )
+        line = resolve_job_spec(job)[0].content[0]
+        assert math.isclose(line.bold_boldness_multiplier, DEFAULT_BOLD_BOLDNESS_MULTIPLIER)
+        assert DEFAULT_BOLD_BOLDNESS_MULTIPLIER == 1.5
+
+    def test_explicit_one_is_honored(self) -> None:
+        """An intentional 1.0 (no boost) is not treated as unset."""
+        job = JobSpec(
+            job_name="J",
+            bold_boldness_multiplier=3.0,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X", bold_boldness_multiplier=1.0)],
+                )
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].bold_boldness_multiplier == 1.0
+
+    def test_job_value_used_when_label_omits(self) -> None:
+        """Job-level value cascades to the line."""
+        job = JobSpec(
+            job_name="J",
+            bold_boldness_multiplier=2.5,
+            labels=[
+                LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].bold_boldness_multiplier == 2.5
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level value overrides the job-level value."""
+        job = JobSpec(
+            job_name="J",
+            bold_boldness_multiplier=2.0,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    bold_boldness_multiplier=3.0,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].bold_boldness_multiplier == 3.0
+
+
+class TestBoldCutterResolution:
+    """A ``<b>`` run resolves a thicker cutter; the plain run keeps its own."""
+
+    @staticmethod
+    def _job(*lines: TextLine, **job_kwargs: object) -> JobSpec:
+        """Build a single-label job over ``lines`` (0.5in text height)."""
+        job_kwargs.setdefault("text_height", 0.5)
+        return JobSpec(
+            job_name="J",
+            width=3.0,
+            height=1.0,
+            labels=[LabelSpec(id="lbl", width=3.0, height=1.0, content=list(lines))],
+            **job_kwargs,
+        )
+
+    def _line(self, *lines: TextLine, **job_kwargs: object) -> ResolvedTextLine:
+        """Resolve the job's first line against the test inventory."""
+        return resolve_job_spec(
+            self._job(*lines, **job_kwargs), available_cutters=_INVENTORY
+        )[0].content[0]
+
+    def test_no_markup_has_no_bold_cutter(self) -> None:
+        """A markup-free line carries no bold cutter."""
+        line = self._line(TextLine(text="PLAIN", font="Dino"))
+        assert line.bold_cutter_diameter is None
+        assert line.bold_toolpath_text_height is None
+        assert line.has_bold is False
+
+    def test_single_stroke_steps_one_inventory_rung(self) -> None:
+        """Dino auto 0.060 -> bold 0.090 (the next larger rung)."""
+        line = self._line(TextLine(text="a<b>B</b>", font="Dino"))
+        assert math.isclose(line.cutter_diameter, 0.06)
+        assert math.isclose(line.bold_cutter_diameter, 0.09)
+        assert math.isclose(line.bold_toolpath_text_height, 0.5 - 0.09)
+
+    def test_nominal_height_untouched(self) -> None:
+        """The bold cutter never moves the nominal height (vertical fit)."""
+        line = self._line(TextLine(text="a<b>B</b>", font="Dino"))
+        assert math.isclose(line.nominal_text_height, 0.5)
+        assert math.isclose(line.toolpath_text_height, 0.5 - 0.06)
+
+    def test_bold_glyph_scale_is_the_centerline_ratio(self) -> None:
+        """The uniform scale is (nominal - bold) / (nominal - plain), <= 1."""
+        line = self._line(TextLine(text="a<b>B</b>", font="Dino"))
+        expected = (0.5 - 0.09) / (0.5 - 0.06)
+        assert line._bold_glyph_scale() == pytest.approx(expected)
+        assert line._bold_glyph_scale() <= 1.0
+
+    def test_top_of_inventory_warns_and_keeps_plain(self, caplog: pytest.LogCaptureFixture) -> None:
+        """At the largest tool there is no larger rung: bold stays plain (WARNING)."""
+        job = JobSpec(
+            job_name="J",
+            width=3.0,
+            height=2.6,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=3.0,
+                    height=2.6,
+                    content=[TextLine(text="<b>B</b>", font="Dino", text_height=2.0)],
+                )
+            ],
+        )
+        with caplog.at_level("WARNING"):
+            line = resolve_job_spec(job, available_cutters=_INVENTORY)[0].content[0]
+        assert math.isclose(line.cutter_diameter, 0.25)
+        assert line.bold_cutter_diameter is None
+        assert "next larger cutter" in caplog.text
+
+    def test_explicit_cutter_makes_bold_inert(self, caplog: pytest.LogCaptureFixture) -> None:
+        """An explicit cutter_size is never overridden by ``<b>`` (WARNING)."""
+        with caplog.at_level("WARNING"):
+            line = self._line(TextLine(text="a<b>B</b>", font="Dino", cutter_size=0.09))
+        assert math.isclose(line.cutter_diameter, 0.09)
+        assert line.bold_cutter_diameter is None
+        assert "inert on a line with an explicit cutter_size" in caplog.text
+
+    def test_multistroke_uses_boosted_ladder(self) -> None:
+        """Avenge5 (S5): plain ladder 0.020, boosted (0.14*1.5) ladder 0.045."""
+        line = self._line(TextLine(text="a<b>b</b>", font="Avenge5"))
+        assert math.isclose(line.cutter_diameter, 0.02)
+        assert math.isclose(line.bold_cutter_diameter, 0.045)
+
+    def test_multistroke_clamps_to_the_ceiling(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A boosted factor above 0.30 clamps to the ceiling (WARNING)."""
+        with caplog.at_level("WARNING"):
+            line = self._line(
+                TextLine(text="a<b>b</b>", font="Avenge5"),
+                bold_boldness_multiplier=4.0,
+            )
+        assert line.bold_cutter_diameter is not None
+        assert line.bold_cutter_diameter > line.cutter_diameter
+        assert "clamped" in caplog.text
+        assert MAX_TARGET_BOLDNESS_FACTOR == 0.30
+
+    def test_multistroke_no_rung_above_warns(self, caplog: pytest.LogCaptureFixture) -> None:
+        """multiplier 1.0 resolves no rung above the plain cutter -> None (WARNING)."""
+        with caplog.at_level("WARNING"):
+            line = self._line(
+                TextLine(text="a<b>b</b>", font="Avenge5"),
+                bold_boldness_multiplier=1.0,
+            )
+        assert line.bold_cutter_diameter is None
+        assert "not above the line cutter" in caplog.text
+
+    def test_bold_flags_align_with_plain_text(self) -> None:
+        """The per-character bold flags are aligned with plain_text."""
+        line = self._line(TextLine(text="a<b>bc</b>d", font="Dino"))
+        assert line.plain_text == "abcd"
+        assert line.bold_flags == (False, True, True, False)
+        assert line.has_bold is True
+
+    def test_pen_map_includes_the_bold_rung(self) -> None:
+        """build_cutter_pen_map keys the bold cutter as its own layer."""
+        labels = resolve_job_spec(
+            self._job(TextLine(text="a<b>B</b>", font="Dino")),
+            available_cutters=_INVENTORY,
+        )
+        pen_map = build_cutter_pen_map(labels)
+        assert (0.06, "none") in pen_map
+        assert (0.09, "none") in pen_map
+
+    def test_bold_glyph_scale_defaults_without_bold(self) -> None:
+        """A hand-built line with no bold cutter scales at 1.0."""
+        line = ResolvedTextLine(
+            text="X",
+            nominal_text_height=0.5,
+            toolpath_text_height=0.44,
+            cutter_diameter=0.06,
+            character_spacing=0.0,
+            line_spacing=0.0,
+        )
+        assert line._bold_glyph_scale() == 1.0
+        assert line.bold_flags == ()
+        assert line.has_bold is False
+
+    def test_bold_glyph_scale_guards_no_material(self) -> None:
+        """A bold cutter leaving no material falls back to scale 1.0."""
+        line = ResolvedTextLine(
+            text="X",
+            nominal_text_height=0.5,
+            toolpath_text_height=0.44,
+            cutter_diameter=0.06,
+            character_spacing=0.0,
+            line_spacing=0.0,
+            bold_cutter_diameter=0.5,
+        )
+        assert line._bold_glyph_scale() == 1.0

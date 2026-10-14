@@ -795,3 +795,82 @@ class TestItalicShear:
             "AV", 0.5, DEFAULT_FONT_PATH, italic_tan=0.5
         )
         assert [char for char, _ in glyph_groups] == ["A", "V"]
+
+
+class TestApplyBold:
+    """The ``<b>`` per-glyph centerline shrink (TTF family).
+
+    The bold glyph's centerlines shrink uniformly about its own ink-left on
+    the baseline (``y = 0``) by ``(nominal - bold) / (nominal - plain)`` -- the
+    centerline contract, matching the PLT baseline-anchored scale. The pen
+    advance is untouched (the italic precedent).
+    """
+
+    def test_bold_glyph_shrinks_about_the_baseline(self) -> None:
+        """The flagged glyph's height shrinks; the baseline stays put."""
+        plain = render_text_line_ftext("AA", 1.0, DEFAULT_FONT_PATH)
+        bold = render_text_line_ftext(
+            "AA", 1.0, DEFAULT_FONT_PATH, bold_scale=0.7, bold_flags=(False, True)
+        )
+        groups = ftext_renderer.glyph_groups_for_line("AA", DEFAULT_FONT_PATH, len(plain))
+        cap = _extents(plain, groups[1][1])
+        shrunk = _extents(bold, groups[1][1])
+        # Baseline (lowest ink, y=0) and ink-left stay exactly put.
+        assert shrunk[2] == pytest.approx(cap[2], abs=1e-9)
+        assert shrunk[0] == pytest.approx(cap[0], abs=1e-9)
+        # Uniform 0.7 shrink of width and height, top descending.
+        assert shrunk[3] - shrunk[2] == pytest.approx(0.7 * (cap[3] - cap[2]), abs=1e-9)
+        assert shrunk[1] - shrunk[0] == pytest.approx(0.7 * (cap[1] - cap[0]), abs=1e-9)
+
+    def test_unflagged_glyph_is_untouched(self) -> None:
+        """The plain glyph of a mixed line keeps its exact geometry."""
+        plain = render_text_line_ftext("AA", 1.0, DEFAULT_FONT_PATH)
+        bold = render_text_line_ftext(
+            "AA", 1.0, DEFAULT_FONT_PATH, bold_scale=0.7, bold_flags=(False, True)
+        )
+        groups = ftext_renderer.glyph_groups_for_line("AA", DEFAULT_FONT_PATH, len(plain))
+        kept = _extents(bold, groups[0][1])
+        cap = _extents(plain, groups[0][1])
+        assert kept == pytest.approx(cap, abs=1e-9)
+
+    def test_scale_none_is_bit_identical(self) -> None:
+        """``bold_scale=None`` (the default) renders the untouched line."""
+        plain = render_text_line_ftext("AB", 1.0, DEFAULT_FONT_PATH)
+        explicit = render_text_line_ftext("AB", 1.0, DEFAULT_FONT_PATH, bold_scale=None)
+        assert _extents(explicit) == pytest.approx(_extents(plain), abs=1e-9)
+
+    def test_flags_none_emboldens_every_glyph(self) -> None:
+        """``bold_flags=None`` scales every glyph (the whole-line case)."""
+        plain = render_text_line_ftext("AV", 1.0, DEFAULT_FONT_PATH)
+        bold = render_text_line_ftext("AV", 1.0, DEFAULT_FONT_PATH, bold_scale=0.6)
+        groups = ftext_renderer.glyph_groups_for_line("AV", DEFAULT_FONT_PATH, len(plain))
+        for _char, indices in groups:
+            assert _extents(bold, indices)[3] < _extents(plain, indices)[3]
+
+    def test_word_groups_partition_the_bold_line(self) -> None:
+        """Bold word groups come from the exact slicing and partition the line."""
+        whole, words = ftext_renderer.render_text_line_ftext_with_words(
+            "AB CD", 0.5, DEFAULT_FONT_PATH, bold_scale=0.7, bold_flags=(False, True, False, False, False)
+        )
+        assert [word for word, _ in words] == ["AB", "CD"]
+        flat = [i for _word, indices in words for i in indices]
+        assert sorted(flat) == list(range(len(whole)))
+
+    def test_glyph_groups_stay_one_to_one(self) -> None:
+        """Bold lines keep exact per-glyph contour groups (the glyph sweep)."""
+        _whole, _words, glyph_groups = ftext_renderer.render_text_line_ftext_with_glyphs(
+            "AV", 0.5, DEFAULT_FONT_PATH, bold_scale=0.7, bold_flags=(True, True)
+        )
+        assert [char for char, _ in glyph_groups] == ["A", "V"]
+
+    def test_bold_and_italic_compose(self) -> None:
+        """An italic+bold glyph shears at full size, then shrinks about the baseline."""
+        plain = render_text_line_ftext("A", 1.0, DEFAULT_FONT_PATH)
+        both = render_text_line_ftext(
+            "A", 1.0, DEFAULT_FONT_PATH, italic_tan=0.5, bold_scale=0.5, bold_flags=(True,)
+        )
+        # The shear raises the top by h*tan; the 0.5 scale halves the result.
+        # Net: the bold+italic top is strictly below the italic-only top.
+        italic_only = render_text_line_ftext("A", 1.0, DEFAULT_FONT_PATH, italic_tan=0.5)
+        assert _extents(both)[3] < _extents(italic_only)[3]
+        assert _extents(both)[3] > _extents(plain)[3] * 0.5 - 1e-9

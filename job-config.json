@@ -21,6 +21,7 @@
   "underline_break_spaces": false,
   "target_boldness_factor": 0.14,
   "multistroke_overlap_ratio": 0.25,
+  "bold_boldness_multiplier": 1.5,
   "cutter_downsize": true,
   "max_cutter_downsizes": 1,
   "cutter_downsize_global": true,

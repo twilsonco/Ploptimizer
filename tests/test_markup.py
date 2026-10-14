@@ -27,6 +27,7 @@ from plt_optimizer.generate.markup import (
 
 ITALIC = Style(italic=True)
 UNDERLINE = Style(underline=True)
+BOLD = Style(bold=True)
 
 
 class TestParsePlain:
@@ -149,8 +150,9 @@ class TestParseErrors:
 
     def test_mismatched_close(self) -> None:
         """A close tag that is not the innermost opener raises MarkupError."""
-        # Only <i> is registered, so </b> is literal; the <i> stays unclosed.
-        with pytest.raises(MarkupError, match="Unclosed tag"):
+        # <i> and <b> are both registered, so </b> closes nothing matching:
+        # the innermost open tag is <i>, a genuine mismatch.
+        with pytest.raises(MarkupError, match="does not match open tag"):
             parse_markup("<i>x</b>")
 
     def test_standalone_close(self) -> None:
@@ -528,5 +530,80 @@ class TestUnderlineRegistry:
         assert spec.accepts_args is False
 
     def test_italic_and_underline_are_distinct_tags(self) -> None:
-        """Registry order (i, u) fixes serialization nesting."""
-        assert list(TAG_REGISTRY) == ["i", "u"]
+        """Registry order (i, u, b) fixes serialization nesting."""
+        assert list(TAG_REGISTRY) == ["i", "u", "b"]
+
+
+class TestParseBold:
+    """The <b> tag: a bold run over the plain text."""
+
+    def test_bold_run_splits_the_line(self) -> None:
+        """plain <b>X</b> plain yields plain/bold/plain runs."""
+        styled = parse_markup("plain <b>X</b> plain")
+        assert styled.plain_text == "plain X plain"
+        assert styled.has_markup is True
+        assert [(r.text, r.style.bold) for r in styled.runs] == [
+            ("plain ", False),
+            ("X", True),
+            (" plain", False),
+        ]
+
+    def test_bold_flags_align_with_plain_text(self) -> None:
+        """bold_flags is one flag per plain_text character (spaces included)."""
+        styled = parse_markup("a<b>bc</b>d")
+        assert styled.plain_text == "abcd"
+        assert styled.bold_flags == (False, True, True, False)
+
+    def test_whole_line_bold(self) -> None:
+        """A fully bold line is one bold run."""
+        styled = parse_markup("<b>ALL</b>")
+        assert styled.runs == (Run("ALL", BOLD),)
+        assert styled.bold_flags == (True, True, True)
+
+    def test_bold_italic_compose(self) -> None:
+        """<i>...<b>...</b>...</i> carries both flags inside the bold run."""
+        styled = parse_markup("<i>a<b>b</b>c</i>")
+        assert styled.plain_text == "abc"
+        assert [(r.text, r.style.italic, r.style.bold) for r in styled.runs] == [
+            ("a", True, False),
+            ("b", True, True),
+            ("c", True, False),
+        ]
+
+    def test_bold_underline_compose(self) -> None:
+        """<b><u>...</u></b> carries bold + underline on the run."""
+        styled = parse_markup("<b><u>pay</u></b>")
+        assert styled.plain_text == "pay"
+        assert all(r.style.bold and r.style.underline for r in styled.runs)
+
+    def test_bold_round_trips_through_serialize(self) -> None:
+        """serialize_runs rebuilds the raw markup from the styles."""
+        styled = parse_markup("plain <b>X</b> plain")
+        assert serialize_runs(styled.runs) == "plain <b>X</b> plain"
+
+    def test_bold_round_trips_nested_in_italic(self) -> None:
+        """A nested bold/italic line re-parses to the same runs (registry order)."""
+        styled = parse_markup("<i>a<b>b</b>c</i>")
+        raw = serialize_runs(styled.runs)
+        # The serializer emits per-run tags; re-parsing recovers the styles.
+        assert parse_markup(raw).runs == styled.runs
+        assert parse_markup(raw).plain_text == "abc"
+
+
+class TestBoldRegistry:
+    """The <b> registry entry."""
+
+    def test_bold_is_registered(self) -> None:
+        """The shipped tag is present, idempotent, and takes no args."""
+        spec = TAG_REGISTRY["b"]
+        assert spec.apply(PLAIN) == BOLD
+        assert spec.apply(BOLD) == BOLD
+        # Applying <b> inside <i> composes (idempotent per field).
+        assert spec.apply(ITALIC) == Style(italic=True, bold=True)
+        assert spec.accepts_args is False
+
+    def test_bold_args_form_is_literal(self) -> None:
+        """``name:args`` stays reserved: <b:2> is not markup today."""
+        styled = parse_markup("<b:2>x")
+        assert styled.plain_text == "<b:2>x"
+        assert styled.has_markup is False

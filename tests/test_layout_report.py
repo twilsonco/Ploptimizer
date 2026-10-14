@@ -393,3 +393,68 @@ class TestMarkupUsesPlainText:
         assert "'WIDE' cutter 0.060in -> 0.045in" in text
         assert "'WIDE' spacing below 0.200in" in text
         assert "<u>" not in text
+
+
+class TestBoldCutterFindings:
+    """A ``<b>`` run's thicker cutter is a report finding."""
+
+    @staticmethod
+    def _bold_line(
+        text: str, plain: float = 0.06, bold: float = 0.09, line_spacing: float = 0.0
+    ) -> ResolvedTextLine:
+        """A resolved line carrying a plain cutter and a bold rung above it."""
+        return ResolvedTextLine(
+            text=text,
+            nominal_text_height=0.5,
+            toolpath_text_height=0.5 - plain,
+            cutter_diameter=plain,
+            character_spacing=0.0,
+            line_spacing=line_spacing,
+            max_h_compress=0.0,
+            text_h_alignment="center",
+            bold_cutter_diameter=bold,
+            bold_toolpath_text_height=0.5 - bold,
+        )
+
+    def test_bold_cutter_is_a_compact_finding(self) -> None:
+        """A line with a bold run prints its bold cutter alongside the line's."""
+        resolved, rendered = _label("l1", [self._bold_line("plain <b>BOLD</b>")])
+
+        lines = format_layout_report([resolved], {"l1": rendered})
+        text = "\n".join(lines)
+
+        assert "bold cutter 0.090in (line cutter 0.060in)" in text
+        assert has_layout_findings([resolved], {"l1": rendered}) is True
+
+    def test_bold_finding_strips_markup(self) -> None:
+        """The bold finding reports the plain text, never the tags."""
+        line = self._bold_line("plain BOLD").with_markup("plain <b>BOLD</b>")
+        resolved, rendered = _label("l1", [line])
+
+        text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
+
+        assert "'plain BOLD' bold cutter 0.090in" in text
+        assert "<b>" not in text
+
+    def test_bold_prints_alongside_compression_and_downsize(self) -> None:
+        """One line can report compression, a downsize, and its bold rung."""
+        resolved, rendered = _label(
+            "l1",
+            [self._bold_line("WIDE")],
+            compression={0: 0.85},
+            downsizes={0: (0.075, 0.06)},
+        )
+
+        text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
+
+        assert "scale 0.850 (15.0% compressed)" in text
+        assert "cutter 0.075in -> 0.060in (downsized for compression)" in text
+        assert "bold cutter 0.090in (line cutter 0.060in)" in text
+
+    def test_no_bold_cutter_is_not_a_finding(self) -> None:
+        """A markup-free line produces no bold finding."""
+        resolved, rendered = _label("l1", [_line("PLAIN")])
+
+        assert format_layout_report([resolved], {"l1": rendered}) == []
+        assert has_layout_findings([resolved], {"l1": rendered}) is False
+

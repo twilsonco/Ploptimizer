@@ -628,3 +628,108 @@ def test_midpoint_boundaries(cutter: float, scale: float, expected: float) -> No
     labels = [_label("l1", _line(cutter=cutter))]
     out = apply_compression_cutter_downsize(labels, _INVENTORY, probe=_probe({cutter: scale}))
     assert math.isclose(out[0].content[0].cutter_diameter, expected)
+
+
+def _bold_line(
+    text: str = "WIDE",
+    *,
+    nominal: float = 0.5,
+    cutter: float = 0.09,
+    bold_cutter: float | None = 0.125,
+    max_h_compress: float = 0.5,
+    max_cutter_downsizes: int = 1,
+    cutter_downsize_global: bool = True,
+) -> ResolvedTextLine:
+    """Build a resolved line carrying a ``<b>`` bold cutter alongside the plain."""
+    return ResolvedTextLine(
+        text=text,
+        nominal_text_height=nominal,
+        toolpath_text_height=nominal - cutter,
+        cutter_diameter=cutter,
+        character_spacing=0.0,
+        line_spacing=0.0,
+        max_h_compress=max_h_compress,
+        max_cutter_downsizes=max_cutter_downsizes,
+        cutter_downsize_global=cutter_downsize_global,
+        bold_cutter_diameter=bold_cutter,
+        bold_toolpath_text_height=None if bold_cutter is None else nominal - bold_cutter,
+    )
+
+
+class TestBoldLockstep:
+    """A ``<b>`` line's bold cutter steps down in lockstep with the plain cutter."""
+
+    def test_one_step_moves_both_cutters_one_rung(self) -> None:
+        """plain 0.09 -> 0.06 drags bold 0.125 -> 0.09 (one rung each)."""
+        labels = [_label("l1", _bold_line(cutter=0.09, bold_cutter=0.125))]
+        out = apply_compression_cutter_downsize(
+            labels, _INVENTORY, probe=_probe({0.09: 0.80})
+        )
+        line = out[0].content[0]
+        assert math.isclose(line.cutter_diameter, 0.06)
+        assert math.isclose(line.bold_cutter_diameter, 0.09)
+        # The bold toolpath height grows in step (nominal - smaller bold cutter).
+        assert math.isclose(line.bold_toolpath_text_height, 0.5 - 0.09)
+
+    def test_bold_stays_above_the_plain_cutter(self) -> None:
+        """Two steps keep the pair ordered (bold strictly above plain)."""
+        labels = [_label("l1", _bold_line(cutter=0.125, bold_cutter=None, max_cutter_downsizes=2))]
+        # bold_cutter None -> no lockstep; plain steps alone.
+        out = apply_compression_cutter_downsize(
+            labels, _INVENTORY, probe=_probe({0.125: 0.80, 0.09: 0.80})
+        )
+        line = out[0].content[0]
+        assert math.isclose(line.cutter_diameter, 0.06)
+        assert line.bold_cutter_diameter is None
+
+    def test_bold_line_without_bold_cutter_steps_plain_only(self) -> None:
+        """A line with no bold cutter behaves exactly as before."""
+        labels = [_label("l1", _bold_line(cutter=0.09, bold_cutter=None))]
+        out = apply_compression_cutter_downsize(
+            labels, _INVENTORY, probe=_probe({0.09: 0.80})
+        )
+        line = out[0].content[0]
+        assert math.isclose(line.cutter_diameter, 0.06)
+        assert line.bold_cutter_diameter is None
+
+    def test_bold_step_refused_at_the_smallest_rung(self) -> None:
+        """The bold cutter at the inventory floor stays put; the plain steps."""
+        labels = [_label("l1", _bold_line(cutter=0.045, bold_cutter=0.03))]
+        out = apply_compression_cutter_downsize(
+            labels, _INVENTORY, probe=_probe({0.045: 0.80})
+        )
+        line = out[0].content[0]
+        assert math.isclose(line.cutter_diameter, 0.03)
+        # next_smaller(0.03) is 0.03's rung below -> 0.03 is the smallest in
+        # _INVENTORY above 0.03... the bold rung 0.03 has no smaller rung.
+        assert math.isclose(line.bold_cutter_diameter, 0.03)
+
+    def test_lockstep_survives_global_sharing(self) -> None:
+        """A sharing receiver's bold cutter steps in lockstep with its seed."""
+        trigger = _bold_line("WIDE", cutter=0.09, bold_cutter=0.125)
+        receiver = _bold_line("OK", cutter=0.125, bold_cutter=0.25)
+        labels = [_label("l1", trigger, receiver)]
+        probe = _probe_by_line({0: {0.09: 0.80}, 1: {}})
+        out = apply_compression_cutter_downsize(labels, _INVENTORY, probe=probe)
+        trigger_line, receiver_line = out[0].content
+        assert math.isclose(trigger_line.cutter_diameter, 0.06)
+        assert math.isclose(trigger_line.bold_cutter_diameter, 0.09)
+        # The receiver took the shared 0.06 and stepped its bold 0.25 -> 0.125.
+        assert math.isclose(receiver_line.cutter_diameter, 0.06)
+        assert math.isclose(receiver_line.bold_cutter_diameter, 0.125)
+
+    def test_lockstep_logs_the_bold_cutter(self, caplog: pytest.LogCaptureFixture) -> None:
+        """The swap WARNING names the stepped-down bold cutter."""
+        labels = [_label("l1", _bold_line(cutter=0.09, bold_cutter=0.125))]
+        with caplog.at_level("WARNING"):
+            apply_compression_cutter_downsize(labels, _INVENTORY, probe=_probe({0.09: 0.80}))
+        assert "bold cutter -> 0.090in" in caplog.text
+
+    def test_with_cutter_without_inventory_skips_lockstep(self) -> None:
+        """A direct _with_cutter call with no inventory keeps the bold rung."""
+        from plt_optimizer.generate.cutter_downsize import _with_cutter
+
+        label = _label("l1", _bold_line(cutter=0.09, bold_cutter=0.125))
+        updated = _with_cutter(label, 0, 0.06, 0.5 - 0.06)
+        assert math.isclose(updated.content[0].cutter_diameter, 0.06)
+        assert math.isclose(updated.content[0].bold_cutter_diameter, 0.125)

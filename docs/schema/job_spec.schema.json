@@ -379,6 +379,21 @@
           "description": "Minimum overlap fraction between adjacent cutter passes of a multi-stroke (bold) PLT font: the automatic cutter is never smaller than pass_spacing / (1 - this ratio), so adjacent engraved strokes always overlap by at least this fraction and no unengraved stripe can appear between passes (an overlap of 0.25 means the stepover stays within 75% of the cutter width). The actual overlap is derived from the chosen cutter and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit cutter_size. Bound to [0.1, 0.5]. Cascades line -> label -> job (fallback 0.25); accepted on plates for schema parity only.",
           "title": "Multistroke Overlap Ratio"
         },
+        "bold_boldness_multiplier": {
+          "anyOf": [
+            {
+              "maximum": 4.0,
+              "minimum": 1.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Boldness boost applied by inline <b> markup to a multi-stroke (bold) PLT font: the bold runs re-run the cutter ladder at target_boldness_factor * this multiplier (clamped to 0.30 with a WARNING), so their parallel passes engrave heavier than the line's plain text. On single-stroke PLT and TTF fonts <b> instead steps to the next larger inventory cutter and this multiplier is inert. Bound to [1.0, 4.0]; 1.0 disables the boost. Cascades line -> label -> job (fallback 1.5); accepted on plates for schema parity only.",
+          "title": "Bold Boldness Multiplier"
+        },
         "cutter_downsize": {
           "anyOf": [
             {
@@ -1122,6 +1137,21 @@
           "description": "Multi-stroke minimum pass overlap ratio (schema parity; not applied at plate level).",
           "title": "Multistroke Overlap Ratio"
         },
+        "bold_boldness_multiplier": {
+          "anyOf": [
+            {
+              "maximum": 4.0,
+              "minimum": 1.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Bold markup (<b>) boldness multiplier for multi-stroke fonts (schema parity; not applied at plate level).",
+          "title": "Bold Boldness Multiplier"
+        },
         "cutter_downsize": {
           "anyOf": [
             {
@@ -1744,6 +1774,21 @@
           "description": "Minimum overlap fraction between adjacent cutter passes of a multi-stroke (bold) PLT font: the automatic cutter is never smaller than pass_spacing / (1 - this ratio), so adjacent engraved strokes always overlap by at least this fraction and no unengraved stripe can appear between passes (an overlap of 0.25 means the stepover stays within 75% of the cutter width). The actual overlap is derived from the chosen cutter and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit cutter_size. Bound to [0.1, 0.5]. Cascades line -> label -> job (fallback 0.25); accepted on plates for schema parity only.",
           "title": "Multistroke Overlap Ratio"
         },
+        "bold_boldness_multiplier": {
+          "anyOf": [
+            {
+              "maximum": 4.0,
+              "minimum": 1.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Boldness boost applied by inline <b> markup to a multi-stroke (bold) PLT font: the bold runs re-run the cutter ladder at target_boldness_factor * this multiplier (clamped to 0.30 with a WARNING), so their parallel passes engrave heavier than the line's plain text. On single-stroke PLT and TTF fonts <b> instead steps to the next larger inventory cutter and this multiplier is inert. Bound to [1.0, 4.0]; 1.0 disables the boost. Cascades line -> label -> job (fallback 1.5); accepted on plates for schema parity only.",
+          "title": "Bold Boldness Multiplier"
+        },
         "cutter_downsize": {
           "anyOf": [
             {
@@ -2194,6 +2239,21 @@
       "default": null,
       "description": "Minimum overlap fraction between adjacent cutter passes of a multi-stroke (bold) PLT font: the automatic cutter is never smaller than pass_spacing / (1 - this ratio), so adjacent engraved strokes always overlap by at least this fraction and no unengraved stripe can appear between passes (an overlap of 0.25 means the stepover stays within 75% of the cutter width). The actual overlap is derived from the chosen cutter and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit cutter_size. Bound to [0.1, 0.5]. Cascades line -> label -> job (fallback 0.25); accepted on plates for schema parity only.",
       "title": "Multistroke Overlap Ratio"
+    },
+    "bold_boldness_multiplier": {
+      "anyOf": [
+        {
+          "maximum": 4.0,
+          "minimum": 1.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Boldness boost applied by inline <b> markup to a multi-stroke (bold) PLT font: the bold runs re-run the cutter ladder at target_boldness_factor * this multiplier (clamped to 0.30 with a WARNING), so their parallel passes engrave heavier than the line's plain text. On single-stroke PLT and TTF fonts <b> instead steps to the next larger inventory cutter and this multiplier is inert. Bound to [1.0, 4.0]; 1.0 disables the boost. Cascades line -> label -> job (fallback 1.5); accepted on plates for schema parity only.",
+      "title": "Bold Boldness Multiplier"
     },
     "cutter_downsize": {
       "anyOf": [

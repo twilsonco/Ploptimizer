@@ -429,6 +429,19 @@ class JobDefaults(BaseModel):
             "falls back to 0.25."
         ),
     )
+    bold_boldness_multiplier: Optional[float] = Field(
+        default=None,
+        ge=1.0,
+        le=4.0,
+        description=(
+            "Default bold markup (<b>) boldness multiplier (job layer): the "
+            "bold runs of a multi-stroke (bold) PLT font re-run the cutter "
+            "ladder at target_boldness_factor * this multiplier (clamped to "
+            "0.30). Inert on single-stroke PLT and TTF fonts, where <b> "
+            "steps to the next larger inventory cutter. Unset falls back "
+            "to 1.5."
+        ),
+    )
     holes: Optional[list[HoleSpec]] = Field(
         default=None,
         description="Default drill-hole list (job layer; group locations expand like spec holes).",
@@ -678,6 +691,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "underline_break_spaces",
     "target_boldness_factor",
     "multistroke_overlap_ratio",
+    "bold_boldness_multiplier",
     "cutter_downsize",
     "max_cutter_downsizes",
     "cutter_downsize_global",

@@ -213,6 +213,15 @@ DEFAULT_UNDERLINE_BREAK_CLEARANCE: float = 0.0
 # default.
 # See ``plt_optimizer.generate.label_renderer._underline_render_gate``.
 DEFAULT_UNDERLINE_BREAK_SPACES: bool = False
+# Multiplier applied to ``target_boldness_factor`` by inline ``<b>`` markup on
+# a **multi-stroke (bold)** PLT font: the bold run re-runs the boldness ladder
+# at ``target_boldness_factor * this`` (clamped to
+# ``MAX_TARGET_BOLDNESS_FACTOR`` with a WARNING), so the run's parallel passes
+# engrave heavier than the line's plain text. On single-stroke PLT and TTF
+# fonts ``<b>`` instead steps to the next larger inventory cutter and this
+# multiplier is inert. Bound to [1.0, 4.0] by the schema; job-config.json
+# supplies the shop default. See ``AGENTS.md`` "Inline Bold (``<b>``)".
+DEFAULT_BOLD_BOLDNESS_MULTIPLIER: float = 1.5
 # Horizontal text alignment defaults to centering (existing behaviour).
 DEFAULT_TEXT_H_ALIGNMENT: str = "center"
 # Explicit cutter diameter (inches) override. ``None`` (the default) means
@@ -231,6 +240,11 @@ DEFAULT_CUTTER_SIZE: Optional[float] = None
 # TTF fonts, and lines with an explicit ``cutter_size``. Bound to
 # ``[0.05, 0.30]`` by the schema; job-config.json supplies the shop default.
 DEFAULT_TARGET_BOLDNESS_FACTOR: float = 0.14
+# Upper bound of the schema's ``target_boldness_factor`` domain. A ``<b>``
+# run's boosted factor (``target_boldness_factor * bold_boldness_multiplier``)
+# is clamped to this value with a WARNING, so the bold ladder never leaves its
+# certified range.
+MAX_TARGET_BOLDNESS_FACTOR: float = 0.30
 # Minimum overlap fraction between adjacent cutter passes of a multi-stroke
 # font (the gap-free floor): the derived cutter is never smaller than
 # ``pass_spacing / (1 - ratio)``, so engraved strokes always overlap by at
@@ -885,6 +899,27 @@ class ResolvedTextLine:
             underline at each space, so every word gets its own underline
             spanning its own ink and the inter-word space stays bare. An
             explicit ``False`` is honored.
+        bold_boldness_multiplier: Multiplier applied to
+            :attr:`target_boldness_factor` by inline ``<b>`` markup on a
+            multi-stroke (bold) PLT font (cascaded line -> label -> job,
+            default ``DEFAULT_BOLD_BOLDNESS_MULTIPLIER`` (1.5), bound to
+            [1.0, 4.0]); the product is clamped to
+            ``MAX_TARGET_BOLDNESS_FACTOR`` (0.30) with a WARNING. Inert on
+            single-stroke PLT fonts, TTF fonts, and lines with no bold run.
+        bold_cutter_diameter: The thicker cutter the ``<b>`` runs of this
+            line engrave with, in inches (``None`` when the line has no
+            bold run). Single-stroke PLT and TTF lines: the next larger
+            inventory rung above :attr:`cutter_diameter` (``None`` stays
+            ``None`` at the top rung, with a WARNING -- the run engraves
+            with the plain cutter). Multi-stroke PLT fonts: the boldness
+            ladder at ``target_boldness_factor * bold_boldness_multiplier``.
+            The compression-driven cutter reduction steps this cutter down
+            in lockstep with :attr:`cutter_diameter`, so the bold run stays
+            one rung above the line's final plain cutter.
+        bold_toolpath_text_height: ``nominal_text_height -
+            bold_cutter_diameter`` (``None`` with no bold run) -- the
+            rendered cap height of the bold glyphs, mirroring
+            :attr:`toolpath_text_height` for the plain run.
         plain_text: :attr:`text` with all inline markup removed -- the text
             reports, chunk records, and layout findings display. Equal to
             :attr:`text` when the line contains no parsed tag.
@@ -919,6 +954,9 @@ class ResolvedTextLine:
     underline_offset: float = DEFAULT_UNDERLINE_OFFSET
     underline_break_clearance: float = DEFAULT_UNDERLINE_BREAK_CLEARANCE
     underline_break_spaces: bool = DEFAULT_UNDERLINE_BREAK_SPACES
+    bold_boldness_multiplier: float = DEFAULT_BOLD_BOLDNESS_MULTIPLIER
+    bold_cutter_diameter: Optional[float] = None
+    bold_toolpath_text_height: Optional[float] = None
     plain_text: str = ""
     styled_runs: Tuple[Run, ...] = ()
     cutter_size: Optional[float] = DEFAULT_CUTTER_SIZE
@@ -967,6 +1005,43 @@ class ResolvedTextLine:
         left, right = split_brackets(self.html_brackets)
         styled = parse_markup(text, left, right)
         return replace(self, text=text, plain_text=styled.plain_text, styled_runs=styled.runs)
+
+    @property
+    def bold_flags(self) -> Tuple[bool, ...]:
+        """Per-character bold flags aligned with :attr:`plain_text`.
+
+        Empty tuple when the line carries no parsed markup (the renderers'
+        fast path). Mirrors :meth:`markup.StyledText.bold_flags` so the
+        renderers never need to re-expand the runs.
+        """
+        return tuple(
+            style.bold for run in self.styled_runs for style in (run.style,) * len(run.text)
+        )
+
+    @property
+    def has_bold(self) -> bool:
+        """True when any markup run of this line is bold."""
+        return any(run.style.bold for run in self.styled_runs)
+
+    def _bold_glyph_scale(self) -> float:
+        """Return the uniform scale a bold glyph renders at, relative to plain.
+
+        The centerline contract: a glyph's stored geometry is the path the
+        *design* cutter follows, so the line's plain run scales it to
+        ``nominal - cutter`` and the bold run scales the same geometry to
+        ``nominal - bold_cutter``. The ratio ``<= 1`` (a thicker tool
+        engraves a fatter stroke, so the centerlines shrink to keep the
+        engraved silhouette inside its box). ``1.0`` when the line has no
+        bold run, the bold cutter equals the plain one (top-of-inventory
+        fallback), or the geometry would leave no material.
+        """
+        if self.bold_cutter_diameter is None:
+            return 1.0
+        plain = self.nominal_text_height - self.cutter_diameter
+        bold = self.nominal_text_height - self.bold_cutter_diameter
+        if plain <= 0.0 or bold <= 0.0:
+            return 1.0
+        return min(1.0, bold / plain)
 
 
 @dataclass(frozen=True)
@@ -2007,6 +2082,146 @@ def _apply_reflow_line_caps(
     return updated if updated is not None else resolved_content
 
 
+def _bold_cutter_diameter(
+    *,
+    label_id: str,
+    line_index: int,
+    line_text: str,
+    font: str,
+    nominal_height: float,
+    cutter_dia: float,
+    explicit_cutter: bool,
+    target_boldness_factor: float,
+    multistroke_overlap_ratio: float,
+    bold_boldness_multiplier: float,
+    available_cutters: Optional[list[float]] = None,
+) -> Optional[float]:
+    """Size the thicker cutter a ``<b>`` run of a text line engraves with.
+
+    Single-stroke PLT fonts and TTF fonts: the smallest inventory diameter
+    strictly above the line's resolved ``cutter_diameter`` (the TODO's "next
+    size up in inventory"). Multi-stroke (bold) PLT fonts
+    (``stroke_count > 1``): the boldness ladder re-run at
+    ``target_boldness_factor * bold_boldness_multiplier`` (clamped to
+    :data:`MAX_TARGET_BOLDNESS_FACTOR` with a WARNING), snapped and stepped
+    up exactly like the plain rung, so the run's parallel passes engrave
+    heavier.
+
+    ``None`` (the bold runs engrave with the plain cutter) when:
+
+    - the line carries an explicit ``cutter_size``: an explicit tool is a
+      human decision, never overridden automatically (the same contract the
+      compression-driven downsize honours), with a WARNING naming the line;
+    - a single-stroke/TTF line sits at the top of the inventory (no larger
+      rung exists), with a WARNING.
+
+    Args:
+        label_id: Identifier used in WARNING/INFO messages.
+        line_index: Index of the line (for messages).
+        line_text: The line's raw text (for messages).
+        font: The line's resolved font name.
+        nominal_height: The line's nominal text height in inches.
+        cutter_dia: The line's resolved (plain) cutter diameter in inches.
+        explicit_cutter: True when the line resolved an explicit
+            ``cutter_size`` (bold is inert then).
+        target_boldness_factor: The line's resolved boldness factor.
+        multistroke_overlap_ratio: The line's resolved overlap floor.
+        bold_boldness_multiplier: The line's resolved ``<b>`` multiplier.
+        available_cutters: Optional shop inventory in inches.
+
+    Returns:
+        The bold cutter diameter in inches, or ``None`` when the bold runs
+        keep the plain cutter.
+    """
+    if explicit_cutter:
+        logger.warning(
+            "Label %s line %d (%r): <b> markup is inert on a line with an "
+            "explicit cutter_size (%.4fin); the bold runs engrave with the "
+            "same tool.",
+            label_id,
+            line_index,
+            line_text,
+            cutter_dia,
+        )
+        return None
+    stroke_count = plt_font_stroke_count(font)
+    if stroke_count > 1:
+        boosted = target_boldness_factor * bold_boldness_multiplier
+        if boosted > MAX_TARGET_BOLDNESS_FACTOR + 1e-12:
+            logger.warning(
+                "Label %s line %d (%r): <b> boldness factor %g x %g = %g "
+                "exceeds the schema ceiling %g; clamped (the bold runs engrave "
+                "at the ceiling boldness).",
+                label_id,
+                line_index,
+                line_text,
+                target_boldness_factor,
+                bold_boldness_multiplier,
+                boosted,
+                MAX_TARGET_BOLDNESS_FACTOR,
+            )
+            boosted = MAX_TARGET_BOLDNESS_FACTOR
+        ladder = multi_stroke_cutter_diameter(
+            nominal_height,
+            stroke_count,
+            overlap_floor=multistroke_overlap_ratio,
+            boldness_factor=boosted,
+        )
+        ladder_bold: float = snap_boundary_hole_cutter(ladder.cutter, available_cutters)
+        if available_cutters and ladder_bold < ladder.floor - 1e-12:
+            bumped = next_larger_cutter(ladder_bold, available_cutters)
+            if bumped is not None:
+                ladder_bold = bumped
+        if ladder_bold <= cutter_dia + 1e-12:
+            # The boosted ladder snapped back to (or below) the plain rung --
+            # the inventory has no tool strictly between them. Nothing
+            # thicker exists to engrave with; keep the plain cutter.
+            logger.warning(
+                "Label %s line %d (%r): <b> boldness ladder resolved to "
+                "%.4fin, not above the line cutter %.4fin (no inventory rung "
+                "between); the bold runs engrave with the plain cutter.",
+                label_id,
+                line_index,
+                line_text,
+                ladder_bold,
+                cutter_dia,
+            )
+            return None
+        logger.info(
+            "Label %s line %d: <b> on multi-stroke font %r (S%d) boosts the "
+            "boldness factor %g -> %g, cutter %.4fin -> %.4fin.",
+            label_id,
+            line_index,
+            font,
+            stroke_count,
+            target_boldness_factor,
+            boosted,
+            cutter_dia,
+            ladder_bold,
+        )
+        return ladder_bold
+    bold: Optional[float] = next_larger_cutter(cutter_dia, available_cutters)
+    if bold is None:
+        logger.warning(
+            "Label %s line %d (%r): <b> markup wants the next larger cutter "
+            "above %.4fin, but the shop inventory has none; the bold runs "
+            "engrave with the plain cutter.",
+            label_id,
+            line_index,
+            line_text,
+            cutter_dia,
+        )
+        return None
+    logger.info(
+        "Label %s line %d: <b> markup steps the cutter %.4fin -> %.4fin.",
+        label_id,
+        line_index,
+        cutter_dia,
+        bold,
+    )
+    return bold
+
+
 def _resolve_content(
     label_input: LabelSpec | JobSpec,
     job: JobSpec,
@@ -2411,11 +2626,48 @@ def _resolve_content(
         else:
             line_underline_break_spaces = DEFAULT_UNDERLINE_BREAK_SPACES
 
+        # Resolve the bold markup's boldness multiplier with the same
+        # explicit-None precedence (line -> label -> job -> default); an
+        # intentional 1.0 (no boost on multi-stroke fonts) is honored.
+        if line.bold_boldness_multiplier is not None:
+            line_bold_boldness_multiplier: float = line.bold_boldness_multiplier
+        elif label_input.bold_boldness_multiplier is not None:
+            line_bold_boldness_multiplier = label_input.bold_boldness_multiplier
+        elif job.bold_boldness_multiplier is not None:
+            line_bold_boldness_multiplier = job.bold_boldness_multiplier
+        else:
+            line_bold_boldness_multiplier = DEFAULT_BOLD_BOLDNESS_MULTIPLIER
+
         # Parse the line's inline markup with its own resolved delimiters
         # (validation-time loud failure, like an unknown font: a
         # MarkupError propagates as a ValueError and aborts the job).
         markup_left, markup_right = split_brackets(line_html_brackets)
         styled = parse_markup(line.text, markup_left, markup_right)
+
+        # Bold markup: the ``<b>`` runs engrave with a thicker cutter (see
+        # ``AGENTS.md`` "Inline Bold (``<b>``)"). Single-stroke PLT and TTF
+        # lines step to the next larger inventory rung; a multi-stroke (bold)
+        # PLT font re-runs the boldness ladder at the boosted factor. ``None``
+        # (no rung above, e.g. the top of the inventory) leaves the bold runs
+        # on the plain cutter (WARNING logged there).
+        bold_cutter: Optional[float] = None
+        bold_toolpath: Optional[float] = None
+        if any(run.style.bold for run in styled.runs):
+            bold_cutter = _bold_cutter_diameter(
+                label_id=label_id,
+                line_index=line_index,
+                line_text=line.text,
+                font=line_font,
+                nominal_height=nominal_height,
+                cutter_dia=cutter_dia,
+                explicit_cutter=line_cutter_size is not None,
+                target_boldness_factor=line_target_boldness_factor,
+                multistroke_overlap_ratio=line_multistroke_overlap_ratio,
+                bold_boldness_multiplier=line_bold_boldness_multiplier,
+                available_cutters=available_cutters,
+            )
+            if bold_cutter is not None:
+                bold_toolpath = nominal_height - bold_cutter
 
         # Resolve the compression-driven cutter reduction permission with the
         # same explicit-None precedence (line -> label -> job -> default) so an
@@ -2510,6 +2762,9 @@ def _resolve_content(
                 underline_offset=line_underline_offset,
                 underline_break_clearance=line_underline_break_clearance,
                 underline_break_spaces=line_underline_break_spaces,
+                bold_boldness_multiplier=line_bold_boldness_multiplier,
+                bold_cutter_diameter=bold_cutter,
+                bold_toolpath_text_height=bold_toolpath,
                 plain_text=styled.plain_text,
                 styled_runs=styled.runs,
                 cutter_size=line_cutter_size,
@@ -2801,7 +3056,10 @@ def build_cutter_pen_map(
     A text cutter that happens to equal the boundary/hole cutter still
     gets its own pen (it is engraved in a separate run). Jobs whose lines
     all carry the implicit ``"none"`` color produce exactly the
-    historical cutter-only pen assignment.
+    historical cutter-only pen assignment. A line with a ``<b>`` bold run
+    contributes *two* layers -- its plain cutter and its
+    ``bold_cutter_diameter`` -- so the bold strokes land on the thicker
+    tool's pen (and PLT file) while the rest of the line stays on its own.
 
     Args:
         resolved_labels: Fully resolved labels whose text lines carry
@@ -2818,9 +3076,17 @@ def build_cutter_pen_map(
     """
     layers = sorted(
         {
-            (line.cutter_diameter, line.text_color)
+            layer
             for label in resolved_labels
             for line in label.content
+            for layer in (
+                [(line.cutter_diameter, line.text_color)]
+                if line.bold_cutter_diameter is None
+                else [
+                    (line.cutter_diameter, line.text_color),
+                    (line.bold_cutter_diameter, line.text_color),
+                ]
+            )
         }
     )
     pen_map: dict[tuple[float, str], int] = {}

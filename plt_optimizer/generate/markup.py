@@ -83,10 +83,17 @@ class Style:
             underline (the line's own cutter) spanning each maximal
             underlined run's ink width, gap-cut around glyphs whose ink
             descends into the underline's clearance.
+        bold: True when the run is wrapped in a registered bold tag (``<b>``
+            with the default brackets). The run's glyphs engrave with the
+            line's thicker **bold cutter** (the next size up in the
+            inventory, or the multi-stroke boldness ladder at the boosted
+            factor), scaled uniformly about the baseline so the engraved
+            stroke width stays inside the glyph.
     """
 
     italic: bool = False
     underline: bool = False
+    bold: bool = False
 
 
 #: The style of unmarked text (every field at its default).
@@ -145,6 +152,7 @@ def register_tag(
 
 register_tag("i", lambda style: replace(style, italic=True))
 register_tag("u", lambda style: replace(style, underline=True))
+register_tag("b", lambda style: replace(style, bold=True))
 
 
 @dataclass(frozen=True)
@@ -186,6 +194,11 @@ class StyledText:
     def underline_flags(self) -> Tuple[bool, ...]:
         """Per-character underline flags, aligned with :attr:`plain_text`."""
         return tuple(style.underline for style in _per_char_styles(self))
+
+    @property
+    def bold_flags(self) -> Tuple[bool, ...]:
+        """Per-character bold flags, aligned with :attr:`plain_text`."""
+        return tuple(style.bold for style in _per_char_styles(self))
 
 
 @dataclass(frozen=True)

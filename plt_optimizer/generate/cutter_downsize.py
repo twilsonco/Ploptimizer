@@ -202,23 +202,30 @@ def _reduce_line(
         if toolpath_height <= 0.0:
             break  # The smaller tool leaves nothing to engrave at this height.
 
-        working = _with_cutter(working, line_index, candidate, toolpath_height)
+        working = _with_cutter(working, line_index, candidate, toolpath_height, inventory)
+        bold_line = working.content[line_index]
+        bold_note = (
+            f" (bold cutter -> {bold_line.bold_cutter_diameter:.3f}in)"
+            if bold_line.bold_cutter_diameter is not None
+            else ""
+        )
         if is_seed:
             logger.warning(
                 "Label %s line %d (%r): sharing the label's cutter downsize, "
                 "swapping the automatic cutter from %.3fin to %.3fin "
-                "(toolpath height %.3fin).",
+                "(toolpath height %.3fin)%s.",
                 working.id,
                 line_index,
                 working.content[line_index].text,
                 current_cutter,
                 candidate,
                 toolpath_height,
+                bold_note,
             )
         else:
             logger.warning(
                 "Label %s line %d (%r): compressed to %.1f%% width, downsizing the "
-                "automatic cutter from %.3fin to %.3fin (toolpath height %.3fin).",
+                "automatic cutter from %.3fin to %.3fin (toolpath height %.3fin)%s.",
                 working.id,
                 line_index,
                 working.content[line_index].text,
@@ -226,6 +233,7 @@ def _reduce_line(
                 current_cutter,
                 candidate,
                 toolpath_height,
+                bold_note,
             )
         current_cutter = candidate
         steps += 1
@@ -347,6 +355,7 @@ def _with_cutter(
     line_index: int,
     cutter_diameter: float,
     toolpath_text_height: float,
+    inventory: Optional[Sequence[float]] = None,
 ) -> ResolvedLabel:
     """Clone ``label`` with one line's cutter and toolpath height replaced.
 
@@ -354,21 +363,49 @@ def _with_cutter(
     intent, exactly like the explicit ``cutter_size`` contract, so vertical
     fit math keeps using the requested height.
 
+    **Bold lockstep:** when the line carries a ``<b>`` bold cutter, the bold
+    rung steps down exactly one inventory rung alongside the plain cutter
+    (``bold -> next_smaller(bold)``), so the bold run stays one rung above
+    the line's final plain cutter. The pair can never cross: the plain rung
+    is strictly below the bold rung, so ``next_smaller(bold)`` is at or above
+    the plain rung the plain step just left. The plain toolpath-floor guard
+    in :func:`_reduce_line` refuses the step for both cutters at once, and a
+    downward bold step only *grows* the bold toolpath height, so the bold
+    floor cannot bind first. ``inventory`` ``None``/absent (direct callers)
+    keeps the historical plain-only swap.
+
     Args:
         label: The label to clone.
         line_index: Index of the line to change.
         cutter_diameter: The reduced cutter diameter in inches.
         toolpath_text_height: The recomputed toolpath height in inches.
+        inventory: Shop cutter diameters in inches; enables the bold
+            lockstep step (see above).
 
     Returns:
         A new label whose ``content`` carries the modified line.
     """
     content = list(label.content)
-    content[line_index] = dataclasses.replace(
-        content[line_index],
-        cutter_diameter=cutter_diameter,
-        toolpath_text_height=toolpath_text_height,
-    )
+    line = content[line_index]
+    bold_next: Optional[float] = None
+    if line.bold_cutter_diameter is not None and inventory:
+        candidate = next_smaller_cutter(line.bold_cutter_diameter, list(inventory))
+        if candidate is not None and candidate < line.bold_cutter_diameter - _CUTTER_TOLERANCE:
+            bold_next = candidate
+    if bold_next is not None:
+        content[line_index] = dataclasses.replace(
+            line,
+            cutter_diameter=cutter_diameter,
+            toolpath_text_height=toolpath_text_height,
+            bold_cutter_diameter=bold_next,
+            bold_toolpath_text_height=line.nominal_text_height - bold_next,
+        )
+    else:
+        content[line_index] = dataclasses.replace(
+            line,
+            cutter_diameter=cutter_diameter,
+            toolpath_text_height=toolpath_text_height,
+        )
     return dataclasses.replace(label, content=content)
 
 

@@ -1358,6 +1358,121 @@ geometry is the single contract for both families (TTF parity by construction).
   `TestUnderlineOffsetField` / `TestUnderlineBreakClearanceField` /
   `TestUnderlineBreakSpacesField` (`tests/test_schema.py`).
 
+### Inline Bold (`<b>`, `bold_boldness_multiplier`)
+
+`<b>...</b>` is the third shipped markup tag: the wrapped characters engrave
+with a **thicker cutter** than the rest of the line, so one text line splits
+across two per-cutter layers (the plain tool's pen and the bold tool's). The
+TODO's contract in full: single-stroke PLT fonts and TTF fonts step to the
+**next larger rung** of the `tools.json` `available_cutters` inventory above
+the line's own cutter; a **multi-stroke (bold)** PLT font (`stroke_count > 1`)
+re-runs the existing boldness ladder at
+`target_boldness_factor * bold_boldness_multiplier` (the new cascading field,
+default 1.5, `[1.0, 4.0]`, product clamped to `MAX_TARGET_BOLDNESS_FACTOR`
+0.30 with a WARNING). No native TTF bold face is ever consulted -- the
+centerline geometry is the single contract for both families (the underline
+precedent). No tag args ship: the parser's reserved `name:args` form keeps
+`<b:2>` literal text (`accepts_args=False`).
+
+- **The centerline contract.** A glyph's stored geometry is the path the
+  *design* cutter follows, so the line's plain run scales it to
+  `nominal - cutter` and the bold run scales the same geometry to
+  `nominal - bold_cutter`. The bold glyphs therefore scale **uniformly about
+  their own baseline** by `s = (nominal - bold_cutter) / (nominal - cutter)
+  <= 1` (`ResolvedTextLine._bold_glyph_scale()`) -- a thicker tool engraves a
+  fatter stroke, so the centerlines shrink to keep the engraved silhouette
+  inside the box the plain glyph occupies. The baseline stays exactly in
+  place (the top descends, a sub-baseline overshoot shrinks with it), the
+  scale is uniform so `AA` arcs stay **native** (PLT
+  `plt_font_renderer._scale_baseline_geometry`, the SC `_scale_geometry`
+  sibling anchored on the baseline instead of the glyph bottom; TTF
+  `ftext_renderer._apply_bold` slices the flagged glyph contours about its
+  ink-left on the baseline). The nominal `text_height` is untouched (no
+  cutter change for the vertical fit math), and the TTF pen advance is
+  deliberately unchanged (the italic shaping precedent).
+- **Per-pair kerning floor.** `_walk_line` gained keyword-only
+  `cutter_diameters` (per character, spaces included) + `glyph_scales`; each
+  kerned pair's clearance becomes `0.5 * (diameter_left + diameter_right) +
+  character_spacing + kerning_min_gap` -- the exact engraved-stroke floor of
+  the two strokes, parity with the `0.5 * (a + b)` collision floors elsewhere
+  (a bold neighbour widens the pair). The scaled silhouette is what kerns
+  (applied before `kerning_offset`, the SC/italic contract). `None` kwargs
+  keep the line-level clearance for every pair, so every legacy call site
+  renders bit-identically.
+- **Resolution** (`_bold_cutter_diameter`, after the plain cutter block):
+  `next_larger_cutter(cutter_diameter)` for single-stroke/TTF, the boosted
+  ladder + snap + step-up for multi-stroke. `bold_cutter_diameter` /
+  `bold_toolpath_text_height` land on `ResolvedTextLine` (`None` = no bold
+  run). The bold runs keep the **plain** cutter (field stays `None`, WARNING
+  logged) when: the line sits at the top of the inventory (no larger rung);
+  a multi-stroke boosted ladder resolves no rung strictly above the plain
+  cutter (e.g. `bold_boldness_multiplier: 1.0`); or the line carries an
+  explicit `cutter_size` (an explicit tool is a human decision, never
+  overridden -- the same contract the compression-driven downsize honours).
+- **The pen split happens LAST.** One unified positioned block flows through
+  every render phase (X compression, alignment, the descender relief, the
+  underline, Y stacking); only in `_render_text_lines_by_pen` is it partitioned
+  by stroke index (`_split_block_by_pen`) onto the plain pen
+  (`pen_map[(cutter, color)]`) and the bold pen (`pen_map[(bold_cutter,
+  color)]`), via the exact `glyph_groups` partition + the bold underline
+  strokes (a glyph is all-bold or all-plain, so every glyph group maps wholly
+  into one half; `plate_optimizer` filters chunk records by `pen`, so the two
+  halves route as separate layers for free). `build_cutter_pen_map` keys the
+  bold rung as its own `(bold_cutter, color)` layer, so SP numbering, the
+  `<cutter>_txt_` file names and the `(cutter, color)` suffix all come free.
+  The split is vertically safe: `_center_text_layer_vertically` applies ONE
+  shared Y delta computed from the UNION of all text pens.
+- **Stroke floors read the line's widest tool.** A `<b>` line engraves part of
+  its ink with the thicker tool, so `_collision_threshold` (the whole-line
+  AABB floor) and `_line_cutter` (the descender relief's pair/border floors)
+  use `max(cutter_diameter, bold_cutter_diameter)`. Deliberately conservative:
+  a plain descender on a bold-carrying line asks for a touch more air than its
+  own stroke strictly needs, which can never engrave a collision.
+- **Underline runs split at bold boundaries** (`_split_runs_at_bold`): the
+  underline is cut with the RUN's own tool, so a bold run's centerline sits
+  `bold_cutter + underline_offset` below the baseline (deeper, because the
+  thicker tool's stroke starts lower) and its strokes join the bold pen. One
+  underline cannot span two tools, hence the split.
+- **Lockstep with the compression-driven downsize (user decision).** Every
+  monotone step `X -> next_smaller(X)` on the plain cutter also steps the bold
+  cutter one rung down (`_with_cutter` takes the inventory), so the bold run
+  stays exactly one rung above the line's final plain cutter (a multi-stroke
+  line preserves its factor-driven rung distance). The pair can never cross:
+  the plain rung is strictly below the bold rung, so `next_smaller(bold)` is at
+  or above the plain rung the plain step just left; the plain toolpath-floor
+  guard refuses the step for both at once, and a downward bold step only
+  *grows* the bold toolpath height. `_share_downsizes` receivers step their
+  bold rung in lockstep with the seed step and their own loop. Bold lines are
+  fully eligible for `cutter_downsize`. Accepted staleness: the midpoint
+  trigger measures the plain cutter only.
+- **Reporting.** `layout_report.py` prints a per-line finding
+  `Line N: '<text>' bold cutter 0.090in (line cutter 0.060in)` (a compact-mode
+  finding; the report reads `plain_text`).
+- **Markup-aware reflow / probes are bold-aware for free**:
+  `measure_line_natural_width` / `measure_line_vertical_extents` route through
+  `_render_line_block`, so the reflow/compression/extents pre-passes see the
+  bold-scaled widths. Italic + bold compose: the shear applies to the glyph at
+  its natural size, then the bold scale shrinks the sheared result about the
+  same baseline (PLT: shear after scale on the geometry; TTF: shear then scale
+  the contours).
+- Fixture: `tests_deps/bold_job.yaml` (pinned by
+  `tests/test_phase3_export.py::TestBoldDemoExample`) -- the single-stroke PLT
+  bold vs its plain twin, a fully bold line, the multi-stroke boosted ladder
+  (+ clamped-to-ceiling and multiplier-1.0 inert), the top-of-inventory and
+  explicit-`cutter_size` inert cases, `<b>`+`<i>` nested vs its italic control,
+  `<b>`+`<u>` vs its underline control, a partial run, the TTF pair, and the
+  compression lockstep label (plain 0.060->0.045, bold 0.090->0.060) vs its
+  plain-only control. Unit tests: `TestParseBold` / `TestBoldRegistry`
+  (`tests/test_markup.py`), `TestBoldBoldnessMultiplierCascade` /
+  `TestBoldCutterResolution` (`tests/test_resolution.py`),
+  `TestBoldBoldnessMultiplierField` (`tests/test_schema.py`),
+  `TestBoldLockstep` (`tests/test_cutter_downsize.py`), `TestBoldMarkup`
+  (`tests/test_plt_font_renderer.py`), `TestApplyBold`
+  (`tests/test_ftext_renderer.py`), `TestBoldRenderDispatch`
+  (`tests/test_label_renderer.py`), `TestBoldCutterFindings`
+  (`tests/test_layout_report.py`), and the `bold_boldness_multiplier`
+  job-config key tests (`tests/test_job_config.py`).
+
 ### Horizontal Text Alignment
 
 Each text line is positioned horizontally within the label's inner content
