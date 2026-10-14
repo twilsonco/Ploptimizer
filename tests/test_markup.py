@@ -360,14 +360,14 @@ class TestTagRegistry:
     def test_italic_is_registered(self) -> None:
         """The shipped tag is present and idempotent."""
         spec = TAG_REGISTRY["i"]
-        assert spec.apply(PLAIN) == ITALIC
-        assert spec.apply(ITALIC) == ITALIC
+        assert spec.apply(PLAIN, "") == ITALIC
+        assert spec.apply(ITALIC, "") == ITALIC
         assert spec.accepts_args is False
 
     def test_register_tag_rejects_bad_name(self) -> None:
         """Tag names are ASCII letters only."""
         with pytest.raises(ValueError, match="ASCII letters"):
-            register_tag("bad-name", lambda style: style)
+            register_tag("bad-name", lambda style, arg: style)
 
     def test_register_tag_round_trip(self) -> None:
         """A registered tag parses like the shipped one.
@@ -379,7 +379,7 @@ class TestTagRegistry:
         """
         original = dict(TAG_REGISTRY)
         try:
-            register_tag("zz", lambda style: Style(italic=True))
+            register_tag("zz", lambda style, arg: Style(italic=True))
             styled = parse_markup("<zz>x</zz>")
             assert styled.plain_text == "x"
             assert styled.italic_flags == (True,)
@@ -523,15 +523,15 @@ class TestUnderlineRegistry:
     def test_underline_is_registered(self) -> None:
         """The shipped tag is present, idempotent, and takes no args."""
         spec = TAG_REGISTRY["u"]
-        assert spec.apply(PLAIN) == UNDERLINE
-        assert spec.apply(UNDERLINE) == UNDERLINE
+        assert spec.apply(PLAIN, "") == UNDERLINE
+        assert spec.apply(UNDERLINE, "") == UNDERLINE
         # Applying <u> inside <i> composes (idempotent per field).
-        assert spec.apply(ITALIC) == Style(italic=True, underline=True)
+        assert spec.apply(ITALIC, "") == Style(italic=True, underline=True)
         assert spec.accepts_args is False
 
     def test_italic_and_underline_are_distinct_tags(self) -> None:
-        """Registry order (i, u, b) fixes serialization nesting."""
-        assert list(TAG_REGISTRY) == ["i", "u", "b"]
+        """Registry order (i, u, b, scale) fixes serialization nesting."""
+        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale"]
 
 
 class TestParseBold:
@@ -596,10 +596,10 @@ class TestBoldRegistry:
     def test_bold_is_registered(self) -> None:
         """The shipped tag is present, idempotent, and takes no args."""
         spec = TAG_REGISTRY["b"]
-        assert spec.apply(PLAIN) == BOLD
-        assert spec.apply(BOLD) == BOLD
+        assert spec.apply(PLAIN, "") == BOLD
+        assert spec.apply(BOLD, "") == BOLD
         # Applying <b> inside <i> composes (idempotent per field).
-        assert spec.apply(ITALIC) == Style(italic=True, bold=True)
+        assert spec.apply(ITALIC, "") == Style(italic=True, bold=True)
         assert spec.accepts_args is False
 
     def test_bold_args_form_is_literal(self) -> None:
@@ -607,3 +607,142 @@ class TestBoldRegistry:
         styled = parse_markup("<b:2>x")
         assert styled.plain_text == "<b:2>x"
         assert styled.has_markup is False
+
+
+SCALED_HALF = Style(scale=0.5)
+
+
+class TestScaleRegistry:
+    """The <scale> registry entry (the first args tag)."""
+
+    def test_scale_is_registered_with_args(self) -> None:
+        """The tag is registered, accepts args, and is registered last."""
+        spec = TAG_REGISTRY["scale"]
+        assert spec.accepts_args is True
+        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale"]
+        assert spec.apply(PLAIN, "0.5") == SCALED_HALF
+        # Set-to-value: re-applying with the same argument is idempotent.
+        assert spec.apply(SCALED_HALF, "0.5") == SCALED_HALF
+        # A new argument replaces the active one.
+        assert spec.apply(SCALED_HALF, "1.5") == Style(scale=1.5)
+        # Applying <scale> inside <i> composes.
+        assert spec.apply(ITALIC, "0.5") == Style(italic=True, scale=0.5)
+
+    def test_is_active_predicate(self) -> None:
+        """The tag is active exactly when the scale differs from 1.0."""
+        spec = TAG_REGISTRY["scale"]
+        assert spec.is_active(PLAIN) is False
+        assert spec.is_active(SCALED_HALF) is True
+
+    def test_arg_serializer_round_trip(self) -> None:
+        """The arg serializer emits the canonical value the parser accepts."""
+        spec = TAG_REGISTRY["scale"]
+        assert spec.arg is not None
+        assert spec.arg(SCALED_HALF) == "0.5"
+        assert spec.arg(Style(scale=1.5)) == "1.5"
+        assert spec.apply(PLAIN, spec.arg(SCALED_HALF)) == SCALED_HALF
+
+    def test_register_tag_requires_an_arg_serializer(self) -> None:
+        """An args tag without an arg serializer is a registration error."""
+        with pytest.raises(ValueError, match="arg serializer"):
+            register_tag("zz", lambda style, arg: style, accepts_args=True)
+
+
+class TestScaleParse:
+    """Parsing the <scale:N> tag."""
+
+    def test_scale_run_and_values(self) -> None:
+        """The run carries the factor and scale_values align with plain_text."""
+        styled = parse_markup("1<scale:0.5>st</scale>")
+        assert styled.plain_text == "1st"
+        assert styled.has_markup is True
+        assert styled.runs == (Run("1", PLAIN), Run("st", SCALED_HALF))
+        assert styled.scale_values == (1.0, 0.5, 0.5)
+
+    def test_bare_scale_tag_is_literal(self) -> None:
+        """A value is mandatory: <scale> without an argument engraves literally."""
+        styled = parse_markup("a <scale>x")
+        assert styled.plain_text == "a <scale>x"
+        assert styled.has_markup is False
+
+    def test_space_in_argument_is_literal(self) -> None:
+        """``<scale: 0.5>`` never matches the tag body: literal engraving."""
+        styled = parse_markup("<scale: 0.5>x")
+        assert styled.plain_text == "<scale: 0.5>x"
+        assert styled.has_markup is False
+
+    @pytest.mark.parametrize(
+        ("raw", "reason"),
+        [
+            ("<scale:abc>x</scale>", "is not a number"),
+            ("<scale:>x</scale>", "is not a number"),
+            ("<scale:0.1>x</scale>", "outside the supported range"),
+            ("<scale:5>x</scale>", "outside the supported range"),
+            ("<scale:-1>x</scale>", "outside the supported range"),
+        ],
+    )
+    def test_bad_argument_is_a_hard_error(self, raw: str, reason: str) -> None:
+        """A bad argument aborts loudly (MarkupError, fail-loud contract)."""
+        with pytest.raises(MarkupError, match=reason):
+            parse_markup(raw)
+
+    def test_bounds_are_inclusive(self) -> None:
+        """The [0.2, 4.0] endpoints parse."""
+        assert parse_markup("<scale:0.2>x</scale>").scale_values == (0.2,)
+        assert parse_markup("<scale:4>x</scale>").scale_values == (4.0,)
+
+    def test_scale_inside_italic_composes(self) -> None:
+        """A scale span nested in italic carries both styles."""
+        styled = parse_markup("<i>it <scale:0.5>mix</scale></i>")
+        assert styled.italic_flags == (True, True, True, True, True, True)
+        assert styled.scale_values == (1.0, 1.0, 1.0, 0.5, 0.5, 0.5)
+
+
+class TestScaleSerialize:
+    """The serialize round-trip keeps the argument (the reflow depends on it)."""
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "1<scale:0.5>st</scale> 2<scale:1.5>nd</scale>",
+            "<scale:0.5>a<scale:1.5>b</scale>c</scale>",
+            "<i>it </i><i><scale:0.5>mix</scale></i>",
+            "<b>bd <scale:0.75>small</scale></b>",
+        ],
+    )
+    def test_round_trip_is_lossless(self, raw: str) -> None:
+        """Serialization re-emits the argument and re-parses to the same runs."""
+        styled = parse_markup(raw)
+        serialized = serialize_runs(styled.runs)
+        assert parse_markup(serialized).runs == styled.runs
+
+    def test_nested_scale_restores_the_outer_value(self) -> None:
+        """The close of an inner scale tag restores the outer factor."""
+        styled = parse_markup("<scale:0.5>a<scale:1.5>b</scale>c</scale>")
+        assert styled.scale_values == (0.5, 1.5, 0.5)
+        # Serialization flattens the nesting (each span gets its own tag pair),
+        # which re-parses to the identical per-character factors.
+        reparsed = parse_markup(serialize_runs(styled.runs))
+        assert reparsed.scale_values == (0.5, 1.5, 0.5)
+
+    def test_flag_tag_serialization_is_unchanged(self) -> None:
+        """The i/u/b round-trip stays exactly the historical text."""
+        raw = "<i>it</i> <b>bd</b> <u>un</u>"
+        assert serialize_runs(parse_markup(raw).runs) == raw
+
+
+class TestScaleWords:
+    """The reflow's word tokens keep the scale argument."""
+
+    def test_serialize_word_keeps_the_argument(self) -> None:
+        """A styled word token round-trips with its factor."""
+        styled = parse_markup("big <scale:0.5>small</scale>")
+        words = split_styled_words(styled)
+        assert [word.text for word in words] == ["big", "small"]
+        assert serialize_word(words[1]) == "<scale:0.5>small</scale>"
+        assert serialize_word(words[0]) == "big"
+
+    def test_style_boundaries_see_the_scale_change(self) -> None:
+        """A scale span's edges are style boundaries (the reflow's guard)."""
+        styled = parse_markup("big<scale:0.5>small</scale>")
+        assert style_boundaries(styled) == (3,)

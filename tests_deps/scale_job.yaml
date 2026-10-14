@@ -1,0 +1,116 @@
+# Fixture for inline text-scaling markup (`<scale:N>`).
+#
+# `<scale:N>...</scale>` engraves the wrapped characters with a silhouette
+# exactly N times the plain run's, using the line's OWN cutter. Under the
+# centerline contract (a glyph's stored geometry is the path the design cutter
+# follows), the glyph geometry scales UNIFORMLY about the baseline by
+#
+#     g = (N * nominal - cutter) / (nominal - cutter)
+#
+# so the engraved silhouette is exactly N x the plain run's (a uniform x=y
+# scale keeps `AA` arcs native). This is the `<b>` formula
+# `(nominal - bold) / (nominal - plain)` generalized: at N = 1 and cutter = the
+# bold rung it is exactly the bold scale, so `<b>` is the tag's special case.
+#
+# The line's cutter steps DOWN the shop inventory only when a run needs a
+# smaller tool to keep material (`N * nominal - cutter > 0`); an explicit
+# `cutter_size` is a human decision and is never stepped (the geometry clamps
+# to a minimal factor with a WARNING there). The automatic cutter at the
+# schema floor (scale 0.2) always clears, so no fixture label triggers the step.
+#
+# Against the test inventory
+# [0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.09, 0.125, 0.25] at text_height 0.5:
+#   - Dino (S1, auto) ................. plain 0.060
+#   - Dino + `<b>` .................... bold rung 0.090 (a second per-cutter file)
+#
+# The scale is a geometry transform: it never moves text_height, the pen map
+# (except the bold rung), or the emitted file names.
+job:
+  job_name: Scale Demo
+  width: 3.0
+  height: 1.0
+  margin: 0.1
+  text_height: 0.5
+  line_spacing: 0.15
+  auto_descending_character_adjustment: false
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. The headline case: a scaled run inside a plain line. `Small` engraves
+    #    at 0.5x the plain `Hello`'s silhouette, same cutter.
+    - id: plt_down
+      font: Dino
+      content:
+        - text: "Hello <scale:0.5>Small</scale>"
+
+    # 2. The plain control for label 1 (same text, no markup): the reference
+    #    the scaled run's silhouette is measured against.
+    - id: plt_plain
+      font: Dino
+      content:
+        - text: "Hello Small"
+
+    # 3. An upscaled run: `Big` engraves at 1.5x, its cap rising above the
+    #    plain `Hello`'s (the baseline stays put).
+    - id: plt_up
+      font: Dino
+      content:
+        - text: "Hello <scale:1.5>Big</scale>"
+
+    # 4. `<scale:1>` is the identity: it engraves exactly like the plain twin.
+    - id: plt_unity
+      font: Dino
+      content:
+        - text: "<scale:1>AVX</scale>"
+
+    # 5. The plain control for label 4.
+    - id: plt_unity_plain
+      font: Dino
+      content:
+        - text: "AVX"
+
+    # 6. A per-glyph scale: only `B` shrinks, `A`/`C` stay at full cap height.
+    - id: plt_partial
+      font: Dino
+      content:
+        - text: "A<scale:0.5>B</scale>C"
+
+    # 7. `<scale>` + `<i>`: every glyph shears about the baseline, and the
+    #    scaled run shrinks on top of the shear (the italic-then-scale order).
+    - id: plt_scale_italic
+      font: Dino
+      content:
+        - text: "<i>lean <scale:0.5>small</scale></i>"
+
+    # 8. `<scale>` + `<b>`: the bold run engraves with the thicker tool (0.090)
+    #    and the scaled glyph composes both (silhouette 0.5x, cutter 0.090), so
+    #    the line splits onto the plain (0.060) and bold (0.090) pens.
+    - id: plt_scale_bold
+      font: Dino
+      content:
+        - text: "<b>bold <scale:0.5>tiny</scale></b>"
+
+    # 9. `<scale>` + `<u>`: the underline is cut with the line's own tool and
+    #    spans the whole run's (scaled) ink; the scale is a geometry transform.
+    - id: plt_scale_underline
+      font: Dino
+      content:
+        - text: "<u>pay <scale:0.5>deep</scale></u>"
+
+    # 10. The TTF path: the flagged glyph's contours scale about its own
+    #     ink-left on the baseline, exactly like the PLT path (the centerline
+    #     contract for both families).
+    - id: ttf_down
+      font: ReliefSingleLineCAD-Regular
+      content:
+        - text: "Hello <scale:0.5>Small</scale>"
+
+    # 11. The TTF control for label 10.
+    - id: ttf_plain
+      font: ReliefSingleLineCAD-Regular
+      content:
+        - text: "Hello Small"

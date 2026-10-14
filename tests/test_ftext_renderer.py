@@ -874,3 +874,85 @@ class TestApplyBold:
         italic_only = render_text_line_ftext("A", 1.0, DEFAULT_FONT_PATH, italic_tan=0.5)
         assert _extents(both)[3] < _extents(italic_only)[3]
         assert _extents(both)[3] > _extents(plain)[3] * 0.5 - 1e-9
+
+
+class TestApplyGlyphScales:
+    """The ``<scale:N>`` per-glyph geometry scale (TTF family).
+
+    The scaled glyph's contours scale uniformly about its own ink-left on the
+    baseline (the ``_apply_bold`` anchor), driven by the per-character
+    ``glyph_scales`` array from the unified render gate. The pen advance is
+    untouched (the italic/bold precedent).
+    """
+
+    def test_scaled_glyph_scales_about_the_baseline(self) -> None:
+        """The flagged glyph's height scales; the baseline stays put."""
+        plain = render_text_line_ftext("AA", 1.0, DEFAULT_FONT_PATH)
+        scaled = render_text_line_ftext("AA", 1.0, DEFAULT_FONT_PATH, glyph_scales=(1.0, 0.5))
+        groups = ftext_renderer.glyph_groups_for_line("AA", DEFAULT_FONT_PATH, len(plain))
+        cap = _extents(plain, groups[1][1])
+        shrunk = _extents(scaled, groups[1][1])
+        # Baseline (lowest ink, y=0) and ink-left stay exactly put.
+        assert shrunk[2] == pytest.approx(cap[2], abs=1e-9)
+        assert shrunk[0] == pytest.approx(cap[0], abs=1e-9)
+        # Uniform 0.5 shrink of width and height.
+        assert shrunk[3] - shrunk[2] == pytest.approx(0.5 * (cap[3] - cap[2]), abs=1e-9)
+        assert shrunk[1] - shrunk[0] == pytest.approx(0.5 * (cap[1] - cap[0]), abs=1e-9)
+
+    def test_upscale_grows_the_glyph(self) -> None:
+        """A factor above 1 grows the glyph (the cap rises, baseline fixed)."""
+        plain = render_text_line_ftext("A", 1.0, DEFAULT_FONT_PATH)
+        grown = render_text_line_ftext("A", 1.0, DEFAULT_FONT_PATH, glyph_scales=(1.5,))
+        assert _extents(grown)[3] > _extents(plain)[3]
+        assert _extents(grown)[2] == pytest.approx(_extents(plain)[2], abs=1e-9)
+
+    def test_unscaled_glyph_is_untouched(self) -> None:
+        """The 1.0 character of a mixed line keeps its exact geometry."""
+        plain = render_text_line_ftext("AA", 1.0, DEFAULT_FONT_PATH)
+        scaled = render_text_line_ftext("AA", 1.0, DEFAULT_FONT_PATH, glyph_scales=(1.0, 0.5))
+        groups = ftext_renderer.glyph_groups_for_line("AA", DEFAULT_FONT_PATH, len(plain))
+        assert _extents(scaled, groups[0][1]) == pytest.approx(
+            _extents(plain, groups[0][1]), abs=1e-9
+        )
+
+    def test_all_unity_is_bit_identical(self) -> None:
+        """An all-unity ``glyph_scales`` renders the untouched line."""
+        plain = render_text_line_ftext("AB", 1.0, DEFAULT_FONT_PATH)
+        explicit = render_text_line_ftext("AB", 1.0, DEFAULT_FONT_PATH, glyph_scales=(1.0, 1.0))
+        assert _extents(explicit) == pytest.approx(_extents(plain), abs=1e-9)
+
+    def test_bold_and_scale_compose_multiplicatively(self) -> None:
+        """bold_scale * glyph_scale is one factor per glyph (the PLT contract)."""
+        plain = render_text_line_ftext("AA", 1.0, DEFAULT_FONT_PATH)
+        both = render_text_line_ftext(
+            "AA",
+            1.0,
+            DEFAULT_FONT_PATH,
+            bold_scale=0.8,
+            bold_flags=(True, True),
+            glyph_scales=(0.5, 0.5),
+        )
+        groups = ftext_renderer.glyph_groups_for_line("AA", DEFAULT_FONT_PATH, len(plain))
+        for _char, indices in groups:
+            assert _extents(both, indices)[3] < _extents(plain, indices)[3]
+        # The composed 0.4 shrink is deeper than the bold-only 0.8.
+        bold_only = render_text_line_ftext(
+            "AA", 1.0, DEFAULT_FONT_PATH, bold_scale=0.8, bold_flags=(True, True)
+        )
+        assert _extents(both, groups[0][1])[3] < _extents(bold_only, groups[0][1])[3]
+
+    def test_word_groups_partition_the_scaled_line(self) -> None:
+        """Scaled word groups come from the exact slicing and partition the line."""
+        whole, words = ftext_renderer.render_text_line_ftext_with_words(
+            "AB CD", 0.5, DEFAULT_FONT_PATH, glyph_scales=(1.0, 0.5, 1.0, 1.0, 1.0)
+        )
+        assert [word for word, _ in words] == ["AB", "CD"]
+        flat = [i for _word, indices in words for i in indices]
+        assert sorted(flat) == list(range(len(whole)))
+
+    def test_glyph_groups_stay_one_to_one(self) -> None:
+        """Scaled lines keep exact per-glyph contour groups (the glyph sweep)."""
+        _whole, _words, glyph_groups = ftext_renderer.render_text_line_ftext_with_glyphs(
+            "AV", 0.5, DEFAULT_FONT_PATH, glyph_scales=(0.5, 1.5)
+        )
+        assert [char for char, _ in glyph_groups] == ["A", "V"]

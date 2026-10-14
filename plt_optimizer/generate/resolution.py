@@ -27,7 +27,8 @@ import logging
 import math
 import uuid
 from dataclasses import dataclass, field, replace
-from typing import Callable, Optional, Sequence, Tuple, Union
+from functools import lru_cache
+from typing import Callable, List, Optional, Sequence, Tuple, Union
 
 from plt_optimizer.generate.font_registry import DEFAULT_FONT_NAME, plt_font_stroke_count
 from plt_optimizer.generate.markup import Run, parse_markup, split_brackets
@@ -245,6 +246,18 @@ DEFAULT_TARGET_BOLDNESS_FACTOR: float = 0.14
 # is clamped to this value with a WARNING, so the bold ladder never leaves its
 # certified range.
 MAX_TARGET_BOLDNESS_FACTOR: float = 0.30
+# Floor for a degenerate ``<scale:N>`` geometry scale (a run whose engraved
+# silhouette ``N * nominal - cutter`` is not positive -- only reachable on
+# a line with an explicit ``cutter_size``, which the cutter step never
+# touches). The centerlines collapse to 2% of the toolpath height: the run
+# engraves as a near-baseline blob of cutter width, the best the tool
+# allows. A WARNING names the line.
+MIN_SCALED_GLYPH_FACTOR: float = 0.02
+# The narrower/wider snap tolerance :func:`get_cutter_diameter` applies when
+# a ``<scale:N>`` run's effective height has no exact inventory rung (the
+# resolution-time default; stored on the line so the ladder re-derives
+# identically in every pre-pass).
+DEFAULT_CUTTER_LADDER_TOLERANCE: float = 3.0
 # Minimum overlap fraction between adjacent cutter passes of a multi-stroke
 # font (the gap-free floor): the derived cutter is never smaller than
 # ``pass_spacing / (1 - ratio)``, so engraved strokes always overlap by at
@@ -920,6 +933,18 @@ class ResolvedTextLine:
             bold_cutter_diameter`` (``None`` with no bold run) -- the
             rendered cap height of the bold glyphs, mirroring
             :attr:`toolpath_text_height` for the plain run.
+        scale_cutter_inventory: The shop cutter inventory (inches) the
+            ``<scale:N>`` runs' cutters snap into -- the ladder inputs for
+            :attr:`per_char_cutters` (``None`` = no inventory, so the ideal
+            ladder cutter is used unsnapped). Stored as the *inputs* to the
+            ladder, never as a per-character result array: the per-character
+            cutters are derived from each character's scale factor, so a
+            pre-pass that rewrites the line's text (:meth:`with_markup`, the
+            line-content reflow) keeps every run on its own tool. A positional
+            array would go stale when words move, silently handing a downscaled
+            run the neighbouring plain text's (larger) cutter.
+        scale_cutter_tolerance: The narrower/wider snap tolerance passed to
+            :func:`get_cutter_diameter` for the scaled runs' ladder.
         plain_text: :attr:`text` with all inline markup removed -- the text
             reports, chunk records, and layout findings display. Equal to
             :attr:`text` when the line contains no parsed tag.
@@ -929,6 +954,9 @@ class ResolvedTextLine:
             styled_runs)`` equals :attr:`plain_text` and the renderers
             dispatch per run (italic runs shear; plain runs render as
             today). Populated by :func:`parse_markup` at resolution time.
+        scale_values: Per-character ``<scale:N>`` factors aligned with
+            :attr:`plain_text` (``()`` with no markup, ``1.0`` = unscaled
+            character) -- see :meth:`scale_values`.
     """
 
     text: str
@@ -957,6 +985,8 @@ class ResolvedTextLine:
     bold_boldness_multiplier: float = DEFAULT_BOLD_BOLDNESS_MULTIPLIER
     bold_cutter_diameter: Optional[float] = None
     bold_toolpath_text_height: Optional[float] = None
+    scale_cutter_inventory: Optional[Tuple[float, ...]] = None
+    scale_cutter_tolerance: float = DEFAULT_CUTTER_LADDER_TOLERANCE
     plain_text: str = ""
     styled_runs: Tuple[Run, ...] = ()
     cutter_size: Optional[float] = DEFAULT_CUTTER_SIZE
@@ -1022,6 +1052,88 @@ class ResolvedTextLine:
     def has_bold(self) -> bool:
         """True when any markup run of this line is bold."""
         return any(run.style.bold for run in self.styled_runs)
+
+    @property
+    def scale_values(self) -> Tuple[float, ...]:
+        """Per-character ``<scale:N>`` factors aligned with :attr:`plain_text`.
+
+        Empty tuple when the line carries no parsed markup (the renderers'
+        fast path); ``1.0`` marks an unscaled character. Mirrors
+        :meth:`markup.StyledText.scale_values` so the renderers never need
+        to re-expand the runs.
+        """
+        return tuple(
+            style.scale for run in self.styled_runs for style in (run.style,) * len(run.text)
+        )
+
+    @property
+    def has_scale(self) -> bool:
+        """True when any markup run of this line carries a ``<scale:N>`` tag."""
+        return any(run.style.scale != 1.0 for run in self.styled_runs)
+
+    @property
+    def used_cutters(self) -> Tuple[float, ...]:
+        """Every distinct cutter diameter this line engraves with, ascending.
+
+        The line's own cutter, its ``<b>`` bold rung (when one resolved), and
+        each ``<scale:N>`` run's effective-height cutter. This is the layer
+        set :func:`build_cutter_pen_map` keys, so a scaled run's strokes land
+        on their own tool's pen (and per-cutter PLT file) exactly like the
+        bold rung does.
+        """
+        cutters = {self.cutter_diameter}
+        if self.bold_cutter_diameter is not None:
+            cutters.add(self.bold_cutter_diameter)
+        cutters.update(self.per_char_cutters)
+        return tuple(sorted(cutters))
+
+    @property
+    def per_char_cutters(self) -> Tuple[float, ...]:
+        """Per-character cutter diameters aligned with :attr:`plain_text`.
+
+        Each character's engraving tool: a ``<scale:N>`` character takes the
+        ladder cutter for its effective height (``N * nominal_text_height``)
+        -- the tool that size of text gets authored on its own, so a downscaled
+        run engraves *lighter*, not heavier -- a ``<b>`` character takes
+        :attr:`bold_cutter_diameter` (when one resolved), and every other
+        character takes the line's :attr:`cutter_diameter`. A bold+scaled
+        character takes the bold rung at the effective height.
+
+        This is the array the kerning per-pair floor, the underline's per-run
+        cutter, the per-cutter pen split and the layout report all read; the
+        underline gate splits a run wherever this array changes (one underline
+        cannot span two tools). Derived from each character's *scale factor*
+        (never a stored positional array), so it stays correct when a pre-pass
+        rewrites the line's text. Empty tuple on a markup-free line (no
+        per-character variation -- the renderers' fast path).
+        """
+        if not self.styled_runs:
+            return ()
+        scales = self.scale_values
+        bolds = self.bold_flags
+        bold_cutter = self.bold_cutter_diameter
+        # A bold rung at the effective height is only needed when some
+        # character is BOTH bold and scaled; asking for it otherwise would log
+        # a meaningless "no larger rung" warning on a line with no bold run.
+        scaled_bold = bold_cutter is not None and any(
+            scale != 1.0 and index < len(bolds) and bolds[index]
+            for index, scale in enumerate(scales)
+        )
+        ladder: dict[float, Tuple[float, float]] = {}
+        cutters: list[float] = []
+        for index in range(len(self.plain_text)):
+            scale = scales[index] if index < len(scales) else 1.0
+            is_bold = bold_cutter is not None and index < len(bolds) and bolds[index]
+            if scale != 1.0:
+                if scale not in ladder:
+                    ladder[scale] = scale_cutter_ladder(self, scale, need_bold=scaled_bold)
+                plain_cutter, scaled_bold_cutter = ladder[scale]
+                cutters.append(scaled_bold_cutter if is_bold else plain_cutter)
+            elif is_bold and bold_cutter is not None:
+                cutters.append(bold_cutter)
+            else:
+                cutters.append(self.cutter_diameter)
+        return tuple(cutters)
 
     def _bold_glyph_scale(self) -> float:
         """Return the uniform scale a bold glyph renders at, relative to plain.
@@ -2082,6 +2194,161 @@ def _apply_reflow_line_caps(
     return updated if updated is not None else resolved_content
 
 
+def glyph_render_plan(
+    line: ResolvedTextLine,
+) -> Optional[Tuple[Tuple[float, ...], Tuple[float, ...]]]:
+    """Return the per-character (cutter diameter, geometry scale) plan for a line.
+
+    The unified centerline contract for the ``<b>`` and ``<scale:N>`` markup
+    (see ``AGENTS.md`` "Inline Bold" / "Inline Text Scaling"). A glyph's
+    stored geometry is the path the *design* cutter follows; the line's
+    plain run scales it to ``nominal - cutter`` so the engraved silhouette
+    is exactly ``nominal`` tall with the plain tool. A run that engraves
+    its silhouette ``s`` times the plain run's through cutter ``d`` needs
+    the geometry scale
+
+    ``g = (s * nominal - d) / (nominal - cutter)``
+
+    (uniform, about the baseline -- ``AA`` arcs stay native). At ``s = 1``
+    and ``d = bold_cutter`` this is exactly
+    :meth:`ResolvedTextLine._bold_glyph_scale`, so ``<b>`` is the plan's
+    special case; at ``s = N`` and ``d = cutter`` it is the pure markup
+    scale. The resolution-time cutter step guarantees a positive numerator
+    for every run, except on an explicit-``cutter_size`` line, where a
+    degenerate factor clamps to :data:`MIN_SCALED_GLYPH_FACTOR` (WARNING).
+
+    Args:
+        line: The resolved text line (flags, cutters, nominal height).
+
+    Returns:
+        ``(cutter_diameters, glyph_scales)`` tuples aligned with
+        :attr:`ResolvedTextLine.plain_text` (spaces included; the diameter
+        is what kerning's per-pair stroke floor uses, the scale is the
+        geometry transform), or ``None`` when the line carries neither a
+        bold run with a bold cutter nor a scaled run (the renderers' fast
+        path -- the historical call shape, bit-identical output).
+    """
+    bold_cutter = line.bold_cutter_diameter
+    has_bold = line.has_bold and bold_cutter is not None
+    if not has_bold and not line.has_scale:
+        return None
+    scale_flags = line.scale_values
+    # The per-character engraving cutters (derived from each character's scale
+    # factor, so they follow the text through a reflow): a scaled run's
+    # effective-height ladder cutter, the bold rung, or the line's own tool.
+    diameters = list(line.per_char_cutters)
+    plain = line.nominal_text_height - line.cutter_diameter
+    scales: List[float] = []
+    clamped = False
+    for index, diameter in enumerate(diameters):
+        scale = scale_flags[index] if index < len(scale_flags) else 1.0
+        factor = (scale * line.nominal_text_height - diameter) / plain
+        if factor <= 0.0:
+            factor = MIN_SCALED_GLYPH_FACTOR
+            clamped = True
+        scales.append(factor)
+    if clamped:
+        logger.warning(
+            "Label line %r: <scale:N> run leaves no material with cutter "
+            "%.4fin (N * text_height <= cutter); the scaled glyphs clamp to a "
+            "minimal geometry (engraving heavier than the requested scale).",
+            line.plain_text,
+            line.cutter_diameter,
+        )
+    return tuple(diameters), tuple(scales)
+
+
+@lru_cache(maxsize=None)
+def _scale_cutter_ladder_cached(
+    nominal_height: float,
+    scale: float,
+    inventory: Optional[Tuple[float, ...]],
+    tolerance: float,
+    font: str,
+    target_boldness_factor: float,
+    multistroke_overlap_ratio: float,
+    bold_boldness_multiplier: float,
+    need_bold: bool,
+) -> Tuple[float, float]:
+    """Cached ladder body -- see :func:`scale_cutter_ladder`.
+
+    Keyed on scalars only (the line text is a logging detail, never part of
+    the key), so the per-character derivation in
+    :attr:`ResolvedTextLine.per_char_cutters` is a dict hit after the first
+    character of each distinct scale, and the ladder's INFO/WARNING lines fire
+    once per distinct (font, effective height, factors) -- not once per access.
+
+    ``need_bold`` skips the bold-rung lookup entirely for a run that is not
+    bold: ``_bold_cutter_diameter`` warns when no larger rung exists, and that
+    warning is meaningless for a line with no bold run at all.
+    """
+    effective = scale * nominal_height
+    cutters = list(inventory) if inventory else None
+    plain = get_cutter_diameter(effective, cutters, tolerance)
+    if not need_bold:
+        return plain, plain
+    rung = _bold_cutter_diameter(
+        label_id="",
+        line_index=0,
+        line_text="",
+        font=font,
+        nominal_height=effective,
+        cutter_dia=plain,
+        explicit_cutter=False,
+        target_boldness_factor=target_boldness_factor,
+        multistroke_overlap_ratio=multistroke_overlap_ratio,
+        bold_boldness_multiplier=bold_boldness_multiplier,
+        available_cutters=cutters,
+    )
+    return plain, rung if rung is not None else plain
+
+
+def scale_cutter_ladder(
+    line: ResolvedTextLine, scale: float, *, need_bold: bool = True
+) -> Tuple[float, float]:
+    """Return the ``(plain, bold)`` cutters a ``<scale:N>`` run engraves with.
+
+    A scaled run is a smaller (or larger) glyph, so it engraves with the
+    cutter that ``scale * nominal_text_height`` of text would get on its own
+    -- the same height-based ladder the automatic cutter uses, snapped to the
+    shop inventory. The run's engraved stroke weight therefore matches text
+    authored at that height: a 0.5x run on 1in text takes the 0.5in text's
+    tool, not the 1in tool (which fills a half-size glyph into a blob).
+
+    A **bold + scaled** run takes the bold rung at the effective height (the
+    next larger rung, or the boosted multi-stroke ladder re-run at that
+    height), mirroring ``<b>`` at the run's own size.
+
+    Derived from the line's *scale factor* and its stored ladder inputs, never
+    from a positional array, so a pre-pass that rewrites the line's text
+    (:meth:`ResolvedTextLine.with_markup`, the line-content reflow) keeps every
+    run on its own tool. Cached on those scalar inputs.
+
+    Args:
+        line: The resolved text line carrying the ladder inputs.
+        scale: The ``<scale:N>`` factor (``!= 1.0``).
+        need_bold: Look up the bold rung at the effective height. Pass False
+            for a run that is not bold (the common case) to skip the lookup
+            and its "no larger rung" warning.
+
+    Returns:
+        ``(plain_cutter, bold_cutter)`` at ``scale * nominal_text_height``;
+        ``bold_cutter`` equals ``plain_cutter`` when no rung sits above it (or
+        ``need_bold`` is False).
+    """
+    return _scale_cutter_ladder_cached(
+        line.nominal_text_height,
+        scale,
+        tuple(sorted(set(line.scale_cutter_inventory))) if line.scale_cutter_inventory else None,
+        line.scale_cutter_tolerance,
+        line.font,
+        line.target_boldness_factor,
+        line.multistroke_overlap_ratio,
+        line.bold_boldness_multiplier,
+        need_bold,
+    )
+
+
 def _bold_cutter_diameter(
     *,
     label_id: str,
@@ -2644,6 +2911,13 @@ def _resolve_content(
         markup_left, markup_right = split_brackets(line_html_brackets)
         styled = parse_markup(line.text, markup_left, markup_right)
 
+        # Scale markup: a ``<scale:N>`` run engraves with the cutter that its
+        # effective height (``N * nominal_height``) of text would get on its
+        # own, so the run's stroke weight matches text authored at that size.
+        # The ladder runs on demand from each character's scale factor (see
+        # :func:`scale_cutter_ladder`), so nothing is resolved here -- the line
+        # only stores the ladder's inputs (the inventory + tolerance) below.
+
         # Bold markup: the ``<b>`` runs engrave with a thicker cutter (see
         # ``AGENTS.md`` "Inline Bold (``<b>``)"). Single-stroke PLT and TTF
         # lines step to the next larger inventory rung; a multi-stroke (bold)
@@ -2668,6 +2942,19 @@ def _resolve_content(
             )
             if bold_cutter is not None:
                 bold_toolpath = nominal_height - bold_cutter
+
+        # Per-run scale cutters: each ``<scale:N>`` run engraves with the
+        # cutter for ``N * nominal_height`` of text (the same ladder the
+        # automatic cutter uses), so a 0.5x run on 1in text engraves with the
+        # 0.5in text's tool instead of the 1in tool. The line stores the
+        # ladder's *inputs* (the inventory + snap tolerance) and derives each
+        # character's cutter from its scale factor on demand -- never a stored
+        # positional array, which a text-rewriting pre-pass (the line-content
+        # reflow) would leave misaligned, silently handing a downscaled run the
+        # neighbouring plain text's (larger) cutter.
+        scale_cutter_inventory = (
+            tuple(sorted(set(available_cutters))) if available_cutters else None
+        )
 
         # Resolve the compression-driven cutter reduction permission with the
         # same explicit-None precedence (line -> label -> job -> default) so an
@@ -2765,6 +3052,8 @@ def _resolve_content(
                 bold_boldness_multiplier=line_bold_boldness_multiplier,
                 bold_cutter_diameter=bold_cutter,
                 bold_toolpath_text_height=bold_toolpath,
+                scale_cutter_inventory=scale_cutter_inventory,
+                scale_cutter_tolerance=tolerance_factor,
                 plain_text=styled.plain_text,
                 styled_runs=styled.runs,
                 cutter_size=line_cutter_size,
@@ -3060,6 +3349,10 @@ def build_cutter_pen_map(
     contributes *two* layers -- its plain cutter and its
     ``bold_cutter_diameter`` -- so the bold strokes land on the thicker
     tool's pen (and PLT file) while the rest of the line stays on its own.
+    A line with ``<scale:N>`` runs contributes a layer per distinct
+    effective-height cutter (see
+    :attr:`ResolvedTextLine.used_cutters`), so each scaled run engraves with
+    its own tool.
 
     Args:
         resolved_labels: Fully resolved labels whose text lines carry
@@ -3076,17 +3369,10 @@ def build_cutter_pen_map(
     """
     layers = sorted(
         {
-            layer
+            (cutter, line.text_color)
             for label in resolved_labels
             for line in label.content
-            for layer in (
-                [(line.cutter_diameter, line.text_color)]
-                if line.bold_cutter_diameter is None
-                else [
-                    (line.cutter_diameter, line.text_color),
-                    (line.bold_cutter_diameter, line.text_color),
-                ]
-            )
+            for cutter in line.used_cutters
         }
     )
     pen_map: dict[tuple[float, str], int] = {}

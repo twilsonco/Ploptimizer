@@ -458,3 +458,71 @@ class TestBoldCutterFindings:
         assert format_layout_report([resolved], {"l1": rendered}) == []
         assert has_layout_findings([resolved], {"l1": rendered}) is False
 
+
+
+class TestScaleMarkupFindings:
+    """A ``<scale:N>`` run's factor range is a report finding."""
+
+    def test_scale_is_a_compact_finding(self) -> None:
+        """A line with a scaled run prints its factor range, run + line cutter."""
+        line = _line("Hello Small").with_markup("Hello <scale:0.5>Small</scale>")
+        resolved, rendered = _label("l1", [line])
+
+        lines = format_layout_report([resolved], {"l1": rendered})
+        text = "\n".join(lines)
+
+        # 0.5 * 0.3in nominal = 0.15in of text -> the ladder's 0.015 rung.
+        assert (
+            "'Hello Small' scaled 0.500-1.000 (run cutter 0.015in, "
+            "line cutter 0.030in)" in text
+        )
+        assert has_layout_findings([resolved], {"l1": rendered}) is True
+
+    def test_uniform_range_prints_one_factor(self) -> None:
+        """A fully scaled line prints its single factor."""
+        line = _line("tiny").with_markup("<scale:0.5>tiny</scale>")
+        resolved, rendered = _label("l1", [line])
+
+        text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
+
+        assert "'tiny' scaled 0.500 (run cutter 0.015in, line cutter 0.030in)" in text
+
+    def test_run_cutters_are_listed(self) -> None:
+        """A line whose scaled runs resolved their own cutters lists them.
+
+        The run cutters are the tools the markup caused (the effective-height
+        ladder per run), de-duplicated and ascending -- the tool split the
+        layout report must surface, not just the line's own cutter.
+        """
+        from dataclasses import replace as dc_replace
+
+        line = _line("Hello Small").with_markup("Hello <scale:0.5>Small</scale>")
+        # 0.5 * 0.3in nominal = 0.15in of text; the coarse inventory has no
+        # tool that small, so the ladder snaps to its smallest rung (0.03).
+        line = dc_replace(
+            line,
+            cutter_diameter=0.125,
+            scale_cutter_inventory=(0.03, 0.125),
+        )
+        resolved, rendered = _label("l1", [line])
+
+        text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
+
+        assert "'Hello Small' scaled 0.500-1.000 (run cutter 0.030in, line cutter 0.125in)" in text
+
+    def test_scale_finding_strips_markup(self) -> None:
+        """The scale finding reports the plain text, never the tags."""
+        line = _line("tiny").with_markup("<scale:0.5>tiny</scale>")
+        resolved, rendered = _label("l1", [line])
+
+        text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
+
+        assert "<scale" not in text
+
+    def test_unity_scale_is_not_a_finding(self) -> None:
+        """``<scale:1>`` engraves plainly: no finding, no compact output."""
+        line = _line("plain").with_markup("<scale:1>plain</scale>")
+        resolved, rendered = _label("l1", [line])
+
+        assert format_layout_report([resolved], {"l1": rendered}) == []
+        assert has_layout_findings([resolved], {"l1": rendered}) is False

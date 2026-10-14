@@ -28,11 +28,15 @@ Design guarantees (mirroring ``descender_adjust.py``):
 Tag registry
 ------------
 Markup types are registered in :data:`TAG_REGISTRY` as :class:`TagSpec`
-entries (name + a ``style -> style`` mapping + an ``accepts_args`` flag for
-the reserved ``name:args`` syntax, e.g. the planned ``<sup:0.3>``). Adding a
-markup type (``<b>``, ``<u>``, ``<sc>``, ...) is a one-line registry entry
-plus the render-side handling of the new :class:`Style` field; the parser,
-cascade, and serialization need no change.
+entries (name + an ``apply(style, arg)`` mapping + an ``accepts_args`` flag
+for the ``name:args`` syntax, e.g. ``<scale:0.5>``). A tag that accepts args
+validates its argument inside ``apply`` (raising :class:`MarkupError` for a
+bad value) and supplies an ``arg(style)`` serializer so
+:func:`serialize_runs` re-emits the value (the line-content reflow
+round-trips raw text through the serializer, so an arg-unaware serializer
+would silently drop it). Adding a markup type (``<b>``, ``<u>``, ...) is a
+one-line registry entry plus the render-side handling of the new
+:class:`Style` field; the parser, cascade, and serialization need no change.
 """
 
 from __future__ import annotations
@@ -42,6 +46,8 @@ from dataclasses import dataclass, replace
 from typing import Callable, Dict, List, Optional, Pattern, Sequence, Tuple
 
 __all__ = [
+    "MAX_SCALE_ARG",
+    "MIN_SCALE_ARG",
     "MarkupError",
     "PLAIN",
     "Piece",
@@ -51,6 +57,7 @@ __all__ = [
     "Style",
     "TAG_REGISTRY",
     "TagSpec",
+    "UNSET_SCALE",
     "parse_markup",
     "register_tag",
     "serialize_runs",
@@ -89,15 +96,66 @@ class Style:
             inventory, or the multi-stroke boldness ladder at the boosted
             factor), scaled uniformly about the baseline so the engraved
             stroke width stays inside the glyph.
+        scale: The ``<scale:N>`` factor active on the run (``1.0`` = the
+            identity when the run carries no scale tag). The run's glyphs
+            engrave an engraved silhouette exactly ``scale`` times the plain
+            run's with the same cutter (the centerline contract: the glyph
+            geometry scales by ``(scale * nominal - cutter) /
+            (nominal - cutter)`` uniformly about the baseline, so ``AA``
+            arcs stay native).
     """
 
     italic: bool = False
     underline: bool = False
     bold: bool = False
+    scale: float = 1.0
 
 
 #: The style of unmarked text (every field at its default).
 PLAIN = Style()
+
+#: Lower bound of the ``<scale:N>`` argument (matches the repo's downscale
+#: fields: ``sc_scale``, ``descending_character_v_scale``).
+MIN_SCALE_ARG: float = 0.2
+
+#: Upper bound of the ``<scale:N>`` argument (bounds runaway specs).
+MAX_SCALE_ARG: float = 4.0
+
+#: The identity scale -- :attr:`Style.scale`'s default, "no scale tag".
+UNSET_SCALE: float = 1.0
+
+
+def _parse_scale_arg(arg: str) -> float:
+    """Parse and validate a ``<scale:N>`` argument.
+
+    Args:
+        arg: The raw ``name:args`` argument text.
+
+    Returns:
+        The scale factor.
+
+    Raises:
+        MarkupError: If the argument is not a float in
+            ``[MIN_SCALE_ARG, MAX_SCALE_ARG]`` (fail-loud, like an
+            unclosed tag).
+    """
+    try:
+        scale = float(arg)
+    except ValueError:
+        raise MarkupError(
+            f"scale tag argument {arg!r} is not a number (expected e.g. <scale:0.5>)."
+        ) from None
+    if not MIN_SCALE_ARG <= scale <= MAX_SCALE_ARG:
+        raise MarkupError(
+            f"scale tag argument {arg!r} is outside the supported range "
+            f"[{MIN_SCALE_ARG}, {MAX_SCALE_ARG}]."
+        )
+    return scale
+
+
+def _format_scale_arg(scale: float) -> str:
+    """Format :attr:`Style.scale` back into the canonical tag argument."""
+    return f"{scale:g}"
 
 
 @dataclass(frozen=True)
@@ -106,18 +164,29 @@ class TagSpec:
 
     Attributes:
         name: Tag name as written inside the delimiters (``i`` for ``<i>``).
-        apply: Maps the enclosing style to the style active inside the tag.
-            Must be idempotent (applying an already-active tag is a no-op)
-            so :func:`serialize_runs` can recover the tag stack from styles.
-        accepts_args: True when the reserved ``name:args`` open form
-            (e.g. ``<sup:0.3>``) is legal for this tag. ``i`` is False;
-            argument parsing is not implemented and no shipped tag accepts
-            args yet.
+        apply: Maps ``(enclosing style, argument)`` to the style active
+            inside the tag (``arg`` is ``""`` for tags that take none).
+            Must be idempotent (applying an already-active tag with the
+            same argument is a no-op) so :func:`serialize_runs` can recover
+            the tag stack from styles. An :attr:`accepts_args` tag validates
+            its argument here, raising :class:`MarkupError` for a bad value.
+        is_active: True when the tag is active in the given style. Defaults
+            to the flag-tag rule ``apply(style, "") == style`` (applying an
+            active tag is a no-op); value tags (``<scale:N>``) supply an
+            explicit predicate since their ``apply`` needs the argument.
+        accepts_args: True when the ``name:args`` open form (e.g.
+            ``<scale:0.5>``) is legal for this tag. A bare ``<name>`` on an
+            args tag is literal text (the value is mandatory).
+        arg: Serializes a style back to the tag's canonical argument (used
+            by :func:`serialize_runs` to re-emit ``name:arg``). Required
+            when :attr:`accepts_args` is True.
     """
 
     name: str
-    apply: Callable[[Style], Style]
+    apply: Callable[[Style, str], Style]
+    is_active: Callable[[Style], bool]
     accepts_args: bool = False
+    arg: Optional[Callable[[Style], str]] = None
 
 
 #: Registered markup tags, keyed by tag name (insertion order = the order
@@ -131,28 +200,57 @@ _CLOSE_RE: Pattern[str] = re.compile(r"/([A-Za-z]+)")
 
 def register_tag(
     name: str,
-    apply: Callable[[Style], Style],
+    apply: Callable[[Style, str], Style],
     accepts_args: bool = False,
+    arg: Optional[Callable[[Style], str]] = None,
+    is_active: Optional[Callable[[Style], bool]] = None,
 ) -> None:
     """Register an inline markup tag (idempotent overwrite by name).
 
     Args:
         name: Tag name inside the delimiters; ASCII letters only.
-        apply: ``style -> style`` mapping active inside the tag. Must be
-            idempotent (see :attr:`TagSpec.apply`).
-        accepts_args: Whether the reserved ``name:args`` open form is legal.
+        apply: ``(style, arg) -> style`` mapping active inside the tag. Must
+            be idempotent (see :attr:`TagSpec.apply`).
+        accepts_args: Whether the ``name:args`` open form is legal.
+        arg: Style -> canonical argument serializer (required with
+            ``accepts_args``).
+        is_active: Style -> bool activity predicate. Defaults to the flag-tag
+            rule ``apply(style, "") == style``.
 
     Raises:
-        ValueError: If ``name`` is not one or more ASCII letters.
+        ValueError: If ``name`` is not one or more ASCII letters, or an
+            args tag is registered without an ``arg`` serializer.
     """
     if not _TAG_NAME_RE.fullmatch(name):
         raise ValueError(f"tag name {name!r} must be ASCII letters only")
-    TAG_REGISTRY[name] = TagSpec(name=name, apply=apply, accepts_args=accepts_args)
+    if accepts_args and arg is None:
+        raise ValueError(f"tag {name!r} accepts args and needs an arg serializer")
+    if is_active is None:
+
+        def _flag_active(style: Style) -> bool:
+            return apply(style, "") == style
+
+        is_active = _flag_active
+    TAG_REGISTRY[name] = TagSpec(
+        name=name,
+        apply=apply,
+        is_active=is_active,
+        accepts_args=accepts_args,
+        arg=arg,
+    )
 
 
-register_tag("i", lambda style: replace(style, italic=True))
-register_tag("u", lambda style: replace(style, underline=True))
-register_tag("b", lambda style: replace(style, bold=True))
+register_tag("i", lambda style, arg: replace(style, italic=True))
+register_tag("u", lambda style, arg: replace(style, underline=True))
+register_tag("b", lambda style, arg: replace(style, bold=True))
+# Registered LAST so the i/u/b serialization order stays bit-identical.
+register_tag(
+    "scale",
+    lambda style, arg: replace(style, scale=_parse_scale_arg(arg)),
+    accepts_args=True,
+    arg=lambda style: _format_scale_arg(style.scale),
+    is_active=lambda style: style.scale != UNSET_SCALE,
+)
 
 
 @dataclass(frozen=True)
@@ -199,6 +297,14 @@ class StyledText:
     def bold_flags(self) -> Tuple[bool, ...]:
         """Per-character bold flags, aligned with :attr:`plain_text`."""
         return tuple(style.bold for style in _per_char_styles(self))
+
+    @property
+    def scale_values(self) -> Tuple[float, ...]:
+        """Per-character ``<scale:N>`` factors, aligned with :attr:`plain_text`.
+
+        ``1.0`` (:data:`UNSET_SCALE`) marks an unscaled character.
+        """
+        return tuple(style.scale for style in _per_char_styles(self))
 
 
 @dataclass(frozen=True)
@@ -348,8 +454,13 @@ def parse_markup(
         spec: Optional[TagSpec] = None
         if not is_close and open_match is not None:
             spec = TAG_REGISTRY.get(open_match.group(1))
-            if spec is not None and not spec.accepts_args and open_match.group(2) is not None:
-                # ``name:args`` on a tag that takes no args is not markup.
+            if spec is not None and open_match.group(2) is not None:
+                if not spec.accepts_args:
+                    # ``name:args`` on a tag that takes no args is not markup.
+                    spec = None
+            elif spec is not None and spec.accepts_args:
+                # A bare ``<name>`` on an args tag is not markup either --
+                # the value is mandatory (``<scale>`` engraves literally).
                 spec = None
 
         if spec is None and not is_close:
@@ -385,8 +496,14 @@ def parse_markup(
             current = popped_style
         else:
             assert spec is not None
+            assert open_match is not None
             stack.append((spec.name, current, open_at))
-            current = spec.apply(current)
+            try:
+                current = spec.apply(current, open_match.group(2) or "")
+            except MarkupError as exc:
+                raise MarkupError(
+                    f"Invalid tag {left}{body}{right} at position {open_at} in text {text!r}: {exc}"
+                ) from None
         has_markup = True
         cursor = close_at + len(right)
 
@@ -411,11 +528,13 @@ def serialize_runs(
     """Rebuild raw markup text from styled runs (minimal tag nesting).
 
     Walks the runs with a tag stack: at each style change, registered tags
-    whose ``apply`` is *active* in the target style are opened (registry
-    order) and tags whose style no longer matches are closed (LIFO, newest
-    first). With the shipped single-tag registry this emits ``<i>``/``</i>``
-    pairs; future tags round-trip with the nesting order the registry
-    defines, so the output re-parses to the same runs.
+    whose :attr:`TagSpec.is_active` predicate holds in the target style are
+    opened (registry order) and tags no longer active are closed (LIFO,
+    newest first). Flag tags emit ``<name>``; an :attr:`accepts_args` tag
+    re-emits its canonical value through :attr:`TagSpec.arg`
+    (``<scale:0.5>``), so the line-content reflow round-trips the argument
+    through the raw text. The nesting order the registry defines re-parses
+    to the same runs.
 
     Args:
         runs: The runs to serialize (document order).
@@ -444,14 +563,16 @@ def serialize_runs(
         current = open_styles[-1] if open_styles else PLAIN
         # Open registered tags missing for the target style (registry order).
         for spec in TAG_REGISTRY.values():
-            if spec.apply(run.style) != run.style:
+            if not spec.is_active(run.style):
                 continue  # Tag not active in the target style.
-            if spec.apply(current) == current:
+            if spec.is_active(current):
                 continue  # Already active on the current stack.
-            out.append(f"{left}{spec.name}{right}")
+            arg_text = spec.arg(run.style) if spec.arg is not None else ""
+            name = f"{spec.name}:{arg_text}" if spec.accepts_args else spec.name
+            out.append(f"{left}{name}{right}")
             open_tags.append(spec.name)
             open_styles.append(run.style)
-            current = spec.apply(current)
+            current = spec.apply(current, arg_text)
         out.append(run.text)
     while open_tags:
         top = open_tags.pop()

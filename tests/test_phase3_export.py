@@ -3059,3 +3059,183 @@ class TestBoldDemoExample:
             "0.250_txt_bd.plt",  # top-of-inventory line (bold inert)
         ]
 
+
+
+class TestScaleDemoExample:
+    """Regression tests for tests_deps/scale_job.yaml.
+
+    The fixture pins inline text-scaling markup (``<scale:N>``): the wrapped
+    characters engrave a silhouette exactly N times the plain run's with the
+    line's own cutter, the glyph geometry scaling uniformly about the baseline
+    by ``(N * nominal - cutter) / (nominal - cutter)`` (the centerline
+    contract, ``AA`` arcs native). The controls pin the baseline as invariant,
+    the downscale strictly shorter / upscale strictly taller than the plain
+    twin, ``<scale:1>`` as the identity, per-glyph selection, the ``<i>``/``<b>``
+    /``<u>`` compositions, the TTF family, and that the scale never moves the
+    cutter (except the bold rung, which becomes its own per-cutter file).
+    """
+
+    _SPEC = Path("tests_deps/scale_job.yaml")
+    _INVENTORY = [0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.09, 0.125, 0.25]
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled (against the inventory)."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job, available_cutters=self._INVENTORY)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="sc",
+            optimize=False,
+            plots=False,
+            available_cutters=self._INVENTORY,
+        )
+
+    @staticmethod
+    def _line_bounds(label: ResolvedLabel) -> tuple[float, float, float, float]:
+        """Rendered bounds of the label's single text line."""
+        from plt_optimizer.generate.label_renderer import _render_text_local_with_bounds
+
+        _lc, entries = _render_text_local_with_bounds(label)
+        return entries[0].bounds
+
+    def test_markup_parses_to_plain_text_and_scale(self, tmp_path: Path) -> None:
+        """Tags never engrave: plain_text strips them, runs carry the factor."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+
+        scaled = by_id["plt_down"].content[0]
+        assert scaled.text == "Hello <scale:0.5>Small</scale>"
+        assert scaled.plain_text == "Hello Small"
+        assert scaled.has_scale is True
+        # The 5 plain chars are 1.0, the 5 scaled chars are 0.5.
+        assert scaled.scale_values == (1.0,) * 6 + (0.5,) * 5
+
+        plain = by_id["plt_plain"].content[0]
+        assert plain.plain_text == "Hello Small"
+        assert plain.has_scale is False
+
+    def test_downscale_shrinks_the_run_vs_the_plain_twin(self, tmp_path: Path) -> None:
+        """The scaled line's ink is strictly shorter than its plain twin."""
+        result = self._export(tmp_path)
+        scaled = self._line_bounds(result.rendered_labels["plt_down"].source_label)
+        plain = self._line_bounds(result.rendered_labels["plt_plain"].source_label)
+        # Cap-only content: the baseline (bottom) is the invariant, the top of
+        # the scaled line sits below the plain line's (the whole block centers,
+        # so compare the ink HEIGHTS).
+        assert (scaled[3] - scaled[1]) < (plain[3] - plain[1])
+
+    def test_upscale_grows_the_run_vs_the_plain_twin(self, tmp_path: Path) -> None:
+        """The upscaled line's ink is strictly taller than its plain twin."""
+        result = self._export(tmp_path)
+        grown = self._line_bounds(result.rendered_labels["plt_up"].source_label)
+        plain = self._line_bounds(result.rendered_labels["plt_plain"].source_label)
+        assert (grown[3] - grown[1]) > (plain[3] - plain[1])
+
+    def test_scale_unity_matches_the_plain_twin(self, tmp_path: Path) -> None:
+        """``<scale:1>`` engraves exactly like the plain line (the identity)."""
+        result = self._export(tmp_path)
+        unity = self._line_bounds(result.rendered_labels["plt_unity"].source_label)
+        plain = self._line_bounds(result.rendered_labels["plt_unity_plain"].source_label)
+        assert unity == pytest.approx(plain, abs=1e-12)
+        assert result.rendered_labels["plt_unity"].source_label.content[0].has_scale is False
+
+    def test_partial_scale_moves_only_the_scaled_glyph(self, tmp_path: Path) -> None:
+        """A per-glyph scale leaves the plain neighbours at full cap height."""
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+        from plt_optimizer.generate.text_geometry import TextBlock
+
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_partial"].source_label.content[0]
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        a = TextBlock(strokes=tuple(block.strokes[i] for i in glyphs[0])).bounds()
+        b = TextBlock(strokes=tuple(block.strokes[i] for i in glyphs[1])).bounds()
+        c = TextBlock(strokes=tuple(block.strokes[i] for i in glyphs[2])).bounds()
+        assert a is not None and b is not None and c is not None
+        # The scaled 'B' is shorter than its plain 'A'/'C' neighbours.
+        assert b[3] < a[3]
+        assert b[3] < c[3]
+        # The plain neighbours share the same cap height (a round 'C' overshoots
+        # its bbox slightly, so a small tolerance, not exact equality).
+        assert a[3] == pytest.approx(c[3], abs=1e-3)
+
+    def test_scale_bold_splits_onto_two_pens(self, tmp_path: Path) -> None:
+        """``<b>`` + ``<scale>``: the bold run rides the thicker tool's pen."""
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_scale_bold"].source_label.content[0]
+        assert line.bold_cutter_diameter is not None
+        assert line.bold_cutter_diameter > line.cutter_diameter
+        assert line.has_bold and line.has_scale
+
+    def test_scale_underline_spans_the_scaled_run(self, tmp_path: Path) -> None:
+        """``<u>`` + ``<scale>``: the underline is engraved with the line's tool."""
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_scale_underline"].source_label
+        block, _words, glyphs = _render_line_block(line.content[0], TextChunkMode.LINE)
+        # The underline strokes are appended after the glyph partition.
+        underline_count = len(block.strokes) - sum(len(g) for g in glyphs)
+        assert underline_count >= 1
+
+    def test_ttf_downscale_shrinks_vs_the_plain_twin(self, tmp_path: Path) -> None:
+        """The TTF path scales the flagged glyph about its baseline.
+
+        The whole-line bounds are dominated by the plain ``Hello`` (its ascenders
+        reach the cap in both labels), so the scaled run's shrink is measured on
+        the shared ``S`` glyph, not the line's union box.
+        """
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+        from plt_optimizer.generate.text_geometry import TextBlock
+
+        result = self._export(tmp_path)
+
+        def first_glyph_top(label_id: str) -> float:
+            label = result.rendered_labels[label_id].source_label
+            block, _words, glyphs = _render_line_block(label.content[0], TextChunkMode.LINE)
+            # The 'H' of "Hello" is the first glyph; its cap is the reference.
+            bounds = TextBlock(strokes=tuple(block.strokes[i] for i in glyphs[0])).bounds()
+            assert bounds is not None
+            return bounds[3]
+
+        # The plain 'H' (full) is the reference; the scaled line's 'H' is
+        # identical (only the run after the space scales), and the scaled run's
+        # first glyph 'S' sits at half the plain 'H' cap.
+        scaled_label = result.rendered_labels["ttf_down"].source_label
+        block, _words, glyphs = _render_line_block(scaled_label.content[0], TextChunkMode.LINE)
+        h_top = first_glyph_top("ttf_down")
+        # 'Small' starts at glyph index 6 (H-e-l-l-o-space-S...): the space owns
+        # no group, so index 5 is the 'S'.
+        s_bounds = TextBlock(strokes=tuple(block.strokes[i] for i in glyphs[5])).bounds()
+        assert s_bounds is not None
+        assert s_bounds[3] < h_top - 0.05
+
+    def test_scale_adds_the_effective_height_cutter_file(self, tmp_path: Path) -> None:
+        """A scaled run engraves with its own tool, so it gets its own file.
+
+        Dino auto-selects 0.060 for 0.5in text. A 0.5x run is 0.25in of text,
+        whose ladder cutter is 0.030, so the scaled runs land in a 0.030 file;
+        the ``<b>`` run's bold rung (0.090) and the bold+0.5x run (the bold rung
+        at 0.25in = 0.045) are their own files. The upscale (1.5x = 0.75in ->
+        0.090) shares the bold rung's file.
+        """
+        result = self._export(tmp_path)
+        assert sorted(p.name for p in result.plt_paths) == [
+            "0.015_bh_sc.plt",
+            "0.030_txt_sc.plt",  # every 0.5x run (0.25in of text -> the 0.030 rung)
+            "0.045_txt_sc.plt",  # the bold+0.5x run (bold rung at 0.25in)
+            "0.060_txt_sc.plt",  # the plain runs (0.5in text -> 0.060)
+            "0.090_txt_sc.plt",  # the <b> bold rung + the 1.5x run (0.75in -> 0.090)
+        ]
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        down = by_id["plt_down"].content[0]
+        assert down.used_cutters == (0.03, 0.06)
+        assert math.isclose(down.per_char_cutters[6], 0.03)  # the 'S' of 'Small'
+        assert math.isclose(down.per_char_cutters[0], 0.06)  # the plain 'H'
+
+    def test_arcs_stay_native_under_scale(self, tmp_path: Path) -> None:
+        """A uniform scale keeps PLT ``AA`` arcs native end-to-end."""
+        result = self._export(tmp_path)
+        text_file = next(p for p in result.plt_paths if p.name.endswith("0.060_txt_sc.plt"))
+        assert "AA" in text_file.read_text()

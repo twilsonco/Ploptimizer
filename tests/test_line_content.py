@@ -875,3 +875,27 @@ class TestMarkupAwareReflow:
         baseline = _reflow_label(label, _plain_probe())
         assert result is not None and baseline is not None
         assert [line.text for line in result.content] == [line.text for line in baseline.content]
+
+
+def test_scale_argument_survives_the_reflow() -> None:
+    """A ``<scale:N>`` word keeps its factor when it moves between lines.
+
+    The reflow round-trips words through ``serialize_word`` into raw text and
+    re-parses; an arg-unaware serializer would emit a bare ``<scale>`` (which
+    is literal text), silently engraving the tags.
+    """
+    label = _label(
+        "m",
+        _line("<scale:0.5>AAAA</scale> BB"),
+        _line("CC"),
+    )
+    result = _reflow_label(label, _plain_probe())
+    assert result is not None
+    first, second = result.content
+    # The scaled token is the widest word, so it stays alone on line 1 and the
+    # plain 'BB' moves down beside 'CC' (the balanced fill).
+    assert first.text == "<scale:0.5>AAAA</scale>"
+    assert first.plain_text == "AAAA"
+    assert first.scale_values == (0.5, 0.5, 0.5, 0.5)
+    assert second.text == "BB CC"
+    assert second.has_scale is False

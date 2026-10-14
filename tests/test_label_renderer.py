@@ -2868,26 +2868,28 @@ class TestBoldRenderDispatch:
 
     def test_bold_render_kwargs_gate(self) -> None:
         """The kwargs dict is empty for plain / bold-cutter-less lines."""
-        from plt_optimizer.generate.label_renderer import _bold_render_kwargs
+        from plt_optimizer.generate.label_renderer import _glyph_render_kwargs
 
         plain = self._resolve(("AV", {}))[0].content[0]
-        assert _bold_render_kwargs(plain, plt=True) == {}
-        assert _bold_render_kwargs(plain, plt=False) == {}
+        assert _glyph_render_kwargs(plain, plt=True) == {}
+        assert _glyph_render_kwargs(plain, plt=False) == {}
         bold = self._resolve(("<b>AV</b>", {}))[0].content[0]
-        plt_kwargs = _bold_render_kwargs(bold, plt=True)
+        plt_kwargs = _glyph_render_kwargs(bold, plt=True)
         assert set(plt_kwargs) == {"cutter_diameters", "glyph_scales"}
         assert plt_kwargs["cutter_diameters"] == (
             bold.bold_cutter_diameter,
             bold.bold_cutter_diameter,
         )
-        ttf_kwargs = _bold_render_kwargs(bold, plt=False)
-        assert set(ttf_kwargs) == {"bold_scale", "bold_flags"}
-        assert ttf_kwargs["bold_flags"] == (True, True)
-        assert ttf_kwargs["bold_scale"] == pytest.approx(bold._bold_glyph_scale())
+        ttf_kwargs = _glyph_render_kwargs(bold, plt=False)
+        assert set(ttf_kwargs) == {"glyph_scales"}
+        assert ttf_kwargs["glyph_scales"] == (
+            pytest.approx(bold._bold_glyph_scale()),
+            pytest.approx(bold._bold_glyph_scale()),
+        )
 
     def test_bold_render_kwargs_empty_without_a_bold_cutter(self) -> None:
         """A bold run with no bold cutter (top-of-inventory) yields no kwargs."""
-        from plt_optimizer.generate.label_renderer import _bold_render_kwargs
+        from plt_optimizer.generate.label_renderer import _glyph_render_kwargs
         from plt_optimizer.generate.resolution import ResolvedTextLine
 
         line = ResolvedTextLine(
@@ -2906,87 +2908,88 @@ class TestBoldRenderDispatch:
             ),
             bold_cutter_diameter=None,
         )
-        assert _bold_render_kwargs(line, plt=True) == {}
-        assert _bold_render_kwargs(line, plt=False) == {}
+        assert _glyph_render_kwargs(line, plt=True) == {}
+        assert _glyph_render_kwargs(line, plt=False) == {}
 
-    def test_bold_stroke_indices_select_the_bold_glyphs(self) -> None:
-        """``_bold_stroke_indices`` picks the bold glyphs' strokes (not the plain)."""
+    def test_stroke_cutter_map_selects_the_bold_glyphs(self) -> None:
+        """``_stroke_cutter_map`` gives the bold glyphs the bold cutter."""
         from plt_optimizer.generate.label_renderer import (
             TextChunkMode,
-            _bold_stroke_indices,
             _render_line_block,
+            _stroke_cutter_map,
         )
 
         line = self._resolve(("A<b>V</b>", {}))[0].content[0]
         block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
-        bold = _bold_stroke_indices(line, block, glyphs)
-        assert bold
-        # The plain glyph 'A' owns the first group; none of its strokes are bold.
-        assert not set(glyphs[0]) & set(bold)
-        # The bold glyph 'V' owns the second group; all of its strokes are bold.
-        assert set(glyphs[1]) <= set(bold)
+        cutters = _stroke_cutter_map(line, block, glyphs)
+        assert len(cutters) == len(block.strokes)
+        assert set(cutters) == {line.cutter_diameter, line.bold_cutter_diameter}
+        # The plain glyph 'A' owns the first group; all its strokes use the plain tool.
+        assert all(cutters[i] == line.cutter_diameter for i in glyphs[0])
+        # The bold glyph 'V' owns the second group; all its strokes use the bold tool.
+        assert all(cutters[i] == line.bold_cutter_diameter for i in glyphs[1])
 
     def test_pen_split_partitions_the_block(self) -> None:
-        """``_split_block_by_pen`` yields disjoint halves covering every stroke."""
+        """``_split_block_by_cutters`` yields disjoint groups covering every stroke."""
         from plt_optimizer.generate.label_renderer import (
             TextChunkMode,
-            _bold_stroke_indices,
             _render_line_block,
-            _split_block_by_pen,
+            _split_block_by_cutters,
+            _stroke_cutter_map,
         )
 
         line = self._resolve(("A<b>V</b>", {}))[0].content[0]
         block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
-        bold = _bold_stroke_indices(line, block, glyphs)
-        (
-            plain_block,
-            _pw,
-            plain_glyphs,
+        cutters = _stroke_cutter_map(line, block, glyphs)
+        groups = _split_block_by_cutters(block, cutters, None, glyphs)
+        assert len(groups) == 2
+        (plain_block, _pw, plain_glyphs, plain_cutter), (
             bold_block,
             _bw,
             bold_glyphs,
-        ) = _split_block_by_pen(block, bold, None, glyphs)
+            bold_cutter,
+        ) = groups
+        assert plain_cutter == line.cutter_diameter
+        assert bold_cutter == line.bold_cutter_diameter
         assert len(plain_block.strokes) + len(bold_block.strokes) == len(block.strokes)
-        # The bold half carries exactly the bold strokes; the plain half the rest.
-        assert len(bold_block.strokes) == len(bold)
-        # Each half's glyph groups stay within that half's stroke range, and the
-        # two halves together keep every glyph group (a glyph is all-bold/plain).
+        # Each group's glyph groups stay within that group's stroke range, and the
+        # two groups together keep every glyph group (a glyph is all-bold/plain).
         assert all(i < len(plain_block.strokes) for group in plain_glyphs for i in group)
         assert all(i < len(bold_block.strokes) for group in bold_glyphs for i in group)
         assert len(plain_glyphs) == len(glyphs)
         assert len(bold_glyphs) == len(glyphs)
 
-    def test_pen_split_is_a_no_op_without_bold(self) -> None:
-        """A line with no bold strokes returns the whole block on the plain side."""
+    def test_pen_split_is_a_no_op_without_markup(self) -> None:
+        """A single-cutter line splits into one group carrying the whole block."""
         from plt_optimizer.generate.label_renderer import (
             TextChunkMode,
             _render_line_block,
-            _split_block_by_pen,
+            _split_block_by_cutters,
         )
 
         line = self._resolve(("AV", {}))[0].content[0]
         block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
-        plain_block, _pw, _pg, bold_block, _bw, _bg = _split_block_by_pen(
-            block, (), None, glyphs
-        )
-        assert len(plain_block.strokes) == len(block.strokes)
-        assert bold_block.is_empty()
+        groups = _split_block_by_cutters(block, (line.cutter_diameter,) * len(block.strokes), None, glyphs)
+        assert len(groups) == 1
+        whole_block, _w, _g, cutter = groups[0]
+        assert cutter == line.cutter_diameter
+        assert len(whole_block.strokes) == len(block.strokes)
 
-    def test_line_entry_carries_bold_strokes(self) -> None:
-        """``_render_positioned_lines`` records the bold stroke indices per line."""
+    def test_line_entry_carries_stroke_cutters(self) -> None:
+        """``_render_positioned_lines`` records the per-stroke cutters per line."""
         from plt_optimizer.generate.label_renderer import _render_positioned_lines
 
         label = self._resolve(("A<b>V</b>", {}))[0]
         entries = [entry for _i, _b, entry, _w, _g in _render_positioned_lines(label)]
-        assert entries[0].bold_strokes
+        assert entries[0].stroke_cutters
 
-    def test_plain_line_entry_has_no_bold_strokes(self) -> None:
-        """A markup-free line records an empty bold stroke tuple."""
+    def test_plain_line_entry_has_no_stroke_cutters(self) -> None:
+        """A markup-free line records an empty stroke-cutter tuple."""
         from plt_optimizer.generate.label_renderer import _render_positioned_lines
 
         label = self._resolve(("AV", {}))[0]
         entries = [entry for _i, _b, entry, _w, _g in _render_positioned_lines(label)]
-        assert entries[0].bold_strokes == ()
+        assert entries[0].stroke_cutters == ()
 
     def test_line_cutter_uses_the_widest_tool(self) -> None:
         """The relief/collision floors read the line's MAX (plain, bold) cutter."""
@@ -3019,3 +3022,147 @@ class TestBoldRenderDispatch:
         # The bold glyphs shrink, so the line renders narrower than the plain twin.
         assert measure_line_natural_width(bold) < measure_line_natural_width(plain)
 
+
+
+class TestScaleRenderDispatch:
+    """``_render_line_block`` renders ``<scale:N>`` runs at a per-glyph scale."""
+
+    _INVENTORY = [0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.09, 0.125, 0.25]
+
+    @classmethod
+    def _resolve(cls, *lines, **job_kwargs):
+        """Resolve a markup job against the inventory (so a step has rungs)."""
+        from plt_optimizer.generate.resolution import resolve_job_spec
+
+        return resolve_job_spec(_markup_job(*lines, **job_kwargs), cls._INVENTORY)
+
+    def test_scaled_line_renders_plain_text_not_the_tags(self) -> None:
+        """The engraving measures the plain text; the tags never appear."""
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+
+        line = self._resolve(("<scale:0.5>AV</scale>", {}))[0].content[0]
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        assert block.bounds() is not None
+        assert len(glyphs) == 2
+
+    def test_downscale_shrinks_vs_the_plain_twin(self) -> None:
+        """The scaled run's cap line sits below the plain twin's (baseline fixed)."""
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+
+        scaled = self._resolve(("<scale:0.5>AVX</scale>", {}))[0].content[0]
+        plain = self._resolve(("AVX", {}))[0].content[0]
+        sb = _render_line_block(scaled, TextChunkMode.LINE)[0].bounds()
+        pb = _render_line_block(plain, TextChunkMode.LINE)[0].bounds()
+        assert sb is not None and pb is not None
+        # Cap-only glyphs: the baseline (bottom) stays, the top descends.
+        assert sb[1] == pytest.approx(pb[1], abs=1e-9)
+        assert sb[3] < pb[3]
+
+    def test_upscale_grows_vs_the_plain_twin(self) -> None:
+        """An upscaled run's cap line rises above the plain twin's."""
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+
+        scaled = self._resolve(("<scale:1.5>AVX</scale>", {}))[0].content[0]
+        plain = self._resolve(("AVX", {}))[0].content[0]
+        sb = _render_line_block(scaled, TextChunkMode.LINE)[0].bounds()
+        pb = _render_line_block(plain, TextChunkMode.LINE)[0].bounds()
+        assert sb is not None and pb is not None
+        assert sb[1] == pytest.approx(pb[1], abs=1e-9)
+        assert sb[3] > pb[3]
+
+    def test_scale_unity_matches_the_plain_twin(self) -> None:
+        """``<scale:1>`` engraves exactly like the plain line (fast path)."""
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+
+        scaled = self._resolve(("<scale:1>AVX</scale>", {}))[0].content[0]
+        plain = self._resolve(("AVX", {}))[0].content[0]
+        sb = _render_line_block(scaled, TextChunkMode.LINE)[0].bounds()
+        pb = _render_line_block(plain, TextChunkMode.LINE)[0].bounds()
+        assert sb == pb
+
+    def test_partial_scale_moves_only_the_scaled_glyphs(self) -> None:
+        """A per-run scale leaves the plain prefix at full height."""
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+
+        line = self._resolve(("A<scale:0.5>B</scale>", {}))[0].content[0]
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        assert block.bounds() is not None
+        # Glyph 'A' (plain) reaches the full cap; glyph 'B' (scaled) is shorter.
+        from plt_optimizer.generate.text_geometry import TextBlock
+
+        a_bounds = TextBlock(strokes=tuple(block.strokes[i] for i in glyphs[0])).bounds()
+        b_bounds = TextBlock(strokes=tuple(block.strokes[i] for i in glyphs[1])).bounds()
+        assert a_bounds is not None and b_bounds is not None
+        assert b_bounds[3] < a_bounds[3]
+
+    def test_scale_is_aware_in_natural_width(self) -> None:
+        """measure_line_natural_width sees the scaled width (reflow/compression)."""
+        from plt_optimizer.generate.label_renderer import measure_line_natural_width
+
+        scaled = self._resolve(("<scale:0.5>AVX</scale>", {}))[0].content[0]
+        plain = self._resolve(("AVX", {}))[0].content[0]
+        assert measure_line_natural_width(scaled) < measure_line_natural_width(plain)
+
+    def test_glyph_partition_stays_one_to_one(self) -> None:
+        """The scaled block keeps the exact per-glyph partition (relief/sweep)."""
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+
+        line = self._resolve(("a<scale:0.5>bc</scale>d", {}))[0].content[0]
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        flat = [index for group in glyphs for index in group]
+        assert sorted(flat) == list(range(len(block.strokes)))
+
+    def test_scale_plus_bold_splits_onto_two_pens(self) -> None:
+        """A bold+scaled line splits its strokes onto the plain and bold pens."""
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_text_lines_by_pen,
+        )
+        from plt_optimizer.generate.resolution import build_cutter_pen_map, resolve_job_spec
+
+        label = self._resolve(("<b>a<scale:0.5>b</scale></b>", {}), font="Dino")[0]
+        assert label.content[0].bold_cutter_diameter is not None
+        pen_map = build_cutter_pen_map([label])
+        _pens, entries, _records = _render_text_lines_by_pen(label, pen_map, TextChunkMode.LINE)
+        # The line carries more than one engraving cutter (plain + bold + the
+        # scaled run's effective-height tool), recorded per stroke.
+        assert len(set(entries[0].stroke_cutters)) >= 2
+
+    def test_scale_bold_splits_onto_three_pens(self) -> None:
+        """A plain + bold + scaled line routes onto three per-cutter pens.
+
+        Dino 0.5in text: plain 0.060, the bold rung 0.090, and the bold+0.5x
+        run the bold rung at 0.25in (0.045) -- three layers, three chunk groups.
+        """
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_text_lines_by_pen,
+        )
+        from plt_optimizer.generate.resolution import build_cutter_pen_map
+
+        label = self._resolve(("A<b>B<scale:0.5>C</scale></b>", {}), font="Dino")[0]
+        line = label.content[0]
+        assert line.used_cutters == (0.045, 0.06, 0.09)
+        pen_map = build_cutter_pen_map([label])
+        pens, _entries, records = _render_text_lines_by_pen(label, pen_map, TextChunkMode.LINE)
+        assert len(pens) == 3
+        assert {record.pen for record in records} == set(pens)
+
+    def test_underline_splits_at_the_scale_boundary(self) -> None:
+        """One ``<u>`` span across a scale boundary draws two underlines.
+
+        The underline is cut with the run's own tool and a run's centerline
+        sits one cutter below the baseline, so the gate splits the span where
+        the cutter changes (the plain word at the line cutter, the scaled word
+        at its effective-height cutter).
+        """
+        from plt_optimizer.generate.label_renderer import _underline_render_gate
+
+        line = self._resolve(("<u>pay <scale:0.5>deep</scale></u>", {}), font="Dino")[0].content[0]
+        runs = _underline_render_gate(line)
+        assert len(runs) == 2
+        first, second = runs
+        # The plain word 'pay' (the space carries the plain cutter, so it rides
+        # the first run) then the scaled word 'deep'.
+        assert line.plain_text[first[0] : first[1] + 1] == "pay "
+        assert line.plain_text[second[0] : second[1] + 1] == "deep"

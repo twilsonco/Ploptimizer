@@ -1412,27 +1412,33 @@ precedent). No tag args ship: the parser's reserved `name:args` form keeps
 - **The pen split happens LAST.** One unified positioned block flows through
   every render phase (X compression, alignment, the descender relief, the
   underline, Y stacking); only in `_render_text_lines_by_pen` is it partitioned
-  by stroke index (`_split_block_by_pen`) onto the plain pen
-  (`pen_map[(cutter, color)]`) and the bold pen (`pen_map[(bold_cutter,
-  color)]`), via the exact `glyph_groups` partition + the bold underline
-  strokes (a glyph is all-bold or all-plain, so every glyph group maps wholly
-  into one half; `plate_optimizer` filters chunk records by `pen`, so the two
-  halves route as separate layers for free). `build_cutter_pen_map` keys the
-  bold rung as its own `(bold_cutter, color)` layer, so SP numbering, the
-  `<cutter>_txt_` file names and the `(cutter, color)` suffix all come free.
-  The split is vertically safe: `_center_text_layer_vertically` applies ONE
-  shared Y delta computed from the UNION of all text pens.
+  by stroke cutter (`_split_block_by_cutters`) onto one pen per cutter
+  (`pen_map[(cutter, color)]`), driven by the per-stroke cutter array
+  (`_stroke_cutter_map`, stored on `_LineEntry.stroke_cutters`) walked over the
+  exact `glyph_groups` partition (a glyph is all-bold or all-plain, so every
+  glyph group maps wholly into one group; `plate_optimizer` filters chunk
+  records by `pen`, so the groups route as separate layers for free). The
+  array is empty when the whole line engraves with one tool, so a plain line
+  keeps the single-pen fast path. `build_cutter_pen_map` keys every distinct
+  cutter in `ResolvedTextLine.used_cutters` as its own `(cutter, color)` layer,
+  so SP numbering, the `<cutter>_txt_` file names and the `(cutter, color)`
+  suffix all come free. The split is vertically safe:
+  `_center_text_layer_vertically` applies ONE shared Y delta computed from the
+  UNION of all text pens.
 - **Stroke floors read the line's widest tool.** A `<b>` line engraves part of
-  its ink with the thicker tool, so `_collision_threshold` (the whole-line
-  AABB floor) and `_line_cutter` (the descender relief's pair/border floors)
-  use `max(cutter_diameter, bold_cutter_diameter)`. Deliberately conservative:
-  a plain descender on a bold-carrying line asks for a touch more air than its
-  own stroke strictly needs, which can never engrave a collision.
-- **Underline runs split at bold boundaries** (`_split_runs_at_bold`): the
+  its ink with the thicker tool (and a large `<scale:N>` run with a larger
+  tool), so `_collision_threshold` (the whole-line AABB floor) and
+  `_line_cutter` (the descender relief's pair/border floors) use
+  `max(used_cutters)`. Deliberately conservative: a plain descender on a
+  wide-tool-carrying line asks for a touch more air than its own stroke
+  strictly needs, which can never engrave a collision.
+- **Underline runs split at cutter boundaries** (`_split_runs_at_cutter`): the
   underline is cut with the RUN's own tool, so a bold run's centerline sits
   `bold_cutter + underline_offset` below the baseline (deeper, because the
-  thicker tool's stroke starts lower) and its strokes join the bold pen. One
-  underline cannot span two tools, hence the split.
+  thicker tool's stroke starts lower) and its strokes join that tool's pen. One
+  underline cannot span two tools, hence the split (the general form of the
+  old bold-only split; a scaled run's centerline sits one effective-height
+  cutter below the baseline).
 - **Lockstep with the compression-driven downsize (user decision).** Every
   monotone step `X -> next_smaller(X)` on the plain cutter also steps the bold
   cutter one rung down (`_with_cutter` takes the inventory), so the bold run
@@ -1472,6 +1478,115 @@ precedent). No tag args ship: the parser's reserved `name:args` form keeps
   (`tests/test_label_renderer.py`), `TestBoldCutterFindings`
   (`tests/test_layout_report.py`), and the `bold_boldness_multiplier`
   job-config key tests (`tests/test_job_config.py`).
+
+### Inline Text Scaling (`<scale:N>`)
+
+`<scale:N>...</scale>` is the fourth shipped markup tag and the **first tag
+with an argument**: the wrapped characters engrave a silhouette exactly `N`
+times the plain run's **and engrave with the cutter that `N x text_height` of
+text would get on its own**, so a scaled run matches text authored at that
+size (the reported symptom: a 0.5x run on 1in text engraved with the 1in
+text's 0.125in tool read as an ink blob). The argument is required and bound
+to `[0.2, 4.0]` (`MIN_SCALE_ARG` / `MAX_SCALE_ARG` in `markup.py`); a bad
+argument (`<scale:abc>`, `<scale:>`, out-of-bounds) is broken markup --
+`MarkupError` -> CLI non-zero, the fail-loud contract. A bare `<scale>` (no
+argument) is **literal text** (the value is mandatory), and `<scale: 0.5>` (a
+space) never matches the tag-body regex (`\S*`) so it engraves verbatim. The
+name is deliberately `scale`, not `sc`: the `sc` namespace belongs to the
+small-caps field / ` SC` font suffix (and the planned inline `<sc>` tag).
+
+- **The framework upgrade (args) is the durable part.** `TagSpec` gained
+  `apply(style, arg)`, `is_active(style)` (defaults to the flag-tag rule
+  `apply(style, "") == style`), and `arg(style)` (the canonical serializer,
+  mandatory with `accepts_args`); `parse_markup` threads the
+  `open_match.group(2)` argument into the open branch (previously captured
+  and discarded), validating inside `apply` (a `MarkupError` there is
+  re-raised with the tag position + text). `serialize_runs` re-emits
+  `name:arg` via `spec.arg` -- **required** so the `optimize_line_content`
+  reflow round-trip (`serialize_word` -> raw text -> `with_markup` re-parse)
+  never drops the value (an arg-unaware serializer would emit a bare
+  `<scale>`, which is literal text, silently engraving the tags). A
+  set-to-value `apply` is idempotent, so the serializer's stack recovery
+  survives; a nested `<scale:0.5>a<scale:1.5>b</scale>c</scale>` restores
+  `0.5` for `c` for free (the close pops the pre-open `Style`), and
+  serialization flattens the nesting into per-span tag pairs that re-parse to
+  the identical per-character factors. `Style.scale: float = 1.0`
+  (`1.0` = `UNSET_SCALE` = no tag); `StyledText.scale_values` is the
+  per-character sibling of `bold_flags`.
+- **The centerline contract.** A glyph's stored geometry is the design
+  cutter's path, so engraving a silhouette `s` times the plain run's through
+  cutter `d` scales the geometry uniformly about the baseline by
+  `g = (s*nominal - d) / (nominal - cutter)` -- at `s = 1`, `d = bold_cutter`
+  this is exactly `_bold_glyph_scale()`, so **bold is the plan's special
+  case**. `resolution.glyph_render_plan(line)` is the single source: it
+  returns the per-character `(cutter_diameters, glyph_scales)` arrays (the
+  `<b>` + `<scale:N>` union) or `None` for the fast path. A uniform x=y scale
+  keeps `AA` arcs native (PLT `glyph_scales` via `_scale_baseline_geometry`;
+  TTF `_apply_glyph_scales`, the `_apply_bold` contour-slicing idiom
+  generalized to per-index factors -- anchor = the glyph's ink-left on the
+  baseline, pen advance stays with matplotlib shaping, the italic/bold
+  contract). `label_renderer._bold_render_kwargs` became `_glyph_render_kwargs`
+  (same three-tier empty-dict gate: no markup / no bold-and-scaled run /
+  all-unity TTF factors); the TTF `_with_words` grouping gate includes a
+  non-unity `glyph_scales`.
+- **The per-run cutter (`per_char_cutters`, derived).** A scaled run is a
+  smaller (or larger) glyph, so it takes the **height-based ladder** cutter
+  for its effective height `N * nominal` -- the tool that size of text gets
+  authored on its own (`scale_cutter_ladder`, an `lru_cache`d pure function of
+  the line's ladder inputs; a bold+scaled run takes the bold rung at the
+  effective height, so `<b>text <scale:0.5>small</scale></b>` splits onto
+  three pens: plain, bold, and the small-bold rung). **The line stores the
+  ladder's inputs (`scale_cutter_inventory` + `scale_cutter_tolerance`), never
+  a positional per-character result array**: `per_char_cutters` derives each
+  character's cutter from its own scale factor on demand, so a pre-pass that
+  rewrites the line's text (`with_markup`, the line-content reflow) keeps every
+  run on its own tool. A stored positional array goes stale when words move --
+  the reflow handed a downscaled run the neighbouring plain text's (larger)
+  cutter, engraving a *downscaled* word with a *larger* tool. An explicit line
+  `cutter_size` governs the plain runs (a human decision, never overridden)
+  while the scaled runs still use the ladder for their own height. The line's
+  own `cutter_diameter` / `toolpath_text_height` never move (the vertical fit
+  math is untouched). `ResolvedTextLine.used_cutters` (the line, bold, and
+  derived per-char cutters) is the layer set `build_cutter_pen_map` keys, so
+  each run's strokes land on their own tool's pen and `<cutter>_txt_` file;
+  `_LineEntry.stroke_cutters` (the per-stroke array from `_stroke_cutter_map`,
+  empty when one tool engraves the whole line) drives the N-way
+  `_split_block_by_cutters`. A degenerate factor (`s*nominal <= d`, only
+  reachable when the inventory has no rung small enough for the run) clamps to
+  `MIN_SCALED_GLYPH_FACTOR` = 0.02 with a WARNING.
+- **No schema field.** The value rides the tag argument (no
+  `TextAttributes`/`PlateSpec`/`JobDefaults`/`job-config.json` surface --
+  unlike `sc_scale`/`italic_angle`, it is never a shop default). The scale is
+  a geometry transform like italic: it never moves `text_height`, the
+  underline (same cutter => no run split; a *different* cutter splits the run
+  at the boundary, one underline cannot span two tools), or the file names.
+- **Reporting**: `layout_report.py` prints a per-line finding
+  `Line N: '<text>' scaled 0.500-1.200 (run cutter 0.030-0.125in, line cutter
+  0.090in)` (the factor range over the line's runs + the run cutters the
+  markup caused; a uniform range/factor set prints one value; reads
+  `plain_text`, compact-mode finding). The finding tuple is 9-wide (9th = the
+  factor range).
+- **Accepted staleness**: an upscaled run grows ink above the capline while
+  the baseline pitch stays per-line -- the author adds `line_spacing` (the
+  descender relief fixes descenders-vs-following-line only); spaces inside a
+  scaled run keep the line's space advance (no ink, keeps the reflow exact,
+  and they carry the plain cutter so an underline run keeps its trailing
+  space); the band-centering margin clamp charges the per-font cap height, so
+  an upscaled run can cross the top margin (the relief's border/below-line
+  checks still see the scaled ink -- they measure the rendered geometry).
+- Fixture: `tests_deps/scale_job.yaml` (pinned by
+  `tests/test_phase3_export.py::TestScaleDemoExample`) -- the PLT downscale
+  vs its plain twin, the upscale, `<scale:1>` == plain, a per-glyph partial
+  scale, `<scale>`+`<i>`, `<scale>`+`<b>` (the three-pen split),
+  `<scale>`+`<u>` (the run split at the scale boundary), and the TTF pair;
+  the export test pins the four per-cutter files (0.030 / 0.045 / 0.060 /
+  0.090). Unit tests: `TestScaleRegistry` / `TestScaleParse` /
+  `TestScaleSerialize` / `TestScaleWords` (`tests/test_markup.py`),
+  `TestScaleResolution` / `TestGlyphRenderPlan` (`tests/test_resolution.py`),
+  `TestApplyGlyphScales` (`tests/test_ftext_renderer.py`),
+  `TestScaleRenderDispatch` (`tests/test_label_renderer.py`),
+  `TestScaleMarkupFindings` (`tests/test_layout_report.py`), and the
+  scale-argument reflow round-trip (`tests/test_line_content.py`).
 
 ### Horizontal Text Alignment
 

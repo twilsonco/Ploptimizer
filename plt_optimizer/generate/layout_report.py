@@ -28,6 +28,10 @@ what is engraved without appearing in the YAML spec:
   the thicker cutter a ``<b>`` run of the line engraves with, alongside the
   line's own (plain) cutter -- the tool swap the markup caused, which the YAML
   spec never states.
+- **Scale markup** (:attr:`plt_optimizer.generate.resolution.ResolvedTextLine.scale_values`):
+  the ``<scale:N>`` factor range a line's runs engrave at, alongside the
+  cutter the line stepped down to when a run needed a smaller tool -- the
+  geometry change the markup caused, which the YAML spec never states.
 
 This module is the single source of truth for the report text: the
 ``generate`` CLI (compact by default, full under ``-v``) and
@@ -46,7 +50,7 @@ from typing import TYPE_CHECKING, Mapping, Sequence
 
 if TYPE_CHECKING:
     from plt_optimizer.generate.label_renderer import RenderedLabel
-    from plt_optimizer.generate.resolution import ResolvedLabel
+    from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
 
 # Float tolerance for requested-vs-effective spacing comparisons. Values
 # within this band count as "no adjustment" (never printed as a deviation
@@ -78,6 +82,22 @@ def _spacing_deviation(requested: float, effective: float) -> bool:
     )
 
 
+def _scale_run_cutters(line: ResolvedTextLine) -> tuple[float, ...]:
+    """Return the distinct cutters a line's ``<scale:N>`` runs engrave with.
+
+    Ascending, de-duplicated, read from the derived per-character cutters.
+    Falls back to the line's own cutter when no character scales.
+    """
+    scales = line.scale_values
+    cutters = line.per_char_cutters
+    used = {
+        cutter
+        for index, cutter in enumerate(cutters)
+        if index < len(scales) and scales[index] != 1.0
+    }
+    return tuple(sorted(used)) if used else (line.cutter_diameter,)
+
+
 def _label_findings(
     rendered: RenderedLabel,
 ) -> list[
@@ -90,9 +110,10 @@ def _label_findings(
         tuple[float, float] | None,
         int,
         tuple[float, float] | None,
+        tuple[float, float] | None,
     ]
 ]:
-    """Collect the per-line findings (compression / spacing / downsize / relief / bold).
+    """Collect the per-line findings (compression / spacing / downsize / relief / bold / scale).
 
     Args:
         rendered: The rendered label carrying the render-time maps plus the
@@ -101,15 +122,16 @@ def _label_findings(
 
     Returns:
         One ``(line_index, line_text, scale, requested, effective, downsize,
-        relief_count, bold)`` tuple per finding, in content order. ``scale`` is
-        set (below ``1.0``) only for compressed lines; ``requested``/
-        ``effective`` are set only for spacing gaps (always in full mode, or
-        when deviating in compact mode); ``downsize`` is the ``(original,
-        final)`` cutter pair only for lines whose automatic cutter was
-        reduced; ``relief_count`` is how many descending glyphs the automatic
-        descending-character adjustment relieved on that line (``0`` for none);
-        ``bold`` is the ``(plain, bold)`` cutter pair only for lines carrying a
-        ``<b>`` run.
+        relief_count, bold, markup_scale)`` tuple per finding, in content
+        order. ``scale`` is set (below ``1.0``) only for compressed lines;
+        ``requested``/``effective`` are set only for spacing gaps (always in
+        full mode, or when deviating in compact mode); ``downsize`` is the
+        ``(original, final)`` cutter pair only for lines whose automatic
+        cutter was reduced; ``relief_count`` is how many descending glyphs the
+        automatic descending-character adjustment relieved on that line (``0``
+        for none); ``bold`` is the ``(plain, bold)`` cutter pair only for lines
+        carrying a ``<b>`` run; ``markup_scale`` is the ``(min, max)``
+        ``<scale:N>`` factor range only for lines carrying a ``<scale:N>`` run.
     """
     content = rendered.source_label.content
     downsizes = rendered.source_label.cutter_downsize_by_line
@@ -124,6 +146,7 @@ def _label_findings(
             tuple[float, float] | None,
             int,
             tuple[float, float] | None,
+            tuple[float, float] | None,
         ]
     ] = []
     for line_index in sorted(
@@ -132,6 +155,7 @@ def _label_findings(
         | set(downsizes)
         | set(reliefs)
         | {index for index, line in enumerate(content) if line.bold_cutter_diameter is not None}
+        | {index for index, line in enumerate(content) if line.has_scale}
     ):
         if line_index >= len(content):  # pragma: no cover - defensive
             continue
@@ -148,12 +172,17 @@ def _label_findings(
             if line.bold_cutter_diameter is not None
             else None
         )
+        markup_scale: tuple[float, float] | None = None
+        if line.has_scale:
+            values = line.scale_values
+            markup_scale = (min(values), max(values))
         if (
             not compressed
             and not deviates
             and downsize is None
             and relief_count == 0
             and bold is None
+            and markup_scale is None
         ):
             continue
         findings.append(
@@ -166,6 +195,7 @@ def _label_findings(
                 downsize,
                 relief_count,
                 bold,
+                markup_scale,
             )
         )
     return findings
@@ -200,10 +230,11 @@ def _label_lines(
             tuple[float, float] | None,
             int,
             tuple[float, float] | None,
+            tuple[float, float] | None,
         ],
     ] = {
-        index: (scale, requested, effective, downsize, relief_count, bold)
-        for index, _t, scale, requested, effective, downsize, relief_count, bold in findings
+        index: (scale, requested, effective, downsize, relief_count, bold, markup_scale)
+        for index, _t, scale, requested, effective, downsize, relief_count, bold, markup_scale in findings
     }
 
     if not full and not findings:
@@ -265,6 +296,24 @@ def _label_lines(
                 lines.append(
                     f"    Line {line_index}: {line.plain_text!r} "
                     f"bold cutter {bold_cutter:.3f}in (line cutter {plain_cutter:.3f}in)"
+                )
+            markup_scale = entry[6]
+            if markup_scale is not None:
+                low, high = markup_scale
+                factor_text = f"{low:.3f}" if low == high else f"{low:.3f}-{high:.3f}"
+                # Each scaled run engraves with the cutter for its effective
+                # height, so name the run cutters (the tool split the markup
+                # caused), not just the line's own tool.
+                run_cutters = _scale_run_cutters(line)
+                cutter_text = (
+                    f"{run_cutters[0]:.3f}in"
+                    if len(run_cutters) == 1
+                    else "-".join(f"{cutter:.3f}" for cutter in run_cutters) + "in"
+                )
+                lines.append(
+                    f"    Line {line_index}: {line.plain_text!r} "
+                    f"scaled {factor_text} (run cutter {cutter_text}, "
+                    f"line cutter {line.cutter_diameter:.3f}in)"
                 )
             if entry[4]:
                 for fix in rendered.descender_adjustments_by_line.get(line_index, ()):

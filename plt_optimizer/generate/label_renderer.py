@@ -72,6 +72,7 @@ from plt_optimizer.generate.resolution import (
     compute_horizontal_scale,
     fit_baseline_spacing_to_margins,
     fit_line_spacing_to_margins,
+    glyph_render_plan,
 )
 from plt_optimizer.generate.text_geometry import (
     LineSeg,
@@ -173,11 +174,11 @@ class _LineEntry(NamedTuple):
             (the render-time, margin-clamped spacing actually used for
             stacking). ``None`` on the last renderable line, which has no
             gap after it.
-        bold_strokes: Stroke indices of the ``<b>`` bold ink of this line
-            (the bold glyphs' strokes plus the underline strokes drawn with
-            the bold cutter), into the positioned block. Empty when the line
-            has no bold run. Consumed by :func:`_render_text_lines_by_pen`
-            to split the line's strokes onto the plain and the bold pen.
+        stroke_cutters: The engraving cutter diameter of every stroke of this
+            line, in stroke order (see :func:`_stroke_cutter_map`). The
+            per-cutter pen split groups strokes by this array, so a ``<b>``
+            bold run and each ``<scale:N>`` run land on their own tool's pen.
+            Empty when the line has no markup (no per-stroke variation).
     """
 
     line_index: int
@@ -185,7 +186,7 @@ class _LineEntry(NamedTuple):
     bounds: Tuple[float, float, float, float]
     compression_scale: float = 1.0
     line_spacing: Optional[float] = None
-    bold_strokes: Tuple[int, ...] = ()
+    stroke_cutters: Tuple[float, ...] = ()
 
 
 class TextChunkMode(str, Enum):
@@ -387,8 +388,9 @@ def _collision_threshold(label: ResolvedLabel, line_index: int) -> float:
     if 0 <= line_index < len(label.content):
         line = label.content[line_index]
         # The widest tool the line uses: a ``<b>`` line's bold run engraves
-        # thicker, and the whole-line AABB is measured against it.
-        text_cutter = max(line.cutter_diameter, line.bold_cutter_diameter or 0.0)
+        # thicker, a large ``<scale:N>`` run engraves with a larger tool, and
+        # the whole-line AABB is measured against it.
+        text_cutter = max(line.used_cutters)
     else:  # Defensive: unknown line (should not happen) assumes no stroke.
         text_cutter = 0.0
     stroke_floor = 0.5 * (label.hole_cutter_diameter + text_cutter)
@@ -438,7 +440,7 @@ def _detect_text_hole_collisions(
     shift_y = label.height / 2.0 - band_center_offset_inches
     results: List[CollisionResult] = []
 
-    for line_index, line_text, bounds, _scale, _spacing, _bold in line_entries:
+    for line_index, line_text, bounds, _scale, _spacing, _cutters in line_entries:
         threshold = _collision_threshold(label, line_index)
         x_min, y_min, x_max, y_max = bounds
         shifted: Tuple[float, float, float, float] = (
@@ -1932,11 +1934,11 @@ def _render_line_block(
     # skipped, italic runs engrave like plain text).
     render_text = line.plain_text
     italic_kwargs = _italic_render_kwargs(line)
-    # Bold markup: the bold characters render with the line's thicker cutter
-    # (PLT: per-character cutter diameters + a baseline-anchored glyph scale;
-    # TTF: one bold scale + per-character flags). Empty dict keeps the
-    # historical call shape for every markup-free line.
-    plt_kwargs.update(_bold_render_kwargs(line, plt=True))
+    # Bold / scale markup: the flagged characters render with a per-glyph
+    # cutter diameter and a baseline-anchored uniform scale (PLT: per-character
+    # cutter diameters + glyph scales; TTF: per-character glyph scales). Empty
+    # dict keeps the historical call shape for every markup-free line.
+    plt_kwargs.update(_glyph_render_kwargs(line, plt=True))
 
     if ref.kind == "plt":
         if chunk_mode is TextChunkMode.WORD:
@@ -1974,7 +1976,7 @@ def _render_line_block(
         # glyphs; without it the shear fallback runs (PLT parity).
         if ref.italic_path is not None:
             ftext_kwargs["italic_face"] = ref.italic_path
-    ftext_kwargs.update(_bold_render_kwargs(line, plt=False))
+    ftext_kwargs.update(_glyph_render_kwargs(line, plt=False))
     if chunk_mode is TextChunkMode.WORD:
         filtered_lc, groups = render_text_line_ftext_with_words(render_text, **ftext_kwargs)
         block = block_from_linecollection(filtered_lc)
@@ -2042,43 +2044,54 @@ def _underline_render_gate(line: ResolvedTextLine) -> Tuple[Tuple[int, int], ...
     runs = underline_runs(flags)
     if line.underline_break_spaces:
         runs = _split_runs_at_spaces(line.plain_text, runs)
-    if line.has_bold:
-        runs = _split_runs_at_bold(runs, line.bold_flags)
+    cutters = line.per_char_cutters
+    if cutters and len(set(cutters)) > 1:
+        runs = _split_runs_at_cutter(runs, cutters)
     return runs
 
 
-def _split_runs_at_bold(
+def _split_runs_at_cutter(
     runs: Tuple[Tuple[int, int], ...],
-    bold_flags: Tuple[bool, ...],
+    cutters: Tuple[float, ...],
 ) -> Tuple[Tuple[int, int], ...]:
-    """Split each underlined run where the bold flag changes.
+    """Split each underlined run where the engraving cutter changes.
+
+    The underline is cut with the run's own tool, and a run's centerline sits
+    one cutter below the baseline, so one underline cannot span two tools. The
+    cutter changes at a ``<b>`` boundary (the plain tool vs. the bold rung) and
+    at a ``<scale:N>`` boundary (the effective-height cutter), so this is the
+    general form of the bold-boundary split.
 
     Args:
         runs: The underlined runs (inclusive ``plain_text`` indices).
-        bold_flags: Per-character bold flags aligned with ``plain_text``.
+        cutters: Per-character cutter diameters aligned with ``plain_text``.
 
     Returns:
-        The runs split at bold/plain boundaries, in order.
+        The runs split at cutter boundaries, in order.
     """
     split: List[Tuple[int, int]] = []
     for first, last in runs:
         start = first
         for index in range(first, last):
-            if bold_flags[index] != bold_flags[index + 1]:
+            if cutters[index] != cutters[index + 1]:
                 split.append((start, index))
                 start = index + 1
         split.append((start, last))
     return tuple(split)
 
 
-def _run_is_bold(line: ResolvedTextLine, first: int) -> bool:
-    """Return whether the underlined run starting at ``first`` is a bold run.
+def _run_cutter(line: ResolvedTextLine, first: int) -> float:
+    """Return the cutter the underlined run starting at ``first`` engraves with.
 
-    Runs are split at bold boundaries (see :func:`_split_runs_at_bold`), so the
-    first character's flag decides the whole run's cutter.
+    Runs are split at cutter boundaries (see :func:`_split_runs_at_cutter`), so
+    the first character's cutter decides the whole run's tool: the line's own
+    cutter, its ``<b>`` bold rung, or the run's ``<scale:N>`` effective-height
+    cutter.
     """
-    flags = line.bold_flags
-    return bool(flags) and first < len(flags) and flags[first]
+    cutters = line.per_char_cutters
+    if cutters and first < len(cutters):
+        return cutters[first]
+    return line.cutter_diameter
 
 
 def _split_runs_at_spaces(
@@ -2200,14 +2213,10 @@ def _underline_strokes(
             max(boxes[position][2] for position in glyph_positions),
         )
         # Per-run cutter: the underline is cut with the run's own tool, so a
-        # bold run's centerline sits one bold cutter below the baseline (the
-        # runs are split at bold boundaries by the gate).
-        is_bold = _run_is_bold(line, first)
-        cutter = (
-            line.bold_cutter_diameter
-            if is_bold and line.bold_cutter_diameter is not None
-            else line.cutter_diameter
-        )
+        # bold run's centerline sits one bold cutter below the baseline and a
+        # scaled run's one effective-height cutter below it (the runs are split
+        # at cutter boundaries by the gate).
+        cutter = _run_cutter(line, first)
         line_y = -(cutter + line.underline_offset)
         min_y_seen = line_y if min_y_seen is None else min(min_y_seen, line_y)
         segments = underline_segments(
@@ -2284,109 +2293,99 @@ def _apply_underline(
     return extended, word_groups, glyph_groups
 
 
-def _bold_stroke_indices(
+def _stroke_cutter_map(
     line: ResolvedTextLine,
     block: TextBlock,
     glyph_groups: Tuple[Tuple[int, ...], ...],
-) -> Tuple[int, ...]:
-    """Return the stroke indices of ``line``'s bold ink in ``block``.
+) -> Tuple[float, ...]:
+    """Return the engraving cutter of every stroke in ``block``, by index.
 
-    The bold glyphs' strokes (:func:`_bold_glyph_strokes`) plus every ``<u>``
-    underline stroke cut with the **bold** tool. The underline strokes are
-    appended after the glyph partition, and a bold run's centerline sits
-    strictly deeper than the plain one (``bold_cutter + underline_offset`` vs
-    ``cutter + underline_offset`` below the baseline), so the centerline Y
-    identifies the two tools' strokes exactly. The gate splits runs at bold
-    boundaries, so no underline stroke straddles both cutters.
+    The per-cutter pen split needs one cutter per *stroke*, not per line. The
+    glyph strokes come from the per-character cutter array (:attr:
+    `ResolvedTextLine.per_char_cutters`) walked over the exact ``glyph_groups``
+    partition (spaces own no group, mirroring :func:`_glyph_chars`). The
+    ``<u>`` underline strokes are appended **after** that partition, so they
+    are identified by their centerline depth: a run's centerline sits exactly
+    ``cutter + underline_offset`` below the baseline, and the gate splits runs
+    at cutter boundaries, so ``-y - underline_offset`` recovers the tool
+    exactly (no sampling, no tolerance guessing).
 
     Args:
-        line: The resolved text line (flags, cutters, offset).
-        block: The line's block with the underline appended (baseline y=0).
+        line: The resolved text line (per-character cutters, offset).
+        block: The line's block with the underline appended, in the renderers'
+            local frame (baseline ``y = 0``).
         glyph_groups: The per-glyph stroke partition (underline excluded).
 
     Returns:
-        Sorted stroke indices of the bold ink (empty when the line has no
-        bold run).
+        One cutter diameter per stroke of ``block``, in stroke order; **empty**
+        when the whole line engraves with a single tool (no markup, a bold run
+        with no bold rung, or scaled runs whose ladder cutter equals the
+        line's) -- the caller treats that as "no split needed", exactly the
+        historical single-pen fast path.
     """
-    if not line.has_bold:
+    cutters = line.per_char_cutters
+    if not cutters or not glyph_groups:
         return ()
-    strokes = _bold_glyph_strokes(line, glyph_groups)
-    bold_cutter = line.bold_cutter_diameter
-    if bold_cutter is not None and bold_cutter > line.cutter_diameter:
-        bold_y = -(bold_cutter + line.underline_offset)
-        for index in range(len(block.strokes)):
-            stroke = block.strokes[index]
-            if not stroke.segments:
-                continue
-            start_y = stroke.segments[0].start.imag
-            if abs(start_y - bold_y) <= _INK_EMISSION_FLOOR:
-                strokes.add(index)
-    return tuple(sorted(strokes))
-
-
-def _bold_render_kwargs(line: ResolvedTextLine, *, plt: bool) -> dict[str, Any]:
-    """Return the bold renderer kwargs for one resolved line.
-
-    Empty dict when the line carries no bold markup, has no bold cutter (the
-    top-of-inventory fallback keeps the plain tool), or the bold glyph scale
-    is unity -- the historical call shape, bit-identical output.
-
-    Args:
-        line: The resolved text line.
-        plt: True for a PLT line (per-character ``cutter_diameters`` +
-            ``glyph_scales``), False for a TTF line (a single ``bold_scale``
-            + per-character ``bold_flags``).
-
-    Returns:
-        ``{"cutter_diameters": ..., "glyph_scales": ...}`` for a PLT line,
-        ``{"bold_scale": ..., "bold_flags": ...}`` for a TTF line, or ``{}``.
-    """
-    if not line.has_bold or line.bold_cutter_diameter is None:
-        return {}
-    scale = line._bold_glyph_scale()
-    flags = line.bold_flags
-    if plt:
-        diameters = tuple(
-            line.bold_cutter_diameter if flag else line.cutter_diameter for flag in flags
-        )
-        scales = tuple(scale if flag else 1.0 for flag in flags)
-        return {"cutter_diameters": diameters, "glyph_scales": scales}
-    if scale >= 1.0:
-        return {}
-    return {"bold_scale": scale, "bold_flags": flags}
-
-
-def _bold_glyph_strokes(
-    line: ResolvedTextLine,
-    glyph_groups: Tuple[Tuple[int, ...], ...],
-) -> set[int]:
-    """Return the stroke indices of ``line``'s bold glyphs (empty when none).
-
-    ``glyph_groups`` is indexed by the non-space character order, so the
-    per-character bold flags (aligned with ``plain_text``, spaces included)
-    are walked over the non-space characters, mirroring :func:`_glyph_chars`.
-
-    Args:
-        line: The resolved text line.
-        glyph_groups: One stroke-index tuple per non-space character.
-
-    Returns:
-        The stroke indices owned by bold glyphs.
-    """
-    if not line.has_bold or not glyph_groups:
-        return set()
-    flags = line.bold_flags
-    strokes: set[int] = set()
+    known = line.used_cutters
+    mapping: List[Optional[float]] = [None] * len(block.strokes)
     glyph_position = 0
-    for char, flag in zip(line.plain_text, flags):
+    for char, cutter in zip(line.plain_text, cutters):
         if char == " ":
             continue
         if glyph_position >= len(glyph_groups):
             break
-        if flag:
-            strokes.update(glyph_groups[glyph_position])
+        for index in glyph_groups[glyph_position]:
+            mapping[index] = cutter
         glyph_position += 1
-    return strokes
+    for index, stroke in enumerate(block.strokes):
+        if mapping[index] is not None:
+            continue
+        if not stroke.segments:  # pragma: no cover - every stroke cuts
+            mapping[index] = line.cutter_diameter
+            continue
+        # An underline stroke: its centerline Y is -(cutter + offset). The
+        # round trip is not float-exact (0.06 + 0.05 back to 0.06 can land one
+        # ulp off), which would key a spurious pen layer, so snap to the
+        # closest cutter the line actually engraves with.
+        recovered = -stroke.segments[0].start.imag - line.underline_offset
+        mapping[index] = min(known, key=lambda cutter: abs(cutter - recovered))
+    resolved = tuple(cutter if cutter is not None else line.cutter_diameter for cutter in mapping)
+    if len(set(resolved)) <= 1:
+        return ()  # One tool engraves the whole line: nothing to split.
+    return resolved
+
+
+def _glyph_render_kwargs(line: ResolvedTextLine, *, plt: bool) -> dict[str, Any]:
+    """Return the per-glyph (cutter, scale) renderer kwargs for one resolved line.
+
+    The unified gate for the ``<b>`` and ``<scale:N>`` markup: the geometry
+    plan (:func:`resolution.glyph_render_plan`) carries each character's
+    cutter diameter and baseline-anchored uniform scale, so a bold run, a
+    scaled run, and a bold+scaled run all flow through the same per-character
+    arrays. Empty dict when the line carries neither markup kind -- the
+    historical call shape, bit-identical output.
+
+    Args:
+        line: The resolved text line.
+        plt: True for a PLT line (per-character ``cutter_diameters`` +
+            ``glyph_scales``), False for a TTF line (``glyph_scales`` only
+            -- the TTF pen advance stays with matplotlib shaping, and the
+            cutter never changes the TTF geometry beyond the scale).
+
+    Returns:
+        ``{"cutter_diameters": ..., "glyph_scales": ...}`` for a PLT line,
+        ``{"glyph_scales": ...}`` for a TTF line, or ``{}`` (also for a TTF
+        line whose plan is all-unity -- the top-of-inventory bold fallback).
+    """
+    plan = glyph_render_plan(line)
+    if plan is None:
+        return {}
+    diameters, scales = plan
+    if not plt and all(scale == 1.0 for scale in scales):
+        return {}
+    if plt:
+        return {"cutter_diameters": diameters, "glyph_scales": scales}
+    return {"glyph_scales": scales}
 
 
 def _italic_render_kwargs(line: ResolvedTextLine) -> dict[str, Any]:
@@ -2714,11 +2713,12 @@ def _glyph_boxes(
 def _line_cutter(label: ResolvedLabel, line_index: int) -> float:
     """Return the widest cutter one content line engraves with (0.0 if OOB).
 
-    A ``<b>`` line engraves part of its ink with the thicker bold cutter, so
-    the stroke-aware clearance floors use the line's **widest** tool. This is
-    deliberately conservative: a plain descender on a bold-carrying line asks
-    for a touch more air than its own stroke strictly needs, which can never
-    engrave a collision.
+    A ``<b>`` line engraves part of its ink with the thicker bold cutter, and a
+    ``<scale:N>`` line with a large ``N`` engraves part with a cutter larger
+    than the line's own, so the stroke-aware clearance floors use the line's
+    **widest** tool. This is deliberately conservative: a plain descender on a
+    wide-tool-carrying line asks for a touch more air than its own stroke
+    strictly needs, which can never engrave a collision.
 
     Args:
         label: The label being rendered.
@@ -2728,8 +2728,7 @@ def _line_cutter(label: ResolvedLabel, line_index: int) -> float:
         The line's largest cutter diameter in inches.
     """
     if 0 <= line_index < len(label.content):
-        line = label.content[line_index]
-        return max(line.cutter_diameter, line.bold_cutter_diameter or 0.0)
+        return max(label.content[line_index].used_cutters)
     return 0.0  # pragma: no cover - renderable indices always address content
 
 
@@ -4143,7 +4142,7 @@ def _render_positioned_lines(
             Optional[List[Tuple[str, List[int]]]],
             float,
             Tuple[Tuple[int, ...], ...],
-            Tuple[int, ...],
+            Tuple[float, ...],
         ]
     ] = []
     total_rendered_height = 0.0
@@ -4202,7 +4201,7 @@ def _render_positioned_lines(
                 word_groups,
                 compression_scale,
                 glyph_groups,
-                _bold_stroke_indices(line, block, glyph_groups),
+                _stroke_cutter_map(line, block, glyph_groups),
             )
         )
         baseline_geometry.append(
@@ -4294,7 +4293,7 @@ def _render_positioned_lines(
     x_line_indices: List[int] = []
     x_word_groups: List[Optional[List[Tuple[str, List[int]]]]] = []
     x_glyph_groups: List[Tuple[Tuple[int, ...], ...]] = []
-    x_bold_strokes: List[Tuple[int, ...]] = []
+    x_stroke_cutters: List[Tuple[float, ...]] = []
     effective_scales: List[float] = []
     for (
         line_index,
@@ -4306,7 +4305,7 @@ def _render_positioned_lines(
         word_groups,
         collision_scale,
         glyph_groups,
-        bold_strokes,
+        stroke_cutters,
     ) in rendered_lines:
         bounds = block.bounds()
         if bounds is None:  # pragma: no cover - measured in first pass
@@ -4367,7 +4366,7 @@ def _render_positioned_lines(
         x_line_indices.append(line_index)
         x_word_groups.append(word_groups)
         x_glyph_groups.append(glyph_groups)
-        x_bold_strokes.append(bold_strokes)
+        x_stroke_cutters.append(stroke_cutters)
         effective_scales.append(collision_scale * margin_scale)
 
     if not x_blocks:
@@ -4514,7 +4513,7 @@ def _render_positioned_lines(
                     bounds=(min_x, min_y + y_offset, max_x, max_y + y_offset),
                     compression_scale=effective_scales[i],
                     line_spacing=reported_spacing,
-                    bold_strokes=x_bold_strokes[i],
+                    stroke_cutters=x_stroke_cutters[i],
                 ),
                 x_word_groups[i],
                 x_glyph_groups[i],
@@ -4571,53 +4570,56 @@ def _render_text_local_with_bounds(
     return text_lc, line_entries
 
 
-def _split_block_by_pen(
+def _split_block_by_cutters(
     positioned_block: TextBlock,
-    bold_strokes: Tuple[int, ...],
+    stroke_cutters: Tuple[float, ...],
     word_groups: Optional[List[Tuple[str, List[int]]]],
     glyph_groups: Tuple[Tuple[int, ...], ...],
-) -> Tuple[
-    TextBlock,
-    Optional[List[Tuple[str, List[int]]]],
-    Tuple[Tuple[int, ...], ...],
-    TextBlock,
-    Optional[List[Tuple[str, List[int]]]],
-    Tuple[Tuple[int, ...], ...],
+) -> List[
+    Tuple[
+        TextBlock,
+        Optional[List[Tuple[str, List[int]]]],
+        Tuple[Tuple[int, ...], ...],
+        float,
+    ]
 ]:
-    """Split one positioned line block into its plain and bold stroke halves.
+    """Split one positioned line block into one group per engraving cutter.
 
-    A ``<b>`` line's strokes land on two pens (the plain cutter's and the
-    bold cutter's), so the positioned block is partitioned by stroke index:
-    the bold half carries ``bold_strokes`` (the bold glyphs' strokes plus the
-    bold underline strokes), the plain half every other stroke. Stroke order
-    is preserved within each half, and the per-glyph / per-word partitions
-    are remapped into each half's index space (a glyph's strokes are all bold
-    or all plain, so every group maps wholly into one half; underline strokes
-    own no glyph group and ride their half ungrouped).
+    A line whose strokes engrave with more than one tool -- a ``<b>`` bold run
+    (the bold rung) and each ``<scale:N>`` run (its effective-height cutter) --
+    lands on one pen per cutter, so the positioned block is partitioned by the
+    per-stroke cutter array: every distinct cutter collects its strokes (in
+    stroke order) into one group, and the per-glyph / per-word partitions are
+    remapped into that group's index space (a glyph's strokes all share one
+    cutter, so every group maps wholly into one half; underline strokes own no
+    glyph group and ride their group ungrouped).
 
     Args:
         positioned_block: The line's positioned block.
-        bold_strokes: The bold stroke indices (empty = nothing to split).
+        stroke_cutters: The per-stroke cutter diameters (see
+            :func:`_stroke_cutter_map`); strokes sharing a value group together.
         word_groups: Per-word stroke indices (``None`` in line mode).
         glyph_groups: Per-glyph stroke indices.
 
     Returns:
-        ``(plain_block, plain_words, plain_glyphs, bold_block, bold_words,
-        bold_glyphs)``.
+        One ``(block, words, glyphs, cutter)`` tuple per distinct cutter, in
+        ascending cutter order (the pen-map order), each non-empty.
     """
-    bold_set = set(bold_strokes)
-    plain_positions: List[int] = []
-    bold_positions: List[int] = []
+    positions_by_cutter: dict[float, List[int]] = {}
     for index in range(len(positioned_block.strokes)):
-        (bold_positions if index in bold_set else plain_positions).append(index)
+        cutter = stroke_cutters[index] if index < len(stroke_cutters) else 0.0
+        positions_by_cutter.setdefault(cutter, []).append(index)
 
-    def _half(
-        positions: List[int],
-    ) -> Tuple[
-        TextBlock,
-        Optional[List[Tuple[str, List[int]]]],
-        Tuple[Tuple[int, ...], ...],
-    ]:
+    groups: List[
+        Tuple[
+            TextBlock,
+            Optional[List[Tuple[str, List[int]]]],
+            Tuple[Tuple[int, ...], ...],
+            float,
+        ]
+    ] = []
+    for cutter in sorted(positions_by_cutter):
+        positions = positions_by_cutter[cutter]
         local = {global_index: local_index for local_index, global_index in enumerate(positions)}
         block = TextBlock(strokes=tuple(positioned_block.strokes[i] for i in positions))
         words: Optional[List[Tuple[str, List[int]]]] = None
@@ -4629,12 +4631,8 @@ def _split_block_by_pen(
         glyphs = tuple(
             tuple(local[i] for i in group if i in local) for group in glyph_groups if group
         )
-        return block, words, glyphs
-
-    return (
-        *_half(plain_positions),
-        *_half(bold_positions),
-    )
+        groups.append((block, words, glyphs, cutter))
+    return groups
 
 
 def _render_text_lines_by_pen(
@@ -4679,12 +4677,13 @@ def _render_text_lines_by_pen(
         per word plus any ungrouped line in ``WORD`` mode) in label-local
         coordinates for plate-space optimization.
 
-        A line with ``<b>`` bold ink is split (see
-        :func:`_split_block_by_pen`): its plain strokes land on the plain
-        cutter's pen and its bold strokes on the bold cutter's pen, each half
-        producing its own chunk records (``plate_optimizer`` filters records by
-        ``pen``, so the two halves route as separate layers for free). A
-        half's chunk bounds fall back to the whole line's entry bounds.
+        A line whose strokes engrave with more than one tool (a ``<b>`` bold
+        run, a ``<scale:N>`` run) is split by cutter (see
+        :func:`_split_block_by_cutters`): each cutter's strokes land on that
+        tool's pen, each group producing its own chunk records
+        (``plate_optimizer`` filters records by ``pen``, so the groups route as
+        separate layers for free). A group's chunk bounds fall back to the
+        whole line's entry bounds.
     """
     pens: dict[int, List[TextBlock]] = {}
     line_entries: List[_LineEntry] = []
@@ -4699,36 +4698,11 @@ def _render_text_lines_by_pen(
         line_content = label.content[line_index] if 0 <= line_index < len(label.content) else None
         line_entries.append(entry)
 
-        bold_strokes = entry.bold_strokes
-        if (
-            bold_strokes
-            and line_content is not None
-            and line_content.bold_cutter_diameter is not None
-        ):
-            (
-                plain_block,
-                plain_words,
-                plain_glyphs,
-                bold_block,
-                bold_words,
-                bold_glyphs,
-            ) = _split_block_by_pen(positioned_block, bold_strokes, word_groups, glyph_groups)
-            halves: List[
-                Tuple[
-                    TextBlock,
-                    Optional[List[Tuple[str, List[int]]]],
-                    Tuple[Tuple[int, ...], ...],
-                    float,
-                ]
-            ] = []
-            if not plain_block.is_empty():
-                halves.append(
-                    (plain_block, plain_words, plain_glyphs, line_content.cutter_diameter)
-                )
-            if not bold_block.is_empty():
-                halves.append(
-                    (bold_block, bold_words, bold_glyphs, line_content.bold_cutter_diameter)
-                )
+        stroke_cutters = entry.stroke_cutters
+        if stroke_cutters and len(set(stroke_cutters)) > 1:
+            halves = _split_block_by_cutters(
+                positioned_block, stroke_cutters, word_groups, glyph_groups
+            )
         else:
             cutter = line_content.cutter_diameter if line_content is not None else 0.0
             halves = [(positioned_block, word_groups, glyph_groups, cutter)]

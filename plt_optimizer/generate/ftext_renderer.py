@@ -530,24 +530,60 @@ def _apply_italic(
     return vp.LineCollection(lines)
 
 
-def _apply_bold(
+def _merge_glyph_factors(
+    text: str,
+    bold_scale: Optional[float],
+    bold_flags: Optional[Sequence[bool]],
+    glyph_scales: Optional[Sequence[float]],
+) -> Optional[Tuple[float, ...]]:
+    """Compose the per-character geometry factors of the ``<b>``/``<scale:N>`` markup.
+
+    Each character's factor is the bold factor (when the character is bold)
+    times its markup scale (``<scale:N>``): the composition is exactly the
+    PLT walker's (scale the silhouette, then the cutter change shrinks it),
+    and at ``glyph_scales == None`` the result is the historical bold-only
+    factors.
+
+    Args:
+        text: The line's text (spaces included; factors align with it).
+        bold_scale: The bold downscale (``None`` = no bold run).
+        bold_flags: Per-character bold selection (``None`` = every character
+            when ``bold_scale`` is set).
+        glyph_scales: Per-character ``<scale:N>`` factors (``None`` = no
+            scaled run).
+
+    Returns:
+        One factor per character of ``text``, or ``None`` when neither
+        transform is active (the historical render path).
+    """
+    if bold_scale is None and glyph_scales is None:
+        return None
+    factors: List[float] = []
+    for index in range(len(text)):
+        bold = 1.0
+        if bold_scale is not None and (bold_flags is None or bold_flags[index]):
+            bold = bold_scale
+        scale = 1.0 if glyph_scales is None else glyph_scales[index]
+        factors.append(bold * scale)
+    return tuple(factors)
+
+
+def _apply_glyph_scales(
     scaled: vp.LineCollection,
     text: str,
     font_path: Path,
-    factor: float,
-    bold_flags: Optional[Sequence[bool]],
+    factors: Sequence[float],
     small_caps: bool = False,
 ) -> vp.LineCollection:
-    """Shrink the bold glyph contours of a scaled line in place.
+    """Scale the flagged glyph contours of a scaled line in place.
 
     The line's contours are sliced per character (see :func:`_per_glyph_counts`);
-    every flagged glyph is scaled uniformly by ``factor`` **about its own
-    ink-left / baseline** (``y' = y * factor`` with the baseline at ``y = 0``,
-    ``x' = left + (x - left) * factor``). This is the centerline contract: the
-    line renders at ``nominal - plain_cutter`` and a bold glyph's centerlines
-    shrink to ``nominal - bold_cutter``, so the thicker tool's fatter engraved
-    stroke stays inside the box the plain glyph occupies -- the same silhouette
-    the PLT path produces with :func:`_scale_baseline_geometry`.
+    every glyph whose factor differs from 1.0 is scaled uniformly **about its
+    own ink-left / baseline** (``y' = y * factor`` with the baseline at
+    ``y = 0``, ``x' = left + (x - left) * factor``). This is the centerline
+    contract shared with the PLT path's :func:`_scale_baseline_geometry`:
+    the baseline stays exactly in place, the cap rises/falls, and descenders
+    shrink toward the baseline.
 
     The pen advance is deliberately untouched (the glyph keeps its natural
     advance), matching the italic path: TTF shaping owns the advances, and a
@@ -558,23 +594,24 @@ def _apply_bold(
             closing-chord removal.
         text: The line's text (spaces own no contours).
         font_path: The ``.ttf`` path (per-glyph contour slicing).
-        factor: The bold downscale to apply (``<= 1``).
-        bold_flags: Per-character bold selection aligned with ``text`` (one
-            flag per character, spaces included); ``None`` scales every glyph.
+        factors: One geometry factor per character of ``text`` (spaces
+            included; 1.0 = untouched glyph).
         small_caps: True when the render used the small-caps mapped string
             (the per-glyph slicing then probes the uppercase sources, as in
             :func:`_apply_small_caps`).
 
     Returns:
-        The line with the flagged glyphs shrunk. When the per-glyph contour
+        The line with the flagged glyphs scaled. When the per-glyph contour
         counts do not line up, the line is returned unchanged with a WARNING
         (the natural full-size render is the graceful fallback).
     """
+    if all(factor == 1.0 for factor in factors):
+        return scaled
     pairs = _per_glyph_counts(text, font_path, len(scaled), small_caps=small_caps)
     if pairs is None:
         counts_total = sum(_glyph_contour_count(font_path, ch) for ch in text if ch != " ")
         logger.warning(
-            "bold TTF render: per-glyph contour counts (%d) do not sum to the "
+            "scaled TTF render: per-glyph contour counts (%d) do not sum to the "
             "whole-line contour count (%d); rendering at full size",
             counts_total,
             len(scaled),
@@ -582,26 +619,60 @@ def _apply_bold(
         return scaled
 
     occurrences = [index for index, ch in enumerate(text) if ch != " "]
-    flags: Sequence[bool] = (True,) * len(text) if bold_flags is None else bold_flags
     lines = [np.asarray(line) for line in scaled]
     cursor = 0
     for _char, count in pairs:
         glyph_indices = list(range(cursor, cursor + count))
         cursor += count
         text_index = _pop_occurrence(occurrences)
-        if not flags[text_index]:
+        factor = factors[text_index]
+        if factor == 1.0:
             continue
         present = [lines[index] for index in glyph_indices if len(lines[index])]
         if not present:  # pragma: no cover - a glyph slice carries contours
             continue
-        # Anchor = the glyph's ink-left on the baseline (y = 0), so the shrink
-        # is inward/downward and the baseline stays exactly in place.
+        # Anchor = the glyph's ink-left on the baseline (y = 0), so the scale
+        # is inward/downward (factor < 1) and the baseline stays exactly in
+        # place.
         left = float(np.concatenate(present).real.min())
         anchor = complex(left, 0.0)
         for index in glyph_indices:
             line = lines[index]
             lines[index] = anchor + (line - anchor) * factor
     return vp.LineCollection(lines)
+
+
+def _apply_bold(
+    scaled: vp.LineCollection,
+    text: str,
+    font_path: Path,
+    factor: float,
+    bold_flags: Optional[Sequence[bool]],
+    small_caps: bool = False,
+) -> vp.LineCollection:
+    """Shrink the bold glyph contours of a scaled line in place.
+
+    Thin wrapper over :func:`_apply_glyph_scales` building the per-character
+    factors from the scalar bold factor + flags (the historical ``<b>``
+    entry point; the unified render gate passes per-character
+    ``glyph_scales`` through :func:`render_text_line_ftext` directly).
+
+    Args:
+        scaled: The line's contours in inches (baseline at y=0), before
+            closing-chord removal.
+        text: The line's text (spaces own no contours).
+        font_path: The ``.ttf`` path (per-glyph contour slicing).
+        factor: The bold downscale to apply (``<= 1``).
+        bold_flags: Per-character bold selection aligned with ``text`` (one
+            flag per character, spaces included); ``None`` scales every glyph.
+        small_caps: True when the render used the small-caps mapped string.
+
+    Returns:
+        The line with the flagged glyphs shrunk.
+    """
+    factors = _merge_glyph_factors(text, factor, bold_flags, None)
+    assert factors is not None
+    return _apply_glyph_scales(scaled, text, font_path, factors, small_caps=small_caps)
 
 
 def _pop_occurrence(occurrences: List[int]) -> int:
@@ -666,6 +737,7 @@ def render_text_line_ftext(
     italic_face: Optional[Path] = None,
     bold_scale: Optional[float] = None,
     bold_flags: Optional[Sequence[bool]] = None,
+    glyph_scales: Optional[Sequence[float]] = None,
 ) -> vp.LineCollection:
     """Render a single line of text with the Relief Single Line TTF font.
 
@@ -724,6 +796,13 @@ def render_text_line_ftext(
         bold_flags: Per-character bold selection aligned with ``text`` (one
             flag per character, spaces included); only consulted when
             :attr:`bold_scale` is set. ``None`` emboldens every character.
+        glyph_scales: Per-character ``<scale:N>`` geometry factors aligned
+            with ``text`` (spaces included; 1.0 = unscaled), from the
+            unified render gate (:func:`resolution.glyph_render_plan`).
+            Composed multiplicatively with the bold factor, then applied
+            per glyph about its ink-left/baseline (see
+            :func:`_apply_glyph_scales`). ``None`` (the default) disables
+            the markup scale, keeping every legacy render bit-identical.
 
     Returns:
         A vpype.LineCollection containing the rendered glyph outlines, or an
@@ -789,12 +868,15 @@ def render_text_line_ftext(
             small_caps=small_caps,
         )
 
-    # Shrink the bold glyphs last: the italic shear is applied to the glyph
-    # at its natural size first, so a bold+italic glyph leans and shrinks
-    # exactly like the PLT path (shear then baseline scale).
-    if bold_scale is not None:
-        scaled = _apply_bold(
-            scaled, render_text, resolved_font, bold_scale, bold_flags, small_caps=small_caps
+    # Shrink the bold/scaled glyphs last: the italic shear is applied to the
+    # glyph at its natural size first, so a bold+italic glyph leans and
+    # shrinks exactly like the PLT path (shear then baseline scale). The
+    # per-character ``glyph_scales`` (the ``<scale:N>`` markup) compose
+    # multiplicatively with the bold factor into one factor per glyph.
+    factors = _merge_glyph_factors(text, bold_scale, bold_flags, glyph_scales)
+    if factors is not None:
+        scaled = _apply_glyph_scales(
+            scaled, render_text, resolved_font, factors, small_caps=small_caps
         )
 
     # Drop erroneous closing chords forced by TrueType's closed-path outlines,
@@ -878,6 +960,7 @@ def render_text_line_ftext_with_words(
     italic_face: Optional[Path] = None,
     bold_scale: Optional[float] = None,
     bold_flags: Optional[Sequence[bool]] = None,
+    glyph_scales: Optional[Sequence[float]] = None,
 ) -> Tuple[vp.LineCollection, List[Tuple[str, List[int]]]]:
     """Render a line of text and partition its contours by whitespace-delimited word.
 
@@ -914,6 +997,8 @@ def render_text_line_ftext_with_words(
             (``None`` = off; see :func:`render_text_line_ftext`).
         bold_flags: Per-character bold selection (``None`` = whole line;
             see :func:`render_text_line_ftext`).
+        glyph_scales: Per-character ``<scale:N>`` geometry factors
+            (``None`` = off; see :func:`render_text_line_ftext`).
 
     Returns:
         ``(whole_lc, word_groups)`` where ``whole_lc`` is identical to
@@ -934,13 +1019,19 @@ def render_text_line_ftext_with_words(
         italic_face=italic_face,
         bold_scale=bold_scale,
         bold_flags=bold_flags,
+        glyph_scales=glyph_scales,
     )
     if whole.is_empty():
         return whole, []
 
     resolved_font = font_path if font_path is not None else DEFAULT_FONT_PATH
 
-    if small_caps_scale is not None or italic_tan is not None or bold_scale is not None:
+    if (
+        small_caps_scale is not None
+        or italic_tan is not None
+        or bold_scale is not None
+        or (glyph_scales is not None and any(scale != 1.0 for scale in glyph_scales))
+    ):
         # The signature matcher cannot work: the shrunk/italicized glyphs no
         # longer match their standalone render, so the word groups come from
         # the exact per-glyph contour slicing instead.
@@ -1110,6 +1201,7 @@ def render_text_line_ftext_with_glyphs(
     italic_face: Optional[Path] = None,
     bold_scale: Optional[float] = None,
     bold_flags: Optional[Sequence[bool]] = None,
+    glyph_scales: Optional[Sequence[float]] = None,
 ) -> Tuple[
     vp.LineCollection,
     List[Tuple[str, List[int]]],
@@ -1144,6 +1236,8 @@ def render_text_line_ftext_with_glyphs(
             (``None`` = off; see :func:`render_text_line_ftext`).
         bold_flags: Per-character bold selection (``None`` = whole line;
             see :func:`render_text_line_ftext`).
+        glyph_scales: Per-character ``<scale:N>`` geometry factors
+            (``None`` = off; see :func:`render_text_line_ftext`).
 
     Returns:
         ``(whole_lc, word_groups, glyph_groups)`` where ``whole_lc`` and
@@ -1166,6 +1260,7 @@ def render_text_line_ftext_with_glyphs(
         italic_face=italic_face,
         bold_scale=bold_scale,
         bold_flags=bold_flags,
+        glyph_scales=glyph_scales,
     )
     if whole.is_empty():
         return whole, word_groups, []

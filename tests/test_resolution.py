@@ -75,6 +75,7 @@ from plt_optimizer.generate.resolution import (
     fit_baseline_spacing_to_margins,
     fit_line_spacing_to_margins,
     get_cutter_diameter,
+    glyph_render_plan,
     memoize_extents_probe,
     multi_stroke_cutter_diameter,
     next_larger_cutter,
@@ -4641,3 +4642,254 @@ class TestBoldCutterResolution:
             bold_cutter_diameter=0.5,
         )
         assert line._bold_glyph_scale() == 1.0
+
+
+class TestScaleResolution:
+    """``<scale:N>`` resolves the per-character factors and a material-clearing cutter."""
+
+    @staticmethod
+    def _job(*lines: TextLine, **job_kwargs: object) -> JobSpec:
+        """Build a single-label job over ``lines``."""
+        job_kwargs.setdefault("text_height", 0.5)
+        return JobSpec(
+            job_name="J",
+            width=3.0,
+            height=1.0,
+            labels=[LabelSpec(id="lbl", width=3.0, height=1.0, content=list(lines))],
+            **job_kwargs,
+        )
+
+    def _line(self, *lines: TextLine, **job_kwargs: object) -> ResolvedTextLine:
+        """Resolve the job's first line against the test inventory."""
+        return resolve_job_spec(
+            self._job(*lines, **job_kwargs), available_cutters=_INVENTORY
+        )[0].content[0]
+
+    def test_no_markup_has_no_scale_values(self) -> None:
+        """A markup-free line has no scale run (all-unity factors, fast path)."""
+        line = self._line(TextLine(text="PLAIN", font="Dino"))
+        assert line.has_scale is False
+        assert line.scale_values == (1.0,) * len(line.plain_text)
+
+    def test_scale_unity_is_inert(self) -> None:
+        """``<scale:1>`` parses but leaves has_scale False (the fast path)."""
+        line = self._line(TextLine(text="a<scale:1>b</scale>", font="Dino"))
+        assert line.plain_text == "ab"
+        assert line.has_scale is False
+        assert line.scale_values == (1.0, 1.0)
+
+    def test_scale_values_align_with_plain_text(self) -> None:
+        """The per-character factors are aligned with plain_text (spaces included)."""
+        line = self._line(TextLine(text="a<scale:0.5>b c</scale>d", font="Dino"))
+        assert line.plain_text == "ab cd"
+        assert line.scale_values == (1.0, 0.5, 0.5, 0.5, 1.0)
+        assert line.has_scale is True
+
+    def test_scaled_run_gets_its_effective_height_cutter(self) -> None:
+        """A 0.5x run on 1in text engraves with the 0.5in text's cutter."""
+        line = self._line(TextLine(text="A<scale:0.5>b</scale>", font="Dino"), text_height=1.0)
+        assert math.isclose(line.cutter_diameter, 0.125)
+        # The plain character keeps the line's tool; the scaled run takes the
+        # ladder for 0.5in text (0.06) -- text authored at that height.
+        assert math.isclose(line.per_char_cutters[0], 0.125)
+        assert math.isclose(line.per_char_cutters[1], 0.06)
+        assert line.used_cutters == (0.06, 0.125)
+
+    def test_upscale_run_gets_the_ladder_cutter(self) -> None:
+        """An upscaled run takes the ladder for its taller effective height."""
+        line = self._line(TextLine(text="A<scale:1.5>b</scale>", font="Dino"), text_height=0.5)
+        assert math.isclose(line.cutter_diameter, 0.06)
+        # 1.5 * 0.5 = 0.75in of text -> the 0.09 rung (bigger glyph, bigger tool).
+        assert math.isclose(line.per_char_cutters[1], 0.09)
+        assert line.used_cutters == (0.06, 0.09)
+
+    def test_line_cutter_is_never_stepped(self) -> None:
+        """The scale moves the RUN's cutter, never the line's own."""
+        line = self._line(TextLine(text="A<scale:0.2>b</scale>", font="Dino"), text_height=0.3)
+        assert math.isclose(line.cutter_diameter, 0.03)
+        assert math.isclose(line.toolpath_text_height, 0.3 - 0.03)
+        # 0.2 * 0.3 = 0.06in of text -> the 0.01 rung (the ladder's floor).
+        assert math.isclose(line.per_char_cutters[1], 0.01)
+
+    def test_explicit_cutter_governs_the_plain_runs(self) -> None:
+        """An explicit cutter_size keeps the plain runs; scaled runs use the ladder."""
+        line = self._line(
+            TextLine(text="A<scale:0.2>b</scale>", font="Dino", cutter_size=0.06),
+            text_height=0.3,
+        )
+        assert math.isclose(line.cutter_diameter, 0.06)
+        # The plain character keeps the human's tool; the scaled run is a
+        # smaller glyph, so it takes the ladder for its own height.
+        assert math.isclose(line.per_char_cutters[0], 0.06)
+        assert math.isclose(line.per_char_cutters[1], 0.01)
+
+    def test_scaled_run_cutter_snaps_to_the_inventory(self) -> None:
+        """A run's cutter snaps into a coarse inventory like any other cutter."""
+        line = resolve_job_spec(
+            self._job(TextLine(text="A<scale:0.5>b</scale>", font="Dino"), text_height=1.0),
+            available_cutters=[0.09, 0.125],
+        )[0].content[0]
+        assert math.isclose(line.cutter_diameter, 0.125)
+        # 0.5in of text wants 0.06; the coarse inventory has nothing smaller, so
+        # the ladder snaps to its smallest rung (0.09).
+        assert math.isclose(line.per_char_cutters[1], 0.09)
+
+    def test_scaled_run_cutter_survives_the_reflow_text_swap(self) -> None:
+        """The per-run cutter follows the text through ``with_markup``.
+
+        The regression: a positional cutter array went stale when the
+        line-content reflow moved words, so a downscaled run inherited the
+        neighbouring plain text's (larger) cutter -- a *downscaled* word
+        engraving with a *larger* tool. The cutters are derived from each
+        character's scale factor, so the swap keeps every run on its own tool.
+        """
+        line = self._line(
+            TextLine(text="AA <scale:0.5>bb</scale> CC", font="Dino"), text_height=1.0
+        )
+        # The reflow's text swap: the scaled word moves to its own line.
+        scaled_line = line.with_markup("<scale:0.5>bb</scale>")
+        assert scaled_line.plain_text == "bb"
+        assert all(math.isclose(cutter, 0.06) for cutter in scaled_line.per_char_cutters)
+        # The leftover plain line keeps the line's own tool.
+        plain_line = line.with_markup("AA CC")
+        assert all(math.isclose(cutter, 0.125) for cutter in plain_line.per_char_cutters)
+
+    def test_bold_resolves_above_the_line_cutter_with_scale(self) -> None:
+        """``<b>`` + ``<scale>``: the bold rung sits above the line's plain cutter."""
+        line = self._line(
+            TextLine(text="<b>t<scale:0.2>a</scale></b>", font="Dino"), text_height=0.3
+        )
+        assert math.isclose(line.cutter_diameter, 0.03)
+        assert line.bold_cutter_diameter is not None
+        assert line.bold_cutter_diameter > line.cutter_diameter
+
+    def test_spacing_fallback_follows_the_line_cutter(self) -> None:
+        """The cutter-derived character_spacing fallback tracks the line cutter."""
+        line = self._line(TextLine(text="t<scale:0.2>a</scale>", font="Dino"), text_height=0.3)
+        assert math.isclose(line.character_spacing, line.cutter_diameter * 1.5)
+
+    def test_spacing_explicit_value_untouched(self) -> None:
+        """An explicit character_spacing is never rewritten by the scale."""
+        line = self._line(
+            TextLine(text="t<scale:0.2>a</scale>", font="Dino", character_spacing=0.02),
+            text_height=0.3,
+        )
+        assert math.isclose(line.character_spacing, 0.02)
+
+
+class TestGlyphRenderPlan:
+    """The unified per-glyph (cutter, scale) plan for ``<b>``/``<scale:N>``."""
+
+    @staticmethod
+    def _line(text: str, **kwargs: object) -> ResolvedTextLine:
+        """Build a resolved line directly (no markup parsing)."""
+        from plt_optimizer.generate.markup import PLAIN, Run
+
+        nominal = float(kwargs.pop("nominal", 0.5))
+        cutter = float(kwargs.pop("cutter", 0.06))
+        kwargs.setdefault("plain_text", text)
+        kwargs.setdefault("styled_runs", (Run(text, PLAIN),))
+        return ResolvedTextLine(
+            text=text,
+            nominal_text_height=nominal,
+            toolpath_text_height=nominal - cutter,
+            cutter_diameter=cutter,
+            character_spacing=0.0,
+            line_spacing=0.0,
+            **kwargs,  # type: ignore[arg-type]
+        )
+
+    def test_plain_line_has_no_plan(self) -> None:
+        """A line with neither bold nor scale runs has no plan (fast path)."""
+        line = self._line("AV")
+        assert glyph_render_plan(line) is None
+
+    def test_scale_plan_is_the_centerline_formula(self) -> None:
+        """g = (s*nominal - run_cutter) / (nominal - cutter) about the baseline."""
+        from plt_optimizer.generate.markup import PLAIN, Run, Style
+
+        line = self._line(
+            "aB",
+            styled_runs=(Run("a", PLAIN), Run("B", Style(scale=0.5))),
+        )
+        plan = glyph_render_plan(line)
+        assert plan is not None
+        diameters, scales = plan
+        # The plain char keeps the line's 0.06 tool; the 0.5x run is 0.25in of
+        # text, whose ladder cutter is 0.03 -- a downscaled run engraves lighter.
+        assert diameters == (0.06, 0.03)
+        expected = (0.5 * 0.5 - 0.03) / (0.5 - 0.06)
+        assert scales[0] == 1.0
+        assert scales[1] == pytest.approx(expected)
+
+    def test_bold_plan_reproduces_the_bold_scale(self) -> None:
+        """At s=1 the plan equals _bold_glyph_scale (bold is the special case)."""
+        from plt_optimizer.generate.markup import PLAIN, Run, Style
+
+        line = self._line(
+            "aB",
+            styled_runs=(Run("a", PLAIN), Run("B", Style(bold=True))),
+            bold_cutter_diameter=0.09,
+        )
+        plan = glyph_render_plan(line)
+        assert plan is not None
+        diameters, scales = plan
+        assert diameters == (0.06, 0.09)
+        assert scales[0] == 1.0
+        assert scales[1] == pytest.approx(line._bold_glyph_scale())
+
+    def test_bold_scaled_composes_the_silhouette_formula(self) -> None:
+        """A bold+scaled glyph takes the bold rung at its effective height."""
+        from plt_optimizer.generate.markup import Run, Style
+
+        line = self._line(
+            "B",
+            styled_runs=(Run("B", Style(bold=True, scale=0.5)),),
+            bold_cutter_diameter=0.09,
+            scale_cutter_inventory=(0.015, 0.03, 0.045, 0.06, 0.09),
+        )
+        plan = glyph_render_plan(line)
+        assert plan is not None
+        diameters, scales = plan
+        # 0.5 * 0.5 = 0.25in of text -> plain ladder 0.03, bold rung 0.045.
+        assert diameters == (0.045,)
+        assert scales[0] == pytest.approx((0.5 * 0.5 - 0.045) / (0.5 - 0.06))
+
+    def test_degenerate_factor_clamps_with_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A run taller than every inventory rung clamps (WARNING).
+
+        The per-run ladder normally guarantees a cutter that fits the run's own
+        effective height, so the geometry numerator stays positive. A coarse
+        inventory with no tool small enough for a heavily downscaled run is the
+        one way to a non-positive factor: the geometry clamps to a minimal
+        factor instead of inverting.
+        """
+        from plt_optimizer.generate.markup import Run, Style
+        from plt_optimizer.generate.resolution import MIN_SCALED_GLYPH_FACTOR
+
+        with caplog.at_level("WARNING"):
+            line = self._line(
+                "B",
+                nominal=0.3,
+                cutter=0.06,
+                styled_runs=(Run("B", Style(scale=0.2)),),
+                # 0.2 * 0.3 = 0.06in of text; the shop owns nothing below 0.09.
+                scale_cutter_inventory=(0.09, 0.125),
+            )
+            plan = glyph_render_plan(line)
+        assert plan is not None
+        _diameters, scales = plan
+        assert scales[0] == MIN_SCALED_GLYPH_FACTOR
+        assert "leaves no material" in caplog.text
+
+    def test_upscale_grows_the_factor_above_one(self) -> None:
+        """s > 1 gives a factor > 1 (the cap rises above the plain run's)."""
+        from plt_optimizer.generate.markup import Run, Style
+
+        line = self._line("B", styled_runs=(Run("B", Style(scale=1.5)),))
+        plan = glyph_render_plan(line)
+        assert plan is not None
+        _diameters, scales = plan
+        assert scales[0] > 1.0

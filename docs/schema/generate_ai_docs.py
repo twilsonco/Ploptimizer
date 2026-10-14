@@ -101,6 +101,14 @@ _FALLBACK_NOTES: dict[str, str] = {
     "ladder at factor * multiplier, clamped to 0.30 with a WARNING). On single-stroke PLT and "
     "TTF fonts <b> instead steps to the next larger inventory cutter and this multiplier is "
     "inert. Cascades line/label/job; job-config supplies the shop default.",
+    "DEFAULT_CUTTER_LADDER_TOLERANCE": "3.0 = the narrower/wider snap tolerance the ladder "
+    "applies when a <scale:N> run's effective height (N * text_height) has no exact "
+    "tools.json rung: it prefers the narrower tool unless that is more than "
+    "tolerance x the distance to the wider tool away. The same tolerance the "
+    "automatic line cutter uses; stored on the resolved line (with the inventory) "
+    "as a ladder *input* so the per-run cutters re-derive identically in every "
+    "pre-pass. Not a cascading schema field - the <scale:N> value rides the tag "
+    "argument.",
     "DEFAULT_CUTTER_DOWNSIZE": "True = the automatic cutter may be reduced one rung per "
     "allowed step when a text line is horizontally compressed past the midpoint between the "
     "current cutter and the next smaller inventory cutter (requires tools.json inventory; an "
