@@ -37,6 +37,14 @@ uniformly downscaled by the cascading ``sc_scale`` (see
 for the per-family transforms). The variant shares the base's kind (PLT
 variants stay arc-native, TTF variants render through ftext).
 
+Fonts that engrave **symbols** rather than letters (e.g. Wingdings) are
+listed in ``Fonts/VP-EL-Fonts/non_text_fonts.txt`` (see
+:data:`NON_TEXT_FONTS_FILE` / :func:`non_text_font_names`). A listed base
+font is exempt from the synthetic small-caps variant (no ``"<base> SC"``
+key), from derived-Unicode glyph creation in ``Fonts/extract_plt_fonts.py``,
+and from the Unicode line in ``scripts/font_showcase.py``; the base font
+itself stays fully selectable.
+
 Matching is case-insensitive and resolves to the canonical stored name, so
 ``"dino"`` and ``"DINO"`` both yield ``"Dino"``.
 """
@@ -73,6 +81,14 @@ SMALL_CAPS_SUFFIX: str = "SC"
 
 # Canonical separator between a base font name and :data:`SMALL_CAPS_SUFFIX`.
 _SMALL_CAPS_SEPARATOR: str = " "
+
+# "Non-text" (symbol) fonts -- one font name per line, matched
+# case-insensitively; blank lines and ``#`` comments are ignored. A listed
+# base font is exempt from the synthetic ``"<base> SC"`` variant (see
+# :func:`_canonical_map`), from derived-Unicode glyph creation in
+# ``Fonts/extract_plt_fonts.py``, and from the Unicode line in
+# ``scripts/font_showcase.py``. A missing file means no exemptions.
+NON_TEXT_FONTS_FILE: Path = FONTS_DIR / "VP-EL-Fonts" / "non_text_fonts.txt"
 
 
 class FontNotFoundError(ValueError):
@@ -435,6 +451,38 @@ def _small_caps_canonical(name: str) -> str:
     return f"{name}{_SMALL_CAPS_SEPARATOR}{SMALL_CAPS_SUFFIX}"
 
 
+@lru_cache(maxsize=8)
+def non_text_font_names(non_text_file: Optional[Path] = None) -> frozenset[str]:
+    """Read the "non-text" (symbol) font exemption list.
+
+    Symbol fonts engrave their ASCII slots with symbols, so the derived-
+    Unicode recipes, the showcase's Unicode line, and the small-caps
+    transform make no sense for them. The list lives in
+    :data:`NON_TEXT_FONTS_FILE`: one font name per line, matched
+    case-insensitively; blank lines and ``#`` comments (full-line or
+    trailing) are ignored.
+
+    Args:
+        non_text_file: Optional override for the list file (used by tests).
+
+    Returns:
+        Lowercased font names. Empty when the file is missing (no
+        exemptions); an unreadable file logs a WARNING and yields no
+        exemptions.
+    """
+    path = non_text_file if non_text_file is not None else NON_TEXT_FONTS_FILE
+    if not path.is_file():
+        return frozenset()
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Non-text font list %s could not be read (%s); ignoring it", path, exc)
+        return frozenset()
+    names = {line.split("#", 1)[0].strip().lower() for line in raw.splitlines()}
+    names.discard("")
+    return frozenset(names)
+
+
 # Filename stems probed (case-insensitively) next to a TTF for its native
 # italic face. ``<stem>-Italic``/``<stem>Italic`` are the family naming
 # convention (``Foo-Italic.ttf`` next to ``Foo.ttf``); ``Oblique`` is the
@@ -503,7 +551,9 @@ def base_font_name(name: str) -> str:
 
 
 def _canonical_map(
-    plt_fonts: Dict[str, PltFontData], ttfs: Dict[str, Path]
+    plt_fonts: Dict[str, PltFontData],
+    ttfs: Dict[str, Path],
+    non_text: frozenset[str] = frozenset(),
 ) -> Dict[str, tuple[FontKind, str, str, bool]]:
     """Build the case-insensitive index of base and small-caps font names.
 
@@ -512,7 +562,17 @@ def _canonical_map(
     cross-family collision (the historical default family is TTF). Every
     base font contributes a synthetic ``"<base> SC"`` variant of the same
     kind; variants are inserted with ``setdefault`` after all bases, so a
-    real font literally named ``"Foo SC"`` always wins its name.
+    real font literally named ``"Foo SC"`` always wins its name. Bases
+    listed in ``non_text" (lowercased, see
+    :func:`non_text_font_names`) contribute **no** small-caps variant --
+    symbol fonts have no lowercase to shrink.
+
+    Args:
+        plt_fonts: Loaded PLT catalog (name -> data).
+        ttfs: Discovered TrueType fonts (basename -> path).
+        non_text: Lowercased names of exempt symbol fonts; their names are
+            logged at DEBUG when they match no base (a typo costs nothing
+            but deserves a trace).
     """
     index: Dict[str, tuple[FontKind, str, str, bool]] = {}
     for name in plt_fonts:
@@ -522,28 +582,44 @@ def _canonical_map(
     families: tuple[tuple[FontKind, Iterable[str]], ...] = (("plt", plt_fonts), ("ttf", ttfs))
     for kind, names in families:
         for name in names:
+            if name.lower() in non_text:
+                continue
             index.setdefault(
                 f"{name.lower()}{_SMALL_CAPS_SEPARATOR}{SMALL_CAPS_SUFFIX.lower()}",
                 (kind, _small_caps_canonical(name), name, True),
             )
+    known = {name.lower() for name in plt_fonts} | {name.lower() for name in ttfs}
+    for listed in sorted(non_text - known):
+        logger.debug(
+            "Non-text font list entry %r matches no catalog font; it has no effect",
+            listed,
+        )
     return index
 
 
 def font_name_choices(
-    library_dir: Optional[Path] = None, fonts_dir: Optional[Path] = None
+    library_dir: Optional[Path] = None,
+    fonts_dir: Optional[Path] = None,
+    non_text_file: Optional[Path] = None,
 ) -> List[str]:
     """Return every valid ``font`` value, sorted case-insensitively.
 
     Args:
         library_dir: Optional PLT font catalog directory override.
         fonts_dir: Optional Fonts root override.
+        non_text_file: Optional non-text font list override (fonts listed
+            there get no ``"<base> SC"`` variant).
 
     Returns:
         Canonical font names (catalog ``font_name`` keys + TTF basenames,
-        plus the synthetic ``"<base> SC"`` small-caps variants),
-        deduplicated and sorted.
+        plus the synthetic ``"<base> SC"`` small-caps variants of every
+        non-exempt base), deduplicated and sorted.
     """
-    index = _canonical_map(load_plt_fonts(library_dir), available_ttf_fonts(fonts_dir))
+    index = _canonical_map(
+        load_plt_fonts(library_dir),
+        available_ttf_fonts(fonts_dir),
+        non_text_font_names(non_text_file),
+    )
     return sorted({canonical for _kind, canonical, _base, _sc in index.values()}, key=str.lower)
 
 
@@ -551,6 +627,7 @@ def resolve_font(
     name: str,
     library_dir: Optional[Path] = None,
     fonts_dir: Optional[Path] = None,
+    non_text_file: Optional[Path] = None,
 ) -> FontRef:
     """Resolve a user-supplied font name to a :class:`FontRef`.
 
@@ -558,12 +635,16 @@ def resolve_font(
     the canonical stored name. A ``"<base> SC"`` request resolves to the
     base font's kind/path with :attr:`FontRef.small_caps` set -- the
     variant is a render-time transform of the base, never a stored font.
+    A ``"<base> SC"`` request for a base on the non-text font list is
+    unknown (no variant is synthesized for symbol fonts).
 
     Args:
         name: Requested font name (e.g. ``"dino"``, ``"Dino SC"`` or
             ``"ReliefSingleLineCAD-Regular"``).
         library_dir: Optional PLT font catalog directory override.
         fonts_dir: Optional Fonts root override.
+        non_text_file: Optional non-text font list override (fonts listed
+            there get no ``"<base> SC"`` variant).
 
     Returns:
         The resolved reference.
@@ -572,11 +653,15 @@ def resolve_font(
         FontNotFoundError: If no font matches ``name``.
     """
     if not name or not name.strip():
-        raise FontNotFoundError(name, font_name_choices(library_dir, fonts_dir))
-    index = _canonical_map(load_plt_fonts(library_dir), available_ttf_fonts(fonts_dir))
+        raise FontNotFoundError(name, font_name_choices(library_dir, fonts_dir, non_text_file))
+    index = _canonical_map(
+        load_plt_fonts(library_dir),
+        available_ttf_fonts(fonts_dir),
+        non_text_font_names(non_text_file),
+    )
     entry = index.get(name.strip().lower())
     if entry is None:
-        raise FontNotFoundError(name, font_name_choices(library_dir, fonts_dir))
+        raise FontNotFoundError(name, font_name_choices(library_dir, fonts_dir, non_text_file))
     kind, canonical, base, small_caps = entry
     path = available_ttf_fonts(fonts_dir)[base] if kind == "ttf" else None
     return FontRef(
@@ -592,6 +677,7 @@ def normalize_font_name(
     name: str,
     library_dir: Optional[Path] = None,
     fonts_dir: Optional[Path] = None,
+    non_text_file: Optional[Path] = None,
 ) -> str:
     """Return the canonical form of ``name`` (case-insensitive lookup).
 
@@ -599,6 +685,8 @@ def normalize_font_name(
         name: Requested font name.
         library_dir: Optional PLT font catalog directory override.
         fonts_dir: Optional Fonts root override.
+        non_text_file: Optional non-text font list override (fonts listed
+            there get no ``"<base> SC"`` variant).
 
     Returns:
         The canonical font name.
@@ -606,7 +694,7 @@ def normalize_font_name(
     Raises:
         FontNotFoundError: If no font matches ``name``.
     """
-    return resolve_font(name, library_dir, fonts_dir).name
+    return resolve_font(name, library_dir, fonts_dir, non_text_file).name
 
 
 def plt_font_stroke_count(name: str, library_dir: Optional[Path] = None) -> int:

@@ -110,6 +110,12 @@ just-extracted ASCII bases, with bounding box and envelopes re-sampled from the
 *transformed* geometry, and are merged in alongside the engraved keys. A
 derived key never overwrites an engraved one, and a glyph whose base character
 is missing is skipped with a WARNING.
+
+Fonts listed in ``Fonts/VP-EL-Fonts/non_text_fonts.txt`` (symbol fonts such
+as ``Wingdings``; the same list drives the small-caps exemption in
+``plt_optimizer/generate/font_registry.py`` and the showcase's Unicode line
+in ``scripts/font_showcase.py``) skip the derivation step entirely: their
+ASCII slots carry symbols, so the recipes would engrave nonsense.
 """
 
 from __future__ import annotations
@@ -154,6 +160,7 @@ from glyph_transforms import (  # noqa: E402
 
 from plt_optimizer.core.models import ArcSegment, PLTDocument, StrokePath  # noqa: E402
 from plt_optimizer.core.parser import ParseError, PLTParser  # noqa: E402
+from plt_optimizer.generate.font_registry import non_text_font_names  # noqa: E402
 
 logger = logging.getLogger("extract_plt_fonts")
 
@@ -1670,14 +1677,23 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
         for extraction in extractions:
             entry = extraction.entry
-            derived = derive_glyph_entries(
-                entry["characters"],
-                reference_char=entry["reference_char"],
-                envelope_samples=args.envelope_samples,
-                log=logger,
-            )
-            entry["characters"].update(derived)
-            logger.info("Derived %d Unicode glyph(s) for %r", len(derived), extraction.font_name)
+            if extraction.font_name.lower() in non_text_font_names():
+                logger.info(
+                    "Skipping derived Unicode glyphs for non-text font %r "
+                    "(listed in non_text_fonts.txt)",
+                    extraction.font_name,
+                )
+            else:
+                derived = derive_glyph_entries(
+                    entry["characters"],
+                    reference_char=entry["reference_char"],
+                    envelope_samples=args.envelope_samples,
+                    log=logger,
+                )
+                entry["characters"].update(derived)
+                logger.info(
+                    "Derived %d Unicode glyph(s) for %r", len(derived), extraction.font_name
+                )
             write_font_file(args.output_dir, entry, characters)
     except FontExtractionError as e:
         logger.error("%s", e)

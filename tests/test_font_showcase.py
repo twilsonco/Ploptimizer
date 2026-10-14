@@ -79,6 +79,36 @@ class TestBuildShowcaseJob:
         assert job.width == 15.5
 
 
+class TestCoveredShowcaseLines:
+    """The derived-glyph (Unicode) line follows the non-text font list."""
+
+    def test_plt_font_keeps_the_unicode_line(self) -> None:
+        """A letter font carries the derived glyphs, so the line stays."""
+        lines = script._covered_showcase_lines("Dino")
+        assert any(line.startswith("Unicode: ") for line in lines)
+
+    def test_ttf_font_keeps_the_unicode_line(self) -> None:
+        """TrueType fonts report full coverage (.notdef draws missing chars)."""
+        lines = script._covered_showcase_lines("ReliefSingleLineCAD-Regular")
+        assert any(line.startswith("Unicode: ") for line in lines)
+
+    def test_non_text_font_drops_the_unicode_line(self) -> None:
+        """Wingdings (shipped non-text list) engraves no Unicode line."""
+        lines = script._covered_showcase_lines("Wingdings")
+        assert not any(line.startswith("Unicode: ") for line in lines)
+        # The remaining sample lines are untouched.
+        assert lines == tuple(
+            line for line in script.SHOWCASE_LINES if not line.startswith("Unicode: ")
+        )
+
+    def test_showcase_job_for_non_text_font_omits_the_line(self) -> None:
+        """The built JobSpec content mirrors the pruned lines."""
+        job = script.build_showcase_job("Wingdings")
+        texts = [line.text for line in job.content] if job.content else []
+        assert texts[0] == "Wingdings"
+        assert not any(text.startswith("Unicode: ") for text in texts)
+
+
 class TestMain:
     """End-to-end run writes one simple-outline PDF per available font."""
 

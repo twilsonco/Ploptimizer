@@ -26,6 +26,13 @@ because ``-`` and ``|`` each feed several recipes. A TrueType font that lacks a
 derived codepoint renders that font's own ``.notdef`` glyph, which is exactly
 the coverage information a showcase is for.
 
+Fonts listed in ``Fonts/VP-EL-Fonts/non_text_fonts.txt`` (symbol fonts such
+as ``Wingdings``) are **non-text**: they engrave their ASCII slots with
+symbols, so the derived-glyph pair is meaningless for them and the Unicode
+line is dropped from their showcase entirely (the small-caps variant is
+exempted at the registry, so those fonts contribute no ``"<base> SC"`` PDF
+either).
+
 Each label is rendered directly through the label renderer (no bin-packing,
 no plate assembly, no PLT files) and plotted with
 :func:`plt_optimizer.diagnostics.plotter.plot_plt_document` in ``simple_mode``,
@@ -68,7 +75,11 @@ from matplotlib import pyplot as plt  # noqa: E402
 
 from plt_optimizer.core.parser import PLTParser  # noqa: E402
 from plt_optimizer.diagnostics.plotter import plot_plt_document  # noqa: E402
-from plt_optimizer.generate.font_registry import font_name_choices, plt_font_has_glyph  # noqa: E402
+from plt_optimizer.generate.font_registry import (
+    font_name_choices,
+    non_text_font_names,
+    plt_font_has_glyph,
+)  # noqa: E402
 from plt_optimizer.generate.label_renderer import (  # noqa: E402
     RenderedLabel,
     render_label_to_plt,
@@ -162,24 +173,29 @@ def build_showcase_job(font_name: str, width: float = LABEL_WIDTH) -> JobSpec:
 def _covered_showcase_lines(font_name: str) -> Tuple[str, ...]:
     """Return :data:`SHOWCASE_LINES` pruned to the glyphs ``font_name`` has.
 
-    A PLT symbol font (Wingdings) engraves its ASCII slots with symbols, so
-    the derived-glyph recipes cannot build every derived Unicode character;
-    rendering a missing character raises. The derived-glyph line is pruned to
-    the characters the font carries - the PLT analogue of a TrueType font
-    drawing its ``.notdef`` box (missing glyphs are simply absent, which is
-    the coverage information a showcase reports). TrueType fonts report full
-    coverage here and rely on ``check_glyph_coverage=False`` to draw
-    ``.notdef``.
+    A **non-text** font (listed in ``Fonts/VP-EL-Fonts/non_text_fonts.txt``,
+    e.g. Wingdings) engraves its ASCII slots with symbols, so the derived-
+    glyph pair is meaningless for it: the derived-glyph line is dropped
+    entirely. Other PLT fonts engrave letters but may lack individual derived
+    characters, so the line is pruned to the characters the font carries -
+    the PLT analogue of a TrueType font drawing its ``.notdef`` box (missing
+    glyphs are simply absent, which is the coverage information a showcase
+    reports). TrueType fonts report full coverage here and rely on
+    ``check_glyph_coverage=False`` to draw ``.notdef``.
 
     Args:
         font_name: Canonical font name.
 
     Returns:
-        The sample lines, with the derived-glyph line pruned to covered chars.
+        The sample lines, with the derived-glyph line dropped for non-text
+        fonts and pruned to covered chars for the other PLT fonts.
     """
+    non_text = font_name.lower() in non_text_font_names()
     pruned: List[str] = []
     for line in SHOWCASE_LINES:
         if line.startswith("Unicode: "):
+            if non_text:
+                continue
             kept = [
                 char
                 for char in line.removeprefix("Unicode: ").split(" ")

@@ -269,9 +269,7 @@ class TestParseFontFileName:
         assert strokes == 1
 
     def test_underscores_in_font_name_become_spaces(self) -> None:
-        name, height, ref, strokes = script.parse_font_file_name(
-            Path("heavy_engraving_0.75_H.plt")
-        )
+        name, height, ref, strokes = script.parse_font_file_name(Path("heavy_engraving_0.75_H.plt"))
         assert name == "Heavy Engraving"
         assert height == pytest.approx(0.75)
         assert ref == "H"
@@ -302,9 +300,7 @@ class TestParseFontFileName:
         assert strokes == 3
 
     def test_stroke_suffix_with_symbol_reference(self) -> None:
-        name, _height, ref, strokes = script.parse_font_file_name(
-            Path("wingdings_0.35_^_S4.plt")
-        )
+        name, _height, ref, strokes = script.parse_font_file_name(Path("wingdings_0.35_^_S4.plt"))
         assert name == "Wingdings"
         assert ref == "^"
         assert strokes == 4
@@ -904,9 +900,8 @@ class TestVerticallyCenteredChars:
         assert box["min_y"] == pytest.approx(self.CENTERED_BOTTOM, abs=1e-6)
         assert box["max_y"] == pytest.approx(self.CENTERED_TOP, abs=1e-6)
         centre = (box["min_y"] + box["max_y"]) / 2.0
-        assert (
-            centre
-            == pytest.approx(script.MIDLINE_FRACTION * script.LIBRARY_UNITS_PER_INCH, abs=1e-6)
+        assert centre == pytest.approx(
+            script.MIDLINE_FRACTION * script.LIBRARY_UNITS_PER_INCH, abs=1e-6
         )
 
     def test_unlisted_glyph_is_untouched(self) -> None:
@@ -984,7 +979,9 @@ class TestVerticallyCenteredChars:
         script.VERTICALLY_CENTERED_CHARS = ("C",)
         try:
             assert script.main(base + ["--output-dir", str(centered_out)]) == 0
-            assert script.main(base + ["--output-dir", str(raw_out), "--no-vertical-centering"]) == 0
+            assert (
+                script.main(base + ["--output-dir", str(raw_out), "--no-vertical-centering"]) == 0
+            )
         finally:
             script.VERTICALLY_CENTERED_CHARS = original
         centered = json.loads((centered_out / "Myfont.json").read_text(encoding="utf-8"))
@@ -1463,6 +1460,45 @@ class TestDerivedGlyphs:
         assert sorted(characters) == ["A", "E", "T", "_", "g"]
         warnings = [record.getMessage() for record in caplog.records]
         assert any("Skipping derived character" in message for message in warnings)
+
+    def test_main_skips_derivation_for_non_text_font(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: Any
+    ) -> None:
+        """A font on the non-text list keeps its ASCII keys and derives nothing.
+
+        The full character set is engraved (every recipe base exists), so the
+        only reason for the derived keys to be absent is the exemption list.
+        The shipped list is monkeypatched - tests never depend on the real
+        ``non_text_fonts.txt`` content.
+        """
+        fonts_dir = tmp_path / "fonts"
+        fonts_dir.mkdir()
+        (fonts_dir / "tiny_1_E.plt").write_text(
+            make_framed_sheet([[chr(code) for code in range(33, 127)]]), encoding="utf-8"
+        )
+        ascii_file = tmp_path / "ascii.txt"
+        ascii_file.write_text(ASCII_CHARS, encoding="utf-8")
+        monkeypatch.setattr(script, "non_text_font_names", lambda: frozenset({"tiny"}))
+        out = tmp_path / "catalog"
+        with caplog.at_level(logging.INFO, logger="extract_plt_fonts"):
+            rc = script.main(
+                [
+                    "--input-dir",
+                    str(fonts_dir),
+                    "--ascii-file",
+                    str(ascii_file),
+                    "--output-dir",
+                    str(out),
+                ]
+            )
+        assert rc == 0
+        characters = json.loads((out / "Tiny.json").read_text(encoding="utf-8"))["characters"]
+        assert all(char in characters for char in ASCII_CHARS)
+        assert "\u2013" not in characters  # en dash: derived from '-', never engraved
+        assert "\u221e" not in characters
+        messages = [record.getMessage() for record in caplog.records]
+        assert any("Skipping derived Unicode glyphs" in message for message in messages)
+        assert not any("Derived " in message for message in messages)
 
     def test_rebuild_refreshes_derived_glyphs(self, tmp_path: Path) -> None:
         """Re-running over an existing catalog re-derives (no stale keys)."""

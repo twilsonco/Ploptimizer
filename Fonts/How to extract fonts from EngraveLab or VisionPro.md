@@ -253,6 +253,15 @@ Rules:
 - The midline/cap reference lives in the font entry itself
   (`reference_char` + its `bounding_box.max_y`), so `--rebuild` and merge
   runs produce identical derived keys.
+- **Non-text (symbol) fonts are exempt.** Every font named in
+  [`VP-EL-Fonts/non_text_fonts.txt`](VP-EL-Fonts/non_text_fonts.txt)
+  (one name per line, case-insensitive; `#` comments allowed — currently
+  `Wingdings`) engraves its ASCII slots with symbols, so the recipes would
+  build nonsense: the extractor skips the derivation step entirely for it.
+  The same list exempts the font from the Unicode line in
+  `scripts/font_showcase.py` and from the synthetic `<base> SC` small-caps
+  variant (`plt_optimizer/generate/font_registry.py`). The base font itself
+  stays fully selectable.
 
 ### Height drift
 

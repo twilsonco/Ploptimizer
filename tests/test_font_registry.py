@@ -12,6 +12,7 @@ from plt_optimizer.generate import font_registry
 from plt_optimizer.generate.font_registry import (
     DEFAULT_FONT_NAME,
     FONTS_DIR,
+    NON_TEXT_FONTS_FILE,
     PLT_FONT_CATALOG_DIR,
     FontNotFoundError,
     PltFontData,
@@ -19,6 +20,7 @@ from plt_optimizer.generate.font_registry import (
     find_italic_face_path,
     font_name_choices,
     load_plt_fonts,
+    non_text_font_names,
     normalize_font_name,
     resolve_font,
 )
@@ -72,10 +74,12 @@ def _clear_caches() -> object:
     load_plt_fonts.cache_clear()
     available_ttf_fonts.cache_clear()
     find_italic_face_path.cache_clear()
+    non_text_font_names.cache_clear()
     yield
     load_plt_fonts.cache_clear()
     available_ttf_fonts.cache_clear()
     find_italic_face_path.cache_clear()
+    non_text_font_names.cache_clear()
 
 
 @pytest.fixture
@@ -297,9 +301,7 @@ class TestLoadPltFonts:
         ("raw", "expected"),
         [("5", 5), (5.0, 5), (0, 1), (-3, 1), ("five", 1), (True, 1), (None, 1)],
     )
-    def test_stroke_count_lenient_parse(
-        self, tmp_path: Path, raw: object, expected: int
-    ) -> None:
+    def test_stroke_count_lenient_parse(self, tmp_path: Path, raw: object, expected: int) -> None:
         """Garbage/stale stroke_count values fall back to single-stroke."""
         catalog = _write_catalog(
             tmp_path / "catalog", {"Test": _v2_font({"A": "PU0,0;"}, stroke_count=raw)}
@@ -523,14 +525,114 @@ class TestSmallCapsVariants:
         assert font_registry.base_font_name(requested) == expected
 
     def test_bundled_variants_resolve(self) -> None:
-        """The shipped fonts each expose a working ``SC`` variant."""
+        """The shipped non-exempt fonts each expose a working ``SC`` variant."""
+        exempt = non_text_font_names()
         for base in font_name_choices():
-            if base.lower().endswith(" sc"):
+            if base.lower().endswith(" sc") or base.lower() in exempt:
                 continue
             ref = resolve_font(f"{base} SC")
             assert ref.small_caps is True
             assert ref.kind == resolve_font(base).kind
             assert ref.path == resolve_font(base).path
+
+    def test_bundled_non_text_font_has_no_variant(self) -> None:
+        """The shipped non-text list exempts Wingdings from its SC variant."""
+        assert "Wingdings" in font_name_choices()
+        assert "Wingdings SC" not in font_name_choices()
+        with pytest.raises(FontNotFoundError):
+            resolve_font("Wingdings SC")
+
+
+class TestNonTextFonts:
+    """The ``non_text_fonts.txt`` exemption list (symbol fonts, e.g. Wingdings)."""
+
+    def _list_file(self, tmp_path: Path, body: str) -> Path:
+        """Write a non-text font list file and return its path.
+
+        Args:
+            tmp_path: Directory to write into.
+            body: Raw file contents.
+
+        Returns:
+            The written file's path.
+        """
+        path = tmp_path / "non_text_fonts.txt"
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def test_bundled_file_lists_wingdings(self) -> None:
+        """The shipped list exists and exempts Wingdings (case-insensitively)."""
+        assert NON_TEXT_FONTS_FILE.is_file()
+        assert "wingdings" in non_text_font_names()
+
+    def test_missing_file_yields_no_exemptions(self, tmp_path: Path) -> None:
+        """A missing list file is not an error - every SC variant survives."""
+        catalog = _write_catalog(tmp_path / "catalog", {"Wingdings": _v2_font({"A": "x"})})
+        assert non_text_font_names(tmp_path / "absent.txt") == frozenset()
+        choices = font_name_choices(
+            library_dir=catalog, fonts_dir=tmp_path, non_text_file=tmp_path / "absent.txt"
+        )
+        assert "Wingdings SC" in choices
+
+    def test_comments_and_blank_lines_ignored(self, tmp_path: Path) -> None:
+        """Full-line and trailing '#' comments plus blanks are skipped."""
+        path = self._list_file(
+            tmp_path,
+            "# comment only\n\nWingdings\n  Dino  # trailing\n\n#end\n",
+        )
+        assert non_text_font_names(path) == frozenset({"wingdings", "dino"})
+
+    def test_listed_font_loses_only_the_variant(self, tmp_path: Path) -> None:
+        """A listed base stays selectable; only its SC variant disappears."""
+        catalog = _write_catalog(
+            tmp_path / "catalog",
+            {"Wingdings": _v2_font({"A": "x"}), "Dino": _v2_font({"A": "x"})},
+        )
+        path = self._list_file(tmp_path, "Wingdings\n")
+        choices = font_name_choices(library_dir=catalog, fonts_dir=tmp_path, non_text_file=path)
+        assert "Wingdings" in choices
+        assert "Wingdings SC" not in choices
+        assert "Dino SC" in choices
+        ref = resolve_font("Wingdings", library_dir=catalog, fonts_dir=tmp_path, non_text_file=path)
+        assert (ref.kind, ref.name, ref.small_caps) == ("plt", "Wingdings", False)
+        with pytest.raises(FontNotFoundError):
+            resolve_font(
+                "Wingdings SC", library_dir=catalog, fonts_dir=tmp_path, non_text_file=path
+            )
+
+    def test_real_sc_named_font_survives_its_base_being_listed(self, tmp_path: Path) -> None:
+        """A real font literally named ``Foo SC`` keeps its name when its
+        lookalike base ``Foo`` is listed (the exemption only skips the
+        synthetic variant, never a real font)."""
+        catalog = _write_catalog(tmp_path / "catalog", {"Foo": _v2_font({"A": "x"})})
+        (tmp_path / "Foo SC.ttf").write_bytes(b"t")
+        path = self._list_file(tmp_path, "Foo\n")
+        choices = font_name_choices(library_dir=catalog, fonts_dir=tmp_path, non_text_file=path)
+        assert "Foo SC" in choices
+        ref = resolve_font("Foo SC", library_dir=catalog, fonts_dir=tmp_path, non_text_file=path)
+        assert ref.kind == "ttf"
+        assert ref.small_caps is False
+
+    def test_normalize_font_name_threads_the_override(self, tmp_path: Path) -> None:
+        """The schema-facing helper honours the exemption list too."""
+        catalog = _write_catalog(tmp_path / "catalog", {"Wingdings": _v2_font({"A": "x"})})
+        path = self._list_file(tmp_path, "Wingdings\n")
+        assert (
+            normalize_font_name(
+                "Wingdings",
+                library_dir=catalog,
+                fonts_dir=tmp_path,
+                non_text_file=path,
+            )
+            == "Wingdings"
+        )
+        with pytest.raises(FontNotFoundError):
+            normalize_font_name(
+                "Wingdings SC",
+                library_dir=catalog,
+                fonts_dir=tmp_path,
+                non_text_file=path,
+            )
 
 
 class TestItalicFaceProbe:

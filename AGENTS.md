@@ -117,7 +117,12 @@ JobSpec (job-level defaults)
   ASCII bases through `Fonts/glyph_transforms.py` (affine transforms with
   arc-sweep rules; bounding box and envelopes re-sampled from the
   transformed geometry), so they kern and render like engraved characters.
-  List every valid name with
+  Fonts listed in `Fonts/VP-EL-Fonts/non_text_fonts.txt` (symbol fonts such
+  as `Wingdings`; the shared list is read by
+  `font_registry.non_text_font_names()`) engrave their ASCII slots with
+  symbols, so they are exempt from derivation, from the showcase's Unicode
+  line, and from the `SC` variant (see Small Caps Fonts below). List every
+  valid name with
   `python docs/schema/generate_schema_docs.py --show-fonts`.
 - `character_spacing`: Extra spacing between characters
 - `line_spacing`: Extra spacing between text lines
@@ -1023,7 +1028,14 @@ partitions (the intra-chunk glyph sweep) stay exact.
 - **Registry** (`font_registry.py`): `_canonical_map` synthesizes
   `"<base> sc" -> (kind, "<base> SC", base, small_caps=True)` for every PLT
   key and TTF basename (case-insensitive; `setdefault` after all bases, so a
-  real font literally named `"Foo SC"` wins its name). `FontRef` carries
+  real font literally named `"Foo SC"` wins its name). Bases listed in
+  `Fonts/VP-EL-Fonts/non_text_fonts.txt` (symbol fonts such as `Wingdings`,
+  read by the `lru_cache`'d `non_text_font_names()` — one name per line,
+  case-insensitive, `#` comments and blanks ignored, a missing file means no
+  exemptions) contribute **no** `SC` variant: a symbol font has no lowercase
+  to shrink, so `"Wingdings SC"` is unknown to the schema validator, the
+  `--show-fonts` docs and the showcase (the base `Wingdings` stays fully
+  selectable). `FontRef` carries
   `small_caps: bool` and the **base** font's `path`. `font_name_choices()`
   lists the variants (4 bases → 8 names today), so the schema validator,
   `--show-fonts` docs and the font showcase all see them. Library lookups
