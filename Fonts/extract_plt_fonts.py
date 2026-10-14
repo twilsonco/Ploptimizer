@@ -11,7 +11,7 @@ VisionPro.md`` beside this script) is:
    needs. **Every row must start and end with one chosen reference
    character** (e.g. ``E``), which acts as structural framing only.
 2. Engrave the sheet to a PLT file.
-3. Drop the PLT into ``Fonts/PLT/`` named
+3. Drop the PLT into ``Fonts/VP-EL-Fonts/input-plt/`` named
    ``<font name>_<declared height in>_<reference char>[_S<strokes>].plt``
    (e.g. ``dino_0.5_E.plt``, ``avenge5_0.55_E_S5.plt``). The optional
    ``_S<n>`` suffix declares how many parallel cutter passes each glyph
@@ -65,25 +65,27 @@ reference character is never centred - it *defines* the baseline (``y = 0``)
 and the cap line (``y = 1000``) - and ``--no-vertical-centering`` disables the
 pass entirely for A/B comparison against the raw engraved positions.
 
-The result is merged into ``Fonts/plt_fonts.json``::
+The result is written as **one JSON file per font** into
+``Fonts/VP-EL-Fonts/catalog/`` (file name = the font key with
+file-name-illegal characters replaced by ``_``, e.g. ``Dino.json``). The
+font key itself is the file's ``font_name`` value, not its name::
 
     {
-      "<Font Name>": {
-        "file_path": "Fonts/PLT/dino_0.5_E.plt",
-        "stroke_count": 1,
-        "reference_char": "E",
-        "declared_height_in": 0.5,
-        "reference_char_height_in": 0.508017,
-        "normalized_ref_height": 1.0,
-        "characters": {
-          "E": {
-            "bounding_box": {"min_x": 0.0, "max_x": ..., "min_y": 0.0, "max_y": 1000.0},
-            "left_envelope": [[x, y], ...],
-            "right_envelope": [[x, y], ...],
-            "glyph": "PU0.0000,0.0000;PD...;"
-          }, ...
-        }
-      }, ...
+      "font_name": "Dino",
+      "file_path": "Fonts/VP-EL-Fonts/input-plt/dino_0.5_E.plt",
+      "stroke_count": 1,
+      "reference_char": "E",
+      "declared_height_in": 0.5,
+      "reference_char_height_in": 0.508017,
+      "normalized_ref_height": 1.0,
+      "characters": {
+        "E": {
+          "bounding_box": {"min_x": 0.0, "max_x": ..., "min_y": 0.0, "max_y": 1000.0},
+          "left_envelope": [[x, y], ...],
+          "right_envelope": [[x, y], ...],
+          "glyph": "PU0.0000,0.0000;PD...;"
+        }, ...
+      }
     }
 
 ``left_envelope`` / ``right_envelope`` are the profile of the glyph aggregated
@@ -96,8 +98,9 @@ horizontal bars (the Dino ``F`` middle bar sits at y = 500.2923 while a 30-band
 grid steps by 34.482759), storing a phantom notch. Font keys are the file-name
 font part with underscores turned into spaces and title-cased
 (``heavy_engraving_0.5_E.plt`` -> ``"Heavy Engraving"``); use ``--font-name`` to
-override for a single file. Existing fonts in the JSON are preserved unless
-``--rebuild`` is given.
+override for a single file. Each extracted font replaces its own catalog
+file; catalog files of fonts not extracted in this run are preserved, unless
+``--rebuild`` is given, which clears the catalog directory first.
 
 After extraction, each font gains the **derived Unicode glyphs** of
 ``Fonts/glyph_transforms.py``: common typographic characters that cannot be
@@ -155,12 +158,12 @@ from plt_optimizer.core.parser import ParseError, PLTParser  # noqa: E402
 logger = logging.getLogger("extract_plt_fonts")
 
 FONTS_DIR = REPO_ROOT / "Fonts"
-DEFAULT_INPUT_DIR = FONTS_DIR / "PLT"
-DEFAULT_OUTPUT = FONTS_DIR / "plt_fonts.json"
+DEFAULT_INPUT_DIR = FONTS_DIR / "VP-EL-Fonts" / "input-plt"
+DEFAULT_OUTPUT_DIR = FONTS_DIR / "VP-EL-Fonts" / "catalog"
 DEFAULT_ASCII_FILE = FONTS_DIR / "ascii.txt"
 
-# Library design frame: the units per *design* inch that ``plt_fonts.json``
-# stores. This is NOT the device plotter scale -- HPGL's default step is
+# Library design frame: the units per *design* inch that the catalog files
+# (``Fonts/VP-EL-Fonts/catalog/*.json``) store. This is NOT the device plotter scale -- HPGL's default step is
 # 0.025 mm = 1/1016 inch (see ``plt_optimizer/core/units.py``), and the sample
 # sheets are engraved at that 1016 scale.
 #
@@ -331,7 +334,7 @@ class FontExtraction:
     """The result of extracting one PLT sample sheet.
 
     Attributes:
-        font_name: Font key used in ``plt_fonts.json``.
+        font_name: Font key stored as the catalog file's ``font_name``.
         entry: The font's JSON entry (metadata plus ``characters``).
         row_count: Number of engraved rows detected on the sheet.
         row_threshold: Y-gap row-splitting threshold actually used.
@@ -373,6 +376,11 @@ def load_characters(ascii_file: Path) -> List[str]:
 
 
 _STROKE_SUFFIX_RE = re.compile(r"^(.*)_S(\d+)$")
+
+# Font-name characters that are unsafe in file names on at least one
+# supported platform (Windows reserves ``<>:"/\\|?*``); catalog file names
+# replace them with underscores (see :func:`catalog_file_name`).
+_FILE_UNSAFE_RE = re.compile(r"[^A-Za-z0-9 _-]")
 
 
 def parse_font_file_name(plt_path: Path) -> Tuple[str, float, str, int]:
@@ -1203,7 +1211,8 @@ def extract_font_from_document(
 
     Returns:
         ``(font_entry, row_count, row_threshold, cluster_threshold)`` where
-        ``font_entry`` is the JSON-ready font mapping (without ``file_path``).
+        ``font_entry`` is the JSON-ready font mapping (without ``font_name``
+        and ``file_path``).
 
     Raises:
         FontExtractionError: If the layout cannot be verified or the reference
@@ -1346,6 +1355,7 @@ def extract_font_file(
         entry["reference_char_height_in"],
     )
     full_entry: FontEntry = {
+        "font_name": name,
         "file_path": _repo_relative(plt_path),
         "stroke_count": stroke_count,
         **entry,
@@ -1373,89 +1383,107 @@ def extract_font_file(
     )
 
 
-def _is_font_entry(entry: object) -> bool:
-    """Return whether a JSON value looks like a new-format font entry.
+def catalog_file_name(font_name: str) -> str:
+    """Return the catalog file name for ``font_name``.
+
+    Characters unsafe in file names across platforms (Windows reserves
+    ``<>:"/\\|?*``) become underscores; spaces are kept. The name is
+    cosmetic - the font key is the file's ``font_name`` field - so the
+    sanitisation never loses information for the loader.
 
     Args:
-        entry: A value from the top level of ``plt_fonts.json``.
+        font_name: Canonical font key (e.g. ``"Heavy Engraving"``).
 
     Returns:
-        True when the value carries the nested ``characters`` mapping.
+        File name ending in ``.json`` (e.g. ``"Heavy Engraving.json"``).
     """
-    return isinstance(entry, dict) and "characters" in entry
+    return _FILE_UNSAFE_RE.sub("_", font_name) + ".json"
 
 
-def load_existing_fonts(output: Path) -> Dict[str, FontEntry]:
-    """Load the existing ``plt_fonts.json`` for merging.
+def _ordered_characters(entry: FontEntry, characters: Sequence[str]) -> Optional[Dict[str, Any]]:
+    """Return ``entry``'s glyphs in canonical order, or ``None`` when absent.
+
+    Characters follow the ``ascii.txt`` order; any other keys (the derived
+    Unicode glyphs) are appended sorted, keeping the file deterministic.
 
     Args:
-        output: Path to the JSON font dictionary.
+        entry: Font entry with an optional ``characters`` mapping.
+        characters: Canonical character order.
 
     Returns:
-        Mapping of font name to font entry; empty when the file is absent.
+        The ordered mapping, or ``None`` when the entry carries no
+        ``characters`` dict.
+    """
+    glyphs = entry.get("characters")
+    if not isinstance(glyphs, dict):
+        return None
+    merged: Dict[str, Any] = {c: glyphs[c] for c in characters if c in glyphs}
+    for key in sorted(set(glyphs) - set(merged)):
+        merged[key] = glyphs[key]
+    return merged
+
+
+def write_font_file(output_dir: Path, entry: FontEntry, characters: Sequence[str]) -> Path:
+    """Write one font as its own catalog JSON file, deterministically.
+
+    The JSON is indented, keeps non-ASCII glyphs unescaped, and ends with a
+    newline, so re-extracting an unchanged sheet reproduces the file
+    byte-for-byte.
+
+    Args:
+        output_dir: Catalog directory (parents are created).
+        entry: The font entry; its ``font_name`` keys the file.
+        characters: Canonical character order.
+
+    Returns:
+        The path written.
 
     Raises:
-        FontExtractionError: If the file is not a JSON object of new-format
-            font entries, or still carries the pre-envelope flat
-            ``char -> HPGL`` layout (which cannot be merged into the new
-            schema and must be regenerated).
+        FontExtractionError: If the entry carries no usable ``font_name``
+            or the file cannot be written.
     """
-    if not output.exists():
-        return {}
+    font_name = entry.get("font_name")
+    if not isinstance(font_name, str) or not font_name.strip():
+        raise FontExtractionError(f"Font entry has no usable font_name: {font_name!r}")
+    ordered: FontEntry = dict(entry)
+    merged = _ordered_characters(entry, characters)
+    if merged is not None:
+        ordered["characters"] = merged
+    path = output_dir / catalog_file_name(font_name)
     try:
-        raw = json.loads(output.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as e:
-        raise FontExtractionError(f"Failed to read existing font file {output}: {e}") from e
-    if not isinstance(raw, dict):
-        raise FontExtractionError(f"Font file {output} must contain a JSON object")
-    legacy = [name for name, entry in raw.items() if not _is_font_entry(entry)]
-    if legacy:
-        raise FontExtractionError(
-            f"Font file {output} carries the legacy flat schema for "
-            f"{', '.join(sorted(str(name) for name in legacy))}; re-run with --rebuild "
-            f"to regenerate it from the sample sheets."
-        )
-    fonts: Dict[str, FontEntry] = {}
-    for name, entry in raw.items():
-        if not isinstance(name, str) or not isinstance(entry.get("characters"), dict):
-            raise FontExtractionError(
-                f"Font file {output} must map font names to objects with a "
-                f"'characters' object of per-character entries"
-            )
-        fonts[name] = dict(entry)
-    return fonts
-
-
-def write_fonts_json(output: Path, fonts: Dict[str, FontEntry], characters: Sequence[str]) -> None:
-    """Write the merged font dictionary deterministically.
-
-    Font keys are sorted alphabetically; within each font the characters follow
-    the ``ascii.txt`` order (any other keys are appended sorted).
-
-    Args:
-        output: Destination path (parents are created).
-        fonts: Complete mapping of font name to font entry.
-        characters: Canonical character order.
-    """
-    ordered: Dict[str, FontEntry] = {}
-    for name in sorted(fonts):
-        entry = dict(fonts[name])
-        glyphs = entry.get("characters")
-        if isinstance(glyphs, dict):
-            merged: Dict[str, Any] = {c: glyphs[c] for c in characters if c in glyphs}
-            for key in sorted(set(glyphs) - set(merged)):
-                merged[key] = glyphs[key]
-            entry["characters"] = merged
-        ordered[name] = entry
-    try:
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(
+        output_dir.mkdir(parents=True, exist_ok=True)
+        path.write_text(
             json.dumps(ordered, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
     except OSError as e:
-        raise FontExtractionError(f"Failed to write font file {output}: {e}") from e
-    logger.info("Wrote %d font(s) to %s", len(ordered), output)
+        raise FontExtractionError(f"Failed to write font file {path}: {e}") from e
+    logger.info("Wrote font %r to %s", font_name, path)
+    return path
+
+
+def clear_catalog(output_dir: Path) -> int:
+    """Delete every ``*.json`` file in ``output_dir`` (``--rebuild``).
+
+    Args:
+        output_dir: Catalog directory; an absent directory is a no-op.
+
+    Returns:
+        Number of files removed.
+
+    Raises:
+        FontExtractionError: If a file cannot be removed.
+    """
+    if not output_dir.is_dir():
+        return 0
+    removed = 0
+    for path in sorted(output_dir.glob("*.json")):
+        try:
+            path.unlink()
+        except OSError as e:
+            raise FontExtractionError(f"Failed to remove stale catalog file {path}: {e}") from e
+        removed += 1
+    return removed
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
@@ -1472,28 +1500,29 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         description=(
             "Extract baseline-normalized per-character HPGL glyphs and left/right "
             "profile envelopes from engraved, reference-framed ASCII sample sheets "
-            "(Fonts/PLT/*.plt) into plt_fonts.json."
+            "into one JSON file per font (Fonts/VP-EL-Fonts/catalog/)."
         ),
         epilog=(
             "Typical usage:\n"
             "  uv run python Fonts/extract_plt_fonts.py\n"
             "  uv run python Fonts/extract_plt_fonts.py --font-name Dino "
-            "--fonts-dir Fonts/PLT -v\n"
+            "--input-dir Fonts/VP-EL-Fonts/input-plt -v\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--fonts-dir",
+        "--input-dir",
         type=Path,
         default=DEFAULT_INPUT_DIR,
         help="Directory containing '<font>_<height in>_<ref char>.plt' sample "
         "sheets (default: %(default)s relative to the repo root).",
     )
     parser.add_argument(
-        "--output",
+        "--output-dir",
         type=Path,
-        default=DEFAULT_OUTPUT,
-        help="JSON font dictionary to create/update (default: %(default)s).",
+        default=DEFAULT_OUTPUT_DIR,
+        help="Directory of per-font JSON catalog files to create/update "
+        "(default: %(default)s).",
     )
     parser.add_argument(
         "--ascii-file",
@@ -1543,8 +1572,9 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--rebuild",
         action="store_true",
-        help="Regenerate the output from scratch, dropping fonts not present "
-        "in the input directory. Default: merge, replacing only extracted keys.",
+        help="Delete every *.json in the catalog directory before writing, "
+        "dropping fonts not present in the input directory. Default: write "
+        "only the extracted fonts, leaving other catalog files untouched.",
     )
     parser.add_argument(
         "-v",
@@ -1581,12 +1611,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 1
     logger.debug("Expected characters (%d): %s", len(characters), "".join(characters))
 
-    if not args.fonts_dir.is_dir():
-        logger.error("Fonts directory not found: %s", args.fonts_dir)
+    if not args.input_dir.is_dir():
+        logger.error("Input directory not found: %s", args.input_dir)
         return 1
-    plt_files = sorted(p for p in args.fonts_dir.iterdir() if p.suffix.lower() == ".plt")
+    plt_files = sorted(p for p in args.input_dir.iterdir() if p.suffix.lower() == ".plt")
     if not plt_files:
-        logger.error("No .plt sample sheets found in %s", args.fonts_dir)
+        logger.error("No .plt sample sheets found in %s", args.input_dir)
         return 1
     if args.font_name and len(plt_files) != 1:
         logger.error("--font-name requires exactly one input file (found %d)", len(plt_files))
@@ -1612,27 +1642,43 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         extractions.append(extraction)
 
     if not extractions:
-        logger.error("No fonts extracted; %s left unchanged", args.output)
+        logger.error("No fonts extracted; %s left unchanged", args.output_dir)
         return 1
 
-    try:
-        fonts = {} if args.rebuild else load_existing_fonts(args.output)
-    except FontExtractionError as e:
-        logger.error("%s", e)
-        return 1
+    targets: Dict[str, str] = {}
     for extraction in extractions:
-        entry = extraction.entry
-        derived = derive_glyph_entries(
-            entry["characters"],
-            reference_char=entry["reference_char"],
-            envelope_samples=args.envelope_samples,
-            log=logger,
-        )
-        entry["characters"].update(derived)
-        logger.info("Derived %d Unicode glyph(s) for %r", len(derived), extraction.font_name)
-        fonts[extraction.font_name] = entry
+        file_name = catalog_file_name(extraction.font_name)
+        owner = targets.get(file_name)
+        if owner is not None and owner != extraction.font_name:
+            logger.error(
+                "Font names %r and %r map to the same catalog file %r; "
+                "use --font-name to disambiguate",
+                owner,
+                extraction.font_name,
+                file_name,
+            )
+            return 1
+        targets[file_name] = extraction.font_name
+
     try:
-        write_fonts_json(args.output, fonts, characters)
+        if args.rebuild:
+            removed = clear_catalog(args.output_dir)
+            logger.info(
+                "--rebuild: removed %d existing catalog file(s) from %s",
+                removed,
+                args.output_dir,
+            )
+        for extraction in extractions:
+            entry = extraction.entry
+            derived = derive_glyph_entries(
+                entry["characters"],
+                reference_char=entry["reference_char"],
+                envelope_samples=args.envelope_samples,
+                log=logger,
+            )
+            entry["characters"].update(derived)
+            logger.info("Derived %d Unicode glyph(s) for %r", len(derived), extraction.font_name)
+            write_font_file(args.output_dir, entry, characters)
     except FontExtractionError as e:
         logger.error("%s", e)
         return 1

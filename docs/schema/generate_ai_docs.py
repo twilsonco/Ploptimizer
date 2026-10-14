@@ -84,7 +84,8 @@ _FALLBACK_NOTES: dict[str, str] = {
     "job-config tier) overrides the lookup: it snaps to the inventory (next size down, else "
     "up) and the toolpath height becomes text_height - cutter_size.",
     "DEFAULT_TARGET_BOLDNESS_FACTOR": "0.14 = the target engraved stroke width (as a fraction "
-    "of text height) for multi-stroke (bold) PLT fonts (stroke_count > 1 in plt_fonts.json). "
+    "of text height) for multi-stroke (bold) PLT fonts (stroke_count > 1 in the font's "
+    "catalog file). "
     "The automatic cutter is sized so the N engraved passes total this width, then snapped to "
     "the inventory (stepping up when the snap-down breaks the gap-free floor). Inert on "
     "single-stroke fonts, TTF fonts, and lines with an explicit cutter_size. Cascades "
@@ -150,7 +151,7 @@ _FALLBACK_NOTES: dict[str, str] = {
     "(never cascades; a job-level text_color is rejected). 'none' cannot be specified "
     "explicitly.",
     "DEFAULT_FONT": "Font fallback when unset at line/label/job level (and when job-config "
-    "font is unset). Must be a valid font_registry name: a PLT-extracted plt_fonts.json key "
+    "font is unset). Must be a valid font_registry name: a PLT-extracted catalog font_name key "
     "(arc-native) or a Fonts/ TTF basename; run generate_schema_docs.py --show-fonts.",
     "DEFAULT_FONT_NAME": "Registry-level default font name (font_registry.DEFAULT_FONT_NAME); "
     "resolution.DEFAULT_FONT mirrors it.",

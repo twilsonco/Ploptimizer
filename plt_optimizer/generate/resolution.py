@@ -224,8 +224,8 @@ DEFAULT_TEXT_H_ALIGNMENT: str = "center"
 DEFAULT_CUTTER_SIZE: Optional[float] = None
 # Target engraved stroke width for multi-stroke (bold) PLT fonts, as a
 # fraction of the nominal text height. A multi-stroke font's glyphs carry
-# ``stroke_count`` parallel cutter passes (stored in ``plt_fonts.json`` by
-# the extractor's ``_S<n>`` file-name suffix); the automatic cutter is
+# ``stroke_count`` parallel cutter passes (stored in the font's catalog file
+# by the extractor's ``_S<n>`` file-name suffix); the automatic cutter is
 # sized so the passes plus their overlaps engrave exactly
 # ``text_height * factor`` of total width. Inert on single-stroke fonts,
 # TTF fonts, and lines with an explicit ``cutter_size``. Bound to
@@ -715,7 +715,7 @@ class ResolvedTextLine:
             its own HPGL ``SP`` layer and PLT file.
         font: Canonical font name selecting the glyph outlines (cascaded
             line -> label -> job, default ``DEFAULT_FONT``). Either a
-            PLT-extracted ``plt_fonts.json`` key (rendered arc-native) or a
+            PLT-extracted catalog ``font_name`` key (rendered arc-native) or a
             ``Fonts/`` TTF basename (rendered through ftext); resolve the
             kind via ``font_registry.resolve_font``. A trailing `` SC``
             selects the base font's synthetic small-caps variant (see
@@ -2029,7 +2029,7 @@ def _resolve_content(
     :class:`CutterSizeError` is raised.
 
     When no explicit cutter is set and the line's font is a multi-stroke
-    (bold) PLT font (``stroke_count > 1`` in ``plt_fonts.json``), the
+    (bold) PLT font (``stroke_count > 1`` in its catalog file), the
     automatic selection is replaced by the boldness ladder
     (:func:`multi_stroke_cutter_diameter`): the cutter is sized so the
     engraved passes total ``text_height * target_boldness_factor``, with

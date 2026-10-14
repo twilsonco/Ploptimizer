@@ -7,7 +7,7 @@ PLT font. This module supplies the two things that extraction cannot produce:
 1. **Generic glyph utilities** - :func:`scale_glyph`, :func:`translate_glyph`,
    :func:`rotate_glyph`, :func:`mirror_glyph_y` and :func:`concat_glyphs`
    (superimpose / stack). They take and return the same self-contained HPGL
-   command strings stored in ``plt_fonts.json``
+   command strings stored in the font catalog files
    (``characters[<char>].glyph``), so a derived glyph is a drop-in library
    entry. Internally they parse to :class:`GlyphGeometry` (the core parser's
    :class:`~plt_optimizer.core.models.StrokePath` model kept at full float
@@ -26,7 +26,7 @@ PLT font. This module supplies the two things that extraction cannot produce:
 Coordinate frame
 ----------------
 
-Everything operates in the ``plt_fonts.json`` **storage frame**: plotter
+Everything operates in the font catalog's **storage frame**: plotter
 units (1000 = 1 design inch), ``+y`` up, the text baseline at ``y = 0`` and
 each glyph's left edge at ``x = 0``. The cap line is the reference
 character's stored ``bounding_box.max_y`` (design-unit 1000 for every v2
@@ -1115,7 +1115,7 @@ def build_glyph_entry(
     *,
     envelope_samples: int,
 ) -> CharacterEntry:
-    """Build a complete ``plt_fonts.json`` character entry from elements.
+    """Build a complete font-catalog character entry from elements.
 
     The bounding box, both envelopes and the HPGL string all come from the
     *transformed* geometry, so the entry is indistinguishable from an engraved

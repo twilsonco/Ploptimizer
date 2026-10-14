@@ -12,7 +12,7 @@ from plt_optimizer.generate import font_registry
 from plt_optimizer.generate.font_registry import (
     DEFAULT_FONT_NAME,
     FONTS_DIR,
-    PLT_FONTS_JSON_PATH,
+    PLT_FONT_CATALOG_DIR,
     FontNotFoundError,
     PltFontData,
     available_ttf_fonts,
@@ -46,6 +46,26 @@ def _v2_font(characters: Dict[str, str], **metadata: Any) -> Dict[str, Any]:
     return font
 
 
+def _write_catalog(root: Path, fonts: Dict[str, Dict[str, Any]]) -> Path:
+    """Write one JSON file per font into a catalog directory.
+
+    Mirrors the extractor's layout: each file carries the font key as its
+    ``font_name`` field, injected here in front of the given font object.
+
+    Args:
+        root: Catalog directory (created).
+        fonts: Font name -> font object (as built by :func:`_v2_font`).
+
+    Returns:
+        The catalog directory.
+    """
+    root.mkdir(parents=True, exist_ok=True)
+    for name, font in fonts.items():
+        payload = {"font_name": name, **font}
+        (root / f"{name}.json").write_text(json.dumps(payload), encoding="utf-8")
+    return root
+
+
 @pytest.fixture(autouse=True)
 def _clear_caches() -> object:
     """Isolate the module's lru_caches between tests."""
@@ -60,20 +80,17 @@ def _clear_caches() -> object:
 
 @pytest.fixture
 def fonts_root(tmp_path: Path) -> Path:
-    """A synthetic Fonts root with one PLT library and two TTFs."""
+    """A synthetic Fonts root with one PLT catalog and two TTFs."""
     (tmp_path / "Sub").mkdir()
     (tmp_path / "Alpha.ttf").write_bytes(b"ttf-a")
     (tmp_path / "Sub" / "Beta.ttf").write_bytes(b"ttf-b")
     (tmp_path / "ignored.otf").write_bytes(b"otf")
-    library = tmp_path / "plt_fonts.json"
-    library.write_text(
-        json.dumps(
-            {
-                "Dino": _v2_font({"A": "PU0,0;PD1,1;"}),
-                "Jhanuni": _v2_font({"A": "PU0,0;"}),
-            }
-        ),
-        encoding="utf-8",
+    _write_catalog(
+        tmp_path / "VP-EL-Fonts" / "catalog",
+        {
+            "Dino": _v2_font({"A": "PU0,0;PD1,1;"}),
+            "Jhanuni": _v2_font({"A": "PU0,0;"}),
+        },
     )
     return tmp_path
 
@@ -85,13 +102,13 @@ class TestBundledAssets:
         """The module resolves the real Fonts/ directory."""
         assert FONTS_DIR.name == "Fonts"
         assert FONTS_DIR.is_dir()
-        assert PLT_FONTS_JSON_PATH == FONTS_DIR / "plt_fonts.json"
-        assert PLT_FONTS_JSON_PATH.exists()
+        assert PLT_FONT_CATALOG_DIR == FONTS_DIR / "VP-EL-Fonts" / "catalog"
+        assert PLT_FONT_CATALOG_DIR.is_dir()
 
     def test_bundled_library_loads(self) -> None:
-        """The shipped plt_fonts.json parses into v2 font objects."""
+        """The shipped catalog parses into v2 font objects."""
         fonts = load_plt_fonts()
-        assert fonts, "bundled plt_fonts.json produced no fonts"
+        assert fonts, "bundled font catalog produced no fonts"
         for name, data in fonts.items():
             assert name
             assert isinstance(data, PltFontData)
@@ -117,11 +134,11 @@ class TestBundledAssets:
 
 
 class TestLoadPltFonts:
-    """PLT library loading and its degradation paths."""
+    """PLT font catalog loading and its degradation paths."""
 
     def test_loads_glyph_maps(self, fonts_root: Path) -> None:
-        """A well-formed library yields name -> v2 font data."""
-        fonts = load_plt_fonts(fonts_root / "plt_fonts.json")
+        """A well-formed catalog yields name -> v2 font data."""
+        fonts = load_plt_fonts(fonts_root / "VP-EL-Fonts" / "catalog")
         assert set(fonts) == {"Dino", "Jhanuni"}
         assert fonts["Dino"].characters["A"].glyph == "PU0,0;PD1,1;"
         assert fonts["Dino"].reference_char == "A"
@@ -129,60 +146,72 @@ class TestLoadPltFonts:
 
     def test_parses_bbox_and_envelopes(self, tmp_path: Path) -> None:
         """Nested bbox/envelope structures land on the glyph entry."""
-        library = tmp_path / "plt_fonts.json"
-        library.write_text(
-            json.dumps(
-                {
-                    "Test": {
-                        "normalized_ref_height": 1.0,
-                        "characters": {
-                            "A": {
-                                "glyph": "PU0,0;PD1000,1000;",
-                                "bounding_box": {
-                                    "min_x": 0.0,
-                                    "min_y": 0.0,
-                                    "max_x": 1000.0,
-                                    "max_y": 1000.0,
-                                },
-                                "left_envelope": [[0.0, 0.0], [1000.0, 1000.0]],
-                                "right_envelope": [[0.0, 0.0], [1000.0, 1000.0]],
-                            }
-                        },
-                    }
+        catalog = _write_catalog(
+            tmp_path / "catalog",
+            {
+                "Test": {
+                    "normalized_ref_height": 1.0,
+                    "characters": {
+                        "A": {
+                            "glyph": "PU0,0;PD1000,1000;",
+                            "bounding_box": {
+                                "min_x": 0.0,
+                                "min_y": 0.0,
+                                "max_x": 1000.0,
+                                "max_y": 1000.0,
+                            },
+                            "left_envelope": [[0.0, 0.0], [1000.0, 1000.0]],
+                            "right_envelope": [[0.0, 0.0], [1000.0, 1000.0]],
+                        }
+                    },
                 }
-            ),
-            encoding="utf-8",
+            },
         )
-        entry = load_plt_fonts(library)["Test"].characters["A"]
+        entry = load_plt_fonts(catalog)["Test"].characters["A"]
         assert entry.bounding_box == (0.0, 0.0, 1000.0, 1000.0)
         assert entry.left_envelope == ((0.0, 0.0), (1000.0, 1000.0))
         assert entry.right_envelope == ((0.0, 0.0), (1000.0, 1000.0))
 
-    def test_legacy_flat_font_skipped_with_warning(
+    def test_legacy_flat_file_skipped_with_warning(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """A legacy flat ``char -> HPGL`` font is rejected with a WARNING."""
-        library = tmp_path / "plt_fonts.json"
-        library.write_text(
-            json.dumps({"Old": {"A": "PU0,0;"}, "New": _v2_font({"A": "PU0,0;"})}),
-            encoding="utf-8",
+        """A legacy flat ``char -> HPGL`` file (no font_name) is rejected."""
+        catalog = tmp_path / "catalog"
+        catalog.mkdir()
+        (catalog / "Old.json").write_text(json.dumps({"A": "PU0,0;"}), encoding="utf-8")
+        _write_catalog(catalog, {"New": _v2_font({"A": "PU0,0;"})})
+        with caplog.at_level("WARNING"):
+            fonts = load_plt_fonts(catalog)
+        assert set(fonts) == {"New"}
+        assert "font_name" in caplog.text
+
+    def test_duplicate_font_name_first_file_wins(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Two files declaring one font_name: the sorted-first file wins."""
+        catalog = tmp_path / "catalog"
+        catalog.mkdir()
+        (catalog / "a_first.json").write_text(
+            json.dumps({"font_name": "Dup", **_v2_font({"A": "PU0,0;"})}), encoding="utf-8"
+        )
+        (catalog / "b_second.json").write_text(
+            json.dumps({"font_name": "Dup", **_v2_font({"A": "PU9,9;"})}), encoding="utf-8"
         )
         with caplog.at_level("WARNING"):
-            fonts = load_plt_fonts(library)
-        assert set(fonts) == {"New"}
-        assert "legacy flat" in caplog.text
+            fonts = load_plt_fonts(catalog)
+        assert fonts["Dup"].characters["A"].glyph == "PU0,0;"
+        assert "declared by" in caplog.text
 
     def test_malformed_glyph_entry_skipped(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         """A character entry without a glyph string is skipped."""
-        library = tmp_path / "plt_fonts.json"
-        library.write_text(
-            json.dumps({"Test": _v2_font({"A": "PU0,0;", "B": {"bounding_box": {"min_x": 0}}})}),
-            encoding="utf-8",
+        catalog = _write_catalog(
+            tmp_path / "catalog",
+            {"Test": _v2_font({"A": "PU0,0;", "B": {"bounding_box": {"min_x": 0}}})},
         )
         with caplog.at_level("WARNING"):
-            fonts = load_plt_fonts(library)
+            fonts = load_plt_fonts(catalog)
         assert set(fonts["Test"].characters) == {"A"}
         assert "not a v2 glyph entry" in caplog.text
 
@@ -190,65 +219,79 @@ class TestLoadPltFonts:
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         """A bogus normalized_ref_height warns and falls back to 1.0."""
-        library = tmp_path / "plt_fonts.json"
-        library.write_text(
-            json.dumps({"Test": _v2_font({"A": "PU0,0;"}, normalized_ref_height=0.0)}),
-            encoding="utf-8",
+        catalog = _write_catalog(
+            tmp_path / "catalog", {"Test": _v2_font({"A": "PU0,0;"}, normalized_ref_height=0.0)}
         )
         with caplog.at_level("WARNING"):
-            fonts = load_plt_fonts(library)
+            fonts = load_plt_fonts(catalog)
         assert fonts["Test"].normalized_ref_height == pytest.approx(1.0)
         assert "non-positive" in caplog.text
 
-    def test_missing_file_warns_and_returns_empty(
+    def test_missing_directory_warns_and_returns_empty(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """A missing library must not raise (TTF-only jobs keep working)."""
+        """A missing catalog must not raise (TTF-only jobs keep working)."""
         with caplog.at_level("WARNING"):
-            assert load_plt_fonts(tmp_path / "nope.json") == {}
+            assert load_plt_fonts(tmp_path / "nope") == {}
         assert "not found" in caplog.text
 
     def test_malformed_json_warns(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-        """Unparseable JSON degrades to no PLT fonts."""
-        bad = tmp_path / "plt_fonts.json"
-        bad.write_text("{not json", encoding="utf-8")
+        """An unparseable catalog file degrades to no PLT fonts."""
+        catalog = tmp_path / "catalog"
+        catalog.mkdir()
+        (catalog / "bad.json").write_text("{not json", encoding="utf-8")
         with caplog.at_level("WARNING"):
-            assert load_plt_fonts(bad) == {}
+            assert load_plt_fonts(catalog) == {}
+        assert "could not be read" in caplog.text
+
+    def test_one_bad_file_does_not_sink_the_catalog(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A single unreadable font file skips only that font."""
+        catalog = _write_catalog(tmp_path / "catalog", {"Good": _v2_font({"A": "x"})})
+        (catalog / "bad.json").write_text("{not json", encoding="utf-8")
+        with caplog.at_level("WARNING"):
+            fonts = load_plt_fonts(catalog)
+        assert set(fonts) == {"Good"}
         assert "could not be read" in caplog.text
 
     def test_non_object_root_warns(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-        """A JSON array root is rejected with a WARNING."""
-        bad = tmp_path / "plt_fonts.json"
-        bad.write_text("[1, 2]", encoding="utf-8")
+        """A JSON array file is rejected with a WARNING."""
+        catalog = tmp_path / "catalog"
+        catalog.mkdir()
+        (catalog / "arr.json").write_text("[1, 2]", encoding="utf-8")
         with caplog.at_level("WARNING"):
-            assert load_plt_fonts(bad) == {}
+            assert load_plt_fonts(catalog) == {}
         assert "not a JSON object" in caplog.text
 
     def test_non_map_font_entry_skipped(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         """A font entry that is not a v2 object is skipped."""
-        bad = tmp_path / "plt_fonts.json"
-        bad.write_text(json.dumps({"Good": _v2_font({"A": "x"}), "Bad": [1, 2]}), encoding="utf-8")
+        catalog = tmp_path / "catalog"
+        catalog.mkdir()
+        (catalog / "Good.json").write_text(
+            json.dumps({"font_name": "Good", **_v2_font({"A": "x"})}), encoding="utf-8"
+        )
+        (catalog / "Bad.json").write_text(
+            json.dumps({"font_name": "Bad", "characters": [1, 2]}), encoding="utf-8"
+        )
         with caplog.at_level("WARNING"):
-            fonts = load_plt_fonts(bad)
+            fonts = load_plt_fonts(catalog)
         assert set(fonts) == {"Good"}
         assert "Bad" in caplog.text
 
     def test_stroke_count_defaults_to_one(self, tmp_path: Path) -> None:
-        """A library written before the multi-stroke convention loads as 1."""
-        library = tmp_path / "plt_fonts.json"
-        library.write_text(json.dumps({"Test": _v2_font({"A": "PU0,0;"})}), encoding="utf-8")
-        assert load_plt_fonts(library)["Test"].stroke_count == 1
+        """A catalog written before the multi-stroke convention loads as 1."""
+        catalog = _write_catalog(tmp_path / "catalog", {"Test": _v2_font({"A": "PU0,0;"})})
+        assert load_plt_fonts(catalog)["Test"].stroke_count == 1
 
     def test_stroke_count_parsed(self, tmp_path: Path) -> None:
         """The extractor's stroke_count metadata lands on the font data."""
-        library = tmp_path / "plt_fonts.json"
-        library.write_text(
-            json.dumps({"Test": _v2_font({"A": "PU0,0;"}, stroke_count=5)}),
-            encoding="utf-8",
+        catalog = _write_catalog(
+            tmp_path / "catalog", {"Test": _v2_font({"A": "PU0,0;"}, stroke_count=5)}
         )
-        assert load_plt_fonts(library)["Test"].stroke_count == 5
+        assert load_plt_fonts(catalog)["Test"].stroke_count == 5
 
     @pytest.mark.parametrize(
         ("raw", "expected"),
@@ -258,24 +301,20 @@ class TestLoadPltFonts:
         self, tmp_path: Path, raw: object, expected: int
     ) -> None:
         """Garbage/stale stroke_count values fall back to single-stroke."""
-        library = tmp_path / "plt_fonts.json"
-        library.write_text(
-            json.dumps({"Test": _v2_font({"A": "PU0,0;"}, stroke_count=raw)}),
-            encoding="utf-8",
+        catalog = _write_catalog(
+            tmp_path / "catalog", {"Test": _v2_font({"A": "PU0,0;"}, stroke_count=raw)}
         )
-        assert load_plt_fonts(library)["Test"].stroke_count == expected
+        assert load_plt_fonts(catalog)["Test"].stroke_count == expected
 
     def test_stroke_count_garbage_warns(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         """A malformed stroke_count logs a WARNING and falls back to 1."""
-        library = tmp_path / "plt_fonts.json"
-        library.write_text(
-            json.dumps({"Test": _v2_font({"A": "PU0,0;"}, stroke_count="five")}),
-            encoding="utf-8",
+        catalog = _write_catalog(
+            tmp_path / "catalog", {"Test": _v2_font({"A": "PU0,0;"}, stroke_count="five")}
         )
         with caplog.at_level("WARNING"):
-            fonts = load_plt_fonts(library)
+            fonts = load_plt_fonts(catalog)
         assert fonts["Test"].stroke_count == 1
         assert "stroke_count" in caplog.text
 
@@ -285,18 +324,14 @@ class TestPltFontStrokeCount:
 
     @pytest.fixture
     def stroke_lib(self, tmp_path: Path) -> Path:
-        """A library with a single-stroke and a five-stroke PLT font."""
-        library = tmp_path / "plt_fonts.json"
-        library.write_text(
-            json.dumps(
-                {
-                    "Dino": _v2_font({"A": "PU0,0;"}),
-                    "Avenge5": _v2_font({"A": "PU0,0;"}, stroke_count=5),
-                }
-            ),
-            encoding="utf-8",
+        """A catalog with a single-stroke and a five-stroke PLT font."""
+        return _write_catalog(
+            tmp_path / "catalog",
+            {
+                "Dino": _v2_font({"A": "PU0,0;"}),
+                "Avenge5": _v2_font({"A": "PU0,0;"}, stroke_count=5),
+            },
         )
-        return library
 
     def test_multi_stroke_font_found(self, stroke_lib: Path) -> None:
         assert font_registry.plt_font_stroke_count("Avenge5", stroke_lib) == 5
@@ -314,9 +349,10 @@ class TestPltFontStrokeCount:
         assert font_registry.plt_font_stroke_count("Nope", stroke_lib) == 1
 
     def test_ttf_font_is_single_stroke(self, fonts_root: Path) -> None:
-        """TTF names are not PLT library keys -> single-stroke."""
+        """TTF names are not PLT catalog keys -> single-stroke."""
         assert (
-            font_registry.plt_font_stroke_count("Alpha", fonts_root / "plt_fonts.json") == 1
+            font_registry.plt_font_stroke_count("Alpha", fonts_root / "VP-EL-Fonts" / "catalog")
+            == 1
         )
 
     def test_blank_name_is_single_stroke(self, stroke_lib: Path) -> None:
@@ -325,9 +361,9 @@ class TestPltFontStrokeCount:
     def test_missing_library_is_single_stroke(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """A missing library degrades (WARNING from the loader) to 1."""
+        """A missing catalog degrades (WARNING from the loader) to 1."""
         with caplog.at_level("WARNING"):
-            assert font_registry.plt_font_stroke_count("Avenge5", tmp_path / "nope.json") == 1
+            assert font_registry.plt_font_stroke_count("Avenge5", tmp_path / "nope") == 1
 
 
 class TestAvailableTtfFonts:
@@ -367,14 +403,18 @@ class TestResolveFont:
 
     def test_plt_exact(self, fonts_root: Path) -> None:
         """A PLT key resolves without a path."""
-        ref = resolve_font("Dino", json_path=fonts_root / "plt_fonts.json", fonts_dir=fonts_root)
+        ref = resolve_font(
+            "Dino", library_dir=fonts_root / "VP-EL-Fonts" / "catalog", fonts_dir=fonts_root
+        )
         assert (ref.kind, ref.name) == ("plt", "Dino")
         assert ref.path is None
 
     @pytest.mark.parametrize("requested", ["dino", "DINO", "DiNo"])
     def test_case_insensitive(self, fonts_root: Path, requested: str) -> None:
         """Any casing resolves to the canonical name."""
-        ref = resolve_font(requested, json_path=fonts_root / "plt_fonts.json", fonts_dir=fonts_root)
+        ref = resolve_font(
+            requested, library_dir=fonts_root / "VP-EL-Fonts" / "catalog", fonts_dir=fonts_root
+        )
         assert ref.name == "Dino"
 
     def test_surrounding_whitespace_tolerated(self, fonts_root: Path) -> None:
@@ -383,16 +423,19 @@ class TestResolveFont:
 
     def test_ttf_wins_cross_family_collision(self, tmp_path: Path) -> None:
         """A TTF basename shadowing a PLT key resolves to the TTF."""
-        library = tmp_path / "plt_fonts.json"
-        library.write_text(json.dumps({"Dup": _v2_font({"A": "x"})}), encoding="utf-8")
+        catalog = _write_catalog(tmp_path / "catalog", {"Dup": _v2_font({"A": "x"})})
         (tmp_path / "Dup.ttf").write_bytes(b"t")
-        ref = resolve_font("dup", json_path=library, fonts_dir=tmp_path)
+        ref = resolve_font("dup", library_dir=catalog, fonts_dir=tmp_path)
         assert ref.kind == "ttf"
 
     def test_unknown_lists_choices(self, fonts_root: Path) -> None:
         """An unknown name raises with the full valid list."""
         with pytest.raises(FontNotFoundError) as excinfo:
-            resolve_font("Nope", json_path=fonts_root / "plt_fonts.json", fonts_dir=fonts_root)
+            resolve_font(
+                "Nope",
+                library_dir=fonts_root / "VP-EL-Fonts" / "catalog",
+                fonts_dir=fonts_root,
+            )
         message = str(excinfo.value)
         assert "Nope" in message
         assert "Dino" in message and "Alpha" in message
@@ -408,7 +451,9 @@ class TestResolveFont:
         """The schema-facing helper returns just the name."""
         assert (
             normalize_font_name(
-                "jhanuni", json_path=fonts_root / "plt_fonts.json", fonts_dir=fonts_root
+                "jhanuni",
+                library_dir=fonts_root / "VP-EL-Fonts" / "catalog",
+                fonts_dir=fonts_root,
             )
             == "Jhanuni"
         )
@@ -419,7 +464,9 @@ class TestSmallCapsVariants:
 
     def test_plt_variant_resolves_to_base_family(self, fonts_root: Path) -> None:
         """A PLT variant keeps the PLT kind, carries no path, and is flagged."""
-        ref = resolve_font("Dino SC", json_path=fonts_root / "plt_fonts.json", fonts_dir=fonts_root)
+        ref = resolve_font(
+            "Dino SC", library_dir=fonts_root / "VP-EL-Fonts" / "catalog", fonts_dir=fonts_root
+        )
         assert (ref.kind, ref.name, ref.path, ref.small_caps) == ("plt", "Dino SC", None, True)
 
     def test_ttf_variant_carries_base_path(self, fonts_root: Path) -> None:
@@ -431,27 +478,32 @@ class TestSmallCapsVariants:
     @pytest.mark.parametrize("requested", ["dino sc", "DINO SC", "DiNo Sc", " dino sc "])
     def test_variant_matching_is_case_insensitive(self, fonts_root: Path, requested: str) -> None:
         """Any casing/whitespace of the variant name resolves canonically."""
-        ref = resolve_font(requested, json_path=fonts_root / "plt_fonts.json", fonts_dir=fonts_root)
+        ref = resolve_font(
+            requested, library_dir=fonts_root / "VP-EL-Fonts" / "catalog", fonts_dir=fonts_root
+        )
         assert ref.name == "Dino SC"
         assert ref.small_caps is True
 
     def test_base_font_is_not_flagged(self, fonts_root: Path) -> None:
         """A base name never reports small_caps."""
-        ref = resolve_font("Dino", json_path=fonts_root / "plt_fonts.json", fonts_dir=fonts_root)
+        ref = resolve_font(
+            "Dino", library_dir=fonts_root / "VP-EL-Fonts" / "catalog", fonts_dir=fonts_root
+        )
         assert ref.small_caps is False
 
     def test_choices_include_variants(self, fonts_root: Path) -> None:
         """Every base contributes a variant to the valid-name list."""
-        choices = font_name_choices(json_path=fonts_root / "plt_fonts.json", fonts_dir=fonts_root)
+        choices = font_name_choices(
+            library_dir=fonts_root / "VP-EL-Fonts" / "catalog", fonts_dir=fonts_root
+        )
         assert {"Dino SC", "Jhanuni SC", "Alpha SC", "Beta SC"} <= set(choices)
         assert choices == sorted(choices, key=str.lower)
 
     def test_real_sc_named_font_wins_over_synthetic(self, tmp_path: Path) -> None:
         """A real TTF literally named ``Foo SC`` beats the synthetic variant."""
         (tmp_path / "Foo SC.ttf").write_bytes(b"t")
-        library = tmp_path / "plt_fonts.json"
-        library.write_text(json.dumps({"Foo": _v2_font({"A": "x"})}), encoding="utf-8")
-        ref = resolve_font("Foo SC", json_path=library, fonts_dir=tmp_path)
+        catalog = _write_catalog(tmp_path / "catalog", {"Foo": _v2_font({"A": "x"})})
+        ref = resolve_font("Foo SC", library_dir=catalog, fonts_dir=tmp_path)
         assert ref.kind == "ttf"
         # The real file is a base font (its name merely ends in SC), so it is
         # not a synthetic variant.
@@ -557,5 +609,7 @@ class TestItalicFaceProbe:
 
     def test_plt_font_has_no_italic_path(self, fonts_root: Path) -> None:
         """PLT fonts always take the shear path (no TTF file to probe)."""
-        ref = resolve_font("Dino", json_path=fonts_root / "plt_fonts.json", fonts_dir=fonts_root)
+        ref = resolve_font(
+            "Dino", library_dir=fonts_root / "VP-EL-Fonts" / "catalog", fonts_dir=fonts_root
+        )
         assert ref.italic_path is None

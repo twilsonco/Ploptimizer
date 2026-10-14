@@ -9,7 +9,8 @@ numerically.
 
 Two real-world fixtures pin behaviour end-to-end:
 
-* ``tests_deps/dino_0.5_E.plt`` (a copy of ``Fonts/PLT/dino_0.5_E.plt``)
+* ``tests_deps/dino_0.5_E.plt`` (a copy of
+  ``Fonts/VP-EL-Fonts/input-plt/dino_0.67_E_S1.plt``'s 0.5in predecessor)
   drives the full multi-row extraction against real EngraveLab output.
 * ``tests_deps/dino_word_sample.plt`` pins the guard rail: a *word* engraving
   (no framing, not the full ASCII set) must be rejected rather than mis-mapped.
@@ -976,22 +977,22 @@ class TestVerticallyCenteredChars:
         )
         ascii_file = tmp_path / "ascii.txt"
         ascii_file.write_text("E C A", encoding="utf-8")
-        base = ["--fonts-dir", str(fonts_dir), "--ascii-file", str(ascii_file)]
-        centered_out = tmp_path / "centered.json"
-        raw_out = tmp_path / "raw.json"
+        base = ["--input-dir", str(fonts_dir), "--ascii-file", str(ascii_file)]
+        centered_out = tmp_path / "centered"
+        raw_out = tmp_path / "raw"
         original = script.VERTICALLY_CENTERED_CHARS
         script.VERTICALLY_CENTERED_CHARS = ("C",)
         try:
-            assert script.main(base + ["--output", str(centered_out)]) == 0
-            assert script.main(base + ["--output", str(raw_out), "--no-vertical-centering"]) == 0
+            assert script.main(base + ["--output-dir", str(centered_out)]) == 0
+            assert script.main(base + ["--output-dir", str(raw_out), "--no-vertical-centering"]) == 0
         finally:
             script.VERTICALLY_CENTERED_CHARS = original
-        centered = json.loads(centered_out.read_text(encoding="utf-8"))
-        raw = json.loads(raw_out.read_text(encoding="utf-8"))
-        assert centered["Myfont"]["characters"]["C"]["bounding_box"]["min_y"] == pytest.approx(
+        centered = json.loads((centered_out / "Myfont.json").read_text(encoding="utf-8"))
+        raw = json.loads((raw_out / "Myfont.json").read_text(encoding="utf-8"))
+        assert centered["characters"]["C"]["bounding_box"]["min_y"] == pytest.approx(
             self.CENTERED_BOTTOM, abs=1e-3
         )
-        assert raw["Myfont"]["characters"]["C"]["bounding_box"]["min_y"] == pytest.approx(
+        assert raw["characters"]["C"]["bounding_box"]["min_y"] == pytest.approx(
             self.RAW_BOTTOM, abs=1e-3
         )
 
@@ -1004,6 +1005,7 @@ class TestExtractFontFile:
         plt_path.write_text(make_framed_sheet([["E", "A"]]), encoding="utf-8")
         extraction = script.extract_font_file(plt_path, ["E", "A"])
         assert extraction.font_name == "Heavy Engraving"
+        assert extraction.entry["font_name"] == "Heavy Engraving"
         assert extraction.entry["declared_height_in"] == pytest.approx(0.75)
         assert extraction.entry["reference_char"] == "E"
         assert extraction.entry["file_path"].endswith("heavy_engraving_0.75_E.plt")
@@ -1041,11 +1043,12 @@ class TestExtractFontFile:
         assert "Could not split" in str(excinfo.value)
 
 
-class TestJsonRoundTrip:
-    """Tests for load_existing_fonts()/write_fonts_json() (new nested schema)."""
+class TestCatalogWriters:
+    """Tests for catalog_file_name()/write_font_file()/clear_catalog()."""
 
-    def _entry(self, glyph: str) -> Dict[str, Any]:
+    def _entry(self, name: str, glyph: str) -> Dict[str, Any]:
         return {
+            "font_name": name,
             "file_path": "x.plt",
             "reference_char": "E",
             "declared_height_in": 0.5,
@@ -1056,44 +1059,62 @@ class TestJsonRoundTrip:
             },
         }
 
-    def test_missing_file_loads_empty(self, tmp_path: Path) -> None:
-        assert script.load_existing_fonts(tmp_path / "nope.json") == {}
+    def test_catalog_file_name_keeps_spaces_and_extends_json(self) -> None:
+        assert script.catalog_file_name("Heavy Engraving") == "Heavy Engraving.json"
 
-    def test_write_orders_fonts_and_characters(self, tmp_path: Path) -> None:
-        out = tmp_path / "fonts.json"
-        fonts = {"Zed": self._entry("z;"), "Abe": self._entry("a;")}
-        fonts["Zed"]["characters"]["B"] = fonts["Zed"]["characters"]["A"]
-        script.write_fonts_json(out, fonts, characters=["A", "B"])
+    def test_catalog_file_name_sanitizes_unsafe_characters(self) -> None:
+        """Windows-illegal characters become underscores; safe ones survive."""
+        assert script.catalog_file_name('a<b>:c/"d"|e?f*g') == "a_b__c__d__e_f_g.json"
+        assert script.catalog_file_name("Font-1_2 ^") == "Font-1_2 _.json"
+
+    def test_write_font_file_names_by_font_name(self, tmp_path: Path) -> None:
+        out = script.write_font_file(tmp_path / "catalog", self._entry("My Font", "a;"), ["A"])
+        assert out == tmp_path / "catalog" / "My Font.json"
         data = json.loads(out.read_text(encoding="utf-8"))
-        assert list(data) == ["Abe", "Zed"]
-        assert list(data["Zed"]["characters"]) == ["A", "B"]
+        assert data["font_name"] == "My Font"
+        assert data["characters"]["A"]["glyph"] == "a;"
 
-    def test_round_trip_preserves_entries(self, tmp_path: Path) -> None:
-        out = tmp_path / "fonts.json"
-        fonts = {"Abe": self._entry("a;")}
-        script.write_fonts_json(out, fonts, characters=["A"])
-        loaded = script.load_existing_fonts(out)
-        assert loaded["Abe"]["characters"]["A"]["glyph"] == "a;"
+    def test_write_font_file_orders_characters(self, tmp_path: Path) -> None:
+        entry = self._entry("Dino", "e;")
+        entry["characters"]["\u2013"] = {
+            "glyph": "d;",
+            "bounding_box": {},
+            "left_envelope": [],
+            "right_envelope": [],
+        }
+        entry["characters"]["\u00a1"] = {
+            "glyph": "i;",
+            "bounding_box": {},
+            "left_envelope": [],
+            "right_envelope": [],
+        }
+        out = script.write_font_file(tmp_path, entry, characters=["A"])
+        data = json.loads(out.read_text(encoding="utf-8"))
+        assert list(data["characters"]) == ["A", "\u00a1", "\u2013"]
 
-    def test_invalid_json_raises(self, tmp_path: Path) -> None:
-        bad = tmp_path / "fonts.json"
-        bad.write_text("[1, 2]", encoding="utf-8")
-        with pytest.raises(script.FontExtractionError, match="must contain a JSON object"):
-            script.load_existing_fonts(bad)
+    def test_write_font_file_requires_font_name(self, tmp_path: Path) -> None:
+        entry = self._entry("Dino", "a;")
+        del entry["font_name"]
+        with pytest.raises(script.FontExtractionError, match="font_name"):
+            script.write_font_file(tmp_path, entry, characters=["A"])
 
-    def test_legacy_flat_schema_is_detected(self, tmp_path: Path) -> None:
-        legacy = tmp_path / "fonts.json"
-        legacy.write_text('{"Dino": {"A": "PU0,0;"}}', encoding="utf-8")
-        with pytest.raises(script.FontExtractionError, match="legacy flat schema"):
-            script.load_existing_fonts(legacy)
+    def test_write_is_deterministic(self, tmp_path: Path) -> None:
+        first = script.write_font_file(tmp_path, self._entry("Dino", "a;"), ["A"])
+        text = first.read_text(encoding="utf-8")
+        script.write_font_file(tmp_path, self._entry("Dino", "b;"), ["A"])
+        assert first.read_text(encoding="utf-8") != text
+        script.write_font_file(tmp_path, self._entry("Dino", "a;"), ["A"])
+        assert first.read_text(encoding="utf-8") == text
 
-    def test_entry_without_characters_raises(self, tmp_path: Path) -> None:
-        bad = tmp_path / "fonts.json"
-        # `_is_font_entry` only requires the key to exist; this entry has it
-        # with a non-dict value, which the loader must still reject.
-        bad.write_text('{"Dino": {"characters": "nope"}}', encoding="utf-8")
-        with pytest.raises(script.FontExtractionError, match="'characters' object"):
-            script.load_existing_fonts(bad)
+    def test_clear_catalog_removes_only_json(self, tmp_path: Path) -> None:
+        (tmp_path / "a.json").write_text("{}", encoding="utf-8")
+        (tmp_path / "b.json").write_text("{}", encoding="utf-8")
+        (tmp_path / "keep.txt").write_text("x", encoding="utf-8")
+        assert script.clear_catalog(tmp_path) == 2
+        assert [p.name for p in tmp_path.iterdir()] == ["keep.txt"]
+
+    def test_clear_catalog_missing_directory_is_noop(self, tmp_path: Path) -> None:
+        assert script.clear_catalog(tmp_path / "nope") == 0
 
 
 class TestMainCli:
@@ -1112,34 +1133,35 @@ class TestMainCli:
         ascii_file.write_text("E A _ E T g", encoding="utf-8")
         return ascii_file
 
-    def test_success_writes_json(self, tmp_path: Path) -> None:
-        out = tmp_path / "out.json"
+    def test_success_writes_one_file_per_font(self, tmp_path: Path) -> None:
+        out = tmp_path / "catalog"
         rc = script.main(
             [
-                "--fonts-dir",
+                "--input-dir",
                 str(self._make_fonts_dir(tmp_path)),
                 "--ascii-file",
                 str(self._ascii_file(tmp_path)),
-                "--output",
+                "--output-dir",
                 str(out),
             ]
         )
         assert rc == 0
-        data = json.loads(out.read_text(encoding="utf-8"))
-        assert list(data) == ["Myfont"]
+        assert [p.name for p in out.iterdir()] == ["Myfont.json"]
+        data = json.loads((out / "Myfont.json").read_text(encoding="utf-8"))
+        assert data["font_name"] == "Myfont"
         # 'E' appears twice in the character list (rows share it), so the six
         # positional slots collapse to five unique keys.
-        assert sorted(data["Myfont"]["characters"]) == ["A", "E", "T", "_", "g"]
+        assert sorted(data["characters"]) == ["A", "E", "T", "_", "g"]
 
     def test_merge_preserves_other_fonts(self, tmp_path: Path) -> None:
         fonts_dir = self._make_fonts_dir(tmp_path)
-        out = tmp_path / "out.json"
+        out = tmp_path / "catalog"
         args = [
-            "--fonts-dir",
+            "--input-dir",
             str(fonts_dir),
             "--ascii-file",
             str(self._ascii_file(tmp_path)),
-            "--output",
+            "--output-dir",
             str(out),
         ]
         assert script.main(args) == 0
@@ -1147,17 +1169,17 @@ class TestMainCli:
             make_framed_sheet([["E", "A", "_"], ["E", "T", "g"]]), encoding="utf-8"
         )
         assert script.main(args) == 0
-        assert sorted(json.loads(out.read_text(encoding="utf-8"))) == ["Myfont", "Other"]
+        assert sorted(p.name for p in out.iterdir()) == ["Myfont.json", "Other.json"]
 
     def test_rebuild_drops_missing_fonts(self, tmp_path: Path) -> None:
         fonts_dir = self._make_fonts_dir(tmp_path)
-        out = tmp_path / "out.json"
+        out = tmp_path / "catalog"
         base = [
-            "--fonts-dir",
+            "--input-dir",
             str(fonts_dir),
             "--ascii-file",
             str(self._ascii_file(tmp_path)),
-            "--output",
+            "--output-dir",
             str(out),
         ]
         assert script.main(base) == 0
@@ -1166,20 +1188,42 @@ class TestMainCli:
             make_framed_sheet([["E", "A", "_"], ["E", "T", "g"]]), encoding="utf-8"
         )
         assert script.main(base + ["--rebuild"]) == 0
-        assert sorted(json.loads(out.read_text(encoding="utf-8"))) == ["Other"]
+        assert sorted(p.name for p in out.iterdir()) == ["Other.json"]
 
-    def test_legacy_output_aborts_merge(self, tmp_path: Path) -> None:
-        fonts_dir = self._make_fonts_dir(tmp_path)
-        out = tmp_path / "out.json"
-        out.write_text('{"Old": {"A": "PU0,0;"}}', encoding="utf-8")
+    def test_corrupt_catalog_file_does_not_block_extraction(self, tmp_path: Path) -> None:
+        """There is no merge-time load: a stale catalog file never aborts a run."""
+        out = tmp_path / "catalog"
+        out.mkdir()
+        (out / "stale.json").write_text("{not json", encoding="utf-8")
         rc = script.main(
             [
-                "--fonts-dir",
+                "--input-dir",
+                str(self._make_fonts_dir(tmp_path)),
+                "--ascii-file",
+                str(self._ascii_file(tmp_path)),
+                "--output-dir",
+                str(out),
+            ]
+        )
+        assert rc == 0
+        assert (out / "Myfont.json").exists()
+        assert (out / "stale.json").exists()
+
+    def test_colliding_catalog_names_abort(self, tmp_path: Path) -> None:
+        """Two extracted names sanitising to one catalog file abort (rc 1)."""
+        fonts_dir = self._make_fonts_dir(tmp_path)
+        # 'A:B' and 'A?B' both sanitise to the file name 'A_B.json'.
+        sheet = make_framed_sheet([["E", "A", "_"], ["E", "T", "g"]])
+        (fonts_dir / "a:b_1_E.plt").write_text(sheet, encoding="utf-8")
+        (fonts_dir / "a?b_1_E.plt").write_text(sheet, encoding="utf-8")
+        rc = script.main(
+            [
+                "--input-dir",
                 str(fonts_dir),
                 "--ascii-file",
                 str(self._ascii_file(tmp_path)),
-                "--output",
-                str(out),
+                "--output-dir",
+                str(tmp_path / "catalog"),
             ]
         )
         assert rc == 1
@@ -1188,14 +1232,14 @@ class TestMainCli:
         fonts_dir = tmp_path / "fonts"
         fonts_dir.mkdir()
         (fonts_dir / "bad_1_E.plt").write_text(make_framed_sheet([["A"]]), encoding="utf-8")
-        out = tmp_path / "out.json"
+        out = tmp_path / "catalog"
         rc = script.main(
             [
-                "--fonts-dir",
+                "--input-dir",
                 str(fonts_dir),
                 "--ascii-file",
                 str(self._ascii_file(tmp_path)),
-                "--output",
+                "--output-dir",
                 str(out),
             ]
         )
@@ -1205,12 +1249,12 @@ class TestMainCli:
     def test_missing_fonts_dir_exits_nonzero(self, tmp_path: Path) -> None:
         rc = script.main(
             [
-                "--fonts-dir",
+                "--input-dir",
                 str(tmp_path / "nope"),
                 "--ascii-file",
                 str(self._ascii_file(tmp_path)),
-                "--output",
-                str(tmp_path / "out.json"),
+                "--output-dir",
+                str(tmp_path / "catalog"),
             ]
         )
         assert rc == 1
@@ -1220,12 +1264,12 @@ class TestMainCli:
         empty.mkdir()
         rc = script.main(
             [
-                "--fonts-dir",
+                "--input-dir",
                 str(empty),
                 "--ascii-file",
                 str(self._ascii_file(tmp_path)),
-                "--output",
-                str(tmp_path / "out.json"),
+                "--output-dir",
+                str(tmp_path / "catalog"),
             ]
         )
         assert rc == 1
@@ -1233,12 +1277,12 @@ class TestMainCli:
     def test_envelope_samples_below_two_exits_nonzero(self, tmp_path: Path) -> None:
         rc = script.main(
             [
-                "--fonts-dir",
+                "--input-dir",
                 str(self._make_fonts_dir(tmp_path)),
                 "--ascii-file",
                 str(self._ascii_file(tmp_path)),
-                "--output",
-                str(tmp_path / "out.json"),
+                "--output-dir",
+                str(tmp_path / "catalog"),
                 "--envelope-samples",
                 "1",
             ]
@@ -1252,12 +1296,12 @@ class TestMainCli:
         )
         rc = script.main(
             [
-                "--fonts-dir",
+                "--input-dir",
                 str(fonts_dir),
                 "--ascii-file",
                 str(self._ascii_file(tmp_path)),
-                "--output",
-                str(tmp_path / "out.json"),
+                "--output-dir",
+                str(tmp_path / "catalog"),
                 "--font-name",
                 "Custom",
             ]
@@ -1334,20 +1378,20 @@ class TestDerivedGlyphs:
         fonts_dir = tmp_path / "fonts"
         fonts_dir.mkdir()
         shutil.copy(DINO_FRAMED_FIXTURE, fonts_dir / "dino_0.5_E.plt")
-        out = tmp_path / "out.json"
+        out = tmp_path / "catalog"
         rc = script.main(
             [
-                "--fonts-dir",
+                "--input-dir",
                 str(fonts_dir),
                 "--ascii-file",
                 str(REPO_ROOT / "Fonts" / "ascii.txt"),
-                "--output",
+                "--output-dir",
                 str(out),
             ]
         )
         assert rc == 0
-        data = json.loads(out.read_text(encoding="utf-8"))
-        characters = data["Dino"]["characters"]
+        data = json.loads((out / "Dino.json").read_text(encoding="utf-8"))
+        characters = data["characters"]
         # Every engraved ASCII key survives...
         assert all(char in characters for char in ASCII_CHARS)
         # ...and each derived character is present with a full entry.
@@ -1377,12 +1421,12 @@ class TestDerivedGlyphs:
         fonts_dir.mkdir()
         shutil.copy(DINO_FRAMED_FIXTURE, fonts_dir / "dino_0.5_E.plt")
         args = [
-            "--fonts-dir",
+            "--input-dir",
             str(fonts_dir),
             "--ascii-file",
             str(REPO_ROOT / "Fonts" / "ascii.txt"),
-            "--output",
-            str(tmp_path / "out.json"),
+            "--output-dir",
+            str(tmp_path / "catalog"),
         ]
         with caplog.at_level(logging.INFO, logger="extract_plt_fonts"):
             assert script.main(args) == 0
@@ -1402,42 +1446,42 @@ class TestDerivedGlyphs:
         )
         ascii_file = tmp_path / "ascii.txt"
         ascii_file.write_text("E A _ E T g", encoding="utf-8")
-        out = tmp_path / "out.json"
+        out = tmp_path / "catalog"
         with caplog.at_level(logging.WARNING, logger="extract_plt_fonts"):
             rc = script.main(
                 [
-                    "--fonts-dir",
+                    "--input-dir",
                     str(fonts_dir),
                     "--ascii-file",
                     str(ascii_file),
-                    "--output",
+                    "--output-dir",
                     str(out),
                 ]
             )
         assert rc == 0
-        characters = json.loads(out.read_text(encoding="utf-8"))["Tiny"]["characters"]
+        characters = json.loads((out / "Tiny.json").read_text(encoding="utf-8"))["characters"]
         assert sorted(characters) == ["A", "E", "T", "_", "g"]
         warnings = [record.getMessage() for record in caplog.records]
         assert any("Skipping derived character" in message for message in warnings)
 
     def test_rebuild_refreshes_derived_glyphs(self, tmp_path: Path) -> None:
-        """Re-running over an existing library re-derives (no stale keys)."""
+        """Re-running over an existing catalog re-derives (no stale keys)."""
         fonts_dir = tmp_path / "fonts"
         fonts_dir.mkdir()
         shutil.copy(DINO_FRAMED_FIXTURE, fonts_dir / "dino_0.5_E.plt")
-        out = tmp_path / "out.json"
+        out = tmp_path / "catalog"
         args = [
-            "--fonts-dir",
+            "--input-dir",
             str(fonts_dir),
             "--ascii-file",
             str(REPO_ROOT / "Fonts" / "ascii.txt"),
-            "--output",
+            "--output-dir",
             str(out),
         ]
         assert script.main(args) == 0
-        first = json.loads(out.read_text(encoding="utf-8"))
+        first = json.loads((out / "Dino.json").read_text(encoding="utf-8"))
         assert script.main(args + ["--rebuild"]) == 0
-        second = json.loads(out.read_text(encoding="utf-8"))
+        second = json.loads((out / "Dino.json").read_text(encoding="utf-8"))
         assert second == first
 
     def test_derived_never_overwrite_engraved(self, tmp_path: Path) -> None:
@@ -1445,55 +1489,27 @@ class TestDerivedGlyphs:
         fonts_dir = tmp_path / "fonts"
         fonts_dir.mkdir()
         shutil.copy(DINO_FRAMED_FIXTURE, fonts_dir / "dino_0.5_E.plt")
-        out = tmp_path / "out.json"
+        out = tmp_path / "catalog"
         args = [
-            "--fonts-dir",
+            "--input-dir",
             str(fonts_dir),
             "--ascii-file",
             str(REPO_ROOT / "Fonts" / "ascii.txt"),
-            "--output",
+            "--output-dir",
             str(out),
         ]
         assert script.main(args) == 0
-        data = json.loads(out.read_text(encoding="utf-8"))
+        dino_file = out / "Dino.json"
+        data = json.loads(dino_file.read_text(encoding="utf-8"))
         sentinel = {
             "glyph": "SENTINEL",
             "bounding_box": {},
             "left_envelope": [],
             "right_envelope": [],
         }
-        data["Dino"]["characters"]["\u2013"] = sentinel
-        out.write_text(json.dumps(data), encoding="utf-8")
-        # Merge path: Dino is re-extracted, so the fresh copy replaces it.
+        data["characters"]["\u2013"] = sentinel
+        dino_file.write_text(json.dumps(data), encoding="utf-8")
+        # Dino is re-extracted, so the fresh copy replaces the sentinel.
         assert script.main(args) == 0
-        merged = json.loads(out.read_text(encoding="utf-8"))
-        assert merged["Dino"]["characters"]["\u2013"]["glyph"] != "SENTINEL"
-
-    def test_writer_orders_derived_keys_last(self, tmp_path: Path) -> None:
-        """Non-ascii.txt keys are appended in code-point order."""
-        out = tmp_path / "fonts.json"
-        entry = {
-            "file_path": "x.plt",
-            "reference_char": "E",
-            "declared_height_in": 0.5,
-            "reference_char_height_in": 0.5,
-            "normalized_ref_height": 1.0,
-            "characters": {
-                "E": {"glyph": "e;", "bounding_box": {}, "left_envelope": [], "right_envelope": []},
-                "\u2013": {
-                    "glyph": "d;",
-                    "bounding_box": {},
-                    "left_envelope": [],
-                    "right_envelope": [],
-                },
-                "\u00a1": {
-                    "glyph": "i;",
-                    "bounding_box": {},
-                    "left_envelope": [],
-                    "right_envelope": [],
-                },
-            },
-        }
-        script.write_fonts_json(out, {"Dino": entry}, characters=["E"])
-        data = json.loads(out.read_text(encoding="utf-8"))
-        assert list(data["Dino"]["characters"]) == ["E", "\u00a1", "\u2013"]
+        merged = json.loads(dino_file.read_text(encoding="utf-8"))
+        assert merged["characters"]["\u2013"]["glyph"] != "SENTINEL"

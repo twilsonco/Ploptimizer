@@ -78,7 +78,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TOOLS_PATH: Path = REPO_ROOT / "tools.json"
 DEFAULT_JOB_CONFIG_PATH: Path = REPO_ROOT / "job-config.json"
-DEFAULT_FONTS_PATH: Path = REPO_ROOT / "Fonts" / "plt_fonts.json"
+DEFAULT_FONTS_PATH: Path = REPO_ROOT / "Fonts" / "VP-EL-Fonts" / "catalog"
 
 # Design units per rendered inch (the PLT storage frame).
 # Library design frame (matches plt_font_renderer._DESIGN_UNITS_PER_INCH):
@@ -290,7 +290,7 @@ def scale_penetration(penetration: float, scale: float, recession_scale: float) 
 def build_frame(
     line: ResolvedTextLine,
     overrides: KerningOverrides,
-    json_path: Path,
+    library_dir: Path,
 ) -> LineFrame:
     """Compute the resolved kerning frame for one text line.
 
@@ -300,7 +300,7 @@ def build_frame(
     Args:
         line: The resolved text line.
         overrides: Single-knob overrides applied on top of the cascade.
-        json_path: ``plt_fonts.json`` location (the glyph cache key).
+        library_dir: PLT font catalog directory (the glyph cache key).
 
     Returns:
         The line's :class:`LineFrame`.
@@ -309,7 +309,7 @@ def build_frame(
         ValueError: If the line's font is not a PLT-extracted font (this
             diagnostic only decomposes PLT envelope kerning).
     """
-    ref = resolve_font(line.font, json_path=json_path)
+    ref = resolve_font(line.font, library_dir=library_dir)
     if ref.kind != "plt":
         raise ValueError(f"font {ref.name!r} is a TrueType font; no envelope kerning to report")
 
@@ -318,7 +318,7 @@ def build_frame(
     # BASE font's unscaled envelope kerning (the SC shrink is reported by the
     # layout pipeline, not here).
     library_name = base_font_name(ref.name)
-    font_data = load_plt_fonts(json_path)[library_name]
+    font_data = load_plt_fonts(library_dir)[library_name]
     scale = line.toolpath_text_height / font_data.normalized_ref_height
 
     min_glyph_width = _pick(overrides.min_glyph_width, line.min_glyph_width)
@@ -490,7 +490,7 @@ def pair_metrics(
 def report_lines(
     labels: Sequence[ResolvedLabel],
     overrides: KerningOverrides,
-    json_path: Path,
+    library_dir: Path,
     *,
     legacy_floor: bool,
     trace: bool,
@@ -501,7 +501,7 @@ def report_lines(
     Args:
         labels: Resolved labels to walk.
         overrides: Single-knob overrides.
-        json_path: ``plt_fonts.json`` location.
+        library_dir: PLT font catalog directory.
         legacy_floor: Use the silhouette-clamp floor semantics.
         trace: Record per-sample traces.
         max_rows: Stop after this many distinct pairs (``None`` = all).
@@ -518,7 +518,7 @@ def report_lines(
     for label in labels:
         for line_index, line in enumerate(label.content):
             try:
-                frame = build_frame(line, overrides, json_path)
+                frame = build_frame(line, overrides, library_dir)
             except ValueError as exc:
                 logger.warning("skipping line %d of %s: %s", line_index, label.id, exc)
                 continue
@@ -545,8 +545,8 @@ def report_lines(
                 for offset in range(len(word) - 1):
                     left_char, right_char = word[offset], word[offset + 1]
                     metric = pair_metrics(
-                        _glyph_entry(str(json_path), frame.font, left_char),
-                        _glyph_entry(str(json_path), frame.font, right_char),
+                        _glyph_entry(str(library_dir), frame.font, left_char),
+                        _glyph_entry(str(library_dir), frame.font, right_char),
                         frame,
                         left_char,
                         right_char,
@@ -664,7 +664,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--fonts",
         type=Path,
         default=DEFAULT_FONTS_PATH,
-        help="plt_fonts.json path",
+        help="PLT font catalog directory",
     )
     parser.add_argument(
         "--job-config",

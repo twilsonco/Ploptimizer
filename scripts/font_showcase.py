@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Generate one font-showcase PDF per available font.
 
-For every font selectable in a job spec -- the PLT-extracted keys of
-``Fonts/plt_fonts.json`` plus every ``*.ttf`` basename under ``Fonts/``
+For every font selectable in a job spec -- the PLT-extracted keys of the
+``Fonts/VP-EL-Fonts/catalog/`` files plus every ``*.ttf`` basename under ``Fonts/``
 (recursively), i.e. exactly :func:`plt_optimizer.generate.font_registry.font_name_choices` --
 this script renders a fixed seven-line sample block and writes one
 "simple"-mode outline PDF (the same black-outline styling the ``generate``
@@ -331,7 +331,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     fonts = font_name_choices()
     if not fonts:
         logger.error(
-            "No fonts found (plt_fonts.json keys + Fonts/**.ttf basenames); nothing to do."
+            "No fonts found (VP-EL-Fonts catalog keys + Fonts/**.ttf basenames); nothing to do."
         )
         return 1
 

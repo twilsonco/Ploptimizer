@@ -81,3 +81,35 @@
 - [x] Improve optimization of generated label toolpaths by doing a prepass on each individual character. Some characters can improve by reversing some strokes. So we'll optimize each character individually to get a chunk of strokes for each character, then optimize each word individually to get optimized word chunks, then optimize the set of all labels on a plate as a whole, where only the ordering and stroke order of word chunks are optimized.
   - **Resolved (the "reversing some strokes" half).** `core/glyph_sweep.py`'s per-glyph choice is no longer all-or-nothing: `_group_modes` enumerates each character's feasible traversals (stored/reversed stroke order × every per-stroke direction assignment) and the chain DP picks the best per glyph, so a character reverses just the strokes that want reversing. Emitted rapid travel on the seer/wb-uv/intrachunk/sunwest specs: **−10.2%** (34.8% → 41.4% total reduction, 289 → 527 flips), cutting geometry exactly preserved.
   - **The ordering half is measured and rejected.** Real fonts give 2–3 strokes per glyph, and with a chunk's entrance/exit pinned, chronological (reading) order *is* the optimal tour — a glyph/word-order DP gains exactly 0.00%. Freeing the endpoints to chase it cost **+29.7%** emitted travel (+52.8% on sunwest), because the plate TSP and direction sweep exploit a chunk's entrance/exit sitting at its left/right edges. Direction is the entire intra-chunk win; recorded as rejected in AGENTS.md + DONE.md so it isn't re-attempted.
+- [x] Add multi-stroke font support
+  - Shipped: the extractor parses the `_S<n>` suffix (`parse_font_file_name` strips it before the
+    name split, so underscored names and `^`-style refs keep working) and stores `stroke_count`
+    per font in its `Fonts/VP-EL-Fonts/catalog/` file; the sheets' glyphs already carry all N engraved passes, so the
+    renderer emits them verbatim and `stroke_count` drives cutter sizing only.
+  - For font extraction from PLT files, the naming convention for font plt files will change to `<font name>_<text height inches>_<reference character>_S<number of strokes>.plt`. The number of strokes is then stored in the `plt_fonts.json` file. This part only involves changes to `extract_plt_fonts.py`. We'll overwrite the fonts json file completely, as we currently do, each time the extraction script is run. If a number of strokes is omitted from the font plt file name, it will be assumed to be a single-stroke font.
+  - The main changes will be on the rendering side of things. The font name alone is sufficient for specifying any single/multi-stroke font, so there's no need to change the naming convention for specifying fonts in yaml job specs. 
+  - The number of strokes will be looked up from the `plt_fonts.json` file during rendering.
+  - Shipped as two cascading fields (line -> label -> job -> job-config.json, plate parity):
+    `multistroke_overlap_ratio` (default 0.25, [0.1, 0.5]) acts as the **minimum** pass-overlap
+    floor, and `target_boldness_factor` (default 0.14, [0.05, 0.30]) is the primary boldness knob.
+  - We'll create a new float field, cascading job -> plate -> label -> line, and in job-config.json, defaulting to 0.25, bounded to [0.1, 0.5], that will control the amount of desired stroke overlap for multi-stroke fonts. Example: An overlap_ratio of 0.25 means a stepover distance of $75\%$ of the cutter width ($1 - \text{overlap\_ratio}$).
+  - Implement an algorithm to calculate the recommended cutter tip width ($W_{\text{cutter}}$) based on the target text height, stroke count, and overlap setting.
+    - Single-Stroke Logic (Existing): $W_{\text{cutter}} = \text{text\_height} \times 0.12$
+    - Multi-Stroke Logic:Multi-stroke fonts are engineered to produce an overall target stroke width ($W_{\text{total}}$) proportional to the text height. 
+      - Base target stroke width scales with character proportion (typically $12\%$ to $16\%$ of text_height for bold multi-stroke glyphs).
+      - $\text{Stepover Factor } (S_f) = 1 - \text{overlap\_ratio}$.
+      - $\text{Effective Stroke Units } (U) = 1 + (N - 1) \times S_f$.
+      - $W_{\text{cutter}} = \frac{W_{\text{total}}}{U}$ 
+      - Where $N$ is stroke_count and $W_{\text{total}} = \text{text\_height} \times \text{target\_boldness\_factor}$ (default 0.14).
+    - Standard Fallback Rules of Thumb (Relative to Text Height):If $W_{\text{total}}$ is not explicitly defined by font metadata, derive cutter tip width as a ratio of text_height:
+      - 3-Stroke: $\approx 5.5\%$ of text height (with $25\%$ overlap)
+      - 5-Stroke: $\approx 3.8\%$ of text height (with $25\%$ overlap)
+      - 7-Stroke: $\approx 2.8\%$ of text height (with $25\%$ overlap)
+  - Implemented as `resolution.multi_stroke_cutter_diameter`: the passes sit at the spacing baked
+    into the sheet, so the boldness target inverts to $W_{\text{cutter}} = \text{text\_height}\times\text{factor} - (N-1)\,d$, clamped up to the gap-free floor $d/(1-\text{overlap})$ and snapped to the
+    `tools.json` inventory (stepping **up** when the snap-down breaks the floor). At the defaults
+    this equals $\text{text\_height}\times0.14/(1+(N-1)\times0.75)$ exactly, reproducing the rules of
+    thumb below; a heavier factor grows the cutter *and* the implicit overlap automatically, which
+    is how the ladder escapes the overlap knob's ceiling toward heavier engraving.
+  - With the cutter size in hand, we can use existing code for border/hole/text/descender collision avoidance. `cutter_diameter` is already per-line end-to-end, so all of it picks the ladder's tool up for free (and the floors are exact: the stored geometry is the bold pass centerlines, so the outer pass's stroke extends exactly $0.5\,W$ past the ink).
+  - All in all, this should be a fairly straightforward implementation.

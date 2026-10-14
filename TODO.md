@@ -1,37 +1,8 @@
 # TODO List
-
-- [x] Add multi-stroke font support
-  - Shipped: the extractor parses the `_S<n>` suffix (`parse_font_file_name` strips it before the
-    name split, so underscored names and `^`-style refs keep working) and stores `stroke_count`
-    per font in `plt_fonts.json`; the sheets' glyphs already carry all N engraved passes, so the
-    renderer emits them verbatim and `stroke_count` drives cutter sizing only.
-  - For font extraction from PLT files, the naming convention for font plt files will change to `<font name>_<text height inches>_<reference character>_S<number of strokes>.plt`. The number of strokes is then stored in the `plt_fonts.json` file. This part only involves changes to `extract_plt_fonts.py`. We'll overwrite the fonts json file completely, as we currently do, each time the extraction script is run. If a number of strokes is omitted from the font plt file name, it will be assumed to be a single-stroke font.
-  - The main changes will be on the rendering side of things. The font name alone is sufficient for specifying any single/multi-stroke font, so there's no need to change the naming convention for specifying fonts in yaml job specs. 
-  - The number of strokes will be looked up from the `plt_fonts.json` file during rendering.
-  - Shipped as two cascading fields (line -> label -> job -> job-config.json, plate parity):
-    `multistroke_overlap_ratio` (default 0.25, [0.1, 0.5]) acts as the **minimum** pass-overlap
-    floor, and `target_boldness_factor` (default 0.14, [0.05, 0.30]) is the primary boldness knob.
-  - We'll create a new float field, cascading job -> plate -> label -> line, and in job-config.json, defaulting to 0.25, bounded to [0.1, 0.5], that will control the amount of desired stroke overlap for multi-stroke fonts. Example: An overlap_ratio of 0.25 means a stepover distance of $75\%$ of the cutter width ($1 - \text{overlap\_ratio}$).
-  - Implement an algorithm to calculate the recommended cutter tip width ($W_{\text{cutter}}$) based on the target text height, stroke count, and overlap setting.
-    - Single-Stroke Logic (Existing): $W_{\text{cutter}} = \text{text\_height} \times 0.12$
-    - Multi-Stroke Logic:Multi-stroke fonts are engineered to produce an overall target stroke width ($W_{\text{total}}$) proportional to the text height. 
-      - Base target stroke width scales with character proportion (typically $12\%$ to $16\%$ of text_height for bold multi-stroke glyphs).
-      - $\text{Stepover Factor } (S_f) = 1 - \text{overlap\_ratio}$.
-      - $\text{Effective Stroke Units } (U) = 1 + (N - 1) \times S_f$.
-      - $W_{\text{cutter}} = \frac{W_{\text{total}}}{U}$ 
-      - Where $N$ is stroke_count and $W_{\text{total}} = \text{text\_height} \times \text{target\_boldness\_factor}$ (default 0.14).
-    - Standard Fallback Rules of Thumb (Relative to Text Height):If $W_{\text{total}}$ is not explicitly defined by font metadata, derive cutter tip width as a ratio of text_height:
-      - 3-Stroke: $\approx 5.5\%$ of text height (with $25\%$ overlap)
-      - 5-Stroke: $\approx 3.8\%$ of text height (with $25\%$ overlap)
-      - 7-Stroke: $\approx 2.8\%$ of text height (with $25\%$ overlap)
-  - Implemented as `resolution.multi_stroke_cutter_diameter`: the passes sit at the spacing baked
-    into the sheet, so the boldness target inverts to $W_{\text{cutter}} = \text{text\_height}\times\text{factor} - (N-1)\,d$, clamped up to the gap-free floor $d/(1-\text{overlap})$ and snapped to the
-    `tools.json` inventory (stepping **up** when the snap-down breaks the floor). At the defaults
-    this equals $\text{text\_height}\times0.14/(1+(N-1)\times0.75)$ exactly, reproducing the rules of
-    thumb below; a heavier factor grows the cutter *and* the implicit overlap automatically, which
-    is how the ladder escapes the overlap knob's ceiling toward heavier engraving.
-  - With the cutter size in hand, we can use existing code for border/hole/text/descender collision avoidance. `cutter_diameter` is already per-line end-to-end, so all of it picks the ladder's tool up for free (and the floors are exact: the stored geometry is the bold pass centerlines, so the outer pass's stroke extends exactly $0.5\,W$ past the ink).
-  - All in all, this should be a fairly straightforward implementation.
+- [ ] Fix unicode arrow symbols generated in @extract_plt_fonts.py.
+  - Use the caret `^` for all arrows, rotated as necessary. No more use of chevrons.
+  - Expand hyphen `-` as necessary to be exactly $capline - baseline$ in length.
+- [ ] In @extract_plt_fonts.py and @font_showcase.py, create list of "non-text" fonts that are exempt from the a) creation of derived unicode characters, b) having the unicode line printed in their font showcase, and c) do not have a small-caps variant. For now, the only member of that list will be `Wingdings`. This list can be stored in a text file `non_text_fonts.txt`, one font name per line, in the `Fonts/VP-EL-Fonts` directory.
 - [ ] HTML syntax support in label text contents:
   - We'll add a new field for specifying the brackets used for html syntax `html_brackets` — cascading job -> plate -> label -> line, and in job-config.json, defaulting to `<>`. `html_brackets` is a two-character string, the first of which specifies the left bracket, and the second the right bracket. This way, if a label contains chevrons, we don't need to worry about it being incorrectly recognized as html syntax. There's no need to specify a similar new field to specify the slash character, because we only look for the slash when it's enclosed by the html brackets (and whatever command was used), and when that follows the opening html enclosure to define a region of html-modified text. That is, not every forward-slash is taken to be part of html syntax, only those that occur in e.g. `</i>`. 
   - [x] <i>Italicization</i>: performs transform of HPGL characters for PLT fonts (with appropriate adjustments to spacing/kerning), or uses native TTF italics (falling back to PLT transform if not available). Adds an optional `italic_angle` field to control the slant angle for PLT italics, cascades job -> plate -> label -> line, and in job-config.json, defaulting to 12 degrees.

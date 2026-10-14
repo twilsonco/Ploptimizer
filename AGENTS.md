@@ -61,7 +61,8 @@ JobSpec (job-level defaults)
 **TextAttributes** (cascades to TextLine):
 - `text_height`: Font height in inches
 - `font`: Font name selecting the glyph outlines. Either a PLT-extracted
-  `Fonts/plt_fonts.json` key (rendered **arc-native** through
+  `Fonts/VP-EL-Fonts/catalog/*.json` `font_name` key (one JSON file per font,
+  rendered **arc-native** through
   `plt_font_renderer.py`: PU/PD/AA glyphs keep their native `AA` arcs
   end-to-end — only X-compression may flatten them, with a WARNING) or a
   `Fonts/**.ttf` basename (extension stripped, rendered through the
@@ -224,8 +225,8 @@ JobSpec (job-level defaults)
 - `target_boldness_factor`: Target engraved stroke width for a **multi-stroke
   (bold) PLT font** as a fraction of `text_height` (`ge=0.05`, `le=0.30`,
   default `None` → **0.14**). A PLT font whose glyphs carry `stroke_count > 1`
-  parallel cutter passes (the `_S<n>` sample-sheet suffix recorded in
-  `Fonts/plt_fonts.json`) gets its automatic cutter from the boldness ladder
+  parallel cutter passes (the `_S<n>` sample-sheet suffix recorded as the
+  font catalog file's `stroke_count`) gets its automatic cutter from the boldness ladder
   (see Multi-Stroke (Bold) PLT Fonts below) instead of the height-based
   lookup. Inert on single-stroke fonts, TTF fonts, and lines with an explicit
   `cutter_size` (which bypasses the ladder). Cascades line → label → job →
@@ -382,7 +383,7 @@ A PLT sample sheet may be engraved with **N parallel cutter passes per glyph**
 `avenge5_0.55_E_S5.plt`); omitting `_S<n>` means a single-stroke font. The
 extractor stores the engraved passes **verbatim** — the sheet is the source of
 truth for the bold shape — and records the count as the per-font
-`stroke_count` key in `Fonts/plt_fonts.json`. The renderer therefore emits the
+`stroke_count` key in its `Fonts/VP-EL-Fonts/catalog/` file. The renderer therefore emits the
 stored geometry unchanged (arcs stay native, envelopes/glyph groups untouched);
 the stroke count drives **cutter sizing only**.
 
@@ -1008,7 +1009,7 @@ the reported Sunwest symptom (`B29ABg` on a 1x1.0in label: the visible text sat
 
 Appending ` SC` to any font name selects a **synthetic small-caps variant**
 of that base font, rendered on the fly — the variant is never a
-`plt_fonts.json` key or a `.ttf` file. Uppercase glyphs engrave verbatim at
+font-catalog `font_name` key or a `.ttf` file. Uppercase glyphs engrave verbatim at
 full size; **ASCII lowercase `a-z`** (and only those characters — accented
 lowercase, `ß`, digits, punctuation and the derived Unicode symbols pass
 through verbatim at full size) renders as the base font's **uppercase glyph

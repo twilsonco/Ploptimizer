@@ -1,6 +1,6 @@
 """Tests for the arc-native PLT-extracted font renderer (v2 schema).
 
-The bundled ``Fonts/plt_fonts.json`` provides the real glyph library; a
+The bundled ``Fonts/VP-EL-Fonts/catalog/`` provides the real glyph library; a
 synthetic v2 library (``tmp_path``) pins the exact layout math (baseline
 anchoring, envelope kerning, space advance) with hand-computable glyph
 geometry.
@@ -109,31 +109,31 @@ def _v2_entry(
 
 
 def _write_library(root: Path, characters: Dict[str, Dict[str, Any]]) -> Path:
-    """Write a synthetic v2 ``plt_fonts.json`` holding one ``Test`` font.
+    """Write a synthetic v2 font catalog holding one ``Test`` font.
 
     Args:
-        root: Directory to write the library into.
+        root: Directory to write the ``catalog/`` subdirectory into.
         characters: Character -> v2 entry mapping for the ``Test`` font.
 
     Returns:
-        The library path (usable as the renderer's ``json_path``).
+        The catalog directory (usable as the renderer's ``library_dir``).
     """
-    library = root / "plt_fonts.json"
-    library.write_text(
+    catalog = root / "catalog"
+    catalog.mkdir(parents=True, exist_ok=True)
+    (catalog / "Test.json").write_text(
         json.dumps(
             {
-                "Test": {
-                    "reference_char": "A",
-                    "declared_height_in": 1.0,
-                    "reference_char_height_in": 1.0,
-                    "normalized_ref_height": 1.0,
-                    "characters": characters,
-                }
+                "font_name": "Test",
+                "reference_char": "A",
+                "declared_height_in": 1.0,
+                "reference_char_height_in": 1.0,
+                "normalized_ref_height": 1.0,
+                "characters": characters,
             }
         ),
         encoding="utf-8",
     )
-    return library
+    return catalog
 
 
 # Hand-computable v2 glyph set (plotter units, 1000/in, baseline y=0, +y up,
@@ -203,7 +203,7 @@ def synth_lib(tmp_path: Path) -> Path:
 
 def _render(text: str, height: float, lib: Path, font: str = "Test", **kwargs: object) -> TextBlock:
     """Render ``text`` from the synthetic ``Test`` font."""
-    return render_text_line_plt_font(text, height, font, json_path=lib, **kwargs)  # type: ignore[arg-type]
+    return render_text_line_plt_font(text, height, font, library_dir=lib, **kwargs)  # type: ignore[arg-type]
 
 
 def _count_arcs(block: TextBlock) -> int:
@@ -217,7 +217,7 @@ def _count_lines(block: TextBlock) -> int:
 
 
 class TestBundledLibraryRendering:
-    """The shipped plt_fonts.json renders through the arc-native path."""
+    """The shipped font catalog renders through the arc-native path."""
 
     def test_reference_char_height_is_exact(self) -> None:
         """The reference character 'E' renders at exactly the target height."""
@@ -741,7 +741,7 @@ class TestWordGroups:
     def test_word_groups_partition_strokes(self, synth_lib: Path) -> None:
         """Word groups are contiguous stroke-index slices covering all strokes."""
         block, groups = render_text_line_plt_font_with_words(
-            "A B A", 0.5, "Test", json_path=synth_lib
+            "A B A", 0.5, "Test", library_dir=synth_lib
         )
         assert [word for word, _ in groups] == ["A", "B", "A"]
         all_indices = [i for _word, indices in groups for i in indices]
@@ -752,20 +752,24 @@ class TestWordGroups:
     def test_blank_segment_yields_empty_group(self, synth_lib: Path) -> None:
         """A double space keeps column alignment with an empty group."""
         _block, groups = render_text_line_plt_font_with_words(
-            "A  B", 0.5, "Test", json_path=synth_lib
+            "A  B", 0.5, "Test", library_dir=synth_lib
         )
         assert [word for word, _ in groups] == ["A", "", "B"]
         assert groups[1][1] == []
 
     def test_empty_text(self, synth_lib: Path) -> None:
         """Empty input yields an empty block and no groups."""
-        block, groups = render_text_line_plt_font_with_words("", 0.5, "Test", json_path=synth_lib)
+        block, groups = render_text_line_plt_font_with_words(
+            "", 0.5, "Test", library_dir=synth_lib
+        )
         assert block.is_empty()
         assert groups == []
 
     def test_blank_only_text_keeps_word_structure(self, synth_lib: Path) -> None:
         """A spaces-only line renders nothing but reports its word slots."""
-        block, groups = render_text_line_plt_font_with_words("  ", 0.5, "Test", json_path=synth_lib)
+        block, groups = render_text_line_plt_font_with_words(
+            "  ", 0.5, "Test", library_dir=synth_lib
+        )
         assert block.is_empty()
         assert groups == [("", []), ("", []), ("", [])]
 
@@ -776,7 +780,7 @@ class TestGlyphGroups:
     def test_glyph_groups_partition_strokes(self, synth_lib: Path) -> None:
         """Every stroke belongs to exactly one glyph group, in text order."""
         block, _words, glyphs = render_text_line_plt_font_with_glyphs(
-            "ABA", 0.5, "Test", json_path=synth_lib
+            "ABA", 0.5, "Test", library_dir=synth_lib
         )
         assert [char for char, _indices in glyphs] == ["A", "B", "A"]
         all_indices = [i for _char, indices in glyphs for i in indices]
@@ -787,7 +791,7 @@ class TestGlyphGroups:
     def test_multi_stroke_glyph_owns_a_contiguous_slice(self, synth_lib: Path) -> None:
         """A two-stroke glyph (``T``) gets one group of two stroke indices."""
         _block, _words, glyphs = render_text_line_plt_font_with_glyphs(
-            "TA", 0.5, "Test", json_path=synth_lib
+            "TA", 0.5, "Test", library_dir=synth_lib
         )
         assert glyphs[0][0] == "T"
         assert len(glyphs[0][1]) == 2
@@ -797,7 +801,7 @@ class TestGlyphGroups:
     def test_space_contributes_no_group(self, synth_lib: Path) -> None:
         """Spaces advance the cursor but own no strokes and no group."""
         block, _words, glyphs = render_text_line_plt_font_with_glyphs(
-            "A B", 0.5, "Test", json_path=synth_lib
+            "A B", 0.5, "Test", library_dir=synth_lib
         )
         assert [char for char, _indices in glyphs] == ["A", "B"]
         all_indices = [i for _char, indices in glyphs for i in indices]
@@ -806,7 +810,7 @@ class TestGlyphGroups:
     def test_empty_text(self, synth_lib: Path) -> None:
         """Empty input yields an empty block and no glyph groups."""
         block, _words, glyphs = render_text_line_plt_font_with_glyphs(
-            "", 0.5, "Test", json_path=synth_lib
+            "", 0.5, "Test", library_dir=synth_lib
         )
         assert block.is_empty()
         assert glyphs == []
@@ -814,10 +818,10 @@ class TestGlyphGroups:
     def test_with_words_wrapper_matches_the_glyph_renderer(self, synth_lib: Path) -> None:
         """The word wrapper returns the identical block and word groups."""
         block_w, words_w = render_text_line_plt_font_with_words(
-            "A B A", 0.5, "Test", json_path=synth_lib
+            "A B A", 0.5, "Test", library_dir=synth_lib
         )
         block_g, words_g, _glyphs = render_text_line_plt_font_with_glyphs(
-            "A B A", 0.5, "Test", json_path=synth_lib
+            "A B A", 0.5, "Test", library_dir=synth_lib
         )
         assert block_g.to_hpgl() == block_w.to_hpgl()
         assert words_g == words_w
@@ -868,7 +872,9 @@ class TestErrorPaths:
         """A missing library means no PLT fonts: resolution reports unknown."""
         with caplog.at_level("WARNING"):
             with pytest.raises(PltFontRenderError, match="Unknown font"):
-                render_text_line_plt_font("A", 0.5, "Dino", json_path=tmp_path / "absent.json")
+                render_text_line_plt_font(
+                    "A", 0.5, "Dino", library_dir=tmp_path / "absent"
+                )
         assert "not found" in caplog.text
 
 
@@ -914,7 +920,7 @@ class TestGlyphCache:
 
     def test_clear_glyph_cache_picks_up_new_library(self, tmp_path: Path) -> None:
         """Editing a library in place is visible after clear_glyph_cache()."""
-        lib = tmp_path / "plt_fonts.json"
+        lib = tmp_path / "catalog"
         _write_library(tmp_path, {"A": _v2_entry("PU0,0;PD1000,1000;", (0, 0, 1000, 1000))})
         first = _render("A", 1.0, lib)
         _write_library(tmp_path, {"A": _v2_entry("PU0,0;PD3000,1000;", (0, 0, 3000, 1000))})
@@ -1069,7 +1075,7 @@ class TestSmallCaps:
     def test_glyph_groups_keep_the_original_characters(self, sc_lib: Path) -> None:
         """The stroke partition stays keyed by the text, not the mapped glyphs."""
         _block, words, glyphs = render_text_line_plt_font_with_glyphs(
-            "aB", 1.0, "Test SC", json_path=sc_lib, lowercase_scale=0.7
+            "aB", 1.0, "Test SC", library_dir=sc_lib, lowercase_scale=0.7
         )
         assert [char for char, _ in glyphs] == ["a", "B"]
         assert [word for word, _ in words] == ["aB"]
@@ -1332,9 +1338,11 @@ class TestDerivedGlyphRendering:
 
     def test_all_derived_characters_render(self) -> None:
         """Every derived key in the shipped library renders without raising."""
-        library_path = Path(__file__).resolve().parents[1] / "Fonts" / "plt_fonts.json"
-        library = json.loads(library_path.read_text(encoding="utf-8"))
-        derived = [char for char in library["Dino"]["characters"] if ord(char) > 0x7E]
+        catalog_dir = (
+            Path(__file__).resolve().parents[1] / "Fonts" / "VP-EL-Fonts" / "catalog"
+        )
+        dino = json.loads((catalog_dir / "Dino.json").read_text(encoding="utf-8"))
+        derived = [char for char in dino["characters"] if ord(char) > 0x7E]
         assert len(derived) == 17
         for char in derived:
             block = render_text_line_plt_font(f"A{char}A", 0.4, "Dino")
@@ -1443,7 +1451,7 @@ class TestItalicShear:
         """A flag map that does not cover the text is a programming error."""
         with pytest.raises(ValueError, match="italic_flags length"):
             render_text_line_plt_font(
-                "AB", 1.0, "Test", json_path=synth_lib, italic_tan=0.5, italic_flags=(True,)
+                "AB", 1.0, "Test", library_dir=synth_lib, italic_tan=0.5, italic_flags=(True,)
             )
 
     def test_shear_composes_with_small_caps(self, sc_lib: Path) -> None:

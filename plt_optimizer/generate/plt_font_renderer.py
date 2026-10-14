@@ -1,4 +1,4 @@
-"""Arc-native rendering of PLT-extracted fonts (``Fonts/plt_fonts.json``).
+"""Arc-native rendering of PLT-extracted fonts (``Fonts/VP-EL-Fonts/catalog/``).
 
 PLT-extracted fonts store every glyph as baseline-normalized HPGL
 (``PU``/``PD``/``AA``) in the **library design frame** (1000 units per design
@@ -174,7 +174,7 @@ FALLBACK_ADVANCE_FRACTION: float = 1.0
 # height, so the two constants cancel and the emitted geometry lands on the
 # device scale via ``TextBlock.to_hpgl()``. Keep it at 1000 to match
 # ``LIBRARY_UNITS_PER_INCH`` in ``Fonts/extract_plt_fonts.py`` and the stored
-# ``Fonts/plt_fonts.json`` -- changing only one of them rescales every glyph.
+# catalog files -- changing only one of them rescales every glyph.
 _DESIGN_UNITS_PER_INCH: float = 1000.0
 
 
@@ -234,15 +234,15 @@ def _entry_bounds(entry: PltGlyphEntry, block: TextBlock) -> Tuple[float, float,
 
 @lru_cache(maxsize=None)
 def _glyph_entry(
-    json_path_key: str,
+    library_dir_key: str,
     font_name: str,
     character: str,
 ) -> _GlyphGeometry:
     """Parse one stored glyph into cached design-inch geometry.
 
     Args:
-        json_path_key: Cache key for the font library path (``""`` selects
-            the default ``Fonts/plt_fonts.json``).
+        library_dir_key: Cache key for the font catalog directory (``""``
+            selects the default ``Fonts/VP-EL-Fonts/catalog/``).
         font_name: Canonical PLT font name.
         character: The single character to render.
 
@@ -254,7 +254,7 @@ def _glyph_entry(
     Raises:
         PltFontRenderError: If the font or character is not in the library.
     """
-    fonts = load_plt_fonts(Path(json_path_key) if json_path_key else None)
+    fonts = load_plt_fonts(Path(library_dir_key) if library_dir_key else None)
     font_data = fonts.get(font_name)
     if font_data is None or character not in font_data.characters:
         raise PltFontRenderError(
@@ -458,7 +458,7 @@ def kerning_offset(
 
 def _resolve_plt_font(
     font_name: str,
-    json_path: Optional[Path],
+    library_dir: Optional[Path],
     fonts_dir: Optional[Path],
 ) -> str:
     """Resolve ``font_name`` and require the PLT-extracted family.
@@ -467,7 +467,7 @@ def _resolve_plt_font(
         font_name: Requested font name (canonical or not). A ``"<base> SC"``
             small-caps variant resolves to the base font's PLT family (the
             variant is a render-time transform, never a stored library key).
-        json_path: Optional ``plt_fonts.json`` override.
+        library_dir: Optional PLT font catalog directory override.
         fonts_dir: Optional Fonts root override (TTF discovery).
 
     Returns:
@@ -481,7 +481,7 @@ def _resolve_plt_font(
             re-raised as a render error) or resolves to a TrueType font.
     """
     try:
-        ref = resolve_font(font_name, json_path=json_path, fonts_dir=fonts_dir)
+        ref = resolve_font(font_name, library_dir=library_dir, fonts_dir=fonts_dir)
     except FontNotFoundError as exc:
         raise PltFontRenderError(str(exc)) from exc
     if ref.kind != "plt":
@@ -602,7 +602,7 @@ def _walk_line(
     kerning_recession_scale: Optional[float] = None,
     kerning_min_gap: Optional[float] = None,
     fallback_advance_fraction: Optional[float] = None,
-    json_path: Optional[Path] = None,
+    library_dir: Optional[Path] = None,
     fonts_dir: Optional[Path] = None,
     *,
     lowercase_scale: Optional[float] = None,
@@ -651,7 +651,7 @@ def _walk_line(
         fallback_advance_fraction: Multiplier on the bounding-box-width
             fallback for pairs without overlapping height (``None`` falls
             back to :data:`FALLBACK_ADVANCE_FRACTION`).
-        json_path: Optional ``plt_fonts.json`` override (tests).
+        library_dir: Optional PLT font catalog directory override (tests).
         fonts_dir: Optional Fonts root override (tests).
         lowercase_scale: Small-caps mode for ASCII lowercase ``a-z`` (the
             cascaded ``sc_scale``): each such character draws the base
@@ -694,17 +694,17 @@ def _walk_line(
             character has no glyph in the font.
         ValueError: If ``italic_flags`` length differs from ``text``.
     """
-    canonical = _resolve_plt_font(font_name, json_path, fonts_dir)
+    canonical = _resolve_plt_font(font_name, library_dir, fonts_dir)
     if not text:
         return TextBlock.empty(), [], []
     if italic_flags is not None and len(italic_flags) != len(text):
         raise ValueError(f"italic_flags length {len(italic_flags)} != text length {len(text)}")
 
-    json_path_key = str(json_path) if json_path is not None else ""
+    library_dir_key = str(library_dir) if library_dir is not None else ""
     # The small-caps variant is a render-time transform: the glyph library
     # is keyed by the BASE font name only.
     library_name = base_font_name(canonical)
-    fonts = load_plt_fonts(Path(json_path) if json_path is not None else None)
+    fonts = load_plt_fonts(library_dir)
     font_data = fonts[library_name]  # resolved above; presence guaranteed
     scale = target_height_inches / font_data.normalized_ref_height
     min_gap_inches = KERNING_MIN_GAP if kerning_min_gap is None else kerning_min_gap
@@ -769,7 +769,7 @@ def _walk_line(
             # downscaled top-down BEFORE kerning so the small silhouette
             # kerns exactly. The glyph group keeps the ORIGINAL character.
             source = _small_caps_source(char) if lowercase_scale is not None else char
-            geometry = _glyph_entry(json_path_key, library_name, source)
+            geometry = _glyph_entry(library_dir_key, library_name, source)
             if source != char and lowercase_scale is not None:
                 geometry = _scale_geometry(geometry, lowercase_scale)
             # Italic: shear the (already small-capped) geometry about the
@@ -813,7 +813,7 @@ def render_text_line_plt_font_with_words(
     kerning_recession_scale: Optional[float] = None,
     kerning_min_gap: Optional[float] = None,
     fallback_advance_fraction: Optional[float] = None,
-    json_path: Optional[Path] = None,
+    library_dir: Optional[Path] = None,
     fonts_dir: Optional[Path] = None,
     *,
     lowercase_scale: Optional[float] = None,
@@ -857,7 +857,7 @@ def render_text_line_plt_font_with_words(
         fallback_advance_fraction: Multiplier on the bounding-box-width
             fallback for pairs without overlapping height (``None`` falls
             back to :data:`FALLBACK_ADVANCE_FRACTION`).
-        json_path: Optional ``plt_fonts.json`` override (tests).
+        library_dir: Optional PLT font catalog directory override (tests).
         fonts_dir: Optional Fonts root override (tests).
         lowercase_scale: Small-caps mode for ASCII lowercase ``a-z``
             (``None`` = off; see :func:`_walk_line`).
@@ -887,7 +887,7 @@ def render_text_line_plt_font_with_words(
         kerning_recession_scale,
         kerning_min_gap,
         fallback_advance_fraction,
-        json_path,
+        library_dir,
         fonts_dir,
         lowercase_scale=lowercase_scale,
         italic_tan=italic_tan,
@@ -909,7 +909,7 @@ def render_text_line_plt_font_with_glyphs(
     kerning_recession_scale: Optional[float] = None,
     kerning_min_gap: Optional[float] = None,
     fallback_advance_fraction: Optional[float] = None,
-    json_path: Optional[Path] = None,
+    library_dir: Optional[Path] = None,
     fonts_dir: Optional[Path] = None,
     *,
     lowercase_scale: Optional[float] = None,
@@ -947,7 +947,7 @@ def render_text_line_plt_font_with_glyphs(
             (``None`` = default).
         fallback_advance_fraction: No-overlap fallback multiplier
             (``None`` = default).
-        json_path: Optional ``plt_fonts.json`` override (tests).
+        library_dir: Optional PLT font catalog directory override (tests).
         fonts_dir: Optional Fonts root override (tests).
         lowercase_scale: Small-caps mode for ASCII lowercase ``a-z``
             (``None`` = off; see :func:`_walk_line`).
@@ -977,7 +977,7 @@ def render_text_line_plt_font_with_glyphs(
         kerning_recession_scale,
         kerning_min_gap,
         fallback_advance_fraction,
-        json_path,
+        library_dir,
         fonts_dir,
         lowercase_scale=lowercase_scale,
         italic_tan=italic_tan,
@@ -998,7 +998,7 @@ def render_text_line_plt_font(
     kerning_recession_scale: Optional[float] = None,
     kerning_min_gap: Optional[float] = None,
     fallback_advance_fraction: Optional[float] = None,
-    json_path: Optional[Path] = None,
+    library_dir: Optional[Path] = None,
     fonts_dir: Optional[Path] = None,
     *,
     lowercase_scale: Optional[float] = None,
@@ -1037,7 +1037,7 @@ def render_text_line_plt_font(
         fallback_advance_fraction: Multiplier on the bounding-box-width
             fallback (``None`` falls back to
             :data:`FALLBACK_ADVANCE_FRACTION`).
-        json_path: Optional ``plt_fonts.json`` override (tests).
+        library_dir: Optional PLT font catalog directory override (tests).
         fonts_dir: Optional Fonts root override (tests).
         lowercase_scale: Small-caps mode for ASCII lowercase ``a-z``
             (``None`` = off; see :func:`_walk_line`).
@@ -1065,7 +1065,7 @@ def render_text_line_plt_font(
         kerning_recession_scale=kerning_recession_scale,
         kerning_min_gap=kerning_min_gap,
         fallback_advance_fraction=fallback_advance_fraction,
-        json_path=json_path,
+        library_dir=library_dir,
         fonts_dir=fonts_dir,
         lowercase_scale=lowercase_scale,
         italic_tan=italic_tan,

@@ -1,10 +1,10 @@
 # How to extract fonts from EngraveLab or VisionPro
 
 EngraveLab and Vision Pro cannot export their vector fonts, but they can
-*engrave* them. This guide turns any installed font into an entry in
-`Fonts/plt_fonts.json`: baseline-normalized HPGL toolpaths plus left/right
-profile envelopes, one per printable ASCII character, ready for the label
-generator to place, scale, and kern.
+*engrave* them. This guide turns any installed font into a per-font JSON file
+in `Fonts/VP-EL-Fonts/catalog/`: baseline-normalized HPGL toolpaths plus
+left/right profile envelopes, one per printable ASCII character, ready for
+the label generator to place, scale, and kern.
 
 ## What you need
 
@@ -88,20 +88,20 @@ compresses the output (glyphs come out squashed, or the measured reference
 height logged in Step 4 is far below your chosen height), lower the text
 height and re-engrave.
 
-## Step 3 — Copy the PLT into `Fonts/PLT/`
+## Step 3 — Copy the PLT into `Fonts/VP-EL-Fonts/input-plt/`
 
 Save/copy the file as:
 
 ```
-Fonts/PLT/<font name>_<declared text height>_<reference char>.plt
+Fonts/VP-EL-Fonts/input-plt/<font name>_<declared text height>_<reference char>.plt
 ```
 
 where `<declared text height>` is the text height set in Step 1 (inches) and
 `<reference char>` is the framing character chosen in Step 1:
 
 ```
-Fonts/PLT/dino_0.5_E.plt             →  font "Dino",            0.5 in, ref E
-Fonts/PLT/heavy_engraving_0.25_H.plt →  font "Heavy Engraving", 0.25 in, ref H
+Fonts/VP-EL-Fonts/input-plt/dino_0.5_E.plt             →  font "Dino",            0.5 in, ref E
+Fonts/VP-EL-Fonts/input-plt/heavy_engraving_0.25_H.plt →  font "Heavy Engraving", 0.25 in, ref H
 ```
 
 The font-name part becomes the JSON key with underscores turned into spaces
@@ -120,7 +120,7 @@ the character list and are rejected with a clear error.
 uv run python Fonts/extract_plt_fonts.py
 ```
 
-The script processes every `Fonts/PLT/*.plt` and, per sheet:
+The script processes every `Fonts/VP-EL-Fonts/input-plt/*.plt` and, per sheet:
 
 1. **Parses** it with the core PLT parser and **groups the strokes into rows**
    (single-linkage merging of Y extents). The row split and the per-row glyph
@@ -166,28 +166,32 @@ The script processes every `Fonts/PLT/*.plt` and, per sheet:
    (e.g. a bar at y = 500.29 on a 34.48-unit grid). Bands tile the axis, so no
    hairline can slip through, giving the typesetter real air-gap profiles for
    tight kerning instead of fixed advance widths.
-5. **Merges** the result into [`plt_fonts.json`](plt_fonts.json) — existing
-   fonts are preserved; only the fonts just extracted are replaced.
+5. **Writes** the font as its own JSON file in
+   [`Fonts/VP-EL-Fonts/catalog/`](VP-EL-Fonts/catalog/) (file name = the font
+   key, e.g. `Dino.json`; the key itself is the file's `font_name` field).
+   Catalog files of fonts not extracted in this run are preserved; only the
+   fonts just extracted are replaced.
 
 ### Output schema
 
+One file per font (`Fonts/VP-EL-Fonts/catalog/Dino.json`):
+
 ```json
 {
-  "Dino": {
-    "file_path": "Fonts/PLT/dino_0.5_E.plt",
-    "reference_char": "E",
-    "declared_height_in": 0.5,
-    "reference_char_height_in": 0.508017,
-    "normalized_ref_height": 1.0,
-    "characters": {
-      "!": {
-        "bounding_box": {"min_x": 0.0, "max_x": 122.4, "min_y": 0.0, "max_y": 1000.0},
-        "left_envelope": [[0.0, 0.0], [0.0, 34.48], "..."],
-        "right_envelope": [[122.4, 0.0], [122.4, 34.48], "..."],
-        "glyph": "PU0.0000,0.0000;PD0.0000,1000.0000;..."
-      },
-      "...": {}
-    }
+  "font_name": "Dino",
+  "file_path": "Fonts/VP-EL-Fonts/input-plt/dino_0.5_E.plt",
+  "reference_char": "E",
+  "declared_height_in": 0.5,
+  "reference_char_height_in": 0.508017,
+  "normalized_ref_height": 1.0,
+  "characters": {
+    "!": {
+      "bounding_box": {"min_x": 0.0, "max_x": 122.4, "min_y": 0.0, "max_y": 1000.0},
+      "left_envelope": [[0.0, 0.0], [0.0, 34.48], "..."],
+      "right_envelope": [[122.4, 0.0], [122.4, 34.48], "..."],
+      "glyph": "PU0.0000,0.0000;PD0.0000,1000.0000;..."
+    },
+    "...": {}
   }
 }
 ```
@@ -271,14 +275,14 @@ against 5%:
 | Flag | Purpose |
 | --- | --- |
 | `-v` / `--verbose` | Debug logging (per-cluster detail). |
-| `--fonts-dir DIR` | Read sample sheets from somewhere else. |
-| `--output FILE` | Write the JSON somewhere else. |
+| `--input-dir DIR` | Read sample sheets from somewhere else. |
+| `--output-dir DIR` | Write the per-font catalog files somewhere else. |
 | `--ascii-file FILE` | Use a different ordered character list. |
 | `--font-name NAME` | Explicit font key (requires exactly one input file; the height and reference char still come from the file name). |
 | `--row-threshold N` | Manual Y-gap row-split distance in plotter units. Only if the auto-search fails. |
 | `--cluster-threshold N` | Manual X-gap glyph-split distance in plotter units. Only if the auto-search fails. |
 | `--envelope-samples N` | Vertical bands per profile envelope (default 30); each band aggregates the geometry within half a sampling step of its height. |
-| `--rebuild` | Regenerate the JSON from scratch, dropping fonts whose `.plt` is gone. |
+| `--rebuild` | Delete every `*.json` in the catalog directory before writing, dropping fonts whose `.plt` is gone. |
 
 ## Tips and troubleshooting
 
@@ -306,6 +310,7 @@ against 5%:
 - **Two files map to the same font key** (e.g. `dino_0.5_E.plt` and
   `dino_0.75_E.plt` both → `"Dino"`): the last one processed wins. Use
   distinct font-name parts or `--font-name` to disambiguate.
-- **Legacy `plt_fonts.json`.** The schema changed (nested per-character
-  entries with envelopes); an old flat file cannot be merged and the script
-  says so. Re-run with `--rebuild` to regenerate it from the sample sheets.
+- **"Font names ... map to the same catalog file".** Two extracted fonts
+  whose names sanitise to the same catalog file name (Windows-illegal
+  characters all become `_`) abort the run; rename the sheets so the keys
+  stay distinct.

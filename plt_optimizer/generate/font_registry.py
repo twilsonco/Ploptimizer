@@ -3,9 +3,11 @@
 Two font families are selectable from a job spec via the cascading ``font``
 attribute:
 
-1. **PLT-extracted fonts** -- keys of ``Fonts/plt_fonts.json``, produced by
+1. **PLT-extracted fonts** -- one JSON file per font under
+   ``Fonts/VP-EL-Fonts/catalog/``, produced by
    ``Fonts/extract_plt_fonts.py`` from engraved EngraveLab / Vision Pro
-   sample sheets. Each glyph is a baseline-normalized HPGL
+   sample sheets. Each file's ``font_name`` field is the font key. Each glyph
+   is a baseline-normalized HPGL
    (``PU``/``PD``/``AA``) string in the library **design frame** (1000 units
    per design inch -- see ``_DESIGN_UNITS_PER_INCH`` in
    :mod:`plt_optimizer.generate.plt_font_renderer`; this is NOT the emitted
@@ -54,8 +56,9 @@ logger = logging.getLogger(__name__)
 # lookup works regardless of the current working directory at runtime.
 FONTS_DIR: Path = Path(__file__).resolve().parent.parent.parent / "Fonts"
 
-# The PLT-extracted font library produced by Fonts/extract_plt_fonts.py.
-PLT_FONTS_JSON_PATH: Path = FONTS_DIR / "plt_fonts.json"
+# The PLT-extracted font catalog produced by Fonts/extract_plt_fonts.py:
+# one JSON file per font, keyed by the file's ``font_name`` field.
+PLT_FONT_CATALOG_DIR: Path = FONTS_DIR / "VP-EL-Fonts" / "catalog"
 
 # Font selected when ``font`` is unset in the YAML spec, the job config, and
 # every label/line. Matches the historical hard-coded ftext default.
@@ -91,7 +94,7 @@ class FontNotFoundError(ValueError):
         listing = ", ".join(sorted(choices)) if choices else "(none found)"
         super().__init__(
             f"Unknown font {requested!r}. Valid fonts are: {listing}. PLT fonts "
-            f"come from {PLT_FONTS_JSON_PATH.name}; TrueType fonts are the "
+            f"come from the {PLT_FONT_CATALOG_DIR} catalog; TrueType fonts are the "
             f"*.ttf basenames under {FONTS_DIR.name}/."
         )
 
@@ -103,9 +106,9 @@ class FontRef:
     Attributes:
         kind: ``"ttf"`` for a TrueType file, ``"plt"`` for a PLT-extracted
             glyph library.
-        name: The canonical font name (``plt_fonts.json`` key, the TTF
-            file's basename without extension, or the synthetic small-caps
-            variant ``"<base name> SC"``).
+        name: The canonical font name (the catalog's ``font_name`` key, the
+            TTF file's basename without extension, or the synthetic
+            small-caps variant ``"<base name> SC"``).
         path: Absolute path to the ``.ttf`` file; ``None`` for PLT fonts
             (whose geometry lives in the JSON library). A small-caps
             variant carries its **base** font's path -- the variant's
@@ -131,7 +134,7 @@ class FontRef:
 
 @dataclass(frozen=True)
 class PltGlyphEntry:
-    """One character's stored geometry from ``plt_fonts.json`` (v2 schema).
+    """One character's stored geometry from the font catalog (v2 schema).
 
     All numeric values are library design-frame units (1000 units per design
     inch -- not the emitted device scale) in the
@@ -353,36 +356,55 @@ def _parse_stroke_count(name: str, path: Path, raw: Any) -> int:
 
 
 @lru_cache(maxsize=8)
-def load_plt_fonts(json_path: Optional[Path] = None) -> Dict[str, PltFontData]:
-    """Load the PLT-extracted font library (v2 nested schema).
+def load_plt_fonts(library_dir: Optional[Path] = None) -> Dict[str, PltFontData]:
+    """Load the PLT-extracted font catalog (v2 nested schema, one file per font).
+
+    Every ``*.json`` file in the catalog directory is one font, keyed by its
+    ``font_name`` field; files are read in sorted order, so a duplicate key
+    resolves to the alphabetically-first file deterministically.
 
     Args:
-        json_path: Optional override for ``plt_fonts.json`` (used by tests).
+        library_dir: Optional override for the catalog directory (used by
+            tests).
 
     Returns:
         Mapping of font name to :class:`PltFontData`. Empty (with a
-        WARNING) when the library file is missing or unreadable -- a
-        missing library must not break TTF-only jobs. Fonts stored in the
-        rejected legacy flat schema are skipped with a WARNING.
+        WARNING) when the catalog directory is missing -- a missing
+        catalog must not break TTF-only jobs. An unreadable, non-object,
+        nameless, malformed, or legacy-flat font file is skipped with a
+        WARNING; the remaining fonts still load.
     """
-    path = json_path if json_path is not None else PLT_FONTS_JSON_PATH
-    if not path.exists():
-        logger.warning("PLT font library not found at %s; only TTF fonts available", path)
-        return {}
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        logger.warning("PLT font library %s could not be read (%s); ignoring it", path, exc)
-        return {}
-    if not isinstance(raw, dict):
-        logger.warning("PLT font library %s is not a JSON object; ignoring it", path)
+    path = library_dir if library_dir is not None else PLT_FONT_CATALOG_DIR
+    if not path.is_dir():
+        logger.warning("PLT font catalog not found at %s; only TTF fonts available", path)
         return {}
     fonts: Dict[str, PltFontData] = {}
-    for name, font_raw in raw.items():
-        data = _parse_font_data(str(name), font_raw, path)
+    for file_path in sorted(path.glob("*.json")):
+        try:
+            raw = json.loads(file_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("PLT font file %s could not be read (%s); skipping it", file_path, exc)
+            continue
+        if not isinstance(raw, dict):
+            logger.warning("PLT font file %s is not a JSON object; skipping it", file_path)
+            continue
+        name = raw.get("font_name")
+        if not isinstance(name, str) or not name.strip():
+            logger.warning("PLT font file %s has no usable font_name; skipping it", file_path)
+            continue
+        name = name.strip()
+        if name in fonts:
+            logger.warning(
+                "PLT font %r is declared by %s as well as an earlier catalog "
+                "file; keeping the earlier one",
+                name,
+                file_path,
+            )
+            continue
+        data = _parse_font_data(name, raw, file_path)
         if data is None:
             continue
-        fonts[str(name)] = data
+        fonts[name] = data
     return fonts
 
 
@@ -456,7 +478,7 @@ def find_italic_face_path(font_path: Optional[Path]) -> Optional[Path]:
 def base_font_name(name: str) -> str:
     """Return the base font name of ``name``, stripping a trailing `` SC``.
 
-    Glyph-library lookups (``plt_fonts.json`` keys, TTF discovery) are
+    Glyph-library lookups (catalog ``font_name`` keys, TTF discovery) are
     keyed by the base name only -- the small-caps variant is a render-time
     transform, never a stored font -- so every consumer that indexes the
     library with a resolved :attr:`FontRef.name` must pass it through this
@@ -508,25 +530,26 @@ def _canonical_map(
 
 
 def font_name_choices(
-    json_path: Optional[Path] = None, fonts_dir: Optional[Path] = None
+    library_dir: Optional[Path] = None, fonts_dir: Optional[Path] = None
 ) -> List[str]:
     """Return every valid ``font`` value, sorted case-insensitively.
 
     Args:
-        json_path: Optional ``plt_fonts.json`` override.
+        library_dir: Optional PLT font catalog directory override.
         fonts_dir: Optional Fonts root override.
 
     Returns:
-        Canonical font names (PLT keys + TTF basenames, plus the synthetic
-        ``"<base> SC"`` small-caps variants), deduplicated and sorted.
+        Canonical font names (catalog ``font_name`` keys + TTF basenames,
+        plus the synthetic ``"<base> SC"`` small-caps variants),
+        deduplicated and sorted.
     """
-    index = _canonical_map(load_plt_fonts(json_path), available_ttf_fonts(fonts_dir))
+    index = _canonical_map(load_plt_fonts(library_dir), available_ttf_fonts(fonts_dir))
     return sorted({canonical for _kind, canonical, _base, _sc in index.values()}, key=str.lower)
 
 
 def resolve_font(
     name: str,
-    json_path: Optional[Path] = None,
+    library_dir: Optional[Path] = None,
     fonts_dir: Optional[Path] = None,
 ) -> FontRef:
     """Resolve a user-supplied font name to a :class:`FontRef`.
@@ -539,7 +562,7 @@ def resolve_font(
     Args:
         name: Requested font name (e.g. ``"dino"``, ``"Dino SC"`` or
             ``"ReliefSingleLineCAD-Regular"``).
-        json_path: Optional ``plt_fonts.json`` override.
+        library_dir: Optional PLT font catalog directory override.
         fonts_dir: Optional Fonts root override.
 
     Returns:
@@ -549,11 +572,11 @@ def resolve_font(
         FontNotFoundError: If no font matches ``name``.
     """
     if not name or not name.strip():
-        raise FontNotFoundError(name, font_name_choices(json_path, fonts_dir))
-    index = _canonical_map(load_plt_fonts(json_path), available_ttf_fonts(fonts_dir))
+        raise FontNotFoundError(name, font_name_choices(library_dir, fonts_dir))
+    index = _canonical_map(load_plt_fonts(library_dir), available_ttf_fonts(fonts_dir))
     entry = index.get(name.strip().lower())
     if entry is None:
-        raise FontNotFoundError(name, font_name_choices(json_path, fonts_dir))
+        raise FontNotFoundError(name, font_name_choices(library_dir, fonts_dir))
     kind, canonical, base, small_caps = entry
     path = available_ttf_fonts(fonts_dir)[base] if kind == "ttf" else None
     return FontRef(
@@ -567,14 +590,14 @@ def resolve_font(
 
 def normalize_font_name(
     name: str,
-    json_path: Optional[Path] = None,
+    library_dir: Optional[Path] = None,
     fonts_dir: Optional[Path] = None,
 ) -> str:
     """Return the canonical form of ``name`` (case-insensitive lookup).
 
     Args:
         name: Requested font name.
-        json_path: Optional ``plt_fonts.json`` override.
+        library_dir: Optional PLT font catalog directory override.
         fonts_dir: Optional Fonts root override.
 
     Returns:
@@ -583,10 +606,10 @@ def normalize_font_name(
     Raises:
         FontNotFoundError: If no font matches ``name``.
     """
-    return resolve_font(name, json_path, fonts_dir).name
+    return resolve_font(name, library_dir, fonts_dir).name
 
 
-def plt_font_stroke_count(name: str, json_path: Optional[Path] = None) -> int:
+def plt_font_stroke_count(name: str, library_dir: Optional[Path] = None) -> int:
     """Return the multi-stroke pass count of a PLT-extracted font.
 
     Resolution-time cutter sizing uses this to recognise multi-stroke
@@ -600,7 +623,7 @@ def plt_font_stroke_count(name: str, json_path: Optional[Path] = None) -> int:
     Args:
         name: Font name (canonical, lowercase, or a ``"<base> SC"``
             variant).
-        json_path: Optional ``plt_fonts.json`` override.
+        library_dir: Optional PLT font catalog directory override.
 
     Returns:
         The font's stroke count (>= 1); 1 for TTF/unknown fonts.
@@ -608,7 +631,7 @@ def plt_font_stroke_count(name: str, json_path: Optional[Path] = None) -> int:
     if not name or not name.strip():
         return 1
     base = base_font_name(name.strip()).lower()
-    for font_name, data in load_plt_fonts(json_path).items():
+    for font_name, data in load_plt_fonts(library_dir).items():
         if font_name.lower() == base:
             return data.stroke_count
     return 1
@@ -617,7 +640,7 @@ def plt_font_stroke_count(name: str, json_path: Optional[Path] = None) -> int:
 def plt_font_has_glyph(
     name: str,
     character: str,
-    json_path: Optional[Path] = None,
+    library_dir: Optional[Path] = None,
 ) -> bool:
     """Return whether a PLT-extracted font carries ``character``.
 
@@ -631,7 +654,7 @@ def plt_font_has_glyph(
     Args:
         name: Font name (canonical, lowercase, or a ``"<base> SC"`` variant).
         character: The single character to probe.
-        json_path: Optional ``plt_fonts.json`` override.
+        library_dir: Optional PLT font catalog directory override.
 
     Returns:
         ``True`` when the font is a PLT font carrying ``character`` (or is
@@ -640,7 +663,7 @@ def plt_font_has_glyph(
     if not name or not name.strip():
         return True
     base = base_font_name(name.strip()).lower()
-    for font_name, data in load_plt_fonts(json_path).items():
+    for font_name, data in load_plt_fonts(library_dir).items():
         if font_name.lower() == base:
             return character in data.characters
     return True

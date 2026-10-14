@@ -33,7 +33,7 @@ Three scales, only one of them the device scale
 1. **Device plotter units** -- :data:`HPGL_UNITS_PER_INCH` (1016). Every
    coordinate written to, or read back from, an emitted PLT.
 2. **Font-library design frame** -- 1000 units per *design* inch
-   (``Fonts/plt_fonts.json``, ``LIBRARY_UNITS_PER_INCH`` in
+   (``Fonts/VP-EL-Fonts/catalog/*.json``, ``LIBRARY_UNITS_PER_INCH`` in
    ``Fonts/extract_plt_fonts.py``, ``_DESIGN_UNITS_PER_INCH`` in
    ``plt_optimizer/generate/plt_font_renderer.py``). This is a *normalized*
    frame, not a device scale: extraction rescales each sheet by

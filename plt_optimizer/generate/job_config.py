@@ -96,7 +96,7 @@ class JobDefaults(BaseModel):
     Attributes:
         text_height: Default font height in inches.
         font: Default font name selecting the glyph outlines (PLT-extracted
-            ``plt_fonts.json`` key or ``Fonts/`` TTF basename,
+            catalog ``font_name`` key or ``Fonts/`` TTF basename,
             case-insensitive). Unset falls back to the schema default
             (``ReliefSingleLineCAD-Regular``).
         character_spacing: Default extra spacing between characters (in

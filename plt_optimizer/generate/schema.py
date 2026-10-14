@@ -375,8 +375,9 @@ class TextAttributes(BaseModel):
     Attributes:
         text_height: Optional font height in inches.
         font: Optional font name selecting the glyph outlines used to render
-            text. Valid values are the PLT-extracted font keys of
-            ``Fonts/plt_fonts.json`` (rendered arc-native) and the basenames
+            text. Valid values are the PLT-extracted font keys of the
+            ``Fonts/VP-EL-Fonts/catalog/*.json`` files (rendered arc-native)
+            and the basenames
             of ``*.ttf`` files under ``Fonts/`` (extension stripped, rendered
             through ftext); matching is case-insensitive and the value is
             canonicalized at validation time. Cascades line -> label -> job
@@ -646,8 +647,9 @@ class TextAttributes(BaseModel):
     font: Optional[str] = Field(
         default=None,
         description=(
-            "Font name: a PLT-extracted font key (Fonts/plt_fonts.json, "
-            "rendered arc-native with arcs preserved) or a TrueType basename "
+            "Font name: a PLT-extracted font key (the font_name fields of "
+            "Fonts/VP-EL-Fonts/catalog/*.json, rendered arc-native with arcs "
+            "preserved) or a TrueType basename "
             "(*.ttf under Fonts/, extension stripped); case-insensitive, "
             "canonicalized at validation. Appending ' SC' to any name "
             "selects its synthetic small-caps variant (uppercase glyphs "
@@ -890,8 +892,8 @@ class TextAttributes(BaseModel):
         description=(
             "Target engraved stroke width as a fraction of text height for "
             "multi-stroke (bold) PLT fonts - fonts whose glyphs carry N > 1 "
-            "parallel cutter passes (the stroke_count stored in "
-            "plt_fonts.json). The automatic cutter is sized so the N passes "
+            "parallel cutter passes (the stroke_count stored in the font's "
+            "catalog file). The automatic cutter is sized so the N passes "
             "plus their overlaps engrave this total width, with "
             "multistroke_overlap_ratio guarding against unengraved stripes; "
             "the resulting cutter is snapped to the shop inventory. The "
@@ -1067,7 +1069,7 @@ class TextAttributes(BaseModel):
 
         Applies to every model inheriting the ``font`` field (TextLine,
         LabelSpec, JobSpec). Matching is case-insensitive; the stored value
-        becomes the canonical font name (``plt_fonts.json`` key or TTF
+        becomes the canonical font name (catalog ``font_name`` key or TTF
         basename), so downstream consumers never re-match case.
 
         Args:
