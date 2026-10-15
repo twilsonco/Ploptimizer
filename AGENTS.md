@@ -191,8 +191,9 @@ JobSpec (job-level defaults)
   size; the nominal/toolpath `text_height` is untouched (no cutter change);
   `1.0` renders the variant identically to its base font; the field is inert
   on a non-SC font. Cascades line → label → job (accepted on plates for
-  schema parity only); `job-config.json` supplies the shop default. See
-  Small Caps Fonts below.
+  schema parity only); `job-config.json` supplies the shop default. The same
+  field drives the inline `<sc>` small-caps tag (the per-character selection,
+  see Inline Small Caps below). See Small Caps Fonts below.
 - `max_h_compress`: Maximum horizontal compression fraction in [0, 1] (default
   0.0 = disabled). When a rendered line is wider than the label's inner
   content area, it is uniformly compressed horizontally down to at most
@@ -1019,7 +1020,10 @@ the reported Sunwest symptom (`B29ABg` on a 1x1.0in label: the visible text sat
 
 Appending ` SC` to any font name selects a **synthetic small-caps variant**
 of that base font, rendered on the fly — the variant is never a
-font-catalog `font_name` key or a `.ttf` file. Uppercase glyphs engrave verbatim at
+font-catalog `font_name` key or a `.ttf` file. The same transform is available
+**per character** through the inline `<sc>` tag (see Inline Small Caps below);
+the two are mutually inert — on a ` SC` font the tag has no additional effect,
+because the whole line is already small caps. Uppercase glyphs engrave verbatim at
 full size; **ASCII lowercase `a-z`** (and only those characters — accented
 lowercase, `ß`, digits, punctuation and the derived Unicode symbols pass
 through verbatim at full size) renders as the base font's **uppercase glyph
@@ -1132,8 +1136,8 @@ rebuilding raw markup.
   for an unknown font / missing glyph. Parsing runs at **resolution time**
   (`_resolve_content`), so the abort lands with the other spec-level errors.
 - **The tag registry** (`TAG_REGISTRY` + `register_tag(name, apply,
-  accepts_args)`) is the extension point for the remaining TODO tags
-  (`<f:name>`, `<sc>`, `<s>`): one registry entry plus
+  accepts_args)`) is the extension point for the remaining TODO tag
+  (`<f:name>`): one registry entry plus
   render-side handling of the new `Style` field. The parser, cascade,
   serialization and reflow need no change. `apply` must be **idempotent** so
   `serialize_runs` can recover the tag stack from styles; with several tags
@@ -1141,8 +1145,8 @@ rebuilding raw markup.
   round-trips). `<u>` (see Inline Underline below) is the second shipped tag:
   `Style.underline` + `register_tag("u", ...)`, and nested `<i>...<u>...</u>
   ...</i>` composes (every transformation applies to its runs, in stack order).
-  The registry order is `i, u, b, scale, sup, sub, s` (each tag registers last so
-  every earlier tag's serialization stays bit-identical).
+  The registry order is `i, u, b, scale, sup, sub, s, sc` (each tag registers
+  last so every earlier tag's serialization stays bit-identical).
 - **Resolved fields**: `ResolvedTextLine` gains `html_brackets`,
   `italic_angle`, `plain_text` (the markup-free text) and `styled_runs`
   (`()` for a markup-free line — the renderers' fast path). Every line resolves
@@ -1496,7 +1500,7 @@ argument (`<scale:abc>`, `<scale:>`, out-of-bounds) is broken markup --
 argument) is **literal text** (the value is mandatory), and `<scale: 0.5>` (a
 space) never matches the tag-body regex (`\S*`) so it engraves verbatim. The
 name is deliberately `scale`, not `sc`: the `sc` namespace belongs to the
-small-caps field / ` SC` font suffix (and the planned inline `<sc>` tag).
+small-caps field / ` SC` font suffix / the inline `<sc>` small-caps tag.
 
 - **The framework upgrade (args) is the durable part.** `TagSpec` gained
   `apply(style, arg)`, `is_active(style)` (defaults to the flag-tag rule
@@ -1732,7 +1736,8 @@ no clearance, no trigger band.
   relief and border checks measure the rendered geometry, so they see it).
 - **Idempotent flag tag ⇒ "already struck through" is free.**
   `Style.strikethrough` + `register_tag("s", replace(style, strikethrough=True))`
-  registered **last** (order `i, u, b, scale, sup, sub, s`), so every earlier
+  registered last at the time (order `i, u, b, scale, sup, sub, s`; `sc`
+  joined after it), so every earlier
   tag's serialization stays bit-identical. Applying it to an already-struck run
   is the identity, so `<s>a<s>b</s>c</s>` is **one** struck run engraving
   **one** stroke (the close pops the pre-open style, restoring the outer run).
@@ -1799,6 +1804,89 @@ no clearance, no trigger band.
   (`tests/test_schema.py`), the `<s>` reflow round-trip
   (`tests/test_line_content.py`), and the `strikethrough_*` job-config key
   tests (`tests/test_job_config.py`).
+
+### Inline Small Caps (`<sc>`)
+
+`<sc>...</sc>` is the eighth shipped markup tag: the wrapped characters get the
+**small-caps transform** — ASCII lowercase `a-z` engrave as the base font's
+**uppercase** glyph uniformly shrunk to `sc_scale` of the cap height, top-down
+(the glyph's own bottom stays exactly in place, its top descends). It is the
+exact transform the `<base> SC` **font variant** applies to the whole line
+(see Small Caps Fonts above), narrowed to a **per-character selection** — the
+`italic_flags` idiom applied to the existing `lowercase_scale` /
+`small_caps_scale` renderer parameters. Bare flag tag, no args (`<sc:0.5>` is
+literal text, the `<b:2>` rule); applying it to a run that is already in small
+caps has no additional effect.
+
+- **No new schema field.** The factor reuses the cascading `sc_scale` (line →
+  label → job → `job-config.json`, default 0.7) that already drives the font
+  variant, so there is no new `TextAttributes`/`PlateSpec`/`JobDefaults`/
+  `job-config.json` surface, no new `DEFAULT_*` constant, and no docs-drift
+  regen. `sc_scale: 1.0` keeps the uppercase map and skips only the shrink (the
+  run engraves as full-height capitals), the font-level contract.
+- **The map stays 1:1** (ASCII `a-z` only, the shared `_ASCII_LOWER` gate):
+  accented lowercase, `ß`, digits, punctuation and the derived Unicode symbols
+  engrave verbatim at full size, so the word/glyph stroke partitions stay exact
+  and the glyph groups keep the ORIGINAL character.
+- **It is a pure geometry transform**: `nominal_text_height` /
+  `toolpath_text_height` / the cutter never move, so there is no pen split, no
+  `used_cutters` entry, no kerning-floor change, no underline/strikethrough
+  run-split and no layout-report finding (the underline/strikethrough parity).
+  `measure_line_natural_width` / `measure_line_vertical_extents` route through
+  `_render_line_block`, so the reflow/compression/extents pre-passes are
+  inline-SC-aware for free; the descender relief, hole collisions and band
+  centering measure the rendered geometry, so they see the shrunken ink with no
+  changes of their own.
+- **PLT** (`plt_font_renderer.py`): `_walk_line` gained keyword-only
+  `lowercase_flags` (the companion to `lowercase_scale`, mirroring
+  `italic_tan` + `italic_flags`) threaded through the three public wrappers.
+  The per-character gate maps the glyph *lookup* through
+  `_small_caps_source` and shrinks the cached `_GlyphGeometry` (block + bbox +
+  both envelopes) via `_scale_geometry` **before** kerning, so the small
+  silhouette kerns exactly; the transform order stays SC → bold/scale → shear →
+  kerning → placement, and the uniform scale keeps `AA` arcs native.
+  `lowercase_flags=None` is the font-level whole-line behaviour, so every
+  legacy call site renders bit-identically.
+- **TTF** (`ftext_renderer.py`): a companion `small_caps_flags` rides every
+  existing `small_caps: bool` parameter so the contour-count probe stays
+  consistent — `_ascii_upper_map(text, flags)` maps only the flagged characters
+  (the render string), `_glyph_sources` yields the per-character probe sources,
+  and `_per_glyph_counts` / `_apply_small_caps` / `_apply_italic` /
+  `_apply_glyph_scales` / `_apply_bold` / `_apply_baseline_shifts` /
+  `glyph_groups_for_line` all take the flags. The shrink stays top-down about
+  each glyph's own bottom-left ink corner. Under SC a flagged glyph always
+  takes the italic **shear** (splicing a full-height native italic glyph would
+  undo the shrink); an unflagged full-size capital keeps the native-face splice.
+  The word-grouping gate includes the per-char flags ⇒ exact contour slicing,
+  never the signature matcher (which cannot match shrunk glyphs).
+- **Dispatch** (`label_renderer._small_caps_render_gate`) is the **single
+  decision** shared by the PLT renderer, the TTF renderer and the per-glyph
+  contour-count probe — all three must agree, or the probe asks the font about
+  glyphs the render never drew and the glyph groups are silently lost. It
+  returns `(sc_scale, flags)` when the tag engraves, `None` (the historical
+  call shape) on: no parsed markup, no small-caps run, a font that is **already**
+  a small-caps variant (the line is already small caps — the TODO's "no
+  additional effect", and the font-level render stays bit-identical), or a
+  **symbol font** (`base_font_name(ref.name)` in `non_text_font_names()`),
+  which is exempt from the ` SC` variant because it has no lowercase to shrink.
+  The flags are DERIVED from `styled_runs` (`ResolvedTextLine.small_caps_flags`
+  / `has_small_caps`), never stored positionally — the reflow's `with_markup`
+  text swap keeps every run on its own style (the `<scale:N>` staleness rule).
+- Fixture: `tests_deps/inline_sc_job.yaml` (23 labels) pinned by
+  `TestInlineScDemoExample` — the tagged run between its plain and capitals
+  twins, the exact 0.7 ratio on a lone glyph (a mixed line's ink box is
+  dominated by its full-size capitals, so the ratio pins on `o` vs `O`), the
+  shrunk capital ≠ the font's own lowercase, per-character selection,
+  `sc_scale: 1.0` == authored capitals, the ` SC`-font and symbol-font inertness,
+  caseless characters, the idempotent `<sc>a<sc>b</sc>c</sc>`, `<sc>`+`<b>` /
+  `<scale:0.5>` / `<i>`, and the TTF triple; the export test pins that the tag
+  adds no cutter file of its own. Unit tests: `TestParseSmallCaps` /
+  `TestSmallCapsRegistry` (`tests/test_markup.py`),
+  `TestSmallCapsMarkupFlags` (`tests/test_resolution.py`, the `with_markup`
+  survival pin), `TestInlineSmallCaps` (`tests/test_plt_font_renderer.py`,
+  `tests/test_ftext_renderer.py`), `TestInlineSmallCapsGate` /
+  `TestInlineSmallCapsDispatch` (`tests/test_label_renderer_gaps.py`), and the
+  `<sc>` reflow round-trips (`tests/test_line_content.py`).
 
 ### Horizontal Text Alignment
 
