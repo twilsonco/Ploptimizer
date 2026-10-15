@@ -1080,6 +1080,161 @@ class TestSmallCaps:
         assert [char for char, _ in glyphs] == ["a", "B"]
         assert [word for word, _ in words] == ["aB"]
 
+
+class TestInlineSmallCaps:
+    """The per-character ``lowercase_flags`` selection (the inline ``<sc>`` tag).
+
+    The transform is :class:`TestSmallCaps`'s, narrowed to the flagged
+    characters; the base font (no `` SC`` suffix) renders, so the flags are
+    the only thing selecting the shrink.
+    """
+
+    @pytest.fixture
+    def sc_lib(self, tmp_path: Path) -> Path:
+        """The synthetic library extended with lowercase + descender glyphs."""
+
+        def _entry(
+            hpgl: str,
+            bbox: Tuple[float, float, float, float],
+            left: Sequence[Tuple[float, float]],
+            right: Sequence[Tuple[float, float]],
+        ) -> Dict[str, Any]:
+            return _v2_entry(hpgl, bbox, left, right)
+
+        characters = dict(_SYNTH_CHARACTERS)
+        # The font's own lowercase: half-height, visually distinct from the
+        # full-height uppercase glyph the small caps must use instead.
+        characters["a"] = _entry(
+            "PU0,0;PD500,500;", (0, 0, 500, 500), [(0, 0), (500, 500)], [(0, 0), (500, 500)]
+        )
+        characters["c"] = _entry(
+            "PU0,250;PD0,250;PD;AA250,250,360;",
+            (0, 0, 500, 500),
+            [(250, 0), (0, 250), (250, 500)],
+            [(250, 0), (500, 250), (250, 500)],
+        )
+        # Uppercase G descends (y -0.5..0.5): pins the top-down anchor.
+        characters["G"] = _entry(
+            "PU0,-500;PD500,500;",
+            (0, -500, 500, 500),
+            [(0, -500), (500, 500)],
+            [(0, -500), (500, 500)],
+        )
+        return _write_library(tmp_path, characters)
+
+    def test_flags_none_matches_the_whole_line_transform(self, sc_lib: Path) -> None:
+        """``lowercase_flags=None`` is the font-level whole-line behaviour."""
+        whole = _render("aB", 1.0, sc_lib, lowercase_scale=0.7)
+        flagged = _render(
+            "aB", 1.0, sc_lib, lowercase_scale=0.7, lowercase_flags=(True, True)
+        )
+        assert flagged.bounds() == pytest.approx(whole.bounds())
+
+    def test_unflagged_glyphs_engrave_verbatim(self, sc_lib: Path) -> None:
+        """All-False flags render the base font exactly (the tag's fast path)."""
+        plain = _render("aB", 1.0, sc_lib)
+        unflagged = _render(
+            "aB", 1.0, sc_lib, lowercase_scale=0.7, lowercase_flags=(False, False)
+        )
+        assert unflagged.bounds() == pytest.approx(plain.bounds())
+
+    def test_selection_is_per_character(self, sc_lib: Path) -> None:
+        """Only the flagged lowercase glyph shrinks; its neighbours stay full.
+
+        ``"aBa"`` has two lowercase ``a`` (each 0.5 wide) around a capital
+        ``B``. Under the space-inclusive flags, ``(True, False, False)``
+        shrinks only the first ``a`` and ``(False, False, True)`` only the
+        last; ``(False,)*3`` shrinks none and ``(True,)*3`` shrinks both.
+        Flagging one ``a`` lands strictly between the two extremes, and
+        flagging the middle ``B`` (a capital) changes nothing.
+        """
+        def width(flags: Tuple[bool, bool, bool]) -> float:
+            block = _render(
+                "aBa", 1.0, sc_lib, lowercase_scale=0.7, lowercase_flags=flags,
+                cutter_diameter=0.02,
+            )
+            return block.bounds()[2]
+
+        none = width((False, False, False))
+        both = width((True, False, True))
+        first = width((True, False, False))
+        last = width((False, False, True))
+        middle = width((False, True, False))
+        assert none == pytest.approx(1.04, abs=1e-9)
+        assert both == pytest.approx(1.44, abs=1e-9)
+        # One flagged 'a' sits strictly between none and both.
+        assert none < first < both
+        assert none < last < both
+        # Flagging the capital 'B' (uppercase) engraves verbatim.
+        assert middle == pytest.approx(none, abs=1e-9)
+
+    def test_flagged_glyph_uses_the_uppercase_source(self, sc_lib: Path) -> None:
+        """A flagged ``a`` draws the shrunk ``A``, never the font's own ``a``."""
+        block = _render("a", 1.0, sc_lib, lowercase_scale=0.7, lowercase_flags=(True,))
+        bounds = block.bounds()
+        assert bounds is not None
+        # A spans 1.0x1.0; the font's own 'a' spans 0.5x0.5. 0.7 proves the
+        # uppercase glyph was drawn and shrunk.
+        assert bounds[2] == pytest.approx(0.7, abs=1e-9)
+        assert bounds[3] == pytest.approx(0.7, abs=1e-9)
+
+    def test_top_down_anchor_on_the_flagged_glyph(self, sc_lib: Path) -> None:
+        """The flagged glyph's own lowest point stays put; its top descends."""
+        base = _render("G", 1.0, sc_lib).bounds()
+        shrunk = _render(
+            "g", 1.0, sc_lib, lowercase_scale=0.7, lowercase_flags=(True,)
+        ).bounds()
+        assert base is not None and shrunk is not None
+        assert shrunk[1] == pytest.approx(base[1], abs=1e-9)
+        assert shrunk[3] == pytest.approx(0.2, abs=1e-9)
+
+    def test_arcs_stay_native_under_the_flagged_shrink(self, sc_lib: Path) -> None:
+        """The uniform scale keeps the arc-native contract (no flattening)."""
+        block = _render("c", 1.0, sc_lib, lowercase_scale=0.7, lowercase_flags=(True,))
+        assert _count_arcs(block) == 1
+        assert "AA" in block.to_hpgl()
+
+    def test_glyph_groups_keep_the_original_characters(self, sc_lib: Path) -> None:
+        """The per-glyph partition is keyed by the text, not the mapped glyphs."""
+        _block, _words, glyphs = render_text_line_plt_font_with_glyphs(
+            "aB", 1.0, "Test", library_dir=sc_lib, lowercase_scale=0.7,
+            lowercase_flags=(True, False),
+        )
+        assert [char for char, _ in glyphs] == ["a", "B"]
+
+    def test_space_index_counts_in_the_flags(self, sc_lib: Path) -> None:
+        """The flags align with the text INCLUDING spaces (the italic rule).
+
+        ``"a a"`` has its space at index 1. Under the space-inclusive rule
+        ``(True, True, False)`` flags only the first ``a`` (one small
+        capital), while ``(True, False, True)`` flags both (two). A
+        space-skipping index would read the first tuple as "both flagged"
+        and the two renders would agree.
+        """
+        one = _render(
+            "a a", 1.0, sc_lib, lowercase_scale=0.7, lowercase_flags=(True, True, False),
+            cutter_diameter=0.02,
+        )
+        two = _render(
+            "a a", 1.0, sc_lib, lowercase_scale=0.7, lowercase_flags=(True, False, True),
+            cutter_diameter=0.02,
+        )
+        plain = _render("a a", 1.0, sc_lib, cutter_diameter=0.02)
+        assert one.bounds()[2] == pytest.approx(1.5, abs=1e-9)
+        assert two.bounds()[2] == pytest.approx(1.7, abs=1e-9)
+        assert plain.bounds()[2] == pytest.approx(1.3, abs=1e-9)
+
+    def test_flag_length_mismatch_raises(self, sc_lib: Path) -> None:
+        """A flags/text length mismatch is a loud ValueError."""
+        with pytest.raises(ValueError, match="lowercase_flags length 1 != text length 2"):
+            _render("aB", 1.0, sc_lib, lowercase_scale=0.7, lowercase_flags=(True,))
+
+    def test_scale_one_with_flags_maps_without_shrinking(self, sc_lib: Path) -> None:
+        """``lowercase_scale=1.0`` + flags: the uppercase map, no shrink."""
+        mapped = _render("aB", 1.0, sc_lib, lowercase_scale=1.0, lowercase_flags=(True, False))
+        caps = _render("AB", 1.0, sc_lib)
+        assert mapped.bounds() == pytest.approx(caps.bounds())
+
     def test_bundled_font_small_caps(self) -> None:
         """The shipped Dino variant shrinks lowercase against the real library."""
         caps = render_text_line_plt_font("A", 0.5, "Dino")

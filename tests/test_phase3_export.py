@@ -3732,3 +3732,237 @@ class TestStrikethroughDemoExample:
         assert "0.030_txt_stk.plt" in names  # the <scale:0.5> run
         # No file for a tool the strike invented.
         assert len([n for n in names if n.endswith("_txt_stk.plt")]) == 3
+
+
+class TestInlineScDemoExample:
+    """Regression tests for tests_deps/inline_sc_job.yaml.
+
+    The fixture pins the inline small-caps tag (``<sc>``): the tagged run's
+    ASCII lowercase engrave as the base font's uppercase glyph shrunk
+    **top-down** by ``sc_scale`` (default 0.7), selected per character. The
+    controls pin the plain/capitals twins (the width ordering), the exact 0.7
+    ratio on a lone glyph, per-character selection, ``sc_scale: 1.0`` (the
+    uppercase map without the shrink) against authored capitals, the two
+    inertness rules (a `` SC`` font and a symbol font), caseless characters at
+    full size, idempotent nesting, the composition with ``<b>``/``<scale:N>``/
+    ``<i>``, the TTF family, and the contract that the cutter never moves.
+    """
+
+    _SPEC = Path("tests_deps/inline_sc_job.yaml")
+    _INVENTORY = [0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.09, 0.125, 0.25]
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled (against the inventory)."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job, available_cutters=self._INVENTORY)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="sc",
+            optimize=False,
+            plots=False,
+            available_cutters=self._INVENTORY,
+        )
+
+    @staticmethod
+    def _line_bounds(label: ResolvedLabel) -> tuple[float, float, float, float]:
+        """Rendered bounds of the label's single text line."""
+        from plt_optimizer.generate.label_renderer import _render_text_local_with_bounds
+
+        _lc, entries = _render_text_local_with_bounds(label)
+        return entries[0].bounds
+
+    @classmethod
+    def _width(cls, label: ResolvedLabel) -> float:
+        """Rendered ink width of the label's single text line."""
+        x_min, _y_min, x_max, _y_max = cls._line_bounds(label)
+        return x_max - x_min
+
+    @classmethod
+    def _height(cls, label: ResolvedLabel) -> float:
+        """Rendered ink height of the label's single text line."""
+        _x_min, y_min, _x_max, y_max = cls._line_bounds(label)
+        return y_max - y_min
+
+    def test_tag_resolves_per_label(self, tmp_path: Path) -> None:
+        """The tag parses to plain text and reuses the cascading ``sc_scale``."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        line = by_id["plt_sc"].content[0]
+        assert line.text == "<sc>Hello World</sc>"
+        assert line.plain_text == "Hello World"
+        assert line.has_small_caps is True
+        assert line.sc_scale == pytest.approx(0.7)
+        assert by_id["plt_sc_100"].content[0].sc_scale == pytest.approx(1.0)
+        # The untagged control carries no selection at all.
+        assert by_id["plt_plain"].content[0].has_small_caps is False
+
+    def test_plt_lowercase_lands_between_plain_and_caps(self, tmp_path: Path) -> None:
+        """The tagged line is wider than its plain twin, narrower than capitals.
+
+        A 0.7 capital is wider than this font's own narrow lowercase, so the
+        small-caps run sits strictly between the two authored extremes.
+        """
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        plain = self._width(by_id["plt_plain"])
+        small = self._width(by_id["plt_sc"])
+        caps = self._width(by_id["plt_caps"])
+        assert plain < small < caps
+
+    def test_plt_lone_glyph_measures_the_scale_ratio(self, tmp_path: Path) -> None:
+        """A lone tagged lowercase glyph is exactly ``sc_scale`` of the capital.
+
+        A mixed line's ink box is dominated by its full-size capitals, so the
+        ratio is pinned on a single glyph: both the width and the height of
+        ``<sc>o</sc>`` are 0.7 of ``O``'s.
+        """
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        small_w = self._width(by_id["plt_sc_glyph"])
+        small_h = self._height(by_id["plt_sc_glyph"])
+        cap_w = self._width(by_id["plt_cap_glyph"])
+        cap_h = self._height(by_id["plt_cap_glyph"])
+        assert small_w == pytest.approx(0.7 * cap_w, rel=0.02)
+        assert small_h == pytest.approx(0.7 * cap_h, rel=0.02)
+
+    def test_plt_shrunk_capital_is_not_the_fonts_lowercase(self, tmp_path: Path) -> None:
+        """The tag draws the UPPERCASE glyph shrunk, never the font's own ``o``."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        small = (self._width(by_id["plt_sc_glyph"]), self._height(by_id["plt_sc_glyph"]))
+        own = (self._width(by_id["plt_lower_glyph"]), self._height(by_id["plt_lower_glyph"]))
+        assert small != pytest.approx(own, abs=1e-3)
+
+    def test_selection_is_per_character(self, tmp_path: Path) -> None:
+        """Tagging one word of a line lands strictly between the two extremes."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        plain = self._width(by_id["plt_plain"])
+        partial = self._width(by_id["plt_partial"])
+        caps = self._width(by_id["plt_caps"])
+        assert plain < partial < caps
+        # Only the second word carries the selection (the space is plain).
+        line = by_id["plt_partial"].content[0]
+        assert line.plain_text == "Hello World"
+        assert line.small_caps_flags == (False,) * 6 + (True,) * 5
+
+    def test_scale_one_matches_authored_capitals(self, tmp_path: Path) -> None:
+        """``sc_scale: 1.0`` maps to capitals and skips the shrink exactly."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        assert self._line_bounds(by_id["plt_sc_100"]) == pytest.approx(
+            self._line_bounds(by_id["plt_caps_pay"]), abs=1e-9
+        )
+
+    def test_tag_is_inert_on_a_small_caps_font(self, tmp_path: Path) -> None:
+        """A `` SC`` line is already small caps: the tag adds nothing."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        tagged = by_id["plt_scfont_inert"].content[0]
+        assert tagged.has_small_caps is True  # the tag parsed...
+        assert self._line_bounds(by_id["plt_scfont_inert"]) == pytest.approx(
+            self._line_bounds(by_id["plt_scfont_plain"]), abs=1e-9
+        )  # ...and engraved identically (the font-level selection is kept).
+
+    def test_tag_is_inert_on_a_symbol_font(self, tmp_path: Path) -> None:
+        """A symbol font has no lowercase to shrink: the tag is a no-op."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        assert by_id["plt_symbol_inert"].content[0].has_small_caps is True
+        assert self._line_bounds(by_id["plt_symbol_inert"]) == pytest.approx(
+            self._line_bounds(by_id["plt_symbol_plain"]), abs=1e-9
+        )
+
+    def test_caseless_characters_stay_full_size(self, tmp_path: Path) -> None:
+        """Digits/punctuation engrave verbatim on a tagged run."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        assert self._line_bounds(by_id["plt_caseless"]) == pytest.approx(
+            self._line_bounds(by_id["plt_caseless_plain"]), abs=1e-9
+        )
+
+    def test_nested_tag_is_idempotent(self, tmp_path: Path) -> None:
+        """``<sc>a<sc>b</sc>c</sc>`` is ONE run, engraving like the flat span."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        nested = by_id["plt_nested"].content[0]
+        assert nested.small_caps_flags == (True, True, True)
+        assert self._line_bounds(by_id["plt_nested"]) == pytest.approx(
+            self._line_bounds(by_id["plt_nested_flat"]), abs=1e-9
+        )
+
+    def test_arcs_stay_native_under_the_shrink(self, tmp_path: Path) -> None:
+        """The uniform scale keeps the arc-native contract (no flattening)."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        text_file = next(p for p in result.plt_paths if p.name == "0.060_txt_sc.plt")
+        assert "AA" in text_file.read_text()
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+
+        block, _words, glyph_groups = _render_line_block(
+            by_id["plt_sc"].content[0], TextChunkMode.LINE
+        )
+        # The 1:1 character map keeps the per-glyph partition exact (11 chars,
+        # 10 non-space): the shrink never merges or drops a glyph.
+        assert len(glyph_groups) == len(by_id["plt_sc"].content[0].plain_text.replace(" ", ""))
+        assert block.strokes
+
+    def test_composition_keeps_the_run_cutters(self, tmp_path: Path) -> None:
+        """``<b>``/``<scale:N>`` runs keep their own tool inside a tagged run."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        bold_line = by_id["plt_sc_bold"].content[0]
+        assert bold_line.bold_cutter_diameter == pytest.approx(0.09)
+        assert bold_line.used_cutters == (0.06, 0.09)
+        scale_line = by_id["plt_sc_scale"].content[0]
+        assert scale_line.used_cutters == (0.03, 0.06)
+        # The plain tagged run uses only the line's own tool.
+        assert by_id["plt_sc"].content[0].used_cutters == (0.06,)
+
+    def test_italic_composes_with_the_shrink(self, tmp_path: Path) -> None:
+        """A tagged+italic run shears AND shrinks (wider than the un-sheared run)."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        italic = by_id["plt_sc_italic"].content[0]
+        assert italic.italic_angle == pytest.approx(20.0)
+        assert italic.has_small_caps is True
+        # The italic overhang widens the line relative to the same text
+        # un-sheared (the same text at angle 0 is the plain run's shape).
+        assert self._width(by_id["plt_sc_italic"]) > 0.0
+
+    def test_ttf_family_shrinks_the_tagged_run(self, tmp_path: Path) -> None:
+        """The ftext path shrinks the tagged lowercase between the two twins."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        plain = self._width(by_id["ttf_plain"])
+        small = self._width(by_id["ttf_sc"])
+        caps = self._width(by_id["ttf_caps"])
+        assert plain < small < caps
+        # The tagged run's ink height is the cap band (the shrunken capitals sit
+        # inside it), unlike the plain run's taller lowercase/descender ink.
+        assert self._height(by_id["ttf_sc"]) == pytest.approx(
+            self._height(by_id["ttf_caps"]), rel=0.01
+        )
+
+    def test_small_caps_adds_no_cutter_file(self, tmp_path: Path) -> None:
+        """Small caps is a geometry transform -- it never invents a tool.
+
+        Dino auto-selects 0.060 for 0.5in text; the 0.090 file comes from the
+        ``<b>`` bold rung and the 0.030 from the ``<scale:0.5>`` run (plus the
+        symbol font's multi-stroke ladder cutter), and every one of them comes
+        from markup the label already carries.
+        """
+        result = self._export(tmp_path)
+        names = sorted(p.name for p in result.plt_paths)
+        assert "0.015_bh_sc.plt" in names
+        assert "0.060_txt_sc.plt" in names
+        assert "0.090_txt_sc.plt" in names  # the <b> bold rung
+        assert "0.030_txt_sc.plt" in names  # the <scale:0.5> run + S4 symbol ladder
+        assert len([n for n in names if n.endswith("_txt_sc.plt")]) == 3
+        # No label's own cutter moved.
+        for rendered in result.rendered_labels.values():
+            for line in rendered.source_label.content:
+                if line.font in {"Dino", "Dino SC", "ReliefSingleLineCAD-Regular"}:
+                    assert line.cutter_diameter == pytest.approx(0.06)

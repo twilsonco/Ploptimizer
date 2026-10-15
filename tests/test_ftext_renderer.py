@@ -696,6 +696,146 @@ class TestSmallCaps:
         assert "rendering at full size" in caplog.text
 
 
+class TestInlineSmallCaps:
+    """The per-character ``small_caps_flags`` selection (the inline ``<sc>`` tag).
+
+    The transform is :class:`TestSmallCaps`'s, narrowed to the flagged
+    characters; the flags align with the ORIGINAL text (spaces included).
+    """
+
+    def test_flags_none_matches_the_whole_line_transform(self) -> None:
+        """``small_caps_flags=None`` is the font-level whole-line behaviour."""
+        whole = ftext_renderer.render_text_line_ftext(
+            "Aa", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.7
+        )
+        flagged = ftext_renderer.render_text_line_ftext(
+            "Aa", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.7,
+            small_caps_flags=(True, True),
+        )
+        assert _extents(flagged) == pytest.approx(_extents(whole), abs=1e-9)
+
+    def test_unflagged_line_renders_verbatim(self) -> None:
+        """All-False flags render the base font exactly (the tag's fast path)."""
+        plain = ftext_renderer.render_text_line_ftext("Aa", 1.0, DEFAULT_FONT_PATH)
+        unflagged = ftext_renderer.render_text_line_ftext(
+            "Aa", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.7,
+            small_caps_flags=(False, False),
+        )
+        assert _extents(unflagged) == pytest.approx(_extents(plain), abs=1e-9)
+
+    def test_selection_is_per_character(self) -> None:
+        """Only the flagged lowercase glyph shrinks; its neighbour stays full."""
+        # "aa": flag the FIRST glyph only. The flagged slice is the shrunk
+        # capital (0.7 of the cap box); the unflagged slice is the font's own
+        # lowercase, byte-identical to the transform-off render of that glyph.
+        flags = (True, False)
+        flagged = ftext_renderer.render_text_line_ftext(
+            "aa", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.7, small_caps_flags=flags
+        )
+        unflagged = ftext_renderer.render_text_line_ftext(
+            "aa", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.7,
+            small_caps_flags=(False, False),
+        )
+        flagged_groups = ftext_renderer.glyph_groups_for_line(
+            "aa", DEFAULT_FONT_PATH, len(flagged), small_caps=True, small_caps_flags=flags
+        )
+        plain_groups = ftext_renderer.glyph_groups_for_line("aa", DEFAULT_FONT_PATH, len(unflagged))
+        # The second (unflagged) glyph keeps its own ink shape (its X rides the
+        # first glyph's advance, which the mapped capital legitimately changes).
+        assert _extents(flagged, flagged_groups[1][1])[2:] == pytest.approx(
+            _extents(unflagged, plain_groups[1][1])[2:], abs=1e-9
+        )
+        # The flagged glyph is NOT the font's own lowercase glyph.
+        assert _extents(flagged, flagged_groups[0][1])[2:] != pytest.approx(
+            _extents(unflagged, plain_groups[0][1])[2:], abs=1e-3
+        )
+
+    def test_flagged_glyph_uses_the_capital_shrunk_top_down(self) -> None:
+        """A flagged ``a`` draws the shrunk capital, not the font's own ``a``."""
+        mapped = ftext_renderer.render_text_line_ftext("AA", 1.0, DEFAULT_FONT_PATH)
+        small = ftext_renderer.render_text_line_ftext(
+            "Aa", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.7,
+            small_caps_flags=(False, True),
+        )
+        cap = _extents(
+            mapped,
+            ftext_renderer.glyph_groups_for_line("AA", DEFAULT_FONT_PATH, len(mapped))[1][1],
+        )
+        shrunk = _extents(
+            small,
+            ftext_renderer.glyph_groups_for_line(
+                "Aa", DEFAULT_FONT_PATH, len(small),
+                small_caps=True, small_caps_flags=(False, True),
+            )[1][1],
+        )
+        # Anchor: the glyph's own left edge and lowest ink stay exactly put.
+        assert shrunk[0] == pytest.approx(cap[0], abs=1e-9)
+        assert shrunk[2] == pytest.approx(cap[2], abs=1e-9)
+        assert shrunk[1] - shrunk[0] == pytest.approx(0.7 * (cap[1] - cap[0]), abs=1e-9)
+        assert shrunk[3] - shrunk[2] == pytest.approx(0.7 * (cap[3] - cap[2]), abs=1e-9)
+
+    def test_unflagged_lowercase_stays_the_fonts_own_glyph(self) -> None:
+        """An unflagged lowercase glyph keeps the font's own lowercase ink."""
+        plain = ftext_renderer.render_text_line_ftext("aA", 1.0, DEFAULT_FONT_PATH)
+        unflagged = ftext_renderer.render_text_line_ftext(
+            "aA", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.7,
+            small_caps_flags=(False, False),
+        )
+        assert _extents(unflagged) == pytest.approx(_extents(plain), abs=1e-9)
+
+    def test_glyph_groups_keyed_by_original_with_flags(self) -> None:
+        """The partition reports the text's characters, sliced by the mapped counts."""
+        whole, _words, glyphs = ftext_renderer.render_text_line_ftext_with_glyphs(
+            "Hi there", 0.5, DEFAULT_FONT_PATH, small_caps_scale=0.7,
+            small_caps_flags=tuple(ch.islower() for ch in "Hi there"),
+        )
+        assert [char for char, _indices in glyphs] == list("Hithere")
+        flat = [i for _char, indices in glyphs for i in indices]
+        assert sorted(flat) == list(range(len(whole)))
+
+    def test_word_groups_partition_the_line_with_flags(self) -> None:
+        """Flagged SC word groups come from the exact slicing and partition."""
+        whole, words = ftext_renderer.render_text_line_ftext_with_words(
+            "Hi there", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.7,
+            small_caps_flags=tuple(ch.islower() for ch in "Hi there"),
+        )
+        assert [word for word, _indices in words] == ["Hi", "there"]
+        flat = [i for _word, indices in words for i in indices]
+        assert sorted(flat) == list(range(len(whole)))
+
+    def test_coverage_probe_sees_the_selectively_mapped_string(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The glyph-coverage probe sees only the flagged characters uppercased."""
+        seen: list[str] = []
+        monkeypatch.setattr(
+            ftext_renderer,
+            "_assert_glyph_coverage",
+            lambda path, text: seen.append(text),
+        )
+        ftext_renderer.render_text_line_ftext(
+            "My Aunt", 0.5, DEFAULT_FONT_PATH, small_caps_scale=0.7,
+            small_caps_flags=(False, True, False, False, False, False, False),
+        )
+        # Only the flagged 'y' maps; the rest keeps its case.
+        assert seen == ["MY Aunt"]
+
+    def test_count_mismatch_falls_back_to_full_size_with_flags(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A contour-count drift leaves the natural (mapped) uppercase render."""
+        monkeypatch.setattr(ftext_renderer, "_glyph_contour_count", lambda path, ch: 99)
+        with caplog.at_level(logging.WARNING):
+            lc = ftext_renderer.render_text_line_ftext(
+                "ab", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.7,
+                small_caps_flags=(True, True),
+            )
+        caps = ftext_renderer.render_text_line_ftext("AB", 1.0, DEFAULT_FONT_PATH)
+        assert not lc.is_empty()
+        assert _extents(lc) == pytest.approx(_extents(caps), abs=1e-9)
+        assert "rendering at full size" in caplog.text
+
+
 class TestItalicShear:
     """The ``<i>`` transform (TTF family): shear fallback + native splice."""
 

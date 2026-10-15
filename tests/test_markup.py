@@ -533,8 +533,8 @@ class TestUnderlineRegistry:
         assert spec.accepts_args is False
 
     def test_italic_and_underline_are_distinct_tags(self) -> None:
-        """Registry order (i, u, b, scale, sup, sub, s) fixes serialization nesting."""
-        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale", "sup", "sub", "s"]
+        """Registry order (i, u, b, scale, sup, sub, s, sc) fixes serialization nesting."""
+        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale", "sup", "sub", "s", "sc"]
 
 
 class TestParseBold:
@@ -623,7 +623,7 @@ class TestScaleRegistry:
         mandatory-arg tags; sup/sub joined after it)."""
         spec = TAG_REGISTRY["scale"]
         assert spec.accepts_args is True
-        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale", "sup", "sub", "s"]
+        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale", "sup", "sub", "s", "sc"]
         assert spec.apply(PLAIN, "0.5") == SCALED_HALF
         # Set-to-value: re-applying with the same argument is idempotent.
         assert spec.apply(SCALED_HALF, "0.5") == SCALED_HALF
@@ -767,7 +767,7 @@ class TestSupSubRegistry:
 
     def test_sup_sub_are_registered_last(self) -> None:
         """Both tags accept an optional arg and are registered after scale."""
-        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale", "sup", "sub", "s"]
+        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale", "sup", "sub", "s", "sc"]
         for name in ("sup", "sub"):
             spec = TAG_REGISTRY[name]
             assert spec.accepts_args is True
@@ -1062,10 +1062,119 @@ class TestStrikethroughRegistry:
         assert len(styled.runs) == 1
 
     def test_strike_and_underline_are_distinct_tags(self) -> None:
-        """Registry order (i, u, b, scale, sup, sub, s) fixes nesting."""
-        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale", "sup", "sub", "s"]
+        """Registry order (i, u, b, scale, sup, sub, s, sc) fixes nesting."""
+        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale", "sup", "sub", "s", "sc"]
 
     def test_nested_strike_serializes_flat(self) -> None:
         """The idempotent nesting serializes to one span (no nested <s>)."""
         styled = parse_markup("<s>a<s>b</s>c</s>")
         assert serialize_runs(styled.runs) == "<s>abc</s>"
+
+
+SMALL_CAPS = Style(small_caps=True)
+
+
+class TestParseSmallCaps:
+    """The <sc> tag: inline small caps over the plain text."""
+
+    def test_small_caps_run_splits_the_line(self) -> None:
+        """plain <sc>X</sc> plain yields plain/small-caps/plain runs."""
+        styled = parse_markup("plain <sc>X</sc> plain")
+        assert styled.plain_text == "plain X plain"
+        assert styled.has_markup is True
+        flags = styled.small_caps_flags
+        assert len(flags) == 13
+        assert flags[6] is True
+        assert sum(flags) == 1
+
+    def test_argumented_form_is_literal_text(self) -> None:
+        """<sc> takes no args, so <sc:0.5> engraves verbatim (the <b:2> rule)."""
+        styled = parse_markup("<sc:0.5>text</sc:0.5>")
+        assert styled.has_markup is False
+        assert styled.plain_text == "<sc:0.5>text</sc:0.5>"
+
+    def test_unclosed_small_caps_raises(self) -> None:
+        """An unclosed <sc> is a hard error (the fail-loud contract)."""
+        with pytest.raises(MarkupError, match="Unclosed tag <sc>"):
+            parse_markup("<sc>abc")
+
+    def test_mismatched_close_raises(self) -> None:
+        """</sc> closing an <i> span is a hard error."""
+        with pytest.raises(MarkupError, match="does not match open tag"):
+            parse_markup("<i>x</sc>")
+
+    def test_small_caps_inside_italic_composes(self) -> None:
+        """<sc> inside <i> carries both flags."""
+        styled = parse_markup("<i>nested <sc>markup</sc> tail</i>")
+        assert styled.plain_text == "nested markup tail"
+        styles = [style for run in styled.runs for style in (run.style,) * len(run.text)]
+        assert styles[7] == Style(italic=True, small_caps=True)
+        assert styles[0] == ITALIC
+
+    def test_serialization_round_trips(self) -> None:
+        """The small-caps tag re-emits and re-parses identically."""
+        raw = "<sc>caps</sc> and <i><sc>both</sc></i>"
+        styled = parse_markup(raw)
+        assert serialize_runs(styled.runs) == raw
+        assert parse_markup(raw).runs == styled.runs
+
+    def test_nested_word_serialization_round_trips(self) -> None:
+        """A small-caps word token round-trips (the reflow contract)."""
+        styled = parse_markup("x <sc>abc</sc> y")
+        words = split_styled_words(styled)
+        assert [word.text for word in words] == ["x", "abc", "y"]
+        assert serialize_word(words[1]) == "<sc>abc</sc>"
+        reparsed = parse_markup(serialize_word(words[1]))
+        assert reparsed.plain_text == "abc"
+        assert all(reparsed.small_caps_flags)
+
+    def test_small_caps_span_covering_a_space_keeps_the_separator(self) -> None:
+        """<sc>foo bar</sc> tokenizes with the small-caps separator (underline rule)."""
+        styled = parse_markup("<sc>foo bar</sc>")
+        words, separators = split_styled_words_with_separators(styled)
+        assert [word.text for word in words] == ["foo", "bar"]
+        # The space between the words is inside the small-caps span.
+        assert separators[0] == SMALL_CAPS
+
+
+class TestSmallCapsRegistry:
+    """The <sc> registry entry."""
+
+    def test_small_caps_is_registered(self) -> None:
+        """The shipped tag is present, idempotent, and takes no args."""
+        spec = TAG_REGISTRY["sc"]
+        assert spec.apply(PLAIN, "") == SMALL_CAPS
+        assert spec.apply(SMALL_CAPS, "") == SMALL_CAPS
+        # Applying <sc> inside <i> composes (idempotent per field).
+        assert spec.apply(ITALIC, "") == Style(italic=True, small_caps=True)
+        assert spec.accepts_args is False
+        assert spec.args_optional is False
+
+    def test_nested_small_caps_is_idempotent(self) -> None:
+        """<sc> inside <sc> has no additional effect (the TODO's contract)."""
+        styled = parse_markup("<sc>a<sc>b</sc>c</sc>")
+        assert styled.plain_text == "abc"
+        assert styled.small_caps_flags == (True, True, True)
+        # The whole line is one small-caps run (adjacent same-style runs merge).
+        assert len(styled.runs) == 1
+
+    def test_nested_small_caps_serializes_flat(self) -> None:
+        """The idempotent nesting serializes to one span (no nested <sc>)."""
+        styled = parse_markup("<sc>a<sc>b</sc>c</sc>")
+        assert serialize_runs(styled.runs) == "<sc>abc</sc>"
+
+    def test_small_caps_is_registered_last(self) -> None:
+        """Registry order (i, u, b, scale, sup, sub, s, sc) fixes nesting."""
+        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale", "sup", "sub", "s", "sc"]
+
+    def test_small_caps_and_scale_are_distinct_tags(self) -> None:
+        """<sc> (small caps) and <scale:N> (silhouette scale) are separate fields."""
+        styled = parse_markup("<scale:0.5><sc>both</sc></scale>")
+        assert styled.plain_text == "both"
+        assert styled.scale_values == (0.5, 0.5, 0.5, 0.5)
+        assert styled.small_caps_flags == (True, True, True, True)
+
+    def test_style_boundaries_see_the_small_caps_run(self) -> None:
+        """A small-caps span is a style boundary for the reflow's scope guard."""
+        styled = parse_markup("ab<sc>cd</sc>ef")
+        assert style_boundaries(styled) == (2, 4)

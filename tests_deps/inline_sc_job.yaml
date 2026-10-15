@@ -1,0 +1,222 @@
+# Fixture for the inline small-caps markup tag (`<sc>`, the eighth markup tag).
+#
+# `<sc>...</sc>` applies the small-caps transform to JUST the tagged run: the
+# run's ASCII lowercase `a-z` engrave as the base font's **uppercase** glyph
+# uniformly shrunk to `sc_scale` of the cap height (default 0.7), **top-down**
+# about the glyph's own bottom (its bottom stays exactly in place, its top
+# descends). Caseless characters (uppercase, digits, punctuation, the derived
+# Unicode symbols) engrave verbatim at full size, the character map is strictly
+# 1:1 (so the word/glyph stroke partitions stay exact), and the nominal/toolpath
+# `text_height` is untouched -- small caps is a pure geometry transform, so the
+# cutter, the pen map and the `<cutter>_txt_` file names never move.
+#
+# The transform is the exact one the `<base> SC` FONT variant applies to the
+# whole line, selected per character. Two inertness rules follow from that:
+#
+#   * a line whose font is ALREADY a small-caps variant (`Dino SC`) engraves
+#     every lowercase character as a shrunken capital, so the tag has no
+#     additional effect there (the TODO's "applied to text that is already in
+#     small caps"); the renderers keep the font-level whole-line selection and
+#     the render stays bit-identical to the pre-tag behaviour;
+#   * a symbol font (`Wingdings`, listed in `Fonts/VP-EL-Fonts/non_text_fonts.txt`)
+#     is exempt from the ` SC` variant because it has no lowercase to shrink --
+#     the same reasoning applies inline, so the tag is a no-op.
+#
+# Nesting is idempotent: `<sc>a<sc>b</sc>c</sc>` is ONE small-caps run (the
+# close pops the pre-open style), so it engraves exactly like `<sc>abc</sc>`.
+#
+# The tag composes with the other markup: `<b>`/`<scale:N>` runs keep their own
+# (larger/smaller) cutter and split onto their own pen -- the small-caps shrink
+# is uniform about the glyph's bottom and never introduces a tool of its own --
+# and `<i>` shears the small glyph (PLT: shear after the shrink; TTF: the shear
+# fallback, never a full-height native italic splice, which would undo it).
+#
+# `sc_scale` is the EXISTING cascading field (line -> label -> job ->
+# job-config.json, default 0.7) reused by the tag: there is deliberately no new
+# schema field, and `sc_scale: 1.0` keeps the uppercase map while skipping only
+# the shrink (the run engraves as full-height capitals).
+#
+# No plate declares a material and the job packs onto one sheet, so emitted
+# names carry no plate/material prefix. `max_h_compress` stays unset (0.0): no
+# line compresses, so every pinned number below is pure small-caps geometry.
+job:
+  job_name: Inline Small Caps Demo
+
+  width: 4.0
+  height: 1.0
+  margin: 0.1
+  text_height: 0.5
+  line_spacing: 0.15
+  auto_descending_character_adjustment: false
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. The inline tag on a base font: the lowercase engrave as 0.7 capitals,
+    #    so the line is WIDER than its plain twin (a 0.7 capital is wider than
+    #    this font's own narrow lowercase) and NARROWER than full capitals.
+    - id: plt_sc
+      font: Dino
+      content:
+        - text: "<sc>Hello World</sc>"
+
+    # 2. The plain control for label 1 (the font's own lowercase, narrowest).
+    - id: plt_plain
+      font: Dino
+      content:
+        - text: "Hello World"
+
+    # 3. The capitals control for label 1 (full size, widest).
+    - id: plt_caps
+      font: Dino
+      content:
+        - text: "HELLO WORLD"
+
+    # 4. Per-character selection: only `World` is tagged, so the line lands
+    #    strictly between its plain and capitals twins.
+    - id: plt_partial
+      font: Dino
+      content:
+        - text: "Hello <sc>World</sc>"
+
+    # 5. The exact 0.7 ratio pin: a LONE tagged lowercase glyph measures 0.7 of
+    #    the capital's ink in BOTH width and height (a mixed line's ink box is
+    #    dominated by its full-size capitals, which is why labels 1-4 pin only
+    #    the ordering).
+    - id: plt_sc_glyph
+      width: 2.0
+      font: Dino
+      content:
+        - text: "<sc>o</sc>"
+
+    # 6. The capital control for label 5 (the glyph the small caps draws from).
+    - id: plt_cap_glyph
+      width: 2.0
+      font: Dino
+      content:
+        - text: "O"
+
+    # 7. The font's OWN lowercase control: its ink is a different shape from
+    #    the shrunk capital, proving the tag draws the uppercase glyph.
+    - id: plt_lower_glyph
+      width: 2.0
+      font: Dino
+      content:
+        - text: "o"
+
+    # 8. sc_scale 1.0: the uppercase map applies and only the shrink is skipped,
+    #    so the run engraves as full-height capitals (label 9 is its twin).
+    - id: plt_sc_100
+      font: Dino
+      sc_scale: 1.0
+      content:
+        - text: "<sc>pay deep</sc>"
+
+    # 9. The capitals control for label 8 (authored capitals, no tag).
+    - id: plt_caps_pay
+      font: Dino
+      content:
+        - text: "PAY DEEP"
+
+    # 10. Inert on a small-caps FONT: the line is already small caps, so the tag
+    #     has no additional effect (bit-identical to label 11).
+    - id: plt_scfont_inert
+      font: "Dino SC"
+      content:
+        - text: "<sc>Hello World</sc>"
+
+    # 11. The font-level small-caps control for label 10 (no tag at all).
+    - id: plt_scfont_plain
+      font: "Dino SC"
+      content:
+        - text: "Hello World"
+
+    # 12. Inert on a SYMBOL font (no lowercase to shrink): bit-identical to
+    #     label 13. (Wingdings is a multi-stroke S4 sheet, so its cutter comes
+    #     from the boldness ladder for BOTH labels -- the step-up WARNING is the
+    #     pre-existing multi-stroke behaviour, not the tag's doing.)
+    - id: plt_symbol_inert
+      width: 2.0
+      font: Wingdings
+      content:
+        - text: "<sc>abc</sc>"
+
+    # 13. The symbol-font control for label 12.
+    - id: plt_symbol_plain
+      width: 2.0
+      font: Wingdings
+      content:
+        - text: "abc"
+
+    # 14. Caseless characters engrave at full size on a tagged run.
+    - id: plt_caseless
+      width: 2.0
+      font: Dino
+      content:
+        - text: "<sc>1-1</sc>"
+
+    # 15. The caseless control for label 14.
+    - id: plt_caseless_plain
+      width: 2.0
+      font: Dino
+      content:
+        - text: "1-1"
+
+    # 16. Idempotent nesting: `<sc>a<sc>b</sc>c</sc>` is ONE small-caps run, so
+    #     it engraves exactly like the flat span of label 17.
+    - id: plt_nested
+      width: 2.0
+      font: Dino
+      content:
+        - text: "<sc>a<sc>b</sc>c</sc>"
+
+    # 17. The flat-span control for label 16.
+    - id: plt_nested_flat
+      width: 2.0
+      font: Dino
+      content:
+        - text: "<sc>abc</sc>"
+
+    # 18. Small caps + `<b>`: the tagged run shrinks while the bold run keeps
+    #     the next larger rung, so the line splits onto two pens (0.060 + 0.090).
+    - id: plt_sc_bold
+      font: Dino
+      content:
+        - text: "<sc>pay <b>deep</b></sc>"
+
+    # 19. Small caps + `<scale:N>`: the scaled run keeps its own
+    #     effective-height tool (0.030) inside the small-caps run.
+    - id: plt_sc_scale
+      font: Dino
+      content:
+        - text: "<sc>pay <scale:0.5>deep</scale></sc>"
+
+    # 20. Small caps + `<i>`: every glyph of the run shears AND shrinks (PLT:
+    #     the shear applies to the small glyph, the slanted silhouette kerns).
+    - id: plt_sc_italic
+      font: Dino
+      italic_angle: 20
+      content:
+        - text: "<sc>pay deep</sc>"
+
+    # 21. TrueType small caps through the ftext path: the same top-down shrink,
+    #     synthesized by mapping the tagged characters to their capitals.
+    - id: ttf_sc
+      font: ReliefSingleLineCAD-Regular
+      content:
+        - text: "<sc>Hello World</sc>"
+
+    # 22. The TTF plain control for label 21.
+    - id: ttf_plain
+      font: ReliefSingleLineCAD-Regular
+      content:
+        - text: "Hello World"
+
+    # 23. The TTF capitals control for label 21.
+    - id: ttf_caps
+      font: ReliefSingleLineCAD-Regular
+      content:
+        - text: "HELLO WORLD"

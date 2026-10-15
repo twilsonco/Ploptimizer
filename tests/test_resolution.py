@@ -5373,3 +5373,77 @@ class TestGlyphRenderPlanSupSub:
         assert plan is not None
         _diameters, scales = plan
         assert scales == (1.0, 1.0)
+
+
+class TestSmallCapsMarkupFlags:
+    """The inline ``<sc>`` selection is DERIVED from the resolved runs."""
+
+    @staticmethod
+    def _job(*lines: TextLine, **job_kwargs: object) -> JobSpec:
+        """Build a single-label job over ``lines``."""
+        return JobSpec(
+            job_name="J",
+            labels=[LabelSpec(id="lbl", width=3.0, height=1.0, content=list(lines))],
+            **job_kwargs,
+        )
+
+    def _line(self, *lines: TextLine, **job_kwargs: object) -> ResolvedTextLine:
+        """Resolve the job's first line."""
+        return resolve_job_spec(self._job(*lines, **job_kwargs))[0].content[0]
+
+    def test_markup_free_line_has_no_small_caps(self) -> None:
+        """A tag-free line resolves to all-False flags (the renderers' gate)."""
+        line = self._line(TextLine(text="PLAIN", font="Dino"))
+        assert line.has_small_caps is False
+        assert line.small_caps_flags == (False,) * 5
+
+    def test_flags_align_with_plain_text(self) -> None:
+        """The per-character flags are aligned with plain_text (spaces included)."""
+        line = self._line(TextLine(text="a<sc>b c</sc>d", font="Dino"))
+        assert line.plain_text == "ab cd"
+        assert line.has_small_caps is True
+        assert line.small_caps_flags == (False, True, True, True, False)
+
+    def test_sc_scale_cascades_onto_the_line(self) -> None:
+        """The tag reuses the cascading ``sc_scale`` (no new field)."""
+        line = self._line(TextLine(text="<sc>abc</sc>", font="Dino", sc_scale=0.42))
+        assert math.isclose(line.sc_scale, 0.42)
+        default = self._line(TextLine(text="<sc>abc</sc>", font="Dino"))
+        assert math.isclose(default.sc_scale, DEFAULT_SC_SCALE)
+
+    def test_small_caps_never_moves_the_cutter(self) -> None:
+        """Small caps is a geometry transform: the cutter/heights stay put."""
+        plain = self._line(TextLine(text="abc", font="Dino"))
+        struck = self._line(TextLine(text="<sc>abc</sc>", font="Dino"))
+        assert math.isclose(struck.cutter_diameter, plain.cutter_diameter)
+        assert math.isclose(struck.toolpath_text_height, plain.toolpath_text_height)
+        assert struck.used_cutters == plain.used_cutters
+        assert glyph_render_plan(struck) is None
+
+    def test_flags_survive_the_reflow_text_swap(self) -> None:
+        """The per-character selection follows the text through ``with_markup``.
+
+        The rule any per-glyph markup follows: the flags are DERIVED from the
+        runs (never a stored positional array), so the line-content reflow's
+        text swap keeps every run on its own style.
+        """
+        line = self._line(TextLine(text="AA <sc>bb</sc> CC", font="Dino"))
+        assert line.plain_text == "AA bb CC"
+        assert line.small_caps_flags == (
+            False,
+            False,
+            False,
+            True,
+            True,
+            False,
+            False,
+            False,
+        )
+        # The reflow's text swap: the small-caps word moves to its own line.
+        moved = line.with_markup("<sc>bb</sc>")
+        assert moved.plain_text == "bb"
+        assert moved.small_caps_flags == (True, True)
+        # The leftover plain line keeps no small caps at all.
+        plain_line = line.with_markup("AA CC")
+        assert plain_line.has_small_caps is False
+        assert plain_line.small_caps_flags == (False,) * 5

@@ -959,3 +959,51 @@ def test_strikethrough_tag_survives_the_reflow() -> None:
     assert first.strikethrough_flags == (True, True, True, True)
     assert second.text == "BB CC"
     assert second.has_strikethrough is False
+
+
+def test_small_caps_tag_survives_the_reflow() -> None:
+    """A ``<sc>`` word keeps its tag when it moves between lines.
+
+    The reflow round-trips words through ``serialize_word`` into raw text and
+    re-parses; the small-caps tag must re-emit (a dropped tag would engrave
+    the word at full height), and the per-character flags must follow the
+    moved word (they are derived from the runs, never stored positionally).
+    """
+    label = _label(
+        "m",
+        _line("<sc>AAAA</sc> BB"),
+        _line("CC"),
+    )
+    result = _reflow_label(label, _plain_probe())
+    assert result is not None
+    first, second = result.content
+    assert first.text == "<sc>AAAA</sc>"
+    assert first.plain_text == "AAAA"
+    assert first.has_small_caps is True
+    assert first.small_caps_flags == (True, True, True, True)
+    assert second.text == "BB CC"
+    assert second.has_small_caps is False
+
+
+def test_small_caps_span_covering_a_space_stays_one_span() -> None:
+    """``<sc>foo bar</sc>`` reflows into ONE continuous small-caps span.
+
+    The space between the words sits inside the tag span, so its style is the
+    span's; a plain join would drop it and split the span per word.
+    """
+    label = _label(
+        "m",
+        _line("<sc>AAAA BB</sc> CC"),
+        _line("DD"),
+    )
+    result = _reflow_label(label, _plain_probe())
+    assert result is not None
+    for line in result.content:
+        if not line.has_small_caps:
+            continue
+        flags = [run.style.small_caps for run in line.styled_runs for _ in run.text]
+        # Every character of a small-caps run, spaces included, stays flagged
+        # contiguously -- the span never fragments into per-word runs.
+        assert any(flags)
+        first, last = flags.index(True), len(flags) - 1 - flags[::-1].index(True)
+        assert all(flags[first : last + 1])

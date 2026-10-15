@@ -24,6 +24,7 @@ vpype/numpy objects directly -- production source is never modified.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Callable, Optional
@@ -485,6 +486,150 @@ class TestSmallCapsDispatch:
         )
         _render_line_block(line, label_renderer.TextChunkMode.LINE)
         assert "small_caps_scale" not in calls
+
+
+def _markup_line(text: str, **kwargs: object) -> ResolvedTextLine:
+    """Build a resolved line with its markup parsed (delimiters ``<>``)."""
+    from plt_optimizer.generate.markup import parse_markup
+
+    styled = parse_markup(text, "<", ">")
+    line = ResolvedTextLine(
+        text=text,
+        nominal_text_height=0.5,
+        toolpath_text_height=0.44,
+        cutter_diameter=0.06,
+        character_spacing=0.0,
+        line_spacing=0.0,
+        **kwargs,  # type: ignore[arg-type]
+    )
+    return dataclasses.replace(
+        line, plain_text=styled.plain_text, styled_runs=styled.runs
+    )
+
+
+class TestInlineSmallCapsGate:
+    """``_small_caps_render_gate``: the single decision the renderers + probe share."""
+
+    def test_markup_free_line_is_inert(self) -> None:
+        """A tag-free line returns ``None`` (the historical call shape)."""
+        line = _markup_line("Hello")
+        ref = font_registry.resolve_font("Dino")
+        assert label_renderer._small_caps_render_gate(line, ref) is None
+
+    def test_italic_only_line_is_inert(self) -> None:
+        """Markup without a small-caps run never engages the transform."""
+        line = _markup_line("<i>Hello</i>", font="Dino")
+        ref = font_registry.resolve_font("Dino")
+        assert label_renderer._small_caps_render_gate(line, ref) is None
+
+    def test_small_caps_run_selects_scale_and_flags(self) -> None:
+        """A ``<sc>`` run yields the cascaded ``sc_scale`` + per-char flags."""
+        line = _markup_line("a<sc>b</sc>", font="Dino", sc_scale=0.42)
+        ref = font_registry.resolve_font("Dino")
+        gate = label_renderer._small_caps_render_gate(line, ref)
+        assert gate is not None
+        scale, flags = gate
+        assert scale == pytest.approx(0.42)
+        assert flags == (False, True)
+
+    def test_inert_on_a_small_caps_font(self) -> None:
+        """A `` SC`` line is already small caps: the tag has no additional effect."""
+        line = _markup_line("<sc>abc</sc>", font="Dino SC")
+        ref = font_registry.resolve_font("Dino SC")
+        assert label_renderer._small_caps_render_gate(line, ref) is None
+
+    def test_inert_on_a_symbol_font(self) -> None:
+        """A non-text (symbol) font has no lowercase to shrink: the tag is a no-op."""
+        symbol = sorted(font_registry.non_text_font_names())
+        if not symbol:  # pragma: no cover - the shipped list is non-empty
+            pytest.skip("no non-text fonts configured")
+        name = symbol[0].capitalize()
+        line = _markup_line("<sc>abc</sc>", font=name)
+        ref = font_registry.resolve_font(name)
+        assert label_renderer._small_caps_render_gate(line, ref) is None
+
+
+class TestInlineSmallCapsDispatch:
+    """``_render_line_block`` forwards the per-character selection to the renderers."""
+
+    def test_plt_line_forwards_lowercase_scale_and_flags(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A PLT ``<sc>`` line passes ``lowercase_scale`` + ``lowercase_flags``."""
+        calls: dict[str, object] = {}
+
+        def fake_render(*args: object, **kwargs: object) -> TextBlock:
+            calls.update(kwargs)
+            return TextBlock.empty()
+
+        monkeypatch.setattr(label_renderer, "render_text_line_plt_font", fake_render)
+        monkeypatch.setattr(
+            label_renderer,
+            "render_text_line_plt_font_with_glyphs",
+            lambda *a, **k: (TextBlock.empty(), [], []),
+        )
+        line = _markup_line("a<sc>b</sc>", font="Dino", sc_scale=0.5)
+        _render_line_block(line, label_renderer.TextChunkMode.LINE)
+        assert calls["lowercase_scale"] == pytest.approx(0.5)
+        assert calls["lowercase_flags"] == (False, True)
+
+    def test_ttf_line_forwards_small_caps_scale_and_flags(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A TTF ``<sc>`` line passes ``small_caps_scale`` + ``small_caps_flags``."""
+        calls: dict[str, object] = {}
+
+        def fake_ftext(*args: object, **kwargs: object) -> vp.LineCollection:
+            calls.update(kwargs)
+            lc = vp.LineCollection()
+            lc.append(np.array([0 + 0j, 1 + 1j]))
+            return lc
+
+        monkeypatch.setattr(label_renderer, "render_text_line_ftext", fake_ftext)
+        line = _markup_line(
+            "a<sc>b</sc>", font=font_registry.DEFAULT_FONT_NAME, sc_scale=0.5
+        )
+        _render_line_block(line, label_renderer.TextChunkMode.LINE)
+        assert calls["small_caps_scale"] == pytest.approx(0.5)
+        assert calls["small_caps_flags"] == (False, True)
+
+    def test_sc_font_keeps_the_font_level_kwargs(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """On a `` SC`` font the tag adds no flags (bit-identical to the variant)."""
+        calls: dict[str, object] = {}
+
+        def fake_ftext(*args: object, **kwargs: object) -> vp.LineCollection:
+            calls.update(kwargs)
+            lc = vp.LineCollection()
+            lc.append(np.array([0 + 0j, 1 + 1j]))
+            return lc
+
+        monkeypatch.setattr(label_renderer, "render_text_line_ftext", fake_ftext)
+        line = _markup_line(
+            "<sc>abc</sc>", font=f"{font_registry.DEFAULT_FONT_NAME} SC", sc_scale=0.45
+        )
+        _render_line_block(line, label_renderer.TextChunkMode.LINE)
+        assert calls["small_caps_scale"] == pytest.approx(0.45)
+        assert "small_caps_flags" not in calls
+
+    def test_markup_free_line_keeps_the_historical_call_shape(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A tag-free line receives no small-caps kwargs at all."""
+        calls: dict[str, object] = {}
+
+        def fake_ftext(*args: object, **kwargs: object) -> vp.LineCollection:
+            calls.update(kwargs)
+            lc = vp.LineCollection()
+            lc.append(np.array([0 + 0j, 1 + 1j]))
+            return lc
+
+        monkeypatch.setattr(label_renderer, "render_text_line_ftext", fake_ftext)
+        line = _markup_line("abc", font=font_registry.DEFAULT_FONT_NAME, sc_scale=0.45)
+        _render_line_block(line, label_renderer.TextChunkMode.LINE)
+        assert "small_caps_scale" not in calls
+        assert "small_caps_flags" not in calls
 
 
 class TestValidatedGlyphGroups:
