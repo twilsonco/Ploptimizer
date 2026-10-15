@@ -1,9 +1,11 @@
 """Tests for the underline geometry solver (:mod:`plt_optimizer.generate.underline`).
 
 Covers the pure math the render path consumes: the maximal-run scan over
-per-character flags, the closed-form segment/centerline-band X-interval (the
-strictly horizontal crossing test), and the minimal-breaking complement that
-turns a span plus the line's ink into the kept underline segments.
+per-character flags (the shared :func:`runs_from_flags` both the underline and
+the ``<s>`` strikethrough use), the closed-form segment/centerline-band
+X-interval (the strictly horizontal crossing test), and the minimal-breaking
+complement that turns a span plus the line's ink into the kept underline
+segments.
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ import pytest
 
 from plt_optimizer.generate.underline import (
     BAND_TOLERANCE_FRACTION,
+    runs_from_flags,
     segment_band_interval,
     underline_runs,
     underline_segments,
@@ -20,6 +23,11 @@ from plt_optimizer.generate.underline import (
 
 class TestUnderlineRuns:
     """The maximal-run scan over per-character underline flags."""
+
+    def test_runs_from_flags_is_the_shared_scan(self) -> None:
+        """The generic name is the scan both decorations share."""
+        assert runs_from_flags is underline_runs
+        assert runs_from_flags((False, True, True, False)) == ((1, 2),)
 
     def test_no_flags_yields_no_runs(self) -> None:
         """An unmarked line has no runs (the renderer's fast path)."""

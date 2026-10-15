@@ -146,6 +146,13 @@ class Style:
             tag derives the shift -- and a uniform downscale by the
             cascading ``supersubscript_downscale`` -- in the pipeline),
             composed multiplicatively with :attr:`scale`.
+        strikethrough: True when the run is wrapped in a registered
+            strikethrough tag (``<s>`` with the default brackets). Renderers
+            draw ONE continuous centerline stroke (the run's own cutter)
+            spanning each maximal struck run's ink width at the line's
+            strikethrough height -- **no** gap cuts, so a descender punches
+            through the stroke instead of breaking it (the underline's
+            minimal-break model deliberately does not apply here).
     """
 
     italic: bool = False
@@ -153,6 +160,7 @@ class Style:
     bold: bool = False
     scale: float = 1.0
     sup_sub: Optional[SupSub] = None
+    strikethrough: bool = False
 
 
 #: The style of unmarked text (every field at its default).
@@ -392,6 +400,11 @@ register_tag(
     arg=lambda style: _format_sup_sub_arg(style.sup_sub, SUB_DIRECTION),
     is_active=lambda style: style.sup_sub is not None and style.sup_sub.direction == SUB_DIRECTION,
 )
+# Registered LAST so every existing serialization order stays bit-identical.
+# A plain flag tag: applying it to an already-struck run is the identity, so
+# nesting <s> inside <s> has no additional effect (and the close pops the
+# pre-open style, restoring the outer run for the trailing text).
+register_tag("s", lambda style, arg: replace(style, strikethrough=True))
 
 
 @dataclass(frozen=True)
@@ -433,6 +446,11 @@ class StyledText:
     def underline_flags(self) -> Tuple[bool, ...]:
         """Per-character underline flags, aligned with :attr:`plain_text`."""
         return tuple(style.underline for style in _per_char_styles(self))
+
+    @property
+    def strikethrough_flags(self) -> Tuple[bool, ...]:
+        """Per-character strikethrough flags, aligned with :attr:`plain_text`."""
+        return tuple(style.strikethrough for style in _per_char_styles(self))
 
     @property
     def bold_flags(self) -> Tuple[bool, ...]:

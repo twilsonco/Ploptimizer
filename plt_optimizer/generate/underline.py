@@ -2,6 +2,10 @@
 
 This module hosts the framework-free math behind underline rendering (the
 render-side integration lives in ``plt_optimizer.generate.label_renderer``).
+It also hosts :func:`runs_from_flags`, the per-character run scan shared by
+every line decoration -- the underline and the ``<s>`` strikethrough (which
+needs the runs alone: it engraves them unbroken, so none of the gap-cutting
+geometry below applies to it).
 An underline is a **centerline stroke cut with the line's own text cutter**:
 its centerline sits ``cutter_diameter + underline_offset`` inches below the
 baseline (so the engraved underline's top edge floats exactly
@@ -62,6 +66,7 @@ from typing import List, Optional, Sequence, Tuple
 from plt_optimizer.generate.geometry import Ink, Point
 
 __all__ = [
+    "runs_from_flags",
     "segment_band_interval",
     "underline_runs",
     "underline_segments",
@@ -80,8 +85,12 @@ _INTERVAL_MERGE_TOLERANCE: float = 0.5 / 1016.0
 BAND_TOLERANCE_FRACTION: float = 0.2
 
 
-def underline_runs(flags: Sequence[bool]) -> Tuple[Tuple[int, int], ...]:
-    """Return the maximal runs of ``True`` in per-character underline flags.
+def runs_from_flags(flags: Sequence[bool]) -> Tuple[Tuple[int, int], ...]:
+    """Return the maximal runs of ``True`` in a per-character flag sequence.
+
+    The shared run scan behind every line decoration (the ``<u>`` underline
+    and the ``<s>`` strikethrough): both engrave one stroke per maximal run of
+    marked characters, so both need the same run decomposition.
 
     Args:
         flags: One flag per plain-text character (aligned with
@@ -89,7 +98,7 @@ def underline_runs(flags: Sequence[bool]) -> Tuple[Tuple[int, int], ...]:
 
     Returns:
         ``(first_char_index, last_char_index)`` inclusive pairs in text
-        order, one per maximal underlined run. Empty when no flag is set.
+        order, one per maximal marked run. Empty when no flag is set.
     """
     runs: List[Tuple[int, int]] = []
     start: Optional[int] = None
@@ -103,6 +112,10 @@ def underline_runs(flags: Sequence[bool]) -> Tuple[Tuple[int, int], ...]:
     if start is not None:
         runs.append((start, len(flags) - 1))
     return tuple(runs)
+
+
+#: Back-compat alias -- the run scan is shared with the ``<s>`` strikethrough.
+underline_runs = runs_from_flags
 
 
 def segment_band_interval(

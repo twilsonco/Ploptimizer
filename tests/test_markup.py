@@ -533,8 +533,8 @@ class TestUnderlineRegistry:
         assert spec.accepts_args is False
 
     def test_italic_and_underline_are_distinct_tags(self) -> None:
-        """Registry order (i, u, b, scale, sup, sub) fixes serialization nesting."""
-        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale", "sup", "sub"]
+        """Registry order (i, u, b, scale, sup, sub, s) fixes serialization nesting."""
+        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale", "sup", "sub", "s"]
 
 
 class TestParseBold:
@@ -623,7 +623,7 @@ class TestScaleRegistry:
         mandatory-arg tags; sup/sub joined after it)."""
         spec = TAG_REGISTRY["scale"]
         assert spec.accepts_args is True
-        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale", "sup", "sub"]
+        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale", "sup", "sub", "s"]
         assert spec.apply(PLAIN, "0.5") == SCALED_HALF
         # Set-to-value: re-applying with the same argument is idempotent.
         assert spec.apply(SCALED_HALF, "0.5") == SCALED_HALF
@@ -767,7 +767,7 @@ class TestSupSubRegistry:
 
     def test_sup_sub_are_registered_last(self) -> None:
         """Both tags accept an optional arg and are registered after scale."""
-        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale", "sup", "sub"]
+        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale", "sup", "sub", "s"]
         for name in ("sup", "sub"):
             spec = TAG_REGISTRY[name]
             assert spec.accepts_args is True
@@ -940,3 +940,132 @@ class TestSupSubWords:
         """A shift span's edges are style boundaries (the reflow's guard)."""
         styled = parse_markup("big<sup>small</sup>")
         assert style_boundaries(styled) == (3,)
+
+
+STRIKE = Style(strikethrough=True)
+
+
+class TestParseStrikethrough:
+    """The <s> tag: a struck run over the plain text."""
+
+    def test_strikethrough_run_splits_the_line(self) -> None:
+        """plain <s>X</s> plain yields plain/struck/plain runs."""
+        styled = parse_markup("was <s>now</s> sold")
+        assert styled.plain_text == "was now sold"
+        assert styled.has_markup is True
+        assert styled.strikethrough_flags == (
+            False,
+            False,
+            False,
+            False,
+            True,
+            True,
+            True,
+            False,
+            False,
+            False,
+            False,
+            False,
+        )
+
+    def test_bare_s_is_the_tag(self) -> None:
+        """The bare tag is markup (no argument form ships)."""
+        styled = parse_markup("<s>sale</s>")
+        assert styled.plain_text == "sale"
+        assert all(styled.strikethrough_flags)
+
+    def test_bare_scale_style_is_untouched(self) -> None:
+        """<s> never touches the other style fields."""
+        styled = parse_markup("<s>x</s>")
+        (run,) = styled.runs
+        assert run.style == STRIKE
+        assert run.style.italic is False
+        assert run.style.underline is False
+        assert run.style.bold is False
+
+    def test_multi_run_strikethrough(self) -> None:
+        """Two disjoint struck runs stay two runs."""
+        styled = parse_markup("A<s>bb</s>C<s>dd</s>")
+        assert styled.plain_text == "AbbCdd"
+        assert styled.strikethrough_flags == (
+            False,
+            True,
+            True,
+            False,
+            True,
+            True,
+        )
+
+    def test_strikethrough_inside_italic_composes(self) -> None:
+        """<s> inside <i> carries both flags."""
+        styled = parse_markup("<i>nested <s>markup</s> tail</i>")
+        assert styled.plain_text == "nested markup tail"
+        # 'markup' carries italic + strikethrough; the rest italic only.
+        styles = [style for run in styled.runs for style in (run.style,) * len(run.text)]
+        assert styles[7] == Style(italic=True, strikethrough=True)
+        assert styles[0] == ITALIC
+
+    def test_unclosed_strikethrough_raises(self) -> None:
+        """An unclosed <s> is a hard error (the fail-loud contract)."""
+        with pytest.raises(MarkupError, match="Unclosed tag <s>"):
+            parse_markup("<s>sale")
+
+    def test_mismatched_close_raises(self) -> None:
+        """</s> closing an <i> span is a hard error."""
+        with pytest.raises(MarkupError, match="does not match open tag"):
+            parse_markup("<i>x</s>")
+
+    def test_serialization_round_trips(self) -> None:
+        """The strike tag re-emits and re-parses identically."""
+        raw = "<s>strike</s> and <i><s>both</s></i>"
+        styled = parse_markup(raw)
+        assert serialize_runs(styled.runs) == raw
+        assert parse_markup(raw).runs == styled.runs
+
+    def test_nested_word_serialization_round_trips(self) -> None:
+        """A struck word token round-trips (the reflow contract)."""
+        styled = parse_markup("x <s>abc</s> y")
+        words = split_styled_words(styled)
+        assert [word.text for word in words] == ["x", "abc", "y"]
+        assert serialize_word(words[1]) == "<s>abc</s>"
+        reparsed = parse_markup(serialize_word(words[1]))
+        assert reparsed.plain_text == "abc"
+        assert all(reparsed.strikethrough_flags)
+
+    def test_strike_span_covering_a_space_keeps_the_separator(self) -> None:
+        """<s>foo bar</s> tokenizes with the struck separator (underline rule)."""
+        styled = parse_markup("<s>foo bar</s>")
+        words, separators = split_styled_words_with_separators(styled)
+        assert [word.text for word in words] == ["foo", "bar"]
+        # The space between the words is inside the strike span.
+        assert separators[0] == STRIKE
+
+
+class TestStrikethroughRegistry:
+    """The <s> registry entry."""
+
+    def test_strikethrough_is_registered(self) -> None:
+        """The shipped tag is present, idempotent, and takes no args."""
+        spec = TAG_REGISTRY["s"]
+        assert spec.apply(PLAIN, "") == STRIKE
+        assert spec.apply(STRIKE, "") == STRIKE
+        # Applying <s> inside <i> composes (idempotent per field).
+        assert spec.apply(ITALIC, "") == Style(italic=True, strikethrough=True)
+        assert spec.accepts_args is False
+
+    def test_nested_strikethrough_is_idempotent(self) -> None:
+        """<s> inside <s> has no additional effect (the TODO's contract)."""
+        styled = parse_markup("<s>a<s>b</s>c</s>")
+        assert styled.plain_text == "abc"
+        assert styled.strikethrough_flags == (True, True, True)
+        # The whole line is one struck run (adjacent same-style runs merge).
+        assert len(styled.runs) == 1
+
+    def test_strike_and_underline_are_distinct_tags(self) -> None:
+        """Registry order (i, u, b, scale, sup, sub, s) fixes nesting."""
+        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale", "sup", "sub", "s"]
+
+    def test_nested_strike_serializes_flat(self) -> None:
+        """The idempotent nesting serializes to one span (no nested <s>)."""
+        styled = parse_markup("<s>a<s>b</s>c</s>")
+        assert serialize_runs(styled.runs) == "<s>abc</s>"
