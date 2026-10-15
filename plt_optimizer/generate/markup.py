@@ -20,10 +20,19 @@ Design guarantees (mirroring ``descender_adjust.py``):
   registered tag. Everything else -- a lone ``<`` in ``3 < 5``, a chevron, an
   unregistered ``<xyz>`` -- is literal text. The forward slash is special
   *only* inside the delimiters (``</i>``), never elsewhere.
-* **Hard errors on broken markup** -- a close tag that does not match the
-  innermost open tag, or an open tag never closed, raises :class:`MarkupError`
-  (a ``ValueError`` subclass) so the job aborts loudly, consistent with the
-  repo's fail-loud philosophy (unknown font, missing glyph).
+* **Crossing spans** -- a close tag closes the most recent open tag with
+  that name, which need not be the innermost one: ``<s>Always <sc>vacuum
+  </s> charging line</sc>`` is legal and engraves the per-character
+  *intersection* of the spans (HTML-style) -- ``Always `` struck, ``vacuum``
+  struck + small caps, `` charging line`` small caps. The close removes its
+  opener from the stack and rebuilds the active style by replaying the
+  remaining open tags (each tag's ``apply`` is idempotent, so a crossing
+  close restores the surrounding spans exactly).
+* **Hard errors on broken markup** -- a close tag whose name was never
+  opened, a close tag with no open tag at all, or an open tag never closed
+  raises :class:`MarkupError` (a ``ValueError`` subclass) so the job aborts
+  loudly, consistent with the repo's fail-loud philosophy (unknown font,
+  missing glyph).
 
 Tag registry
 ------------
@@ -293,8 +302,11 @@ class TagSpec:
             inside the tag (``arg`` is ``""`` for tags that take none).
             Must be idempotent (applying an already-active tag with the
             same argument is a no-op) so :func:`serialize_runs` can recover
-            the tag stack from styles. An :attr:`accepts_args` tag validates
-            its argument here, raising :class:`MarkupError` for a bad value.
+            the tag stack from styles, and so :func:`parse_markup` can
+            rebuild the active style by replaying the open tags when a
+            crossing close removes a non-innermost opener. An
+            :attr:`accepts_args` tag validates its argument here, raising
+            :class:`MarkupError` for a bad value.
         is_active: True when the tag is active in the given style. Defaults
             to the flag-tag rule ``apply(style, "") == style`` (applying an
             active tag is a no-op); value tags (``<scale:N>``) supply an
@@ -617,10 +629,15 @@ def parse_markup(
         The parsed :class:`StyledText`. A text with no parsed tag returns a
         single plain run with ``has_markup=False``.
 
+    Crossing spans are legal: a close tag closes the most recent open tag
+    with that name (not necessarily the innermost), and each tag applies to
+    its own open..close range, so the style of a character is the
+    intersection of the spans covering it (HTML-style).
+
     Raises:
-        MarkupError: If a close tag does not match the innermost open tag,
-            an open tag is never closed, or a registered close tag appears
-            with no open tag at all.
+        MarkupError: If a close tag's name was never opened, a registered
+            close tag appears with no open tag at all, or an open tag is
+            never closed.
         ValueError: If ``left``/``right`` are empty or identical (schema
             validation is the real gate; this guards direct API callers).
     """
@@ -630,7 +647,10 @@ def parse_markup(
         raise ValueError("markup left and right delimiters must differ")
 
     runs: List[Run] = []
-    stack: List[Tuple[str, Style, int]] = []  # (name, style-before, open pos)
+    # Open tags (innermost last): (name, argument, open pos). The close
+    # branch replays the remaining opens to rebuild the active style, so
+    # the argument rides the stack.
+    stack: List[Tuple[str, str, int]] = []
     current = PLAIN
     cursor = 0
     length = len(text)
@@ -689,18 +709,36 @@ def parse_markup(
                     f"Unexpected closing tag {left}/{name}{right} at position "
                     f"{open_at} in text {text!r} (no matching open tag)."
                 )
-            open_name, popped_style, open_pos = stack.pop()
-            if open_name != name:
+            # The most recent open tag with this name (crossing spans are
+            # legal: the close need not meet the innermost opener). The
+            # earliest match scanning from the top is the LAST open with
+            # the name, so a duplicate open (``<i>a<i>b</i>c</i>``) closes
+            # its innermost instance.
+            open_index = -1
+            for index in range(len(stack) - 1, -1, -1):
+                if stack[index][0] == name:
+                    open_index = index
+                    break
+            if open_index < 0:
                 raise MarkupError(
                     f"Closing tag {left}/{name}{right} at position {open_at} "
-                    f"does not match open tag {left}{open_name}{right} at "
-                    f"position {open_pos} in text {text!r}."
+                    f"in text {text!r} never opened (no open {left}{name}{right} "
+                    f"to close)."
                 )
-            current = popped_style
+            stack.pop(open_index)
+            # Rebuild the active style by replaying the remaining opens onto
+            # PLAIN. Invariant: ``current`` is always the replay of the stack
+            # (each open composes onto the replay of its prefix), so the
+            # replay reproduces the pre-close style minus the closed tag
+            # exactly -- for the innermost close AND for crossing closes.
+            current = PLAIN
+            for open_name, open_arg, _ in stack:
+                current = TAG_REGISTRY[open_name].apply(current, open_arg)
         else:
             assert spec is not None
             assert open_match is not None
-            stack.append((spec.name, current, open_at))
+            open_arg = open_match.group(2) or ""
+            stack.append((spec.name, open_arg, open_at))
             try:
                 current = spec.apply(current, open_match.group(2) or "")
             except MarkupError as exc:

@@ -3966,3 +3966,144 @@ class TestInlineScDemoExample:
             for line in rendered.source_label.content:
                 if line.font in {"Dino", "Dino SC", "ReliefSingleLineCAD-Regular"}:
                     assert line.cutter_diameter == pytest.approx(0.06)
+
+
+class TestOverlapDemoExample:
+    """Regression tests for tests_deps/overlap_job.yaml.
+
+    The fixture pins OVERLAPPING (crossing) markup spans: a close tag closes
+    the most recent open tag with that name (not necessarily the innermost),
+    each tag covering its own open..close range, so a character's style is the
+    per-character INTERSECTION of the spans covering it. The per-character
+    flag arrays the renderers consume are that intersection, so the decoration
+    runs, the pen split and the kerning floors all follow with no
+    crossing-specific logic.
+    """
+
+    _SPEC = Path("tests_deps/overlap_job.yaml")
+    _INVENTORY = [0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.09, 0.125, 0.25]
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled (against the inventory)."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job, available_cutters=self._INVENTORY)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="ovl",
+            optimize=False,
+            plots=False,
+            available_cutters=self._INVENTORY,
+        )
+
+    @staticmethod
+    def _line_bounds(label: ResolvedLabel) -> tuple[float, float, float, float]:
+        """Rendered bounds of the label's single text line."""
+        from plt_optimizer.generate.label_renderer import _render_text_local_with_bounds
+
+        _lc, entries = _render_text_local_with_bounds(label)
+        return entries[0].bounds
+
+    @classmethod
+    def _width(cls, label: ResolvedLabel) -> float:
+        """Rendered ink width of the label's single text line."""
+        x_min, _y_min, x_max, _y_max = cls._line_bounds(label)
+        return x_max - x_min
+
+    @classmethod
+    def _height(cls, label: ResolvedLabel) -> float:
+        """Rendered ink height of the label's single text line."""
+        _x_min, y_min, _x_max, y_max = cls._line_bounds(label)
+        return y_max - y_min
+
+    def test_crossing_close_is_legal_and_intersects(self, tmp_path: Path) -> None:
+        """The TODO example: 'Always on' struck, 'on duty' small caps, overlap both."""
+        from plt_optimizer.generate.markup import Run, Style
+
+        job = parse_yaml(self._SPEC)
+        by_id = {label.id: label for label in resolve_job_spec(job, self._INVENTORY)}
+        line = by_id["plt_cross_sc"].content[0]
+        assert line.text == "<s>Always <sc>on</s> duty</sc>"
+        assert line.plain_text == "Always on duty"
+        # 'Always on' (0..8) struck; 'on duty' (7..13) small caps; 'on' both.
+        assert line.strikethrough_flags == (True,) * 9 + (False,) * 5
+        assert line.small_caps_flags == (False,) * 7 + (True,) * 7
+        assert line.styled_runs == (
+            Run("Always ", Style(strikethrough=True)),
+            Run("on", Style(strikethrough=True, small_caps=True)),
+            Run(" duty", Style(small_caps=True)),
+        )
+
+    def test_strikethrough_stays_one_continuous_stroke(self, tmp_path: Path) -> None:
+        """The crossing small-caps run does not fragment the strike.
+
+        The struck span 'Always on' is one maximal run, so it engraves ONE
+        continuous stroke (the mid-cap strike leaves the ink height identical
+        to the plain control's).
+        """
+        from plt_optimizer.generate.label_renderer import (
+            _strikethrough_render_gate,
+            _strikethrough_strokes,
+            _render_line_block,
+            TextChunkMode,
+        )
+
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        line = by_id["plt_cross_sc"].content[0]
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        strokes = _strikethrough_strokes(line, block, glyphs, _strikethrough_render_gate(line))
+        assert len(strokes) == 1
+        # The strike's mid-cap height lies inside the cap band, so the ink
+        # height matches the plain control (the strike adds no vertical ink).
+        assert self._height(by_id["plt_cross_sc"]) == pytest.approx(
+            self._height(by_id["plt_plain"]), abs=1e-9
+        )
+
+    def test_small_caps_run_narrows_the_line(self, tmp_path: Path) -> None:
+        """The crossing small-caps run makes the line narrower than its plain twin.
+
+        A 0.7 capital is narrower than Dino's wide lowercase, so the small-caps
+        'on duty' shrinks the line below the plain control (the strike is
+        width-neutral inside the run's own ink span).
+        """
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        assert self._width(by_id["plt_cross_sc"]) < self._width(by_id["plt_plain"])
+
+    def test_crossing_underline_is_one_run(self, tmp_path: Path) -> None:
+        """The crossing </i> ends the italic; the underline stays one run.
+
+        ``<i>Always <u>on</i> duty</u>``: italic covers 'Always on' (0..8),
+        underline covers 'on duty' (7..13). The underline gate sees ONE run
+        spanning the crossing boundary, and the italic flags stop where the
+        crossing ``</i>`` ends.
+        """
+        from plt_optimizer.generate.label_renderer import _underline_render_gate
+
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        line = by_id["plt_cross_iu"].content[0]
+        assert line.plain_text == "Always on duty"
+        assert _underline_render_gate(line) == ((7, 13),)
+        italic = tuple(run.style.italic for run in line.styled_runs for _ in run.text)
+        assert italic == (True,) * 9 + (False,) * 5
+
+    def test_crossing_bold_splits_the_pen(self, tmp_path: Path) -> None:
+        """The crossing <b> run steps to the larger cutter and splits the pen.
+
+        ``<i>1<b>23</i>4</b>``: bold covers '234' (1..3), so the label
+        contributes both per-cutter text files (0.060 plain + 0.090 bold) and
+        the crossing ``</i>`` leaves the bold open for '4'.
+        """
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        line = by_id["plt_cross_b"].content[0]
+        assert line.plain_text == "1234"
+        assert line.bold_flags == (False, True, True, True)
+        assert line.cutter_diameter == pytest.approx(0.06)
+        assert line.bold_cutter_diameter == pytest.approx(0.09)
+        names = sorted(p.name for p in result.plt_paths)
+        assert "0.060_txt_ovl.plt" in names
+        assert "0.090_txt_ovl.plt" in names  # the crossing bold rung

@@ -1130,11 +1130,26 @@ rebuilding raw markup.
   make it optional via `args_optional`) or
   `/[A-Za-z]+` (close) **and names a registered tag**. Anything else — a lone
   `<` in `3 < 5`, an unregistered `<xyz>` / `</xyz>`, an opener with no closer —
-  is literal text. Broken markup is a **hard error**: a close tag that is not
-  the innermost opener, or an opener never closed, raises `MarkupError` (a
-  `ValueError` subclass) → CLI non-zero, consistent with the fail-loud contract
-  for an unknown font / missing glyph. Parsing runs at **resolution time**
-  (`_resolve_content`), so the abort lands with the other spec-level errors.
+  is literal text. **Crossing spans are legal**: a close tag closes the most
+  recent open tag with that name, which need not be the innermost one, and
+  each tag covers its own open..close range, so a character's style is the
+  per-character *intersection* of the spans covering it (HTML-style) —
+  `<s>Always <sc>on</s> duty</sc>` engraves 'Always on' struck, 'on duty' in
+  small caps, 'on' with both. The close removes its opener from the stack and
+  rebuilds the active style by **replaying the remaining opens** (each tag's
+  `apply` is idempotent, so the replay reproduces the pre-close style minus
+  the closed tag exactly — the style an open stores is only valid until a
+  crossing close removes an opener below it, so the replay is the single
+  correct rule for every close). The per-character flag arrays every renderer
+  consumes are that intersection, so the decoration runs, the pen split, the
+  kerning floors and the reflow all follow with no crossing-specific logic;
+  `serialize_runs` emits the canonical nested form, which re-parses to
+  identical runs. Broken markup stays a **hard error**: a close tag whose name
+  was never opened, a close with no open tag at all, or an opener never closed
+  raises `MarkupError` (a `ValueError` subclass) → CLI non-zero, consistent
+  with the fail-loud contract for an unknown font / missing glyph. Parsing
+  runs at **resolution time** (`_resolve_content`), so the abort lands with
+  the other spec-level errors.
 - **The tag registry** (`TAG_REGISTRY` + `register_tag(name, apply,
   accepts_args)`) is the extension point for the remaining TODO tag
   (`<f:name>`): one registry entry plus

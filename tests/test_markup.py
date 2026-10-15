@@ -7,6 +7,8 @@ partitions the renderers and the reflow consume, and the serialize round-trip.
 
 from __future__ import annotations
 
+from typing import List
+
 import pytest
 
 from plt_optimizer.generate.markup import (
@@ -151,11 +153,12 @@ class TestParseErrors:
         with pytest.raises(MarkupError, match="Unclosed tag <i>"):
             parse_markup("<i>no end")
 
-    def test_mismatched_close(self) -> None:
-        """A close tag that is not the innermost opener raises MarkupError."""
-        # <i> and <b> are both registered, so </b> closes nothing matching:
-        # the innermost open tag is <i>, a genuine mismatch.
-        with pytest.raises(MarkupError, match="does not match open tag"):
+    def test_close_of_a_never_opened_tag(self) -> None:
+        """A close tag whose name was never opened raises MarkupError."""
+        # <i> and <b> are both registered, so </b> closes nothing: <b> was
+        # never opened, which stays a hard error (crossing spans only
+        # relax closes whose name IS open somewhere on the stack).
+        with pytest.raises(MarkupError, match="never opened"):
             parse_markup("<i>x</b>")
 
     def test_standalone_close(self) -> None:
@@ -410,12 +413,12 @@ class TestFrameworkEdges:
         """A close tag for a *different registered* tag is a hard error.
 
         With only ``<i>`` shipped, ``</b>`` is literal; registering a second
-        tag makes the pair markup, so the mismatch branch fires.
+        tag makes the pair markup, so the never-opened branch fires.
         """
         original = dict(TAG_REGISTRY)
         try:
             register_tag("b", lambda style: style)
-            with pytest.raises(MarkupError, match="does not match open tag"):
+            with pytest.raises(MarkupError, match="never opened"):
                 parse_markup("<i>x</b>")
         finally:
             TAG_REGISTRY.clear()
@@ -490,14 +493,22 @@ class TestParseNested:
             ("c", Style(italic=True)),
         ]
 
-    def test_mismatched_nested_close_raises(self) -> None:
-        """Closing <i> while <u> is innermost is a hard error."""
-        with pytest.raises(MarkupError, match="does not match open tag"):
-            parse_markup("<i>x<u>y</i></u>")
+    def test_crossing_nested_close_is_legal(self) -> None:
+        """Closing <i> while <u> is innermost crosses the spans (HTML-style).
+
+        Each tag covers its own open..close range, so the style of a
+        character is the intersection of the spans covering it.
+        """
+        styled = parse_markup("<i>x<u>y</i></u>")
+        # 'x' italic; 'y' italic + underline (the </i> ends the italic, the
+        # </u> ends the underline).
+        assert styled.italic_flags == (True, True)
+        assert styled.underline_flags == (False, True)
 
     def test_unclosed_nested_span_raises(self) -> None:
-        """An inner span closed by the outer tag's closer is a hard error."""
-        with pytest.raises(MarkupError, match="does not match open tag"):
+        """A span left open at end-of-line is a hard error."""
+        # The crossing </i> closes <i>; <u> stays open to end of line.
+        with pytest.raises(MarkupError, match="Unclosed tag <u>"):
             parse_markup("<i>x<u>y</i>")
         # A line ending inside the inner span reports the innermost opener.
         with pytest.raises(MarkupError, match="Unclosed tag <u>"):
@@ -518,6 +529,106 @@ class TestParseNested:
         assert reparsed.plain_text == word.text
         assert reparsed.underline_flags == styled.underline_flags
         assert reparsed.italic_flags == styled.italic_flags
+
+
+class TestCrossingSpans:
+    """Overlapping (crossing) markup spans: per-character style intersection.
+
+    A close tag closes the most recent open tag with that name, which need
+    not be the innermost one; each tag covers its own open..close range, so
+    a character's style is the intersection of the spans covering it
+    (HTML-style). ``<s>Always <sc>vacuum</s> charging line</sc>`` is the
+    motivating example from the TODO.
+    """
+
+    def test_todo_example_intersects_the_spans(self) -> None:
+        """'Always ' struck, 'vacuum' struck+small caps, tail small caps."""
+        styled = parse_markup("<s>Always <sc>vacuum</s> charging line</sc>")
+        assert styled.plain_text == "Always vacuum charging line"
+        # 'Always vacuum' (13 chars) struck; 'vacuum charging line' (20)
+        # in small caps.
+        assert styled.strikethrough_flags == (True,) * 13 + (False,) * 14
+        assert styled.small_caps_flags == (False,) * 7 + (True,) * 20
+        assert styled.runs == (
+            Run("Always ", Style(strikethrough=True)),
+            Run("vacuum", Style(strikethrough=True, small_caps=True)),
+            Run(" charging line", Style(small_caps=True)),
+        )
+
+    def test_crossing_close_restores_the_surrounding_span(self) -> None:
+        """The text after a crossing close keeps the spans still open."""
+        styled = parse_markup("<i>a<b>c</i>d</b>")
+        # plain text 'acd': 'a' italic; 'c' italic+bold; 'd' bold only (the
+        # </i> ended the italic, the replay keeps the bold open).
+        assert styled.italic_flags == (True, True, False)
+        assert styled.bold_flags == (False, True, True)
+
+    def test_crossing_close_replays_value_tags(self) -> None:
+        """A crossing close rebuilds <scale:N>/<sup> values by replay."""
+        styled = parse_markup("<scale:0.5>a<i>b</scale>c</i>")
+        # 'a' 0.5; 'b' 0.5+italic; 'c' italic only (the scale span ended).
+        assert styled.scale_values == (0.5, 0.5, 1.0)
+        assert styled.italic_flags == (False, True, True)
+
+    def test_crossing_sup_sub_is_legal(self) -> None:
+        """<sup>a<sub>b</sup>c</sub> crosses: sup ends, sub keeps running."""
+        styled = parse_markup("<sup>a<sub>b</sup>c</sub>")
+        # 'a' sup; 'b' sub (sub's apply overrides sup_sub); 'c' sub (the
+        # crossing </sup> replays the open sub, so its shift persists).
+        assert styled.sup_sub_values == (
+            SupSub(SUP_DIRECTION),
+            SupSub(SUB_DIRECTION),
+            SupSub(SUB_DIRECTION),
+        )
+
+    def test_duplicate_open_closes_the_innermost_instance(self) -> None:
+        """<i>a<i>b</i>c</i> closes the inner <i> at the first </i>."""
+        styled = parse_markup("<i>a<i>b</i>c</i>")
+        # The first </i> closes the inner open; the outer stays open across
+        # 'c', so the whole line is italic and merges to one run.
+        assert styled.italic_flags == (True, True, True)
+        assert styled.plain_text == "abc"
+        assert len(styled.runs) == 1
+
+    def test_crossing_serializes_to_the_canonical_nesting(self) -> None:
+        """serialize_runs emits the nested form; it re-parses identically."""
+        styled = parse_markup("<s>Always <sc>vacuum</s> charging line</sc>")
+        raw = serialize_runs(styled.runs)
+        reparsed = parse_markup(raw)
+        assert reparsed.runs == styled.runs
+        assert reparsed.plain_text == styled.plain_text
+
+    def test_crossing_word_tokens_round_trip(self) -> None:
+        """A crossing boundary inside a word rebuilds via per-piece tokens."""
+        styled = parse_markup("x <s>ab<sc>cd</s>ef</sc> y")
+        words, separators = split_styled_words_with_separators(styled)
+        assert [word.text for word in words] == ["x", "abcdef", "y"]
+        # The reflow's join idiom: serialized words interleaved with the
+        # separator styles (line_content._join_tokens).
+        runs: List[Run] = []
+        for index, word in enumerate(words):
+            runs.extend(Run(piece.text, piece.style) for piece in word.pieces)
+            if index < len(separators):
+                runs.append(Run(" ", separators[index]))
+        rebuilt = serialize_runs(runs)
+        reparsed = parse_markup(rebuilt)
+        assert reparsed.plain_text == styled.plain_text
+        assert reparsed.strikethrough_flags == styled.strikethrough_flags
+        assert reparsed.small_caps_flags == styled.small_caps_flags
+        assert separators == (PLAIN, PLAIN)
+    def test_crossing_with_custom_brackets(self) -> None:
+        """Crossing spans parse under a non-default bracket pair."""
+        raw = "«s»Always «sc»vacuum«/s» line«/sc»"
+        styled = parse_markup(raw, "«", "»")
+        assert styled.plain_text == "Always vacuum line"
+        # 'Always vacuum' struck; 'vacuum line' in small caps.
+        assert styled.strikethrough_flags == (True,) * 13 + (False,) * 5
+        assert styled.small_caps_flags == (False,) * 7 + (True,) * 11
+
+    def test_close_with_never_opened_name_inside_spans_raises(self) -> None:
+        """A crossing close still requires its name to be open somewhere."""
+        with pytest.raises(MarkupError, match="never opened"):
+            parse_markup("<i>a<u>b</s>c</u></i>")
 
 
 class TestUnderlineRegistry:
@@ -864,8 +975,8 @@ class TestSupSubParse:
         )
 
     def test_mismatched_close_is_a_hard_error(self) -> None:
-        """<sup>...</sub> aborts (the close must match the innermost open)."""
-        with pytest.raises(MarkupError, match="does not match open tag"):
+        """<sup>...</sub> aborts (</sub> closes a tag that was never opened)."""
+        with pytest.raises(MarkupError, match="never opened"):
             parse_markup("<sup>x</sub>")
 
     def test_nested_sup_sub_restores_the_outer(self) -> None:
@@ -1011,8 +1122,8 @@ class TestParseStrikethrough:
             parse_markup("<s>sale")
 
     def test_mismatched_close_raises(self) -> None:
-        """</s> closing an <i> span is a hard error."""
-        with pytest.raises(MarkupError, match="does not match open tag"):
+        """</s> with no open <s> is a hard error (never opened)."""
+        with pytest.raises(MarkupError, match="never opened"):
             parse_markup("<i>x</s>")
 
     def test_serialization_round_trips(self) -> None:
@@ -1099,8 +1210,8 @@ class TestParseSmallCaps:
             parse_markup("<sc>abc")
 
     def test_mismatched_close_raises(self) -> None:
-        """</sc> closing an <i> span is a hard error."""
-        with pytest.raises(MarkupError, match="does not match open tag"):
+        """</sc> with no open <sc> is a hard error (never opened)."""
+        with pytest.raises(MarkupError, match="never opened"):
             parse_markup("<i>x</sc>")
 
     def test_small_caps_inside_italic_composes(self) -> None:

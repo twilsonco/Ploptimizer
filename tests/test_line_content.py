@@ -1007,3 +1007,36 @@ def test_small_caps_span_covering_a_space_stays_one_span() -> None:
         assert any(flags)
         first, last = flags.index(True), len(flags) - 1 - flags[::-1].index(True)
         assert all(flags[first : last + 1])
+
+
+def test_crossing_spans_survive_the_reflow() -> None:
+    """Crossing spans move word-by-word with their per-character intersection.
+
+    ``<s>AAAA <sc>BB CC</s> DD</sc>`` strikes 'AAAA BB CC' and small-caps
+    'BB CC DD'; the reflow pulls 'CC DD' down to the second line, so each
+    moved word must keep exactly its own flags (strike ends with CC, small
+    caps continues through DD) and every produced line must re-parse cleanly.
+    """
+    label = _label(
+        "m",
+        _line("<s>AAAA <sc>BB CC</s> DD</sc>"),
+        _line("EE"),
+    )
+    result = _reflow_label(label, _plain_probe())
+    assert result is not None
+    first, second = result.content
+    # The balanced fill: 'AAAA BB' stays, 'CC DD' moves down beside 'EE'.
+    assert first.plain_text == "AAAA BB"
+    assert second.plain_text == "CC DD EE"
+    # Line 1: the struck span covers 'AAAA BB' (the styled separator space
+    # included); small caps covers only 'BB'.
+    strike = tuple(run.style.strikethrough for run in first.styled_runs for _ in run.text)
+    caps = tuple(run.style.small_caps for run in first.styled_runs for _ in run.text)
+    assert strike == (True,) * 7
+    assert caps == (False,) * 5 + (True, True)
+    # Line 2: 'CC' keeps strike+caps, the separator space keeps caps, 'DD'
+    # keeps caps only, 'EE' stays plain (the tags never reach plain_text).
+    strike2 = tuple(run.style.strikethrough for run in second.styled_runs for _ in run.text)
+    caps2 = tuple(run.style.small_caps for run in second.styled_runs for _ in run.text)
+    assert strike2 == (True, True) + (False,) * 6
+    assert caps2 == (True,) * 5 + (False,) * 3

@@ -1,0 +1,71 @@
+# Fixture for OVERLAPPING (crossing) inline markup spans.
+#
+# A close tag closes the most recent open tag with that name, which need not
+# be the innermost one: `<s>Always <sc>on</s> duty</sc>` is legal and engraves
+# the per-character INTERSECTION of the spans (HTML-style) -- each tag covers
+# its own open..close range, so a character's style is the composition of the
+# tags whose ranges cover it. Here 'Always on' is struck through, 'on duty' is
+# small caps, and the word 'on' carries BOTH.
+#
+# The parser rebuilds the active style after every close by replaying the
+# remaining open tags (each tag's `apply` is idempotent), so a crossing close
+# restores the surrounding spans exactly and the per-character flag arrays the
+# renderers consume (strikethrough_flags, small_caps_flags, underline_flags,
+# bold_flags, ...) are the intersection -- every downstream consumer (the
+# decoration runs, the pen split, the kerning floors, the reflow) reads those
+# flags and needs no crossing-specific logic.
+#
+# Malformed markup stays a hard error: a close tag whose name was NEVER opened
+# (`<i>x</b>`) and an open tag never closed both raise MarkupError; only the
+# crossing close (name IS open, just not innermost) is newly legal.
+#
+# No plate declares a material and the job packs onto one sheet, so emitted
+# names carry no plate/material prefix. `max_h_compress` stays unset (0.0): no
+# line compresses, so every pinned number below is pure crossing geometry.
+job:
+  job_name: Overlap Demo
+
+  width: 7.0
+  height: 1.0
+  margin: 0.1
+  text_height: 0.5
+  line_spacing: 0.15
+  auto_descending_character_adjustment: false
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. The TODO's headline case: the strike covers 'Always on', the small
+    #    caps cover 'on duty', and 'on' (the overlap) carries both.
+    - id: plt_cross_sc
+      font: Dino
+      content:
+        - text: "<s>Always <sc>on</s> duty</sc>"
+
+    # 2. The plain control for label 1 (same glyphs, no markup): the small-
+    #    caps run makes label 1 NARROWER (a 0.7 capital is narrower than
+    #    Dino's wide lowercase), while the mid-cap strike leaves the ink
+    #    HEIGHT untouched.
+    - id: plt_plain
+      font: Dino
+      content:
+        - text: "Always on duty"
+
+    # 3. Crossing <i>/<u>: italic covers 'Always on', underline covers
+    #    'on duty'. The underline gate sees ONE run (7..13) and the italic
+    #    flags stop where the crossing </i> ends.
+    - id: plt_cross_iu
+      font: Dino
+      content:
+        - text: "<i>Always <u>on</i> duty</u>"
+
+    # 4. Crossing <i>/<b>: italic covers '123', bold covers '234'. The bold
+    #    run steps to the next larger rung (0.060 -> 0.090), so the label
+    #    contributes BOTH per-cutter text files.
+    - id: plt_cross_b
+      font: Dino
+      content:
+        - text: "<i>1<b>23</i>4</b>"

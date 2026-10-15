@@ -4124,6 +4124,21 @@ class TestMarkupResolution:
         with pytest.raises(MarkupError, match="Unclosed tag"):
             resolve_job_spec(self._job(TextLine(text="<i>oops")))
 
+    def test_crossing_spans_resolve_to_intersected_runs(self) -> None:
+        """A crossing close is legal: runs carry the per-character intersection."""
+        job = self._job(TextLine(text="<s>Always <sc>on</s> duty</sc>"))
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.plain_text == "Always on duty"
+        assert line.strikethrough_flags == (True,) * 9 + (False,) * 5
+        assert line.small_caps_flags == (False,) * 7 + (True,) * 7
+
+    def test_close_of_a_never_opened_tag_aborts_resolution(self) -> None:
+        """A close whose name was never opened stays a hard error."""
+        from plt_optimizer.generate.markup import MarkupError
+
+        with pytest.raises(MarkupError, match="never opened"):
+            resolve_job_spec(self._job(TextLine(text="<i>x</b>")))
+
     def test_direct_construction_defaults_plain_text_to_text(self) -> None:
         """A hand-built line (no parse) treats its text as markup-free."""
         line = ResolvedTextLine(
