@@ -57,7 +57,7 @@ from typing import Any, Literal, Mapping, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from plt_optimizer.generate.schema import HoleSpec, LayoutMode, TextHAlignment
+from plt_optimizer.generate.schema import HoleSpec, LabelShape, LayoutMode, TextHAlignment
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +158,8 @@ class JobDefaults(BaseModel):
             the mechanism.
         text_chunk_mode: Default plate-space text optimization granularity.
         layout: Default plate fill order.
+        type: Default label boundary shape ('rect' historical, 'round'
+            ellipse/circle). Labels that omit it inherit the job value.
         plate_width: Default usable plate width in inches (plate layer).
         plate_height: Default usable plate height in inches (plate layer).
         left_clearance: Default plate left-edge clearance in inches
@@ -634,6 +636,13 @@ class JobDefaults(BaseModel):
     layout: Optional[LayoutMode] = Field(
         default=None, description="Default plate fill order (job layer)."
     )
+    type: Optional[LabelShape] = Field(
+        default=None,
+        description=(
+            "Default label boundary shape: 'rect' (historical) or 'round' "
+            "(ellipse/circle). Job layer; labels that omit it inherit this."
+        ),
+    )
     plate_width: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -747,6 +756,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "allow_rotation",
     "text_chunk_mode",
     "layout",
+    "type",
     "left_clearance",
     "top_clearance",
     "auto_line_spacing_interline_to_top_bottom_ratio",

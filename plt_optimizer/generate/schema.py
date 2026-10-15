@@ -152,6 +152,26 @@ class TextHAlignment(str, Enum):
     RIGHT = "right"
 
 
+class LabelShape(str, Enum):
+    """Enumeration of valid label boundary shapes.
+
+    ``rect`` (the default) is the historical behaviour: the label boundary is
+    the ``width`` x ``height`` rectangle, the packer packs that rectangle, and
+    every collision check measures the rectangle. ``round`` makes the boundary
+    an ellipse with semi-axes ``width / 2`` and ``height / 2`` -- a circle when
+    the two are equal -- which switches the label onto the adjacent
+    ellipse-packing pipeline (see :mod:`plt_optimizer.generate.ellipse_packer`)
+    and makes the collision checks measure the ellipse boundary.
+
+    Attributes:
+        RECT: Rectangular boundary (default; the historical behaviour).
+        ROUND: Elliptical boundary; a circle when ``width == height``.
+    """
+
+    RECT = "rect"
+    ROUND = "round"
+
+
 # Canonical stroke-color layer names mapped to their single-letter
 # abbreviations (EngraveLab/Vision Pro-style; black is "k" following the
 # CMYK convention). Used both to resolve abbreviations on input
@@ -1196,6 +1216,13 @@ class LabelAttributes(TextAttributes):
     Attributes:
         width: Label width in inches; must be defined at label or job level.
         height: Label height in inches; must be defined at label or job level.
+        type: Label boundary shape. ``rect`` (the default) is the historical
+            rectangular behaviour; ``round`` makes the boundary an ellipse with
+            semi-axes ``width / 2`` and ``height / 2`` (a circle when the two
+            are equal). Cascades label -> job (fallback ``rect``); accepted on
+            plates for schema parity only. A ``round`` label is packed by the
+            adjacent ellipse-packing pipeline and its collision checks measure
+            the ellipse boundary -- the rectangular pipeline is untouched.
         margin: Optional universal margin in inches (used as fallback for
             h_margin and v_margin when those are unset). Cascades
             label -> job (fallback 0.125).
@@ -1295,6 +1322,15 @@ class LabelAttributes(TextAttributes):
         default=None,
         gt=0.0,
         description="Label height in inches (must be > 0). Cascades label -> job; must be defined at one level.",
+    )
+    type: Optional[LabelShape] = Field(
+        default=None,
+        description=(
+            "Label boundary shape: 'rect' (default, historical) or 'round' "
+            "(ellipse with semi-axes width/2 and height/2; a circle when "
+            "width == height). Cascades label -> job; unset (null) falls back "
+            "to 'rect'. Accepted on plates for schema parity only."
+        ),
     )
     margin: Optional[float] = Field(
         default=None,
@@ -1716,6 +1752,10 @@ class PlateSpec(BaseModel):
             (and a single label may span multiple plates), so a per-plate
             value is not currently applied during rendering; the effective
             value is resolved from the label -> job -> default cascade.
+        type: Optional label boundary shape (``rect`` / ``round``). Accepted
+            for schema parity with the label ``type`` cascade. NOTE: label
+            shape is a per-label property resolved before packing; a
+            per-plate value is not applied (parity only).
         min_hole_margin: Optional minimum hole margin in inches. Accepted
             for schema parity with the job/label ``min_hole_margin``
             cascade. NOTE: labels are rendered once and cached before
@@ -1897,6 +1937,13 @@ class PlateSpec(BaseModel):
     text_h_alignment: Optional[TextHAlignment] = Field(
         default=None,
         description="Horizontal text alignment (schema parity; not applied at plate level).",
+    )
+    type: Optional[LabelShape] = Field(
+        default=None,
+        description=(
+            "Label boundary shape 'rect'/'round' (schema parity; label shape "
+            "is resolved per label before packing; not applied at plate level)."
+        ),
     )
     font: Optional[str] = Field(
         default=None,
@@ -2712,9 +2759,15 @@ class JobSpec(LabelAttributes):
             )
 
         if self.replacement_text_file is not None or plate_replacement_ids:
-            missing = [
-                name for name in ("width", "height", "text_height") if getattr(self, name) is None
-            ]
+            # A round job synthesizes circles/ellipses: one of width/height
+            # suffices (the missing dimension is filled at resolution).
+            required: tuple[str, ...] = ("width", "height", "text_height")
+            if self.type is LabelShape.ROUND:
+                if self.width is None and self.height is None:
+                    required = ("width and/or height", "text_height")
+                else:
+                    required = ("text_height",)
+            missing = [name for name in required if getattr(self, name, None) is None]
             if missing:
                 scope = (
                     "job-level 'replacement_text_file'"
@@ -2760,10 +2813,18 @@ class JobSpec(LabelAttributes):
         defined either explicitly at the label level or cascaded from
         the job level. This validator checks that requirement.
 
+        ``round`` labels are the one exception to the both-required rule:
+        declaring only one of the two dimensions produces a **circle** of
+        that diameter (the TODO contract), so a round label needs at
+        least one dimension at label or job level. The missing dimension
+        is filled at resolution time (see
+        :func:`plt_optimizer.generate.resolution.resolve_job_spec`).
+
         Raises:
-            ValueError: If a label lacks both width and height and the job
-                lacks width/height to cascade; if root-level labels lack
-                dimensions and the job doesn't provide them; or if a
+            ValueError: If a rectangular label lacks both width and height
+                and the job lacks width/height to cascade; if a round label
+                lacks every dimension at both levels; if root-level labels
+                lack dimensions and the job doesn't provide them; or if a
                 job-level or plate-level replacement file doesn't have
                 job-level width/height (already checked in
                 _validate_replacement_structure, but enforced here too for
@@ -2774,12 +2835,23 @@ class JobSpec(LabelAttributes):
         """
         job_width = self.width
         job_height = self.height
+        job_is_round = self.type is LabelShape.ROUND
 
         # Check explicit labels (if present)
         if self.labels:
             for label in self.labels:
                 label_width = label.width or job_width
                 label_height = label.height or job_height
+                # A round label with only one declared dimension is a circle
+                # of that diameter, so it needs at least one dimension.
+                if (label.type or self.type) is LabelShape.ROUND:
+                    if label_width is None and label_height is None:
+                        raise ValueError(
+                            f"label '{label.id}': round labels require width "
+                            "and/or height at the label level or inherited "
+                            "from the job level"
+                        )
+                    continue
                 if label_width is None or label_height is None:
                     missing = []
                     if label_width is None:
@@ -2802,7 +2874,14 @@ class JobSpec(LabelAttributes):
 
             if not is_template:
                 # Root-level content is a label source
-                if job_width is None or job_height is None:
+                if job_is_round:
+                    # A round root-level label with one dimension is a circle.
+                    if job_width is None and job_height is None:
+                        raise ValueError(
+                            "Root-level job with 'content': round labels require "
+                            "width and/or height at the job level"
+                        )
+                elif job_width is None or job_height is None:
                     missing = []
                     if job_width is None:
                         missing.append("width")

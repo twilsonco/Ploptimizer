@@ -25,6 +25,8 @@ dependencies = [
     "pydantic>=2.0",
     "pyyaml>=6.0",
     "rectpack>=0.2.0",
+    # Polygonal ellipse packing for `type: round` labels (ellipse_packer.py).
+    "shapely>=2.0",
     "vpype>=1.0",
     "watchdog>=2.6,<5.0",
     "pystray>=0.19.5",
@@ -96,7 +98,7 @@ warn_unused_configs = true
 
 # Ignore missing stubs for optional third-party libraries (they don't ship type stubs)
 [[tool.mypy.overrides]]
-module = ["pystray.*", "infi.systray", "matplotlib.*", "winshell", "win32com.client", "rectpack", "vpype", "vpype_cli"]
+module = ["pystray.*", "infi.systray", "matplotlib.*", "winshell", "win32com.client", "rectpack", "vpype", "vpype_cli", "shapely.*"]
 ignore_missing_imports = true
 
 [tool.ruff]

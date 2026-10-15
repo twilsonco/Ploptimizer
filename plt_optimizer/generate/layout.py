@@ -31,6 +31,7 @@ from typing import Mapping, Optional, Sequence
 
 import rectpack
 
+from plt_optimizer.generate.ellipse_packer import ScrapDirection as ScrapDirectionValue
 from plt_optimizer.generate.label_renderer import (
     RenderedLabel,
     assert_no_collisions,
@@ -39,6 +40,7 @@ from plt_optimizer.generate.label_renderer import (
 from plt_optimizer.generate.resolution import ResolvedLabel
 from plt_optimizer.generate.schema import (
     DEFAULT_LAYOUT_MODE,
+    LabelShape,
     LayoutMode,
     PlateSpec,
     material_key,
@@ -51,6 +53,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 DEFAULT_PLATE_WIDTH: float = 24.0
 DEFAULT_PLATE_HEIGHT: float = 16.0
+
+# Inter-label kerf used by the round (ellipse) packing pipeline when the
+# labels carry no boundary/hole cutter information (see
+# :func:`_round_clearance`). Matches the ellipse packer's default.
+DEFAULT_ROUND_CLEARANCE_IN: float = 0.0625
 
 
 # ---------------------------------------------------------------------------
@@ -1082,6 +1089,119 @@ def _pack_entries_with_pinners(
     default_plate_size: Optional[tuple[float, float]],
     default_plate_clearance: Optional[tuple[float, float]],
 ) -> tuple[list[PackedPlate], list[_RectEntry]]:
+    """Pack entries, dispatching round labels to the adjacent ellipse pipeline.
+
+    Rectangular labels (``shape_type == "rect"``) pack through the existing
+    ``rectpack`` machinery -- :func:`_pack_rect_entries_with_pinners` runs
+    them exactly as before (bit-identical for every job without round
+    labels). ``round`` labels then pack through the ellipse pipeline
+    (:func:`_pack_round_entries_with_pinners`) onto the same plates,
+    seeded with the rectangular placements as occupancy so an ellipse never
+    overlaps a rectangle. A job with no round labels returns the
+    rectangular result untouched.
+
+    Args:
+        rect_with_rid: All ``(pack_width, pack_height, rid)`` tuples.
+        provided_plates: User-specified plates, or ``None`` / empty for
+            unbounded mode.
+        allow_rotation: Whether rotated candidates are considered.
+        layout: Job-level fill-order mode (maps to the ellipse packer's
+            scrap direction: ``columns`` -> PREFER_WIDTH, ``rows`` ->
+            PREFER_HEIGHT).
+        default_plate_size: Auto-allocated bin size override (unbounded).
+        default_plate_clearance: Auto-allocated bin clearance (unbounded).
+
+    Returns:
+        ``(packed_plates, leftover)`` with the same contract as
+        :func:`_pack_rect_entries_with_pinners`; round placements merge into
+        the plates sharing their id, and round-only plates (pinned
+        round-only plates, unbounded ``round_default_plate_{i}`` bins) are
+        appended after the rectangular plates.
+
+    Raises:
+        LayoutFitError: Propagated from both pipelines (pinning/material
+            failures on either cohort).
+    """
+    rect_entries, round_entries = _split_shape_entries(rect_with_rid)
+
+    rect_plates, rect_leftover = _pack_rect_entries_with_pinners(
+        rect_entries,
+        provided_plates,
+        allow_rotation,
+        layout,
+        default_plate_size,
+        default_plate_clearance,
+    )
+    if not round_entries:
+        # Rectangular-only job: the historical one-pipeline behaviour,
+        # bit-identical (no ellipse module import, no extra work).
+        return rect_plates, rect_leftover
+
+    occupancy = _rect_occupancy_by_plate(rect_plates)
+    round_plates, round_leftover = _pack_round_entries_with_pinners(
+        round_entries,
+        provided_plates,
+        layout,
+        default_plate_size,
+        default_plate_clearance,
+        _plate_clearances(provided_plates),
+        occupancy,
+    )
+
+    # Merge round placements into the plates sharing their id; round-only
+    # plates append after the rectangular ones (stable order).
+    plate_by_id = {plate.plate_id: plate for plate in rect_plates}
+    merged: list[PackedPlate] = list(rect_plates)
+    for plate in round_plates:
+        target = plate_by_id.get(plate.plate_id)
+        if target is not None:
+            target.labels.extend(plate.labels)
+        else:
+            plate_by_id[plate.plate_id] = plate
+            merged.append(plate)
+    return merged, rect_leftover + round_leftover
+
+
+def _rect_occupancy_by_plate(
+    plates: Sequence[PackedPlate],
+) -> dict[str, list[tuple[float, float, float, float]]]:
+    """Convert packed rectangular placements into ellipse-packer occupancy.
+
+    Each packed label's device-frame rectangle maps into the ellipse
+    packer's frame -- the plate's **usable area**, y measured from its top
+    edge (the emitted device convention) -- by subtracting the plate's
+    clearances, so the round pipeline seeds its collision union with the
+    space the rectangles already occupy.
+
+    Args:
+        plates: The rectangular pipeline's packed plates.
+
+    Returns:
+        Mapping of plate id to ``(x_min, y_min, x_max, y_max)`` usable-area
+        rectangles (empty for plates with no labels).
+    """
+    occupancy: dict[str, list[tuple[float, float, float, float]]] = {}
+    for plate in plates:
+        rects: list[tuple[float, float, float, float]] = []
+        for label in plate.labels:
+            # Device frame: x from material left, y from material top
+            # (y-down). Usable-area frame: subtract the clearances.
+            x_min = label.x - plate.left_clearance
+            y_min = label.y - plate.top_clearance
+            rects.append((x_min, y_min, x_min + label.width, y_min + label.height))
+        if rects:
+            occupancy[plate.plate_id] = rects
+    return occupancy
+
+
+def _pack_rect_entries_with_pinners(
+    rect_with_rid: list[_RectEntry],
+    provided_plates: Optional[list[PlateSpec]],
+    allow_rotation: bool,
+    layout: LayoutMode,
+    default_plate_size: Optional[tuple[float, float]],
+    default_plate_clearance: Optional[tuple[float, float]],
+) -> tuple[list[PackedPlate], list[_RectEntry]]:
     """Pack entries honoring plate pinning, then material-partitioned packing.
 
     Pinned entries (see :func:`_split_pinned_entries`) pack first,
@@ -1246,6 +1366,332 @@ def _plate_footprint(packer: rectpack.packer.Packer) -> float:
             max_y = max(max_y, rect.y + rect.height)
         footprint += max_x * max_y
     return footprint
+
+
+def _split_shape_entries(
+    entries: list[_RectEntry],
+) -> tuple[list[_RectEntry], list[_RectEntry]]:
+    """Split rectangle entries into rectangular and round (ellipse) groups.
+
+    A label is round when its resolved ``shape_type`` is ``round`` (see
+    :attr:`plt_optimizer.generate.resolution.ResolvedLabel.shape_type`).
+    Rectangular entries keep packing through ``rectpack``; round entries
+    route to the adjacent ellipse-packing pipeline. A job with no round
+    labels yields an empty round group, so the rectangular path runs
+    exactly as before.
+
+    Args:
+        entries: Real-space ``(pack_width, pack_height, rid)`` tuples.
+
+    Returns:
+        ``(rect_entries, round_entries)`` in the original relative order.
+    """
+    rect: list[_RectEntry] = []
+    round_: list[_RectEntry] = []
+    for entry in entries:
+        if entry[2][1].shape_type == LabelShape.ROUND.value:
+            round_.append(entry)
+        else:
+            rect.append(entry)
+    return rect, round_
+
+
+def _pack_round_entries_on_plate(
+    round_entries: list[_RectEntry],
+    plate_width: float,
+    plate_height: float,
+    left_clearance: float,
+    top_clearance: float,
+    plate_id: str,
+    material: Optional[str],
+    clearance: float,
+    mode: ScrapDirectionValue,
+    occupancy: Sequence[tuple[float, float, float, float]],
+) -> tuple[PackedPlate, list[_RectEntry]]:
+    """Pack round entries onto one plate through the ellipse packer.
+
+    Round labels pack as ellipses with semi-axes ``pack_width / 2`` and
+    ``pack_height / 2`` (the rendered bounding-box dimensions), buffered by
+    the inter-label ``clearance``. The ellipse packer returns plate-frame
+    y-down centers (the emitted device convention, the frame rectpack fills
+    in), so each placement maps to the ``PackedLabel`` rectangle plate
+    assembly consumes by adding the plate clearances -- no Y flip. The
+    label's slot is the ellipse's enclosing rectangle.
+
+    Args:
+        round_entries: The round ``(pack_width, pack_height, rid)`` tuples.
+        plate_width: Usable plate width, inches.
+        plate_height: Usable plate height, inches.
+        left_clearance: Plate left-edge clearance, inches.
+        top_clearance: Plate top-edge clearance, inches.
+        plate_id: The plate id to stamp on the result.
+        material: Material stamped on the plate (``None`` = material-agnostic).
+        clearance: Inter-label kerf, inches.
+        mode: Scrap direction (from the plate's fill-order mode).
+        occupancy: ``(x_min, y_min, x_max, y_max)`` rectangles (usable-area
+            frame, y-up) already occupied by rectangular labels.
+
+    Returns:
+        ``(plate, leftover)`` where ``plate`` carries the placements (empty
+        when nothing fit) and ``leftover`` holds the entries that did not fit.
+    """
+    from plt_optimizer.generate.ellipse_packer import (
+        EllipseSpec,
+        ScrapDirection,
+        pack_ellipses,
+    )
+
+    specs = [EllipseSpec(entry[2][0], entry[0] / 2.0, entry[1] / 2.0) for entry in round_entries]
+    result = pack_ellipses(
+        plate_width,
+        plate_height,
+        specs,
+        mode=ScrapDirection(mode),
+        clearance=clearance,
+        occupancy=occupancy,
+    )
+    entry_by_id = {entry[2][0]: entry for entry in round_entries}
+    plate = PackedPlate(
+        plate_id=plate_id,
+        width=plate_width,
+        height=plate_height,
+        left_clearance=left_clearance,
+        top_clearance=top_clearance,
+        material=material,
+    )
+    for placed in result.placed:
+        entry = entry_by_id[placed.item_id]
+        _pack_w, _pack_h, (rect_id, source_label, _pack_width, _seq) = entry
+        # The packer works in the usable-area frame with y measured from its
+        # top edge -- the emitted device convention, the same frame rectpack
+        # fills -- so the placement maps to the device frame by adding the
+        # clearances. The label's bounding box is the ellipse's enclosing
+        # rectangle.
+        bbox_w = placed.semi_x * 2.0
+        bbox_h = placed.semi_y * 2.0
+        device_x = placed.center_x - placed.semi_x + left_clearance
+        device_y = placed.center_y - placed.semi_y + top_clearance
+        plate.labels.append(
+            PackedLabel(
+                label_id=rect_id,
+                x=device_x,
+                y=device_y,
+                width=bbox_w,
+                height=bbox_h,
+                rotated=placed.rotation_deg == 90,
+                source_label=source_label,
+            )
+        )
+    placed_ids = {label.label_id for label in plate.labels}
+    leftover = [entry for entry in round_entries if entry[2][0] not in placed_ids]
+    return plate, leftover
+
+
+def _round_clearance(entries: Sequence[_RectEntry]) -> float:
+    """Return the inter-label kerf for one round packing pass, inches.
+
+    Ellipse borders are cut by the boundary/hole tool, so two adjacent
+    round labels keep at least the widest boundary cutter of the group
+    edge-to-edge (the engraved border strokes never touch). Falls back to
+    the ellipse packer's 1/16in default when the labels carry no cutter
+    information.
+
+    Args:
+        entries: The round entries of one pass.
+
+    Returns:
+        The kerf/spacing clearance, inches.
+    """
+    cutters = [entry[2][1].hole_cutter_diameter for entry in entries]
+    return max(cutters, default=DEFAULT_ROUND_CLEARANCE_IN)
+
+
+def _scrap_direction(layout: LayoutMode) -> ScrapDirectionValue:
+    """Map the fill-order mode onto the ellipse packer's scrap direction.
+
+    ``columns`` (column-major, the default) grows up the plate first and
+    minimizes used width -- PREFER_WIDTH, leaving a clean vertical scrap
+    strip. ``rows`` minimizes used height -- PREFER_HEIGHT, leaving a clean
+    horizontal strip.
+
+    Args:
+        layout: The plate/job fill-order mode.
+
+    Returns:
+        The matching :class:`~plt_optimizer.generate.ellipse_packer.ScrapDirection`
+        value.
+    """
+    if layout == LayoutMode.ROWS:
+        return ScrapDirectionValue.PREFER_HEIGHT
+    return ScrapDirectionValue.PREFER_WIDTH
+
+
+def _pack_round_entries_with_pinners(
+    round_entries: list[_RectEntry],
+    provided_plates: Optional[list[PlateSpec]],
+    layout: LayoutMode,
+    default_plate_size: Optional[tuple[float, float]],
+    default_plate_clearance: Optional[tuple[float, float]],
+    clearances: Mapping[str, tuple[float, float]],
+    occupancy: Mapping[str, Sequence[tuple[float, float, float, float]]],
+) -> tuple[list[PackedPlate], list[_RectEntry]]:
+    """Pack all round entries through the adjacent ellipse pipeline.
+
+    Mirrors :func:`_pack_rect_entries_with_pinners` for the round cohort
+    only: pinned round labels pack first onto their declaring plate, then
+    the unpinned remainder packs per material group (materials never share
+    a plate). Each plate runs the ellipse packer once; leftover entries
+    cascade to the next plate in declaration order. Rectangular placements
+    (from the occupancy mapping) seed every plate's collision union, so an
+    ellipse never overlaps a rectangle.
+
+    Args:
+        round_entries: The round ``(pack_width, pack_height, rid)`` tuples.
+        provided_plates: Constrained-mode plates, or ``None`` for unbounded.
+        layout: Job-level fill order (maps to the scrap direction).
+        default_plate_size: Unbounded auto-bin size override.
+        default_plate_clearance: Unbounded auto-bin clearance.
+        clearances: Bin-id to ``(left, top)`` clearance mapping.
+        occupancy: Plate-id to occupied rectangles (usable-area frame) from
+            the rectangular pipeline.
+
+    Returns:
+        ``(packed_plates, leftover)`` in the same contract as
+        :func:`_pack_rect_entries_with_pinners`.
+
+    Raises:
+        LayoutFitError: If a pinned round label does not fit its plate, a
+            material group has no plate, or a constrained material group
+            overflows its pool.
+    """
+    if not round_entries:
+        return [], []
+
+    is_constrained = provided_plates is not None and len(provided_plates) > 0
+    plate_by_id = {plate.id: plate for plate in provided_plates or []}
+    clearance = _round_clearance(round_entries)
+    mode = _scrap_direction(layout)
+
+    def _clearance_of(plate_id: str, plate: Optional[PlateSpec]) -> tuple[float, float]:
+        if plate is not None:
+            return clearances.get(plate_id, (plate.left_clearance, plate.top_clearance))
+        return clearances.get(plate_id, default_plate_clearance or (0.0, 0.0))
+
+    packed_plates: list[PackedPlate] = []
+    leftover: list[_RectEntry] = []
+
+    # Pinned round labels: one exclusive pass per declaring plate.
+    pinned_ids = {e[2][1].plate_id for e in round_entries if e[2][1].plate_id is not None}
+    for plate_id in sorted(pinned_ids):
+        plate = plate_by_id.get(plate_id)
+        if plate is None:
+            raise LayoutFitError(f"Round labels are pinned to undeclared plate '{plate_id}'.")
+        pinned = [e for e in round_entries if e[2][1].plate_id == plate_id]
+        left, top = _clearance_of(plate_id, plate)
+        packed, pinned_leftover = _pack_round_entries_on_plate(
+            pinned,
+            plate.width,
+            plate.height,
+            left,
+            top,
+            plate_id,
+            plate.material,
+            clearance,
+            mode,
+            occupancy.get(plate_id, ()),
+        )
+        if pinned_leftover:
+            raise LayoutFitError(
+                f"Could only fit {len(pinned) - len(pinned_leftover)} of "
+                f"{len(pinned)} round label(s) pinned to plate '{plate_id}'. "
+                "Pinned labels never overflow onto other plates."
+            )
+        if packed.labels:
+            packed_plates.append(packed)
+
+    unpinned = [e for e in round_entries if e[2][1].plate_id is None]
+    if not unpinned:
+        return packed_plates, leftover
+
+    material_groups = _split_material_entries(unpinned)
+
+    if is_constrained:
+        assert provided_plates is not None
+        unpinned_plates = [p for p in provided_plates if p.id not in pinned_ids]
+        if not unpinned_plates:
+            raise LayoutFitError(
+                f"{len(unpinned)} unpinned round label(s) remain but every "
+                "declared plate is pinned to other labels."
+            )
+        pools = _claim_plates_by_material(unpinned_plates, material_groups)
+        for key, entries in material_groups.items():
+            pool = pools[key]
+            display = _group_display_material(entries)
+            if not pool:
+                raise LayoutFitError(
+                    f"{len(entries)} round label(s) with material "
+                    f"'{display}' have no plate to pack onto."
+                )
+            remaining = list(entries)
+            for plate in pool:
+                if not remaining:
+                    break
+                left, top = _clearance_of(plate.id, plate)
+                packed, remaining = _pack_round_entries_on_plate(
+                    remaining,
+                    plate.width,
+                    plate.height,
+                    left,
+                    top,
+                    plate.id,
+                    plate.material if plate.material is not None else display,
+                    clearance,
+                    mode,
+                    occupancy.get(plate.id, ()),
+                )
+                if packed.labels:
+                    packed_plates.append(packed)
+            if remaining and display is not None:
+                raise LayoutFitError(
+                    f"Could only fit {len(entries) - len(remaining)} of "
+                    f"{len(entries)} round label(s) with material '{display}' "
+                    "on its plate(s). Materials never share a plate."
+                )
+            leftover.extend(remaining)
+    else:
+        for _key, entries in material_groups.items():
+            display = _group_display_material(entries)
+            width, height = default_plate_size or (
+                DEFAULT_PLATE_WIDTH,
+                DEFAULT_PLATE_HEIGHT,
+            )
+            left, top = default_plate_clearance or (0.0, 0.0)
+            prefix = _material_bin_prefix(display)
+            remaining = list(entries)
+            sheet = 0
+            while remaining:
+                plate_id = f"{prefix}round_default_plate_{sheet}"
+                packed, remaining = _pack_round_entries_on_plate(
+                    remaining,
+                    width,
+                    height,
+                    left,
+                    top,
+                    plate_id,
+                    display,
+                    clearance,
+                    mode,
+                    (),
+                )
+                if not packed.labels:
+                    # Nothing fit an empty plate: the label exceeds the plate.
+                    leftover.extend(remaining)
+                    break
+                packed_plates.append(packed)
+                sheet += 1
+            leftover.extend(remaining)
+
+    return packed_plates, leftover
 
 
 def _pack_groups(

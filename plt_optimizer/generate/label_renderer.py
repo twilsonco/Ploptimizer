@@ -76,11 +76,14 @@ from plt_optimizer.generate.resolution import (
     baseline_offsets,
     compute_horizontal_offset,
     compute_horizontal_scale,
+    ellipse_content_inset,
     fit_baseline_spacing_to_margins,
     fit_line_spacing_to_margins,
     glyph_render_plan,
 )
+from plt_optimizer.generate.schema import LabelShape
 from plt_optimizer.generate.text_geometry import (
+    ARC_FLATTEN_CHORD_TOL_INCHES,
     LineSeg,
     Stroke,
     TextBlock,
@@ -94,6 +97,42 @@ logger = logging.getLogger(__name__)
 LAYER_TEXT: int = 1
 LAYER_BOUNDARY: int = 2
 LAYER_HOLES: int = 3
+
+
+def _label_is_round(label: ResolvedLabel) -> bool:
+    """True when the label's boundary is an ellipse (``type: round``).
+
+    The single shape predicate the renderer uses to branch onto the ellipse
+    path (boundary emission, hole placement, collision distance, radial
+    content inset). Rectangular labels never enter it, so their geometry is
+    bit-identical.
+
+    Args:
+        label: The resolved label.
+
+    Returns:
+        ``True`` for ``shape_type == "round"``.
+    """
+    return label.shape_type == LabelShape.ROUND.value
+
+
+def _label_ellipse(
+    label: ResolvedLabel,
+) -> tuple[float, float, float, float]:
+    """The label's elliptical boundary in the label-local y-up frame.
+
+    The boundary rectangle is drawn at the label edge, so the ellipse is
+    centred at ``(width / 2, height / 2)`` with semi-axes ``width / 2`` and
+    ``height / 2`` -- the same frame the drill holes and text bounds use.
+
+    Args:
+        label: The resolved (round) label.
+
+    Returns:
+        ``(center_x, center_y, semi_a, semi_b)`` in inches.
+    """
+    return (label.width / 2.0, label.height / 2.0, label.width / 2.0, label.height / 2.0)
+
 
 # PLT document framing (EngraveLab reference parity). The header is
 # ``IN;PA;`` -- tool option headers (VS/ZO/...) are inserted after ``IN;``
@@ -456,6 +495,13 @@ def _detect_text_hole_collisions(
             y_max + shift_y,
         )
         for hole_index, (center_x, center_y, radius) in enumerate(circles):
+            # The gap is text-box to drill-hole circle -- a shape-agnostic
+            # measurement (the label shape enters through the hole
+            # POSITIONS, which _hole_circles_local places on the ellipse for
+            # round labels, and through the radial content inset, which
+            # keeps the text box itself inside the inset ellipse). The
+            # engraved-boundary clearance is the margin system's job, not
+            # this check's, exactly as on rectangular labels.
             gap = circle_aabb_gap(shifted, (center_x, center_y), radius)
             if gap < threshold:
                 results.append(
@@ -3522,12 +3568,30 @@ def _border_box(label: ResolvedLabel) -> GlyphBox:
     the engraved border stroke. Crossing the (unrelated) ``v_margin`` is not a
     collision and is never measured here.
 
+    A ``round`` label's bottom boundary is the ellipse's **lower arc**, not a
+    flat edge, so the box carries that arc (sampled at the shared chord
+    tolerance) in the stacked frame -- centre ``(width / 2, 0)``, the bottom
+    vertex at ``-height / 2``, rising to the side vertices at ``y = 0``. A
+    descender near the label's left/right edge therefore measures against the
+    sharply rising boundary, exactly as it engraves.
+
     Args:
         label: The label being rendered (supplies the material dimensions).
 
     Returns:
         A :class:`GlyphBox` whose ink is the bottom border centreline.
     """
+    if _label_is_round(label):
+        arc = _lower_ellipse_arc(label.width, label.height)
+        return GlyphBox(
+            glyph_index=_BORDER_GLYPH_INDEX,
+            char="",
+            bounds=(arc[0][0], min(y for _x, y in arc), arc[-1][0], max(y for _x, y in arc)),
+            descender=0.0,
+            ink=(arc,),
+            sub_baseline_ink=(),
+        )
+
     border_y = -label.height / 2.0
     polyline: Polyline = ((0.0, border_y), (label.width, border_y))
     return GlyphBox(
@@ -4572,6 +4636,20 @@ def _render_positioned_lines(
     h_margin = label.h_margin
     v_margin = label.v_margin
     inner_width = label.width
+    # A round label applies its margin **radially**: the content area is the
+    # largest centered block inscribed in the inset ellipse (see
+    # :func:`ellipse_content_inset`), strictly smaller than the rectangular
+    # box inset. Recomputing the two local margins from that inset feeds the
+    # radial rule to every downstream site -- the available height, the
+    # compression width, the alignment width and the alignment anchor -- with
+    # no per-site branching. Vertical centering is unaffected: the inset is
+    # concentric, so the inner-area center stays at ``height / 2``.
+    if _label_is_round(label):
+        content_width, content_height = ellipse_content_inset(
+            label.width, label.height, h_margin, v_margin
+        )
+        h_margin = (label.width - content_width) / 2.0
+        v_margin = (label.height - content_height) / 2.0
 
     # First pass: render all lines and measure their heights. Keep each
     # line's own line_spacing alongside the rendered geometry so empty or
@@ -5200,9 +5278,110 @@ def _render_text_lines_by_pen(
     )
 
 
+def _ellipse_boundary_polygon(
+    center_x: float,
+    center_y: float,
+    width: float,
+    height: float,
+) -> np.ndarray:
+    """Sample a closed ellipse contour in the label-local frame.
+
+    The parametric ellipse ``(cx + a cos t, cy + b sin t)`` is sampled at a
+    uniform parameter step bounded by the chord tolerance
+    :data:`~plt_optimizer.generate.text_geometry.ARC_FLATTEN_CHORD_TOL_INCHES`
+    at the point of maximum curvature (radius ``max(a, b)^2 / min(a, b)``,
+    the vertex on the minor axis), so the engraved contour's deviation from
+    the true ellipse stays within the same tolerance the arc flattening uses
+    everywhere else. The contour is closed (the last vertex repeats the
+    first), matching the boundary rectangle's closed loop.
+
+    Args:
+        center_x: Ellipse centre X, inches.
+        center_y: Ellipse centre Y, inches.
+        width: Full ellipse width (2a), inches.
+        height: Full ellipse height (2b), inches.
+
+    Returns:
+        A closed complex-vertex array of the ellipse contour.
+    """
+    semi_a = width / 2.0
+    semi_b = height / 2.0
+    # Radius of curvature at the minor-axis vertex (the ellipse's max).
+    radius_of_curvature = max(semi_a, semi_b) ** 2 / min(semi_a, semi_b)
+    # Sagitta s = R (1 - cos(dtheta/2)) ~= R dtheta^2 / 8 <= tol.
+    step = math.sqrt(8.0 * ARC_FLATTEN_CHORD_TOL_INCHES / radius_of_curvature)
+    steps = max(4, math.ceil(2.0 * math.pi / step))
+    # An EVEN count puts samples exactly on the four axis vertices, so the
+    # contour reaches the enclosing box's extrema exactly -- the rendered
+    # bounds then equal the nominal label box, which the packer and the
+    # plate-assembly transforms rely on.
+    steps += steps % 2
+    theta = np.linspace(0.0, 2.0 * math.pi, steps + 1)
+    return center_x + semi_a * np.cos(theta) + 1j * (center_y + semi_b * np.sin(theta))
+
+
+def _lower_ellipse_arc(width: float, height: float) -> Polyline:
+    """Sample the lower half of a round label's boundary in the relief frame.
+
+    The descending-character relief measures a glyph against the label's
+    bottom border as a virtual "following line" (see :func:`_border_box`).
+    The relief's stacked frame centres the block on ``y = 0`` at label
+    ``height / 2``, so the boundary's bottom vertex sits at ``-height / 2``
+    and its left/right vertices (the ellipse's horizontal-axis extremes) sit
+    at ``y = 0``.
+
+    The lower arc is sampled from the left vertex to the right vertex
+    (parametric angles 180 -> 360 degrees) at the shared chord tolerance, so
+    the rolling-circle measurement sees the true curved boundary.
+
+    Args:
+        width: Label width in inches (> 0).
+        height: Label height in inches (> 0).
+
+    Returns:
+        The lower arc's vertices, left to right, in the stacked frame.
+    """
+    semi_a = width / 2.0
+    semi_b = height / 2.0
+    radius_of_curvature = max(semi_a, semi_b) ** 2 / min(semi_a, semi_b)
+    step = math.sqrt(8.0 * ARC_FLATTEN_CHORD_TOL_INCHES / radius_of_curvature)
+    steps = max(2, math.ceil(math.pi / step))
+    # An EVEN count samples the bottom vertex (3pi/2) exactly.
+    steps += steps % 2
+    theta = np.linspace(math.pi, 2.0 * math.pi, steps + 1)
+    xs = semi_a + semi_a * np.cos(theta)
+    ys = semi_b * np.sin(theta)
+    return tuple((float(x), float(y)) for x, y in zip(xs, ys))
+
+
 def _render_boundary_local(label: ResolvedLabel) -> vp.LineCollection:
-    """Render boundary rectangle at local coordinates."""
+    """Render the label boundary at local coordinates.
+
+    ``type: rect`` (the default) emits the historical ``width`` x ``height``
+    rectangle at the label edge, bit-identical. ``type: round`` emits the
+    inscribed **ellipse** (semi-axes ``width / 2`` and ``height / 2``,
+    centred at ``(width / 2, height / 2)``) as a closed polygon sampled at
+    the shared arc chord tolerance, so the engraved boundary follows the
+    round label's shape to the same fidelity as every flattened arc.
+
+    Args:
+        label: The resolved label whose boundary should be drawn.
+
+    Returns:
+        A LineCollection holding the boundary contour (empty for a
+        degenerate label).
+    """
     lc = vp.LineCollection()
+    if _label_is_round(label):
+        if label.width <= 0.0 or label.height <= 0.0:
+            return lc
+        lc.append(
+            _ellipse_boundary_polygon(
+                label.width / 2.0, label.height / 2.0, label.width, label.height
+            )
+        )
+        return lc
+
     rect_array = vp.rect(0, 0, label.width, label.height)
     # vp.rect() returns a numpy array of complex coordinates, need to convert to LineCollection
     if isinstance(rect_array, np.ndarray) and rect_array.size > 0:
@@ -5225,6 +5404,7 @@ def _hole_circles_local(label: ResolvedLabel) -> List[Tuple[float, float, float]
         One ``(center_x, center_y, radius)`` tuple per hole, in inches.
     """
     circles: List[Tuple[float, float, float]] = []
+    is_round = _label_is_round(label)
 
     for hole in label.holes:
         radius = hole.diameter / 2.0
@@ -5234,6 +5414,17 @@ def _hole_circles_local(label: ResolvedLabel) -> List[Tuple[float, float, float]
         # hole_margin inches away from the edge.
         offset = label.hole_margin + (label.hole_cutter_diameter / 2.0) + radius
         location = str(hole.location)
+
+        if is_round and location in ("top-left", "top-right", "bottom-left", "bottom-right"):
+            # A round label's corner sits in the material the ellipse cuts
+            # away, so a rectangular corner inset would drill outside the
+            # boundary. Place the hole on the ellipse's diagonal instead:
+            # at the 45-degree parametric point, inset inward along the
+            # outward normal by ``offset`` so the stroke keeps hole_margin
+            # from the engraved curve.
+            hole_x, hole_y = _round_corner_hole(label, location, offset)
+            circles.append((hole_x, hole_y, radius))
+            continue
 
         if location == "top-left":
             hole_x = offset
@@ -5265,6 +5456,45 @@ def _hole_circles_local(label: ResolvedLabel) -> List[Tuple[float, float, float]
         circles.append((hole_x, hole_y, radius))
 
     return circles
+
+
+def _round_corner_hole(
+    label: ResolvedLabel,
+    location: str,
+    offset: float,
+) -> Tuple[float, float]:
+    """Place a corner drill hole on a round label's elliptical boundary.
+
+    The corner is measured along the 45-degree parametric direction (the
+    diagonal toward the named corner): the boundary point
+    ``(cx + a cos45, cy + b sin45)`` inset inward along the outward normal
+    ``(cos45 / a, sin45 / b)`` (normalized) by ``offset``. The result keeps
+    the hole's stroke ``offset`` from the engraved curve near the diagonal,
+    where the rectangular corner inset would land the hole in cut-away
+    material.
+
+    Args:
+        label: The resolved round label.
+        location: One of the four corner location strings.
+        offset: Inset distance from the boundary, inches.
+
+    Returns:
+        ``(center_x, center_y)`` in label-local y-up inches.
+    """
+    cx, cy, semi_a, semi_b = _label_ellipse(label)
+    sign_x = -1.0 if "left" in location else 1.0
+    sign_y = 1.0 if "top" in location else -1.0
+    cos45 = math.sqrt(0.5)
+    sin45 = math.sqrt(0.5)
+    # Boundary point toward the corner.
+    bx = cx + sign_x * semi_a * cos45
+    by = cy + sign_y * semi_b * sin45
+    # Unit outward normal at that parametric angle.
+    nx = (sign_x * cos45) / semi_a
+    ny = (sign_y * sin45) / semi_b
+    norm = math.hypot(nx, ny)
+    nx, ny = nx / norm, ny / norm
+    return (bx - nx * offset, by - ny * offset)
 
 
 def _render_holes_hpgl(label: ResolvedLabel) -> str:

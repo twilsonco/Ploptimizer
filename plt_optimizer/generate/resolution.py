@@ -32,7 +32,7 @@ from typing import Callable, List, Optional, Sequence, Tuple, Union
 
 from plt_optimizer.generate.font_registry import DEFAULT_FONT_NAME, plt_font_stroke_count
 from plt_optimizer.generate.markup import Run, SupSub, parse_markup, split_brackets
-from plt_optimizer.generate.schema import JobSpec, LabelSpec
+from plt_optimizer.generate.schema import JobSpec, LabelShape, LabelSpec
 
 logger = logging.getLogger(__name__)
 
@@ -398,6 +398,10 @@ DEFAULT_DESCENDING_CHARACTER_RECIPROCAL_SCALE: float = 0.5
 # label/line-local by design, see schema.TextColor) and the resolution
 # engine never reads a job-level value (the schema rejects one).
 DEFAULT_TEXT_COLOR: str = "none"
+
+#: Fallback label boundary shape when the ``type`` cascade resolves to unset
+#: (see :attr:`plt_optimizer.generate.schema.LabelAttributes.type`).
+DEFAULT_LABEL_SHAPE: str = LabelShape.RECT.value
 
 # Float tolerance guarding the downsize midpoint comparison: a scale exactly
 # at the midpoint keeps the current cutter (the rule is "compressed to 89%
@@ -1497,6 +1501,13 @@ class ResolvedLabel:
             their own lowest ink point (from the
             ``descending_character_reciprocal_scale`` cascade, default
             ``0.5``; ``1.0`` = reciprocal downscaling forbidden).
+        shape_type: Label boundary shape (``"rect"`` / ``"round"``, from the
+            ``type`` cascade, label -> job, default ``"rect"``). ``"round"``
+            makes the boundary an ellipse with semi-axes ``width / 2`` and
+            ``height / 2`` (a circle when equal): the label packs through the
+            adjacent ellipse-packing pipeline and the collision checks measure
+            the ellipse boundary. ``"rect"`` keeps the rectangular pipeline
+            bit-identical.
     """
 
     id: str
@@ -1525,6 +1536,7 @@ class ResolvedLabel:
     descending_character_raise: float = DEFAULT_DESCENDING_CHARACTER_RAISE
     descending_character_clearance: float = DEFAULT_DESCENDING_CHARACTER_CLEARANCE
     descending_character_reciprocal_scale: float = DEFAULT_DESCENDING_CHARACTER_RECIPROCAL_SCALE
+    shape_type: str = DEFAULT_LABEL_SHAPE
 
     @property
     def center_text_by_band(self) -> bool:
@@ -1908,6 +1920,60 @@ def compute_horizontal_scale(
     needed = available_width / rendered_width
     floor = 1.0 - limit
     return max(needed, floor)
+
+
+def ellipse_content_inset(
+    width: float,
+    height: float,
+    h_margin: float,
+    v_margin: float,
+) -> tuple[float, float]:
+    """Inner content extents of a ``round`` (elliptical) label, in inches.
+
+    The margin on a round label applies **radially**: content must stay
+    ``margin`` away from the engraved boundary stroke, not sit inside a box
+    inset from the enclosing rectangle. The boundary is the ellipse with
+    semi-axes ``a = width / 2`` and ``b = height / 2``; keeping ``m`` of air
+    from that curve gives the concentric **inset ellipse** with semi-axes
+    ``a - h_margin`` and ``b - v_margin`` (exact for a circle, the standard
+    inset for a general ellipse).
+
+    Text stacks as a centered, axis-aligned block, so the radial rule
+    constrains the block's **corners**: they must lie on or inside the inset
+    ellipse. The returned extents are the largest centered block of the
+    label's own aspect ratio whose corners sit exactly on the inset ellipse
+    -- at parametric angle ``theta`` the inscribed block is
+    ``2 a' cos(theta)`` by ``2 b' sin(theta)``, and fixing the aspect picks
+    ``theta`` in closed form. The result is strictly smaller than the
+    rectangular inset ``width - 2 h_margin`` by ``height - 2 v_margin``,
+    which is exactly the point of the radial rule: near the ellipse's
+    shoulders there is far less room than a box inset assumes.
+
+    Args:
+        width: Label width in inches (> 0).
+        height: Label height in inches (> 0).
+        h_margin: Horizontal (X-direction) margin in inches (>= 0).
+        v_margin: Vertical (Y-direction) margin in inches (>= 0).
+
+    Returns:
+        ``(inner_width, inner_height)`` in inches. ``(0.0, 0.0)`` when a
+        margin reaches past the centre (the inset ellipse vanishes).
+    """
+    semi_a = width / 2.0 - h_margin
+    semi_b = height / 2.0 - v_margin
+    if semi_a <= 0.0 or semi_b <= 0.0:
+        return 0.0, 0.0
+
+    # Largest centered block of the label's aspect ratio inscribed in the
+    # inset ellipse: W / H == width / height with (W / 2a')^2 + (H / 2b')^2
+    # == 1. Substituting W = 2 a' cos(t), H = 2 b' sin(t) gives the closed
+    # form below (no degenerate case: both semi-axes are positive here).
+    aspect = width / height
+    # tan(t) = a' / (aspect * b')
+    theta = math.atan2(semi_a, aspect * semi_b)
+    inner_width = 2.0 * semi_a * math.cos(theta)
+    inner_height = 2.0 * semi_b * math.sin(theta)
+    return inner_width, inner_height
 
 
 def compute_horizontal_offset(
@@ -3516,6 +3582,24 @@ def _resolve_label(
     final_width: float = label_input.width if label_input.width is not None else job.width  # type: ignore[assignment]
     final_height: float = label_input.height if label_input.height is not None else job.height  # type: ignore[assignment]
 
+    # Label boundary shape (cascades label -> job; the plate tier is schema
+    # parity only, see schema.PlateSpec). Only ``None`` means unset; an
+    # explicit ``rect`` is honored. A ``round`` label declaring only one
+    # dimension is a **circle** of that diameter (the schema validator allows
+    # exactly one dimension for round labels), so fill the missing dimension
+    # from the declared one before the dimension sanity check below.
+    if label_input.type is not None:
+        label_shape: str = label_input.type.value
+    elif job.type is not None:
+        label_shape = job.type.value
+    else:
+        label_shape = DEFAULT_LABEL_SHAPE
+    if label_shape == LabelShape.ROUND.value:
+        if final_width is None:
+            final_width = final_height
+        elif final_height is None:
+            final_height = final_width
+
     # Sanity check: schema validation guarantees both are non-None
     assert final_width is not None and final_height is not None
 
@@ -3587,6 +3671,7 @@ def _resolve_label(
         descending_character_raise=label_descender_raise,
         descending_character_clearance=label_descender_clearance,
         descending_character_reciprocal_scale=label_descender_recip,
+        shape_type=label_shape,
     )
 
 
