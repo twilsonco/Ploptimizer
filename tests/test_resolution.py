@@ -36,6 +36,7 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_KERNING_PENETRATION_SCALE,
     DEFAULT_KERNING_RECESSION_SCALE,
     DEFAULT_KERNING_WINDOW_FRACTION,
+    DEFAULT_LABEL_SHAPE,
     DEFAULT_LINE_SPACING,
     DEFAULT_MARGIN,
     DEFAULT_MAX_CUTTER_DOWNSIZES,
@@ -74,6 +75,7 @@ from plt_optimizer.generate.resolution import (
     build_cutter_pen_map,
     compute_horizontal_offset,
     compute_horizontal_scale,
+    ellipse_content_inset,
     design_pass_spacing,
     fit_baseline_spacing_to_margins,
     fit_line_spacing_to_margins,
@@ -5510,3 +5512,149 @@ class TestSmallCapsMarkupFlags:
         plain_line = line.with_markup("AA CC")
         assert plain_line.has_small_caps is False
         assert plain_line.small_caps_flags == (False,) * 5
+
+
+class TestLabelShapeResolution:
+    """The ``type`` cascade resolves to ``ResolvedLabel.shape_type``."""
+
+    @staticmethod
+    def _job(**levels: object) -> JobSpec:
+        """Build a single-label job applying ``type`` at the given levels."""
+        job_kwargs: dict[str, object] = {}
+        label_kwargs: dict[str, object] = {}
+        if "job" in levels:
+            job_kwargs["type"] = levels["job"]
+        if "label" in levels:
+            label_kwargs["type"] = levels["label"]
+        return JobSpec(
+            job_name="J",
+            text_height=0.5,
+            **job_kwargs,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    **label_kwargs,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+
+    def test_default_is_rect(self) -> None:
+        """No level declaring a shape resolves to the rect fallback."""
+        assert DEFAULT_LABEL_SHAPE == "rect"
+        assert resolve_job_spec(self._job())[0].shape_type == "rect"
+
+    def test_job_level_round_cascades(self) -> None:
+        """A job-level round applies to labels that omit the field."""
+        assert resolve_job_spec(self._job(job="round"))[0].shape_type == "round"
+
+    def test_label_overrides_job(self) -> None:
+        """A label-level rect beats the job-level round."""
+        labels = resolve_job_spec(self._job(job="round", label="rect"))
+        assert labels[0].shape_type == "rect"
+
+    def test_label_round_beats_job_rect(self) -> None:
+        """A label-level round beats the job-level rect."""
+        labels = resolve_job_spec(self._job(job="rect", label="round"))
+        assert labels[0].shape_type == "round"
+
+
+class TestRoundLabelCircleFilling:
+    """A round label declaring one dimension resolves to a circle."""
+
+    def test_width_only_fills_height(self) -> None:
+        """Width-only round label resolves width == height (a circle)."""
+        job = JobSpec(
+            job_name="J",
+            text_height=0.5,
+            labels=[LabelSpec(id="c", type="round", width=2.5, content=[TextLine(text="X")])],
+        )
+        label = resolve_job_spec(job)[0]
+        assert label.width == pytest.approx(2.5)
+        assert label.height == pytest.approx(2.5)
+        assert label.shape_type == "round"
+
+    def test_height_only_fills_width(self) -> None:
+        """Height-only round label resolves to the matching circle."""
+        job = JobSpec(
+            job_name="J",
+            text_height=0.5,
+            labels=[LabelSpec(id="c", type="round", height=1.5, content=[TextLine(text="X")])],
+        )
+        label = resolve_job_spec(job)[0]
+        assert label.width == pytest.approx(1.5)
+        assert label.height == pytest.approx(1.5)
+
+    def test_both_dimensions_stay_independent(self) -> None:
+        """A round label declaring both keeps the ellipse (no square-up)."""
+        job = JobSpec(
+            job_name="J",
+            text_height=0.5,
+            labels=[
+                LabelSpec(id="e", type="round", width=4.0, height=2.0, content=[TextLine(text="X")])
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert (label.width, label.height) == (4.0, 2.0)
+
+    def test_rect_label_unaffected(self) -> None:
+        """A rect label's dimensions resolve exactly as before."""
+        job = JobSpec(
+            job_name="J",
+            text_height=0.5,
+            labels=[LabelSpec(id="r", width=4.0, height=2.0, content=[TextLine(text="X")])],
+        )
+        label = resolve_job_spec(job)[0]
+        assert (label.width, label.height) == (4.0, 2.0)
+        assert label.shape_type == "rect"
+
+
+class TestEllipseContentInset:
+    """The radial content inset for round labels (inscribed centered block)."""
+
+    def test_circle_inset_is_the_inscribed_square(self) -> None:
+        """A circle's inset content block is the inscribed square (a*sqrt2)."""
+        # 4in circle, 0.5in margin -> inset radius 1.5 -> square side 3/sqrt2.
+        width, height = ellipse_content_inset(4.0, 4.0, 0.5, 0.5)
+        expected = 2.0 * 1.5 / math.sqrt(2.0)
+        assert width == pytest.approx(expected)
+        assert height == pytest.approx(expected)
+
+    def test_zero_margin_square_is_the_inscribed_square(self) -> None:
+        """No margin on a square label: the inscribed block is the inscribed
+        square (a 4x4 box's own corners lie OUTSIDE a radius-2 circle)."""
+        width, height = ellipse_content_inset(4.0, 4.0, 0.0, 0.0)
+        assert width == pytest.approx(2.0 * math.sqrt(2.0))
+        assert height == pytest.approx(2.0 * math.sqrt(2.0))
+
+    def test_flat_ellipse_scales_by_one_over_sqrt_two(self) -> None:
+        """The inscribed block similar to the bounding box is always 1/sqrt2
+        of it (a property of similar inscribed rectangles, flat included)."""
+        width, height = ellipse_content_inset(10.0, 0.5, 0.0, 0.0)
+        assert width == pytest.approx(10.0 / math.sqrt(2.0))
+        assert height == pytest.approx(0.5 / math.sqrt(2.0))
+
+    def test_strictly_smaller_than_the_box_inset(self) -> None:
+        """The radial inset is strictly tighter than the rectangular inset."""
+        radial_w, radial_h = ellipse_content_inset(4.0, 2.0, 0.2, 0.2)
+        assert radial_w < 4.0 - 2 * 0.2
+        assert radial_h < 2.0 - 2 * 0.2
+
+    def test_preserves_the_label_aspect_ratio(self) -> None:
+        """The inscribed block keeps the label's aspect ratio."""
+        width, height = ellipse_content_inset(6.0, 2.0, 0.3, 0.3)
+        assert width / height == pytest.approx(6.0 / 2.0)
+
+    def test_margin_past_the_centre_collapses_to_zero(self) -> None:
+        """A margin reaching past the centre leaves no content area."""
+        assert ellipse_content_inset(2.0, 2.0, 1.0, 0.1) == (0.0, 0.0)
+        assert ellipse_content_inset(2.0, 2.0, 0.1, 1.5) == (0.0, 0.0)
+
+    def test_corner_lies_on_the_inset_ellipse(self) -> None:
+        """The block's corner (W/2, H/2) sits exactly on the inset ellipse."""
+        width, height = ellipse_content_inset(4.0, 2.0, 0.25, 0.25)
+        semi_a = 4.0 / 2.0 - 0.25
+        semi_b = 2.0 / 2.0 - 0.25
+        assert (width / 2 / semi_a) ** 2 + (height / 2 / semi_b) ** 2 == pytest.approx(1.0)

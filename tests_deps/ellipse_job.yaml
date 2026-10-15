@@ -1,0 +1,110 @@
+# Fixture for circular/elliptical labels (`type: round`).
+#
+# `type` is the cascading label-shape field (label -> job, plate parity,
+# job-config.json key; default `rect` = the historical behaviour). A `round`
+# label's boundary is the ellipse with semi-axes width/2 and height/2 -- a
+# circle when the two are equal -- and it switches the label onto the
+# ADJACENT ellipse-packing pipeline (plt_optimizer/generate/ellipse_packer.py)
+# while every rectangular label keeps packing through rectpack untouched.
+#
+# The TODO contract pinned here:
+#   - width != height  -> ellipse (the `ellipse` label: 4.0 x 2.0).
+#   - width == height  -> circle (the `circle` label: 3.0 x 3.0).
+#   - only ONE of width/height declared -> circle of that diameter (the
+#     `circle_diameter` label declares width only; resolution fills height
+#     from it, so it engraves a 2.5in circle).
+#   - `rect` (default, the `rect_control` twin) -> the current rectangle,
+#     bit-identical.
+#
+# Round labels render an elliptical boundary (a closed polygon sampled at the
+# plotter's unit grid) instead of the rectangle; drill holes sit ON the
+# ellipse (the `sides` holes land exactly on the horizontal axis vertices,
+# the `corners` holes on the 45-degree diagonal, inset along the normal);
+# the text margin applies RADIALY (the content area is the largest centered
+# block inscribed in the inset ellipse), and the text-hole collision checks
+# measure the ellipse boundary -- so every existing label feature (holes,
+# borders, collision avoidance phases, markup) works on round labels.
+#
+# `max_h_compress` stays unset (0.0): no line compresses, so every pinned
+# number in the export test is pure ellipse geometry.
+job:
+  job_name: Ellipse Demo
+
+  text_height: 0.5
+  margin: 0.1
+  line_spacing: 0.15
+  auto_descending_character_adjustment: false
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. Circle: width == height -> the boundary is a 3.0in circle.
+    - id: circle
+      type: round
+      width: 3.0
+      height: 3.0
+      content:
+        - text: "CIRCLE"
+
+    # 2. Ellipse: width != height -> 4.0 x 2.0 ellipse boundary.
+    - id: ellipse
+      type: round
+      width: 4.0
+      height: 2.0
+      content:
+        - text: "ELLIPSE"
+
+    # 3. Circle from one dimension: width-only declaration -> 2.5in circle
+    #    (resolution fills the missing height from the declared width).
+    - id: circle_diameter
+      type: round
+      width: 2.5
+      content:
+        - text: "2.5 DIA"
+
+    # 4. Rectangular control twin of the ellipse label: the default `rect`
+    #    behaviour, bit-identical (the dispatch is per label, not per job).
+    - id: rect_control
+      width: 4.0
+      height: 2.0
+      content:
+        - text: "RECT"
+
+    # 5. Round label with edge drill holes: the `sides` holes sit exactly on
+    #    the ellipse's horizontal-axis vertices (the axis is where the
+    #    inset-from-boundary rule is exact).
+    - id: round_holes
+      type: round
+      width: 4.0
+      height: 2.0
+      hole_margin: 0.15
+      holes:
+        - location: sides
+      content:
+        - text: "SIDES"
+
+    # 6. Round label with corner holes: on a round label the corner holes
+    #    land on the ellipse's 45-degree diagonal (inset along the normal),
+    #    never in the cut-away material the rectangle's corner would occupy.
+    - id: round_corners
+      type: round
+      width: 3.0
+      height: 3.0
+      hole_margin: 0.15
+      holes:
+        - location: corners
+      content:
+        - text: "CORNER"
+
+    # 7. Repeated circle: the ellipse packer places every instance (three
+    #    2.0in circles nest in one column).
+    - id: circle_trio
+      type: round
+      width: 2.0
+      height: 2.0
+      count: 3
+      content:
+        - text: "TRIO"

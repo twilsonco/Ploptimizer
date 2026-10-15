@@ -4195,3 +4195,139 @@ class TestOverlapDemoExample:
         names = sorted(p.name for p in result.plt_paths)
         assert "0.060_txt_ovl.plt" in names
         assert "0.090_txt_ovl.plt" in names  # the crossing bold rung
+
+
+class TestEllipseDemoExample:
+    """Regression tests for tests_deps/ellipse_job.yaml.
+
+    The fixture is the hand-crafted circular/elliptical-label demo: a circle
+    (width == height), an ellipse (width != height), a circle declared by a
+    single dimension, a rectangular control twin, round labels with edge and
+    corner drill holes, and a repeated circle. It pins the adjacent-pipeline
+    contract: round labels engrave an elliptical boundary and pack through
+    the ellipse packer, while the rectangular twin keeps the historical
+    rectangle bit-identically.
+    """
+
+    _SPEC = Path("tests_deps/ellipse_job.yaml")
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the ellipse demo job with plotting disabled."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="el",
+            optimize=False,
+            plots=False,
+        )
+
+    def test_fixture_resolves_the_declared_shapes(self) -> None:
+        """`round` labels resolve shape_type=round; the control stays rect."""
+        labels = {label.id: label for label in resolve_job_spec(parse_yaml(self._SPEC))}
+        assert labels["circle"].shape_type == "round"
+        assert labels["ellipse"].shape_type == "round"
+        assert labels["rect_control"].shape_type == "rect"
+
+    def test_single_dimension_round_label_resolves_to_a_circle(self) -> None:
+        """The width-only round label fills its height (a 2.5in circle)."""
+        labels = {label.id: label for label in resolve_job_spec(parse_yaml(self._SPEC))}
+        assert labels["circle_diameter"].width == pytest.approx(2.5)
+        assert labels["circle_diameter"].height == pytest.approx(2.5)
+
+    def test_round_labels_render_their_enclosing_box(self, tmp_path: Path) -> None:
+        """Every round label's rendered bounds equal its nominal box.
+
+        The sampled ellipse is closed at the axis vertices, so the engraved
+        boundary reaches the enclosing rectangle's extrema exactly -- the
+        packer and the plate transforms depend on that.
+        """
+        result = self._export(tmp_path)
+        expected = {
+            "circle": (3.0, 3.0),
+            "ellipse": (4.0, 2.0),
+            "circle_diameter": (2.5, 2.5),
+            "circle_trio": (2.0, 2.0),
+            "round_holes": (4.0, 2.0),
+            "round_corners": (3.0, 3.0),
+            "rect_control": (4.0, 2.0),
+        }
+        for label_id, (width, height) in expected.items():
+            rendered = result.rendered_labels[label_id]
+            assert rendered.width == pytest.approx(width, abs=1e-3), label_id
+            assert rendered.height == pytest.approx(height, abs=1e-3), label_id
+
+    def test_structural_layer_carries_ellipses_and_rectangles(self, tmp_path: Path) -> None:
+        """The borders/holes layer holds every label's boundary + drill arcs."""
+        result = self._export(tmp_path)
+        bh = next(p for p in result.plt_paths if "_bh_" in p.name)
+        content = bh.read_text()
+        # Six drill holes (2 sides + 4 corners), each four quarter-arcs.
+        assert content.count("AA") == 24
+        # Nine label boundaries (7 unique labels, circle_trio packs 3) plus
+        # one pen-up per drill hole: every contour is PU-led.
+        assert content.count("PU") >= 9 + 6
+
+    def test_round_labels_pack_onto_the_plate(self) -> None:
+        """Every instance lands on the plate through the ellipse pipeline."""
+        from plt_optimizer.generate.layout import generate_layout
+
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        plates = generate_layout(
+            labels, job.plates, allow_rotation=job.allow_rotation, layout=job.layout
+        )
+        placed = [packed for plate in plates for packed in plate.labels]
+        # 7 label specs, circle_trio carrying count=3.
+        assert len(placed) == 9
+        assert sum(1 for p in placed if p.source_label.shape_type == "round") == 8
+
+    def test_round_placements_keep_their_geometry_clear(self) -> None:
+        """Engraved geometry never overlaps: ellipses nest, boxes stay clear.
+
+        Enclosing boxes legitimately overlap where an ellipse nests into the
+        material a rectangle's corner occupies -- that is the ellipse
+        pipeline's whole advantage -- so the check is on the *geometry*:
+        ellipse-vs-ellipse and ellipse-vs-rectangle keep the boundary-cutter
+        kerf, and rectangle-vs-rectangle boxes stay clear (rectpack).
+        """
+        from shapely.affinity import translate as shapely_translate
+        from shapely.geometry import box as shapely_box
+
+        from plt_optimizer.generate.ellipse_packer import ellipse_polygon
+        from plt_optimizer.generate.layout import generate_layout
+
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        plates = generate_layout(
+            labels, job.plates, allow_rotation=job.allow_rotation, layout=job.layout
+        )
+
+        def shape_of(packed) -> object:
+            """The placement's collision geometry in the plate's usable frame."""
+            label = packed.source_label
+            x_min = packed.x - 0.0  # no plate clearance in this fixture
+            y_min = packed.y
+            if label.shape_type == "round":
+                centre_x = x_min + packed.width / 2.0
+                centre_y = y_min + packed.height / 2.0
+                return shapely_translate(
+                    ellipse_polygon(
+                        packed.width / 2.0, packed.height / 2.0, label.hole_cutter_diameter
+                    ),
+                    xoff=centre_x,
+                    yoff=centre_y,
+                )
+            return shapely_box(x_min, y_min, x_min + packed.width, y_min + packed.height)
+
+        placed = [packed for plate in plates for packed in plate.labels]
+        shapes = [shape_of(packed) for packed in placed]
+        for i, first in enumerate(shapes):
+            for second in shapes[i + 1 :]:
+                # Shrink a hair: rectpack packs rectangles *touching*, and
+                # shapely counts a shared boundary as an intersection.
+                assert not first.buffer(-1e-6).intersects(second.buffer(-1e-6)), (
+                    f"{placed[i].label_id} overlaps {placed[i + 1].label_id}"
+                )

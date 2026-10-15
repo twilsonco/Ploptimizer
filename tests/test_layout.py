@@ -13,6 +13,7 @@ import pytest
 
 from plt_optimizer.generate.layout import (
     DEFAULT_PLATE_HEIGHT,
+    DEFAULT_ROUND_CLEARANCE_IN,
     DEFAULT_PLATE_WIDTH,
     LayoutFitError,
     PackedLabel,
@@ -1832,3 +1833,223 @@ class TestMaterialDemoExample:
             assert {
                 packed.source_label.material for packed in plate.labels
             } == {plate.material}
+
+
+def _make_round_label(
+    label_id: str = "round",
+    width: float = 2.0,
+    height: float = 1.0,
+    count: int = 1,
+    **kwargs: object,
+) -> ResolvedLabel:
+    """Helper creating a ``type: round`` ResolvedLabel."""
+    label = _make_label(label_id=label_id, width=width, height=height, count=count)
+    return dataclasses.replace(label, shape_type="round", **kwargs)  # type: ignore[arg-type]
+
+
+class TestRoundLabelPacking:
+    """The adjacent ellipse pipeline packs ``shape_type='round'`` labels."""
+
+    @staticmethod
+    def _used_width(plates: list[PackedPlate]) -> float:
+        """Right-most engraved extent (device frame: x is frame-invariant)."""
+        return max(
+            packed.x + packed.width for plate in plates for packed in plate.labels
+        )
+
+    @staticmethod
+    def _used_height(plates: list[PackedPlate]) -> float:
+        """Bottom-most engraved extent, measured from the usable area's top edge.
+
+        The device frame is y-down (the frame the ellipse packer fills in),
+        so the used height is simply the largest ``y + height``.
+        """
+        return max(packed.y + packed.height for plate in plates for packed in plate.labels)
+
+    @staticmethod
+    def _kerf(label: ResolvedLabel) -> float:
+        """The inter-label kerf the round pipeline uses for ``label``."""
+        return label.hole_cutter_diameter
+
+    @classmethod
+    def _ellipse(cls, plate: PackedPlate, packed: PackedLabel) -> object:
+        """The placed label's buffered ellipse polygon (usable-area, y-up)."""
+        from shapely.affinity import translate as shapely_translate
+
+        from plt_optimizer.generate.ellipse_packer import ellipse_polygon
+
+        center_x = packed.x + packed.width / 2.0 - plate.left_clearance
+        center_y = packed.y + packed.height / 2.0 - plate.top_clearance
+        return shapely_translate(
+            ellipse_polygon(
+                packed.width / 2.0, packed.height / 2.0, cls._kerf(packed.source_label)
+            ),
+            xoff=center_x,
+            yoff=center_y,
+        )
+
+    @staticmethod
+    def _rect_box(plate: PackedPlate, packed: PackedLabel) -> object:
+        """The placed rectangular label's box in the usable-area frame."""
+        from shapely.geometry import box as shapely_box
+
+        x_min = packed.x - plate.left_clearance
+        y_min = packed.y - plate.top_clearance
+        # Shrink by a hair: rectpack packs labels *touching*, and shapely
+        # counts shared boundaries as an intersection.
+        return shapely_box(x_min, y_min, x_min + packed.width, y_min + packed.height).buffer(
+            -1e-9
+        )
+
+    def test_round_labels_pack_through_the_ellipse_pipeline(self) -> None:
+        labels = [_make_round_label("c0", 2.0, 2.0, count=4)]
+        plates = generate_layout(labels, [PlateSpec(id="p0", width=24.0, height=16.0)])
+        assert len(plates) == 1
+        assert len(plates[0].labels) == 4
+        for packed in plates[0].labels:
+            assert packed.source_label.shape_type == "round"
+            # The packed slot is the ellipse's enclosing rectangle.
+            assert packed.width == pytest.approx(2.0)
+            assert packed.height == pytest.approx(2.0)
+
+    def test_round_labels_do_not_overlap(self) -> None:
+        labels = [_make_round_label("c0", 4.0, 4.0, count=3)]
+        plates = generate_layout(labels, [PlateSpec(id="p0", width=12.0, height=8.0)])
+        plate = plates[0]
+        assert len(plate.labels) == 3
+        for i, first in enumerate(plate.labels):
+            for second in plate.labels[i + 1 :]:
+                assert not self._ellipse(plate, first).intersects(self._ellipse(plate, second))
+
+    def test_prefer_width_leaves_one_clean_column(self) -> None:
+        """``columns`` mode minimizes used width: one column, clean scrap strip."""
+        labels = [_make_round_label("c0", 3.0, 3.0, count=4)]
+        plates = generate_layout(
+            labels, [PlateSpec(id="p0", width=24.0, height=16.0)], layout=LayoutMode.COLUMNS
+        )
+        xs = {round(packed.x, 6) for packed in plates[0].labels}
+        assert len(xs) == 1
+        # One column of 3in circles: used width is a single circle plus the
+        # half-kerf the buffered ellipse keeps from the plate's left edge.
+        kerf = self._kerf(plates[0].labels[0].source_label)
+        assert self._used_width(plates) == pytest.approx(3.0 + kerf / 2.0)
+
+    def test_mixed_shapes_keep_their_geometry_clear(self) -> None:
+        """Round labels nest beside rectangles; geometry (not boxes) stays clear."""
+        labels = [
+            _make_label("rect0", 4.0, 2.0, count=2),
+            _make_round_label("round0", 3.0, 3.0, count=3),
+        ]
+        plates = generate_layout(
+            labels, [PlateSpec(id="p0", width=12.0, height=8.0)], layout=LayoutMode.COLUMNS
+        )
+        plate = plates[0]
+        assert len(plate.labels) == 5
+        rects = [p for p in plate.labels if p.source_label.shape_type == "rect"]
+        rounds = [p for p in plate.labels if p.source_label.shape_type == "round"]
+        assert len(rects) == 2 and len(rounds) == 3
+        # Rectpack's own boxes never overlap.
+        for i, first in enumerate(rects):
+            for second in rects[i + 1 :]:
+                assert not self._rect_box(plate, first).intersects(self._rect_box(plate, second))
+        # Every ellipse keeps the kerf from every rectangle and ellipse.
+        for round_label in rounds:
+            ellipse = self._ellipse(plate, round_label)
+            for rect_label in rects:
+                assert not ellipse.intersects(self._rect_box(plate, rect_label))
+            for other in rounds:
+                if other is round_label:
+                    continue
+                assert not ellipse.intersects(self._ellipse(plate, other))
+
+    def test_round_label_oversizing_the_plate_raises_layout_fit_error(self) -> None:
+        labels = [_make_round_label("big", 30.0, 30.0)]
+        with pytest.raises(LayoutFitError):
+            generate_layout(labels, [PlateSpec(id="p0", width=12.0, height=8.0)])
+
+    def test_rectangular_only_job_is_unchanged(self) -> None:
+        """No round labels: the rectpack path runs and the shape split is a no-op."""
+        labels = [_make_label("r0", 3.0, 2.0, count=5)]
+        plates = generate_layout(labels, [PlateSpec(id="p0", width=24.0, height=16.0)])
+        assert len(plates) == 1
+        assert len(plates[0].labels) == 5
+
+    def test_round_labels_overflow_onto_multiple_unbounded_sheets(self) -> None:
+        labels = [_make_round_label("c0", 6.0, 6.0, count=3)]
+        plates = generate_layout(labels, default_plate_size=(12.0, 8.0))
+        assert len(plates) == 2
+        assert sum(len(plate.labels) for plate in plates) == 3
+        for plate in plates:
+            assert plate.plate_id.startswith("round_default_plate_")
+
+    def test_pinned_round_labels_stay_on_their_plate(self) -> None:
+        plates_spec = [
+            PlateSpec(id="a", width=12.0, height=8.0),
+            PlateSpec(id="b", width=12.0, height=8.0),
+        ]
+        labels = [
+            dataclasses.replace(_make_round_label("p", 3.0, 3.0, count=2), plate_id="b")
+        ]
+        plates = generate_layout(labels, plates_spec)
+        assert {plate.plate_id for plate in plates} == {"b"}
+        assert len(plates[0].labels) == 2
+
+    def test_pinned_round_label_to_undeclared_plate_raises(self) -> None:
+        labels = [dataclasses.replace(_make_round_label("p", 3.0, 3.0), plate_id="ghost")]
+        with pytest.raises(LayoutFitError, match="undeclared plate"):
+            generate_layout(labels, [PlateSpec(id="real", width=12.0, height=8.0)])
+
+    def test_material_round_groups_never_share_a_plate(self) -> None:
+        plates_spec = [
+            PlateSpec(id="wb_sheet", width=24.0, height=16.0, material="wb"),
+            PlateSpec(id="uv_sheet", width=24.0, height=16.0, material="uv"),
+        ]
+        labels = [
+            dataclasses.replace(_make_round_label("wb", 3.0, 3.0, count=2), material="wb"),
+            dataclasses.replace(_make_round_label("uv", 3.0, 3.0, count=2), material="uv"),
+        ]
+        plates = generate_layout(labels, plates_spec)
+        by_id = {plate.plate_id: plate for plate in plates}
+        assert set(by_id) == {"wb_sheet", "uv_sheet"}
+        assert {p.source_label.material for p in by_id["wb_sheet"].labels} == {"wb"}
+        assert {p.source_label.material for p in by_id["uv_sheet"].labels} == {"uv"}
+
+    def test_rows_mode_prefers_height(self) -> None:
+        labels = [_make_round_label("c0", 2.0, 2.0, count=4)]
+        rows = generate_layout(
+            labels, [PlateSpec(id="p0", width=24.0, height=16.0)], layout=LayoutMode.ROWS
+        )
+        columns = generate_layout(
+            labels, [PlateSpec(id="p0", width=24.0, height=16.0)], layout=LayoutMode.COLUMNS
+        )
+        # rows fills width first (one row: short height, wide); columns is
+        # the mirror image.
+        assert self._used_height(rows) < self._used_height(columns)
+        assert self._used_width(columns) < self._used_width(rows)
+
+    def test_clearances_shift_round_placements(self) -> None:
+        plates_spec = [
+            PlateSpec(id="p", width=12.0, height=8.0, left_clearance=1.0, top_clearance=2.0)
+        ]
+        labels = [_make_round_label("c", 2.0, 2.0)]
+        plates = generate_layout(labels, plates_spec)
+        packed = plates[0].labels[0]
+        # Flush into the usable area's corner, offset by the kerf/2 the
+        # buffered ellipse keeps from the plate edges. The kerf is the
+        # label's boundary/hole cutter (0.015in default).
+        kerf = self._kerf(_make_round_label("c", 2.0, 2.0)) / 2.0
+        assert packed.x == pytest.approx(1.0 + kerf, abs=1e-6)
+        assert packed.y == pytest.approx(2.0 + kerf, abs=1e-6)
+
+    def test_round_labels_keep_the_boundary_cutter_kerf(self) -> None:
+        """Two adjacent circles keep the boundary cutter edge-to-edge."""
+        labels = [_make_round_label("c0", 2.0, 2.0, count=2)]
+        plates = generate_layout(labels, [PlateSpec(id="p0", width=12.0, height=8.0)])
+        plate = plates[0]
+        first, second = plate.labels
+        centre_distance = math.hypot(
+            (first.x + first.width / 2.0) - (second.x + second.width / 2.0),
+            (first.y + first.height / 2.0) - (second.y + second.height / 2.0),
+        )
+        kerf = first.source_label.hole_cutter_diameter
+        assert centre_distance >= 2.0 + kerf - 1e-9

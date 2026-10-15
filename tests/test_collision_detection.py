@@ -23,7 +23,10 @@ from plt_optimizer.generate.geometry import (
     aabb_vertical_gap,
     arc_swept_bounds,
     circle_aabb_gap,
+    circle_ellipse_aabb_gap,
+    circle_ellipse_gap,
     ink_gap,
+    point_ellipse_signed_distance,
     point_segment_gap,
     polyline_gap,
     segment_gap,
@@ -72,6 +75,144 @@ class TestCircleAabbGap:
         """A zero-radius circle outside the box reports plain distance."""
         gap = circle_aabb_gap((0.0, 0.0, 1.0, 1.0), (3.0, 0.5), 0.0)
         assert math.isclose(gap, 2.0)
+
+
+
+class TestPointEllipseSignedDistance:
+    """Tests for the exact point-to-ellipse-boundary distance."""
+
+    def test_rejects_non_positive_semi_axes(self) -> None:
+        with pytest.raises(ValueError, match="semi-axes"):
+            point_ellipse_signed_distance((1.0, 0.0), (0.0, 0.0), 0.0, 1.0)
+        with pytest.raises(ValueError, match="semi-axes"):
+            point_ellipse_signed_distance((1.0, 0.0), (0.0, 0.0), 1.0, -1.0)
+
+    def test_circle_matches_the_analytic_radius_gap(self) -> None:
+        """A circle (a == b) reduces to |distance to centre| - radius."""
+        for radius in (0.5, 1.0, 2.0):
+            for angle in range(0, 360, 30):
+                point = (2.0 * math.cos(math.radians(angle)), 2.0 * math.sin(math.radians(angle)))
+                gap = point_ellipse_signed_distance(point, (0.0, 0.0), radius, radius)
+                assert math.isclose(gap, 2.0 - radius, abs_tol=1e-9)
+
+    def test_on_the_boundary_is_zero(self) -> None:
+        """Every point sampled on the ellipse reports (near) zero distance."""
+        semi_a, semi_b = 2.0, 1.0
+        for angle in range(0, 360, 15):
+            point = (
+                semi_a * math.cos(math.radians(angle)),
+                semi_b * math.sin(math.radians(angle)),
+            )
+            gap = point_ellipse_signed_distance(point, (0.0, 0.0), semi_a, semi_b)
+            assert math.isclose(gap, 0.0, abs_tol=1e-6)
+
+    def test_axis_vertices_are_exact(self) -> None:
+        """The vertices and axis points give closed-form distances."""
+        center = (0.0, 0.0)
+        assert point_ellipse_signed_distance((3.0, 0.0), center, 2.0, 1.0) == pytest.approx(1.0)
+        # (1.75, 0) is on the major axis OUTSIDE the evolute intercept
+        # (a^2-b^2)/a = 1.5, so the closest point is the vertex (2, 0).
+        assert point_ellipse_signed_distance((1.75, 0.0), center, 2.0, 1.0) == pytest.approx(-0.25)
+        assert point_ellipse_signed_distance((0.0, 2.5), center, 2.0, 1.0) == pytest.approx(1.5)
+        assert point_ellipse_signed_distance((0.0, 0.25), center, 2.0, 1.0) == pytest.approx(-0.75)
+
+    def test_negative_x_is_symmetric(self) -> None:
+        center = (0.0, 0.0)
+        right = point_ellipse_signed_distance((3.0, 1.0), center, 2.0, 1.0)
+        left = point_ellipse_signed_distance((-3.0, 1.0), center, 2.0, 1.0)
+        assert math.isclose(right, left, abs_tol=1e-9)
+
+    def test_interior_point_reports_negative(self) -> None:
+        """The centre's distance to the boundary is the semi-minor axis."""
+        gap = point_ellipse_signed_distance((0.0, 0.0), (0.0, 0.0), 2.0, 1.0)
+        assert gap == pytest.approx(-1.0)
+
+    def test_major_axis_inside_the_evolute_uses_the_minor_vertex(self) -> None:
+        """A point on the major axis inside the evolute intercept measures
+        to a MINOR-axis vertex (the classic closest-point subtlety)."""
+        # a=2, b=1: evolute intercept (a^2-b^2)/a = 1.5. Point (1.0, 0) is
+        # inside it: closest point (0, 1), distance hypot(1, 1).
+        gap = point_ellipse_signed_distance((1.0, 0.0), (0.0, 0.0), 2.0, 1.0)
+        assert gap == pytest.approx(-math.hypot(1.0, 1.0))
+
+    def test_offset_ellipse_matches_centered_case(self) -> None:
+        centered = point_ellipse_signed_distance((3.0, 1.0), (0.0, 0.0), 2.0, 1.0)
+        offset = point_ellipse_signed_distance((5.0, 4.0), (2.0, 3.0), 2.0, 1.0)
+        assert math.isclose(centered, offset, abs_tol=1e-9)
+
+    def test_extreme_aspect_ratio_stays_finite(self) -> None:
+        """A very flat ellipse (the degenerate a >> b case) still converges."""
+        gap = point_ellipse_signed_distance((5.0, 3.0), (0.0, 0.0), 10.0, 0.05)
+        assert math.isfinite(gap)
+        # (5, 3) sits far above a 0.05in-tall ellipse: outside, ~3in away.
+        assert gap > 2.0
+
+
+class TestCircleEllipseGap:
+    """Tests for the circle-to-ellipse-boundary clearance."""
+
+    def test_separated_circle_ellipse(self) -> None:
+        # Ellipse a=2, b=1 at origin; circle centre (4, 0) radius 0.5.
+        # Closest boundary point is the vertex (2, 0): gap = 2 - 0.5.
+        gap = circle_ellipse_gap((4.0, 0.0), 0.5, (0.0, 0.0, 2.0, 1.0))
+        assert math.isclose(gap, 1.5)
+
+    def test_tangent_circle_reports_zero(self) -> None:
+        gap = circle_ellipse_gap((3.0, 0.0), 1.0, (0.0, 0.0, 2.0, 1.0))
+        assert math.isclose(gap, 0.0, abs_tol=1e-9)
+
+    def test_penetrating_circle_reports_negative(self) -> None:
+        gap = circle_ellipse_gap((2.5, 0.0), 1.0, (0.0, 0.0, 2.0, 1.0))
+        assert math.isclose(gap, -0.5)
+
+    def test_concentric_circle_inside(self) -> None:
+        """A concentric circle reports -(semi_minor + radius)."""
+        gap = circle_ellipse_gap((0.0, 0.0), 0.25, (0.0, 0.0, 2.0, 1.0))
+        assert math.isclose(gap, -1.25)
+
+    def test_zero_radius_matches_point_distance(self) -> None:
+        ellipse = (1.0, -2.0, 3.0, 1.5)
+        point = (7.0, 2.0)
+        gap = circle_ellipse_gap(point, 0.0, ellipse)
+        assert math.isclose(
+            gap, point_ellipse_signed_distance(point, (ellipse[0], ellipse[1]), 3.0, 1.5)
+        )
+
+
+class TestCircleEllipseAabbGap:
+    """Tests for the drill-hole-to-elliptical-label-boundary clearance."""
+
+    def test_centre_inside_the_box_reports_inside_gap(self) -> None:
+        # Ellipse 4 x 2 (a=2, b=1) centred at (2, 1). The box contains the
+        # centre, so its nearest point IS the centre: distance to the
+        # boundary is -1 (the semi-minor), minus the hole radius.
+        gap = circle_ellipse_aabb_gap((1.5, 0.5, 2.5, 1.5), (2.0, 1.0, 2.0, 1.0), 0.0625)
+        assert math.isclose(gap, -1.0625)
+
+    def test_matches_circle_aabb_gap_for_a_circular_label(self) -> None:
+        """A round label with a == b is a circle; the gap tracks the exact
+        point-to-circle distance (the box version differs only in that it
+        measures to the box, which is the point of the ellipse comparison)."""
+        ellipse = (2.0, 2.0, 1.0, 1.0)
+        box = (3.2, 1.5, 4.0, 2.5)
+        gap = circle_ellipse_aabb_gap(box, ellipse, 0.25)
+        # Nearest box point to the centre (2,2) is (3.2, 2.0): 0.2in from
+        # the circle boundary, minus the hole radius.
+        assert math.isclose(gap, 0.2 - 0.25, abs_tol=1e-9)
+
+    def test_tangent_is_zero(self) -> None:
+        ellipse = (0.0, 0.0, 2.0, 1.0)
+        # Box whose nearest point to the centre sits exactly 0.5in outside
+        # the vertex (2.5, 0); a hole of radius 0.5 is tangent.
+        gap = circle_ellipse_aabb_gap((2.5, -0.5, 3.5, 0.5), ellipse, 0.5)
+        assert math.isclose(gap, 0.0, abs_tol=1e-9)
+
+    def test_hole_deep_inside_reports_negative_radius_plus_depth(self) -> None:
+        # The box contains the ellipse centre: nearest point is the centre,
+        # 1in (semi-minor) inside the boundary, plus the hole radius.
+        ellipse = (0.0, 0.0, 2.0, 1.0)
+        gap = circle_ellipse_aabb_gap((-0.5, -0.5, 0.5, 0.5), ellipse, 0.125)
+        assert math.isclose(gap, -1.125)
 
 
 class TestCollisionResult:

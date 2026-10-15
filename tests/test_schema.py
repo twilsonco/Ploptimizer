@@ -24,6 +24,7 @@ from plt_optimizer.generate.schema import (
     HoleSpec,
     JobSpec,
     LabelAttributes,
+    LabelShape,
     LabelSpec,
     LayoutMode,
     PlateSpec,
@@ -2685,3 +2686,104 @@ class TestSupersubscriptDownscaleField:
         """The plate tier carries the field for schema parity."""
         plate = PlateSpec(id="p", width=24.0, height=16.0, supersubscript_downscale=0.8)
         assert plate.supersubscript_downscale == 0.8
+
+
+class TestLabelShapeField:
+    """The cascading ``type`` label-shape field (label -> job + plate parity)."""
+
+    def test_defaults_to_none_everywhere(self) -> None:
+        """Job, label and plate all default ``type`` to None (resolution -> rect)."""
+        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        assert job.type is None
+        assert LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")]).type is None
+        assert PlateSpec(id="p", width=24.0, height=16.0).type is None
+
+    def test_lives_on_label_attributes_not_text(self) -> None:
+        """Shape is a label-container property: TextLine must NOT carry it."""
+        assert "type" in LabelAttributes.model_fields
+        assert "type" in LabelSpec.model_fields
+        assert "type" in JobSpec.model_fields
+        assert "type" in PlateSpec.model_fields
+        assert "type" not in TextAttributes.model_fields
+        assert "type" not in TextLine.model_fields
+
+    def test_accepts_rect_and_round(self) -> None:
+        """Both enum values parse from their string form."""
+        assert (
+            LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")], type="round").type
+            is LabelShape.ROUND
+        )
+        assert (
+            LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")], type="rect").type
+            is LabelShape.RECT
+        )
+
+    def test_accepts_the_enum_member(self) -> None:
+        """The enum member itself is accepted (Python-side construction)."""
+        assert (
+            LabelSpec(
+                id="l", width=2.0, height=1.0, content=[TextLine(text="X")], type=LabelShape.ROUND
+            ).type
+            is LabelShape.ROUND
+        )
+
+    def test_rejects_unknown_shape(self) -> None:
+        """An unknown shape name is a validation error."""
+        with pytest.raises(ValidationError):
+            LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")], type="hexagon")
+
+    def test_plate_parity_field_accepts_the_enum(self) -> None:
+        """The plate parity field accepts the same values (not applied at plate level)."""
+        assert PlateSpec(id="p", width=24.0, height=16.0, type="round").type is LabelShape.ROUND
+
+
+class TestRoundLabelDimensions:
+    """Round labels relax the both-dimensions-required rule (one = circle)."""
+
+    def test_round_label_with_only_width_is_valid(self) -> None:
+        """A round label declaring only width is a circle of that diameter."""
+        job = JobSpec(
+            job_name="J",
+            labels=[LabelSpec(id="c", type="round", width=2.5, content=[TextLine(text="X")])],
+        )
+        assert job.labels[0].width == 2.5
+        assert job.labels[0].height is None
+
+    def test_round_label_with_only_height_is_valid(self) -> None:
+        """A round label declaring only height is equally legal."""
+        LabelSpec(id="c", type="round", height=2.5, content=[TextLine(text="X")])
+
+    def test_round_label_without_any_dimension_is_rejected(self) -> None:
+        """A round label with no dimension at label or job level fails."""
+        with pytest.raises(ValidationError, match="round labels require"):
+            JobSpec(
+                job_name="J",
+                labels=[LabelSpec(id="c", type="round", content=[TextLine(text="X")])],
+            )
+
+    def test_rect_label_still_requires_both(self) -> None:
+        """The rectangular rule is untouched: one dimension is still an error."""
+        with pytest.raises(ValidationError, match="must be defined"):
+            JobSpec(
+                job_name="J",
+                labels=[LabelSpec(id="r", width=2.0, content=[TextLine(text="X")])],
+            )
+
+    def test_round_label_inherits_shape_from_job(self) -> None:
+        """A job-level ``type: round`` relaxes the rule for its labels."""
+        job = JobSpec(
+            job_name="J",
+            type="round",
+            width=3.0,
+            labels=[LabelSpec(id="c", content=[TextLine(text="X")])],
+        )
+        # The label has no dimensions of its own; the job's width cascades and
+        # the round rule fills the missing height at resolution.
+        assert job.labels[0].width is None
+        assert job.type is LabelShape.ROUND
+
+    def test_root_level_round_content_needs_one_dimension(self) -> None:
+        """A root-level round job needs width and/or height, not both."""
+        JobSpec(job_name="J", type="round", width=3.0, content=[TextLine(text="X")])
+        with pytest.raises(ValidationError, match="round labels require"):
+            JobSpec(job_name="J", type="round", content=[TextLine(text="X")])
