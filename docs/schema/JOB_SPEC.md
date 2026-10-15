@@ -81,6 +81,7 @@ they are no longer auto-sized from rendered content.
 | `text_color` | TextColor \| null | null (unset) | — | Stroke-color layer tag splitting otherwise-identical text into separate toolpaths (labels and text lines only; rejected at the job level; never cascades). Full name or case-insensitive single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); 'none' is the implicit default and cannot be specified. |
 | `width` | float \| null | null (unset) | >0 | Label width in inches (must be > 0). Cascades label -> job; must be defined at one level. |
 | `height` | float \| null | null (unset) | >0 | Label height in inches (must be > 0). Cascades label -> job; must be defined at one level. |
+| `type` | LabelShape \| null | null (unset) | — | Label boundary shape: 'rect' (default, historical) or 'round' (ellipse with semi-axes width/2 and height/2; a circle when width == height). Cascades label -> job; unset (null) falls back to 'rect'. Accepted on plates for schema parity only. |
 | `margin` | float \| null | null (unset) | >=0 | Universal margin in inches (fallback for h_margin and v_margin); cascades label -> job (fallback 0.125). |
 | `h_margin` | float \| null | null (unset) | >=0 | Horizontal margin in inches (left and right edges); cascades label -> job; falls back to margin if unset. |
 | `v_margin` | float \| null | null (unset) | >=0 | Vertical margin in inches (top and bottom edges); cascades label -> job; falls back to margin if unset. |
@@ -127,6 +128,7 @@ Specification for a plate (material sheet) to cut labels from.
 | `hole_margin` | float \| null | null (unset) | >=0 | Hole margin in inches (must be >= 0). |
 | `max_h_compress` | float \| null | null (unset) | >=0 <=1 | Maximum horizontal compression fraction in [0.0, 1.0]. |
 | `text_h_alignment` | TextHAlignment \| null | null (unset) | — | Horizontal text alignment (schema parity; not applied at plate level). |
+| `type` | LabelShape \| null | null (unset) | — | Label boundary shape 'rect'/'round' (schema parity; label shape is resolved per label before packing; not applied at plate level). |
 | `font` | str \| null | null (unset) | — | Font name (schema parity; not applied at plate level). Accepted and canonicalized like the cascading font field. |
 | `min_hole_margin` | float \| null | null (unset) | >=0 | Minimum hole margin in inches (schema parity; not applied at plate level). |
 | `space_width_fraction` | float \| null | null (unset) | >=0 | Space advance fraction (schema parity; not applied at plate level). |
@@ -227,6 +229,7 @@ A label may be defined in one of two ways:
 | `text_color` | TextColor \| null | null (unset) | — | Stroke-color layer tag splitting otherwise-identical text into separate toolpaths (labels and text lines only; rejected at the job level; never cascades). Full name or case-insensitive single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); 'none' is the implicit default and cannot be specified. |
 | `width` | float \| null | null (unset) | >0 | Label width in inches (must be > 0). Cascades label -> job; must be defined at one level. |
 | `height` | float \| null | null (unset) | >0 | Label height in inches (must be > 0). Cascades label -> job; must be defined at one level. |
+| `type` | LabelShape \| null | null (unset) | — | Label boundary shape: 'rect' (default, historical) or 'round' (ellipse with semi-axes width/2 and height/2; a circle when width == height). Cascades label -> job; unset (null) falls back to 'rect'. Accepted on plates for schema parity only. |
 | `margin` | float \| null | null (unset) | >=0 | Universal margin in inches (fallback for h_margin and v_margin); cascades label -> job (fallback 0.125). |
 | `h_margin` | float \| null | null (unset) | >=0 | Horizontal margin in inches (left and right edges); cascades label -> job; falls back to margin if unset. |
 | `v_margin` | float \| null | null (unset) | >=0 | Vertical margin in inches (top and bottom edges); cascades label -> job; falls back to margin if unset. |
@@ -399,6 +402,23 @@ split.
 | `teal` | Teal stroke-color layer (abbreviation ``t``). |
 | `none` | Implicit default for text that declares no color; cannot be specified explicitly. |
 
+### `LabelShape`
+
+Enumeration of valid label boundary shapes.
+
+``rect`` (the default) is the historical behaviour: the label boundary is
+the ``width`` x ``height`` rectangle, the packer packs that rectangle, and
+every collision check measures the rectangle. ``round`` makes the boundary
+an ellipse with semi-axes ``width / 2`` and ``height / 2`` -- a circle when
+the two are equal -- which switches the label onto the adjacent
+ellipse-packing pipeline (see :mod:`plt_optimizer.generate.ellipse_packer`)
+and makes the collision checks measure the ellipse boundary.
+
+| Value | Description |
+|---|---|
+| `rect` | Rectangular boundary (default; the historical behaviour). |
+| `round` | Elliptical boundary; a circle when ``width == height``. |
+
 ## Resolved fallback defaults
 
 When a cascading attribute is unset everywhere in its cascade (and no
@@ -434,6 +454,7 @@ always beats the config.
 | `DEFAULT_KERNING_PENETRATION_SCALE` | `1.0` | — |
 | `DEFAULT_KERNING_RECESSION_SCALE` | `1.0` | — |
 | `DEFAULT_KERNING_WINDOW_FRACTION` | `0.05` | — |
+| `DEFAULT_LABEL_SHAPE` | `'rect'` | — |
 | `DEFAULT_LINE_SPACING` | `'auto'` | Extra line spacing when unset at line/label/job level. |
 | `DEFAULT_MARGIN` | `0.125` | Label margin when unset at label/job level. |
 | `DEFAULT_MAX_CUTTER_DOWNSIZES` | `1` | Maximum number of cutter downsizings per text line (0 = disabled). Cascades line/label/job; job-config supplies the shop default. |

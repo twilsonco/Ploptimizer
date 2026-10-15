@@ -348,6 +348,13 @@ JobSpec (job-level defaults)
 **LabelAttributes** (extends TextAttributes, cascades to LabelSpec only):
 - `width`: Label width in inches; must be defined at label or job level (required; no longer auto-sized).
 - `height`: Label height in inches; must be defined at label or job level (required; no longer auto-sized).
+- `type`: Label boundary shape. Enum `LabelShape` with values `rect` (the
+  default, the historical rectangle) and `round` (an ellipse with semi-axes
+  `width / 2` and `height / 2` — a circle when the two are equal). Cascades
+  label → job (plate parity, `job-config.json` key, code fallback `rect`).
+  A round label routes to the adjacent ellipse-packing pipeline; declaring
+  only one of `width`/`height` produces a circle of that diameter. See
+  Circular/Elliptical Labels below.
 - `margin`: Label safety margins (optional)
 - `hole_margin`: Distance from hole edge to label edge (cascades: label → plate → job)
 - `holes`: List of `HoleSpec` objects (diameter + location enum). Group
@@ -360,8 +367,8 @@ JobSpec (job-level defaults)
 
 | Class | Purpose | Validation Rules |
 |-------|---------|------------------|
-| `JobSpec` | Root job container | Requires exactly one label source: `labels` list, root-level `content`, a job-level `replacement_text_file`, or plate-level replacement files (mutually exclusive); `width`/`height` must be defined at job or label level (no longer auto-sized) |
-| `LabelSpec` | Individual label definition | `count >= 1`; requires `content` (min 1 TextLine) OR `replacement_text_file` (mutually exclusive with `count`); `width`/`height` must be defined at label or job level; optional `plate_id` pins the label to a declared plate |
+| `JobSpec` | Root job container | Requires exactly one label source: `labels` list, root-level `content`, a job-level `replacement_text_file`, or plate-level replacement files (mutually exclusive); `width`/`height` must be defined at job or label level (no longer auto-sized); a `round` label needs only ONE dimension (the other fills to a circle) |
+| `LabelSpec` | Individual label definition | `count >= 1`; requires `content` (min 1 TextLine) OR `replacement_text_file` (mutually exclusive with `count`); `width`/`height` must be defined at label or job level (a `round` label needs only one); optional `plate_id` pins the label to a declared plate |
 | `TextLine` | Text content unit | Requires non-empty `text` string |
 | `PlateSpec` | Physical sheet definition | All dimensions `>= 0`; `width`/`height` are the usable pack area, offset from the material's top-left by `left_clearance`/`top_clearance` (both default `0.0`); optional `replacement_text_file` synthesizes labels pinned to this plate (requires job-level `width`/`height`/`text_height`) |
 | `HoleSpec` | Drilled hole definition | Location (required; 8 atomic enum values: corners + edges, plus `corners`/`sides` group shorthands expanded at validation) + optional `diameter` (default 0.125", must be > 0) |
@@ -2560,6 +2567,92 @@ for display. Not a `job-config.json` key — per-job decision only.
   `tests/test_layout.py::TestMaterialDemoExample` and
   `tests/test_phase3_export.py::TestMaterialDemoExample`) — two materials, one
   plate each, plus a magenta deep-engraved layer on the uv sheet.
+
+### Circular/Elliptical Labels (`type: round`)
+
+`type` (enum `LabelShape`: `rect` / `round`, cascades label → job, plate
+parity, `job-config.json` key, default `rect`) makes a label's boundary an
+**ellipse** with semi-axes `width / 2` and `height / 2` — a circle when the
+two are equal. The TODO contract: `width ≠ height` → ellipse; `width = height`
+→ circle; declaring **only one** of the two → circle of that diameter (the
+schema validator relaxes the both-required rule for round labels and
+`resolution._resolve_label` fills the missing dimension from the declared
+one). `rect` is the default and yields the current behaviour.
+
+**This is an ADJACENT pipeline, never a replacement.** Every rectangular label
+keeps packing through `rectpack` exactly as before (bit-identical); `round`
+labels route to the shapely packer. The dispatch is per label at the packing
+boundary, and the rectangular path imports nothing new.
+
+- **`plt_optimizer/generate/ellipse_packer.py`** (NEW, pure shapely, no
+  pipeline imports): `ellipse_polygon` (unit circle polygonized at
+  `quad_segs`, scaled to the semi-axes buffered by `clearance / 2`, so a plain
+  `intersects` test is collision-exact), `EllipsePacker.pack` (largest-area
+  first; a grid scan whose outer loop walks the primary axis ascending and
+  stops at the first fit — the extent score is minimized by the first hit;
+  both 0°/90° orientations evaluated, circles dedupe to one),
+  `ScrapDirection.PREFER_WIDTH` (minimize used width → clean vertical scrap
+  strip; the `columns` fill order) / `PREFER_HEIGHT` (the `rows` fill order),
+  and the `occupancy` parameter (rectangular placements, buffered by
+  `clearance / 2`, seed the collision union so an ellipse never overlaps a
+  rectangle). Placements are plate-frame **y-down** centers — the emitted
+  device convention, the same frame rectpack fills — so
+  `layout._pack_round_entries_on_plate` maps them to `PackedLabel` by adding
+  the plate clearances (no Y flip); the label's slot is the ellipse's
+  enclosing rectangle.
+- **`layout.py`**: `_pack_entries_with_pinners` is the single dispatcher — it
+  splits entries by `shape_type` (`_split_shape_entries`), runs the
+  **unchanged** rectangular pipeline (`_pack_rect_entries_with_pinners`, the
+  renamed original), and only then the round pipeline
+  (`_pack_round_entries_with_pinners`) seeded with the rectangles as
+  occupancy; a job with no round labels returns the rectangular result
+  untouched (no shapely import, no extra work). The round pipeline mirrors the
+  rectangular one (pinned plates first, then per-material passes, materials
+  never share a plate, unbounded overflow onto `round_default_plate_{i}`
+  sheets). The inter-label kerf is the group's widest boundary/hole cutter
+  (`_round_clearance`) — two engraved borders never touch.
+- **`label_renderer.py`**: `_label_is_round` is the single shape predicate.
+  `_render_boundary_local` emits the ellipse (closed polygon, sampled at
+  `ARC_FLATTEN_CHORD_TOL_INCHES` with an EVEN vertex count so the four axis
+  vertices are hit exactly and the rendered bounds equal the nominal box —
+  the packer and plate transforms depend on that) instead of `vp.rect`.
+  `_hole_circles_local` places `sides`/`top`/`bottom` holes on the axis
+  vertices (the inset is exact on an axis) and the four corner holes on the
+  45° diagonal inset along the outward normal (`_round_corner_hole`) — the
+  rectangular corner inset would drill in the material the ellipse cuts away.
+  The text margin applies **radially** (`resolution.ellipse_content_inset`:
+  the largest centered block of the label's aspect inscribed in the inset
+  ellipse, closed form `θ = atan2(a′, aspect·b′)`), applied by recomputing the
+  two local margins in `_render_positioned_lines` so the radial rule reaches
+  the available height, the compression width, the alignment width and the
+  alignment anchor with no per-site branching (centering is unaffected — the
+  inset is concentric). `_border_box` (the descender relief's virtual
+  "following line") carries the ellipse's **lower arc** (`_lower_ellipse_arc`)
+  for round labels, so a descender near the shoulders measures the rising
+  boundary.
+- **Collision detection stays shape-agnostic.** The text↔hole gap is
+  `circle_aabb_gap` for every label: the label shape enters through the hole
+  POSITIONS and the radial content inset, not through the gap (the
+  engraved-boundary clearance is the margin system's job on both shapes —
+  measuring the boundary here would make a rectangular label's corner hole
+  collide with itself). The `geometry.circle_ellipse_aabb_gap` /
+  `circle_ellipse_gap` / `point_ellipse_signed_distance` primitives (exact
+  Lagrange-multiplier point-to-ellipse distance, bisection, evolute-aware on
+  the major axis) ship with the feature for boundary-aware work.
+- **Win7/3.8 guarantee**: `layout.py` is the only shapely importer and stays
+  lazily imported inside `generate.run()`, so `main` + `watch` + `optimize`
+  import without shapely (pinned by the matplotlib-import-blocker pattern in
+  §7; verified).
+- Example fixture: `tests_deps/ellipse_job.yaml` (pinned by
+  `tests/test_phase3_export.py::TestEllipseDemoExample`) — circle, ellipse,
+  width-only circle, rectangular control twin, `sides`/`corners` holes on a
+  round label, and a repeated circle. Unit tests:
+  `tests/test_ellipse_packer.py`, `tests/test_round_labels.py`,
+  `tests/test_layout.py::TestRoundLabelPacking`,
+  `TestLabelShapeField`/`TestRoundLabelDimensions` (`tests/test_schema.py`),
+  `TestLabelShapeResolution`/`TestRoundLabelCircleFilling`/
+  `TestEllipseContentInset` (`tests/test_resolution.py`), and the ellipse
+  distance classes (`tests/test_collision_detection.py`).
 
 ### Integration Points
 - `parse_yaml(file_path)` returns a `JobSpec` ready for downstream bin-packing and rendering pipelines
