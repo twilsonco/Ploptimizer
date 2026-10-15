@@ -2528,6 +2528,57 @@ class TestUnderlineBreakSpacesField:
         assert plate.underline_break_spaces is True
 
 
+class TestStrikethroughOffsetField:
+    """The cascading ``strikethrough_offset`` field (line -> label -> job + plate)."""
+
+    def test_defaults_to_none_everywhere(self) -> None:
+        """Every tier defaults strikethrough_offset to None (unset = mid-cap)."""
+        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        assert job.strikethrough_offset is None
+        assert TextLine(text="X").strikethrough_offset is None
+        assert PlateSpec(id="p", width=24.0, height=16.0).strikethrough_offset is None
+
+    @pytest.mark.parametrize("value", [0.0, 0.1, 2.5])
+    def test_non_negative_accepted(self, value: float) -> None:
+        """Any non-negative height is accepted, 0.0 (on the baseline) included."""
+        assert TextLine(text="X", strikethrough_offset=value).strikethrough_offset == value
+
+    @pytest.mark.parametrize("value", [-0.1, -1.0])
+    def test_negative_rejected(self, value: float) -> None:
+        """A negative height is a validation error."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", strikethrough_offset=value)
+
+    def test_plate_parity_accepts_the_field(self) -> None:
+        """The plate tier carries the field for schema parity."""
+        plate = PlateSpec(id="p", width=24.0, height=16.0, strikethrough_offset=0.1)
+        assert plate.strikethrough_offset == 0.1
+
+
+class TestStrikethroughBreakSpacesField:
+    """The cascading ``strikethrough_break_spaces`` field (line -> label -> job + plate)."""
+
+    def test_defaults_to_none_everywhere(self) -> None:
+        """Every tier defaults strikethrough_break_spaces to None (unset)."""
+        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        assert job.strikethrough_break_spaces is None
+        assert TextLine(text="X").strikethrough_break_spaces is None
+        assert PlateSpec(id="p", width=24.0, height=16.0).strikethrough_break_spaces is None
+
+    @pytest.mark.parametrize("value", [True, False])
+    def test_bool_accepted(self, value: bool) -> None:
+        """Both True and False are accepted (explicit False honored)."""
+        assert (
+            TextLine(text="X", strikethrough_break_spaces=value).strikethrough_break_spaces
+            is value
+        )
+
+    def test_plate_parity_accepts_the_field(self) -> None:
+        """The plate tier carries the field for schema parity."""
+        plate = PlateSpec(id="p", width=24.0, height=16.0, strikethrough_break_spaces=True)
+        assert plate.strikethrough_break_spaces is True
+
+
 class TestTargetBoldnessFactorField:
     """The cascading ``target_boldness_factor`` field (line -> label -> job + plate)."""
 

@@ -47,6 +47,8 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES,
     DEFAULT_SC_SCALE,
     DEFAULT_SPACE_WIDTH_FRACTION,
+    DEFAULT_STRIKETHROUGH_BREAK_SPACES,
+    DEFAULT_STRIKETHROUGH_OFFSET,
     DEFAULT_SUPERSUBSCRIPT_DOWNSCALE,
     DEFAULT_TARGET_BOLDNESS_FACTOR,
     DEFAULT_TEXT_COLOR,
@@ -4430,6 +4432,205 @@ class TestUnderlineBreakSpacesCascade:
             ],
         )
         assert resolve_job_spec(job)[0].content[0].underline_break_spaces is False
+
+
+class TestStrikethroughOffsetCascade:
+    """strikethrough_offset must cascade line -> label -> job -> default (None)."""
+
+    def test_default_when_all_omit(self) -> None:
+        """All levels omitting yields the None default (mid-cap centering)."""
+        job = JobSpec(
+            job_name="J",
+            labels=[
+                LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])
+            ],
+        )
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.strikethrough_offset is DEFAULT_STRIKETHROUGH_OFFSET
+        assert DEFAULT_STRIKETHROUGH_OFFSET is None
+
+    def test_explicit_zero_is_honored(self) -> None:
+        """An intentional 0.0 (stroke on the baseline) is not treated as unset."""
+        job = JobSpec(
+            job_name="J",
+            strikethrough_offset=0.2,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X", strikethrough_offset=0.0)],
+                )
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].strikethrough_offset == 0.0
+
+    def test_job_value_used_when_label_omits(self) -> None:
+        """Job-level value cascades to the line."""
+        job = JobSpec(
+            job_name="J",
+            strikethrough_offset=0.2,
+            labels=[
+                LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].strikethrough_offset == 0.2
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level value wins over job."""
+        job = JobSpec(
+            job_name="J",
+            strikethrough_offset=0.2,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    strikethrough_offset=0.3,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].strikethrough_offset == 0.3
+
+    def test_line_overrides_label(self) -> None:
+        """Text-line value wins over label and job."""
+        job = JobSpec(
+            job_name="J",
+            strikethrough_offset=0.2,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    strikethrough_offset=0.3,
+                    content=[TextLine(text="X", strikethrough_offset=0.4)],
+                )
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].strikethrough_offset == 0.4
+
+
+class TestStrikethroughCapRule:
+    """``ResolvedTextLine.strikethrough_cap`` is the single Y rule."""
+
+    def test_unset_is_half_the_cap_height(self) -> None:
+        """Unset offset centres the stroke on the cap-band midline."""
+        line = ResolvedTextLine(
+            text="X",
+            nominal_text_height=0.5,
+            toolpath_text_height=0.44,
+            cutter_diameter=0.06,
+            character_spacing=0.0,
+            line_spacing=0.0,
+        )
+        assert line.strikethrough_offset is None
+        assert math.isclose(line.strikethrough_cap, 0.22)
+
+    def test_explicit_offset_is_used_verbatim(self) -> None:
+        """An explicit offset bypasses the midline (0.0 included)."""
+        line = ResolvedTextLine(
+            text="X",
+            nominal_text_height=0.5,
+            toolpath_text_height=0.44,
+            cutter_diameter=0.06,
+            character_spacing=0.0,
+            line_spacing=0.0,
+            strikethrough_offset=0.0,
+        )
+        assert line.strikethrough_cap == 0.0
+
+    def test_has_strikethrough_reads_the_runs(self) -> None:
+        """The gate's fast-path flag sees a struck run and nothing else."""
+        plain = ResolvedTextLine(
+            text="X",
+            nominal_text_height=0.5,
+            toolpath_text_height=0.44,
+            cutter_diameter=0.06,
+            character_spacing=0.0,
+            line_spacing=0.0,
+        )
+        assert plain.has_strikethrough is False
+        struck = plain.with_markup("<s>X</s>")
+        assert struck.has_strikethrough is True
+        assert struck.strikethrough_flags == (True,)
+
+
+class TestStrikethroughBreakSpacesCascade:
+    """strikethrough_break_spaces must cascade line -> label -> job -> default."""
+
+    def test_default_when_all_omit(self) -> None:
+        """All levels omitting yields the False default."""
+        job = JobSpec(
+            job_name="J",
+            labels=[
+                LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])
+            ],
+        )
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.strikethrough_break_spaces is DEFAULT_STRIKETHROUGH_BREAK_SPACES
+        assert DEFAULT_STRIKETHROUGH_BREAK_SPACES is False
+
+    def test_explicit_false_is_honored(self) -> None:
+        """An intentional False (continuous stroke) is not treated as unset."""
+        job = JobSpec(
+            job_name="J",
+            strikethrough_break_spaces=True,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X", strikethrough_break_spaces=False)],
+                )
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].strikethrough_break_spaces is False
+
+    def test_job_value_used_when_label_omits(self) -> None:
+        """Job-level value cascades to the line."""
+        job = JobSpec(
+            job_name="J",
+            strikethrough_break_spaces=True,
+            labels=[
+                LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].strikethrough_break_spaces is True
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level value wins over job."""
+        job = JobSpec(
+            job_name="J",
+            strikethrough_break_spaces=False,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    strikethrough_break_spaces=True,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].strikethrough_break_spaces is True
+
+    def test_line_overrides_label(self) -> None:
+        """Text-line value wins over label and job."""
+        job = JobSpec(
+            job_name="J",
+            strikethrough_break_spaces=True,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    strikethrough_break_spaces=True,
+                    content=[TextLine(text="X", strikethrough_break_spaces=False)],
+                )
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].strikethrough_break_spaces is False
 
 
 _INVENTORY = [0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.09, 0.125, 0.25]

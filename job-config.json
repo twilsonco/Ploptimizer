@@ -20,6 +20,8 @@
   "underline_offset": 0.05,
   "underline_break_clearance": 0.1,
   "underline_break_spaces": false,
+  "strikethrough_offset": null,
+  "strikethrough_break_spaces": false,
   "target_boldness_factor": 0.14,
   "multistroke_overlap_ratio": 0.25,
   "bold_boldness_multiplier": 1.5,

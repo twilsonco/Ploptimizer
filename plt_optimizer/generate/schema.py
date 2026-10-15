@@ -580,6 +580,26 @@ class TextAttributes(BaseModel):
             stays bare. Cascades line -> label -> job (and is accepted on
             plates for schema parity, where it is not applied at that level);
             explicit ``False`` is honored.
+        strikethrough_offset: Optional strikethrough height in **inches** for
+            strikethrough markup (``<s>``). The strikethrough is a centerline
+            stroke cut with the line's own text cutter, positioned
+            ``strikethrough_offset`` **above** the baseline (``0.0`` = the
+            stroke sits on the baseline). Unlike the underline, the stroke is
+            **never broken**: a descender punches through it, so there is no
+            clearance and no break test. ``None`` (the default) centres the
+            stroke on the **cap-band midline** (half the rendered cap height),
+            the classic mid-height strike. Must be ``>= 0``; only ``None``
+            means unset (an explicit ``0.0`` is honored).
+            Cascades line -> label -> job (and is accepted on plates
+            for schema parity, where it is not applied at that level).
+        strikethrough_break_spaces: Whether a strikethrough (``<s>``)
+            **breaks at the spaces** between words. ``False`` (the default)
+            draws one continuous stroke across the whole struck run, spaces
+            included. ``True`` ends the stroke at each space, so every word
+            gets its own strike spanning its own ink and the space between
+            words stays bare. Cascades line -> label -> job (and is accepted
+            on plates for schema parity, where it is not applied at that
+            level); explicit ``False`` is honored.
         cutter_size: Optional cutter diameter in inches to use for the text
             instead of the tool auto-selected from ``text_height``. When set,
             the requested diameter is snapped to the shop inventory
@@ -905,6 +925,31 @@ class TextAttributes(BaseModel):
             "gets its own underline and the inter-word space stays bare. "
             "Cascades line -> label -> job (fallback false); explicit false "
             "is honored."
+        ),
+    )
+    strikethrough_offset: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Strikethrough (<s>) height in inches ABOVE the baseline: the "
+            "stroke (cut with the line's own text cutter) sits this many "
+            "inches above the baseline, so 0.0 puts it on the baseline. "
+            "Unlike the underline the stroke is never broken -- a descender "
+            "punches through it. null (default) centres the stroke on the "
+            "cap-band midline (half the rendered cap height). Must be >= 0. "
+            "Cascades line -> label -> job (fallback null = mid-cap); "
+            "explicit 0.0 is honored."
+        ),
+    )
+    strikethrough_break_spaces: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Break a strikethrough (<s>) at the spaces between words: false "
+            "(default) draws one continuous stroke across the whole struck "
+            "run (spaces included); true ends the stroke at each space so "
+            "every word gets its own strike and the inter-word space stays "
+            "bare. Cascades line -> label -> job (fallback false); explicit "
+            "false is honored."
         ),
     )
     cutter_size: Optional[float] = Field(
@@ -1740,6 +1785,13 @@ class PlateSpec(BaseModel):
         underline_break_spaces: Optional break-at-spaces flag. Accepted for
             schema parity with the job/label ``underline_break_spaces``
             cascade (not applied at plate level).
+        strikethrough_offset: Optional strikethrough height in inches above
+            the baseline. Accepted for schema parity with the job/label
+            ``strikethrough_offset`` cascade (not applied at plate level).
+        strikethrough_break_spaces: Optional break-at-spaces flag. Accepted
+            for schema parity with the job/label
+            ``strikethrough_break_spaces`` cascade (not applied at plate
+            level).
         cutter_size: Optional cutter diameter in inches. Accepted for schema
             parity with the job/label ``cutter_size`` cascade (not applied at
             plate level).
@@ -1964,6 +2016,20 @@ class PlateSpec(BaseModel):
         default=None,
         description=(
             "Underline (<u>) break-at-spaces flag (schema parity; not applied at plate level)."
+        ),
+    )
+    strikethrough_offset: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Strikethrough (<s>) height in inches above the baseline "
+            "(schema parity; not applied at plate level)."
+        ),
+    )
+    strikethrough_break_spaces: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Strikethrough (<s>) break-at-spaces flag (schema parity; not applied at plate level)."
         ),
     )
     cutter_size: Optional[float] = Field(

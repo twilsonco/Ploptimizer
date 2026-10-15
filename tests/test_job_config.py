@@ -54,6 +54,8 @@ _FULL_CONFIG: dict[str, Any] = {
     "underline_offset": 0.08,
     "underline_break_clearance": 0.12,
     "underline_break_spaces": True,
+    "strikethrough_offset": 0.22,
+    "strikethrough_break_spaces": True,
     "target_boldness_factor": 0.18,
     "multistroke_overlap_ratio": 0.35,
     "bold_boldness_multiplier": 2.0,
@@ -289,6 +291,8 @@ class TestJobDefaultsModel:
         assert "underline_offset" not in REQUIRED_WHEN_UNCONFIGURED
         assert "underline_break_clearance" not in REQUIRED_WHEN_UNCONFIGURED
         assert "underline_break_spaces" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "strikethrough_offset" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "strikethrough_break_spaces" not in REQUIRED_WHEN_UNCONFIGURED
         assert JobDefaults().space_width_fraction is None
         assert JobDefaults().min_glyph_width is None
         assert JobDefaults().kerning_window_fraction is None
@@ -333,6 +337,16 @@ class TestJobDefaultsModel:
         assert JobDefaults().underline_break_spaces is None
         assert JobDefaults(underline_break_spaces=True).underline_break_spaces is True
         assert JobDefaults(underline_break_spaces=False).underline_break_spaces is False
+        # Unset strikethrough_offset means the cap-band midline, so None is a
+        # meaningful value: only the bound (>= 0) is enforced.
+        assert JobDefaults().strikethrough_offset is None
+        assert JobDefaults(strikethrough_offset=0.22).strikethrough_offset == pytest.approx(0.22)
+        assert JobDefaults(strikethrough_offset=0.0).strikethrough_offset == 0.0
+        with pytest.raises(Exception):
+            JobDefaults(strikethrough_offset=-0.1)
+        assert JobDefaults().strikethrough_break_spaces is None
+        assert JobDefaults(strikethrough_break_spaces=True).strikethrough_break_spaces is True
+        assert JobDefaults(strikethrough_break_spaces=False).strikethrough_break_spaces is False
 
     def test_bold_boldness_multiplier_defaults_and_bounds(self) -> None:
         """The job layer defaults the multiplier to None and bounds it [1.0, 4.0]."""
@@ -454,6 +468,8 @@ class TestApplyJobConfigDefaults:
         assert filled["underline_offset"] == 0.08
         assert filled["underline_break_clearance"] == 0.12
         assert filled["underline_break_spaces"] is True
+        assert filled["strikethrough_offset"] == 0.22
+        assert filled["strikethrough_break_spaces"] is True
         assert filled["target_boldness_factor"] == 0.18
         assert filled["multistroke_overlap_ratio"] == 0.35
         assert filled["bold_boldness_multiplier"] == 2.0
@@ -989,6 +1005,9 @@ class TestParseYamlWithJobConfig:
         assert job.underline_offset == 0.05
         assert job.underline_break_clearance == 0.1
         assert job.underline_break_spaces is False
+        # The shop ships the mid-cap strike (null) and a continuous stroke.
+        assert job.strikethrough_offset is None
+        assert job.strikethrough_break_spaces is False
         assert job.target_boldness_factor == 0.14
         assert job.multistroke_overlap_ratio == 0.25
         assert job.bold_boldness_multiplier == 1.5

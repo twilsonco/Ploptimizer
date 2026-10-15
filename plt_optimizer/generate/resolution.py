@@ -225,6 +225,22 @@ DEFAULT_UNDERLINE_BREAK_CLEARANCE: float = 0.0
 # default.
 # See ``plt_optimizer.generate.label_renderer._underline_render_gate``.
 DEFAULT_UNDERLINE_BREAK_SPACES: bool = False
+# Strikethrough (``<s>``) height in inches ABOVE the baseline. The stroke is a
+# centerline cut with the line's own text cutter, so ``0.0`` puts it on the
+# baseline. ``None`` (the default) centres the stroke on the **cap-band
+# midline** -- half the line's rendered cap height (``toolpath_text_height``),
+# the classic mid-height strike. Unlike the underline the stroke is NEVER
+# broken: a descender punches through it, so there is no clearance and no break
+# test. Resolved by ``ResolvedTextLine.strikethrough_cap``.
+# See ``plt_optimizer.generate.label_renderer._strikethrough_strokes``.
+DEFAULT_STRIKETHROUGH_OFFSET: Optional[float] = None
+# Whether a strikethrough (``<s>``) breaks at the spaces between words.
+# ``False`` (the default) draws one continuous stroke across the whole struck
+# run (spaces included); ``True`` ends the stroke at each space, so every word
+# gets its own strike spanning its own ink and the inter-word space stays bare.
+# The code fallback is ``False``; job-config.json supplies the shop default.
+# See ``plt_optimizer.generate.label_renderer._strikethrough_render_gate``.
+DEFAULT_STRIKETHROUGH_BREAK_SPACES: bool = False
 # Multiplier applied to ``target_boldness_factor`` by inline ``<b>`` markup on
 # a **multi-stroke (bold)** PLT font: the bold run re-runs the boldness ladder
 # at ``target_boldness_factor * this`` (clamped to
@@ -937,6 +953,22 @@ class ResolvedTextLine:
             underline at each space, so every word gets its own underline
             spanning its own ink and the inter-word space stays bare. An
             explicit ``False`` is honored.
+        strikethrough_offset: Strikethrough (``<s>``) height in inches ABOVE
+            the baseline (cascaded line -> label -> job, default
+            ``DEFAULT_STRIKETHROUGH_OFFSET`` (``None``)). ``None`` means
+            unset -- the stroke centres on the cap-band midline (see
+            :attr:`strikethrough_cap`); an explicit value (``0.0`` included)
+            places the centerline exactly that many inches above the
+            baseline. The stroke is never broken (no clearance, no break
+            test -- the underline's minimal-break model deliberately does
+            not apply).
+        strikethrough_break_spaces: Whether a ``<s>`` strikethrough breaks at
+            the spaces between words (cascaded line -> label -> job, default
+            ``DEFAULT_STRIKETHROUGH_BREAK_SPACES`` (False)). False draws one
+            continuous stroke across the whole struck run (spaces included);
+            True ends the stroke at each space, so every word gets its own
+            strike spanning its own ink and the inter-word space stays bare.
+            An explicit ``False`` is honored.
         bold_boldness_multiplier: Multiplier applied to
             :attr:`target_boldness_factor` by inline ``<b>`` markup on a
             multi-stroke (bold) PLT font (cascaded line -> label -> job,
@@ -1008,6 +1040,8 @@ class ResolvedTextLine:
     underline_offset: float = DEFAULT_UNDERLINE_OFFSET
     underline_break_clearance: float = DEFAULT_UNDERLINE_BREAK_CLEARANCE
     underline_break_spaces: bool = DEFAULT_UNDERLINE_BREAK_SPACES
+    strikethrough_offset: Optional[float] = DEFAULT_STRIKETHROUGH_OFFSET
+    strikethrough_break_spaces: bool = DEFAULT_STRIKETHROUGH_BREAK_SPACES
     bold_boldness_multiplier: float = DEFAULT_BOLD_BOLDNESS_MULTIPLIER
     bold_cutter_diameter: Optional[float] = None
     bold_toolpath_text_height: Optional[float] = None
@@ -1113,6 +1147,40 @@ class ResolvedTextLine:
     def has_sup_sub(self) -> bool:
         """True when any markup run of this line carries a ``<sup>``/``<sub>`` tag."""
         return any(run.style.sup_sub is not None for run in self.styled_runs)
+
+    @property
+    def has_strikethrough(self) -> bool:
+        """True when any markup run of this line carries a ``<s>`` strikethrough tag."""
+        return any(run.style.strikethrough for run in self.styled_runs)
+
+    @property
+    def strikethrough_flags(self) -> Tuple[bool, ...]:
+        """Per-character ``<s>`` flags aligned with :attr:`plain_text`.
+
+        Mirrors :attr:`bold_flags`: ``()`` with no markup, one flag per
+        character otherwise (the renderer's gate expands the runs itself).
+        """
+        return tuple(
+            style.strikethrough
+            for run in self.styled_runs
+            for style in (run.style,) * len(run.text)
+        )
+
+    @property
+    def strikethrough_cap(self) -> float:
+        """The ``<s>`` strikethrough centerline height in inches above the baseline.
+
+        The single Y rule the renderer draws with (and the per-cutter pen
+        split compares against when identifying a strike stroke): the explicit
+        cascaded :attr:`strikethrough_offset` when set (``0.0`` = the stroke
+        sits on the baseline), else the **cap-band midline** -- half of
+        :attr:`toolpath_text_height` (the per-font cap height, the same cap
+        basis the ``<sup>``/``<sub>`` shift conversion uses) -- the classic
+        mid-height strike.
+        """
+        if self.strikethrough_offset is not None:
+            return self.strikethrough_offset
+        return 0.5 * self.toolpath_text_height
 
     @property
     def sup_sub_scales(self) -> Tuple[float, ...]:
@@ -3015,6 +3083,33 @@ def _resolve_content(
         else:
             line_underline_break_spaces = DEFAULT_UNDERLINE_BREAK_SPACES
 
+        # Resolve the strikethrough height with the same explicit-None
+        # precedence (line -> label -> job -> default); an intentional 0.0
+        # (the stroke sits on the baseline) is honored, and the default
+        # ``None`` keeps the cap-band-midline centering (the value stays
+        # ``None`` all the way to ResolvedTextLine, whose
+        # ``strikethrough_cap`` property resolves the midline).
+        if line.strikethrough_offset is not None:
+            line_strikethrough_offset: Optional[float] = line.strikethrough_offset
+        elif label_input.strikethrough_offset is not None:
+            line_strikethrough_offset = label_input.strikethrough_offset
+        elif job.strikethrough_offset is not None:
+            line_strikethrough_offset = job.strikethrough_offset
+        else:
+            line_strikethrough_offset = DEFAULT_STRIKETHROUGH_OFFSET
+
+        # Resolve the strikethrough break-at-spaces permission with the same
+        # explicit-None precedence (line -> label -> job -> default) so an
+        # intentional ``False`` (continuous stroke) is honored.
+        if line.strikethrough_break_spaces is not None:
+            line_strikethrough_break_spaces: bool = line.strikethrough_break_spaces
+        elif label_input.strikethrough_break_spaces is not None:
+            line_strikethrough_break_spaces = label_input.strikethrough_break_spaces
+        elif job.strikethrough_break_spaces is not None:
+            line_strikethrough_break_spaces = job.strikethrough_break_spaces
+        else:
+            line_strikethrough_break_spaces = DEFAULT_STRIKETHROUGH_BREAK_SPACES
+
         # Resolve the bold markup's boldness multiplier with the same
         # explicit-None precedence (line -> label -> job -> default); an
         # intentional 1.0 (no boost on multi-stroke fonts) is honored.
@@ -3172,6 +3267,8 @@ def _resolve_content(
                 underline_offset=line_underline_offset,
                 underline_break_clearance=line_underline_break_clearance,
                 underline_break_spaces=line_underline_break_spaces,
+                strikethrough_offset=line_strikethrough_offset,
+                strikethrough_break_spaces=line_strikethrough_break_spaces,
                 bold_boldness_multiplier=line_bold_boldness_multiplier,
                 bold_cutter_diameter=bold_cutter,
                 bold_toolpath_text_height=bold_toolpath,

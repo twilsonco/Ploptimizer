@@ -419,6 +419,28 @@ class JobDefaults(BaseModel):
             "Unset falls back to false."
         ),
     )
+    strikethrough_offset: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Default strikethrough (<s>) height in inches above the baseline "
+            "(job layer): the stroke (cut with the line's own text cutter) "
+            "sits this many inches above the baseline, so 0.0 puts it on the "
+            "baseline. Unlike the underline the stroke is never broken -- a "
+            "descender punches through it. Unset (null) centres the stroke on "
+            "the cap-band midline (half the rendered cap height)."
+        ),
+    )
+    strikethrough_break_spaces: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Default strikethrough (<s>) break-at-spaces flag (job layer): "
+            "false (default) draws one continuous stroke across the whole "
+            "struck run (spaces included); true ends the stroke at each "
+            "space so every word gets its own strike and the inter-word "
+            "space stays bare. Unset falls back to false."
+        ),
+    )
     target_boldness_factor: Optional[float] = Field(
         default=None,
         ge=0.05,
@@ -704,6 +726,8 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "underline_offset",
     "underline_break_clearance",
     "underline_break_spaces",
+    "strikethrough_offset",
+    "strikethrough_break_spaces",
     "target_boldness_factor",
     "multistroke_overlap_ratio",
     "bold_boldness_multiplier",
