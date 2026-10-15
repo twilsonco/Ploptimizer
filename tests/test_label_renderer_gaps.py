@@ -549,6 +549,61 @@ class TestInlineSmallCapsGate:
         assert label_renderer._small_caps_render_gate(line, ref) is None
 
 
+class TestEngravedBaselineRaise:
+    """``_baseline_shift_inches`` composes the engraved-baseline alignment raise.
+
+    A character engraving with cutter ``d`` other than the line's ``cutter``
+    rides ``(d - cutter) / 2`` so its ENGRAVED baseline matches the plain run's
+    (and, for ``<b>``, its engraved capline too). The raise rides the renderers'
+    existing ``baseline_shifts`` array, composing with the ``<sup>``/``<sub>``
+    shift; a line whose markup engraves with one tool stays on the historical
+    call shape (``None``).
+    """
+
+    def test_markup_free_line_has_no_shift(self) -> None:
+        """A tag-free line keeps the historical call shape (``None``)."""
+        assert label_renderer._baseline_shift_inches(_markup_line("Hello")) is None
+
+    def test_bold_run_shifts_by_the_half_decrease(self) -> None:
+        """A ``<b>`` run's shift is (bold - plain) / 2; the plain chars stay 0."""
+        line = _markup_line("a<b>B</b>c", bold_cutter_diameter=0.09)
+        shifts = label_renderer._baseline_shift_inches(line)
+        assert shifts is not None
+        assert shifts == (0.0, 0.015, 0.0)
+
+    def test_bold_render_kwargs_carry_the_shift(self) -> None:
+        """A PLT bold line's kwargs pair the geometry plan with the raise."""
+        line = _markup_line("a<b>B</b>c", bold_cutter_diameter=0.09)
+        kwargs = label_renderer._glyph_render_kwargs(line, plt=True)
+        assert kwargs["baseline_shifts"] == (0.0, 0.015, 0.0)
+        assert "glyph_scales" in kwargs and "cutter_diameters" in kwargs
+
+    def test_ttf_render_kwargs_carry_the_shift(self) -> None:
+        """The TTF path receives the same raise (PLT parity, no cutters)."""
+        line = _markup_line("a<b>B</b>c", bold_cutter_diameter=0.09)
+        kwargs = label_renderer._glyph_render_kwargs(line, plt=False)
+        assert kwargs["baseline_shifts"] == (0.0, 0.015, 0.0)
+        assert "cutter_diameters" not in kwargs
+
+    def test_top_of_inventory_bold_stays_on_the_fast_path(self) -> None:
+        """No bold rung (top of inventory): no scale, no raise, empty kwargs."""
+        line = _markup_line("<b>AB</b>")
+        assert label_renderer._glyph_render_kwargs(line, plt=False) == {}
+
+    def test_shift_composes_with_the_sup_sub_shift(self) -> None:
+        """A bold ``<sup>`` character rides the sup shift PLUS the raise."""
+        line = _markup_line("a<sup><b>B</b></sup>", bold_cutter_diameter=0.09)
+        shifts = label_renderer._baseline_shift_inches(line)
+        assert shifts is not None
+        # toolpath cap 0.44: sup shift 0.75 * 0.44 = 0.33, plus the run's
+        # engraved-floor raise (run cutter - line cutter) / 2. The bare sup
+        # downscales, so its run takes the smaller ladder cutter (a drop).
+        raise_in = (line.per_char_cutters[1] - line.cutter_diameter) / 2
+        assert raise_in < 0.0
+        assert shifts[0] == pytest.approx(0.0)
+        assert shifts[1] == pytest.approx(0.75 * 0.44 + raise_in)
+
+
 class TestInlineSmallCapsDispatch:
     """``_render_line_block`` forwards the per-character selection to the renderers."""
 

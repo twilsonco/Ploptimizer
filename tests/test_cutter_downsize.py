@@ -10,6 +10,7 @@ directly.
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from typing import Dict, List
 
@@ -733,3 +734,29 @@ class TestBoldLockstep:
         updated = _with_cutter(label, 0, 0.06, 0.5 - 0.06)
         assert math.isclose(updated.content[0].cutter_diameter, 0.06)
         assert math.isclose(updated.content[0].bold_cutter_diameter, 0.125)
+
+    def test_raise_recomputes_after_the_lockstep_step(self) -> None:
+        """The engraved-baseline raise follows the stepped-down cutter pair.
+
+        The raise is a derived property of the live cutters, so a lockstep
+        step (plain 0.09 -> 0.06, bold 0.125 -> 0.09) recomputes it from the
+        new pair -- no stored positional array goes stale.
+        """
+        from plt_optimizer.generate.markup import parse_markup
+
+        def bold_markup_line() -> ResolvedTextLine:
+            styled = parse_markup("a<b>B</b>c", "<", ">")
+            base = _bold_line("a<b>B</b>c", cutter=0.09, bold_cutter=0.125)
+            return dataclasses.replace(
+                base, plain_text=styled.plain_text, styled_runs=styled.runs
+            )
+
+        assert bold_markup_line().baseline_raises == (0.0, 0.0175, 0.0)
+        out = apply_compression_cutter_downsize(
+            [_label("l1", bold_markup_line())], _INVENTORY, probe=_probe({0.09: 0.80})
+        )
+        line = out[0].content[0]
+        assert math.isclose(line.cutter_diameter, 0.06)
+        assert math.isclose(line.bold_cutter_diameter, 0.09)
+        # (0.09 - 0.06) / 2 = 0.015 on the stepped pair (was 0.0175).
+        assert line.baseline_raises == (0.0, 0.015, 0.0)

@@ -1325,6 +1325,34 @@ class ResolvedTextLine:
                 cutters.append(self.cutter_diameter)
         return tuple(cutters)
 
+    @property
+    def baseline_raises(self) -> Tuple[float, ...]:
+        """Per-character baseline raises in inches, aligned with :attr:`plain_text`.
+
+        The engraved-baseline alignment rule. A glyph's stored geometry is
+        the *design* cutter's path, so the plain run's engraved silhouette
+        spans ``[-c/2, nominal - c/2]`` (centerline baseline at ``y = 0``,
+        capline at ``nominal - c`` centerline). A run that engraves with a
+        different cutter ``d`` at the centerline scale ``g`` spans
+        ``[r - d/2, r + g * plain + d/2]`` when raised by ``r``. Raising it
+        by ``(d - c) / 2`` aligns the **engraved baseline** bottoms with the
+        plain run's; for a bold run (``d`` = the bold rung, ``g`` =
+        :meth:`_bold_glyph_scale`) the same value aligns the **engraved
+        capline** too -- bottom- and top-alignment both reduce to this
+        identical half-decrease, so the bold text's engraved baseline and
+        capline are exactly the normal text's.
+
+        A plain character (``d == c``) and a shift-only run raise ``0.0``;
+        a downscaled run (its ladder cutter below the line's) drops (a
+        negative raise) so its thinner stroke's floor meets the plain
+        stroke's floor. Derived from :attr:`per_char_cutters` (itself
+        derived from each character's style), never stored positionally, so
+        it stays correct when a pre-pass rewrites the line's text
+        (:meth:`with_markup`, the line-content reflow). Empty tuple on a
+        markup-free line (the renderers' fast path).
+        """
+        return tuple((diameter - self.cutter_diameter) / 2.0 for diameter in self.per_char_cutters)
+
     def _bold_glyph_scale(self) -> float:
         """Return the uniform scale a bold glyph renders at, relative to plain.
 

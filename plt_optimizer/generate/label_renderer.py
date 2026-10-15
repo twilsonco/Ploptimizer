@@ -2706,11 +2706,23 @@ def _stroke_cutter_map(
 def _baseline_shift_inches(line: ResolvedTextLine) -> Optional[Tuple[float, ...]]:
     """Return the per-character baseline shift in inches, or ``None`` when unset.
 
-    The ``<sup>``/``<sub>`` baseline shift (cap-height units, from
-    :attr:`ResolvedTextLine.sup_sub_shifts`) converted to inches by the
-    line's ``toolpath_text_height`` (the per-font cap height -- the same
-    basis as the baseline pitch). ``None`` when the line carries no shift
-    (markup-free fast path: the renderers keep the historical call shape).
+    The composition of the two per-character vertical translates, both riding
+    the renderers' single ``baseline_shifts`` array:
+
+    * the ``<sup>``/``<sub>`` baseline shift (cap-height units, from
+      :attr:`ResolvedTextLine.sup_sub_shifts`) converted to inches by the
+      line's ``toolpath_text_height`` (the per-font cap height -- the same
+      basis as the baseline pitch);
+    * the engraved-baseline alignment raise
+      (:attr:`ResolvedTextLine.baseline_raises`), which lifts a character
+      engraving with a cutter ``d`` other than the line's ``cutter`` by
+      ``(d - cutter) / 2`` so its **engraved** baseline matches the plain
+      run's (and, for a ``<b>`` run, its **engraved** capline too -- the two
+      alignments reduce to the same half-decrease).
+
+    ``None`` when the line carries neither (the markup-free fast path, and a
+    line whose markup engraves with one tool: the renderers keep the
+    historical call shape, bit-identical output).
 
     Args:
         line: The resolved text line.
@@ -2718,13 +2730,21 @@ def _baseline_shift_inches(line: ResolvedTextLine) -> Optional[Tuple[float, ...]
     Returns:
         One shift in inches per character of ``plain_text``, or ``None``.
     """
-    if not line.has_sup_sub:
+    raises = line.baseline_raises
+    sup_sub: Tuple[float, ...] = ()
+    if line.has_sup_sub:
+        cap = line.toolpath_text_height
+        sup_sub = tuple(shift * cap for shift in line.sup_sub_shifts)
+    if not sup_sub and not raises:
         return None
-    shifts = line.sup_sub_shifts
-    if not shifts or all(shift == 0.0 for shift in shifts):
+    shifts: List[float] = []
+    for index in range(len(line.plain_text)):
+        shift = sup_sub[index] if index < len(sup_sub) else 0.0
+        shift += raises[index] if index < len(raises) else 0.0
+        shifts.append(shift)
+    if all(shift == 0.0 for shift in shifts):
         return None
-    cap = line.toolpath_text_height
-    return tuple(shift * cap for shift in shifts)
+    return tuple(shifts)
 
 
 def _glyph_render_kwargs(line: ResolvedTextLine, *, plt: bool) -> dict[str, Any]:
@@ -2736,8 +2756,9 @@ def _glyph_render_kwargs(line: ResolvedTextLine, *, plt: bool) -> dict[str, Any]
     a bold run, a scaled run, a bold+scaled run, and a bare ``<sup>``/
     ``<sub>`` run (whose downscale composes into the plan's scale) all flow
     through the same per-character arrays; the ``<sup>``/``<sub>`` baseline
-    shift rides the extra ``baseline_shifts`` array (inches). Empty dict when
-    the line carries none of these markup kinds -- the historical call shape,
+    shift AND the engraved-baseline alignment raise (:func:`_baseline_shift_inches`)
+    ride the extra ``baseline_shifts`` array (inches). Empty dict when the
+    line carries none of these markup kinds -- the historical call shape,
     bit-identical output.
 
     Args:

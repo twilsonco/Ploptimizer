@@ -4759,6 +4759,31 @@ class TestBoldCutterResolution:
         assert line._bold_glyph_scale() == pytest.approx(expected)
         assert line._bold_glyph_scale() <= 1.0
 
+    def test_bold_run_raises_by_the_half_decrease(self) -> None:
+        """The engraved-baseline raise is (bold - plain) / 2 on the bold span."""
+        line = self._line(TextLine(text="a<b>B</b>d", font="Dino"))
+        assert math.isclose(line.cutter_diameter, 0.06)
+        assert math.isclose(line.bold_cutter_diameter, 0.09)
+        # (0.09 - 0.06) / 2 = 0.015in on the bold char, 0.0 on the plain ones.
+        # This raise aligns the bold run's ENGRAVED baseline AND capline with
+        # the plain run's (both alignments reduce to the same half-decrease).
+        assert line.baseline_raises == (0.0, 0.015, 0.0)
+
+    def test_no_markup_has_no_raises(self) -> None:
+        """A markup-free line raises nothing (all-zero: the renderers' fast path)."""
+        line = self._line(TextLine(text="PLAIN", font="Dino"))
+        assert line.baseline_raises == (0.0,) * len(line.plain_text)
+        # A hand-built line with no styled runs has no per-character array at all.
+        bare = ResolvedTextLine(
+            text="X",
+            nominal_text_height=0.5,
+            toolpath_text_height=0.44,
+            cutter_diameter=0.06,
+            character_spacing=0.0,
+            line_spacing=0.0,
+        )
+        assert bare.baseline_raises == ()
+
     def test_top_of_inventory_warns_and_keeps_plain(self, caplog: pytest.LogCaptureFixture) -> None:
         """At the largest tool there is no larger rung: bold stays plain (WARNING)."""
         job = JobSpec(
@@ -4971,6 +4996,27 @@ class TestScaleResolution:
         plain_line = line.with_markup("AA CC")
         assert all(math.isclose(cutter, 0.125) for cutter in plain_line.per_char_cutters)
 
+    def test_downscaled_run_drops_by_the_half_increase(self) -> None:
+        """A run under the line's cutter drops (negative raise) by half the delta."""
+        line = self._line(TextLine(text="A<scale:0.5>b</scale>", font="Dino"), text_height=1.0)
+        # plain 0.125, run 0.06 -> (0.06 - 0.125) / 2 = -0.0325 on the run: its
+        # thinner stroke's engraved floor lands on the plain stroke's floor.
+        assert math.isclose(line.baseline_raises[0], 0.0)
+        assert math.isclose(line.baseline_raises[1], (0.06 - 0.125) / 2)
+
+    def test_raises_survive_the_reflow_text_swap(self) -> None:
+        """The raise follows the text through ``with_markup`` (derived, not stored)."""
+        line = self._line(
+            TextLine(text="AA <scale:0.5>bb</scale> CC", font="Dino"), text_height=1.0
+        )
+        scaled_line = line.with_markup("<scale:0.5>bb</scale>")
+        assert all(
+            math.isclose(raise_in, (0.06 - 0.125) / 2)
+            for raise_in in scaled_line.baseline_raises
+        )
+        plain_line = line.with_markup("AA CC")
+        assert all(math.isclose(raise_in, 0.0) for raise_in in plain_line.baseline_raises)
+
     def test_bold_resolves_above_the_line_cutter_with_scale(self) -> None:
         """``<b>`` + ``<scale>``: the bold rung sits above the line's plain cutter."""
         line = self._line(
@@ -5054,6 +5100,8 @@ class TestGlyphRenderPlan:
         assert diameters == (0.06, 0.09)
         assert scales[0] == 1.0
         assert scales[1] == pytest.approx(line._bold_glyph_scale())
+        # The plan's companion raise: (run cutter - line cutter) / 2.
+        assert line.baseline_raises == (0.0, 0.015)
 
     def test_bold_scaled_composes_the_silhouette_formula(self) -> None:
         """A bold+scaled glyph takes the bold rung at its effective height."""

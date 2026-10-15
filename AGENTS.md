@@ -1403,15 +1403,33 @@ precedent). No tag args ship: the parser's reserved `name:args` form keeps
   their own baseline** by `s = (nominal - bold_cutter) / (nominal - cutter)
   <= 1` (`ResolvedTextLine._bold_glyph_scale()`) -- a thicker tool engraves a
   fatter stroke, so the centerlines shrink to keep the engraved silhouette
-  inside the box the plain glyph occupies. The baseline stays exactly in
-  place (the top descends, a sub-baseline overshoot shrinks with it), the
-  scale is uniform so `AA` arcs stay **native** (PLT
-  `plt_font_renderer._scale_baseline_geometry`, the SC `_scale_geometry`
-  sibling anchored on the baseline instead of the glyph bottom; TTF
-  `ftext_renderer._apply_bold` slices the flagged glyph contours about its
-  ink-left on the baseline). The nominal `text_height` is untouched (no
-  cutter change for the vertical fit math), and the TTF pen advance is
+  inside the box the plain glyph occupies. The scale is uniform so `AA` arcs
+  stay **native** (PLT `plt_font_renderer._scale_baseline_geometry`, the SC
+  `_scale_geometry` sibling anchored on the baseline instead of the glyph
+  bottom; TTF `ftext_renderer._apply_bold` slices the flagged glyph contours
+  about its ink-left on the baseline). The nominal `text_height` is untouched
+  (no cutter change for the vertical fit math), and the TTF pen advance is
   deliberately unchanged (the italic shaping precedent).
+- **The engraved-baseline alignment raise.** Scaling about the baseline alone
+  leaves the bold run's *engraved* baseline `(bold_cutter - cutter) / 2`
+  **below** the plain run's (the thicker stroke hangs half a cutter lower),
+  so the bold text's engraved baseline and capline sit visibly low against
+  its normal neighbours. `ResolvedTextLine.baseline_raises` therefore raises
+  every character by `(run_cutter - cutter) / 2` inches, riding the renderers'
+  existing per-character `baseline_shifts` array (the `<sup>`/`<sub>`
+  plumbing, composed in `label_renderer._baseline_shift_inches` -- a pure
+  translate at placement, so the renderers need no change). For a bold run
+  this single value aligns the **engraved baseline AND the engraved
+  capline**: the plain silhouette spans `[-c/2, nominal - c/2]` and the bold
+  run's spans `[r - d/2, r + s*(nominal - c) + d/2]`, and bottom- and
+  top-alignment both reduce to `r = (d - c) / 2`. Plain and shift-only
+  characters raise `0.0`, so a markup-free line (and a line whose markup
+  engraves with one tool) keeps the historical call shape, bit-identical.
+  The raise is **derived** from `per_char_cutters` (never stored
+  positionally), so it follows the text through `with_markup`/the reflow and
+  recomputes from the live cutters after a compression-driven lockstep step.
+  Underline/strikethrough deliberately do **not** follow the raise (they keep
+  their baseline-relative depth / cap-band height, the shipped contract).
 - **Per-pair kerning floor.** `_walk_line` gained keyword-only
   `cutter_diameters` (per character, spaces included) + `glyph_scales`; each
   kerned pair's clearance becomes `0.5 * (diameter_left + diameter_right) +
@@ -1551,6 +1569,15 @@ small-caps field / ` SC` font suffix / the inline `<sc>` small-caps tag.
   (same three-tier empty-dict gate: no markup / no bold-and-scaled run /
   all-unity TTF factors); the TTF `_with_words` grouping gate includes a
   non-unity `glyph_scales`.
+- **The engraved-baseline alignment raise (the `<b>` rule, uniform).** Every
+  character rides `(run_cutter - cutter) / 2` inches
+  (`ResolvedTextLine.baseline_raises`, one per-character `baseline_shifts`
+  array shared with the `<sup>`/`<sub>` shift), so a downscaled run's
+  *engraved* stroke floor lands on the plain run's engraved floor (a negative
+  drop -- its thinner centerline box sits lower) and an upscaled run's rises
+  with it. The export pin measures the shared glyph's box delta as
+  `(g - 1) * plain_bottom + (d - c) / 2` (the glyph's sub-unit baseline
+  overshoot scales with the geometry).
 - **The per-run cutter (`per_char_cutters`, derived).** A scaled run is a
   smaller (or larger) glyph, so it takes the **height-based ladder** cutter
   for its effective height `N * nominal` -- the tool that size of text gets
@@ -1641,6 +1668,12 @@ current baseline, `1` = the capline, `-1` = one cap height below) and applies
   (nominal - cutter)` stays the single geometry formula (uniform, about the
   baseline, `AA` arcs native). A bare `<sup>` on plain text **is** a
   `<scale:d>` run plus a translate. The shift is the only new renderer input.
+  Every character also rides the engraved-baseline alignment raise
+  (`(run_cutter - cutter) / 2`, the `<b>` rule, composed into the same
+  `baseline_shifts` array): a bare tag's smaller ladder cutter means a small
+  *drop*, so the centering growth shrinks by half the cutter delta, and a
+  shift-only run (the line's own cutter) raises `0.0` and keeps its exact
+  historical placement.
 - **The run cutter = the ladder for the downscaled height** (the `<scale:N>`
   contract, `per_char_cutters` reading `s_eff`): the run lands on its own
   pen, `<cutter>_txt_` file, per-pair kerning floor and underline run-split

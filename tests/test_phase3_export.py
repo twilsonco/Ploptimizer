@@ -14,6 +14,7 @@ from plt_optimizer.generate.resolution import (
     LineContentConfigError,
     ResolvedLabel,
     ResolvedTextLine,
+    glyph_render_plan,
     resolve_job_spec,
 )
 from plt_optimizer.generate.schema import (
@@ -2991,6 +2992,56 @@ class TestBoldDemoExample:
         assert len(flags) == len(line.plain_text)
         assert [i for i, f in enumerate(flags) if f] == list(range(6, 10))
 
+    def test_bold_run_raises_by_the_half_decrease(self) -> None:
+        """The bold span's engraved-baseline raise is (bold - plain) / 2.
+
+        The raise aligns the bold run's ENGRAVED baseline AND capline with the
+        plain run's: the thicker tool's stroke hangs (bold - plain) / 2 lower
+        at the baseline and reaches (bold - plain) / 2 higher at the capline,
+        so the half-decrease raise cancels both.
+        """
+        line = self._resolve()["plt_bold"].content[0]
+        expected = (line.bold_cutter_diameter - line.cutter_diameter) / 2
+        assert math.isclose(expected, 0.015)
+        assert line.baseline_raises == (0.0,) * 6 + (expected,) * 4 + (0.0,) * 6
+
+    def test_bold_glyph_box_stays_centered_on_the_plain_twin(self) -> None:
+        """The raised + scaled bold glyph keeps the plain twin's centerline center.
+
+        The bold scale shrinks the centerline box by (bold - plain); the raise
+        lifts it by exactly half that, so the box's CENTER is the plain glyph's
+        center -- the engraved stroke (half a cutter on each side) then spans
+        the plain run's engraved baseline-to-capline box exactly.
+        """
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+        from plt_optimizer.generate.text_geometry import TextBlock
+
+        labels = self._resolve()
+        bold_line = labels["plt_bold"].content[0]
+        plain_line = labels["plt_plain"].content[0]
+
+        def box_of_first_bold(line: ResolvedTextLine) -> tuple[float, float]:
+            block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+            # plain_text index 6 is the run's first glyph ('B').
+            bounds = TextBlock(strokes=tuple(block.strokes[i] for i in glyphs[6])).bounds()
+            assert bounds is not None
+            return (bounds[1], bounds[3])
+
+        bold_bottom, bold_top = box_of_first_bold(bold_line)
+        plain_bottom, plain_top = box_of_first_bold(plain_line)
+        scale = bold_line._bold_glyph_scale()
+        raise_in = (bold_line.bold_cutter_diameter - bold_line.cutter_diameter) / 2
+        # The exact transform: scale about the baseline, then raise.
+        assert bold_bottom == pytest.approx(scale * plain_bottom + raise_in, abs=1e-9)
+        assert bold_top == pytest.approx(scale * plain_top + raise_in, abs=1e-9)
+        # The centerline box shrinks by the cutter delta, centered on the twin.
+        assert (bold_top - bold_bottom) == pytest.approx(
+            scale * (plain_top - plain_bottom), abs=1e-9
+        )
+        assert (bold_top + bold_bottom) / 2 == pytest.approx(
+            (plain_top + plain_bottom) / 2, abs=1e-3
+        )
+
     def test_export_splits_bold_onto_its_own_pen(self, tmp_path: Path) -> None:
         """A bold line's strokes land on two pens (plain + bold cutter)."""
         result = self._export(tmp_path)
@@ -3116,15 +3167,44 @@ class TestScaleDemoExample:
         assert plain.plain_text == "Hello Small"
         assert plain.has_scale is False
 
-    def test_downscale_shrinks_the_run_vs_the_plain_twin(self, tmp_path: Path) -> None:
-        """The scaled line's ink is strictly shorter than its plain twin."""
+    def test_downscale_drops_its_run_to_align_the_engraved_floor(self, tmp_path: Path) -> None:
+        """The downscaled run drops by half the cutter delta (floors align).
+
+        The engraved-baseline alignment rule: a run engraving with cutter ``d``
+        other than the line's ``cutter`` rides ``(d - cutter) / 2`` so its
+        *engraved* stroke floor lands on the plain run's engraved floor (the
+        centerline box dips below the plain baseline -- a negative raise for
+        a downscale -- while the silhouette stays strictly shorter).
+        """
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+        from plt_optimizer.generate.text_geometry import TextBlock
+
         result = self._export(tmp_path)
-        scaled = self._line_bounds(result.rendered_labels["plt_down"].source_label)
-        plain = self._line_bounds(result.rendered_labels["plt_plain"].source_label)
-        # Cap-only content: the baseline (bottom) is the invariant, the top of
-        # the scaled line sits below the plain line's (the whole block centers,
-        # so compare the ink HEIGHTS).
-        assert (scaled[3] - scaled[1]) < (plain[3] - plain[1])
+        scaled_line = result.rendered_labels["plt_down"].source_label.content[0]
+        plain_line = result.rendered_labels["plt_plain"].source_label.content[0]
+        run_cutter = scaled_line.per_char_cutters[-1]  # 'Small' is the trailing run.
+
+        def baseline_bottom_of_m(line: object) -> float:
+            """The 'm' of 'Small' (plain_text index 7): a cap-only baseline glyph."""
+            block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)  # type: ignore[arg-type]
+            bounds = TextBlock(strokes=tuple(block.strokes[i] for i in glyphs[7])).bounds()
+            assert bounds is not None
+            return bounds[1]
+
+        # The exact transform on the shared 'm' glyph: geometry scaled about
+        # the baseline by the plan factor, then translated by the raise
+        # (run_cutter - cutter) / 2. Its sub-unit baseline overshoot scales
+        # with the geometry, so the delta is the raise plus (g - 1) * overshoot.
+        plan = glyph_render_plan(scaled_line)
+        assert plan is not None
+        geometry_scale = plan[1][7]  # The 'm' rides the run's factor.
+        raise_in = (run_cutter - scaled_line.cutter_diameter) / 2
+        plain_bottom = baseline_bottom_of_m(plain_line)
+        delta = baseline_bottom_of_m(scaled_line) - plain_bottom
+        assert delta == pytest.approx((geometry_scale - 1.0) * plain_bottom + raise_in, abs=1e-9)
+        # The raise itself is the negative half delta (a downscale drops): its
+        # thinner engraved stroke's floor meets the plain stroke's floor.
+        assert math.isclose(raise_in, (0.03 - 0.06) / 2)
 
     def test_upscale_grows_the_run_vs_the_plain_twin(self, tmp_path: Path) -> None:
         """The upscaled line's ink is strictly taller than its plain twin."""
@@ -3302,11 +3382,13 @@ class TestSupSubDemoExample:
         """The bare sup's CENTRE rides the capline: the ink box grows by d/2.
 
         The bare-sup geometry contract (centering): the downscaled glyph's
-        centre lands on the capline, so the glyph straddles it and the
-        line's ink box grows by ``d / 2`` cap heights (minus the plain
-        glyph's capline overshoot). The render frame centers the block, so
-        the emitted box grows symmetrically: top up and bottom down by the
-        same amount.
+        centre lands on the capline, so the glyph straddles it and the line's
+        ink box grows by ``d / 2`` cap heights (minus the plain glyph's
+        capline overshoot), minus the engraved-baseline alignment drop: the
+        run's ladder cutter sits below the line's, so the run rides
+        ``(d_cutter - cutter) / 2`` (negative) and the growth shrinks by half
+        that delta. The render frame centers the block, so the emitted box
+        grows symmetrically: top up and bottom down by the same amount.
         """
         result = self._export(tmp_path)
         sup = self._line_bounds(result.rendered_labels["plt_sup"].source_label)
@@ -3314,10 +3396,13 @@ class TestSupSubDemoExample:
         line = result.rendered_labels["plt_sup"].source_label.content[0]
         # The growth is symmetric about the centered frame.
         assert sup[3] - plain[3] == pytest.approx(plain[1] - sup[1], abs=1e-3)
-        # ... and totals d/2 cap heights (0.25 * 0.44 = 0.11 at d = 0.5,
-        # less the plain glyph's sub-unit capline overshoot).
+        # ... and totals d/2 cap heights (0.25 * 0.44 = 0.11 at d = 0.5),
+        # less the plain glyph's sub-unit capline overshoot and less half the
+        # cutter delta ((0.06 - 0.03) / 2 = 0.015, the engraved-floor alignment).
         growth = (sup[3] - plain[3]) + (plain[1] - sup[1])
-        assert growth == pytest.approx(0.25 * line.toolpath_text_height, abs=0.01)
+        run_cutter = line.per_char_cutters[-1]
+        expected = 0.25 * line.toolpath_text_height + (run_cutter - line.cutter_diameter) / 2
+        assert growth == pytest.approx(expected, abs=0.01)
 
     def test_bare_sub_drops_the_line_floor(self, tmp_path: Path) -> None:
         """The bare sub's ink hangs below the plain twin's baseline floor."""
@@ -3410,11 +3495,14 @@ class TestSupSubDemoExample:
         sup = self._line_bounds(result.rendered_labels["ttf_sup"].source_label)
         plain = self._line_bounds(result.rendered_labels["ttf_plain"].source_label)
         # The downscaled run's CENTRE rides the capline, so the ink box grows
-        # by d/2 cap heights (the PLT parity contract); the centered frame
-        # spreads the growth symmetrically top and bottom.
+        # by d/2 cap heights (the PLT parity contract) less half the cutter
+        # delta (the engraved-floor alignment drop, the PLT parity too); the
+        # centered frame spreads the growth symmetrically top and bottom.
         line = result.rendered_labels["ttf_sup"].source_label.content[0]
+        run_cutter = line.per_char_cutters[-1]
+        expected = 0.25 * line.toolpath_text_height + (run_cutter - line.cutter_diameter) / 2
         growth = (sup[3] - plain[3]) + (plain[1] - sup[1])
-        assert growth == pytest.approx(0.25 * line.toolpath_text_height, abs=0.03)
+        assert growth == pytest.approx(expected, abs=0.03)
 
     def test_sup_adds_the_downscaled_height_cutter_file(self, tmp_path: Path) -> None:
         """A bare sup run engraves with its own tool, so it gets its own file.
