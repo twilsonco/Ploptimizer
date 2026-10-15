@@ -983,7 +983,7 @@ class TestParseYamlWithJobConfig:
         assert job.kerning_min_gap == 0.02
         assert job.fallback_advance_fraction == 1.0
         assert job.sc_scale == 0.8
-        assert job.supersubscript_downscale == 0.5
+        assert job.supersubscript_downscale == 0.6
         assert job.html_brackets == "<>"
         assert job.italic_angle == 12.0
         assert job.underline_offset == 0.05

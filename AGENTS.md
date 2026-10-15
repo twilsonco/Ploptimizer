@@ -1602,13 +1602,18 @@ cap-height units). A **bare** tag derives both from the cascading
 current baseline, `1` = the capline, `-1` = one cap height below) and applies
 **no** scaling, so the field is inert on it.
 
-- **The shift derivation (the whole design).** A bare superscript rises
-  `1 - d` cap heights, so the downscaled glyph's **top lands exactly on the
-capline**; a bare subscript drops `d` cap heights, so it **sits on the
-baseline**. Raising `supersubscript_downscale` to 0.8 therefore gives sup
-`t = 0.2` with the top still on the capline -- the field drives the geometry
-and the placement with one number, and the line's ink box is unchanged by a
-bare tag (the `plt_sup` / `plt_plain` export pin).
+- **The shift derivation (the whole design).** A bare tag **centers the
+  shrunken glyph on the line it belongs to**: a bare superscript rises
+  `1 - d/2` cap heights, so the downscaled glyph's **centre lands exactly on
+  the capline**; a bare subscript drops `d/2` cap heights, so its **centre
+  lands on the baseline** (parking a top on the capline left the glyph
+  visually below the cap-height text; resting a bottom on the baseline left
+  a subscript barely lowered). Raising `supersubscript_downscale` to 0.8
+  therefore gives sup `t = 0.6` with the centre still on the capline -- the
+  field drives the geometry and the placement with one number, and a bare
+  tag GROWS the line's ink box by `d/2` cap heights (the glyph straddles the
+  line it is centered on; the `plt_sup` / `plt_plain` export pins the
+  growth, symmetrically spread by the centered render frame).
 - **The centerline contract, shared with `<scale:N>`.** The downscale is a
   *scale factor*, so it composes multiplicatively with `<scale:N>` into one
   effective silhouette factor `s_eff = scale_values * sup_sub_scales` and
@@ -1653,16 +1658,16 @@ bare tag (the `plt_sup` / `plt_plain` export pin).
   `per_char_cutters`), the underline run-split, `_line_cutter` /
   `_collision_threshold` (`max(used_cutters)`), the descender relief, the
   band centering, `measure_line_vertical_extents` and the plate-space chunk
-  records all read the resolved/rendered geometry. A bare tag leaves the
-  ascender unchanged (its top is the capline), so spacing/centering need no
-  new model.
+  records all read the resolved/rendered geometry. A bare tag lifts the
+  ascender to `(1 + d/2) * cap` (the glyph's centre rides the capline), so
+  spacing/centering see it through the measured extents with no new model.
 - **`supersubscript_downscale`** (`ge=0.2, le=1.0`, explicit-`None` cascade
   line → label → job, plate parity, `JobDefaults` key, default **0.5**, not
   `REQUIRED_WHEN_UNCONFIGURED`). The shift argument is bound to
   `[-1.0, 1.0]` cap units; a non-numeric or out-of-bounds argument is
   `MarkupError` → CLI non-zero (the fail-loud contract).
 - **Reporting**: `layout_report.py` prints a per-line finding
-  `Line N: '<text>' sup/sub shift 0.000-0.500 cap (run cutter 0.015in, line
+  `Line N: '<text>' sup/sub shift 0.000-0.750 cap (run cutter 0.015in, line
   cutter 0.030in)` (the shift range over the line's runs + the run cutters;
   a uniform range prints one value; reads `plain_text`, compact-mode
   finding; the 10th slot of the findings tuple).
@@ -1676,9 +1681,10 @@ bare tag (the `plt_sup` / `plt_plain` export pin).
   rendered geometry).
 - Fixture: `tests_deps/sup_sub_job.yaml` (pinned by
   `tests/test_phase3_export.py::TestSupSubDemoExample`) -- the bare sup vs
-  its plain twin (the capline invariant), the bare sub (the floor drops),
+  its plain twin (the centering growth, spread symmetrically by the centered
+  frame), the bare sub (the floor drops),
   `<sup:0.3>` (shift, no scale, one pen), a per-glyph selection, the
-  `supersubscript_downscale: 0.8` label (shift 0.2, the 0.045 rung),
+  `supersubscript_downscale: 0.8` label (shift 0.6, the 0.045 rung),
   `<scale:0.5>` inside `<sup>` (the 0.015 rung), `<sup>`+`<u>` (the run
   split), `<sup>`+`<i>`, sup+sub on one line, and the TTF pair; the export
   test pins the four per-cutter files (0.015 bh / 0.030 / 0.045 / 0.060).

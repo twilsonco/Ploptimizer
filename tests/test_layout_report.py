@@ -539,10 +539,10 @@ class TestSupSubMarkupFindings:
         lines = format_layout_report([resolved], {"l1": rendered})
         text = "\n".join(lines)
 
-        # d = 0.5 -> shift 1 - d = 0.5 for the run; 0.5 * 0.3in nominal =
+        # d = 0.5 -> shift 1 - d/2 = 0.75 for the run; 0.5 * 0.3in nominal =
         # 0.15in of text -> the ladder's 0.015 rung.
         assert (
-            "'1st' sup/sub shift 0.000-0.500 cap (run cutter 0.015in, "
+            "'1st' sup/sub shift 0.000-0.750 cap (run cutter 0.015in, "
             "line cutter 0.030in)" in text
         )
         assert has_layout_findings([resolved], {"l1": rendered}) is True
@@ -554,7 +554,7 @@ class TestSupSubMarkupFindings:
 
         text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
 
-        assert "sup/sub shift -0.500-0.000 cap" in text
+        assert "sup/sub shift -0.250-0.000 cap" in text
 
     def test_uniform_shift_prints_one_value(self) -> None:
         """A fully shifted line prints its single shift."""
@@ -564,7 +564,7 @@ class TestSupSubMarkupFindings:
         text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
 
         assert (
-            "'up' sup/sub shift 0.500 cap (run cutter 0.015in, line cutter 0.030in)" in text
+            "'up' sup/sub shift 0.750 cap (run cutter 0.015in, line cutter 0.030in)" in text
         )
 
     def test_shift_only_run_keeps_the_line_cutter(self) -> None:
@@ -599,8 +599,8 @@ class TestSupSubMarkupFindings:
 
         text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
 
-        # d = 1.0 -> shift 1 - d = 0.0 (the glyph rides the capline's baseline)
-        # and no downscale, so the run keeps the line's own tool.
+        # d = 1.0 -> shift 1 - d/2 = 0.5 (the glyph's centre rides the
+        # capline) and no downscale, so the run keeps the line's own tool.
         assert (
-            "'up' sup/sub shift 0.000 cap (run cutter 0.030in, line cutter 0.030in)" in text
+            "'up' sup/sub shift 0.500 cap (run cutter 0.030in, line cutter 0.030in)" in text
         )

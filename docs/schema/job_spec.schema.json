@@ -278,7 +278,7 @@
             }
           ],
           "default": null,
-          "description": "Downscale applied to a bare <sup>/<sub> markup run: the run's glyphs engrave uniformly shrunk to this fraction of the line's size, and the baseline shift derives from it (superscript rises 1 - d cap heights, its top landing on the capline; subscript drops d cap heights, sitting on the baseline). The argumented forms <sup:0.3>/<sub:-0.2> set the shift explicitly (cap-height units) and apply no scaling, so this field is inert on them. The run engraves with the cutter for its downscaled height (the <scale:N> ladder). Cascades line -> label -> job (fallback 0.5); explicit 0.2/1.0 are honored.",
+          "description": "Downscale applied to a bare <sup>/<sub> markup run: the run's glyphs engrave uniformly shrunk to this fraction of the line's size, and the baseline shift derives from it, centering the shrunken glyph on the line it belongs to (superscript rises 1 - d/2 cap heights, its centre landing on the capline; subscript drops d/2 cap heights, its centre landing on the baseline). The argumented forms <sup:0.3>/<sub:-0.2> set the shift explicitly (cap-height units) and apply no scaling, so this field is inert on them. The run engraves with the cutter for its downscaled height (the <scale:N> ladder). Cascades line -> label -> job (fallback 0.5); explicit 0.2/1.0 are honored.",
           "title": "Supersubscript Downscale"
         },
         "html_brackets": {
@@ -1703,7 +1703,7 @@
             }
           ],
           "default": null,
-          "description": "Downscale applied to a bare <sup>/<sub> markup run: the run's glyphs engrave uniformly shrunk to this fraction of the line's size, and the baseline shift derives from it (superscript rises 1 - d cap heights, its top landing on the capline; subscript drops d cap heights, sitting on the baseline). The argumented forms <sup:0.3>/<sub:-0.2> set the shift explicitly (cap-height units) and apply no scaling, so this field is inert on them. The run engraves with the cutter for its downscaled height (the <scale:N> ladder). Cascades line -> label -> job (fallback 0.5); explicit 0.2/1.0 are honored.",
+          "description": "Downscale applied to a bare <sup>/<sub> markup run: the run's glyphs engrave uniformly shrunk to this fraction of the line's size, and the baseline shift derives from it, centering the shrunken glyph on the line it belongs to (superscript rises 1 - d/2 cap heights, its centre landing on the capline; subscript drops d/2 cap heights, its centre landing on the baseline). The argumented forms <sup:0.3>/<sub:-0.2> set the shift explicitly (cap-height units) and apply no scaling, so this field is inert on them. The run engraves with the cutter for its downscaled height (the <scale:N> ladder). Cascades line -> label -> job (fallback 0.5); explicit 0.2/1.0 are honored.",
           "title": "Supersubscript Downscale"
         },
         "html_brackets": {
@@ -2184,7 +2184,7 @@
         }
       ],
       "default": null,
-      "description": "Downscale applied to a bare <sup>/<sub> markup run: the run's glyphs engrave uniformly shrunk to this fraction of the line's size, and the baseline shift derives from it (superscript rises 1 - d cap heights, its top landing on the capline; subscript drops d cap heights, sitting on the baseline). The argumented forms <sup:0.3>/<sub:-0.2> set the shift explicitly (cap-height units) and apply no scaling, so this field is inert on them. The run engraves with the cutter for its downscaled height (the <scale:N> ladder). Cascades line -> label -> job (fallback 0.5); explicit 0.2/1.0 are honored.",
+      "description": "Downscale applied to a bare <sup>/<sub> markup run: the run's glyphs engrave uniformly shrunk to this fraction of the line's size, and the baseline shift derives from it, centering the shrunken glyph on the line it belongs to (superscript rises 1 - d/2 cap heights, its centre landing on the capline; subscript drops d/2 cap heights, its centre landing on the baseline). The argumented forms <sup:0.3>/<sub:-0.2> set the shift explicitly (cap-height units) and apply no scaling, so this field is inert on them. The run engraves with the cutter for its downscaled height (the <scale:N> ladder). Cascades line -> label -> job (fallback 0.5); explicit 0.2/1.0 are honored.",
       "title": "Supersubscript Downscale"
     },
     "html_brackets": {

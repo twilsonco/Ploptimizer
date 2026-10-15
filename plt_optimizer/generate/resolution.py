@@ -172,9 +172,10 @@ DEFAULT_FALLBACK_ADVANCE_FRACTION: float = 1.0
 DEFAULT_SC_SCALE: float = 0.7
 # Downscale applied to a bare ``<sup>``/``<sub>`` markup run: the run's glyphs
 # engrave uniformly shrunk to this fraction of the line's size, and the
-# baseline shift derives from it -- a superscript rises ``1 - d`` cap heights
-# (its top lands exactly on the capline) and a subscript drops ``d`` cap
-# heights (it sits on the baseline). The argumented forms ``<sup:0.3>`` /
+# baseline shift derives from it, **centering the shrunken glyph on the line
+# it belongs to** -- a superscript rises ``1 - d / 2`` cap heights (its centre
+# lands exactly on the capline) and a subscript drops ``d / 2`` cap heights
+# (its centre lands on the baseline). The argumented forms ``<sup:0.3>`` /
 # ``<sub:-0.2>`` set the shift explicitly (cap-height units) and apply no
 # scaling, so this field is inert on them. The run engraves with the cutter
 # for its downscaled height (the ``<scale:N>`` ladder). Bound to [0.2, 1.0]
@@ -817,14 +818,15 @@ class ResolvedTextLine:
         supersubscript_downscale: Downscale applied to a **bare**
             ``<sup>``/``<sub>`` markup run: the run's glyphs engrave
             uniformly shrunk to this fraction of the line's size, and the
-            baseline shift derives from it (superscript rises ``1 - d`` cap
-            heights, its top landing on the capline; subscript drops ``d``
-            cap heights, sitting on the baseline). The argumented forms
-            ``<sup:0.3>`` / ``<sub:-0.2>`` set the shift explicitly (in
-            cap-height units) and apply **no** scaling, so this field is
-            inert on them. The run engraves with the cutter for its
-            downscaled height (the ``<scale:N>`` ladder). Cascaded line ->
-            label -> job, default ``DEFAULT_SUPERSUBSCRIPT_DOWNSCALE``
+            baseline shift derives from it, centering the shrunken glyph on
+            the line it belongs to (superscript rises ``1 - d / 2`` cap
+            heights, its centre landing on the capline; subscript drops
+            ``d / 2`` cap heights, its centre landing on the baseline). The
+            argumented forms ``<sup:0.3>`` / ``<sub:-0.2>`` set the shift
+            explicitly (in cap-height units) and apply **no** scaling, so
+            this field is inert on them. The run engraves with the cutter
+            for its downscaled height (the ``<scale:N>`` ladder). Cascaded
+            line -> label -> job, default ``DEFAULT_SUPERSUBSCRIPT_DOWNSCALE``
             (0.5). Explicit ``0.2``/``1.0`` are honored; only ``None``
             means unset.
         cutter_size: The explicit cutter diameter in inches requested for
@@ -1134,11 +1136,16 @@ class ResolvedTextLine:
         """Per-character ``<sup>``/``<sub>`` baseline shifts in cap-height units.
 
         The bare tag derives the shift from :attr:`supersubscript_downscale`
-        ``d`` (superscript ``1 - d`` so its top lands on the capline,
-        subscript ``-d`` so it sits on the baseline); the argumented form
-        uses its explicit shift; unmarked characters are ``0.0``. The
-        renderer converts to inches by multiplying with the line's
-        ``toolpath_text_height`` (the per-font cap height).
+        ``d``, **centering the shrunken glyph on the line it belongs to**
+        (superscript ``1 - d / 2`` so its centre lands on the capline,
+        subscript ``-d / 2`` so its centre lands on the baseline -- parking
+        a top on the capline left the glyph visually below the cap-height
+        text, resting a bottom on the baseline left a subscript barely
+        lowered); the argumented form uses its explicit shift; unmarked
+        characters are ``0.0``. A bare tag therefore grows the line's ink
+        box by ``d / 2`` cap heights (the glyph straddles the line it is
+        centered on). The renderer converts to inches by multiplying with
+        the line's ``toolpath_text_height`` (the per-font cap height).
         """
         downscale = self.supersubscript_downscale
         shifts: List[float] = []
@@ -1150,7 +1157,9 @@ class ResolvedTextLine:
                 elif sup_sub.shift is not None:
                     shifts.append(sup_sub.shift)
                 else:
-                    shifts.append(1.0 - downscale if sup_sub.direction > 0 else -downscale)
+                    shifts.append(
+                        1.0 - downscale / 2.0 if sup_sub.direction > 0 else -downscale / 2.0
+                    )
         return tuple(shifts)
 
     @property

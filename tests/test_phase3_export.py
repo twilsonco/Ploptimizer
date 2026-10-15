@@ -3245,9 +3245,10 @@ class TestSupSubDemoExample:
 
     The fixture pins inline superscript/subscript markup (``<sup>``/``<sub>``):
     a bare tag downscales the run to ``supersubscript_downscale`` (d) and
-    derives the baseline shift from the same number (superscript rises
-    ``1 - d`` cap heights so its top lands on the capline, subscript drops
-    ``d`` so it sits on the baseline), and the downscaled run engraves with
+    derives the baseline shift from the same number, **centering the shrunken
+    glyph on the line it belongs to** (superscript rises ``1 - d / 2`` cap
+    heights so its centre lands on the capline, subscript drops ``d / 2`` so
+    its centre lands on the baseline), and the downscaled run engraves with
     the cutter for its downscaled height (the ``<scale:N>`` ladder, so it
     lands on its own per-cutter file). The argumented forms ``<sup:0.3>`` /
     ``<sub:-0.2>`` set the shift explicitly and apply no scaling, so they keep
@@ -3288,8 +3289,9 @@ class TestSupSubDemoExample:
         assert sup.text == "Hello <sup>Small</sup>"
         assert sup.plain_text == "Hello Small"
         assert sup.has_sup_sub is True
-        # The 6 plain chars are unmarked, the 5 sup chars rise 1 - d = 0.5.
-        assert sup.sup_sub_shifts == (0.0,) * 6 + (0.5,) * 5
+        # The 6 plain chars are unmarked, the 5 sup chars rise 1 - d/2 = 0.75
+        # (their centre lands on the capline).
+        assert sup.sup_sub_shifts == (0.0,) * 6 + (0.75,) * 5
         assert sup.sup_sub_scales == (1.0,) * 6 + (0.5,) * 5
 
         plain = by_id["plt_plain"].content[0]
@@ -3297,18 +3299,25 @@ class TestSupSubDemoExample:
         assert plain.has_sup_sub is False
 
     def test_bare_sup_rises_vs_the_plain_twin(self, tmp_path: Path) -> None:
-        """The bare sup's ink reaches the same capline, its block is unchanged.
+        """The bare sup's CENTRE rides the capline: the ink box grows by d/2.
 
-        The bare-sup geometry contract: the downscaled glyph's top lands
-        exactly on the capline, so the line's ink box matches the plain twin's
-        while the small glyphs ride above the baseline.
+        The bare-sup geometry contract (centering): the downscaled glyph's
+        centre lands on the capline, so the glyph straddles it and the
+        line's ink box grows by ``d / 2`` cap heights (minus the plain
+        glyph's capline overshoot). The render frame centers the block, so
+        the emitted box grows symmetrically: top up and bottom down by the
+        same amount.
         """
         result = self._export(tmp_path)
         sup = self._line_bounds(result.rendered_labels["plt_sup"].source_label)
         plain = self._line_bounds(result.rendered_labels["plt_plain"].source_label)
-        # Same top (the capline) and same bottom (the plain glyphs' baseline).
-        assert sup[3] == pytest.approx(plain[3], abs=1e-3)
-        assert sup[1] == pytest.approx(plain[1], abs=1e-3)
+        line = result.rendered_labels["plt_sup"].source_label.content[0]
+        # The growth is symmetric about the centered frame.
+        assert sup[3] - plain[3] == pytest.approx(plain[1] - sup[1], abs=1e-3)
+        # ... and totals d/2 cap heights (0.25 * 0.44 = 0.11 at d = 0.5,
+        # less the plain glyph's sub-unit capline overshoot).
+        growth = (sup[3] - plain[3]) + (plain[1] - sup[1])
+        assert growth == pytest.approx(0.25 * line.toolpath_text_height, abs=0.01)
 
     def test_bare_sub_drops_the_line_floor(self, tmp_path: Path) -> None:
         """The bare sub's ink hangs below the plain twin's baseline floor."""
@@ -3339,18 +3348,18 @@ class TestSupSubDemoExample:
         by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
         line = by_id["plt_partial"].content[0]
         assert line.plain_text == "ABC"
-        assert line.sup_sub_shifts == (0.0, 0.5, 0.0)
+        assert line.sup_sub_shifts == (0.0, 0.75, 0.0)
         assert line.sup_sub_scales == (1.0, 0.5, 1.0)
 
     def test_downscale_field_drives_scale_and_shift(self, tmp_path: Path) -> None:
-        """supersubscript_downscale 0.8 -> shift 0.2 and the 0.4in-text tool."""
+        """supersubscript_downscale 0.8 -> shift 0.6 and the 0.4in-text tool."""
         result = self._export(tmp_path)
         by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
         line = by_id["plt_downscale08"].content[0]
         assert line.supersubscript_downscale == 0.8
         assert line.sup_sub_scales == (1.0, 0.8, 1.0)
         assert line.sup_sub_shifts[0] == 0.0
-        assert math.isclose(line.sup_sub_shifts[1], 0.2)
+        assert math.isclose(line.sup_sub_shifts[1], 0.6)
         # 0.8 * 0.5in = 0.4in of text -> the 0.045 rung (not the 0.03 one).
         assert line.used_cutters == (0.045, 0.06)
 
@@ -3383,16 +3392,29 @@ class TestSupSubDemoExample:
         by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
         line = by_id["plt_sup_sub_line"].content[0]
         assert line.plain_text == "1st & 2nd"
-        assert line.sup_sub_shifts == (0.0, 0.5, 0.5, 0.0, 0.0, 0.0, 0.0, -0.5, -0.5)
+        assert line.sup_sub_shifts == (
+            0.0,
+            0.75,
+            0.75,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            -0.25,
+            -0.25,
+        )
 
     def test_ttf_sup_shifts_vs_the_plain_twin(self, tmp_path: Path) -> None:
         """The TTF path shifts the flagged glyph (the PLT parity contract)."""
         result = self._export(tmp_path)
         sup = self._line_bounds(result.rendered_labels["ttf_sup"].source_label)
         plain = self._line_bounds(result.rendered_labels["ttf_plain"].source_label)
-        # The downscaled run's top lands on the capline; the plain prefix keeps
-        # the baseline, so the ink box matches while the small glyphs ride up.
-        assert sup[3] == pytest.approx(plain[3], abs=1e-3)
+        # The downscaled run's CENTRE rides the capline, so the ink box grows
+        # by d/2 cap heights (the PLT parity contract); the centered frame
+        # spreads the growth symmetrically top and bottom.
+        line = result.rendered_labels["ttf_sup"].source_label.content[0]
+        growth = (sup[3] - plain[3]) + (plain[1] - sup[1])
+        assert growth == pytest.approx(0.25 * line.toolpath_text_height, abs=0.03)
 
     def test_sup_adds_the_downscaled_height_cutter_file(self, tmp_path: Path) -> None:
         """A bare sup run engraves with its own tool, so it gets its own file.

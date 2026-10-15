@@ -508,10 +508,11 @@ class TextAttributes(BaseModel):
         supersubscript_downscale: Optional downscale applied to a **bare**
             ``<sup>``/``<sub>`` markup run (``<sup>text</sup>``): the run's
             glyphs engrave uniformly shrunk to this fraction of the line's
-            size, and the baseline shift is derived from it -- a
-            superscript rises ``1 - d`` cap heights (its top lands exactly
-            on the capline) and a subscript drops ``d`` cap heights (it
-            sits on the baseline). The argumented forms ``<sup:0.3>`` /
+            size, and the baseline shift is derived from it, centering the
+            shrunken glyph on the line it belongs to -- a superscript rises
+            ``1 - d / 2`` cap heights (its centre lands exactly on the
+            capline) and a subscript drops ``d / 2`` cap heights (its centre
+            lands on the baseline). The argumented forms ``<sup:0.3>`` /
             ``<sub:-0.2>`` set the baseline shift explicitly (in cap-height
             units, ``0`` = baseline, ``1`` = capline) and apply **no**
             scaling, so this field is inert on them. The run engraves with
@@ -821,9 +822,11 @@ class TextAttributes(BaseModel):
         description=(
             "Downscale applied to a bare <sup>/<sub> markup run: the run's "
             "glyphs engrave uniformly shrunk to this fraction of the line's "
-            "size, and the baseline shift derives from it (superscript "
-            "rises 1 - d cap heights, its top landing on the capline; "
-            "subscript drops d cap heights, sitting on the baseline). The "
+            "size, and the baseline shift derives from it, centering the "
+            "shrunken glyph on the line it belongs to (superscript rises "
+            "1 - d/2 cap heights, its centre landing on the capline; "
+            "subscript drops d/2 cap heights, its centre landing on the "
+            "baseline). The "
             "argumented forms <sup:0.3>/<sub:-0.2> set the shift explicitly "
             "(cap-height units) and apply no scaling, so this field is "
             "inert on them. The run engraves with the cutter for its "

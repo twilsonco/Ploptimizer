@@ -354,8 +354,9 @@ class JobDefaults(BaseModel):
         description=(
             "Default downscale applied to a bare <sup>/<sub> markup run "
             "(job layer; the run's glyphs engrave uniformly shrunk to this "
-            "fraction and the baseline shift derives from it -- superscript "
-            "rises 1 - d cap heights, subscript drops d). The argumented "
+            "fraction and the baseline shift derives from it, centering the "
+            "shrunken glyph on its line -- superscript rises 1 - d/2 cap "
+            "heights, subscript drops d/2). The argumented "
             "forms <sup:0.3>/<sub:-0.2> set the shift explicitly and apply "
             "no scaling. Unset falls back to 0.5."
         ),

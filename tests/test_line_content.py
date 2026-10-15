@@ -919,7 +919,7 @@ def test_bare_sup_tag_survives_the_reflow() -> None:
     assert first.text == "<sup>AAAA</sup>"
     assert first.plain_text == "AAAA"
     assert first.has_sup_sub is True
-    assert first.sup_sub_shifts == (0.5, 0.5, 0.5, 0.5)
+    assert first.sup_sub_shifts == (0.75, 0.75, 0.75, 0.75)
     assert second.text == "BB CC"
     assert second.has_sup_sub is False
 

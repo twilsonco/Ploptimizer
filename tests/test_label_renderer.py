@@ -3217,10 +3217,12 @@ class TestSupSubRenderDispatch:
         assert block.bounds() is not None
         dropped = TextBlock(strokes=tuple(block.strokes[i] for i in glyphs[1])).bounds()
         assert dropped is not None
-        # The downscaled glyph hangs below the baseline (its top sits back at
-        # it): the whole ink box moved down by the shift.
+        # The downscaled glyph is centered on the baseline: its ink straddles
+        # it, from -d/2 to +d/2 cap heights (d = 0.5 -> a quarter cap each way).
+        cap = sub.toolpath_text_height
         assert dropped[1] < 0.0
-        assert dropped[3] < 0.01
+        assert dropped[1] == pytest.approx(-0.25 * cap, abs=1e-3)
+        assert dropped[3] == pytest.approx(0.25 * cap, abs=1e-3)
 
     def test_argumented_shift_keeps_the_full_size(self) -> None:
         """<sup:0.3> shifts without scaling: the glyph height is the plain one."""
@@ -3245,10 +3247,13 @@ class TestSupSubRenderDispatch:
         sup = self._resolve(("A<sup>B</sup>", {"font": "Dino"}))[0].content[0]
         plain = self._resolve(("AB", {"font": "Dino"}))[0].content[0]
         sup_asc, _sup_desc = measure_line_vertical_extents(sup)
-        plain_asc, _plain_desc = measure_line_vertical_extents(plain)
-        # The shifted + downscaled glyph's top lands on the capline, so the
-        # ascender matches the plain line's (the bare-sup geometry contract).
-        assert sup_asc == pytest.approx(plain_asc, abs=1e-3)
+        _plain_asc, _plain_desc = measure_line_vertical_extents(plain)
+        # The shifted + downscaled glyph's CENTRE lands on the capline, so it
+        # straddles it by d/2: the ascender is (1 + d/2) * cap = 1.25 * cap
+        # for d = 0.5 (the bare-sup centering contract; pinned against the
+        # per-font cap height, never the plain twin's overshoot-carrying
+        # measured ascender).
+        assert sup_asc == pytest.approx(1.25 * sup.toolpath_text_height, abs=1e-3)
 
     def test_natural_width_is_unchanged_by_a_shift_only_run(self) -> None:
         """A shift-only run never changes the width (the reflow stays exact)."""

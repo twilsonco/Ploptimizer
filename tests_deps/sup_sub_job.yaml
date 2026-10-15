@@ -1,10 +1,11 @@
 # Fixture for inline superscript/subscript markup (<sup>/<sub>).
 #
 # A bare <sup>/<sub> downscales the run to `supersubscript_downscale` (d) and
-# derives the baseline shift from the same number: a superscript rises 1 - d
-# cap heights (its top lands exactly on the capline) and a subscript drops d
-# cap heights (it sits on the baseline). The downscaled run engraves with the
-# cutter for its downscaled height (the <scale:N> ladder), so it lands on its
+# derives the baseline shift from the same number, centering the shrunken
+# glyph on the line it belongs to: a superscript rises 1 - d/2 cap heights
+# (its centre lands exactly on the capline) and a subscript drops d/2 cap
+# heights (its centre lands on the baseline). The downscaled run engraves with
+# the cutter for its downscaled height (the <scale:N> ladder), so it lands on its
 # own per-cutter file. The argumented forms <sup:0.3>/<sub:-0.2> set the shift
 # explicitly (cap-height units) and apply NO scaling, so they keep the line's
 # own cutter (one pen).
@@ -56,7 +57,7 @@ job:
       content:
         - text: "A<sup>B</sup>C"
 
-    # 6. The cascading downscale: d = 0.8 -> shift 1 - d = 0.2, no pen split
+    # 6. The cascading downscale: d = 0.8 -> shift 1 - d/2 = 0.6, no pen split
     #    below the 0.09 rung.
     - id: plt_downscale08
       font: Dino

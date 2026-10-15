@@ -104,9 +104,10 @@ class SupSub:
             below), from the tag's optional argument (``<sup:0.3>``).
             ``None`` marks the bare ``<sup>``/``<sub>`` form: the pipeline
             derives the shift from the cascading
-            ``supersubscript_downscale`` ``d`` (superscript ``1 - d``,
-            subscript ``-d``), so the downscaled glyph tops out exactly at
-            the capline (sup) / sits on the baseline (sub).
+            ``supersubscript_downscale`` ``d``, centering the shrunken
+            glyph on the line it belongs to (superscript ``1 - d / 2``,
+            subscript ``-d / 2``), so the downscaled glyph's centre lands
+            exactly on the capline (sup) / baseline (sub).
     """
 
     direction: int

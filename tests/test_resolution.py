@@ -4996,26 +4996,26 @@ class TestSupSubResolution:
         assert line.sup_sub_shifts == (0.0,) * 5
 
     def test_bare_sup_scales_and_shifts(self) -> None:
-        """A bare <sup> downscales to d and rises 1 - d cap heights."""
+        """A bare <sup> downscales to d and rises 1 - d/2 cap heights (centre on capline)."""
         line = self._line(TextLine(text="1<sup>st</sup>", font="Dino"))
         assert line.plain_text == "1st"
         assert line.has_sup_sub is True
         assert line.sup_sub_scales == (1.0, 0.5, 0.5)
-        assert line.sup_sub_shifts == (0.0, 0.5, 0.5)
+        assert line.sup_sub_shifts == (0.0, 0.75, 0.75)
 
     def test_bare_sub_scales_and_drops(self) -> None:
-        """A bare <sub> downscales to d and drops d cap heights."""
+        """A bare <sub> downscales to d and drops d/2 cap heights (centre on baseline)."""
         line = self._line(TextLine(text="x<sub>ij</sub>", font="Dino"))
         assert line.plain_text == "xij"
         assert line.sup_sub_scales == (1.0, 0.5, 0.5)
-        assert line.sup_sub_shifts == (0.0, -0.5, -0.5)
+        assert line.sup_sub_shifts == (0.0, -0.25, -0.25)
 
     def test_shift_values_align_with_plain_text(self) -> None:
         """The per-character arrays are aligned with plain_text (spaces included)."""
         line = self._line(TextLine(text="a<sup>b c</sup>d", font="Dino"))
         assert line.plain_text == "ab cd"
         assert line.sup_sub_scales == (1.0, 0.5, 0.5, 0.5, 1.0)
-        assert line.sup_sub_shifts == (0.0, 0.5, 0.5, 0.5, 0.0)
+        assert line.sup_sub_shifts == (0.0, 0.75, 0.75, 0.75, 0.0)
 
     def test_argumented_form_shifts_only(self) -> None:
         """<sup:0.3> sets the shift explicitly and applies no scaling."""
@@ -5047,9 +5047,9 @@ class TestSupSubResolution:
             supersubscript_downscale=0.8,
         )
         assert line.sup_sub_scales == (1.0, 0.8)
-        # 1 - d = 0.2: the sup's top still lands on the capline.
+        # 1 - d/2 = 0.6: the sup's centre still lands on the capline.
         assert line.sup_sub_shifts[0] == 0.0
-        assert math.isclose(line.sup_sub_shifts[1], 0.2)
+        assert math.isclose(line.sup_sub_shifts[1], 0.6)
         # 0.8in of text -> the 0.09 tool.
         assert math.isclose(line.per_char_cutters[1], 0.09)
 
