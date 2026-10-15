@@ -90,6 +90,11 @@ Layout contract:
   Caseless characters (digits, punctuation, derived symbols) engrave at
   full size, and the map is strictly 1:1 per character, so the word/glyph
   stroke partitions stay exact.
+- **Inline small caps** (the ``<sc>`` markup tag): the same transform,
+  selected **per character** through ``lowercase_flags`` (the companion to
+  ``lowercase_scale``, mirroring ``italic_tan`` + ``italic_flags``). Only the
+  flagged ASCII lowercase shrink; the pipeline renders the tag inert on a
+  `` SC`` font (the line is already small caps) and on a symbol font.
 
 The module is matplotlib-free (core parser + text_geometry only).
 """
@@ -644,6 +649,7 @@ def _walk_line(
     fonts_dir: Optional[Path] = None,
     *,
     lowercase_scale: Optional[float] = None,
+    lowercase_flags: Optional[Sequence[bool]] = None,
     italic_tan: Optional[float] = None,
     italic_flags: Optional[Sequence[bool]] = None,
     cutter_diameters: Optional[Sequence[float]] = None,
@@ -704,6 +710,15 @@ def _walk_line(
             only skips the shrink (the line engraves as full-height capitals).
             The caller dispatches on
             ``font_registry.resolve_font(...).small_caps``.
+        lowercase_flags: Per-character small-caps selection aligned with
+            ``text`` (one flag per character, spaces included -- the ``<sc>``
+            markup tag); only consulted when :attr:`lowercase_scale` is set,
+            mirroring :attr:`italic_flags`. ``None`` (the default) applies the
+            transform to every ASCII lowercase character of the line, so every
+            legacy (font-level `` SC``) call site renders bit-identically.
+            A flagged character maps through :func:`_small_caps_source` and
+            shrinks exactly as the font-level variant does; an unflagged one
+            engraves verbatim.
         italic_tan: Italic shear factor ``tan(italic_angle)`` for italic
             markup runs: each italic character's whole glyph geometry
             (block + bbox + envelopes) is sheared about the baseline
@@ -767,13 +782,17 @@ def _walk_line(
     Raises:
         PltFontRenderError: If the font is unknown/not a PLT font, or a
             character has no glyph in the font.
-        ValueError: If ``italic_flags``, ``cutter_diameters``,
-            ``glyph_scales`` or ``baseline_shifts`` length differs from
-            ``text``.
+        ValueError: If ``lowercase_flags``, ``italic_flags``,
+            ``cutter_diameters``, ``glyph_scales`` or ``baseline_shifts``
+            length differs from ``text``.
     """
     canonical = _resolve_plt_font(font_name, library_dir, fonts_dir)
     if not text:
         return TextBlock.empty(), [], []
+    if lowercase_flags is not None and len(lowercase_flags) != len(text):
+        raise ValueError(
+            f"lowercase_flags length {len(lowercase_flags)} != text length {len(text)}"
+        )
     if italic_flags is not None and len(italic_flags) != len(text):
         raise ValueError(f"italic_flags length {len(italic_flags)} != text length {len(text)}")
     if cutter_diameters is not None and len(cutter_diameters) != len(text):
@@ -859,7 +878,14 @@ def _walk_line(
             # whole glyph geometry (block + bbox + envelopes) uniformly
             # downscaled top-down BEFORE kerning so the small silhouette
             # kerns exactly. The glyph group keeps the ORIGINAL character.
-            source = _small_caps_source(char) if lowercase_scale is not None else char
+            # ``lowercase_flags`` (the inline ``<sc>`` tag) narrows the
+            # selection to the flagged characters -- the same idiom the
+            # italic shear uses below -- while ``None`` keeps the font-level
+            # `` SC`` whole-line behaviour bit-identically.
+            small_caps_on = lowercase_scale is not None and (
+                lowercase_flags is None or lowercase_flags[char_index]
+            )
+            source = _small_caps_source(char) if small_caps_on else char
             geometry = _glyph_entry(library_dir_key, library_name, source)
             if source != char and lowercase_scale is not None:
                 geometry = _scale_geometry(geometry, lowercase_scale)
@@ -932,6 +958,7 @@ def render_text_line_plt_font_with_words(
     fonts_dir: Optional[Path] = None,
     *,
     lowercase_scale: Optional[float] = None,
+    lowercase_flags: Optional[Sequence[bool]] = None,
     italic_tan: Optional[float] = None,
     italic_flags: Optional[Sequence[bool]] = None,
     cutter_diameters: Optional[Sequence[float]] = None,
@@ -979,6 +1006,8 @@ def render_text_line_plt_font_with_words(
         fonts_dir: Optional Fonts root override (tests).
         lowercase_scale: Small-caps mode for ASCII lowercase ``a-z``
             (``None`` = off; see :func:`_walk_line`).
+        lowercase_flags: Per-character small-caps selection for the inline
+            ``<sc>`` tag (``None`` = whole line; see :func:`_walk_line`).
         italic_tan: Italic shear factor (``None`` = off; see
             :func:`_walk_line`).
         italic_flags: Per-character italic selection (``None`` = whole
@@ -1015,6 +1044,7 @@ def render_text_line_plt_font_with_words(
         library_dir,
         fonts_dir,
         lowercase_scale=lowercase_scale,
+        lowercase_flags=lowercase_flags,
         italic_tan=italic_tan,
         italic_flags=italic_flags,
         cutter_diameters=cutter_diameters,
@@ -1041,6 +1071,7 @@ def render_text_line_plt_font_with_glyphs(
     fonts_dir: Optional[Path] = None,
     *,
     lowercase_scale: Optional[float] = None,
+    lowercase_flags: Optional[Sequence[bool]] = None,
     italic_tan: Optional[float] = None,
     italic_flags: Optional[Sequence[bool]] = None,
     cutter_diameters: Optional[Sequence[float]] = None,
@@ -1082,6 +1113,8 @@ def render_text_line_plt_font_with_glyphs(
         fonts_dir: Optional Fonts root override (tests).
         lowercase_scale: Small-caps mode for ASCII lowercase ``a-z``
             (``None`` = off; see :func:`_walk_line`).
+        lowercase_flags: Per-character small-caps selection for the inline
+            ``<sc>`` tag (``None`` = whole line; see :func:`_walk_line`).
         italic_tan: Italic shear factor (``None`` = off; see
             :func:`_walk_line`).
         italic_flags: Per-character italic selection (``None`` = whole
@@ -1118,6 +1151,7 @@ def render_text_line_plt_font_with_glyphs(
         library_dir,
         fonts_dir,
         lowercase_scale=lowercase_scale,
+        lowercase_flags=lowercase_flags,
         italic_tan=italic_tan,
         italic_flags=italic_flags,
         cutter_diameters=cutter_diameters,
@@ -1143,6 +1177,7 @@ def render_text_line_plt_font(
     fonts_dir: Optional[Path] = None,
     *,
     lowercase_scale: Optional[float] = None,
+    lowercase_flags: Optional[Sequence[bool]] = None,
     italic_tan: Optional[float] = None,
     italic_flags: Optional[Sequence[bool]] = None,
     cutter_diameters: Optional[Sequence[float]] = None,
@@ -1185,6 +1220,8 @@ def render_text_line_plt_font(
         fonts_dir: Optional Fonts root override (tests).
         lowercase_scale: Small-caps mode for ASCII lowercase ``a-z``
             (``None`` = off; see :func:`_walk_line`).
+        lowercase_flags: Per-character small-caps selection for the inline
+            ``<sc>`` tag (``None`` = whole line; see :func:`_walk_line`).
         italic_tan: Italic shear factor (``None`` = off; see
             :func:`_walk_line`).
         italic_flags: Per-character italic selection (``None`` = whole
@@ -1219,6 +1256,7 @@ def render_text_line_plt_font(
         library_dir=library_dir,
         fonts_dir=fonts_dir,
         lowercase_scale=lowercase_scale,
+        lowercase_flags=lowercase_flags,
         italic_tan=italic_tan,
         italic_flags=italic_flags,
         cutter_diameters=cutter_diameters,

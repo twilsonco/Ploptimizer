@@ -153,6 +153,19 @@ class Style:
             strikethrough height -- **no** gap cuts, so a descender punches
             through the stroke instead of breaking it (the underline's
             minimal-break model deliberately does not apply here).
+        small_caps: True when the run is wrapped in a registered small-caps
+            tag (``<sc>`` with the default brackets). The run's ASCII
+            lowercase ``a-z`` engrave as the base font's **uppercase** glyph
+            uniformly shrunk to ``sc_scale`` of the cap height, top-down (the
+            glyph's own bottom stays in place) -- the exact transform the
+            ``<base> SC`` font variant applies to the whole line, selected
+            per character. Caseless characters (uppercase, digits,
+            punctuation, derived symbols) engrave verbatim at full size, the
+            character map stays 1:1, and the nominal/toolpath ``text_height``
+            is untouched (no cutter change). Inert on a line whose font is
+            already a small-caps variant (the run is *already* in small caps,
+            so the tag has no additional effect) and on a symbol font
+            (``non_text_fonts.txt``), which has no lowercase to shrink.
     """
 
     italic: bool = False
@@ -161,6 +174,7 @@ class Style:
     scale: float = 1.0
     sup_sub: Optional[SupSub] = None
     strikethrough: bool = False
+    small_caps: bool = False
 
 
 #: The style of unmarked text (every field at its default).
@@ -405,6 +419,13 @@ register_tag(
 # nesting <s> inside <s> has no additional effect (and the close pops the
 # pre-open style, restoring the outer run for the trailing text).
 register_tag("s", lambda style, arg: replace(style, strikethrough=True))
+# Registered LAST so every existing serialization order stays bit-identical.
+# A plain flag tag (no args -- the factor rides the cascading sc_scale field,
+# unlike <scale:N>): applying it to an already-small-caps run is the identity,
+# so nesting <sc> inside <sc> has no additional effect. The pipeline also
+# renders the tag inert on a <base> SC font (the whole line is already small
+# caps) and on a symbol font, which has no lowercase to shrink.
+register_tag("sc", lambda style, arg: replace(style, small_caps=True))
 
 
 @dataclass(frozen=True)
@@ -474,6 +495,17 @@ class StyledText:
         shift from the style (never a stored positional array).
         """
         return tuple(style.sup_sub for style in _per_char_styles(self))
+
+    @property
+    def small_caps_flags(self) -> Tuple[bool, ...]:
+        """Per-character ``<sc>`` small-caps flags, aligned with :attr:`plain_text`.
+
+        Mirrors :attr:`underline_flags` / :attr:`strikethrough_flags`: the
+        selection is DERIVED from the runs, so a pre-pass that rewrites the
+        line's text (``with_markup``, the line-content reflow) keeps every
+        run on its own style.
+        """
+        return tuple(style.small_caps for style in _per_char_styles(self))
 
 
 @dataclass(frozen=True)

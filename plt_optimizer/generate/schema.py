@@ -830,8 +830,10 @@ class TextAttributes(BaseModel):
             "shrunk to sc_scale of the cap height, top-down (the glyph's "
             "own bottom stays in place and its top descends). Uppercase and "
             "caseless characters engrave at full size; the nominal "
-            "text_height is untouched (no cutter change). "
-            "Inert on non-SC fonts. Cascades line -> label -> job (fallback "
+            "text_height is untouched (no cutter change). The same field "
+            "drives the inline <sc> small-caps markup tag (the per-character "
+            "selection); inert on a non-SC font carrying no <sc> run. "
+            "Cascades line -> label -> job (fallback "
             "0.7); explicit 0.2/1.0 are honored."
         ),
     )

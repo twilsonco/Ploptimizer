@@ -40,7 +40,13 @@ from plt_optimizer.generate.descender_adjust import (
     required_gap,
     worst_glyph_deficit,
 )
-from plt_optimizer.generate.font_registry import FontNotFoundError, resolve_font
+from plt_optimizer.generate.font_registry import (
+    FontNotFoundError,
+    FontRef,
+    base_font_name,
+    non_text_font_names,
+    resolve_font,
+)
 from plt_optimizer.generate.ftext_renderer import (
     FtextRenderError,
     glyph_groups_for_line,
@@ -1926,6 +1932,14 @@ def _render_line_block(
     # renderer defaults and renders bit-identically.
     if ref.small_caps:
         plt_kwargs["lowercase_scale"] = line.sc_scale
+    # Inline <sc> markup: the same transform, selected per character. The gate
+    # is empty on a SC font (the line is already small caps) and on a symbol
+    # font, so it never collides with the font-level branch above.
+    small_caps_gate = _small_caps_render_gate(line, ref)
+    if small_caps_gate is not None:
+        sc_scale_value, sc_flags = small_caps_gate
+        plt_kwargs["lowercase_scale"] = sc_scale_value
+        plt_kwargs["lowercase_flags"] = sc_flags
 
     # Inline markup: the renderers always receive the PLAIN text (tags never
     # engrave) plus the per-character italic selection. A line without markup
@@ -1976,6 +1990,20 @@ def _render_line_block(
     }
     if ref.small_caps:
         ftext_kwargs["small_caps_scale"] = line.sc_scale
+    # Inline <sc> markup (per-character selection) — the gate is inert on a SC
+    # font, so the font-level kwargs above are never overwritten.
+    if small_caps_gate is not None:
+        sc_scale_value, sc_flags = small_caps_gate
+        ftext_kwargs["small_caps_scale"] = sc_scale_value
+        ftext_kwargs["small_caps_flags"] = sc_flags
+    # The per-glyph contour-count probe must ask the font about the glyphs the
+    # render actually drew, so it sees the same small-caps selection the
+    # renderers got (font-level variant OR the inline tag's flags).
+    sc_groups = ref.small_caps
+    sc_group_flags: Optional[Tuple[bool, ...]] = None
+    if small_caps_gate is not None:
+        sc_groups = True
+        sc_group_flags = small_caps_gate[1]
     if italic_kwargs:
         ftext_kwargs.update(italic_kwargs)
         # The native italic face (registry sibling probe) splices italic
@@ -1993,7 +2021,8 @@ def _render_line_block(
                 render_text,
                 ref.path,
                 len(filtered_lc),
-                small_caps=ref.small_caps,
+                small_caps=sc_groups,
+                small_caps_flags=sc_group_flags,
             )
             return _apply_strikethrough(
                 line,
@@ -2011,7 +2040,8 @@ def _render_line_block(
             render_text,
             ref.path,
             len(filtered_lc),
-            small_caps=ref.small_caps,
+            small_caps=sc_groups,
+            small_caps_flags=sc_group_flags,
         )
         return _apply_strikethrough(
             line,
@@ -2770,6 +2800,46 @@ def _italic_render_kwargs(line: ResolvedTextLine) -> dict[str, Any]:
         style.italic for run in line.styled_runs for style in (run.style,) * len(run.text)
     )
     return {"italic_tan": math.tan(math.radians(line.italic_angle)), "italic_flags": flags}
+
+
+def _small_caps_render_gate(
+    line: ResolvedTextLine,
+    ref: FontRef,
+) -> Optional[Tuple[float, Tuple[bool, ...]]]:
+    """Return the active inline ``<sc>`` selection for one line, or ``None``.
+
+    The single decision shared by the PLT renderer, the TTF renderer and the
+    per-glyph contour-count probe (all three must agree, or the probe asks
+    the font about glyphs the render never drew and the glyph groups are
+    silently lost). It mirrors :func:`_italic_render_kwargs`: ``None`` when
+    the line carries no parsed markup or no small-caps run (the historical
+    call shape, bit-identical output). Two inertness rules beyond that:
+
+    * a line whose font is **already** a small-caps variant (``<base> SC``)
+      engraves every lowercase character as a shrunken capital, so the tag
+      has no additional effect there -- the renderers keep the font-level
+      whole-line selection (``lowercase_scale`` / ``small_caps_scale`` with
+      no flags), bit-identical to the pre-tag behaviour;
+    * a **symbol font** (``Fonts/VP-EL-Fonts/non_text_fonts.txt``) engraves
+      symbols in its ASCII slots and is exempt from the `` SC`` variant
+      because it has no lowercase to shrink -- the same reasoning applies
+      inline, so the tag is a no-op.
+
+    Args:
+        line: The resolved text line.
+        ref: The resolved font reference (variant + symbol-font exemptions).
+
+    Returns:
+        ``(sc_scale, per-character flags)`` when the tag engraves, else
+        ``None``.
+    """
+    if not line.styled_runs or not line.has_small_caps:
+        return None
+    if ref.small_caps:
+        return None
+    if base_font_name(ref.name).lower() in non_text_font_names():
+        return None
+    return line.sc_scale, line.small_caps_flags
 
 
 def measure_line_natural_width(line: ResolvedTextLine) -> float:

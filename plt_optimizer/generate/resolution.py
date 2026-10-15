@@ -1167,6 +1167,25 @@ class ResolvedTextLine:
         )
 
     @property
+    def has_small_caps(self) -> bool:
+        """True when any markup run of this line carries a ``<sc>`` small-caps tag."""
+        return any(run.style.small_caps for run in self.styled_runs)
+
+    @property
+    def small_caps_flags(self) -> Tuple[bool, ...]:
+        """Per-character ``<sc>`` flags aligned with :attr:`plain_text`.
+
+        Mirrors :attr:`strikethrough_flags`: ``()`` with no markup, one flag
+        per character otherwise. DERIVED from :attr:`styled_runs` (never a
+        stored positional array), so a pre-pass that rewrites the line's text
+        (:meth:`with_markup`, the line-content reflow) keeps every run on its
+        own style -- the same rule the ``<scale:N>`` cutters follow.
+        """
+        return tuple(
+            style.small_caps for run in self.styled_runs for style in (run.style,) * len(run.text)
+        )
+
+    @property
     def strikethrough_cap(self) -> float:
         """The ``<s>`` strikethrough centerline height in inches above the baseline.
 

@@ -104,7 +104,10 @@ _REFERENCE_CHAR: str = "H"
 _ASCII_LOWER: frozenset[str] = frozenset("abcdefghijklmnopqrstuvwxyz")
 
 
-def _ascii_upper_map(text: str) -> str:
+def _ascii_upper_map(
+    text: str,
+    flags: Optional[Sequence[bool]] = None,
+) -> str:
     """Return ``text`` with ASCII lowercase ``a-z`` mapped to uppercase.
 
     Every other character maps to itself (1:1, length-preserving), so word
@@ -113,11 +116,56 @@ def _ascii_upper_map(text: str) -> str:
 
     Args:
         text: The original line text.
+        flags: Per-character selection aligned with ``text`` (the inline
+            ``<sc>`` tag): only the flagged ASCII lowercase characters map,
+            every other character maps to itself. ``None`` (the default)
+            maps every ASCII lowercase character, the font-level `` SC``
+            behaviour, so every legacy call site renders bit-identically.
 
     Returns:
         The string whose glyphs are rendered.
     """
-    return "".join(ch.upper() if ch in _ASCII_LOWER else ch for ch in text)
+    if flags is None:
+        return "".join(ch.upper() if ch in _ASCII_LOWER else ch for ch in text)
+    return "".join(
+        ch.upper() if (ch in _ASCII_LOWER and flags[index]) else ch for index, ch in enumerate(text)
+    )
+
+
+def _glyph_sources(
+    text: str,
+    *,
+    small_caps: bool,
+    small_caps_flags: Optional[Sequence[bool]] = None,
+) -> List[str]:
+    """Return the source character of every non-space character of ``text``.
+
+    The per-glyph contour-count probe must ask the font about the glyph the
+    render actually drew: under small caps the render used the mapped string,
+    so an ASCII lowercase character's count comes from its **uppercase**
+    source while the pairs stay keyed by the original characters (the map is
+    1:1). ``small_caps_flags`` (the inline ``<sc>`` tag) narrows that mapping
+    to the flagged characters; ``None`` maps every ASCII lowercase character,
+    the font-level `` SC`` behaviour.
+
+    Args:
+        text: The line's text (the original, not the mapped string).
+        small_caps: Whether the render used the small-caps mapped string.
+        small_caps_flags: Per-character small-caps selection aligned with
+            ``text`` (spaces included); only consulted when ``small_caps``.
+
+    Returns:
+        One source character per non-space character, in text order.
+    """
+    if not small_caps:
+        return [ch for ch in text if ch != " "]
+    sources: List[str] = []
+    for index, char in enumerate(text):
+        if char == " ":
+            continue
+        selected = small_caps_flags is None or small_caps_flags[index]
+        sources.append(_ascii_upper_map(char) if selected else char)
+    return sources
 
 
 class FtextRenderError(ValueError):
@@ -322,6 +370,7 @@ def _per_glyph_counts(
     contour_count: int,
     *,
     small_caps: bool = False,
+    small_caps_flags: Optional[Sequence[bool]] = None,
 ) -> Optional[List[Tuple[str, int]]]:
     """Return ``(char, contour_count)`` per non-space character of a line.
 
@@ -330,20 +379,24 @@ def _per_glyph_counts(
     slice a whole-line render per character exactly. Under small caps the
     render used the mapped string, so the counts probe the **uppercase**
     source glyphs while the pairs stay keyed by the original characters
-    (the map is 1:1).
+    (the map is 1:1); ``small_caps_flags`` (the inline ``<sc>`` tag) narrows
+    the mapping to the flagged characters.
 
     Args:
         text: The line's text (the original, not the mapped string).
         font_path: Resolved ``.ttf`` file path.
         contour_count: Number of contours in the whole-line render.
         small_caps: Whether the render used the small-caps mapped string.
+        small_caps_flags: Per-character small-caps selection aligned with
+            ``text`` (spaces included); only consulted when ``small_caps``.
+            ``None`` maps every ASCII lowercase character (font-level SC).
 
     Returns:
         The per-character pairs in text order, or ``None`` when the counts
         do not sum to ``contour_count`` (unexpected font/pathology case).
     """
     chars = [ch for ch in text if ch != " "]
-    sources = [_ascii_upper_map(ch) for ch in chars] if small_caps else chars
+    sources = _glyph_sources(text, small_caps=small_caps, small_caps_flags=small_caps_flags)
     counts = [_glyph_contour_count(font_path, ch) for ch in sources]
     if sum(counts) != contour_count:
         return None
@@ -355,6 +408,7 @@ def _apply_small_caps(
     text: str,
     font_path: Path,
     factor: float,
+    small_caps_flags: Optional[Sequence[bool]] = None,
 ) -> vp.LineCollection:
     """Shrink the lowercase-origin glyph contours of a scaled line in place.
 
@@ -374,6 +428,11 @@ def _apply_small_caps(
             characters; the render used the mapped string).
         font_path: Resolved ``.ttf`` file path.
         factor: The small-caps downscale to apply.
+        small_caps_flags: Per-character small-caps selection aligned with
+            ``text`` (spaces included -- the inline ``<sc>`` tag): only the
+            flagged ASCII lowercase glyphs shrink. ``None`` (the default)
+            shrinks every ASCII lowercase glyph, the font-level `` SC``
+            behaviour, so every legacy call site renders bit-identically.
 
     Returns:
         The line with the lowercase-origin glyphs shrunk. When the per-glyph
@@ -381,10 +440,13 @@ def _apply_small_caps(
         line is returned unchanged with a WARNING -- the natural uppercase
         rendering is the graceful fallback.
     """
-    pairs = _per_glyph_counts(text, font_path, len(scaled), small_caps=True)
+    pairs = _per_glyph_counts(
+        text, font_path, len(scaled), small_caps=True, small_caps_flags=small_caps_flags
+    )
     if pairs is None:
         counts_total = sum(
-            _glyph_contour_count(font_path, _ascii_upper_map(ch)) for ch in text if ch != " "
+            _glyph_contour_count(font_path, source)
+            for source in _glyph_sources(text, small_caps=True, small_caps_flags=small_caps_flags)
         )
         logger.warning(
             "small-caps TTF render: per-glyph contour counts (%d) do not sum to the "
@@ -394,12 +456,16 @@ def _apply_small_caps(
         )
         return scaled
 
+    occurrences = [index for index, ch in enumerate(text) if ch != " "]
     lines = [np.asarray(line) for line in scaled]
     cursor = 0
     for char, count in pairs:
         glyph_indices = list(range(cursor, cursor + count))
         cursor += count
+        text_index = _pop_occurrence(occurrences)
         if char not in _ASCII_LOWER:
+            continue
+        if small_caps_flags is not None and not small_caps_flags[text_index]:
             continue
         points = np.concatenate([lines[index] for index in glyph_indices if len(lines[index])])
         # Anchor = the glyph's own bottom-left ink corner (x = its pen-advance
@@ -461,6 +527,7 @@ def _apply_italic(
     italic_flags: Optional[Sequence[bool]],
     italic_face: Optional[Path],
     small_caps: bool = False,
+    small_caps_flags: Optional[Sequence[bool]] = None,
 ) -> vp.LineCollection:
     """Italicize the flagged glyph contours of a scaled line.
 
@@ -485,13 +552,21 @@ def _apply_italic(
         small_caps: True when the render used the small-caps mapped string
             (the per-glyph slicing then probes the uppercase sources, as in
             :func:`_apply_small_caps`).
+        small_caps_flags: Per-character small-caps selection aligned with
+            ``text`` (spaces included -- the inline ``<sc>`` tag); only
+            consulted when ``small_caps``. The flagged glyphs are the shrunk
+            ones and must take the shear; an unflagged glyph keeps its
+            natural size and may splice the native face. ``None`` = every
+            ASCII lowercase glyph (font-level SC).
 
     Returns:
         The line with the flagged glyphs italicized. When the per-glyph
         contour counts do not line up, the line is returned unchanged with a
         WARNING (the natural upright render is the graceful fallback).
     """
-    pairs = _per_glyph_counts(text, font_path, len(scaled), small_caps=small_caps)
+    pairs = _per_glyph_counts(
+        text, font_path, len(scaled), small_caps=small_caps, small_caps_flags=small_caps_flags
+    )
     if pairs is None:
         counts_total = sum(_glyph_contour_count(font_path, ch) for ch in text if ch != " ")
         logger.warning(
@@ -516,10 +591,13 @@ def _apply_italic(
         if not flags[text_index]:
             continue
         spliced: Optional[List[np.ndarray]] = None
-        # Under small caps the regular slice is already the shrunk uppercase
-        # glyph; splicing a full-height italic glyph would undo the shrink,
-        # so small-caps italics always take the shear (of the small glyph).
-        if italic_face is not None and not small_caps:
+        # Under small caps the regular slice is the shrunk uppercase glyph;
+        # splicing a full-height italic glyph would undo the shrink, so a
+        # small-capped glyph always takes the shear (of the small glyph).
+        # With the inline <sc> tag only the FLAGGED glyphs are shrunk, so an
+        # unflagged (full-size) glyph keeps the native-face splice.
+        glyph_small_caps = small_caps and (small_caps_flags is None or small_caps_flags[text_index])
+        if italic_face is not None and not glyph_small_caps:
             spliced = _splice_native_italic(lines, glyph_indices, char, italic_face, scale)
         if spliced is not None:
             for position, index in enumerate(glyph_indices):
@@ -574,6 +652,7 @@ def _apply_glyph_scales(
     font_path: Path,
     factors: Sequence[float],
     small_caps: bool = False,
+    small_caps_flags: Optional[Sequence[bool]] = None,
 ) -> vp.LineCollection:
     """Scale the flagged glyph contours of a scaled line in place.
 
@@ -599,6 +678,10 @@ def _apply_glyph_scales(
         small_caps: True when the render used the small-caps mapped string
             (the per-glyph slicing then probes the uppercase sources, as in
             :func:`_apply_small_caps`).
+        small_caps_flags: Per-character small-caps selection aligned with
+            ``text`` (spaces included -- the inline ``<sc>`` tag); only
+            consulted when ``small_caps``. ``None`` = every ASCII lowercase
+            glyph (font-level SC).
 
     Returns:
         The line with the flagged glyphs scaled. When the per-glyph contour
@@ -607,7 +690,13 @@ def _apply_glyph_scales(
     """
     if all(factor == 1.0 for factor in factors):
         return scaled
-    pairs = _per_glyph_counts(text, font_path, len(scaled), small_caps=small_caps)
+    pairs = _per_glyph_counts(
+        text,
+        font_path,
+        len(scaled),
+        small_caps=small_caps,
+        small_caps_flags=small_caps_flags,
+    )
     if pairs is None:
         counts_total = sum(_glyph_contour_count(font_path, ch) for ch in text if ch != " ")
         logger.warning(
@@ -649,6 +738,7 @@ def _apply_bold(
     factor: float,
     bold_flags: Optional[Sequence[bool]],
     small_caps: bool = False,
+    small_caps_flags: Optional[Sequence[bool]] = None,
 ) -> vp.LineCollection:
     """Shrink the bold glyph contours of a scaled line in place.
 
@@ -666,13 +756,22 @@ def _apply_bold(
         bold_flags: Per-character bold selection aligned with ``text`` (one
             flag per character, spaces included); ``None`` scales every glyph.
         small_caps: True when the render used the small-caps mapped string.
+        small_caps_flags: Per-character small-caps selection (the inline
+            ``<sc>`` tag); only consulted when ``small_caps``.
 
     Returns:
         The line with the flagged glyphs shrunk.
     """
     factors = _merge_glyph_factors(text, factor, bold_flags, None)
     assert factors is not None
-    return _apply_glyph_scales(scaled, text, font_path, factors, small_caps=small_caps)
+    return _apply_glyph_scales(
+        scaled,
+        text,
+        font_path,
+        factors,
+        small_caps=small_caps,
+        small_caps_flags=small_caps_flags,
+    )
 
 
 def _apply_baseline_shifts(
@@ -681,6 +780,7 @@ def _apply_baseline_shifts(
     font_path: Path,
     shifts: Sequence[float],
     small_caps: bool = False,
+    small_caps_flags: Optional[Sequence[bool]] = None,
 ) -> vp.LineCollection:
     """Translate the flagged glyph contours of a scaled line vertically.
 
@@ -705,6 +805,10 @@ def _apply_baseline_shifts(
         small_caps: True when the render used the small-caps mapped string
             (the per-glyph slicing then probes the uppercase sources, as in
             :func:`_apply_small_caps`).
+        small_caps_flags: Per-character small-caps selection aligned with
+            ``text`` (spaces included -- the inline ``<sc>`` tag); only
+            consulted when ``small_caps``. ``None`` = every ASCII lowercase
+            glyph (font-level SC).
 
     Returns:
         The line with the flagged glyphs shifted. When the per-glyph contour
@@ -713,7 +817,9 @@ def _apply_baseline_shifts(
     """
     if all(shift == 0.0 for shift in shifts):
         return scaled
-    pairs = _per_glyph_counts(text, font_path, len(scaled), small_caps=small_caps)
+    pairs = _per_glyph_counts(
+        text, font_path, len(scaled), small_caps=small_caps, small_caps_flags=small_caps_flags
+    )
     if pairs is None:
         counts_total = sum(_glyph_contour_count(font_path, ch) for ch in text if ch != " ")
         logger.warning(
@@ -799,6 +905,7 @@ def render_text_line_ftext(
     *,
     check_glyph_coverage: bool = True,
     small_caps_scale: Optional[float] = None,
+    small_caps_flags: Optional[Sequence[bool]] = None,
     italic_tan: Optional[float] = None,
     italic_flags: Optional[Sequence[bool]] = None,
     italic_face: Optional[Path] = None,
@@ -843,6 +950,13 @@ def render_text_line_ftext(
             transform, keeping every legacy render bit-identical; ``1.0``
             keeps the uppercase map and only skips the shrink (the line
             engraves as full-height capitals).
+        small_caps_flags: Per-character small-caps selection aligned with
+            ``text`` (one flag per character, spaces included -- the inline
+            ``<sc>`` tag): only the flagged ASCII lowercase characters map to
+            their uppercase glyph and shrink. Only consulted when
+            ``small_caps_scale`` is set. ``None`` (the default) transforms
+            every ASCII lowercase character, the font-level `` SC`` behaviour,
+            so every legacy call site renders bit-identically.
         italic_tan: Italic shear factor ``tan(italic_angle)`` for ``<i>``
             markup: flagged glyphs are italicized in place (see
             :func:`_apply_italic`) -- spliced from the native ``italic_face``
@@ -893,7 +1007,7 @@ def render_text_line_ftext(
 
     resolved_font = font_path if font_path is not None else DEFAULT_FONT_PATH
     small_caps = small_caps_scale is not None
-    render_text = _ascii_upper_map(text) if small_caps else text
+    render_text = _ascii_upper_map(text, small_caps_flags) if small_caps else text
     if check_glyph_coverage:
         _assert_glyph_coverage(resolved_font, render_text)
 
@@ -926,7 +1040,7 @@ def render_text_line_ftext(
     # Shrink the lowercase-origin glyphs before chord removal, while the
     # contour arrays still line up 1:1 with the per-glyph contour slicing.
     if small_caps_scale is not None:
-        scaled = _apply_small_caps(scaled, text, resolved_font, small_caps_scale)
+        scaled = _apply_small_caps(scaled, text, resolved_font, small_caps_scale, small_caps_flags)
 
     # Italicize the flagged glyphs in the same pre-chord-removal slicing
     # frame (under small caps the render used the mapped string, so the
@@ -941,6 +1055,7 @@ def render_text_line_ftext(
             italic_flags,
             italic_face,
             small_caps=small_caps,
+            small_caps_flags=small_caps_flags,
         )
 
     # Shrink the bold/scaled glyphs last: the italic shear is applied to the
@@ -951,7 +1066,12 @@ def render_text_line_ftext(
     factors = _merge_glyph_factors(text, bold_scale, bold_flags, glyph_scales)
     if factors is not None:
         scaled = _apply_glyph_scales(
-            scaled, render_text, resolved_font, factors, small_caps=small_caps
+            scaled,
+            render_text,
+            resolved_font,
+            factors,
+            small_caps=small_caps,
+            small_caps_flags=small_caps_flags,
         )
 
     # Translate the <sup>/<sub> glyphs last: the shift is a pure translate in
@@ -960,7 +1080,12 @@ def render_text_line_ftext(
     # per-glyph placement translate.
     if baseline_shifts is not None:
         scaled = _apply_baseline_shifts(
-            scaled, render_text, resolved_font, baseline_shifts, small_caps=small_caps
+            scaled,
+            render_text,
+            resolved_font,
+            baseline_shifts,
+            small_caps=small_caps,
+            small_caps_flags=small_caps_flags,
         )
 
     # Drop erroneous closing chords forced by TrueType's closed-path outlines,
@@ -1039,6 +1164,7 @@ def render_text_line_ftext_with_words(
     *,
     check_glyph_coverage: bool = True,
     small_caps_scale: Optional[float] = None,
+    small_caps_flags: Optional[Sequence[bool]] = None,
     italic_tan: Optional[float] = None,
     italic_flags: Optional[Sequence[bool]] = None,
     italic_face: Optional[Path] = None,
@@ -1078,6 +1204,9 @@ def render_text_line_ftext_with_words(
             lacks raise :class:`FtextRenderError`.
         small_caps_scale: Small-caps mode for ASCII lowercase ``a-z``
             (``None`` = off; see :func:`render_text_line_ftext`).
+        small_caps_flags: Per-character small-caps selection (the inline
+            ``<sc>`` tag; ``None`` = whole line; see
+            :func:`render_text_line_ftext`).
         bold_scale: Bold markup (``<b>``) downscale for flagged glyphs
             (``None`` = off; see :func:`render_text_line_ftext`).
         bold_flags: Per-character bold selection (``None`` = whole line;
@@ -1102,6 +1231,7 @@ def render_text_line_ftext_with_words(
         font_path=font_path,
         check_glyph_coverage=check_glyph_coverage,
         small_caps_scale=small_caps_scale,
+        small_caps_flags=small_caps_flags,
         italic_tan=italic_tan,
         italic_flags=italic_flags,
         italic_face=italic_face,
@@ -1126,7 +1256,11 @@ def render_text_line_ftext_with_words(
         # longer match their standalone render, so the word groups come from
         # the exact per-glyph contour slicing instead.
         pairs = _per_glyph_counts(
-            text, resolved_font, len(whole), small_caps=small_caps_scale is not None
+            text,
+            resolved_font,
+            len(whole),
+            small_caps=small_caps_scale is not None,
+            small_caps_flags=small_caps_flags,
         )
         if pairs is None:
             logger.warning(
@@ -1210,6 +1344,7 @@ def glyph_groups_for_line(
     contour_count: int,
     *,
     small_caps: bool = False,
+    small_caps_flags: Optional[Sequence[bool]] = None,
 ) -> List[Tuple[str, List[int]]]:
     """Partition a line's contours per character by per-glyph contour counts.
 
@@ -1227,6 +1362,10 @@ def glyph_groups_for_line(
             (see :func:`_ascii_upper_map`), so the contour counts are probed
             on the **uppercase** source glyphs while the groups stay keyed by
             the original characters (the map is 1:1).
+        small_caps_flags: Per-character small-caps selection aligned with
+            ``text`` (spaces included -- the inline ``<sc>`` tag); only
+            consulted when ``small_caps``. ``None`` maps every ASCII
+            lowercase character (font-level SC).
 
     Returns:
         One ``(char, contour_indices)`` pair per non-space character in text
@@ -1237,7 +1376,7 @@ def glyph_groups_for_line(
     """
     resolved_font = font_path if font_path is not None else DEFAULT_FONT_PATH
     chars = [ch for ch in text if ch != " "]
-    sources = [_ascii_upper_map(ch) for ch in chars] if small_caps else chars
+    sources = _glyph_sources(text, small_caps=small_caps, small_caps_flags=small_caps_flags)
     counts = [_glyph_contour_count(resolved_font, ch) for ch in sources]
     if sum(counts) != contour_count:
         logger.warning(
@@ -1286,6 +1425,7 @@ def render_text_line_ftext_with_glyphs(
     *,
     check_glyph_coverage: bool = True,
     small_caps_scale: Optional[float] = None,
+    small_caps_flags: Optional[Sequence[bool]] = None,
     italic_tan: Optional[float] = None,
     italic_flags: Optional[Sequence[bool]] = None,
     italic_face: Optional[Path] = None,
@@ -1318,6 +1458,9 @@ def render_text_line_ftext_with_glyphs(
             lacks raises :class:`FtextRenderError`.
         small_caps_scale: Small-caps mode for ASCII lowercase ``a-z``
             (``None`` = off; see :func:`render_text_line_ftext`).
+        small_caps_flags: Per-character small-caps selection (the inline
+            ``<sc>`` tag; ``None`` = whole line; see
+            :func:`render_text_line_ftext`).
         italic_tan: Italic shear factor (``None`` = off; see
             :func:`render_text_line_ftext`).
         italic_flags: Per-character italic selection (``None`` = whole
@@ -1349,6 +1492,7 @@ def render_text_line_ftext_with_glyphs(
         font_path,
         check_glyph_coverage=check_glyph_coverage,
         small_caps_scale=small_caps_scale,
+        small_caps_flags=small_caps_flags,
         italic_tan=italic_tan,
         italic_flags=italic_flags,
         italic_face=italic_face,
@@ -1364,5 +1508,11 @@ def render_text_line_ftext_with_glyphs(
     return (
         whole,
         word_groups,
-        glyph_groups_for_line(text, font_path, len(whole), small_caps=small_caps),
+        glyph_groups_for_line(
+            text,
+            font_path,
+            len(whole),
+            small_caps=small_caps,
+            small_caps_flags=small_caps_flags,
+        ),
     )
