@@ -3444,3 +3444,291 @@ class TestSupSubDemoExample:
         result = self._export(tmp_path)
         text_file = next(p for p in result.plt_paths if p.name.endswith("0.030_txt_ss.plt"))
         assert "AA" in text_file.read_text()
+
+
+class TestStrikethroughDemoExample:
+    """Regression tests for tests_deps/strikethrough_job.yaml.
+
+    The fixture pins inline strikethrough markup (``<s>``,
+    ``strikethrough_offset``, ``strikethrough_break_spaces``): ONE continuous
+    centerline stroke per struck run at the line's strikethrough height (the
+    explicit offset above the baseline, or the cap-band midline when unset),
+    with the underline's break model deliberately removed -- a descender
+    punches through the stroke instead of breaking it.
+    """
+
+    _SPEC = Path("tests_deps/strikethrough_job.yaml")
+    _INVENTORY = [0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.09, 0.125, 0.25]
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled (against the inventory)."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job, available_cutters=self._INVENTORY)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="stk",
+            optimize=False,
+            plots=False,
+            available_cutters=self._INVENTORY,
+        )
+
+    @staticmethod
+    def _line_bounds(label: ResolvedLabel) -> tuple[float, float, float, float]:
+        """Rendered bounds of the label's single text line."""
+        from plt_optimizer.generate.label_renderer import _render_text_local_with_bounds
+
+        _lc, entries = _render_text_local_with_bounds(label)
+        return entries[0].bounds
+
+    @staticmethod
+    def _line_render(label: ResolvedLabel):
+        """Render the label's single text line (block + glyph partition)."""
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+        )
+
+        return _render_line_block(label.content[0], TextChunkMode.LINE)
+
+    @classmethod
+    def _decoration_stroke_count(cls, label: ResolvedLabel) -> int:
+        """The number of decoration strokes a rendered line carries.
+
+        Decoration strokes are appended after the glyph partition, so the count
+        is the block's strokes minus the glyphs' strokes.
+        """
+        block, _wg, glyph_groups = cls._line_render(label)
+        return len(block.strokes) - sum(len(g) for g in glyph_groups)
+
+    @classmethod
+    def _strike_spans(cls, label: ResolvedLabel) -> list[tuple[float, float, float]]:
+        """The rendered line's strikethrough strokes as ``(y, x_min, x_max)``."""
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+            _strikethrough_render_gate,
+            _strikethrough_strokes,
+        )
+
+        line = label.content[0]
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        strokes = _strikethrough_strokes(line, block, glyphs, _strikethrough_render_gate(line))
+        return [
+            (s.segments[0].start.imag, s.segments[0].start.real, s.segments[0].end.real)
+            for s in strokes
+        ]
+
+    def test_markup_parses_to_plain_text_and_runs(self, tmp_path: Path) -> None:
+        """Tags never engrave: plain_text strips them, runs carry the style."""
+        from plt_optimizer.generate.resolution import resolve_job_spec
+
+        job = parse_yaml(self._SPEC)
+        by_id = {label.id: label for label in resolve_job_spec(job, self._INVENTORY)}
+
+        struck = by_id["plt_strike"].content[0]
+        assert struck.text == "<s>Depth</s>"
+        assert struck.plain_text == "Depth"
+        assert [run.style.strikethrough for run in struck.styled_runs] == [True]
+        assert struck.has_strikethrough is True
+
+        plain = by_id["plt_plain"].content[0]
+        assert plain.plain_text == "Depth"
+        # A markup-free line resolves to a single plain run (the renderers'
+        # fast path is "no struck run", not "no run").
+        assert [(r.text, r.style.strikethrough) for r in plain.styled_runs] == [("Depth", False)]
+        assert plain.has_strikethrough is False
+
+    def test_one_continuous_stroke_survives_the_descender(self, tmp_path: Path) -> None:
+        """The `p` punches through the strike: one stroke (the "no breaks" rule).
+
+        The underline twin of the same glyphs breaks around the `p`, so it
+        engraves several segments -- the contrast pins that the strikethrough
+        deliberately has no break model.
+        """
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+
+        struck = by_id["plt_strike"]
+        assert len(self._strike_spans(struck)) == 1
+        # The mid-cap stroke lies inside the cap band, so the block is identical
+        # to the plain twin's.
+        assert self._line_bounds(struck) == pytest.approx(
+            self._line_bounds(by_id["plt_plain"]), abs=1e-9
+        )
+        # The underline control DOES break (several segments).
+        assert self._decoration_stroke_count(by_id["plt_underline_twin"]) >= 2
+
+    def test_stroke_sits_at_the_cap_band_midline(self, tmp_path: Path) -> None:
+        """Unset offset centres the stroke on half the rendered cap height."""
+        result = self._export(tmp_path)
+        label = result.rendered_labels["plt_strike"].source_label
+        line = label.content[0]
+        assert line.strikethrough_offset is None
+        (y, _x_min, _x_max) = self._strike_spans(label)[0]
+        assert y == pytest.approx(0.5 * line.toolpath_text_height, abs=1e-12)
+
+    def test_explicit_offset_places_the_stroke(self, tmp_path: Path) -> None:
+        """``strikethrough_offset`` is the height above the baseline, 0.0 included."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+
+        zero = self._strike_spans(by_id["plt_offset_zero"])[0]
+        assert zero[0] == pytest.approx(0.0, abs=1e-12)
+        # On the baseline the stroke coincides with the caps' own floor: the
+        # block's bounds match the plain caps.
+        assert self._line_bounds(by_id["plt_offset_zero"]) == pytest.approx(
+            self._line_bounds(by_id["plt_offset_zero_plain"]), abs=1e-9
+        )
+
+        high = self._strike_spans(by_id["plt_offset_high"])[0]
+        assert high[0] == pytest.approx(0.9, abs=1e-12)
+        # Above the capline the stroke is ink: the block's top rises. (The
+        # render frame centres the block, so the growth shows at the top edge.)
+        high_bounds = self._line_bounds(by_id["plt_offset_high"])
+        caps_bounds = self._line_bounds(by_id["plt_caps"])
+        assert high_bounds[3] > caps_bounds[3]
+        # The stroke spans the run's own ink width, so the width is unchanged.
+        assert high_bounds[2] - high_bounds[0] == pytest.approx(
+            caps_bounds[2] - caps_bounds[0], rel=1e-6
+        )
+
+    def test_continuous_run_spans_the_space(self, tmp_path: Path) -> None:
+        """The default strike crosses the inter-word space (one stroke)."""
+        result = self._export(tmp_path)
+        spans = self._strike_spans(result.rendered_labels["plt_continuous_words"].source_label)
+        assert len(spans) == 1
+        assert spans[0][1] < spans[0][2]
+
+    def test_break_spaces_leaves_the_space_bare(self, tmp_path: Path) -> None:
+        """``strikethrough_break_spaces`` gives each word its own stroke."""
+        from plt_optimizer.generate.label_renderer import _strikethrough_render_gate
+
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        line = by_id["plt_break_spaces_words"].content[0]
+        # 'hello world': the space (index 5) ends each run.
+        assert _strikethrough_render_gate(line) == ((0, 4), (6, 10))
+        spans = self._strike_spans(by_id["plt_break_spaces_words"])
+        assert len(spans) == 2
+        # Both strokes share one height (the height is per line, not per run).
+        assert spans[0][0] == pytest.approx(spans[1][0], abs=1e-12)
+        # The first stroke ends before the second begins (the space stays bare).
+        assert spans[0][2] < spans[1][1]
+
+    def test_nested_markup_strikes_only_the_run(self, tmp_path: Path) -> None:
+        """``<i>nested <s>markup</s> tail</i>`` strikes just the inner run."""
+        from plt_optimizer.generate.label_renderer import _strikethrough_render_gate
+
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        line = by_id["plt_nested"].content[0]
+        assert line.plain_text == "nested markup tail"
+        assert _strikethrough_render_gate(line) == ((7, 12),)
+        spans = self._strike_spans(by_id["plt_nested"])
+        assert len(spans) == 1
+
+    def test_multi_run_draws_two_independent_strokes(self, tmp_path: Path) -> None:
+        """Two struck runs separated by a plain glyph engrave two strokes."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        spans = self._strike_spans(by_id["plt_multi_run"])
+        assert len(spans) == 2
+        assert spans[0][2] < spans[1][1]
+        # The plain control carries no decoration at all.
+        assert self._decoration_stroke_count(by_id["plt_multi_run_plain"]) == 0
+
+    def test_nested_strikethrough_is_idempotent(self, tmp_path: Path) -> None:
+        """``<s>a<s>b</s>c</s>`` is one struck run -- exactly one stroke."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        line = by_id["plt_idempotent"].content[0]
+        assert line.plain_text == "abc"
+        assert line.strikethrough_flags == (True, True, True)
+        assert len(self._strike_spans(by_id["plt_idempotent"])) == 1
+        assert self._decoration_stroke_count(by_id["plt_idempotent_plain"]) == 0
+
+    def test_strike_splits_at_cutter_boundaries(self, tmp_path: Path) -> None:
+        """A struck run across a `<b>`/`<scale:N>` boundary draws two strokes.
+
+        Each struck run engraves with its own tool, so the gate splits the span
+        where the cutter changes and the strokes land on two per-cutter pens.
+        """
+        from plt_optimizer.generate.label_renderer import (
+            _stroke_cutter_map,
+            _strikethrough_render_gate,
+        )
+
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+
+        for label_id in ("plt_bold_split", "plt_scale_split"):
+            label = by_id[label_id]
+            line = label.content[0]
+            runs = _strikethrough_render_gate(line)
+            assert len(runs) == 2, label_id
+            assert len(self._strike_spans(label)) == 2, label_id
+            block, _words, glyphs = self._line_render(label)
+            cutters = _stroke_cutter_map(line, block, glyphs)
+            assert cutters, label_id
+            strike_cutters = cutters[len(cutters) - 2 :]
+            # The plain word's stroke rides the line's tool, the second word's
+            # rides its own (bold rung / effective-height) tool.
+            assert strike_cutters[0] == pytest.approx(line.cutter_diameter)
+            assert strike_cutters[1] != pytest.approx(line.cutter_diameter)
+
+    def test_strike_and_underline_coexist(self, tmp_path: Path) -> None:
+        """``<u><s>AV</s></u>`` engraves both decorations on one run."""
+        from plt_optimizer.generate.label_renderer import (
+            _strikethrough_render_gate,
+            _underline_render_gate,
+        )
+
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        line = by_id["plt_strike_and_underline"].content[0]
+        assert _underline_render_gate(line) == ((0, 1),)
+        assert _strikethrough_render_gate(line) == ((0, 1),)
+        # Underline (below the baseline) + strike (at mid-cap) = two strokes.
+        assert self._decoration_stroke_count(by_id["plt_strike_and_underline"]) == 2
+        strike_y = self._strike_spans(by_id["plt_strike_and_underline"])[0][0]
+        assert strike_y == pytest.approx(0.5 * line.toolpath_text_height, abs=1e-12)
+
+    def test_small_caps_strikes_at_the_same_height(self, tmp_path: Path) -> None:
+        """A ` SC` font's strike uses the same mid-cap rule as its base."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        sc_line = by_id["plt_small_caps"].content[0]
+        sc_y = self._strike_spans(by_id["plt_small_caps"])[0][0]
+        base_y = self._strike_spans(by_id["plt_strike"])[0][0]
+        assert sc_line.font == "Dino SC"
+        assert sc_y == pytest.approx(0.5 * sc_line.toolpath_text_height, abs=1e-12)
+        assert sc_y == pytest.approx(base_y, abs=1e-12)
+
+    def test_ttf_stroke_matches_the_plt_contract(self, tmp_path: Path) -> None:
+        """The TTF path draws one unbroken stroke at the same mid-cap height."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        ttf_line = by_id["ttf_strike"].content[0]
+        spans = self._strike_spans(by_id["ttf_strike"])
+        assert len(spans) == 1
+        assert spans[0][0] == pytest.approx(0.5 * ttf_line.toolpath_text_height, abs=1e-12)
+        assert self._decoration_stroke_count(by_id["ttf_plain"]) == 0
+
+    def test_strikethrough_adds_no_cutter_file(self, tmp_path: Path) -> None:
+        """The strike uses its run's existing tool -- no new per-cutter layer.
+
+        Dino auto-selects 0.060 for 0.5in text; the `<b>` run's bold rung
+        (0.090) and the 0.5x run's ladder cutter (0.030) are the only extra
+        files, and every one of them comes from the markup the label already
+        carries (the strike itself never introduces a tool).
+        """
+        result = self._export(tmp_path)
+        names = sorted(p.name for p in result.plt_paths)
+        assert "0.015_bh_stk.plt" in names
+        assert "0.060_txt_stk.plt" in names
+        assert "0.090_txt_stk.plt" in names  # the <b> bold rung
+        assert "0.030_txt_stk.plt" in names  # the <scale:0.5> run
+        # No file for a tool the strike invented.
+        assert len([n for n in names if n.endswith("_txt_stk.plt")]) == 3

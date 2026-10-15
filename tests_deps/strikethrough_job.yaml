@@ -1,0 +1,209 @@
+# Fixture for inline strikethrough markup (`strikethrough_offset`,
+# `strikethrough_break_spaces`, the `<s>` tag).
+#
+# `<s>` draws ONE continuous centerline stroke with the line's own text cutter,
+# spanning each maximal struck run's ink width (the first glyph's bounding-box
+# left edge to the last glyph's right edge). It is the underline's geometry
+# with the break model deliberately REMOVED: there is no gap cutting, no
+# clearance and no trigger band, so a descender punches through the stroke and
+# the line stays whole ("like underline, except no breaks in the line").
+#
+# The height is a typography property, uniform for the whole line:
+# `strikethrough_offset` is the height in inches ABOVE the baseline (0.0 = the
+# stroke sits on the baseline), and `null`/unset centres the stroke on the
+# **cap-band midline** -- half the rendered cap height (`toolpath_text_height`).
+# At text_height 0.5 with the default cutter the toolpath height is 0.44, so
+# the unset strike engraves at y = +0.22, inside the cap band: the line's ink
+# box is then IDENTICAL to its plain twin's (the stroke spans the glyphs' own
+# ink width at a height they already reach).
+#
+# Nesting is idempotent: `<s>a<s>b</s>c</s>` is one struck run, so it engraves
+# ONE stroke (applying the tag to text that is already struck through has no
+# additional effect).
+#
+# Runs split at `<b>`/`<scale:N>` cutter boundaries (one stroke cannot be cut
+# by two tools), so a struck run spanning a bold/scaled run lands on each
+# tool's own pen and `<cutter>_txt_` file. The strike strokes sit at a
+# cutter-INDEPENDENT height, so the pen split identifies them by their span
+# (unlike the underline, whose depth encodes its tool).
+#
+# The stroke is text ink: it counts toward the line's rendered bounds, the
+# vertical margins and the label's vertical centering. An offset above the
+# capline therefore grows the block upward (accepted staleness: it can cross
+# the top margin, the `<scale:N>` upscale precedent).
+#
+# No plate declares a material and the job packs onto one sheet, so emitted
+# names carry no plate/material prefix. `max_h_compress` stays unset (0.0): no
+# line compresses, so every pinned number below is pure strikethrough geometry.
+job:
+  job_name: Strikethrough Demo
+
+  width: 3.0
+  height: 1.0
+  margin: 0.1
+  text_height: 0.5
+  line_spacing: 0.15
+  auto_descending_character_adjustment: false
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. PLT strikethrough at the default (mid-cap) height: ONE continuous
+    #    stroke at y = +0.5 * toolpath_text_height, unbroken by the `p`
+    #    descender (which punches through it).
+    - id: plt_strike
+      font: Dino
+      content:
+        - text: "<s>Depth</s>"
+
+    # 2. The plain control for label 1: same glyphs, no stroke, so the bounds
+    #    are identical (the mid-cap stroke lies inside the cap band).
+    - id: plt_plain
+      font: Dino
+      content:
+        - text: "Depth"
+
+    # 3. The underline contrast for label 1: the SAME glyphs underlined break
+    #    around the `p`, so `<u>` engraves several segments where `<s>` engraves
+    #    one. Pins the "no breaks" contract against the shipped break model.
+    - id: plt_underline_twin
+      font: Dino
+      content:
+        - text: "<u>Depth</u>"
+
+    # 4. A descender-free run: one stroke spanning the caps' ink width.
+    - id: plt_caps
+      font: Dino
+      content:
+        - text: "<s>AVX</s>"
+
+    # 5. strikethrough_offset 0.0 puts the stroke ON the baseline: the caps sit
+    #    on the baseline too, so the block's floor stays at y = 0 (the stroke
+    #    coincides with the baseline, it never hangs below it).
+    - id: plt_offset_zero
+      font: Dino
+      strikethrough_offset: 0.0
+      content:
+        - text: "<s>AVX</s>"
+
+    # 5b. The plain control for label 5.
+    - id: plt_offset_zero_plain
+      font: Dino
+      content:
+        - text: "AVX"
+
+    # 6. strikethrough_offset 0.9 lifts the stroke ABOVE the capline, so the
+    #    block grows upward (the stroke is ink, and it counts for the margins).
+    - id: plt_offset_high
+      font: Dino
+      strikethrough_offset: 0.9
+      content:
+        - text: "<s>AVX</s>"
+
+    # 7. A multi-word run at the default (continuous) strike: the space between
+    #    the words is struck too, so the run engraves as ONE stroke spanning
+    #    both words.
+    - id: plt_continuous_words
+      width: 6.0
+      font: Dino
+      content:
+        - text: "<s>hello world</s>"
+
+    # 8. The same run with strikethrough_break_spaces: true -- the stroke ends
+    #    at the space, so each word gets its own strike spanning its own ink
+    #    and the inter-word space stays bare (two strokes).
+    - id: plt_break_spaces_words
+      width: 6.0
+      font: Dino
+      strikethrough_break_spaces: true
+      content:
+        - text: "<s>hello world</s>"
+
+    # 9. Nested markup: every glyph shears (italic) while only `markup` is
+    #    struck. The stroke is horizontal and spans just that run.
+    - id: plt_nested
+      width: 6.0
+      font: Dino
+      content:
+        - text: "<i>nested <s>markup</s> tail</i>"
+
+    # 10. The italic control for label 9 (no stroke at all).
+    - id: plt_nested_italic_only
+      width: 6.0
+      font: Dino
+      content:
+        - text: "<i>nested markup tail</i>"
+
+    # 11. Two struck runs separated by a plain glyph: two independent strokes,
+    #     and the plain `C` keeps its air (no stroke beneath it).
+    - id: plt_multi_run
+      font: Dino
+      content:
+        - text: "A<s>bb</s>C<s>dd</s>"
+
+    # 12. The plain control for label 11.
+    - id: plt_multi_run_plain
+      font: Dino
+      content:
+        - text: "AbbCdd"
+
+    # 13. Idempotent nesting: `<s>a<s>b</s>c</s>` is ONE struck run, so it
+    #     engraves exactly one stroke (the tag on already-struck text has no
+    #     additional effect).
+    - id: plt_idempotent
+      font: Dino
+      content:
+        - text: "<s>a<s>b</s>c</s>"
+
+    # 14. The plain control for label 13.
+    - id: plt_idempotent_plain
+      font: Dino
+      content:
+        - text: "abc"
+
+    # 15. A struck run spanning a `<b>` boundary: the gate splits it, so the
+    #     plain word's stroke rides the line's tool and the bold word's rides
+    #     the bold rung (two per-cutter files).
+    - id: plt_bold_split
+      font: Dino
+      content:
+        - text: "<s>pay <b>deep</b></s>"
+
+    # 16. A struck run spanning a `<scale:N>` boundary: the same split, the
+    #     scaled word's stroke riding its effective-height (smaller) tool.
+    - id: plt_scale_split
+      font: Dino
+      content:
+        - text: "<s>pay <scale:0.5>deep</scale></s>"
+
+    # 17. Both decorations on one run: the underline (below the baseline) and
+    #     the strike (at mid-cap) coexist; the underline strokes splice first,
+    #     the strike strokes last.
+    - id: plt_strike_and_underline
+      font: Dino
+      content:
+        - text: "<u><s>AV</s></u>"
+
+    # 18. Strikethrough + small caps: the shrunken lowercase glyphs sit on the
+    #     baseline, so a ` SC` font strikes its capitals' width at the same
+    #     mid-cap height as the base font.
+    - id: plt_small_caps
+      font: "Dino SC"
+      content:
+        - text: "<s>Depth</s>"
+
+    # 19. TrueType strikethrough through the ftext path: the same centerline
+    #     geometry as the PLT family.
+    - id: ttf_strike
+      font: ReliefSingleLineCAD-Regular
+      content:
+        - text: "<s>Depth</s>"
+
+    # 20. The TTF control for label 19.
+    - id: ttf_plain
+      font: ReliefSingleLineCAD-Regular
+      content:
+        - text: "Depth"
