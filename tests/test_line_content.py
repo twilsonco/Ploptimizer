@@ -936,3 +936,26 @@ def test_sup_shift_argument_survives_the_reflow() -> None:
     first = result.content[0]
     assert first.text == "<sup:0.3>AAAA</sup>"
     assert first.sup_sub_shifts == (0.3, 0.3, 0.3, 0.3)
+
+
+def test_strikethrough_tag_survives_the_reflow() -> None:
+    """A ``<s>`` word keeps its tag when it moves between lines.
+
+    The reflow round-trips words through ``serialize_word`` into raw text and
+    re-parses; the strike tag must re-emit (a dropped tag would engrave the
+    word unstruck).
+    """
+    label = _label(
+        "m",
+        _line("<s>AAAA</s> BB"),
+        _line("CC"),
+    )
+    result = _reflow_label(label, _plain_probe())
+    assert result is not None
+    first, second = result.content
+    assert first.text == "<s>AAAA</s>"
+    assert first.plain_text == "AAAA"
+    assert first.has_strikethrough is True
+    assert first.strikethrough_flags == (True, True, True, True)
+    assert second.text == "BB CC"
+    assert second.has_strikethrough is False

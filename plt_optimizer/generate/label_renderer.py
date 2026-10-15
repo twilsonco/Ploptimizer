@@ -80,7 +80,7 @@ from plt_optimizer.generate.text_geometry import (
     TextBlock,
     block_from_linecollection,
 )
-from plt_optimizer.generate.underline import underline_runs, underline_segments
+from plt_optimizer.generate.underline import runs_from_flags, underline_segments
 
 logger = logging.getLogger(__name__)
 
@@ -1948,18 +1948,24 @@ def _render_line_block(
             _walk, _word_pairs, glyph_pairs = render_text_line_plt_font_with_glyphs(
                 render_text, **plt_kwargs, **italic_kwargs
             )
-            return _apply_underline(
+            return _apply_strikethrough(
                 line,
-                block,
-                (groups or None),
-                _validated_glyph_groups(glyph_pairs, len(block.strokes)),
+                *_apply_underline(
+                    line,
+                    block,
+                    (groups or None),
+                    _validated_glyph_groups(glyph_pairs, len(block.strokes)),
+                ),
             )
         block = render_text_line_plt_font(render_text, **plt_kwargs, **italic_kwargs)
         _walk, _word_pairs, glyph_pairs = render_text_line_plt_font_with_glyphs(
             render_text, **plt_kwargs, **italic_kwargs
         )
-        return _apply_underline(
-            line, block, None, _validated_glyph_groups(glyph_pairs, len(block.strokes))
+        return _apply_strikethrough(
+            line,
+            *_apply_underline(
+                line, block, None, _validated_glyph_groups(glyph_pairs, len(block.strokes))
+            ),
         )
 
     # TrueType family: the historical ftext path, adapted to TextBlock.
@@ -1989,10 +1995,13 @@ def _render_line_block(
                 len(filtered_lc),
                 small_caps=ref.small_caps,
             )
-            return _apply_underline(
-                line, block, groups, _validated_glyph_groups(pairs, len(block.strokes))
+            return _apply_strikethrough(
+                line,
+                *_apply_underline(
+                    line, block, groups, _validated_glyph_groups(pairs, len(block.strokes))
+                ),
             )
-        return _apply_underline(line, block, None, ())
+        return _apply_strikethrough(line, *_apply_underline(line, block, None, ()))
     filtered_lc = render_text_line_ftext(render_text, **ftext_kwargs)
     block = block_from_linecollection(filtered_lc)
     # Glyph groups slice the whole-line contours by per-glyph contour
@@ -2004,10 +2013,45 @@ def _render_line_block(
             len(filtered_lc),
             small_caps=ref.small_caps,
         )
-        return _apply_underline(
-            line, block, None, _validated_glyph_groups(pairs, len(block.strokes))
+        return _apply_strikethrough(
+            line,
+            *_apply_underline(
+                line, block, None, _validated_glyph_groups(pairs, len(block.strokes))
+            ),
         )
-    return _apply_underline(line, block, None, ())
+    return _apply_strikethrough(line, *_apply_underline(line, block, None, ()))
+
+
+def _decoration_runs(
+    line: ResolvedTextLine,
+    flags: Tuple[bool, ...],
+    *,
+    breaks_spaces: bool,
+) -> Tuple[Tuple[int, int], ...]:
+    """Decompose per-character decoration flags into engraving runs.
+
+    The shared pipeline behind both line decorations (the ``<u>`` underline
+    and the ``<s>`` strikethrough): maximal runs of marked characters,
+    optionally split at the spaces inside each run (``breaks_spaces``), and
+    always split where the engraving cutter changes (``<b>``/``<scale:N>``
+    boundaries -- one stroke cannot be cut by two tools).
+
+    Args:
+        line: The resolved text line (plain text, per-character cutters).
+        flags: Per-character decoration flags aligned with ``plain_text``.
+        breaks_spaces: Split each maximal run at the spaces inside it.
+
+    Returns:
+        ``(first_char_index, last_char_index)`` inclusive pairs in text
+        order, one per engraving run.
+    """
+    runs = runs_from_flags(flags)
+    if breaks_spaces:
+        runs = _split_runs_at_spaces(line.plain_text, runs)
+    cutters = line.per_char_cutters
+    if cutters and len(set(cutters)) > 1:
+        runs = _split_runs_at_cutter(runs, cutters)
+    return runs
 
 
 def _underline_render_gate(line: ResolvedTextLine) -> Tuple[Tuple[int, int], ...]:
@@ -2041,13 +2085,39 @@ def _underline_render_gate(line: ResolvedTextLine) -> Tuple[Tuple[int, int], ...
     flags = tuple(
         style.underline for run in line.styled_runs for style in (run.style,) * len(run.text)
     )
-    runs = underline_runs(flags)
-    if line.underline_break_spaces:
-        runs = _split_runs_at_spaces(line.plain_text, runs)
-    cutters = line.per_char_cutters
-    if cutters and len(set(cutters)) > 1:
-        runs = _split_runs_at_cutter(runs, cutters)
-    return runs
+    return _decoration_runs(line, flags, breaks_spaces=line.underline_break_spaces)
+
+
+def _strikethrough_render_gate(line: ResolvedTextLine) -> Tuple[Tuple[int, int], ...]:
+    """Return the strikethrough runs of one resolved line, or ``()`` when unmarked.
+
+    The ``<s>`` mirror of :func:`_underline_render_gate`: a line without
+    parsed markup, or with markup that carries no struck run, keeps the
+    historical render path (no strikethrough geometry at all). Runs split at
+    the spaces inside each run when ``strikethrough_break_spaces`` is set
+    (``False`` = one continuous stroke across the whole run, spaces included),
+    and always at ``<b>``/``<scale:N>`` cutter boundaries -- each struck run
+    engraves with its own tool's pen.
+
+    Unlike the underline, a struck run is **never** broken by glyph ink:
+    a descender punches through the stroke (the TODO's "like underline,
+    except no breaks in the line").
+
+    Args:
+        line: The resolved text line.
+
+    Returns:
+        ``(first_char_index, last_char_index)`` inclusive pairs per maximal
+        struck run (indices into ``plain_text``), or ``()``.
+    """
+    if not line.styled_runs:
+        return ()
+    if not any(run.style.strikethrough for run in line.styled_runs):
+        return ()
+    flags = tuple(
+        style.strikethrough for run in line.styled_runs for style in (run.style,) * len(run.text)
+    )
+    return _decoration_runs(line, flags, breaks_spaces=line.strikethrough_break_spaces)
 
 
 def _split_runs_at_cutter(
@@ -2126,6 +2196,49 @@ def _split_runs_at_spaces(
     return tuple(split)
 
 
+def _run_glyph_positions(
+    plain_text: str,
+    glyph_groups: Tuple[Tuple[int, ...], ...],
+    first: int,
+    last: int,
+) -> List[int]:
+    """Return the glyph indices a decoration run covers, in text order.
+
+    A run's bounds are ``plain_text`` indices (spaces included), while
+    ``glyph_groups`` is indexed by the non-space character order, so the walk
+    counts glyphs as it scans the plain text.
+
+    Args:
+        plain_text: The line's markup-free text.
+        glyph_groups: The per-glyph stroke partition of the rendered block.
+        first: The run's first ``plain_text`` index (inclusive).
+        last: The run's last ``plain_text`` index (inclusive).
+
+    Returns:
+        The non-empty glyph-group indices covered by the run.
+    """
+    positions: List[int] = []
+    glyph_index = -1
+    for text_index, char in enumerate(plain_text):
+        if char == " ":
+            continue
+        glyph_index += 1
+        if first <= text_index <= last and glyph_groups[glyph_index]:
+            positions.append(glyph_index)
+    return positions
+
+
+def _run_span(
+    boxes: Sequence[Tuple[float, float, float, float]],
+    positions: Sequence[int],
+) -> Tuple[float, float]:
+    """Return the decorated run's ``(min bbox left, max bbox right)`` span."""
+    return (
+        min(boxes[position][0] for position in positions),
+        max(boxes[position][2] for position in positions),
+    )
+
+
 def _underline_strokes(
     line: ResolvedTextLine,
     block: TextBlock,
@@ -2195,23 +2308,12 @@ def _underline_strokes(
     strokes: List[Stroke] = []
     min_y_seen: Optional[float] = None
     for first, last in runs:
-        # The run's glyph indices: the run's bounds are plain_text indices
-        # (spaces included), while glyph_groups is indexed by the non-space
-        # character order, so walk the plain text and count glyphs.
-        glyph_positions: List[int] = []
-        glyph_index = -1
-        for text_index, char in enumerate(line.plain_text):
-            if char == " ":
-                continue
-            glyph_index += 1
-            if first <= text_index <= last and glyph_groups[glyph_index]:
-                glyph_positions.append(glyph_index)
+        # The run's glyph indices (see _run_glyph_positions: run bounds are
+        # plain_text indices, glyph_groups is indexed by non-space characters).
+        glyph_positions = _run_glyph_positions(line.plain_text, glyph_groups, first, last)
         if not glyph_positions:
             continue
-        span = (
-            min(boxes[position][0] for position in glyph_positions),
-            max(boxes[position][2] for position in glyph_positions),
-        )
+        span = _run_span(boxes, glyph_positions)
         # Per-run cutter: the underline is cut with the run's own tool, so a
         # bold run's centerline sits one bold cutter below the baseline and a
         # scaled run's one effective-height cutter below it (the runs are split
@@ -2244,6 +2346,122 @@ def _underline_strokes(
             line.underline_break_clearance,
         )
     return strokes
+
+
+def _strikethrough_strokes(
+    line: ResolvedTextLine,
+    block: TextBlock,
+    glyph_groups: Tuple[Tuple[int, ...], ...],
+    runs: Tuple[Tuple[int, int], ...],
+) -> List[Stroke]:
+    """Build the ``<s>`` strikethrough strokes of one rendered line.
+
+    Each maximal struck run draws **one continuous** centerline stroke
+    spanning its first glyph's bounding-box left edge to its last glyph's
+    right edge, at :attr:`~plt_optimizer.generate.resolution.ResolvedTextLine.strikethrough_cap`
+    inches **above** the baseline (the explicit ``strikethrough_offset``, or
+    the cap-band midline when unset).
+
+    This is the underline's geometry with the break model deliberately
+    removed: there is **no** gap cutting, no clearance and no trigger band, so
+    a descender punches through the stroke and the line stays whole (the
+    TODO's "like underline, except no breaks in the line"). The stroke is also
+    uniform in Y for the whole line -- the height is a typography property,
+    not a function of the run's cutter -- while the runs are still split at
+    ``<b>``/``<scale:N>`` cutter boundaries by the gate, so each run's stroke
+    rides its own tool's pen.
+
+    Args:
+        line: The resolved text line (strikethrough height, plain text).
+        block: The rendered line block (baseline at ``y = 0``, +y up).
+        glyph_groups: The validated per-glyph stroke partition of ``block``.
+        runs: The struck character runs (from
+            :func:`_strikethrough_render_gate`).
+
+    Returns:
+        The strikethrough strokes, in run order (empty when nothing is
+        struck, the run has no geometry, or its span is narrower than the
+        ink-emission floor).
+    """
+    if not runs or not glyph_groups:
+        return []
+
+    chars = _glyph_chars(line.plain_text)
+    if len(chars) != len(glyph_groups):
+        return []
+
+    # Per-glyph bounding boxes only: the stroke never breaks, so unlike the
+    # underline no glyph ink is needed here.
+    boxes: List[Tuple[float, float, float, float]] = []
+    for indices in glyph_groups:
+        glyph_block = TextBlock(strokes=tuple(block.strokes[i] for i in indices))
+        bounds = glyph_block.bounds()
+        boxes.append(bounds if bounds is not None else (0.0, 0.0, 0.0, 0.0))
+
+    line_y = line.strikethrough_cap
+    strokes: List[Stroke] = []
+    for first, last in runs:
+        glyph_positions = _run_glyph_positions(line.plain_text, glyph_groups, first, last)
+        if not glyph_positions:
+            continue
+        x_min, x_max = _run_span(boxes, glyph_positions)
+        # A span narrower than half a plotter unit cannot exist in the emitted
+        # geometry (the coordinates are integer units), so skip the stroke.
+        if x_max - x_min < _INK_EMISSION_FLOOR:
+            continue
+        strokes.append(
+            Stroke(
+                pen_up=complex(x_min, line_y),
+                segments=(LineSeg(complex(x_min, line_y), complex(x_max, line_y)),),
+            )
+        )
+    if strokes:
+        logger.info(
+            "Strikethrough: %d run(s), %d stroke(s) on %r (y=%.4fin, unbroken).",
+            len(runs),
+            len(strokes),
+            line.plain_text,
+            line_y,
+        )
+    return strokes
+
+
+def _append_decoration(
+    block: TextBlock,
+    word_groups: Optional[List[Tuple[str, List[int]]]],
+    glyph_groups: Tuple[Tuple[int, ...], ...],
+    strokes: List[Stroke],
+) -> Tuple[TextBlock, Optional[List[Tuple[str, List[int]]]], Tuple[Tuple[int, ...], ...]]:
+    """Append decoration strokes to a validated line render (shared splice).
+
+    Both line decorations (the ``<u>`` underline and the ``<s>``
+    strikethrough) splice their strokes the same way: appended **after** the
+    glyph partition is validated, so ``glyph_groups`` stays the exact 1:1
+    character partition (the descending-character relief maps characters to
+    groups by index, and the intra-chunk glyph sweep treats a group as one
+    glyph -- neither may see a decoration stroke as glyph ink).
+    ``word_groups`` gains the new indices on its last non-empty word so
+    WORD-mode chunking never drops the decoration.
+
+    Args:
+        block: The validated render (baseline at ``y = 0``, +y up).
+        word_groups: Per-word stroke indices (``None`` in line mode).
+        glyph_groups: Per-glyph stroke indices (empty when unavailable).
+        strokes: The decoration strokes to append (non-empty).
+
+    Returns:
+        The ``(block, word_groups, glyph_groups)`` triple carrying the
+        decoration.
+    """
+    first_index = len(block.strokes)
+    decoration_indices = list(range(first_index, first_index + len(strokes)))
+    extended = TextBlock(strokes=(*block.strokes, *strokes))
+    if word_groups is not None:
+        for _word_text, indices in reversed(word_groups):
+            if indices:
+                indices.extend(decoration_indices)
+                break
+    return extended, word_groups, glyph_groups
 
 
 def _apply_underline(
@@ -2281,16 +2499,93 @@ def _apply_underline(
     strokes = _underline_strokes(line, block, glyph_groups, runs)
     if not strokes:
         return block, word_groups, glyph_groups
+    return _append_decoration(block, word_groups, glyph_groups, strokes)
 
-    first_index = len(block.strokes)
-    underline_indices = list(range(first_index, first_index + len(strokes)))
-    extended = TextBlock(strokes=(*block.strokes, *strokes))
-    if word_groups is not None:
-        for _word_text, indices in reversed(word_groups):
-            if indices:
-                indices.extend(underline_indices)
-                break
-    return extended, word_groups, glyph_groups
+
+def _apply_strikethrough(
+    line: ResolvedTextLine,
+    block: TextBlock,
+    word_groups: Optional[List[Tuple[str, List[int]]]],
+    glyph_groups: Tuple[Tuple[int, ...], ...],
+) -> Tuple[TextBlock, Optional[List[Tuple[str, List[int]]]], Tuple[Tuple[int, ...], ...]]:
+    """Append the ``<s>`` strikethrough strokes to one rendered line.
+
+    The ``<s>`` mirror of :func:`_apply_underline` (same splice, same
+    guarantees -- see :func:`_append_decoration`). Applied **after** the
+    underline in :func:`_render_line_block`, so a line carrying both
+    decorations ends with the underline strokes and then the strike strokes;
+    neither joins the glyph partition.
+
+    A line without strikethrough markup returns its inputs untouched, so every
+    other line keeps bit-identical geometry.
+
+    Args:
+        line: The resolved text line.
+        block: The validated render (baseline at ``y = 0``, +y up), the
+            underline already appended when the line has one.
+        word_groups: Per-word stroke indices (``None`` in line mode).
+        glyph_groups: Per-glyph stroke indices (empty when unavailable).
+
+    Returns:
+        The ``(block, word_groups, glyph_groups)`` triple carrying the
+        strikethrough.
+    """
+    runs = _strikethrough_render_gate(line)
+    if not runs:
+        return block, word_groups, glyph_groups
+    strokes = _strikethrough_strokes(line, block, glyph_groups, runs)
+    if not strokes:
+        return block, word_groups, glyph_groups
+    return _append_decoration(block, word_groups, glyph_groups, strokes)
+
+
+def _strikethrough_run_cutters(
+    line: ResolvedTextLine,
+    block: TextBlock,
+    glyph_groups: Tuple[Tuple[int, ...], ...],
+) -> Tuple[Tuple[float, float, float], ...]:
+    """Return ``(x_min, x_max, cutter)`` per strikethrough stroke of ``line``.
+
+    The pen split needs each strike stroke's tool, and -- unlike the underline
+    -- a strike centerline's Y encodes none: the height is a typography
+    property (``strikethrough_cap``), identical for every run, so the depth
+    cannot be inverted into a cutter the way ``-y - underline_offset`` does
+    for the underline. The stroke's **span** identifies its run instead, and
+    the gate splits runs at cutter boundaries, so the run's first character
+    owns the tool (see :func:`_run_cutter`).
+
+    The spans are recomputed from the same ``glyph_groups`` partition of the
+    same block, so they match :func:`_strikethrough_strokes` bit-for-bit.
+
+    Args:
+        line: The resolved text line.
+        block: The line's block with the decorations appended.
+        glyph_groups: The per-glyph stroke partition (decorations excluded).
+
+    Returns:
+        One ``(x_min, x_max, cutter)`` triple per emitted strike stroke, in
+        run order (empty when the line has no strike geometry).
+    """
+    runs = _strikethrough_render_gate(line)
+    if not runs or not glyph_groups:
+        return ()
+    if len(_glyph_chars(line.plain_text)) != len(glyph_groups):
+        return ()
+    boxes: List[Tuple[float, float, float, float]] = []
+    for indices in glyph_groups:
+        glyph_block = TextBlock(strokes=tuple(block.strokes[i] for i in indices))
+        bounds = glyph_block.bounds()
+        boxes.append(bounds if bounds is not None else (0.0, 0.0, 0.0, 0.0))
+    spans: List[Tuple[float, float, float]] = []
+    for first, last in runs:
+        positions = _run_glyph_positions(line.plain_text, glyph_groups, first, last)
+        if not positions:
+            continue
+        x_min, x_max = _run_span(boxes, positions)
+        if x_max - x_min < _INK_EMISSION_FLOOR:
+            continue
+        spans.append((x_min, x_max, _run_cutter(line, first)))
+    return tuple(spans)
 
 
 def _stroke_cutter_map(
@@ -2308,13 +2603,16 @@ def _stroke_cutter_map(
     are identified by their centerline depth: a run's centerline sits exactly
     ``cutter + underline_offset`` below the baseline, and the gate splits runs
     at cutter boundaries, so ``-y - underline_offset`` recovers the tool
-    exactly (no sampling, no tolerance guessing).
+    exactly (no sampling, no tolerance guessing). The ``<s>`` strikethrough
+    strokes (appended last) sit at a cutter-independent height, so they are
+    identified by their span instead -- see
+    :func:`_strikethrough_run_cutters`.
 
     Args:
         line: The resolved text line (per-character cutters, offset).
-        block: The line's block with the underline appended, in the renderers'
-            local frame (baseline ``y = 0``).
-        glyph_groups: The per-glyph stroke partition (underline excluded).
+        block: The line's block with the decorations appended, in the
+            renderers' local frame (baseline ``y = 0``).
+        glyph_groups: The per-glyph stroke partition (decorations excluded).
 
     Returns:
         One cutter diameter per stroke of ``block``, in stroke order; **empty**
@@ -2327,6 +2625,10 @@ def _stroke_cutter_map(
     if not cutters or not glyph_groups:
         return ()
     known = line.used_cutters
+    strike_cap = line.strikethrough_cap if line.has_strikethrough else None
+    strike_spans = (
+        _strikethrough_run_cutters(line, block, glyph_groups) if strike_cap is not None else ()
+    )
     mapping: List[Optional[float]] = [None] * len(block.strokes)
     glyph_position = 0
     for char, cutter in zip(line.plain_text, cutters):
@@ -2343,11 +2645,27 @@ def _stroke_cutter_map(
         if not stroke.segments:  # pragma: no cover - every stroke cuts
             mapping[index] = line.cutter_diameter
             continue
+        start = stroke.segments[0].start
+        y = start.imag
+        # A strikethrough stroke: its height encodes no cutter, so match the
+        # run by span (both sides are computed from this same block, so the
+        # floats agree to the emitted precision).
+        if strike_cap is not None:
+            if abs(y - strike_cap) <= _INK_EMISSION_FLOOR:
+                for x_min, x_max, cutter in strike_spans:
+                    if (
+                        abs(start.real - x_min) <= _INK_EMISSION_FLOOR
+                        and abs(stroke.segments[0].end.real - x_max) <= _INK_EMISSION_FLOOR
+                    ):
+                        mapping[index] = cutter
+                        break
+            if mapping[index] is not None:
+                continue
         # An underline stroke: its centerline Y is -(cutter + offset). The
         # round trip is not float-exact (0.06 + 0.05 back to 0.06 can land one
         # ulp off), which would key a spurious pen layer, so snap to the
         # closest cutter the line actually engraves with.
-        recovered = -stroke.segments[0].start.imag - line.underline_offset
+        recovered = -y - line.underline_offset
         mapping[index] = min(known, key=lambda cutter: abs(cutter - recovered))
     resolved = tuple(cutter if cutter is not None else line.cutter_diameter for cutter in mapping)
     if len(set(resolved)) <= 1:
