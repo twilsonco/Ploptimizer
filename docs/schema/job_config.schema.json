@@ -435,6 +435,33 @@
       "description": "Default underline (<u>) break-at-spaces flag (job layer): false (default) draws one continuous underline across the whole underlined run (spaces included, broken only by descending glyphs); true ends the underline at each space so every word gets its own underline and the inter-word space stays bare. Unset falls back to false.",
       "title": "Underline Break Spaces"
     },
+    "strikethrough_offset": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default strikethrough (<s>) height in inches above the baseline (job layer): the stroke (cut with the line's own text cutter) sits this many inches above the baseline, so 0.0 puts it on the baseline. Unlike the underline the stroke is never broken -- a descender punches through it. Unset (null) centres the stroke on the cap-band midline (half the rendered cap height).",
+      "title": "Strikethrough Offset"
+    },
+    "strikethrough_break_spaces": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default strikethrough (<s>) break-at-spaces flag (job layer): false (default) draws one continuous stroke across the whole struck run (spaces included); true ends the stroke at each space so every word gets its own strike and the inter-word space stays bare. Unset falls back to false.",
+      "title": "Strikethrough Break Spaces"
+    },
     "target_boldness_factor": {
       "anyOf": [
         {

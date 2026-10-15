@@ -192,6 +192,18 @@ _FALLBACK_NOTES: dict[str, str] = {
     "apply no scaling, so this field is inert on them. A downscaled run engraves with the cutter "
     "for its downscaled height (the <scale:N> ladder), so it lands on its own per-cutter layer. "
     "Bound [0.2, 1.0]. Cascades line/label/job; job-config supplies the shop default.",
+    "DEFAULT_STRIKETHROUGH_OFFSET": "None = an inline <s> strikethrough centres its "
+    "centerline stroke on the cap-band midline (half the rendered cap height), the "
+    "classic mid-height strike. An explicit value is the stroke's height in inches "
+    "ABOVE the baseline (0.0 = the stroke sits on the baseline). The stroke spans each "
+    "struck run's ink width and is cut with the run's own text cutter; unlike the "
+    "underline it is NEVER broken, so a descender punches through it (no clearance, no "
+    "break test). Cascades line/label/job; job-config supplies the shop default.",
+    "DEFAULT_STRIKETHROUGH_BREAK_SPACES": "False = an inline <s> strikethrough draws "
+    "one continuous stroke across the whole struck run, inter-word spaces included. "
+    "True ends the stroke at each space, so every word gets its own strike spanning its "
+    "own ink and the space stays bare. Cascades line/label/job; job-config supplies the "
+    "shop default.",
 }
 
 
