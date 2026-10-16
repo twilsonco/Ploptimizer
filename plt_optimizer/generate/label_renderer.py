@@ -1025,11 +1025,6 @@ def _render_label_once(
         at its default) and the per-line rendered bounds used by
         :func:`_detect_text_hole_collisions`.
     """
-    # Create vpype Document (polylines only: the boundary rectangle). Text is
-    # no longer routed through vpype because a LineCollection cannot carry
-    # arcs; text blocks are emitted as native HPGL alongside the boundary.
-    doc = vp.Document()
-
     # Render text layers, one arc-native block tuple per cutter pen (SP1
     # only when no pen_map is supplied, preserving the historical
     # single-pen output).
@@ -1044,17 +1039,18 @@ def _render_label_once(
         band_center_offset=band_center_offset,
     )
 
-    # Render boundary layer
-    boundary_lc = _render_boundary_local(label)
-    if not boundary_lc.is_empty():
-        doc.add(boundary_lc, LAYER_BOUNDARY)
+    # Render boundary as native HPGL to keep it as one continuous polyline
+    # (avoiding vpype LineCollection fragmentation)
+    boundary_hpgl = _render_boundary_hpgl(label)
 
-    # NOTE: Drill holes are intentionally NOT added to the vpype document.
-    # A LineCollection can only represent polylines, which would force the
-    # circles to be emitted as polygons. Holes are instead emitted directly
-    # as native HPGL arc (``AA``) commands by ``_render_holes_hpgl``. Text
-    # is likewise emitted as native HPGL (arcs preserved) by
-    # ``_linecollection_to_hpgl`` from ``text_pens``.
+    # Render drill holes as native HPGL arc commands
+    holes_hpgl = _render_holes_hpgl(label)
+
+    # NOTE: Both boundary and drill holes are emitted as native HPGL, not via
+    # vpype's LineCollection. This avoids fragmentation where vpype would
+    # split a continuous polyline (e.g. an ellipse with 64 vertices) into
+    # 64 separate line segments. Arcs are preserved end-to-end, and the
+    # parser creates efficient single-path structures.
 
     # Export to temporary file with postprocessing
     with tempfile.NamedTemporaryFile(mode="w", suffix=".plt", delete=False) as f:
@@ -1062,12 +1058,14 @@ def _render_label_once(
 
     try:
         _export_to_plt_with_postprocessing(
-            doc,
+            vp.Document(),
             temp_path,
             label,
             text_pens=set(text_pens),
             text_blocks=text_pens,
             band_center_offset_inches=band_center_offset[0] if band_center_offset else 0.0,
+            boundary_hpgl=boundary_hpgl,
+            holes_hpgl=holes_hpgl,
         )
         plt_content = temp_path.read_text().strip()
 
@@ -1351,6 +1349,8 @@ def _export_to_plt_with_postprocessing(
     text_pens: Optional[Iterable[int]] = None,
     text_blocks: Optional[Mapping[int, Sequence[TextBlock]]] = None,
     band_center_offset_inches: float = 0.0,
+    boundary_hpgl: str = "",
+    holes_hpgl: str = "",
 ) -> None:
     """Export vpype Document to PLT for a single label.
 
@@ -1364,15 +1364,18 @@ def _export_to_plt_with_postprocessing(
        (``HPGL_UNITS_PER_INCH`` per inch). Arc-native
        text layers arrive as :class:`TextBlock` tuples (``text_blocks``) and
        emit their ``AA`` arcs verbatim.
-    2. Center the text pen(s) vertically within label bounds (one shared
+    2. Emit native HPGL for boundary (rectangle/ellipse) and holes (drill circles)
+       to preserve polyline continuity and avoid fragmentation.
+    3. Center the text pen(s) vertically within label bounds (one shared
        delta across every text pen so multi-cutter text blocks stay aligned).
-    3. Invert the Y-axis to device convention for upright display.
+    4. Invert the Y-axis to device convention for upright display.
 
     No uniform scaling is applied because ``_linecollection_to_hpgl`` already
     produces coordinates at nominal scale; rescaling would distort footprints.
 
     Args:
-        doc: The vpype Document to export (polylines only: boundary).
+        doc: The vpype Document to export (text layers only; boundary/holes
+            are supplied separately as native HPGL).
         output_path: Destination PLT file (or its parent when synthetic).
         label: The label being rendered (used to get expected dimensions).
         text_pens: Pen numbers carrying text geometry (one per cutter pen
@@ -1383,14 +1386,24 @@ def _export_to_plt_with_postprocessing(
             arc-native blocks emitted on that pen (see
             :func:`_render_text_lines_by_pen`). When supplied, those pens
             emit native PU/PD/AA instead of vpype layers.
+        band_center_offset_inches: Offset for band centering (see
+            :func:`_center_text_layer_vertically`).
+        boundary_hpgl: Native HPGL commands for the label boundary (rectangle
+            or ellipse), emitted on ``SP2``. Empty string for degenerate labels.
+        holes_hpgl: Native HPGL commands for drill holes (circles as arcs),
+            emitted on ``SP3``. Empty string when the label has no holes.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Manually generate HPGL from the boundary polylines and the arc-native
     # text blocks. Drill holes are emitted as native HPGL arcs (pen 3)
     # alongside them.
-    holes_hpgl = _render_holes_hpgl(label)
-    hpgl_content = _linecollection_to_hpgl(doc, holes_hpgl=holes_hpgl, text_blocks=text_blocks)
+    hpgl_content = _linecollection_to_hpgl(
+        doc,
+        boundary_hpgl=boundary_hpgl,
+        holes_hpgl=holes_hpgl,
+        text_blocks=text_blocks,
+    )
 
     # Write to file
     output_path.write_text(hpgl_content, encoding="utf-8")
@@ -1423,6 +1436,7 @@ def _export_to_plt_with_postprocessing(
 
 def _linecollection_to_hpgl(
     doc: vp.Document,
+    boundary_hpgl: str = "",
     holes_hpgl: str = "",
     text_blocks: Optional[Mapping[int, Sequence[TextBlock]]] = None,
 ) -> str:
@@ -1436,10 +1450,12 @@ def _linecollection_to_hpgl(
     (``HPGL_UNITS_PER_INCH`` units = 1 inch).
 
     Args:
-        doc: The vpype Document containing line collections for each pen.
-        holes_hpgl: Optional pre-rendered HPGL for the drill-hole layer
-            (pen 3), produced by :func:`_render_holes_hpgl`. It is emitted
-            as native arc commands after the polyline layers.
+        doc: The vpype Document containing line collections for each pen (text
+            layers only; boundary and holes are supplied separately).
+        boundary_hpgl: Native HPGL for the label boundary (rectangle/ellipse),
+            emitted on ``SP2``. Empty string for degenerate labels.
+        holes_hpgl: Native HPGL for drill holes (circles as arcs), emitted on
+            ``SP3``. Empty string when the label has no holes.
         text_blocks: Optional mapping of text pen number to arc-native
             :class:`TextBlock` tuples (see :func:`_render_text_lines_by_pen`).
             Those pens emit ``PU``/``PD``/``AA`` directly (arcs preserved,
@@ -1529,6 +1545,14 @@ def _linecollection_to_hpgl(
                     pd_coords = ",".join(f"{x},{y}" for x, y in points[1:])
                     lines.append(f"PD{pd_coords}")
 
+    # Boundary (pen 2) is emitted as native polyline commands rather than
+    # via vpype LineCollection, to preserve continuity (avoiding fragmentation
+    # of ellipses and large polygons).
+    if boundary_hpgl:
+        lines.append("SP2")
+        lines.append(boundary_hpgl)
+        has_content = True
+
     # Drill holes (pen 3) are emitted as native arc commands rather than
     # polylines, so they arrive pre-rendered instead of via the document.
     if holes_hpgl:
@@ -1540,7 +1564,8 @@ def _linecollection_to_hpgl(
     if has_content:
         lines.append("SP")
 
-    return ";".join(lines) + ";"
+    result = ";".join(lines) + ";"
+    return result
 
 
 def _center_text_layer_vertically(
@@ -5508,6 +5533,75 @@ def _round_corner_hole(
     norm = math.hypot(nx, ny)
     nx, ny = nx / norm, ny / norm
     return (bx - nx * offset, by - ny * offset)
+
+
+def _render_boundary_hpgl(label: ResolvedLabel) -> str:
+    """Render label boundary as native HPGL polyline command.
+
+    The boundary (rectangle or ellipse) is emitted as a single continuous
+    polyline: ``PU{x1},{y1};PD{x2},{y2};PD{x3},{y3};...;PD{x1},{y1}``
+
+    By emitting the entire boundary as one continuous sequence of PD commands,
+    the parser creates a SINGLE StrokePath with many segments, preserving the
+    closed loop structure for efficient optimization. This avoids the problem
+    where vpype's LineCollection fragmentizes polylines into individual
+    segments (one per edge pair).
+
+    This function generates the polygon directly WITHOUT going through vpype's
+    LineCollection to avoid that fragmentation.
+
+    Args:
+        label: The resolved label whose boundary should be emitted.
+
+    Returns:
+        HPGL command string (without the ``SP`` wrapper), or an empty string
+        when the label has a degenerate size. Coordinates are in plotter units
+        (``HPGL_UNITS_PER_INCH`` units = 1 inch).
+    """
+    if label.width <= 0.0 or label.height <= 0.0:
+        return ""
+
+    # Generate the boundary polygon coordinates in inches
+    if _label_is_round(label):
+        # For ellipses: generate the polygon directly, bypassing vpype LineCollection
+        polygon_points = _ellipse_boundary_polygon(
+            label.width / 2.0, label.height / 2.0, label.width, label.height
+        )
+    else:
+        # For rectangles: generate the four corners
+        polygon_points = np.array(
+            [
+                0 + 0j,  # bottom-left
+                label.width + 0j,  # bottom-right
+                label.width + label.height * 1j,  # top-right
+                0 + label.height * 1j,  # top-left
+                0 + 0j,  # back to bottom-left (close the rectangle)
+            ],
+            dtype=np.complex128,
+        )
+
+    if len(polygon_points) == 0:
+        return ""
+
+    # Convert from inches to plotter units
+    commands: List[str] = []
+    points = []
+    for point in polygon_points:
+        x_plotter = inches_to_units(point.real)
+        y_plotter = inches_to_units(point.imag)
+        points.append((x_plotter, y_plotter))
+
+    # Emit as single continuous polyline: PU to first point, then PD for rest
+    x, y = points[0]
+    commands.append(f"PU{x},{y}")
+
+    # Emit all remaining points as consecutive PD coordinates in one command
+    if len(points) > 1:
+        pd_coords = ",".join(f"{px},{py}" for px, py in points[1:])
+        commands.append(f"PD{pd_coords}")
+
+    result = ";".join(commands)
+    return result
 
 
 def _render_holes_hpgl(label: ResolvedLabel) -> str:

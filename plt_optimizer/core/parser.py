@@ -203,6 +203,11 @@ class PLTParser:
                 rest_after_pupd = cmd[2:] if len(cmd) > 2 else ""
                 arc_in_same_token = re.match(r"^(AA|AR|CI)(.*)$", rest_after_pupd)
 
+                # Track whether we've already created a path in this command loop,
+                # so multiple coordinates in a single PD command append to the
+                # same path rather than each creating a separate path.
+                path_started_in_command = False
+
                 for coord in coords:
                     if new_pen_state == PenState.DOWN and last_position is not None:
                         segment = StrokeSegment(
@@ -211,12 +216,18 @@ class PLTParser:
                             is_cutting=True,
                         )
 
-                        if pen_state == PenState.UP or current_path is None:
+                        # Create a new path only on the pen-state transition
+                        # (from UP to DOWN) or if no path exists yet.
+                        # Subsequent coordinates in the same command append to it.
+                        if (
+                            prev_pen_state == PenState.UP and not path_started_in_command
+                        ) or current_path is None:
                             current_path = StrokePath(
                                 pen_up_position=last_position,
                                 segments=(segment,),
                             )
                             doc.stroke_paths.append(current_path)
+                            path_started_in_command = True
                         else:
                             new_segments = current_path.segments + (segment,)
                             object.__setattr__(current_path, "segments", new_segments)

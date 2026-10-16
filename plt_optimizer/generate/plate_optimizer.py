@@ -742,7 +742,29 @@ def optimize_structural_layer(
     parsed = PLTParser().parse_string(plt_content)
     if not parsed.stroke_paths:
         return None
+
+    # Log parsed path count for diagnostics
+    from plt_optimizer.utils.geometry import is_closed_path
+
+    parsed_path_count = len(parsed.stroke_paths)
+    closed_path_count = sum(1 for path in parsed.stroke_paths if is_closed_path(path))
+
+    # Check segment distribution to understand path structure
+    seg_counts: dict[int, int] = {}
+    for path in parsed.stroke_paths:
+        seg_count = len(path.segments)
+        seg_counts[seg_count] = seg_counts.get(seg_count, 0) + 1
+
+    if logger is not None:
+        logger.info(f"{log_prefix}Parsed {parsed_path_count} paths ({closed_path_count} closed)")
+        logger.info(f"{log_prefix}Segment distribution: {dict(sorted(seg_counts.items()))}")
+
     document = preprocess_document(parsed, is_structural=True, logger=logger, log_prefix=log_prefix)
+
+    # Log preprocessed path count
+    if logger is not None:
+        logger.info(f"{log_prefix}After preprocessing: {len(document.stroke_paths)} paths")
+
     # Known-kind shortcut: structural content ignores baseline_extent, and
     # the chunker's structural branch maps every path to its own block.
     profile = ProfileResult(
