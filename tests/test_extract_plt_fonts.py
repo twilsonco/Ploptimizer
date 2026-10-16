@@ -1209,10 +1209,12 @@ class TestMainCli:
     def test_colliding_catalog_names_abort(self, tmp_path: Path) -> None:
         """Two extracted names sanitising to one catalog file abort (rc 1)."""
         fonts_dir = self._make_fonts_dir(tmp_path)
-        # 'A:B' and 'A?B' both sanitise to the file name 'A_B.json'.
+        # 'A+B' and 'A=B' both sanitise to the file name 'A_B.json'.  The
+        # characters are file-name-safe on Windows (unlike ':' or '?') while
+        # still matching _FILE_UNSAFE_RE, keeping the test cross-platform.
         sheet = make_framed_sheet([["E", "A", "_"], ["E", "T", "g"]])
-        (fonts_dir / "a:b_1_E.plt").write_text(sheet, encoding="utf-8")
-        (fonts_dir / "a?b_1_E.plt").write_text(sheet, encoding="utf-8")
+        (fonts_dir / "a+b_1_E.plt").write_text(sheet, encoding="utf-8")
+        (fonts_dir / "a=b_1_E.plt").write_text(sheet, encoding="utf-8")
         rc = script.main(
             [
                 "--input-dir",
