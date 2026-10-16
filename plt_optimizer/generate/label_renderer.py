@@ -76,7 +76,6 @@ from plt_optimizer.generate.resolution import (
     baseline_offsets,
     compute_horizontal_offset,
     compute_horizontal_scale,
-    ellipse_content_inset,
     fit_baseline_spacing_to_margins,
     fit_line_spacing_to_margins,
     glyph_render_plan,
@@ -4669,20 +4668,6 @@ def _render_positioned_lines(
     h_margin = label.h_margin
     v_margin = label.v_margin
     inner_width = label.width
-    # A round label applies its margin **radially**: the content area is the
-    # largest centered block inscribed in the inset ellipse (see
-    # :func:`ellipse_content_inset`), strictly smaller than the rectangular
-    # box inset. Recomputing the two local margins from that inset feeds the
-    # radial rule to every downstream site -- the available height, the
-    # compression width, the alignment width and the alignment anchor -- with
-    # no per-site branching. Vertical centering is unaffected: the inset is
-    # concentric, so the inner-area center stays at ``height / 2``.
-    if _label_is_round(label):
-        content_width, content_height = ellipse_content_inset(
-            label.width, label.height, h_margin, v_margin
-        )
-        h_margin = (label.width - content_width) / 2.0
-        v_margin = (label.height - content_height) / 2.0
 
     # First pass: render all lines and measure their heights. Keep each
     # line's own line_spacing alongside the rendered geometry so empty or

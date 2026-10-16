@@ -760,6 +760,19 @@
           "description": "Maximum vertical downscale allowed for the would-be-colliding glyphs on the FOLLOWING line in [0.2, 1.0] (1.0 = no reciprocal downscaling, 0.5 = 50% downscaling). The lower glyphs are scaled top-down about their own lowest ink point, so their lowest point never moves; they share the relief with the descending glyph in proportion to the same ramp driving its downscale/raise. Cascades job -> plate -> label (never text lines); unset (null) falls back to job-config.json then 0.5. Accepted on plates for schema parity only.",
           "title": "Descending Character Reciprocal Scale"
         },
+        "adjust_h_center_for_single_side_hole": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Permission to apply horizontal shift for asymmetric left/right drill holes. When enabled (true), text is horizontally shifted to center between left and right holes: shift = (left_diameter - right_diameter) / 2. Only applied to center-aligned text; left/right alignment ignores the shift. Vertical shifts (for top/bottom holes) are always applied and are not gated by this field. Cascades job -> plate -> label (never text lines); unset (null) falls back to job-config.json then false. Accepted on plates for schema parity only.",
+          "title": "Adjust H Center For Single Side Hole"
+        },
         "id": {
           "description": "Unique identifier for this label specification.",
           "title": "Id",
@@ -2770,6 +2783,19 @@
       "default": null,
       "description": "Maximum vertical downscale allowed for the would-be-colliding glyphs on the FOLLOWING line in [0.2, 1.0] (1.0 = no reciprocal downscaling, 0.5 = 50% downscaling). The lower glyphs are scaled top-down about their own lowest ink point, so their lowest point never moves; they share the relief with the descending glyph in proportion to the same ramp driving its downscale/raise. Cascades job -> plate -> label (never text lines); unset (null) falls back to job-config.json then 0.5. Accepted on plates for schema parity only.",
       "title": "Descending Character Reciprocal Scale"
+    },
+    "adjust_h_center_for_single_side_hole": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Permission to apply horizontal shift for asymmetric left/right drill holes. When enabled (true), text is horizontally shifted to center between left and right holes: shift = (left_diameter - right_diameter) / 2. Only applied to center-aligned text; left/right alignment ignores the shift. Vertical shifts (for top/bottom holes) are always applied and are not gated by this field. Cascades job -> plate -> label (never text lines); unset (null) falls back to job-config.json then false. Accepted on plates for schema parity only.",
+      "title": "Adjust H Center For Single Side Hole"
     },
     "job_name": {
       "description": "Human-readable name for this job.",

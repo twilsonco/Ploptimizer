@@ -174,9 +174,9 @@ class TestRenderLabelOnceLayerGuards:
         assert rendered.width == pytest.approx(3.0, abs=0.01)
 
     def test_empty_boundary_layer_is_not_added(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """An empty boundary collection must not create an SP2 section."""
+        """An empty boundary must not create an SP2 section."""
         monkeypatch.setattr(
-            label_renderer, "_render_boundary_local", lambda label: vp.LineCollection()
+            label_renderer, "_render_boundary_hpgl", lambda label: ""
         )
         rendered = render_label_to_plt(_label())
 
@@ -203,6 +203,8 @@ class TestRenderLabelOnceTerminator:
             text_pens: Optional[set[int]] = None,
             text_blocks: Optional[dict[int, tuple[TextBlock, ...]]] = None,
             band_center_offset_inches: float = 0.0,
+            boundary_hpgl: str = "",
+            holes_hpgl: str = "",
         ) -> None:
             Path(output_path).write_text(content, encoding="utf-8")
 

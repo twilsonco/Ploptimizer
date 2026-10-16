@@ -723,6 +723,19 @@
       "description": "Default deepest top-down downscale permitted for the would-be-colliding glyphs on the following line, in [0.2, 1.0] (job layer; 1.0 = reciprocal downscaling forbidden, 0.5 = squeezed to half height). The lower glyphs are scaled about their own lowest ink point, so their lowest point never moves; they share the relief with the descending glyph through the same ramp. Unset falls back to 0.5.",
       "title": "Descending Character Reciprocal Scale"
     },
+    "adjust_h_center_for_single_side_hole": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default permission to apply horizontal shift for asymmetric left/right drill holes (job layer). When enabled (true), text is horizontally shifted to center between left and right holes: shift = (left_diameter - right_diameter) / 2. Only applied to center-aligned text; left/right alignment ignores the shift. Vertical shifts (for top/bottom holes) are always applied and are not gated by this field. Unset falls back to false.",
+      "title": "Adjust H Center For Single Side Hole"
+    },
     "optimize_line_content_max_lines": {
       "anyOf": [
         {
