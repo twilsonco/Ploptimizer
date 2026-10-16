@@ -1411,6 +1411,7 @@ def _export_to_plt_with_postprocessing(
         label,
         text_pens=center_pens,
         band_center_offset_inches=band_center_offset_inches,
+        hole_aware_vertical_shift_inches=label.hole_aware_vertical_shift_inches,
     )
 
     # Invert Y-axis to device convention so rendered labels display upright.
@@ -1547,6 +1548,7 @@ def _center_text_layer_vertically(
     label: ResolvedLabel,
     text_pens: Iterable[int] = (LAYER_TEXT,),
     band_center_offset_inches: float = 0.0,
+    hole_aware_vertical_shift_inches: float = 0.0,
 ) -> None:
     """Center the text pen(s) vertically within label bounds after scaling.
 
@@ -1580,6 +1582,10 @@ def _center_text_layer_vertically(
             -- not the ink -- must land on the inner-area center, so the target
             is lowered by this amount. ``0.0`` (the default) centers the ink,
             the historical behaviour.
+        hole_aware_vertical_shift_inches: Vertical shift in inches to account
+            for asymmetric top/bottom holes (positive = downward). Computed
+            from ``label.hole_aware_vertical_shift_inches``. ``0.0`` (the
+            default) applies no shift.
     """
     pens = {int(pen) for pen in text_pens}
     content = file_path.read_text(encoding="utf-8")
@@ -1624,12 +1630,14 @@ def _center_text_layer_vertically(
 
     # Expected center position (in plotter units: HPGL_UNITS_PER_INCH per
     # inch). Band centering lowers the target by the ink-to-band offset so the
-    # band, not the ink, lands on the inner-area center.
+    # band, not the ink, lands on the inner-area center. Hole-aware shift
+    # adjusts for asymmetric top/bottom holes.
     v_margin_units = label.v_margin * HPGL_UNITS_PER_INCH
     label_height_units = label.height * HPGL_UNITS_PER_INCH
     available_height_units = label_height_units - (2 * v_margin_units)
     expected_center_y = v_margin_units + available_height_units / 2.0
     expected_center_y -= band_center_offset_inches * HPGL_UNITS_PER_INCH
+    expected_center_y -= hole_aware_vertical_shift_inches * HPGL_UNITS_PER_INCH
 
     # Current center of text
     current_center_y = (text_y_min + text_y_max) / 2.0
@@ -4883,9 +4891,14 @@ def _render_positioned_lines(
 
         # Horizontal alignment within the available width: "left" anchors
         # the line's left-most point at the left margin, "right" anchors the
-        # right-most point at the right margin, "center" centers it.
+        # right-most point at the right margin, "center" centers it (plus any
+        # hole-aware shift).
         target_left_x = compute_horizontal_offset(
-            rendered_width, alignment_available_width, h_margin, text_h_alignment
+            rendered_width,
+            alignment_available_width,
+            h_margin,
+            text_h_alignment,
+            hole_aware_h_shift=label.hole_aware_horizontal_shift_inches,
         )
         x_blocks.append(block.translate(target_left_x - min_x, 0.0))
         x_line_indices.append(line_index)

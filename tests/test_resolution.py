@@ -5658,3 +5658,324 @@ class TestEllipseContentInset:
         semi_a = 4.0 / 2.0 - 0.25
         semi_b = 2.0 / 2.0 - 0.25
         assert (width / 2 / semi_a) ** 2 + (height / 2 / semi_b) ** 2 == pytest.approx(1.0)
+
+
+class TestHoleAwareShiftComputation:
+    """Test the _compute_hole_aware_shifts() pure function."""
+
+    def test_vertical_shift_single_top_hole(self) -> None:
+        """Single top hole only: vertical shift = +diameter/2."""
+        from plt_optimizer.generate.resolution import _compute_hole_aware_shifts
+
+        resolved = ResolvedLabel(
+            id="test",
+            count=1,
+            width=2.0,
+            height=1.5,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+            holes=[ResolvedHoleSpec(location="top", diameter=0.2)],
+            content=[],
+        )
+        v_shift, h_shift = _compute_hole_aware_shifts(resolved)
+        assert v_shift == pytest.approx(0.1)  # (0.2 - 0) / 2
+        assert h_shift == pytest.approx(0.0)  # (0 - 0) / 2
+
+    def test_vertical_shift_single_bottom_hole(self) -> None:
+        """Single bottom hole only: vertical shift = -diameter/2."""
+        from plt_optimizer.generate.resolution import _compute_hole_aware_shifts
+
+        resolved = ResolvedLabel(
+            id="test",
+            count=1,
+            width=2.0,
+            height=1.5,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+            holes=[ResolvedHoleSpec(location="bottom", diameter=0.2)],
+            content=[],
+        )
+        v_shift, h_shift = _compute_hole_aware_shifts(resolved)
+        assert v_shift == pytest.approx(-0.1)  # (0 - 0.2) / 2
+        assert h_shift == pytest.approx(0.0)
+
+    def test_vertical_shift_both_holes_top_larger(self) -> None:
+        """Top larger than bottom: positive shift."""
+        from plt_optimizer.generate.resolution import _compute_hole_aware_shifts
+
+        resolved = ResolvedLabel(
+            id="test",
+            count=1,
+            width=2.0,
+            height=1.5,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+            holes=[
+                ResolvedHoleSpec(location="top", diameter=0.2),
+                ResolvedHoleSpec(location="bottom", diameter=0.1),
+            ],
+            content=[],
+        )
+        v_shift, h_shift = _compute_hole_aware_shifts(resolved)
+        assert v_shift == pytest.approx(0.05)  # (0.2 - 0.1) / 2
+        assert h_shift == pytest.approx(0.0)
+
+    def test_vertical_shift_both_holes_bottom_larger(self) -> None:
+        """Bottom larger than top: negative shift."""
+        from plt_optimizer.generate.resolution import _compute_hole_aware_shifts
+
+        resolved = ResolvedLabel(
+            id="test",
+            count=1,
+            width=2.0,
+            height=1.5,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+            holes=[
+                ResolvedHoleSpec(location="top", diameter=0.1),
+                ResolvedHoleSpec(location="bottom", diameter=0.2),
+            ],
+            content=[],
+        )
+        v_shift, h_shift = _compute_hole_aware_shifts(resolved)
+        assert v_shift == pytest.approx(-0.05)  # (0.1 - 0.2) / 2
+        assert h_shift == pytest.approx(0.0)
+
+    def test_vertical_shift_equal_holes(self) -> None:
+        """Equal top and bottom holes: no shift."""
+        from plt_optimizer.generate.resolution import _compute_hole_aware_shifts
+
+        resolved = ResolvedLabel(
+            id="test",
+            count=1,
+            width=2.0,
+            height=1.5,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+            holes=[
+                ResolvedHoleSpec(location="top", diameter=0.15),
+                ResolvedHoleSpec(location="bottom", diameter=0.15),
+            ],
+            content=[],
+        )
+        v_shift, h_shift = _compute_hole_aware_shifts(resolved)
+        assert v_shift == pytest.approx(0.0)
+        assert h_shift == pytest.approx(0.0)
+
+    def test_vertical_shift_no_holes(self) -> None:
+        """No holes: no shift."""
+        from plt_optimizer.generate.resolution import _compute_hole_aware_shifts
+
+        resolved = ResolvedLabel(
+            id="test",
+            count=1,
+            width=2.0,
+            height=1.5,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+            holes=[],
+            content=[],
+        )
+        v_shift, h_shift = _compute_hole_aware_shifts(resolved)
+        assert v_shift == pytest.approx(0.0)
+        assert h_shift == pytest.approx(0.0)
+
+    def test_horizontal_shift_single_left_hole(self) -> None:
+        """Single left hole only: horizontal shift = +diameter/2."""
+        from plt_optimizer.generate.resolution import _compute_hole_aware_shifts
+
+        resolved = ResolvedLabel(
+            id="test",
+            count=1,
+            width=2.0,
+            height=1.5,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+            holes=[ResolvedHoleSpec(location="left", diameter=0.2)],
+            content=[],
+        )
+        v_shift, h_shift = _compute_hole_aware_shifts(resolved)
+        assert v_shift == pytest.approx(0.0)
+        assert h_shift == pytest.approx(0.1)  # (0.2 - 0) / 2
+
+    def test_horizontal_shift_single_right_hole(self) -> None:
+        """Single right hole only: horizontal shift = -diameter/2."""
+        from plt_optimizer.generate.resolution import _compute_hole_aware_shifts
+
+        resolved = ResolvedLabel(
+            id="test",
+            count=1,
+            width=2.0,
+            height=1.5,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+            holes=[ResolvedHoleSpec(location="right", diameter=0.2)],
+            content=[],
+        )
+        v_shift, h_shift = _compute_hole_aware_shifts(resolved)
+        assert v_shift == pytest.approx(0.0)
+        assert h_shift == pytest.approx(-0.1)  # (0 - 0.2) / 2
+
+    def test_horizontal_shift_both_holes_left_larger(self) -> None:
+        """Left larger than right: positive horizontal shift."""
+        from plt_optimizer.generate.resolution import _compute_hole_aware_shifts
+
+        resolved = ResolvedLabel(
+            id="test",
+            count=1,
+            width=2.0,
+            height=1.5,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+            holes=[
+                ResolvedHoleSpec(location="left", diameter=0.2),
+                ResolvedHoleSpec(location="right", diameter=0.1),
+            ],
+            content=[],
+        )
+        v_shift, h_shift = _compute_hole_aware_shifts(resolved)
+        assert v_shift == pytest.approx(0.0)
+        assert h_shift == pytest.approx(0.05)  # (0.2 - 0.1) / 2
+
+    def test_horizontal_shift_both_holes_right_larger(self) -> None:
+        """Right larger than left: negative horizontal shift."""
+        from plt_optimizer.generate.resolution import _compute_hole_aware_shifts
+
+        resolved = ResolvedLabel(
+            id="test",
+            count=1,
+            width=2.0,
+            height=1.5,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+            holes=[
+                ResolvedHoleSpec(location="left", diameter=0.1),
+                ResolvedHoleSpec(location="right", diameter=0.2),
+            ],
+            content=[],
+        )
+        v_shift, h_shift = _compute_hole_aware_shifts(resolved)
+        assert v_shift == pytest.approx(0.0)
+        assert h_shift == pytest.approx(-0.05)  # (0.1 - 0.2) / 2
+
+    def test_combined_vertical_and_horizontal_shifts(self) -> None:
+        """All four holes with different sizes: both shifts apply."""
+        from plt_optimizer.generate.resolution import _compute_hole_aware_shifts
+
+        resolved = ResolvedLabel(
+            id="test",
+            count=1,
+            width=2.0,
+            height=1.5,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+            holes=[
+                ResolvedHoleSpec(location="top", diameter=0.2),
+                ResolvedHoleSpec(location="bottom", diameter=0.1),
+                ResolvedHoleSpec(location="left", diameter=0.25),
+                ResolvedHoleSpec(location="right", diameter=0.15),
+            ],
+            content=[],
+        )
+        v_shift, h_shift = _compute_hole_aware_shifts(resolved)
+        assert v_shift == pytest.approx(0.05)  # (0.2 - 0.1) / 2
+        assert h_shift == pytest.approx(0.05)  # (0.25 - 0.15) / 2
+
+
+class TestComputeHorizontalOffsetWithHoleShift:
+    """Test compute_horizontal_offset() with hole-aware shift parameter."""
+
+    def test_center_aligned_with_positive_shift(self) -> None:
+        """Center alignment with positive shift: shifts right."""
+        # available_width=2.0, rendered_width=1.0, margin=0.1
+        # natural center = 0.1 + (2.0 - 1.0)/2 = 0.6
+        # with shift +0.1 = 0.7
+        result = compute_horizontal_offset(
+            rendered_width=1.0,
+            available_width=2.0,
+            margin=0.1,
+            alignment="center",
+            hole_aware_h_shift=0.1,
+        )
+        assert result == pytest.approx(0.7)
+
+    def test_center_aligned_with_negative_shift(self) -> None:
+        """Center alignment with negative shift: shifts left."""
+        result = compute_horizontal_offset(
+            rendered_width=1.0,
+            available_width=2.0,
+            margin=0.1,
+            alignment="center",
+            hole_aware_h_shift=-0.1,
+        )
+        assert result == pytest.approx(0.5)
+
+    def test_center_aligned_no_shift(self) -> None:
+        """Center alignment with zero shift: same as historical."""
+        result = compute_horizontal_offset(
+            rendered_width=1.0,
+            available_width=2.0,
+            margin=0.1,
+            alignment="center",
+            hole_aware_h_shift=0.0,
+        )
+        assert result == pytest.approx(0.6)
+
+    def test_left_aligned_ignores_shift(self) -> None:
+        """Left alignment: shift is ignored."""
+        result = compute_horizontal_offset(
+            rendered_width=1.0,
+            available_width=2.0,
+            margin=0.1,
+            alignment="left",
+            hole_aware_h_shift=0.5,
+        )
+        assert result == pytest.approx(0.1)  # margin only
+
+    def test_right_aligned_ignores_shift(self) -> None:
+        """Right alignment: shift is ignored."""
+        result = compute_horizontal_offset(
+            rendered_width=1.0,
+            available_width=2.0,
+            margin=0.1,
+            alignment="right",
+            hole_aware_h_shift=0.5,
+        )
+        # right = margin + available - rendered = 0.1 + 2.0 - 1.0 = 1.1
+        assert result == pytest.approx(1.1)
+
+    def test_unknown_alignment_centers_with_shift(self) -> None:
+        """Unknown alignment defaults to center: applies shift."""
+        result = compute_horizontal_offset(
+            rendered_width=1.0,
+            available_width=2.0,
+            margin=0.1,
+            alignment="unknown",
+            hole_aware_h_shift=0.1,
+        )
+        assert result == pytest.approx(0.7)
+
+    def test_shift_with_overwide_line(self) -> None:
+        """Shift applied even when line is wider than available width."""
+        # rendered_width=3.0 > available_width=2.0
+        # natural center = 0.1 + (2.0 - 3.0)/2 = -0.4 (overflows left)
+        # with shift +0.2 = -0.2 (still overflows, but less)
+        result = compute_horizontal_offset(
+            rendered_width=3.0,
+            available_width=2.0,
+            margin=0.1,
+            alignment="center",
+            hole_aware_h_shift=0.2,
+        )
+        assert result == pytest.approx(-0.2)

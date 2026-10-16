@@ -4331,3 +4331,84 @@ class TestEllipseDemoExample:
                 assert not first.buffer(-1e-6).intersects(second.buffer(-1e-6)), (
                     f"{placed[i].label_id} overlaps {placed[i + 1].label_id}"
                 )
+
+
+class TestHoleAwareCenteringDemoExample:
+    """Regression tests for tests_deps/hole_aware_centering_job.yaml.
+
+    The fixture pins hole-aware text centering: when axis holes (top/bottom or
+    left/right) have asymmetric diameters, text automatically shifts to center
+    in the available space between them. Vertical shift applies to all text;
+    horizontal shift applies only to center-aligned text.
+
+    - Vertical shift = (top_diameter - bottom_diameter) / 2
+    - Horizontal shift = (left_diameter - right_diameter) / 2 (center alignment only)
+    """
+
+    _SPEC = Path("tests_deps/hole_aware_centering_job.yaml")
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="hole_aware",
+            optimize=False,
+            plots=False,
+        )
+
+    def test_vertical_shifts_resolve_correctly(self, tmp_path: Path) -> None:
+        """Vertical shifts are computed and stored per-label."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+
+        # Single top hole: +0.1
+        assert by_id["single_top"].hole_aware_vertical_shift_inches == pytest.approx(0.1)
+
+        # Single bottom hole: -0.1
+        assert by_id["single_bottom"].hole_aware_vertical_shift_inches == pytest.approx(-0.1)
+
+        # Both holes, top larger: +0.05
+        assert by_id["both_top_larger"].hole_aware_vertical_shift_inches == pytest.approx(0.05)
+
+        # Both holes, bottom larger: -0.05
+        assert by_id["both_bottom_larger"].hole_aware_vertical_shift_inches == pytest.approx(-0.05)
+
+        # Equal holes: 0.0
+        assert by_id["equal_holes"].hole_aware_vertical_shift_inches == pytest.approx(0.0)
+
+        # No holes: 0.0
+        assert by_id["no_holes"].hole_aware_vertical_shift_inches == pytest.approx(0.0)
+
+    def test_horizontal_shifts_default_to_zero(self, tmp_path: Path) -> None:
+        """Horizontal shifts are zero when no left/right holes are declared."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+
+        # All labels in this fixture have no left/right holes
+        for label_id in by_id:
+            assert by_id[label_id].hole_aware_horizontal_shift_inches == pytest.approx(0.0)
+
+    def test_all_labels_exported_successfully(self, tmp_path: Path) -> None:
+        """The fixture has 6 labels, all exported successfully."""
+        result = self._export(tmp_path)
+        assert len(result.rendered_labels) == 6
+        expected_ids = {
+            "single_top",
+            "single_bottom",
+            "both_top_larger",
+            "both_bottom_larger",
+            "equal_holes",
+            "no_holes",
+        }
+        assert set(result.rendered_labels.keys()) == expected_ids
+
+    def test_fixture_loads_without_errors(self) -> None:
+        """The fixture YAML is valid and resolves without errors."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        # If we got here, no errors were raised.
+        assert len(labels) == 6

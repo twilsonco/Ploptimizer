@@ -1,0 +1,58 @@
+job:
+  job_name: "Hole-Aware Centering Demo"
+  width: 4.0
+  height: 3.0
+  text_height: 0.3
+  margin: 0.3
+  max_h_compress: 0.0
+  labels:
+    # 1. Single top hole: text should drop down by 0.1 inches
+    - id: "single_top"
+      content:
+        - text: "Single Top"
+      holes:
+        - location: top
+          diameter: 0.2
+
+    # 2. Single bottom hole: text should rise up by 0.1 inches
+    - id: "single_bottom"
+      content:
+        - text: "Single Bottom"
+      holes:
+        - location: bottom
+          diameter: 0.2
+
+    # 3. Both holes, top larger: text should drop by 0.05 inches
+    - id: "both_top_larger"
+      content:
+        - text: "Top Larger"
+      holes:
+        - location: top
+          diameter: 0.2
+        - location: bottom
+          diameter: 0.1
+
+    # 4. Both holes, bottom larger: text should rise by 0.05 inches
+    - id: "both_bottom_larger"
+      content:
+        - text: "Bottom Larger"
+      holes:
+        - location: top
+          diameter: 0.1
+        - location: bottom
+          diameter: 0.2
+
+    # 5. Equal holes: no vertical shift
+    - id: "equal_holes"
+      content:
+        - text: "Equal Holes"
+      holes:
+        - location: top
+          diameter: 0.15
+        - location: bottom
+          diameter: 0.15
+
+    # 6. No holes: no shift
+    - id: "no_holes"
+      content:
+        - text: "No Holes"

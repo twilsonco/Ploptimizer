@@ -1508,6 +1508,23 @@ class ResolvedLabel:
             adjacent ellipse-packing pipeline and the collision checks measure
             the ellipse boundary. ``"rect"`` keeps the rectangular pipeline
             bit-identical.
+        hole_aware_vertical_shift_inches: Automatic vertical shift (in inches)
+            applied to center the text block in the available space between
+            top and bottom axis holes, accounting for their diameter
+            difference. Computed automatically as ``(top_hole_dia -
+            bottom_hole_dia) / 2``; positive = downward shift. ``0.0`` when
+            no axis holes or when top and bottom holes have equal diameters.
+            Set by the resolution engine; never sourced from the YAML schema.
+        hole_aware_horizontal_shift_inches: Automatic horizontal shift (in
+            inches) applied to center horizontally-centered text in the
+            available space between left and right axis holes, accounting for
+            their diameter difference. Computed automatically as
+            ``(left_hole_dia - right_hole_dia) / 2``; positive = rightward
+            shift. Applied only when ``text_h_alignment`` is ``"center"``;
+            fixed-edge alignment (``"left"`` / ``"right"``) ignores this shift.
+            ``0.0`` when no axis holes, when holes have equal diameters, or
+            when text is edge-aligned. Set by the resolution engine; never
+            sourced from the YAML schema.
     """
 
     id: str
@@ -1537,6 +1554,8 @@ class ResolvedLabel:
     descending_character_clearance: float = DEFAULT_DESCENDING_CHARACTER_CLEARANCE
     descending_character_reciprocal_scale: float = DEFAULT_DESCENDING_CHARACTER_RECIPROCAL_SCALE
     shape_type: str = DEFAULT_LABEL_SHAPE
+    hole_aware_vertical_shift_inches: float = 0.0
+    hole_aware_horizontal_shift_inches: float = 0.0
 
     @property
     def center_text_by_band(self) -> bool:
@@ -1548,6 +1567,53 @@ class ResolvedLabel:
         kept and :attr:`v_center_by_content` is inert.
         """
         return self.auto_descending_character_adjustment and not self.v_center_by_content
+
+
+# ---------------------------------------------------------------------------
+# Hole-aware adaptive text centering
+# ---------------------------------------------------------------------------
+def _compute_hole_aware_shifts(resolved_label: ResolvedLabel) -> tuple[float, float]:
+    """Compute text centering shifts based on asymmetric axis holes.
+
+    When a label has top/bottom or left/right axis holes with different
+    diameters, the text should center in the "effective available space" away
+    from the larger hole. This function computes the shift as half the
+    difference in hole diameters.
+
+    Vertical shift: (top_diameter - bottom_diameter) / 2
+      - Positive value → shift downward (top hole is larger)
+      - Negative value → shift upward (bottom hole is larger)
+      - Zero → holes are equal or both absent
+
+    Horizontal shift: (left_diameter - right_diameter) / 2
+      - Positive value → shift rightward (left hole is larger)
+      - Negative value → shift leftward (right hole is larger)
+      - Zero → holes are equal or both absent
+      - Applied only to center-aligned text; fixed-edge alignment ignores it
+
+    Args:
+        resolved_label: A resolved label with populated holes list.
+
+    Returns:
+        Tuple of (vertical_shift_inches, horizontal_shift_inches).
+    """
+    # Map axis hole locations to their diameters (default 0.0 if absent)
+    hole_diameters = {
+        "top": 0.0,
+        "bottom": 0.0,
+        "left": 0.0,
+        "right": 0.0,
+    }
+
+    for hole in resolved_label.holes:
+        if hole.location in hole_diameters:
+            hole_diameters[hole.location] = hole.diameter
+
+    # Compute shifts: (positive - negative) / 2
+    v_shift = (hole_diameters["top"] - hole_diameters["bottom"]) / 2.0
+    h_shift = (hole_diameters["left"] - hole_diameters["right"]) / 2.0
+
+    return v_shift, h_shift
 
 
 # ---------------------------------------------------------------------------
@@ -1981,6 +2047,7 @@ def compute_horizontal_offset(
     available_width: float,
     margin: float,
     alignment: str,
+    hole_aware_h_shift: float = 0.0,
 ) -> float:
     """Compute the target left-edge X for a rendered line inside the margin box.
 
@@ -1992,12 +2059,14 @@ def compute_horizontal_offset(
       margin (``margin``).
     - ``"right"``: the line's right-most point sits precisely at the right
       margin (``margin + available_width``).
-    - ``"center"`` (default): the line is centered within the span.
+    - ``"center"`` (default): the line is centered within the span, plus any
+      hole-aware horizontal shift.
 
     When the line is wider than the available width (e.g. compression is
     disabled), ``"center"`` overflows symmetrically and ``"left"`` /
     ``"right"`` keep their respective margin edges anchored, spilling out
-    the opposite side.
+    the opposite side. The hole-aware shift applies only to center-aligned
+    text; fixed-edge alignment (``"left"`` / ``"right"``) ignores the shift.
 
     Args:
         rendered_width: Measured rendered line width in inches.
@@ -2006,6 +2075,10 @@ def compute_horizontal_offset(
         margin: Resolved label margin in inches (left inner edge position).
         alignment: One of ``"left"``, ``"center"`` or ``"right"``. Unknown
             values fall back to ``"center"``.
+        hole_aware_h_shift: Optional horizontal shift in inches to account for
+            asymmetric left/right holes (positive = rightward). Applied only
+            when ``alignment`` is ``"center"``; fixed-edge alignment ignores it.
+            ``0.0`` (the default) applies no shift.
 
     Returns:
         The X coordinate where the line's left-most point (its ``min_x``)
@@ -2015,7 +2088,9 @@ def compute_horizontal_offset(
         return margin
     if alignment == "right":
         return margin + available_width - rendered_width
-    return margin + (available_width - rendered_width) / 2.0
+    # Center alignment: apply hole-aware shift
+    center_x = (available_width - rendered_width) / 2.0 + hole_aware_h_shift
+    return margin + center_x
 
 
 def _resolve_auto_line_spacing(
@@ -3647,7 +3722,8 @@ def _resolve_label(
             charge_descenders=not label_center_by_band,
         )
 
-    return ResolvedLabel(
+    # Construct the resolved label (before computing hole-aware shifts)
+    resolved = ResolvedLabel(
         id=label_id,
         count=label_count,
         width=final_width,
@@ -3672,6 +3748,14 @@ def _resolve_label(
         descending_character_clearance=label_descender_clearance,
         descending_character_reciprocal_scale=label_descender_recip,
         shape_type=label_shape,
+    )
+
+    # Compute and apply hole-aware shifts after the label is constructed
+    v_shift, h_shift = _compute_hole_aware_shifts(resolved)
+    return replace(
+        resolved,
+        hole_aware_vertical_shift_inches=v_shift,
+        hole_aware_horizontal_shift_inches=h_shift,
     )
 
 
