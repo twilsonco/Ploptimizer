@@ -485,11 +485,12 @@ class TestFractureLinearPaths:
         assert result.stroke_paths[0].segments == (seg,)
 
     def test_fracture_multi_segment_rectangle(self) -> None:
-        """Test that a rectangle is fractured into 4 separate paths."""
+        """Test that a closed rectangle is preserved as a single path (not fractured)."""
         from plt_optimizer.core.models import PLTDocument, StrokePath
         from plt_optimizer.utils.geometry import fracture_linear_paths
 
         # Rectangle: (0,0) -> (100,0) -> (100,50) -> (0,50) -> (0,0)
+        # This is a closed path, so it should be preserved as one block
         seg1 = StrokeSegment(
             start=Coordinate(x=0.0, y=0.0),
             end=Coordinate(x=100.0, y=0.0),
@@ -515,10 +516,9 @@ class TestFractureLinearPaths:
 
         result = fracture_linear_paths(doc)
 
-        assert len(result.stroke_paths) == 4
-        # Each fractured path should have pen_up_position at its segment's start
-        for fractured_path in result.stroke_paths:
-            assert len(fractured_path.segments) == 1
+        # Closed path should be preserved as a single path with all 4 segments
+        assert len(result.stroke_paths) == 1
+        assert len(result.stroke_paths[0].segments) == 4
 
     def test_fracture_preserves_arc_paths(self) -> None:
         """Test that paths containing arcs are preserved intact."""
@@ -585,11 +585,12 @@ class TestFractureLinearPaths:
         assert len(result.stroke_paths) == 2
 
     def test_fracture_polygon(self) -> None:
-        """Test that a polygon is fractured into individual segment paths."""
+        """Test that a closed polygon is preserved as a single path (not fractured)."""
         from plt_optimizer.core.models import PLTDocument, StrokePath
         from plt_optimizer.utils.geometry import fracture_linear_paths
 
-        # Triangle: (0,0) -> (50,100) -> (100,0)
+        # Triangle: (0,0) -> (50,100) -> (100,0) -> (0,0)
+        # This is a closed path, so it should be preserved as one block
         seg1 = StrokeSegment(
             start=Coordinate(x=0.0, y=0.0),
             end=Coordinate(x=50.0, y=100.0),
@@ -610,7 +611,9 @@ class TestFractureLinearPaths:
 
         result = fracture_linear_paths(doc)
 
-        assert len(result.stroke_paths) == 3
+        # Closed path should be preserved as a single path with all 3 segments
+        assert len(result.stroke_paths) == 1
+        assert len(result.stroke_paths[0].segments) == 3
 
 
 class TestSegmentToCoords:
@@ -742,3 +745,290 @@ class TestIsPointOnSegmentEdgeCases:
 
         result = is_point_on_segment(p, a, b, tol=1e-5)
         assert result is False
+
+
+class TestIsClosedPath:
+    """Tests for is_closed_path function (detects closed loops in stroke paths)."""
+
+    def test_closed_rectangular_path(self) -> None:
+        """Test a closed rectangular path (closed loop)."""
+        from plt_optimizer.utils.geometry import is_closed_path
+
+        # Rectangle: (0,0) -> (100,0) -> (100,50) -> (0,50) -> (0,0)
+        seg1 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=100.0, y=0.0),
+            is_cutting=True,
+        )
+        seg2 = StrokeSegment(
+            start=Coordinate(x=100.0, y=0.0),
+            end=Coordinate(x=100.0, y=50.0),
+            is_cutting=True,
+        )
+        seg3 = StrokeSegment(
+            start=Coordinate(x=100.0, y=50.0),
+            end=Coordinate(x=0.0, y=50.0),
+            is_cutting=True,
+        )
+        seg4 = StrokeSegment(
+            start=Coordinate(x=0.0, y=50.0),
+            end=Coordinate(x=0.0, y=0.0),
+            is_cutting=True,
+        )
+        path = StrokePath(pen_up_position=None, segments=(seg1, seg2, seg3, seg4))
+
+        assert is_closed_path(path) is True
+
+    def test_open_path_not_closed(self) -> None:
+        """Test an open path (not a closed loop)."""
+        from plt_optimizer.utils.geometry import is_closed_path
+
+        # Open path: (0,0) -> (100,0) -> (100,50) (doesn't return to start)
+        seg1 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=100.0, y=0.0),
+            is_cutting=True,
+        )
+        seg2 = StrokeSegment(
+            start=Coordinate(x=100.0, y=0.0),
+            end=Coordinate(x=100.0, y=50.0),
+            is_cutting=True,
+        )
+        path = StrokePath(pen_up_position=None, segments=(seg1, seg2))
+
+        assert is_closed_path(path) is False
+
+    def test_closed_ellipse_path(self) -> None:
+        """Test a closed ellipse path (many segments)."""
+        from plt_optimizer.utils.geometry import is_closed_path
+
+        # Simulated ellipse polygon: 8 segments forming a closed loop
+        start = Coordinate(x=50.0, y=0.0)
+        points = [
+            Coordinate(x=50.0, y=0.0),  # 0: start
+            Coordinate(x=75.0, y=25.0),  # 1
+            Coordinate(x=75.0, y=50.0),  # 2
+            Coordinate(x=50.0, y=75.0),  # 3
+            Coordinate(x=25.0, y=75.0),  # 4
+            Coordinate(x=0.0, y=50.0),  # 5
+            Coordinate(x=0.0, y=25.0),  # 6
+            Coordinate(x=25.0, y=0.0),  # 7
+            Coordinate(x=50.0, y=0.0),  # 8: back to start (closes the loop)
+        ]
+
+        segments = []
+        for i in range(len(points) - 1):
+            seg = StrokeSegment(start=points[i], end=points[i + 1], is_cutting=True)
+            segments.append(seg)
+
+        path = StrokePath(pen_up_position=None, segments=tuple(segments))
+
+        assert is_closed_path(path) is True
+
+    def test_single_segment_path_not_closed(self) -> None:
+        """Test that a single-segment path is not considered closed."""
+        from plt_optimizer.utils.geometry import is_closed_path
+
+        seg = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=100.0, y=100.0),
+            is_cutting=True,
+        )
+        path = StrokePath(pen_up_position=None, segments=(seg,))
+
+        assert is_closed_path(path) is False
+
+    def test_empty_path_not_closed(self) -> None:
+        """Test that an empty path is not considered closed."""
+        from plt_optimizer.utils.geometry import is_closed_path
+
+        path = StrokePath(pen_up_position=None, segments=())
+
+        assert is_closed_path(path) is False
+
+    def test_closed_with_tolerance(self) -> None:
+        """Test that nearly-closed paths are closed within tolerance."""
+        from plt_optimizer.utils.geometry import is_closed_path
+
+        # Triangle that almost closes (due to floating point, within default tolerance)
+        seg1 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=100.0, y=0.0),
+            is_cutting=True,
+        )
+        seg2 = StrokeSegment(
+            start=Coordinate(x=100.0, y=0.0),
+            end=Coordinate(x=50.0, y=86.603),
+            is_cutting=True,
+        )
+        seg3 = StrokeSegment(
+            start=Coordinate(x=50.0, y=86.603),
+            end=Coordinate(x=0.0, y=0.001),  # Nearly back to start
+            is_cutting=True,
+        )
+        path = StrokePath(pen_up_position=None, segments=(seg1, seg2, seg3))
+
+        # Should be closed within default tolerance (0.001)
+        assert is_closed_path(path) is True
+
+
+class TestFractureLinearPathsPreservesClosedPaths:
+    """Tests for fracture_linear_paths preserving closed paths (updated behavior)."""
+
+    def test_closed_rectangle_preserved(self) -> None:
+        """Test that a closed rectangular path is preserved as-is (not fractured)."""
+        from plt_optimizer.core.models import PLTDocument
+        from plt_optimizer.utils.geometry import fracture_linear_paths
+
+        # Closed rectangle: (0,0) -> (100,0) -> (100,50) -> (0,50) -> (0,0)
+        seg1 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=100.0, y=0.0),
+            is_cutting=True,
+        )
+        seg2 = StrokeSegment(
+            start=Coordinate(x=100.0, y=0.0),
+            end=Coordinate(x=100.0, y=50.0),
+            is_cutting=True,
+        )
+        seg3 = StrokeSegment(
+            start=Coordinate(x=100.0, y=50.0),
+            end=Coordinate(x=0.0, y=50.0),
+            is_cutting=True,
+        )
+        seg4 = StrokeSegment(
+            start=Coordinate(x=0.0, y=50.0),
+            end=Coordinate(x=0.0, y=0.0),
+            is_cutting=True,
+        )
+        path = StrokePath(pen_up_position=None, segments=(seg1, seg2, seg3, seg4))
+        doc = PLTDocument(header_commands=[], stroke_paths=[path], footer_commands=[])
+
+        result = fracture_linear_paths(doc)
+
+        # Closed path should NOT be fractured, should stay as one path
+        assert len(result.stroke_paths) == 1
+        assert len(result.stroke_paths[0].segments) == 4  # All 4 segments preserved
+
+    def test_closed_ellipse_preserved(self) -> None:
+        """Test that a closed ellipse polygon is preserved (not fractured)."""
+        from plt_optimizer.core.models import PLTDocument
+        from plt_optimizer.utils.geometry import fracture_linear_paths
+
+        # Simulate a 64-segment ellipse polygon that closes
+        num_points = 64
+        segments = []
+        for i in range(num_points):
+            theta1 = 2 * math.pi * i / num_points
+            theta2 = 2 * math.pi * (i + 1) / num_points
+            x1 = 50 + 30 * math.cos(theta1)
+            y1 = 50 + 20 * math.sin(theta1)
+            x2 = 50 + 30 * math.cos(theta2)
+            y2 = 50 + 20 * math.sin(theta2)
+            seg = StrokeSegment(
+                start=Coordinate(x=x1, y=y1),
+                end=Coordinate(x=x2, y=y2),
+                is_cutting=True,
+            )
+            segments.append(seg)
+
+        # Close the loop by adjusting the last endpoint to match the first start
+        last_seg = segments[-1]
+        first_start = segments[0].start
+        segments[-1] = StrokeSegment(
+            start=last_seg.start, end=first_start, is_cutting=True
+        )
+
+        path = StrokePath(pen_up_position=None, segments=tuple(segments))
+        doc = PLTDocument(header_commands=[], stroke_paths=[path], footer_commands=[])
+
+        result = fracture_linear_paths(doc)
+
+        # Closed ellipse should NOT be fractured, should stay as one path with 64 segments
+        assert len(result.stroke_paths) == 1
+        assert len(result.stroke_paths[0].segments) == 64
+
+    def test_open_path_still_fractured(self) -> None:
+        """Test that open paths are still fractured into individual segments."""
+        from plt_optimizer.core.models import PLTDocument
+        from plt_optimizer.utils.geometry import fracture_linear_paths
+
+        # Open path: (0,0) -> (100,0) -> (100,50) (doesn't close)
+        seg1 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=100.0, y=0.0),
+            is_cutting=True,
+        )
+        seg2 = StrokeSegment(
+            start=Coordinate(x=100.0, y=0.0),
+            end=Coordinate(x=100.0, y=50.0),
+            is_cutting=True,
+        )
+        path = StrokePath(pen_up_position=None, segments=(seg1, seg2))
+        doc = PLTDocument(header_commands=[], stroke_paths=[path], footer_commands=[])
+
+        result = fracture_linear_paths(doc)
+
+        # Open path should still be fractured into 2 separate single-segment paths
+        assert len(result.stroke_paths) == 2
+        assert len(result.stroke_paths[0].segments) == 1
+        assert len(result.stroke_paths[1].segments) == 1
+
+    def test_mixed_closed_and_open_paths(self) -> None:
+        """Test that closed paths are preserved while open paths are fractured."""
+        from plt_optimizer.core.models import PLTDocument
+        from plt_optimizer.utils.geometry import fracture_linear_paths
+
+        # Closed rectangle
+        seg_closed1 = StrokeSegment(
+            start=Coordinate(x=0.0, y=0.0),
+            end=Coordinate(x=100.0, y=0.0),
+            is_cutting=True,
+        )
+        seg_closed2 = StrokeSegment(
+            start=Coordinate(x=100.0, y=0.0),
+            end=Coordinate(x=100.0, y=50.0),
+            is_cutting=True,
+        )
+        seg_closed3 = StrokeSegment(
+            start=Coordinate(x=100.0, y=50.0),
+            end=Coordinate(x=0.0, y=50.0),
+            is_cutting=True,
+        )
+        seg_closed4 = StrokeSegment(
+            start=Coordinate(x=0.0, y=50.0),
+            end=Coordinate(x=0.0, y=0.0),
+            is_cutting=True,
+        )
+        closed_path = StrokePath(
+            pen_up_position=None, segments=(seg_closed1, seg_closed2, seg_closed3, seg_closed4)
+        )
+
+        # Open path
+        seg_open1 = StrokeSegment(
+            start=Coordinate(x=200.0, y=0.0),
+            end=Coordinate(x=300.0, y=0.0),
+            is_cutting=True,
+        )
+        seg_open2 = StrokeSegment(
+            start=Coordinate(x=300.0, y=0.0),
+            end=Coordinate(x=300.0, y=100.0),
+            is_cutting=True,
+        )
+        open_path = StrokePath(pen_up_position=None, segments=(seg_open1, seg_open2))
+
+        doc = PLTDocument(
+            header_commands=[],
+            stroke_paths=[closed_path, open_path],
+            footer_commands=[],
+        )
+
+        result = fracture_linear_paths(doc)
+
+        # Should have 1 closed path (4 segments) + 2 fractured open segments = 3 total paths
+        assert len(result.stroke_paths) == 3
+        # First path is the closed rectangle (unchanged)
+        assert len(result.stroke_paths[0].segments) == 4
+        # Second and third are the fractured open segments
+        assert len(result.stroke_paths[1].segments) == 1
+        assert len(result.stroke_paths[2].segments) == 1

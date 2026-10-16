@@ -253,6 +253,32 @@ def _segment_to_coords(
     return (seg.start, seg.end)
 
 
+def is_closed_path(
+    path: StrokePath,
+    tolerance: float = COORD_TOLERANCE,
+) -> bool:
+    """Check if a stroke path forms a closed loop.
+
+    A path is considered closed if its first segment starts at approximately
+    the same coordinate where its last segment ends (within the given tolerance).
+    This includes ellipse boundaries, polygons, and other closed shapes.
+
+    Args:
+        path: The stroke path to check.
+        tolerance: Coordinate comparison tolerance (default 0.001).
+
+    Returns:
+        True if the path is closed (start ≈ end), False otherwise.
+    """
+    if not path.segments or len(path.segments) < 2:
+        return False
+
+    first_start = path.segments[0].start
+    last_end = path.segments[-1].end
+
+    return coordinates_equal(first_start, last_end, tolerance=tolerance)
+
+
 def fracture_linear_paths(
     doc: PLTDocument,
 ) -> PLTDocument:
@@ -261,21 +287,23 @@ def fracture_linear_paths(
     This function decomposes continuous linear paths (rectangles, polygons, grids)
     into separate StrokePath objects so the optimizer can route between each
     segment independently. Arc-containing paths (EngraveLab 4-arc drill holes)
-    are preserved intact to maintain their macro structure.
+    and closed paths (ellipse boundaries, polygons) are preserved intact to
+    maintain their macro structure.
 
     Args:
         doc: The input PLTDocument containing stroke paths to fracture.
 
     Returns:
         A new PLTDocument with purely linear multi-segment paths broken apart.
-        Paths containing arcs (e.g., drill holes) are passed through unchanged.
+        Paths containing arcs (e.g., drill holes) and closed paths (e.g.,
+        ellipse boundaries) are passed through unchanged.
 
     Example:
         >>> from plt_optimizer.core.parser import PLTParser
         >>> parser = PLTParser()
         >>> doc = parser.parse_string("IN;PU0,0;PD100,0;PD100,50;PD0,50;PD0,0;SP;")
         >>> fractured = fracture_linear_paths(doc)
-        >>> # Result: 4 separate single-segment paths instead of one 4-segment path
+        >>> # Result: 1 path (closed rectangle) instead of fracturing into segments
     """
     from plt_optimizer.core.models import PLTDocument, StrokePath
 
@@ -288,11 +316,16 @@ def fracture_linear_paths(
         # Check if this path contains any arcs (drill holes)
         has_arcs = any(isinstance(seg, ArcSegment) for seg in path.segments)
 
-        if has_arcs:
-            # Preserve arc-containing paths intact (EngraveLab 4-arc macro)
+        # Check if this path is a closed loop (e.g., ellipse boundary, polygon)
+        is_closed = is_closed_path(path)
+
+        if has_arcs or is_closed:
+            # Preserve arc-containing and closed paths intact
+            # - Arc-containing: EngraveLab 4-arc macro (drill holes)
+            # - Closed: perimeter paths like ellipse boundaries, rectangles
             fractured_paths.append(path)
         else:
-            # Fracture purely linear paths into individual segments
+            # Fracture purely linear open paths into individual segments
             for segment in path.segments:
                 # Each segment becomes its own independent StrokePath
                 # pen_up_position is set to segment.start to allow the optimizer
