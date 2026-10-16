@@ -1311,6 +1311,15 @@ class LabelAttributes(TextAttributes):
             default) means unset and falls back to ``job-config.json`` then
             ``0.0``. An explicit ``0.0`` is honored (only true touching
             triggers the relief).
+        adjust_h_center_for_single_side_hole: Optional permission to apply
+            horizontal shift for asymmetric left/right drill holes. When enabled
+            (true), text is horizontally shifted to center between left and right
+            holes: shift = (left_diameter - right_diameter) / 2. Only applied to
+            center-aligned text; left/right alignment ignores the shift. Vertical
+            shifts (for top/bottom holes) are always applied regardless of this
+            field. Cascades job -> plate -> label (never text lines); ``None``
+            (the default) means unset and falls back to ``job-config.json`` then
+            ``False``. Accepted on plates for schema parity only.
     """
 
     width: Optional[float] = Field(
@@ -1471,6 +1480,20 @@ class LabelAttributes(TextAttributes):
             "proportion to the same ramp driving its downscale/raise. Cascades "
             "job -> plate -> label (never text lines); unset (null) falls back "
             "to job-config.json then 0.5. Accepted on plates for schema parity "
+            "only."
+        ),
+    )
+    adjust_h_center_for_single_side_hole: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Permission to apply horizontal shift for asymmetric left/right "
+            "drill holes. When enabled (true), text is horizontally shifted to "
+            "center between left and right holes: shift = (left_diameter - "
+            "right_diameter) / 2. Only applied to center-aligned text; left/right "
+            "alignment ignores the shift. Vertical shifts (for top/bottom holes) "
+            "are always applied and are not gated by this field. Cascades job -> "
+            "plate -> label (never text lines); unset (null) falls back to "
+            "job-config.json then false. Accepted on plates for schema parity "
             "only."
         ),
     )

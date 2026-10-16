@@ -620,6 +620,18 @@ class JobDefaults(BaseModel):
             "Unset falls back to 0.5."
         ),
     )
+    adjust_h_center_for_single_side_hole: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Default permission to apply horizontal shift for asymmetric "
+            "left/right drill holes (job layer). When enabled (true), text is "
+            "horizontally shifted to center between left and right holes: shift = "
+            "(left_diameter - right_diameter) / 2. Only applied to center-aligned "
+            "text; left/right alignment ignores the shift. Vertical shifts (for "
+            "top/bottom holes) are always applied and are not gated by this field. "
+            "Unset falls back to false."
+        ),
+    )
     optimize_line_content_max_lines: Optional[int] = Field(
         default=None,
         ge=1,
@@ -753,6 +765,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "descending_character_raise",
     "descending_character_clearance",
     "descending_character_reciprocal_scale",
+    "adjust_h_center_for_single_side_hole",
     "allow_rotation",
     "text_chunk_mode",
     "layout",

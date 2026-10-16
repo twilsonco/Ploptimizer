@@ -1556,6 +1556,7 @@ class ResolvedLabel:
     shape_type: str = DEFAULT_LABEL_SHAPE
     hole_aware_vertical_shift_inches: float = 0.0
     hole_aware_horizontal_shift_inches: float = 0.0
+    adjust_h_center_for_single_side_hole: bool = False
 
     @property
     def center_text_by_band(self) -> bool:
@@ -1584,15 +1585,18 @@ def _compute_hole_aware_shifts(resolved_label: ResolvedLabel) -> tuple[float, fl
       - Positive value → shift downward (top hole is larger)
       - Negative value → shift upward (bottom hole is larger)
       - Zero → holes are equal or both absent
+      - **Always applied** (not gated by any flag)
 
     Horizontal shift: (left_diameter - right_diameter) / 2
       - Positive value → shift rightward (left hole is larger)
       - Negative value → shift leftward (right hole is larger)
       - Zero → holes are equal or both absent
+      - Applied only when ``adjust_h_center_for_single_side_hole`` is enabled
       - Applied only to center-aligned text; fixed-edge alignment ignores it
 
     Args:
-        resolved_label: A resolved label with populated holes list.
+        resolved_label: A resolved label with populated holes list and
+            ``adjust_h_center_for_single_side_hole`` flag.
 
     Returns:
         Tuple of (vertical_shift_inches, horizontal_shift_inches).
@@ -1609,9 +1613,13 @@ def _compute_hole_aware_shifts(resolved_label: ResolvedLabel) -> tuple[float, fl
         if hole.location in hole_diameters:
             hole_diameters[hole.location] = hole.diameter
 
-    # Compute shifts: (positive - negative) / 2
+    # Compute vertical shift: always apply this
     v_shift = (hole_diameters["top"] - hole_diameters["bottom"]) / 2.0
-    h_shift = (hole_diameters["left"] - hole_diameters["right"]) / 2.0
+
+    # Compute horizontal shift: only apply if the flag is enabled
+    h_shift = 0.0
+    if resolved_label.adjust_h_center_for_single_side_hole:
+        h_shift = (hole_diameters["left"] - hole_diameters["right"]) / 2.0
 
     return v_shift, h_shift
 
@@ -3644,6 +3652,17 @@ def _resolve_label(
     else:
         label_descender_recip = DEFAULT_DESCENDING_CHARACTER_RECIPROCAL_SCALE
 
+    # Hole-aware horizontal centering (cascades label -> job; the plate tier
+    # is schema parity only, see schema.PlateSpec). Resolved at the LABEL
+    # level because the adjustment affects the entire label's text layout.
+    # Explicit ``False`` is honored, and only ``None`` means unset.
+    if label_input.adjust_h_center_for_single_side_hole is not None:
+        label_adjust_h_for_side_holes: bool = label_input.adjust_h_center_for_single_side_hole
+    elif job.adjust_h_center_for_single_side_hole is not None:
+        label_adjust_h_for_side_holes = job.adjust_h_center_for_single_side_hole
+    else:
+        label_adjust_h_for_side_holes = False
+
     # Resolve text lines with cutter compensation
     resolved_content = _resolve_content(
         label_input, job, available_cutters, tolerance_factor, label_id
@@ -3747,6 +3766,7 @@ def _resolve_label(
         descending_character_raise=label_descender_raise,
         descending_character_clearance=label_descender_clearance,
         descending_character_reciprocal_scale=label_descender_recip,
+        adjust_h_center_for_single_side_hole=label_adjust_h_for_side_holes,
         shape_type=label_shape,
     )
 

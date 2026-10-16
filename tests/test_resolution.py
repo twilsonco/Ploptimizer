@@ -5800,6 +5800,7 @@ class TestHoleAwareShiftComputation:
             v_margin=0.1,
             holes=[ResolvedHoleSpec(location="left", diameter=0.2)],
             content=[],
+            adjust_h_center_for_single_side_hole=True,
         )
         v_shift, h_shift = _compute_hole_aware_shifts(resolved)
         assert v_shift == pytest.approx(0.0)
@@ -5819,6 +5820,7 @@ class TestHoleAwareShiftComputation:
             v_margin=0.1,
             holes=[ResolvedHoleSpec(location="right", diameter=0.2)],
             content=[],
+            adjust_h_center_for_single_side_hole=True,
         )
         v_shift, h_shift = _compute_hole_aware_shifts(resolved)
         assert v_shift == pytest.approx(0.0)
@@ -5841,6 +5843,7 @@ class TestHoleAwareShiftComputation:
                 ResolvedHoleSpec(location="right", diameter=0.1),
             ],
             content=[],
+            adjust_h_center_for_single_side_hole=True,
         )
         v_shift, h_shift = _compute_hole_aware_shifts(resolved)
         assert v_shift == pytest.approx(0.0)
@@ -5863,6 +5866,7 @@ class TestHoleAwareShiftComputation:
                 ResolvedHoleSpec(location="right", diameter=0.2),
             ],
             content=[],
+            adjust_h_center_for_single_side_hole=True,
         )
         v_shift, h_shift = _compute_hole_aware_shifts(resolved)
         assert v_shift == pytest.approx(0.0)
@@ -5887,6 +5891,7 @@ class TestHoleAwareShiftComputation:
                 ResolvedHoleSpec(location="right", diameter=0.15),
             ],
             content=[],
+            adjust_h_center_for_single_side_hole=True,
         )
         v_shift, h_shift = _compute_hole_aware_shifts(resolved)
         assert v_shift == pytest.approx(0.05)  # (0.2 - 0.1) / 2
@@ -5979,3 +5984,101 @@ class TestComputeHorizontalOffsetWithHoleShift:
             hole_aware_h_shift=0.2,
         )
         assert result == pytest.approx(-0.2)
+
+
+class TestConditionalHoleAwareCentering:
+    """Test the adjust_h_center_for_single_side_hole conditional flag."""
+
+    def test_h_shift_disabled_by_default(self) -> None:
+        """Horizontal shift defaults to False: no h_shift computed."""
+        from plt_optimizer.generate.resolution import _compute_hole_aware_shifts
+
+        # Create a label with asymmetric left/right holes but flag disabled (default)
+        resolved = ResolvedLabel(
+            id="test",
+            count=1,
+            width=2.0,
+            height=1.5,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+            holes=[
+                ResolvedHoleSpec(location="left", diameter=0.2),
+                ResolvedHoleSpec(location="right", diameter=0.1),
+            ],
+            content=[],
+            adjust_h_center_for_single_side_hole=False,  # Explicitly False
+        )
+        v_shift, h_shift = _compute_hole_aware_shifts(resolved)
+        assert v_shift == pytest.approx(0.0)
+        assert h_shift == pytest.approx(0.0)  # NO shift even with asymmetric holes
+
+    def test_h_shift_enabled_with_flag(self) -> None:
+        """Horizontal shift enabled by flag: h_shift computed."""
+        from plt_optimizer.generate.resolution import _compute_hole_aware_shifts
+
+        # Create a label with asymmetric left/right holes and flag enabled
+        resolved = ResolvedLabel(
+            id="test",
+            count=1,
+            width=2.0,
+            height=1.5,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+            holes=[
+                ResolvedHoleSpec(location="left", diameter=0.2),
+                ResolvedHoleSpec(location="right", diameter=0.1),
+            ],
+            content=[],
+            adjust_h_center_for_single_side_hole=True,  # Enabled
+        )
+        v_shift, h_shift = _compute_hole_aware_shifts(resolved)
+        assert v_shift == pytest.approx(0.0)
+        assert h_shift == pytest.approx(0.05)  # (0.2 - 0.1) / 2
+
+    def test_v_shift_always_applied(self) -> None:
+        """Vertical shift always applied regardless of flag."""
+        from plt_optimizer.generate.resolution import _compute_hole_aware_shifts
+
+        # Test with flag disabled
+        resolved_disabled = ResolvedLabel(
+            id="test",
+            count=1,
+            width=2.0,
+            height=1.5,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+            holes=[
+                ResolvedHoleSpec(location="top", diameter=0.2),
+                ResolvedHoleSpec(location="bottom", diameter=0.1),
+            ],
+            content=[],
+            adjust_h_center_for_single_side_hole=False,  # Disabled
+        )
+        v_shift_disabled, h_shift_disabled = _compute_hole_aware_shifts(
+            resolved_disabled
+        )
+
+        # Test with flag enabled
+        resolved_enabled = ResolvedLabel(
+            id="test",
+            count=1,
+            width=2.0,
+            height=1.5,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+            holes=[
+                ResolvedHoleSpec(location="top", diameter=0.2),
+                ResolvedHoleSpec(location="bottom", diameter=0.1),
+            ],
+            content=[],
+            adjust_h_center_for_single_side_hole=True,  # Enabled
+        )
+        v_shift_enabled, h_shift_enabled = _compute_hole_aware_shifts(resolved_enabled)
+
+        # Vertical shift should be identical regardless of flag
+        assert v_shift_disabled == pytest.approx(v_shift_enabled)
+        assert v_shift_disabled == pytest.approx(0.05)  # (0.2 - 0.1) / 2
