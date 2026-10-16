@@ -41,6 +41,19 @@ class MockBooleanVar:
         self._value = value
 
 
+class MockDoubleVar:
+    """Mock DoubleVar that stores and returns float values properly."""
+
+    def __init__(self, initial: float = 0.0) -> None:
+        self._value = initial
+
+    def get(self) -> float:
+        return self._value
+
+    def set(self, value: float) -> None:
+        self._value = value
+
+
 def _install_tkinter_mocks() -> None:
     """Install tkinter mocks at the earliest possible moment."""
 
@@ -64,6 +77,10 @@ def _install_tkinter_mocks() -> None:
 
         @staticmethod
         def showinfo(title: str, message: str, **kwargs: Any) -> None:
+            pass
+
+        @staticmethod
+        def showwarning(title: str, message: str, **kwargs: Any) -> None:
             pass
 
         @staticmethod
@@ -194,6 +211,7 @@ def _install_tkinter_mocks() -> None:
         Toplevel = MockToplevel
         StringVar = MockStringVar
         BooleanVar = MockBooleanVar
+        DoubleVar = MockDoubleVar
 
         BOTH = "both"
         LEFT = "left"
@@ -313,3 +331,29 @@ def close_figures_after_test() -> None:
     """Close all matplotlib figures after each test to prevent memory warnings."""
     yield
     plt.close("all")
+
+
+@pytest.fixture(autouse=True)
+def isolate_log_level_env() -> Any:
+    """Isolate the ``PLT_LOG_LEVEL`` env var around every test.
+
+    The benchmark CLI propagates ``--log-level`` into subprocesses by writing
+    :data:`plt_optimizer.utils.logging.LOG_LEVEL_ENV_VAR` (``PLT_LOG_LEVEL``)
+    to ``os.environ``. In-process benchmark tests that exercise the child
+    logging setup therefore leak the level into later tests: a subsequent CLI
+    test's ``setup_logging()`` resolves the leaked level (e.g. CRITICAL) and
+    its INFO records never reach ``caplog``. Snapshot and restore the env var
+    around every test so log verbosity is deterministic regardless of test
+    order. (The logger singleton is deliberately left alone: many tests mock
+    ``setup_logging`` and rely on the singleton a previous test built.)
+    """
+    from plt_optimizer.utils.logging import LOG_LEVEL_ENV_VAR
+
+    saved_env = os.environ.get(LOG_LEVEL_ENV_VAR)
+    try:
+        yield
+    finally:
+        if saved_env is None:
+            os.environ.pop(LOG_LEVEL_ENV_VAR, None)
+        else:
+            os.environ[LOG_LEVEL_ENV_VAR] = saved_env

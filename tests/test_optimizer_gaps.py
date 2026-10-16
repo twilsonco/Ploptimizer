@@ -184,7 +184,7 @@ class TestChristofidesCandidatePruning:
         ]
         strategy = ChristofidesStrategy()
 
-        result = strategy.optimize(blocks, start_point=(0.0, 0.0), end_point=(1000.0, 0.0))
+        result = strategy.optimize(blocks, initial_position=(0.0, 0.0), end_point=(1000.0, 0.0))
 
         assert result.block_count == 3
         assert {s.block_id for s in result.traverse_order} == {0, 1, 2}
@@ -443,6 +443,8 @@ class TestParallelEnsembleResultSelection:
                 strategy_name: str,
                 blocks_serialized: Any,
                 initial_position: Any,
+                end_point: Any = None,
+                same_row_preference: float = 1.0,
             ) -> _FakeFuture:
                 """Record a submission and return its pre-resolved future."""
                 outcome = outcomes[strategy_name]
@@ -453,7 +455,7 @@ class TestParallelEnsembleResultSelection:
                 self._futures.append((strategy_name, future))
                 return future
 
-        def _fake_as_completed(futures: Any) -> Any:
+        def _fake_as_completed(futures: Any, *args: Any, **kwargs: Any) -> Any:
             """Yield submitted futures in submission order."""
             return iter(list(futures))
 
@@ -485,7 +487,8 @@ class TestParallelEnsembleResultSelection:
 
         assert result.winner_name == "Insertion Heuristic"
         assert result.total_travel_distance == pytest.approx(5.0)
-        assert len(result.all_benchmarks) == 6
+        # 7 strategies x 2 start candidates (terminal-candidate evaluation).
+        assert len(result.all_benchmarks) == 14
 
     def test_baseline_selection_picks_higher_improvement(
         self, monkeypatch: pytest.MonkeyPatch
@@ -538,4 +541,6 @@ class TestParallelEnsembleResultSelection:
 
         assert result.winner_name == "NearestNeighbor + 2-Opt"
         assert result.total_travel_distance == pytest.approx(7.0)
-        assert len(result.all_benchmarks) == 5
+        # 6 surviving strategies x 2 start candidates (the failing NoOp
+        # baseline contributes zero rows; terminal-candidate evaluation).
+        assert len(result.all_benchmarks) == 12

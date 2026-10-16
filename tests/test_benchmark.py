@@ -10,9 +10,12 @@ arguments set to ``None``.
 from __future__ import annotations
 
 import csv
+import logging
+import os
+import time
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, List, Optional, Tuple
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -20,18 +23,39 @@ import pytest
 from plt_optimizer.cli.benchmark import (
     _FILE_LEVEL_SENTINEL,
     _NO_WINNER_SENTINEL,
+    _TIMING_STAT_COLUMNS,
+    _WINNER_JOB_TIMING_COLUMNS,
     CSV_COLUMNS,
     FileResult,
     ReportWriter,
+    _apply_log_level,
     _build_csv_columns,
+    _combined_scores,
+    _compute_timing_stats,
+    _configure_child_logging,
     _empty_row,
+    _group_eligible_rows_by_file,
+    _job_timing_fields,
     _log_metrics_from_row,
+    _optimize_strategy_worker,
     _populate_metrics,
     _process_file_worker,
+    _ratio_stats,
+    _read_report_rows,
+    _report_float,
+    _run_one_strategy_with_timeout,
+    _run_strategies_with_timeout,
+    _run_strategy,
     _save_plot,
+    _select_combined_winner,
     _select_ensemble_winner,
+    _select_rapid_winner,
+    _select_time_winner,
+    _StrategyOutcome,
     _strip_private_keys,
     _summarize_file_result,
+    _terminate_pool_workers,
+    analyze_report_winners,
     build_ensemble_rows,
     build_output_directory,
     find_plt_files,
@@ -39,7 +63,9 @@ from plt_optimizer.cli.benchmark import (
     process_file,
     write_report,
 )
-from plt_optimizer.core.units import HPGL_UNITS_PER_INCH
+from plt_optimizer.core.optimizer import OptimizationResult, OptimizationStrategy
+from plt_optimizer.core.units import HPGL_UNITS_PER_INCH, units_to_inches
+from plt_optimizer.utils.logging import LOG_LEVEL_ENV_VAR
 
 # ---------------------------------------------------------------------------
 # Test fixtures
@@ -328,6 +354,27 @@ class TestProcessFileOptionalLoggers:
         success_rows = [r for r in rows if r["status"] == "success"]
         assert success_rows, "expected at least one strategy to succeed"
         assert all(r["_metrics_event"]["status"] == "success" for r in success_rows)
+
+    def test_success_rows_carry_job_timing_ratios(
+        self, sample_input_dir: Path, sample_output_dir: Path
+    ) -> None:
+        """Successful rows must carry per-job ms/path and ms/segment values."""
+        rows = process_file(
+            input_path=sample_input_dir / "square.plt",
+            output_dir=sample_output_dir,
+            same_row_preference=1.0,
+            metrics_logger=None,
+            text_logger=None,
+        )
+        success_rows = [r for r in rows if r["status"] == "success"]
+        assert success_rows, "expected at least one strategy to succeed"
+        for row in success_rows:
+            assert float(row["ms_per_path"]) == pytest.approx(
+                float(row["time_ms"]) / float(row["before_paths"]), rel=1e-4
+            )
+            assert float(row["ms_per_segment"]) == pytest.approx(
+                float(row["time_ms"]) / float(row["before_segments"]), rel=1e-4
+            )
 
     def test_file_level_failure_still_returns_sentinel(self, sample_output_dir: Path) -> None:
         """A missing input file should produce a sentinel row, not raise."""
@@ -706,6 +753,582 @@ class TestWriteReport:
 
 
 # ---------------------------------------------------------------------------
+# Winner analysis post-processing (analyze_report_winners and helpers)
+# ---------------------------------------------------------------------------
+
+
+class TestReadReportRows:
+    """Tests for the report.csv reader."""
+
+    def test_reads_rows_in_order(self, tmp_path: Path) -> None:
+        """Rows must come back in on-disk order keyed by header names."""
+        target = tmp_path / "report.csv"
+        write_report(
+            [_row("a.plt", "nn2opt", "success"), _row("b.plt", "sa", "failed")],
+            target,
+            CSV_COLUMNS,
+        )
+        rows = _read_report_rows(target)
+        assert [r["file_name"] for r in rows] == ["a.plt", "b.plt"]
+
+    def test_missing_file_raises(self, tmp_path: Path) -> None:
+        """A missing report must raise FileNotFoundError."""
+        with pytest.raises(FileNotFoundError):
+            _read_report_rows(tmp_path / "nope.csv")
+
+
+class TestReportFloat:
+    """Tests for the lenient numeric-cell coercion helper."""
+
+    def test_valid_number(self) -> None:
+        """A normal numeric cell parses to float."""
+        assert _report_float({"time_ms": "12.5"}, "time_ms") == 12.5
+
+    def test_empty_string_is_zero(self) -> None:
+        """An empty cell (failed strategy) coerces to 0.0."""
+        assert _report_float({"time_ms": ""}, "time_ms") == 0.0
+
+    def test_missing_column_is_zero(self) -> None:
+        """A missing column coerces to 0.0."""
+        assert _report_float({}, "rapid_improvement_pct") == 0.0
+
+    def test_junk_value_is_zero(self) -> None:
+        """A non-numeric cell must not raise; it coerces to 0.0."""
+        assert _report_float({"time_ms": "n/a"}, "time_ms") == 0.0
+
+
+class TestGroupEligibleRowsByFile:
+    """Tests for the per-file eligibility grouping used by winners reports."""
+
+    def test_excludes_no_opt_and_failures(self) -> None:
+        """no-opt rows, failed rows and sentinels are never eligible."""
+        rows = [
+            _row("a.plt", "no-opt", "success"),
+            _row("a.plt", "nn2opt", "success"),
+            _row("a.plt", "sa", "failed"),
+            _row("a.plt", _FILE_LEVEL_SENTINEL, "parse_failed"),
+        ]
+        grouped = _group_eligible_rows_by_file(rows)
+        assert len(grouped) == 1
+        assert grouped[0][0] == "a.plt"
+        assert [r["strategy_name"] for r in grouped[0][1]] == ["nn2opt"]
+
+    def test_preserves_file_order_and_omits_empty(self) -> None:
+        """Files keep first-appearance order; all-failed files are omitted."""
+        rows = [
+            _row("b.plt", "nn2opt", "success"),
+            _row("a.plt", "sa", "failed"),
+            _row("b.plt", "sa", "success"),
+            _row("c.plt", "nn2opt", "success"),
+        ]
+        grouped = _group_eligible_rows_by_file(rows)
+        assert [name for name, _ in grouped] == ["b.plt", "c.plt"]
+        assert [r["strategy_name"] for r in grouped[0][1]] == ["nn2opt", "sa"]
+
+
+class TestCombinedScores:
+    """Tests for the min-max normalised quality/speed blend."""
+
+    def test_best_on_both_criteria_scores_one(self) -> None:
+        """The row that is both fastest and most improved must score 1.0."""
+        rows = [
+            _rapid_row("a.plt", "fast", rapid_pct=50.0, time_ms=10.0),
+            _rapid_row("a.plt", "slow", rapid_pct=10.0, time_ms=1000.0),
+        ]
+        scores = _combined_scores(rows)
+        assert scores[0] == pytest.approx(1.0)
+        assert scores[1] == pytest.approx(0.0)
+
+    def test_perfect_tradeoff_ties(self) -> None:
+        """A perfect quality/speed tradeoff must produce equal scores."""
+        rows = [
+            _rapid_row("a.plt", "quality", rapid_pct=60.0, time_ms=900.0),
+            _rapid_row("a.plt", "speed", rapid_pct=10.0, time_ms=10.0),
+        ]
+        scores = _combined_scores(rows)
+        assert scores[0] == pytest.approx(scores[1])
+
+    def test_zero_spread_scores_one(self) -> None:
+        """Exact ties on both criteria give every row a score of 1.0."""
+        rows = [
+            _rapid_row("a.plt", "x", rapid_pct=20.0, time_ms=5.0),
+            _rapid_row("a.plt", "y", rapid_pct=20.0, time_ms=5.0),
+        ]
+        assert _combined_scores(rows) == [1.0, 1.0]
+
+    def test_single_row_scores_one(self) -> None:
+        """A lone successful strategy is its own winner with score 1.0."""
+        rows = [_rapid_row("a.plt", "solo", rapid_pct=-3.0, time_ms=7.0)]
+        assert _combined_scores(rows) == [1.0]
+
+    def test_negative_improvements_are_normalised(self) -> None:
+        """Negative improvements must not break the [0, 1] scaling."""
+        rows = [
+            _rapid_row("a.plt", "less_bad", rapid_pct=-1.0, time_ms=10.0),
+            _rapid_row("a.plt", "worse", rapid_pct=-50.0, time_ms=20.0),
+        ]
+        scores = _combined_scores(rows)
+        assert scores[0] == pytest.approx(1.0)
+        assert scores[1] == pytest.approx(0.0)
+
+
+class TestWinnerSelectors:
+    """Tests for the three per-file winner selectors."""
+
+    def test_rapid_winner_prefers_improvement(self) -> None:
+        """Highest rapid_improvement_pct wins the rapid criterion."""
+        rows = [
+            _rapid_row("a.plt", "slow_but_good", rapid_pct=40.0, time_ms=900.0),
+            _rapid_row("a.plt", "fast_but_weak", rapid_pct=5.0, time_ms=1.0),
+        ]
+        assert _select_rapid_winner(rows)["strategy_name"] == "slow_but_good"
+
+    def test_rapid_winner_ties_break_on_time(self) -> None:
+        """Equal improvements resolve to the faster strategy."""
+        rows = [
+            _rapid_row("a.plt", "slow", rapid_pct=30.0, time_ms=900.0),
+            _rapid_row("a.plt", "fast", rapid_pct=30.0, time_ms=2.0),
+        ]
+        assert _select_rapid_winner(rows)["strategy_name"] == "fast"
+
+    def test_rapid_winner_ties_break_on_name(self) -> None:
+        """Full ties resolve alphabetically for determinism."""
+        rows = [
+            _rapid_row("a.plt", "zzz", rapid_pct=30.0, time_ms=5.0),
+            _rapid_row("a.plt", "aaa", rapid_pct=30.0, time_ms=5.0),
+        ]
+        assert _select_rapid_winner(rows)["strategy_name"] == "aaa"
+
+    def test_time_winner_prefers_speed(self) -> None:
+        """Lowest time_ms wins the runtime criterion."""
+        rows = [
+            _rapid_row("a.plt", "slow", rapid_pct=90.0, time_ms=5000.0),
+            _rapid_row("a.plt", "fast", rapid_pct=1.0, time_ms=3.0),
+        ]
+        assert _select_time_winner(rows)["strategy_name"] == "fast"
+
+    def test_time_winner_ties_break_on_improvement(self) -> None:
+        """Equal runtimes resolve to the more-improved strategy."""
+        rows = [
+            _rapid_row("a.plt", "weak", rapid_pct=2.0, time_ms=4.0),
+            _rapid_row("a.plt", "strong", rapid_pct=50.0, time_ms=4.0),
+        ]
+        assert _select_time_winner(rows)["strategy_name"] == "strong"
+
+    def test_empty_time_ms_treated_as_zero(self) -> None:
+        """A blank time cell must not raise and sorts as fastest."""
+        rows = [
+            _rapid_row("a.plt", "timed", rapid_pct=10.0, time_ms=5.0),
+            _rapid_row("a.plt", "blank", rapid_pct=10.0, time_ms=0.0),
+        ]
+        rows[1]["time_ms"] = ""
+        assert _select_time_winner(rows)["strategy_name"] == "blank"
+
+    def test_combined_winner_returns_row_and_score(self) -> None:
+        """The combined selector returns the winner plus its score."""
+        rows = [
+            _rapid_row("a.plt", "balanced", rapid_pct=55.0, time_ms=100.0),
+            _rapid_row("a.plt", "extreme", rapid_pct=60.0, time_ms=9000.0),
+        ]
+        winner, score = _select_combined_winner(rows)
+        assert winner["strategy_name"] == "balanced"
+        assert 0.0 <= score <= 1.0
+
+
+class TestRatioStats:
+    """Tests for the time-per-unit ratio aggregation helper."""
+
+    def test_min_max_average(self) -> None:
+        """Ratios are computed per row then reduced to min/max/avg."""
+        rows = [
+            _rapid_row("a.plt", "x", rapid_pct=1.0, time_ms=10.0, paths=5.0),
+            _rapid_row("b.plt", "x", rapid_pct=1.0, time_ms=30.0, paths=15.0),
+        ]
+        lo, hi, avg = _ratio_stats(rows, "before_paths")
+        assert lo == pytest.approx(2.0)
+        assert hi == pytest.approx(2.0)
+        assert avg == pytest.approx(2.0)
+
+    def test_skips_non_positive_denominators(self) -> None:
+        """Rows with zero/missing workload sizes must not divide."""
+        rows = [
+            _rapid_row("a.plt", "x", rapid_pct=1.0, time_ms=10.0, paths=0.0),
+            _rapid_row("b.plt", "x", rapid_pct=1.0, time_ms=40.0, paths=8.0),
+            _rapid_row("c.plt", "x", rapid_pct=1.0, time_ms=99.0),  # blank paths
+        ]
+        lo, hi, avg = _ratio_stats(rows, "before_paths")
+        assert (lo, hi, avg) == (5.0, 5.0, 5.0)
+
+    def test_all_usable_denominators_absent(self) -> None:
+        """When no row qualifies, all three stats are None."""
+        rows = [_rapid_row("a.plt", "x", rapid_pct=1.0, time_ms=10.0)]
+        assert _ratio_stats(rows, "before_segments") == (None, None, None)
+
+
+class TestComputeTimingStats:
+    """Tests for the batch-wide per-strategy timing aggregation."""
+
+    def test_aggregates_across_files(self) -> None:
+        """Stats pool every eligible row for a strategy across all files."""
+        grouped = _group_eligible_rows_by_file(
+            [
+                _rapid_row(
+                    "a.plt", "nn2opt", rapid_pct=1.0, time_ms=10.0, paths=5.0, segments=50.0
+                ),
+                _rapid_row(
+                    "b.plt", "nn2opt", rapid_pct=1.0, time_ms=60.0, paths=10.0, segments=100.0
+                ),
+            ]
+        )
+        stats = _compute_timing_stats(grouped)["nn2opt"]
+        assert stats["max_time_ms"] == 60.0
+        assert stats["min_ms_per_path"] == pytest.approx(2.0)
+        assert stats["max_ms_per_path"] == pytest.approx(6.0)
+        assert stats["avg_ms_per_path"] == pytest.approx(4.0)
+        assert stats["min_ms_per_segment"] == pytest.approx(0.2)
+        assert stats["max_ms_per_segment"] == pytest.approx(0.6)
+        assert stats["avg_ms_per_segment"] == pytest.approx(0.4)
+
+    def test_missing_workload_sizes_yield_none(self) -> None:
+        """max_time_ms still computes when ratio stats are unavailable."""
+        grouped = _group_eligible_rows_by_file(
+            [_rapid_row("a.plt", "sa", rapid_pct=1.0, time_ms=250.0)]
+        )
+        stats = _compute_timing_stats(grouped)["sa"]
+        assert stats["max_time_ms"] == 250.0
+        for column in _TIMING_STAT_COLUMNS:
+            if column != "max_time_ms":
+                assert stats[column] is None
+
+    def test_empty_grouped_returns_empty(self) -> None:
+        """No eligible rows means no strategies to aggregate."""
+        assert _compute_timing_stats([]) == {}
+
+
+class TestJobTimingFields:
+    """Tests for the per-job runtime-per-path/segment helper."""
+
+    def test_computes_ratios_from_own_row(self) -> None:
+        """The job's own time_ms divides by its own workload sizes."""
+        row = _rapid_row("a.plt", "x", rapid_pct=1.0, time_ms=30.0, paths=10.0, segments=150.0)
+        assert _job_timing_fields(row) == {"ms_per_path": 3.0, "ms_per_segment": 0.2}
+
+    def test_missing_denominators_yield_blank_cells(self) -> None:
+        """Zero/absent workload sizes must produce empty cells, not errors."""
+        row = _rapid_row("a.plt", "x", rapid_pct=1.0, time_ms=30.0, paths=0.0)
+        fields = _job_timing_fields(row)
+        assert fields["ms_per_path"] == ""
+        assert fields["ms_per_segment"] == ""
+
+    def test_missing_time_ms_yields_blank_cells(self) -> None:
+        """Failed rows without a recorded runtime must produce empty cells."""
+        row = _row("a.plt", "x", "failed")
+        row["before_paths"] = 10.0
+        row["before_segments"] = 150.0
+        assert _job_timing_fields(row) == {"ms_per_path": "", "ms_per_segment": ""}
+
+    def test_columns_constant(self) -> None:
+        """The helper's keys must match the exported column constant."""
+        row = _rapid_row("a.plt", "x", rapid_pct=1.0, time_ms=1.0, paths=1.0, segments=1.0)
+        assert sorted(_job_timing_fields(row)) == sorted(_WINNER_JOB_TIMING_COLUMNS)
+
+
+class TestAnalyzeReportWinners:
+    """End-to-end tests for the winners post-processing entry point."""
+
+    def test_writes_three_csvs_with_winners(self, tmp_path: Path) -> None:
+        """Each criterion CSV must contain the per-file winning rows."""
+        report = _write_report_csv(
+            tmp_path / "report.csv",
+            [
+                _rapid_row("a.plt", "no-opt", rapid_pct=0.0, time_ms=0.1),
+                _rapid_row("a.plt", "nn2opt", rapid_pct=30.0, time_ms=5.0),
+                _rapid_row("a.plt", "christofides", rapid_pct=45.0, time_ms=800.0),
+                _rapid_row("a.plt", "insertion", rapid_pct=50.0, time_ms=20.0),
+                _rapid_row("b.plt", "nn2opt", rapid_pct=10.0, time_ms=900.0),
+                _rapid_row("b.plt", "sa", rapid_pct=12.0, time_ms=4000.0),
+            ],
+        )
+
+        win_counts = analyze_report_winners(report)
+
+        rapid_rows = _read_csv(tmp_path / "report_rapid_improvement_winners.csv")
+        time_rows = _read_csv(tmp_path / "report_time_winners.csv")
+        combined_rows = _read_csv(tmp_path / "report_combined_winners.csv")
+
+        assert [(r["file_name"], r["strategy_name"]) for r in rapid_rows] == [
+            ("a.plt", "insertion"),
+            ("b.plt", "sa"),
+        ]
+        assert [(r["file_name"], r["strategy_name"]) for r in time_rows] == [
+            ("a.plt", "nn2opt"),
+            ("b.plt", "nn2opt"),
+        ]
+        # a.plt: insertion nearly tops both normalised criteria (best
+        # improvement, second-fastest) -> combined winner. b.plt: sa beats
+        # nn2opt on improvement but loses on time, so the 0.5/0.5 tie
+        # resolves to the faster nn2opt.
+        assert [(r["file_name"], r["strategy_name"]) for r in combined_rows] == [
+            ("a.plt", "insertion"),
+            ("b.plt", "nn2opt"),
+        ]
+        # Combined CSV carries the extra score column; others do not.
+        # insertion: 0.5 * 1.0 + 0.5 * (800 - 20) / (800 - 5) = 0.9906.
+        assert float(combined_rows[0]["combined_score"]) == pytest.approx(0.9906, abs=1e-4)
+        assert float(combined_rows[1]["combined_score"]) == pytest.approx(0.5)
+        assert "combined_score" not in rapid_rows[0]
+        # Full winning rows are preserved (e.g. time_ms survives).
+        assert rapid_rows[0]["time_ms"] == "20.0"
+
+        assert win_counts["nn2opt"] == {"rapid_improvement": 0, "time": 2, "combined": 1}
+        assert win_counts["insertion"] == {"rapid_improvement": 1, "time": 0, "combined": 1}
+        # Observed but never winning strategies still appear in the table.
+        assert win_counts["christofides"] == {"rapid_improvement": 0, "time": 0, "combined": 0}
+
+    def test_no_opt_never_wins(self, tmp_path: Path) -> None:
+        """Even a faster/cleaner no-opt row must be excluded from wins."""
+        report = _write_report_csv(
+            tmp_path / "report.csv",
+            [
+                _rapid_row("a.plt", "no-opt", rapid_pct=100.0, time_ms=0.01),
+                _rapid_row("a.plt", "nn2opt", rapid_pct=1.0, time_ms=50.0),
+            ],
+        )
+        win_counts = analyze_report_winners(report)
+        assert "no-opt" not in win_counts
+        for name in (
+            "report_rapid_improvement_winners.csv",
+            "report_time_winners.csv",
+            "report_combined_winners.csv",
+        ):
+            rows = _read_csv(tmp_path / name)
+            assert [r["strategy_name"] for r in rows] == ["nn2opt"]
+
+    def test_files_without_winners_are_omitted(self, tmp_path: Path) -> None:
+        """Parse-failed / all-failed files must not appear in winners CSVs."""
+        report = _write_report_csv(
+            tmp_path / "report.csv",
+            [
+                _row("bad.plt", _FILE_LEVEL_SENTINEL, "parse_failed", error="[parse] boom"),
+                _row("worse.plt", "nn2opt", "failed", error="[nn2opt] boom"),
+                _rapid_row("good.plt", "nn2opt", rapid_pct=5.0, time_ms=2.0),
+            ],
+        )
+        win_counts = analyze_report_winners(report)
+        for name in (
+            "report_rapid_improvement_winners.csv",
+            "report_time_winners.csv",
+            "report_combined_winners.csv",
+        ):
+            rows = _read_csv(tmp_path / name)
+            assert [r["file_name"] for r in rows] == ["good.plt"]
+        assert win_counts == {"nn2opt": {"rapid_improvement": 1, "time": 1, "combined": 1}}
+
+    def test_header_only_report_writes_nothing(self, tmp_path: Path, capsys: Any) -> None:
+        """A report with no data rows must skip CSV writes and say so."""
+        report = tmp_path / "report.csv"
+        report.write_text(",".join(CSV_COLUMNS) + "\n", encoding="utf-8")
+
+        win_counts = analyze_report_winners(report)
+
+        assert win_counts == {}
+        assert not (tmp_path / "report_rapid_improvement_winners.csv").exists()
+        assert not (tmp_path / "report_winner_summary.csv").exists()
+        out = capsys.readouterr().out
+        assert "No successful non-baseline strategies found" in out
+
+    def test_prints_summary_table(self, tmp_path: Path, capsys: Any) -> None:
+        """The stdout table must list per-strategy wins for all criteria."""
+        report = _write_report_csv(
+            tmp_path / "report.csv",
+            [
+                _rapid_row("a.plt", "nn2opt", rapid_pct=30.0, time_ms=5.0),
+                _rapid_row("a.plt", "sa", rapid_pct=45.0, time_ms=800.0),
+            ],
+        )
+        analyze_report_winners(report)
+        out = capsys.readouterr().out
+        assert "STRATEGY WINNER SUMMARY" in out
+        assert "rapid_improvement_wins" in out
+        # The runtime-statistic columns are part of the header too.
+        for column in _TIMING_STAT_COLUMNS:
+            assert column in out
+        # sa wins rapid, nn2opt wins time and combined. The rows carry no
+        # before_paths/before_segments, so every ratio stat renders as n/a.
+        table = out.split("STRATEGY WINNER SUMMARY", 1)[1]
+        sa_line = next(line for line in table.splitlines() if line.startswith("sa"))
+        nn_line = next(line for line in table.splitlines() if line.startswith("nn2opt"))
+        assert sa_line.split() == ["sa", "1", "0", "0", "800", *(["n/a"] * 6)]
+        assert nn_line.split() == ["nn2opt", "0", "1", "1", "5", *(["n/a"] * 6)]
+
+    def test_writes_summary_csv_matching_stdout_table(self, tmp_path: Path, capsys: Any) -> None:
+        """The summary CSV must mirror the printed win-count table exactly."""
+        report = _write_report_csv(
+            tmp_path / "report.csv",
+            [
+                _rapid_row("a.plt", "nn2opt", rapid_pct=30.0, time_ms=5.0, paths=5.0),
+                _rapid_row("a.plt", "sa", rapid_pct=45.0, time_ms=800.0, paths=10.0),
+            ],
+        )
+        analyze_report_winners(report)
+
+        rows = _read_csv(tmp_path / "report_winner_summary.csv")
+        assert [r["strategy"] for r in rows] == ["nn2opt", "sa"]
+        nn, sa = rows
+        # sa wins rapid; nn2opt wins time, and the combined tie (both 0.5)
+        # breaks to the faster strategy, nn2opt.
+        assert (nn["rapid_improvement_wins"], nn["runtime_wins"], nn["combined_wins"]) == (
+            "0",
+            "1",
+            "1",
+        )
+        assert (sa["rapid_improvement_wins"], sa["runtime_wins"], sa["combined_wins"]) == (
+            "1",
+            "0",
+            "0",
+        )
+        # Timing stats use the same compact rendering as the stdout table.
+        assert nn["max_time_ms"] == "5"
+        assert nn["min_ms_per_path"] == nn["max_ms_per_path"] == nn["avg_ms_per_path"] == "1"
+        assert sa["max_time_ms"] == "800"
+        assert sa["avg_ms_per_path"] == "80"
+        # No before_segments in the fixture -> n/a, identical to the table.
+        assert nn["min_ms_per_segment"] == "n/a"
+        out = capsys.readouterr().out
+        table = out.split("STRATEGY WINNER SUMMARY", 1)[1]
+        nn_line = next(line for line in table.splitlines() if line.startswith("nn2opt"))
+        assert nn_line.split() == [
+            "nn2opt",
+            "0",
+            "1",
+            "1",
+            nn["max_time_ms"],
+            nn["min_ms_per_path"],
+            nn["max_ms_per_path"],
+            nn["avg_ms_per_path"],
+            nn["min_ms_per_segment"],
+            nn["max_ms_per_segment"],
+            nn["avg_ms_per_segment"],
+        ]
+
+    def test_win_counts_sum_to_file_count(self, tmp_path: Path) -> None:
+        """Each criterion's wins must total the number of files with winners."""
+        report = _write_report_csv(
+            tmp_path / "report.csv",
+            [
+                _rapid_row(f"f{i}.plt", "nn2opt", rapid_pct=float(i), time_ms=float(10 - i))
+                for i in range(3)
+            ]
+            + [
+                _rapid_row(f"f{i}.plt", "sa", rapid_pct=float(3 - i), time_ms=float(20 + i))
+                for i in range(3)
+            ],
+        )
+        win_counts = analyze_report_winners(report)
+        for criterion in ("rapid_improvement", "time", "combined"):
+            total = sum(counts[criterion] for counts in win_counts.values())
+            assert total == 3
+
+    def test_custom_stem_is_respected(self, tmp_path: Path) -> None:
+        """Output names derive from the report stem, not a hardcoded name."""
+        report = _write_report_csv(
+            tmp_path / "myrun.csv", [_rapid_row("a.plt", "nn2opt", rapid_pct=1.0, time_ms=1.0)]
+        )
+        analyze_report_winners(report)
+        assert (tmp_path / "myrun_rapid_improvement_winners.csv").exists()
+        assert (tmp_path / "myrun_time_winners.csv").exists()
+        assert (tmp_path / "myrun_combined_winners.csv").exists()
+        assert (tmp_path / "myrun_winner_summary.csv").exists()
+
+    def test_winners_csvs_carry_job_timing_columns(self, tmp_path: Path) -> None:
+        """Every winners CSV must carry the winning job's own runtime ratios.
+
+        The values come from the winning row itself (its ``time_ms`` over its
+        ``before_paths`` / ``before_segments``) via the canonical
+        ``ms_per_path`` / ``ms_per_segment`` columns, not from batch-wide
+        strategy aggregates, which live only in the winner-summary CSV.
+        """
+        report = _write_report_csv(
+            tmp_path / "report.csv",
+            [
+                _rapid_row(
+                    "a.plt", "nn2opt", rapid_pct=10.0, time_ms=10.0, paths=5.0, segments=50.0
+                ),
+                _rapid_row("a.plt", "sa", rapid_pct=20.0, time_ms=500.0, paths=5.0, segments=50.0),
+                _rapid_row(
+                    "b.plt", "nn2opt", rapid_pct=10.0, time_ms=60.0, paths=10.0, segments=100.0
+                ),
+                _rapid_row(
+                    "b.plt", "sa", rapid_pct=20.0, time_ms=900.0, paths=10.0, segments=100.0
+                ),
+            ],
+        )
+        analyze_report_winners(report)
+
+        for name in (
+            "report_rapid_improvement_winners.csv",
+            "report_time_winners.csv",
+            "report_combined_winners.csv",
+        ):
+            rows = _read_csv(tmp_path / name)
+            assert rows, name
+            for row in rows:
+                for column in _WINNER_JOB_TIMING_COLUMNS:
+                    assert column in row, f"{name} missing {column}"
+                # Batch-wide aggregates belong to the summary CSV only.
+                for column in _TIMING_STAT_COLUMNS:
+                    assert column not in row, f"{name} unexpectedly has {column}"
+            # sa wins every rapid criterion here; each winning row must carry
+            # its own ratios: a.plt 500/5=100 ms/path, 500/50=10 ms/segment;
+            # b.plt 900/10=90 ms/path, 900/100=9 ms/segment.
+            sa_rows = {r["file_name"]: r for r in rows if r["strategy_name"] == "sa"}
+            if sa_rows:
+                assert float(sa_rows["a.plt"]["ms_per_path"]) == pytest.approx(100.0)
+                assert float(sa_rows["a.plt"]["ms_per_segment"]) == pytest.approx(10.0)
+                assert float(sa_rows["b.plt"]["ms_per_path"]) == pytest.approx(90.0)
+                assert float(sa_rows["b.plt"]["ms_per_segment"]) == pytest.approx(9.0)
+
+    def test_unavailable_ratios_render_as_blank_cells(self, tmp_path: Path) -> None:
+        """Winning jobs without workload sizes must not emit 'None' into CSVs."""
+        report = _write_report_csv(
+            tmp_path / "report.csv",
+            [_rapid_row("a.plt", "nn2opt", rapid_pct=1.0, time_ms=5.0)],
+        )
+        analyze_report_winners(report)
+        rows = _read_csv(tmp_path / "report_time_winners.csv")
+        for column in _WINNER_JOB_TIMING_COLUMNS:
+            assert rows[0][column] == ""
+
+    def test_legacy_report_gets_job_timing_backfilled(self, tmp_path: Path) -> None:
+        """Reports written before the ratio columns existed must still win.
+
+        The winners CSVs recompute ``ms_per_path`` / ``ms_per_segment`` from
+        the row's own ``time_ms`` / ``before_*`` values, so historical
+        reports lacking the columns produce fully populated winners rows.
+        """
+        legacy_columns = [c for c in CSV_COLUMNS if c not in _WINNER_JOB_TIMING_COLUMNS]
+        report = tmp_path / "report.csv"
+        with open(report, "w", newline="", encoding="utf-8") as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=legacy_columns)
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "file_name": "a.plt",
+                    "strategy_name": "nn2opt",
+                    "status": "success",
+                    "rapid_improvement_pct": "10.0",
+                    "time_ms": "30.0",
+                    "before_paths": "10",
+                    "before_segments": "150",
+                }
+            )
+        analyze_report_winners(report)
+        rows = _read_csv(tmp_path / "report_time_winners.csv")
+        assert float(rows[0]["ms_per_path"]) == pytest.approx(3.0)
+        assert float(rows[0]["ms_per_segment"]) == pytest.approx(0.2)
+
+
+# ---------------------------------------------------------------------------
 # find_plt_files / build_output_directory
 # ---------------------------------------------------------------------------
 
@@ -765,6 +1388,11 @@ class TestCsvSchemaHelpers:
         """The first column must be ``file_name`` for downstream tools."""
         assert CSV_COLUMNS[0] == "file_name"
 
+    def test_job_timing_columns_follow_time_ms(self) -> None:
+        """``ms_per_path``/``ms_per_segment`` must sit right after ``time_ms``."""
+        time_index = CSV_COLUMNS.index("time_ms")
+        assert CSV_COLUMNS[time_index + 1 : time_index + 3] == _WINNER_JOB_TIMING_COLUMNS
+
     def test_empty_row_initializes_all_columns(self) -> None:
         """``_empty_row`` must populate every column with ``""``."""
         row = _empty_row("foo.plt")
@@ -818,6 +1446,47 @@ class TestMain:
         assert rc == 0
         out = capsys.readouterr().out
         assert "No PLT files found" in out
+
+    def test_no_arguments_returns_1(self, capsys: Any) -> None:
+        """Omitting both input_dir and --analyze-only must exit 1 with an error."""
+        rc = main([])
+        assert rc == 1
+        err = capsys.readouterr().err
+        assert "input_dir is required" in err
+
+    def test_analyze_only_runs_post_processing(self, tmp_path: Path, capsys: Any) -> None:
+        """--analyze-only must analyze the report and write winners CSVs."""
+        report = _write_report_csv(
+            tmp_path / "report.csv",
+            [
+                _rapid_row("a.plt", "nn2opt", rapid_pct=10.0, time_ms=5.0),
+                _rapid_row("a.plt", "sa", rapid_pct=20.0, time_ms=500.0),
+            ],
+        )
+        rc = main(["--analyze-only", str(report)])
+        assert rc == 0
+        assert (tmp_path / "report_rapid_improvement_winners.csv").exists()
+        assert (tmp_path / "report_time_winners.csv").exists()
+        assert (tmp_path / "report_combined_winners.csv").exists()
+        assert (tmp_path / "report_winner_summary.csv").exists()
+        out = capsys.readouterr().out
+        assert "STRATEGY WINNER SUMMARY" in out
+
+    def test_analyze_only_missing_report_returns_1(self, tmp_path: Path, capsys: Any) -> None:
+        """--analyze-only against a missing report must exit 1 with an error."""
+        rc = main(["--analyze-only", str(tmp_path / "nope.csv")])
+        assert rc == 1
+        err = capsys.readouterr().err
+        assert "Report CSV not found" in err
+
+    def test_analyze_only_with_input_dir_returns_1(
+        self, sample_input_dir: Path, capsys: Any
+    ) -> None:
+        """Passing both input_dir and --analyze-only must exit 1 as ambiguous."""
+        rc = main(["--analyze-only", "report.csv", str(sample_input_dir)])
+        assert rc == 1
+        err = capsys.readouterr().err
+        assert "mutually exclusive" in err
 
     def test_happy_path_streams_results(
         self, sample_input_dir: Path, tmp_path: Path, capsys: Any
@@ -883,12 +1552,15 @@ class TestMain:
 
         assert rc == 0
         # CSVs must exist next to the input dir.
-        report = sample_input_dir.parent / f"{sample_input_dir.name}_benchmark" / "report.csv"
-        ensemble_report = (
-            sample_input_dir.parent / f"{sample_input_dir.name}_benchmark" / "ensemble_report.csv"
-        )
+        bench_dir = sample_input_dir.parent / f"{sample_input_dir.name}_benchmark"
+        report = bench_dir / "report.csv"
+        ensemble_report = bench_dir / "ensemble_report.csv"
         assert report.exists()
         assert ensemble_report.exists()
+        # Winner analysis must have run automatically after the reports.
+        assert (bench_dir / "report_rapid_improvement_winners.csv").exists()
+        assert (bench_dir / "report_time_winners.csv").exists()
+        assert (bench_dir / "report_combined_winners.csv").exists()
         # Per-strategy CSV must contain both rows.
         with open(report, newline="", encoding="utf-8") as f:
             written = list(csv.DictReader(f))
@@ -1143,54 +1815,6 @@ class TestMain:
         assert "Total files:" in out
         assert "12" in out
 
-    def test_completed_file_with_all_failed_strategies_counts_failure(
-        self, sample_input_dir: Path, capsys: Any
-    ) -> None:
-        """A future completing with only failed rows must bump the failure tally.
-
-        ``_record_completion`` short-circuits for crashed futures, so the
-        ``failure_count += 1`` branch of ``_summarize_file_result`` is only
-        reached when a worker *completes* but none of its per-strategy rows
-        succeeded. This drives exactly that path and asserts the final
-        stdout summary reports the file as failed rather than successful.
-        """
-        plt_file = sample_input_dir / "square.plt"
-        text_logger = MagicMock()
-        metrics_logger = MagicMock()
-        rows = [
-            _row(plt_file.name, "nn2opt", "failed", error="sa blew up"),
-            _row(plt_file.name, "sa", "failed", error="nn blew up"),
-        ]
-        fake_future = _fake_future(1, plt_file, rows, elapsed_s=0.5)
-        fake_executor = MagicMock()
-        fake_executor.__enter__.return_value = fake_executor
-        fake_executor.submit.return_value = fake_future
-
-        with patch(
-            "plt_optimizer.cli.benchmark.get_text_logger",
-            return_value=text_logger,
-        ), patch(
-            "plt_optimizer.cli.benchmark.get_metrics_logger",
-            return_value=metrics_logger,
-        ), patch(
-            "plt_optimizer.cli.benchmark.ProcessPoolExecutor",
-            return_value=fake_executor,
-        ), patch(
-            "plt_optimizer.cli.benchmark.as_completed",
-            return_value=iter([fake_future]),
-        ):
-            rc = main(["--workers", "1", str(sample_input_dir)])
-
-        assert rc == 0
-        out = capsys.readouterr().out
-        # The per-file line carries the FAILED summary, and the final
-        # tally counts the file under failed (not successful) files.
-        assert "FAILED: sa blew up" in out
-        assert "Successful files:   0" in out
-        assert "Failed files:       1" in out
-        # No metrics events were stashed on the failed rows.
-        assert metrics_logger.log_job.call_count == 0
-
 
 # ---------------------------------------------------------------------------
 # _populate_metrics (regression)
@@ -1321,3 +1945,806 @@ def _success_row(
     row["total_after_in"] = total_after
     row["time_ms"] = time_ms
     return row
+
+
+def _rapid_row(
+    file_name: str,
+    strategy: str,
+    *,
+    rapid_pct: float,
+    time_ms: float,
+    paths: float | None = None,
+    segments: float | None = None,
+) -> dict[str, Any]:
+    """Build a success row with the rapid-analysis columns populated.
+
+    Winner-analysis tests key off ``rapid_improvement_pct`` and ``time_ms``
+    only; this helper sets exactly those (plus ``status == "success"``).
+    ``paths``/``segments`` optionally populate the workload-size columns used
+    by the per-path / per-segment runtime statistics.
+    """
+    row = _row(file_name, strategy, "success")
+    row["rapid_improvement_pct"] = rapid_pct
+    row["time_ms"] = time_ms
+    if paths is not None:
+        row["before_paths"] = paths
+    if segments is not None:
+        row["before_segments"] = segments
+    return row
+
+
+def _write_report_csv(path: Path, rows: list[dict[str, Any]]) -> Path:
+    """Write winner-analysis input rows to ``path`` as a report.csv stand-in.
+
+    Numeric values are stringified the way ``ReportWriter``/``csv`` would on
+    disk, so tests exercise the same string-typed cells that
+    :func:`analyze_report_winners` sees in production.
+    """
+    with open(path, "w", newline="", encoding="utf-8") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=CSV_COLUMNS)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({k: ("" if v == "" else str(v)) for k, v in row.items()})
+    return path
+
+
+def _read_csv(path: Path) -> list[dict[str, str]]:
+    """Read a CSV file into a list of string dicts."""
+    with open(path, newline="", encoding="utf-8") as csvfile:
+        return list(csv.DictReader(csvfile))
+
+
+# ---------------------------------------------------------------------------
+# _run_ensemble_row / real ensemble integration
+# ---------------------------------------------------------------------------
+
+
+class TestRunEnsembleRow:
+    """Tests for the real ParallelEnsemble row appended by process_file."""
+
+    @staticmethod
+    def _fake_ensemble_result() -> Any:
+        """Build a ParallelEnsembleOptimizationResult wrapper for mocking."""
+        from plt_optimizer.core.optimizer import (
+            BlockTraverseState,
+            OptimizationResult,
+            ParallelEnsembleOptimizationResult,
+        )
+
+        inner = OptimizationResult(
+            traverse_order=(
+                BlockTraverseState(block_id=0, reversed=False, entrance=(0, 0), exit=(10, 0)),
+            ),
+            connections=(),
+            total_travel_distance=42.0,
+            initial_position=(0.0, 0.0),
+        )
+        return ParallelEnsembleOptimizationResult(
+            result=inner,
+            winner_name="NoOp (Baseline)",
+            all_benchmarks=(),
+        )
+
+    def test_success_row(self, sample_input_dir: Path, sample_output_dir: Path) -> None:
+        """A successful ensemble run produces a metrics-complete success row."""
+        from plt_optimizer.cli.benchmark import _ENSEMBLE_STRATEGY_NAME, _run_ensemble_row
+
+        fake_strategy = MagicMock()
+        fake_strategy.optimize.return_value = self._fake_ensemble_result()
+
+        fake_doc = MagicMock()
+        u = HPGL_UNITS_PER_INCH
+        fake_doc.rapid_distance.return_value = 0.8 * u
+        fake_doc.cutting_distance.return_value = 0.5 * u
+
+        with patch(
+            "plt_optimizer.cli.benchmark.ParallelEnsembleStrategy",
+            return_value=fake_strategy,
+        ) as MockStrategy, patch(
+            "plt_optimizer.cli.benchmark.Reassembler"
+        ) as MockReassembler, patch("plt_optimizer.cli.benchmark.PLTWriter"):
+            MockReassembler.return_value.reassemble.return_value = fake_doc
+            row = _run_ensemble_row(
+                blocks=[MagicMock()],
+                doc=MagicMock(),
+                before_rapid=1.0 * u,
+                before_cutting=0.5 * u,
+                input_path=sample_input_dir / "square.plt",
+                output_dir=sample_output_dir,
+                ensemble_timeout=7.5,
+                same_row_preference=2.0,
+                text_logger=None,
+            )
+
+        assert row["strategy_name"] == _ENSEMBLE_STRATEGY_NAME
+        assert row["status"] == "success"
+        assert row["rapid_saved_in"] == pytest.approx(0.2, rel=1e-3)
+        assert row["rapid_improvement_pct"] == pytest.approx(20.0, rel=1e-3)
+        assert row["time_ms"] != ""
+        # Strategy constructed with the configured timeout + preference.
+        MockStrategy.assert_called_once_with(
+            baseline_distance=1.0 * u, job_timeout=7.5, same_row_preference=2.0
+        )
+        # The wrapper must be unwrapped before reassembly.
+        reassemble_arg = MockReassembler.return_value.reassemble.call_args[0][2]
+        assert reassemble_arg.total_travel_distance == 42.0
+        assert row["_metrics_event"]["status"] == "success"
+
+    def test_failure_row(self, sample_input_dir: Path, sample_output_dir: Path) -> None:
+        """An ensemble exception yields a failed row with the [ensemble] prefix."""
+        from plt_optimizer.cli.benchmark import _ENSEMBLE_STRATEGY_NAME, _run_ensemble_row
+
+        text_logger = MagicMock()
+        with patch(
+            "plt_optimizer.cli.benchmark.ParallelEnsembleStrategy",
+            side_effect=RuntimeError("ensemble boom"),
+        ):
+            row = _run_ensemble_row(
+                blocks=[MagicMock()],
+                doc=MagicMock(),
+                before_rapid=1000.0,
+                before_cutting=500.0,
+                input_path=sample_input_dir / "square.plt",
+                output_dir=sample_output_dir,
+                ensemble_timeout=10.0,
+                same_row_preference=1.0,
+                text_logger=text_logger,
+            )
+
+        assert row["strategy_name"] == _ENSEMBLE_STRATEGY_NAME
+        assert row["status"] == "failed"
+        assert row["error_message"].startswith("[ensemble]")
+        assert "ensemble boom" in row["error_message"]
+        assert row["_metrics_event"]["status"] == "failed"
+        error_calls = [call.args[0] for call in text_logger.error.call_args_list]
+        assert any("ensemble" in msg for msg in error_calls)
+
+    def test_failure_without_logger_does_not_crash(
+        self, sample_input_dir: Path, sample_output_dir: Path
+    ) -> None:
+        """text_logger=None on failure must not raise (subprocess path)."""
+        from plt_optimizer.cli.benchmark import _run_ensemble_row
+
+        with patch(
+            "plt_optimizer.cli.benchmark.ParallelEnsembleStrategy",
+            side_effect=RuntimeError("boom"),
+        ):
+            row = _run_ensemble_row(
+                blocks=[MagicMock()],
+                doc=MagicMock(),
+                before_rapid=1000.0,
+                before_cutting=500.0,
+                input_path=sample_input_dir / "square.plt",
+                output_dir=sample_output_dir,
+                ensemble_timeout=10.0,
+                same_row_preference=1.0,
+                text_logger=None,
+            )
+        assert row["status"] == "failed"
+
+
+class TestProcessFileEnsembleRow:
+    """``process_file`` must append a real ensemble row after the strategies."""
+
+    def test_last_row_is_ensemble(self, sample_input_dir: Path, sample_output_dir: Path) -> None:
+        """The final row carries strategy_name='ensemble' with file metrics tagged."""
+        from plt_optimizer.cli.benchmark import _ENSEMBLE_STRATEGY_NAME
+
+        fake_strategy = MagicMock()
+        fake_result = TestRunEnsembleRow._fake_ensemble_result()
+        fake_strategy.optimize.return_value = fake_result
+        fake_doc = MagicMock()
+        fake_doc.rapid_distance.return_value = 900.0
+        fake_doc.cutting_distance.return_value = 500.0
+
+        with patch(
+            "plt_optimizer.cli.benchmark.ParallelEnsembleStrategy",
+            return_value=fake_strategy,
+        ) as MockStrategy, patch(
+            "plt_optimizer.cli.benchmark.Reassembler"
+        ) as MockReassembler, patch("plt_optimizer.cli.benchmark.PLTWriter"):
+            MockReassembler.return_value.reassemble.return_value = fake_doc
+            rows = process_file(
+                input_path=sample_input_dir / "square.plt",
+                output_dir=sample_output_dir,
+                same_row_preference=1.0,
+                ensemble_timeout=5.0,
+                metrics_logger=None,
+                text_logger=None,
+            )
+
+        assert rows[-1]["strategy_name"] == _ENSEMBLE_STRATEGY_NAME
+        assert rows[-1]["status"] == "success"
+        assert rows[-1]["before_paths"] != ""
+        assert rows[-1]["blocks_created"] != ""
+        # The configured timeout reached the strategy constructor.
+        assert MockStrategy.call_args.kwargs["job_timeout"] == 5.0
+        # Every strategy row precedes the ensemble row.
+        names = [r["strategy_name"] for r in rows]
+        assert names.index(_ENSEMBLE_STRATEGY_NAME) == len(names) - 1
+
+
+class TestEnsembleWinnerExclusion:
+    """The real ensemble row must never compete in winners reports."""
+
+    def test_group_eligible_rows_excludes_ensemble(self) -> None:
+        """Rows with strategy_name='ensemble' are filtered as ineligible."""
+        rows = [
+            {"file_name": "a.plt", "status": "success", "strategy_name": "ensemble"},
+            {"file_name": "a.plt", "status": "success", "strategy_name": "nn2opt"},
+        ]
+        grouped = _group_eligible_rows_by_file(rows)
+        assert len(grouped) == 1
+        names = [r["strategy_name"] for r in grouped[0][1]]
+        assert names == ["nn2opt"]
+
+    def test_build_ensemble_rows_ignores_real_ensemble(self) -> None:
+        """The synthetic ensemble winner excludes the real ensemble row."""
+        nn = _row("a.plt", "nn2opt", "success")
+        nn["total_improvement_pct"] = 10.0
+        nn["total_after_in"] = 9.0
+        nn["time_ms"] = 5.0
+        ens = _row("a.plt", "ensemble", "success")
+        ens["total_improvement_pct"] = 99.0
+        ens["total_after_in"] = 1.0
+        ens["time_ms"] = 6.0
+
+        out = build_ensemble_rows([nn, ens])
+        assert len(out) == 1
+        # The synthetic winner must be the nn2opt simulation, not the real run.
+        assert out[0]["strategy_name"] == "nn2opt"
+
+    def test_all_ensemble_only_file_gets_no_winner(self) -> None:
+        """A file whose only success is the ensemble row gets no winner."""
+        ens = _row("a.plt", "ensemble", "success")
+        grouped = _group_eligible_rows_by_file([ens])
+        assert grouped == []
+
+
+class TestMainEnsembleTimeoutArg:
+    """main() must parse --ensemble-timeout and pass it to the workers."""
+
+    def test_default_passed_to_submit(self, sample_input_dir: Path) -> None:
+        """Without the flag, workers receive the 10.0s default."""
+        plt_file = sample_input_dir / "square.plt"
+        rows = [_row(plt_file.name, "nn2opt", "success")]
+        rows[0]["total_improvement_pct"] = 10.0
+        rows[0]["total_after_in"] = 9.0
+        rows[0]["time_ms"] = 5.0
+        fake_future = _fake_future(1, plt_file, rows, elapsed_s=0.1)
+        fake_executor = MagicMock()
+        fake_executor.__enter__.return_value = fake_executor
+        fake_executor.submit.return_value = fake_future
+
+        with patch("plt_optimizer.cli.benchmark.get_text_logger", return_value=MagicMock()), patch(
+            "plt_optimizer.cli.benchmark.get_metrics_logger", return_value=MagicMock()
+        ), patch(
+            "plt_optimizer.cli.benchmark.ProcessPoolExecutor", return_value=fake_executor
+        ), patch("plt_optimizer.cli.benchmark.as_completed", return_value=iter([fake_future])):
+            rc = main(["--workers", "1", str(sample_input_dir)])
+
+        assert rc == 0
+        submit_args = fake_executor.submit.call_args[0]
+        # (worker, input_path, output_dir, same_row_preference, ensemble_timeout)
+        assert submit_args[4] == 10.0
+
+    def test_custom_value_passed_to_submit(self, sample_input_dir: Path) -> None:
+        """--ensemble-timeout 2.5 reaches the worker submit args."""
+        plt_file = sample_input_dir / "square.plt"
+        rows = [_row(plt_file.name, "nn2opt", "success")]
+        rows[0]["total_improvement_pct"] = 10.0
+        rows[0]["total_after_in"] = 9.0
+        rows[0]["time_ms"] = 5.0
+        fake_future = _fake_future(1, plt_file, rows, elapsed_s=0.1)
+        fake_executor = MagicMock()
+        fake_executor.__enter__.return_value = fake_executor
+        fake_executor.submit.return_value = fake_future
+
+        with patch("plt_optimizer.cli.benchmark.get_text_logger", return_value=MagicMock()), patch(
+            "plt_optimizer.cli.benchmark.get_metrics_logger", return_value=MagicMock()
+        ), patch(
+            "plt_optimizer.cli.benchmark.ProcessPoolExecutor", return_value=fake_executor
+        ), patch("plt_optimizer.cli.benchmark.as_completed", return_value=iter([fake_future])):
+            rc = main(["--workers", "1", "--ensemble-timeout", "2.5", str(sample_input_dir)])
+
+        assert rc == 0
+        assert fake_executor.submit.call_args[0][4] == 2.5
+
+
+# ---------------------------------------------------------------------------
+# Per-strategy subprocess timeout helpers
+# ---------------------------------------------------------------------------
+
+
+class _InstantStrategy(OptimizationStrategy):
+    """Picklable test strategy returning a trivial result immediately."""
+
+    @property
+    def name(self) -> str:
+        """Return the strategy name."""
+        return "instant"
+
+    def optimize(
+        self,
+        blocks: List[Any],
+        initial_position: Optional[Tuple[float, float]] = None,
+        end_point: Optional[Tuple[float, float]] = None,
+    ) -> OptimizationResult:
+        """Return an empty result without doing any work."""
+        return OptimizationResult(
+            traverse_order=(),
+            connections=(),
+            total_travel_distance=0.0,
+            initial_position=None,
+        )
+
+
+class _SleepingStrategy(OptimizationStrategy):
+    """Picklable test strategy that sleeps far longer than any test timeout."""
+
+    @property
+    def name(self) -> str:
+        """Return the strategy name."""
+        return "sleeping"
+
+    def optimize(
+        self,
+        blocks: List[Any],
+        initial_position: Optional[Tuple[float, float]] = None,
+        end_point: Optional[Tuple[float, float]] = None,
+    ) -> OptimizationResult:
+        """Sleep for an hour so the timeout is guaranteed to fire."""
+        time.sleep(3600)  # pragma: no cover - killed by the timeout
+        raise AssertionError("unreachable")  # pragma: no cover
+
+
+class _ExplodingStrategy(OptimizationStrategy):
+    """Picklable test strategy whose ``optimize`` always raises."""
+
+    @property
+    def name(self) -> str:
+        """Return the strategy name."""
+        return "exploding"
+
+    def optimize(
+        self,
+        blocks: List[Any],
+        initial_position: Optional[Tuple[float, float]] = None,
+        end_point: Optional[Tuple[float, float]] = None,
+    ) -> OptimizationResult:
+        """Raise unconditionally."""
+        raise RuntimeError("synthetic boom")
+
+
+class TestRunOneStrategyWithTimeout:
+    """``_run_one_strategy_with_timeout`` bounds each run in a subprocess."""
+
+    def test_success_returns_result_and_elapsed(self) -> None:
+        """A fast strategy yields its result plus a positive elapsed time."""
+        outcome = _run_one_strategy_with_timeout(
+            _InstantStrategy(), [], strategy_timeout=60.0, text_logger=None
+        )
+        assert outcome.error is None
+        assert isinstance(outcome.result, OptimizationResult)
+        assert outcome.elapsed_ms is not None
+        assert outcome.elapsed_ms >= 0.0
+
+    def test_timeout_aborts_and_reports(self) -> None:
+        """A strategy exceeding the budget is killed and reported as timed out."""
+        text_logger = MagicMock()
+        outcome = _run_one_strategy_with_timeout(
+            _SleepingStrategy(), [], strategy_timeout=1.0, text_logger=text_logger
+        )
+        assert outcome.result is None
+        assert outcome.elapsed_ms is None
+        assert outcome.error == "timed out after 1.0s"
+        assert any("timed out" in str(call) for call in text_logger.warning.call_args_list)
+
+    def test_strategy_exception_becomes_failed_outcome(self) -> None:
+        """An exception inside the child surfaces as a failed outcome."""
+        outcome = _run_one_strategy_with_timeout(
+            _ExplodingStrategy(), [], strategy_timeout=60.0, text_logger=None
+        )
+        assert outcome.result is None
+        assert outcome.error is not None
+        # The engine normalizes strategy failures into OptimizationError.
+        assert "OptimizationError" in outcome.error
+        assert "synthetic boom" in outcome.error
+
+    def test_pool_creation_failure_falls_back_in_process(self) -> None:
+        """When no subprocess pool can be created, run in-process instead."""
+        with patch(
+            "plt_optimizer.cli.benchmark.ProcessPoolExecutor",
+            side_effect=OSError("no processes allowed"),
+        ):
+            text_logger = MagicMock()
+            outcome = _run_one_strategy_with_timeout(
+                _InstantStrategy(), [], strategy_timeout=60.0, text_logger=text_logger
+            )
+        assert outcome.error is None
+        assert isinstance(outcome.result, OptimizationResult)
+        assert any("in-process" in str(call) for call in text_logger.warning.call_args_list)
+
+    def test_pool_creation_failure_fallback_reports_errors(self) -> None:
+        """In-process fallback still converts exceptions into failed outcomes."""
+        with patch(
+            "plt_optimizer.cli.benchmark.ProcessPoolExecutor",
+            side_effect=OSError("no processes allowed"),
+        ):
+            outcome = _run_one_strategy_with_timeout(
+                _ExplodingStrategy(), [], strategy_timeout=60.0, text_logger=None
+            )
+        assert outcome.error is not None
+        assert "synthetic boom" in outcome.error
+
+
+class TestRunStrategiesWithTimeout:
+    """``_run_strategies_with_timeout`` runs strategies sequentially, one budget each."""
+
+    def test_returns_outcome_per_strategy_in_order(self) -> None:
+        """Every strategy gets an outcome, preserving insertion order."""
+        strategies = {"instant": _InstantStrategy(), "exploding": _ExplodingStrategy()}
+        outcomes = _run_strategies_with_timeout(
+            strategies, [], strategy_timeout=60.0, text_logger=None
+        )
+        assert list(outcomes) == ["instant", "exploding"]
+        assert outcomes["instant"].error is None
+        assert outcomes["exploding"].error is not None
+
+    def test_timeout_only_affects_the_offending_strategy(self) -> None:
+        """A slow strategy fails while its fast sibling still succeeds."""
+        strategies = {"instant": _InstantStrategy(), "sleeping": _SleepingStrategy()}
+        outcomes = _run_strategies_with_timeout(
+            strategies, [], strategy_timeout=1.0, text_logger=None
+        )
+        assert outcomes["instant"].error is None
+        assert outcomes["sleeping"].error == "timed out after 1.0s"
+
+
+class TestTerminatePoolWorkers:
+    """``_terminate_pool_workers`` must degrade gracefully on odd executors."""
+
+    def test_terminates_tracked_processes(self) -> None:
+        """Each tracked worker process receives ``terminate()``."""
+        executor = MagicMock()
+        proc_a, proc_b = MagicMock(), MagicMock()
+        executor._processes = {1: proc_a, 2: proc_b}  # noqa: SLF001
+        _terminate_pool_workers(executor)
+        proc_a.terminate.assert_called_once()
+        proc_b.terminate.assert_called_once()
+
+    def test_missing_processes_attribute_is_noop(self) -> None:
+        """An executor without ``_processes`` is left alone."""
+        executor = MagicMock(spec=[])
+        _terminate_pool_workers(executor)  # must not raise
+
+    def test_terminate_errors_are_swallowed(self) -> None:
+        """A worker refusing to terminate must not propagate."""
+        executor = MagicMock()
+        grumpy = MagicMock()
+        grumpy.terminate.side_effect = OSError("already gone")
+        executor._processes = {1: grumpy}  # noqa: SLF001
+        _terminate_pool_workers(executor)  # must not raise
+
+
+class TestRunStrategyOutcomeConsumption:
+    """``_run_strategy`` turns a pre-computed outcome into a CSV row."""
+
+    def test_failed_outcome_short_circuits(
+        self, sample_input_dir: Path, sample_output_dir: Path
+    ) -> None:
+        """An errored outcome produces a failed row without reassembly."""
+        text_logger = MagicMock()
+        doc = MagicMock()
+        row = _run_strategy(
+            strategy_name="genetic",
+            outcome=_StrategyOutcome(result=None, elapsed_ms=None, error="timed out after 10.0s"),
+            doc=doc,
+            blocks=[],
+            before_rapid=100.0,
+            before_cutting=50.0,
+            input_path=sample_input_dir / "square.plt",
+            output_dir=sample_output_dir,
+            text_logger=text_logger,
+        )
+        assert row["status"] == "failed"
+        assert "timed out after 10.0s" in row["error_message"]
+        assert row["_metrics_event"]["status"] == "failed"
+        # Reassembly must never be attempted for a failed outcome.
+        doc.rapid_distance.assert_not_called()
+        assert any("genetic" in str(call) for call in text_logger.error.call_args_list)
+
+    def test_failed_outcome_without_logger(
+        self, sample_input_dir: Path, sample_output_dir: Path
+    ) -> None:
+        """A failed outcome with ``text_logger=None`` must not crash."""
+        row = _run_strategy(
+            strategy_name="sa",
+            outcome=_StrategyOutcome(result=None, elapsed_ms=None, error="boom"),
+            doc=MagicMock(),
+            blocks=[],
+            before_rapid=100.0,
+            before_cutting=50.0,
+            input_path=sample_input_dir / "square.plt",
+            output_dir=sample_output_dir,
+            text_logger=None,
+        )
+        assert row["status"] == "failed"
+
+    def test_success_without_result_is_reported_as_failure(
+        self, sample_input_dir: Path, sample_output_dir: Path
+    ) -> None:
+        """A success outcome missing its result degrades to a failed row."""
+        row = _run_strategy(
+            strategy_name="nn2opt",
+            outcome=_StrategyOutcome(result=None, elapsed_ms=1.0, error=None),
+            doc=MagicMock(),
+            blocks=[],
+            before_rapid=100.0,
+            before_cutting=50.0,
+            input_path=sample_input_dir / "square.plt",
+            output_dir=sample_output_dir,
+            text_logger=None,
+        )
+        assert row["status"] == "failed"
+        assert "without producing a result" in row["error_message"]
+
+    def test_no_opt_outcome_reuses_baseline_metrics(
+        self, sample_input_dir: Path, sample_output_dir: Path
+    ) -> None:
+        """The no-opt outcome writes the input document with unchanged metrics."""
+        from plt_optimizer.core.parser import PLTParser
+
+        doc = PLTParser().parse_file(sample_input_dir / "square.plt")
+        before_rapid = doc.rapid_distance()
+        before_cutting = doc.cutting_distance()
+
+        row = _run_strategy(
+            strategy_name="no-opt",
+            outcome=_StrategyOutcome(result=None, elapsed_ms=0.0, error=None),
+            doc=doc,
+            blocks=[],
+            before_rapid=before_rapid,
+            before_cutting=before_cutting,
+            input_path=sample_input_dir / "square.plt",
+            output_dir=sample_output_dir,
+            text_logger=None,
+        )
+        assert row["status"] == "success"
+        assert row["rapid_after_in"] == round(units_to_inches(before_rapid), 3)
+        assert row["cutting_after_in"] == round(units_to_inches(before_cutting), 3)
+        assert float(row["total_improvement_pct"]) == 0.0
+        assert row["_optimized_plt_path"] is not None
+
+
+class TestProcessFilePerStrategyTimeout:
+    """``process_file`` must bound every individual strategy run."""
+
+    def test_timeout_marks_strategy_failed_without_killing_file(
+        self, sample_input_dir: Path, sample_output_dir: Path
+    ) -> None:
+        """A timed-out strategy yields a failed row; the rest still succeed."""
+        real_runner = _run_one_strategy_with_timeout
+
+        def selective_runner(
+            strategy: Any, blocks: Any, strategy_timeout: float, text_logger: Any
+        ) -> _StrategyOutcome:
+            if type(strategy).__name__ == "GeneticAlgorithmStrategy":
+                return _StrategyOutcome(None, None, f"timed out after {strategy_timeout}s")
+            return real_runner(strategy, blocks, strategy_timeout, text_logger)
+
+        text_logger = MagicMock()
+        with patch(
+            "plt_optimizer.cli.benchmark._run_one_strategy_with_timeout",
+            side_effect=selective_runner,
+        ):
+            rows = process_file(
+                input_path=sample_input_dir / "square.plt",
+                output_dir=sample_output_dir,
+                same_row_preference=1.0,
+                ensemble_timeout=7.5,
+                metrics_logger=None,
+                text_logger=text_logger,
+            )
+
+        by_name = {r["strategy_name"]: r for r in rows}
+        assert by_name["genetic"]["status"] == "failed"
+        assert "timed out after 7.5s" in by_name["genetic"]["error_message"]
+        assert by_name["nn2opt"]["status"] == "success"
+        assert by_name["no-opt"]["status"] == "success"
+
+    def test_timeout_is_forwarded_to_every_strategy(
+        self, sample_input_dir: Path, sample_output_dir: Path
+    ) -> None:
+        """The configured budget reaches every per-strategy subprocess run."""
+        seen: list[float] = []
+        real_runner = _run_one_strategy_with_timeout
+
+        def spy_runner(
+            strategy: Any, blocks: Any, strategy_timeout: float, text_logger: Any
+        ) -> _StrategyOutcome:
+            seen.append(strategy_timeout)
+            return real_runner(strategy, blocks, strategy_timeout, text_logger)
+
+        with patch(
+            "plt_optimizer.cli.benchmark._run_one_strategy_with_timeout",
+            side_effect=spy_runner,
+        ):
+            process_file(
+                input_path=sample_input_dir / "square.plt",
+                output_dir=sample_output_dir,
+                same_row_preference=1.0,
+                ensemble_timeout=3.25,
+                metrics_logger=None,
+                text_logger=None,
+            )
+
+        # One call per real strategy (no-opt is synthesized, never run).
+        assert seen == [3.25] * 5
+
+    def test_construction_failure_becomes_failed_row(
+        self, sample_input_dir: Path, sample_output_dir: Path
+    ) -> None:
+        """A strategy that cannot even be constructed reports a failed row."""
+        from plt_optimizer.core.optimizer import GeneticAlgorithmStrategy
+
+        def patched_init(self: Any, *args: Any, **kwargs: Any) -> None:
+            raise RuntimeError("synthetic construct boom")
+
+        with patch.object(GeneticAlgorithmStrategy, "__init__", patched_init):
+            rows = process_file(
+                input_path=sample_input_dir / "square.plt",
+                output_dir=sample_output_dir,
+                same_row_preference=1.0,
+                ensemble_timeout=30.0,
+                metrics_logger=None,
+                text_logger=None,
+            )
+
+        by_name = {r["strategy_name"]: r for r in rows}
+        assert by_name["genetic"]["status"] == "failed"
+        assert "synthetic construct boom" in by_name["genetic"]["error_message"]
+        assert by_name["nn2opt"]["status"] == "success"
+
+
+class TestOptimizeStrategyWorker:
+    """``_optimize_strategy_worker`` times the strategy call inside the child."""
+
+    def test_returns_result_and_elapsed(self) -> None:
+        """The worker returns the strategy result and a non-negative duration."""
+        result, elapsed_s = _optimize_strategy_worker(_InstantStrategy(), [])
+        assert isinstance(result, OptimizationResult)
+        assert elapsed_s >= 0.0
+
+
+# ---------------------------------------------------------------------------
+# --log-level plumbing
+# ---------------------------------------------------------------------------
+
+
+def _child_logging_probe() -> Tuple[int, int]:
+    """Return ``(env_level, resolved_level)`` observed inside a child process.
+
+    Module-level so ``ProcessPoolExecutor`` can pickle it into the child; the
+    resolved level comes from :func:`resolve_log_level` with no explicit
+    value, i.e. purely from the inherited environment.
+    """
+    import os
+
+    from plt_optimizer.utils.logging import resolve_log_level
+
+    return int(os.environ[LOG_LEVEL_ENV_VAR]), resolve_log_level(None)
+
+
+class TestApplyLogLevel:
+    """``_apply_log_level`` must retune an already-built logger in place."""
+
+    def test_sets_logger_and_handlers(self) -> None:
+        """The logger and every handler adopt the requested level."""
+        from plt_optimizer.utils.logging import TextLogger
+
+        text_logger = TextLogger(name="bench_apply_level", level=logging.DEBUG)
+        assert text_logger.logger.handlers  # sanity: handlers exist to retune
+
+        _apply_log_level(text_logger, logging.ERROR)
+
+        assert text_logger.logger.level == logging.ERROR
+        assert all(h.level == logging.ERROR for h in text_logger.logger.handlers)
+
+
+class TestConfigureChildLogging:
+    """``_configure_child_logging`` publishes the level for lazy child loggers."""
+
+    def test_sets_env_var(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The numeric level lands in the propagation env var."""
+        monkeypatch.delenv(LOG_LEVEL_ENV_VAR, raising=False)
+        _configure_child_logging(logging.ERROR)
+        assert os.environ[LOG_LEVEL_ENV_VAR] == str(logging.ERROR)
+
+    def test_spawned_child_resolves_level_from_env(self) -> None:
+        """A real spawn child sees the initializer's level and resolves it."""
+        with ProcessPoolExecutor(
+            max_workers=1,
+            initializer=_configure_child_logging,
+            initargs=(logging.ERROR,),
+        ) as ex:
+            env_level, resolved = ex.submit(_child_logging_probe).result(timeout=60)
+
+        assert env_level == logging.ERROR
+        assert resolved == logging.ERROR
+
+
+class TestMainLogLevelArg:
+    """main() must parse --log-level and wire it into the executor children."""
+
+    def _run_main_with_fake_executor(
+        self, sample_input_dir: Path, extra_args: list[str]
+    ) -> MagicMock:
+        """Run main() against a fake executor; return the executor *class* mock.
+
+        The returned mock records constructor kwargs (``call_args``) while its
+        ``return_value`` acts as the executor instance used by main().
+        """
+        plt_file = sample_input_dir / "square.plt"
+        rows = [_row(plt_file.name, "nn2opt", "success")]
+        rows[0]["total_improvement_pct"] = 10.0
+        rows[0]["total_after_in"] = 9.0
+        rows[0]["time_ms"] = 5.0
+        fake_future = _fake_future(1, plt_file, rows, elapsed_s=0.1)
+        fake_executor = MagicMock()
+        fake_executor.__enter__.return_value = fake_executor
+        fake_executor.submit.return_value = fake_future
+        pool_class = MagicMock(return_value=fake_executor)
+
+        with patch("plt_optimizer.cli.benchmark.get_text_logger", return_value=MagicMock()), patch(
+            "plt_optimizer.cli.benchmark.get_metrics_logger", return_value=MagicMock()
+        ), patch("plt_optimizer.cli.benchmark.ProcessPoolExecutor", new=pool_class), patch(
+            "plt_optimizer.cli.benchmark.as_completed", return_value=iter([fake_future])
+        ):
+            rc = main(["--workers", "1", *extra_args, str(sample_input_dir)])
+
+        assert rc == 0
+        return pool_class
+
+    def test_default_warning_passed_as_initializer(self, sample_input_dir: Path) -> None:
+        """Without the flag, children are initialized at WARNING (30)."""
+        fake_executor = self._run_main_with_fake_executor(sample_input_dir, [])
+        init_kwargs = fake_executor.call_args.kwargs
+        assert init_kwargs["initializer"] is _configure_child_logging
+        assert init_kwargs["initargs"] == (logging.WARNING,)
+
+    def test_custom_level_passed_as_initializer(self, sample_input_dir: Path) -> None:
+        """--log-level info reaches the children as INFO (20), case-insensitive."""
+        fake_executor = self._run_main_with_fake_executor(sample_input_dir, ["--log-level", "info"])
+        assert fake_executor.call_args.kwargs["initargs"] == (logging.INFO,)
+
+    def test_invalid_level_rejected(self, sample_input_dir: Path) -> None:
+        """An unknown level name exits with argparse's usage error (code 2)."""
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--workers", "1", "--log-level", "chatty", str(sample_input_dir)])
+        assert exc_info.value.code == 2
+
+    def test_parent_logger_retuned_to_requested_level(self, sample_input_dir: Path) -> None:
+        """The parent's own logger is retuned even if already initialized."""
+        from plt_optimizer.utils.logging import TextLogger
+
+        text_logger = TextLogger(name="bench_main_level", level=logging.DEBUG)
+        fake_future_rows = [_row("square.plt", "nn2opt", "success")]
+        fake_future_rows[0]["total_improvement_pct"] = 10.0
+        fake_future_rows[0]["total_after_in"] = 9.0
+        fake_future_rows[0]["time_ms"] = 5.0
+        plt_file = sample_input_dir / "square.plt"
+        fake_future = _fake_future(1, plt_file, fake_future_rows, elapsed_s=0.1)
+        fake_executor = MagicMock()
+        fake_executor.__enter__.return_value = fake_executor
+        fake_executor.submit.return_value = fake_future
+
+        with patch("plt_optimizer.cli.benchmark.get_text_logger", return_value=text_logger), patch(
+            "plt_optimizer.cli.benchmark.get_metrics_logger", return_value=MagicMock()
+        ), patch(
+            "plt_optimizer.cli.benchmark.ProcessPoolExecutor", return_value=fake_executor
+        ), patch("plt_optimizer.cli.benchmark.as_completed", return_value=iter([fake_future])):
+            rc = main(["--workers", "1", str(sample_input_dir)])
+
+        assert rc == 0
+        assert text_logger.logger.level == logging.WARNING

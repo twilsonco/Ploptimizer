@@ -7,7 +7,9 @@ determining both traversal sequence and direction for MacroBlocks.
 from __future__ import annotations
 
 import math
-from typing import List, Tuple
+from concurrent.futures import Future
+from concurrent.futures.process import BrokenProcessPool
+from typing import Callable, List, Optional, Tuple
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -396,7 +398,7 @@ class TestChristofidesStrategy:
     def test_optimize_empty_list(self) -> None:
         """Test optimization of empty block list returns empty result."""
         strategy = ChristofidesStrategy()
-        result = strategy.optimize([], start_point=(0.0, 0.0), end_point=(10.0, 10.0))
+        result = strategy.optimize([], initial_position=(0.0, 0.0), end_point=(10.0, 10.0))
 
         assert len(result.traverse_order) == 0
         assert result.total_travel_distance == 0.0
@@ -406,7 +408,9 @@ class TestChristofidesStrategy:
         block_a = _make_simple_block(0, (100, 0), (110, 0))
 
         strategy = ChristofidesStrategy()
-        result = strategy.optimize([block_a], start_point=(0.0, 0.0), end_point=(200.0, 200.0))
+        result = strategy.optimize(
+            [block_a], initial_position=(0.0, 0.0), end_point=(200.0, 200.0)
+        )
 
         assert len(result.traverse_order) == 1
         state = result.traverse_order[0]
@@ -419,7 +423,7 @@ class TestChristofidesStrategy:
 
         strategy = ChristofidesStrategy()
         result = strategy.optimize(
-            [block_a, block_b], start_point=(0.0, 0.0), end_point=(200.0, 200.0)
+            [block_a, block_b], initial_position=(0.0, 0.0), end_point=(200.0, 200.0)
         )
 
         assert len(result.traverse_order) == 2
@@ -453,7 +457,7 @@ class TestChristofidesStrategy:
 
         strategy = ChristofidesStrategy()
         result = strategy.optimize(
-            [block_a, block_b, block_c], start_point=(0.0, 0.0), end_point=(200.0, 200.0)
+            [block_a, block_b, block_c], initial_position=(0.0, 0.0), end_point=(200.0, 200.0)
         )
 
         assert len(result.traverse_order) == 3
@@ -708,6 +712,244 @@ class TestParallelEnsembleStrategy:
         assert seen_ids == {0, 1, 2}
 
 
+class TestParallelEnsembleJobTimeout:
+    """Tests for the per-job timeout of ParallelEnsembleStrategy."""
+
+    @staticmethod
+    def _make_good_future(name: str, distance: float) -> object:
+        """Build a real Future carrying a successful benchmark result."""
+        from concurrent.futures import Future
+
+        opt_result = OptimizationResult(
+            traverse_order=(
+                BlockTraverseState(block_id=0, reversed=False, entrance=(0, 0), exit=(10, 0)),
+            ),
+            connections=(),
+            total_travel_distance=distance,
+            initial_position=(0.0, 0.0),
+        )
+        fut: Future = Future()
+        fut.set_result(StrategyBenchmarkResult(name, opt_result, 0.01))
+        return fut
+
+    @staticmethod
+    def _mock_executor(mock_ctx: MagicMock) -> MagicMock:
+        """Wire a ProcessPoolExecutor patch to return ``mock_ctx`` from ``with``."""
+        mock_exec = MagicMock()
+        mock_exec.return_value.__enter__ = MagicMock(return_value=mock_ctx)
+        mock_exec.return_value.__exit__ = MagicMock(return_value=False)
+        return mock_exec
+
+    def test_partial_timeout_keeps_completed_results(self) -> None:
+        """Jobs completed before the deadline win; the rest are marked timed out."""
+        from concurrent.futures import TimeoutError as FuturesTimeoutError
+
+        blocks = [
+            _make_simple_block(0, (0, 0), (10, 0)),
+            _make_simple_block(1, (50, 0), (60, 0)),
+        ]
+        good = self._make_good_future("NoOp (Baseline)", 40.0)
+        captured_timeout: dict = {}
+
+        def fake_as_completed(fs: object, timeout: Optional[float] = None):
+            captured_timeout["timeout"] = timeout
+            yield good
+            raise FuturesTimeoutError()
+
+        strategy = ParallelEnsembleStrategy(baseline_distance=100.0, job_timeout=0.01)
+        mock_ctx = MagicMock()
+        pending = [good]
+
+        def submit_side(*args: object, **kwargs: object) -> object:
+            if pending:
+                return pending.pop(0)
+            return MagicMock()
+
+        mock_ctx.submit = MagicMock(side_effect=submit_side)
+        with patch(
+            "plt_optimizer.core.optimizer.ProcessPoolExecutor", self._mock_executor(mock_ctx)
+        ):
+            with patch(
+                "plt_optimizer.core.optimizer.as_completed", side_effect=fake_as_completed
+            ):
+                result = strategy.optimize(blocks)
+
+        assert captured_timeout["timeout"] == 0.01
+        assert isinstance(result, ParallelEnsembleOptimizationResult)
+        assert result.winner_name == "NoOp (Baseline)"
+
+    def test_all_jobs_timeout_falls_back_to_nn2opt(self) -> None:
+        """When every job times out, the serial NN2Opt fallback must run."""
+        from concurrent.futures import TimeoutError as FuturesTimeoutError
+
+        blocks = [
+            _make_simple_block(0, (0, 0), (10, 0)),
+            _make_simple_block(1, (50, 0), (60, 0)),
+        ]
+
+        def fake_as_completed(fs: object, timeout: Optional[float] = None):
+            raise FuturesTimeoutError()
+            yield  # pragma: no cover - makes this function a generator
+
+        strategy = ParallelEnsembleStrategy(job_timeout=0.01)
+        mock_ctx = MagicMock()
+        mock_ctx.submit = MagicMock(side_effect=lambda *a, **k: MagicMock())
+        with patch(
+            "plt_optimizer.core.optimizer.ProcessPoolExecutor", self._mock_executor(mock_ctx)
+        ):
+            with patch(
+                "plt_optimizer.core.optimizer.as_completed", side_effect=fake_as_completed
+            ):
+                result = strategy.optimize(blocks)
+
+        assert result.winner_name == "NearestNeighbor + 2-Opt (Fallback)"
+
+    def test_future_finished_after_deadline_is_still_consumed(self) -> None:
+        """A future that completed just after the deadline (not seen by
+        ``as_completed``) must still contribute its result instead of being
+        reported as timed out."""
+        from concurrent.futures import TimeoutError as FuturesTimeoutError
+
+        blocks = [
+            _make_simple_block(0, (0, 0), (10, 0)),
+            _make_simple_block(1, (50, 0), (60, 0)),
+        ]
+        late = self._make_good_future("Insertion Heuristic", 30.0)
+
+        def fake_as_completed(fs: object, timeout: Optional[float] = None):
+            raise FuturesTimeoutError()
+            yield  # pragma: no cover - makes this function a generator
+
+        strategy = ParallelEnsembleStrategy(baseline_distance=100.0, job_timeout=0.01)
+        mock_ctx = MagicMock()
+        pending = [late]
+
+        def submit_side(*args: object, **kwargs: object) -> object:
+            if pending:
+                return pending.pop(0)
+            return MagicMock()
+
+        mock_ctx.submit = MagicMock(side_effect=submit_side)
+        with patch(
+            "plt_optimizer.core.optimizer.ProcessPoolExecutor", self._mock_executor(mock_ctx)
+        ):
+            with patch(
+                "plt_optimizer.core.optimizer.as_completed", side_effect=fake_as_completed
+            ):
+                result = strategy.optimize(blocks)
+
+        assert result.winner_name == "Insertion Heuristic"
+
+    def test_job_timeout_none_disables_deadline(self) -> None:
+        """``job_timeout=None`` must pass ``timeout=None`` to as_completed."""
+        blocks = [
+            _make_simple_block(0, (0, 0), (10, 0)),
+            _make_simple_block(1, (50, 0), (60, 0)),
+        ]
+        strategy = ParallelEnsembleStrategy(job_timeout=None)
+        mock_ctx = MagicMock()
+        mock_ctx.submit = MagicMock(side_effect=lambda *a, **k: MagicMock())
+        with patch(
+            "plt_optimizer.core.optimizer.ProcessPoolExecutor", self._mock_executor(mock_ctx)
+        ):
+            with patch("plt_optimizer.core.optimizer.as_completed") as mock_ac:
+                mock_ac.return_value = iter([])
+                result = strategy.optimize(blocks)
+
+        assert mock_ac.call_args.kwargs["timeout"] is None
+        # No completions -> serial fallback still produces a result.
+        assert result.winner_name == "NearestNeighbor + 2-Opt (Fallback)"
+
+    def test_timeout_terminates_running_worker_processes(self) -> None:
+        """On timeout, live worker processes are terminated via _processes."""
+        from concurrent.futures import TimeoutError as FuturesTimeoutError
+
+        blocks = [
+            _make_simple_block(0, (0, 0), (10, 0)),
+            _make_simple_block(1, (50, 0), (60, 0)),
+        ]
+
+        def fake_as_completed(fs: object, timeout: Optional[float] = None):
+            raise FuturesTimeoutError()
+            yield  # pragma: no cover - makes this function a generator
+
+        strategy = ParallelEnsembleStrategy(job_timeout=0.01)
+        mock_ctx = MagicMock()
+        mock_ctx.submit = MagicMock(side_effect=lambda *a, **k: MagicMock())
+        mock_proc = MagicMock()
+        mock_ctx._processes = {"123": mock_proc}
+        with patch(
+            "plt_optimizer.core.optimizer.ProcessPoolExecutor", self._mock_executor(mock_ctx)
+        ):
+            with patch(
+                "plt_optimizer.core.optimizer.as_completed", side_effect=fake_as_completed
+            ):
+                result = strategy.optimize(blocks)
+
+        mock_proc.terminate.assert_called_once()
+        assert result.winner_name == "NearestNeighbor + 2-Opt (Fallback)"
+
+    def test_terminate_failure_is_swallowed(self) -> None:
+        """A failing terminate() must not crash the timeout handling."""
+        strategy = ParallelEnsembleStrategy(job_timeout=0.01)
+        mock_ctx = MagicMock()
+        mock_proc = MagicMock()
+        mock_proc.terminate.side_effect = RuntimeError("cannot kill")
+        mock_ctx._processes = {"123": mock_proc}
+        # Must not raise despite terminate() blowing up.
+        strategy._terminate_running_jobs(mock_ctx)
+        mock_proc.terminate.assert_called_once()
+
+    def test_terminate_noop_without_process_dict(self) -> None:
+        """Executors without a dict ``_processes`` degrade to a no-op."""
+        import types
+
+        strategy = ParallelEnsembleStrategy()
+        # Object without _processes attribute at all.
+        strategy._terminate_running_jobs(types.SimpleNamespace())
+        # Object with a non-dict _processes (e.g. MagicMock executors).
+        strategy._terminate_running_jobs(types.SimpleNamespace(_processes=MagicMock()))
+
+    def test_same_row_preference_forwarded_to_jobs(self) -> None:
+        """The configured same_row_preference is passed to every submitted job."""
+        blocks = [
+            _make_simple_block(0, (0, 0), (10, 0)),
+            _make_simple_block(1, (50, 0), (60, 0)),
+        ]
+        strategy = ParallelEnsembleStrategy(job_timeout=None, same_row_preference=2.5)
+        mock_ctx = MagicMock()
+        mock_ctx.submit = MagicMock(side_effect=lambda *a, **k: MagicMock())
+        with patch(
+            "plt_optimizer.core.optimizer.ProcessPoolExecutor", self._mock_executor(mock_ctx)
+        ):
+            with patch("plt_optimizer.core.optimizer.as_completed") as mock_ac:
+                mock_ac.return_value = iter([])
+                strategy.optimize(blocks)
+
+        assert mock_ctx.submit.call_args_list
+        for call in mock_ctx.submit.call_args_list:
+            # submit(_run_strategy_worker, name, blocks, start, end, same_row_preference)
+            assert call.args[5] == 2.5
+
+    def test_worker_applies_same_row_preference_to_nn2opt(self) -> None:
+        """``_run_strategy_worker`` builds NN2Opt with the given preference."""
+        from plt_optimizer.core.optimizer import _run_strategy_worker
+
+        blocks_serialized = ((0, (0.0, 0.0), (10.0, 0.0)), (1, (50.0, 0.0), (60.0, 0.0)))
+        with patch(
+            "plt_optimizer.core.optimizer.NearestNeighbor2OptStrategy",
+            wraps=NearestNeighbor2OptStrategy,
+        ) as wrapped:
+            _run_strategy_worker(
+                "NearestNeighbor + 2-Opt",
+                blocks_serialized,
+                (0.0, 0.0),
+                None,
+                same_row_preference=3.0,
+            )
+        wrapped.assert_called_once_with(same_row_preference=3.0)
+
+
 class TestStrategyBenchmarkResult:
     """Tests for StrategyBenchmarkResult dataclass."""
 
@@ -896,12 +1138,12 @@ class TestChristofidesStrategyCoverage:
         assert strategy.END_VERTEX_ID in vertices
 
     def test_find_nearest_endpoints(self) -> None:
-        """Test _find_nearest_endpoints method."""
+        """Test _find_nearest_origin_endpoints method (inherited from base class)."""
         strategy = ChristofidesStrategy()
         block_a = _make_simple_block(0, (1000, 1000), (1010, 1000))
         block_b = _make_simple_block(1, (5, 5), (15, 5))
 
-        candidates = strategy._find_nearest_endpoints([block_a, block_b], n_candidates=2)
+        candidates = strategy._find_nearest_origin_endpoints([block_a, block_b], n_candidates=2)
         assert len(candidates) <= 2
 
     def test_find_farthest_origin_endpoints_christofides(self) -> None:
@@ -1355,6 +1597,32 @@ class TestRunStrategyWorker:
         )
 
         assert result.strategy_name == "NearestNeighbor + 2-Opt"
+
+    def test_run_strategy_worker_with_christofides(self) -> None:
+        """Test worker runs Christofides S-T Path strategy with fixed terminals.
+
+        Regression test: ChristofidesStrategy.optimize() requires both
+        start_point and end_point positional arguments; the worker must
+        dispatch them like OptimizerEngine does instead of calling the
+        generic two-argument signature.
+        """
+        from plt_optimizer.core.optimizer import _run_strategy_worker
+
+        blocks_serialized = (
+            (0, (10.0, 20.0), (30.0, 40.0)),
+            (1, (50.0, 60.0), (70.0, 80.0)),
+            (2, (90.0, 100.0), (110.0, 120.0)),
+        )
+
+        result = _run_strategy_worker(
+            strategy_name="Christofides-Serdyukov S-T Path (5/3 approx)",
+            blocks_serialized=blocks_serialized,
+            initial_position=(0.0, 0.0),
+        )
+
+        assert result.strategy_name == "Christofides-Serdyukov S-T Path (5/3 approx)"
+        assert isinstance(result.result, OptimizationResult)
+        assert len(result.result.traverse_order) == 3
 
     def test_run_strategy_worker_unknown_strategy_raises(self) -> None:
         """Test worker raises ValueError for unknown strategy."""
@@ -1812,24 +2080,29 @@ class TestChristofidesCoverage2:
     """Coverage for ChristofidesStrategy missing lines."""
 
     def test_same_block_skip_continue(self) -> None:
-        """Cover line 1377: continue when start and end candidates share same block."""
-        # Block 0: entrance (1,0) very close to origin, exit (999,0) very far
-        # Block 1: entrance (2,0), exit (3,0) — both close
-        # start_candidates: block0.entrance AND block1.entrance
-        # end_candidates: block0.exit AND block1.exit
-        # combination (block0, block0) triggers continue
+        """Cover continue when start and end candidates share same block.
+
+        No explicit terminals are passed so Christofides derives its own
+        candidate lists and the same-block combination guard is exercised.
+        Three blocks are required: 1- and 2-block inputs take dedicated
+        shortcuts before the candidate-combination loop.
+        """
+        # Block 0: entrance (1,0) nearest to origin AND exit (999,0) farthest
+        # from origin, so the (start=block0, end=block0) combination appears in
+        # the candidate cross product and must be skipped.
         block_0 = _make_simple_block(0, (1, 0), (999, 0))
-        block_1 = _make_simple_block(1, (2, 0), (3, 0))
+        block_1 = _make_simple_block(1, (100, 0), (110, 0))
+        block_2 = _make_simple_block(2, (200, 0), (210, 0))
         strategy = ChristofidesStrategy()
-        result = strategy.optimize([block_0, block_1], start_point=(0.0, 0.0), end_point=(1000.0, 0.0))
-        assert result.block_count == 2
+        result = strategy.optimize([block_0, block_1, block_2])
+        assert result.block_count == 3
 
     def test_single_block_exit_closer_to_start(self) -> None:
         """Cover line 1502: reversed=True in _optimize_single_block when exit closer to start."""
         # exit (1,0) is closer to start (0,0) than entrance (100,0)
         block = _make_simple_block(0, (100, 0), (1, 0))
         strategy = ChristofidesStrategy()
-        result = strategy.optimize([block], start_point=(0.0, 0.0), end_point=(200.0, 0.0))
+        result = strategy.optimize([block], initial_position=(0.0, 0.0), end_point=(200.0, 0.0))
         assert result.block_count == 1
         assert result.traverse_order[0].reversed is True
 
@@ -2243,7 +2516,12 @@ class TestParallelEnsembleCoverage2:
         assert result.result.total_travel_distance >= 0.0
 
     def test_parallel_ensemble_all_strategies_fail_fallback(self) -> None:
-        """Cover lines 4047-4050: fallback to NoOp when all strategies fail."""
+        """Cover fallback strategy when all parallel strategies fail.
+
+        When multiprocessing fails (e.g., in PyInstaller frozen executables),
+        the ensemble should fall back to NearestNeighbor + 2-Opt serially,
+        and only resort to NoOp if that also fails.
+        """
         from concurrent.futures import Future
         blocks = [_make_simple_block(0, (0, 0), (10, 0))]
 
@@ -2261,7 +2539,8 @@ class TestParallelEnsembleCoverage2:
                 result = strategy.optimize(blocks)
 
         assert isinstance(result, ParallelEnsembleOptimizationResult)
-        assert result.winner_name == "NoOp (Baseline)"
+        # Should fall back to NearestNeighbor + 2-Opt (Fallback), not NoOp
+        assert result.winner_name == "NearestNeighbor + 2-Opt (Fallback)"
 
     def test_parallel_ensemble_failed_strategies_warning(self) -> None:
         """Cover lines 4067-4068: warning when some strategies fail."""
@@ -2310,3 +2589,235 @@ class TestParallelEnsembleCoverage2:
 
         assert isinstance(result, ParallelEnsembleOptimizationResult)
         assert result.winner_name == "NoOp (Baseline)"
+
+
+class TestParallelEnsemblePoolBreakRetry:
+    """Tests for broken-process-pool detection and retry in ParallelEnsembleStrategy.
+
+    Worker processes inside a PyInstaller frozen executable on Windows can die
+    abruptly, which raises :class:`BrokenProcessPool` for every job still in
+    flight at once. These tests pin down that such jobs are retried in a fresh
+    pool while genuine strategy errors are not.
+    """
+
+    @staticmethod
+    def _good_future(name: str, distance: float) -> Future:
+        """Build a resolved future carrying a successful benchmark result."""
+        opt_result = OptimizationResult(
+            traverse_order=(
+                BlockTraverseState(block_id=0, reversed=False, entrance=(0, 0), exit=(10, 0)),
+            ),
+            connections=(),
+            total_travel_distance=distance,
+            initial_position=(0.0, 0.0),
+        )
+        fut: Future = Future()
+        fut.set_result(StrategyBenchmarkResult(name, opt_result, 0.01))
+        return fut
+
+    @staticmethod
+    def _broken_future() -> Future:
+        """Build a future rejected with the frozen-executable pool-break error."""
+        fut: Future = Future()
+        fut.set_exception(
+            BrokenProcessPool(
+                "A process in the process pool was terminated abruptly while the "
+                "future was running or pending."
+            )
+        )
+        return fut
+
+    @staticmethod
+    def _failing_future(message: str) -> Future:
+        """Build a future rejected with a genuine (non-pool) strategy error."""
+        fut: Future = Future()
+        fut.set_exception(RuntimeError(message))
+        return fut
+
+    @staticmethod
+    def _executor_mock(ctx: MagicMock) -> MagicMock:
+        """Wrap a context mock so ``with ProcessPoolExecutor(...)`` yields it."""
+        executor = MagicMock()
+        executor.__enter__ = MagicMock(return_value=ctx)
+        executor.__exit__ = MagicMock(return_value=False)
+        return executor
+
+    @staticmethod
+    def _two_blocks() -> List[MacroBlock]:
+        """Two blocks, enough to produce multiple ensemble jobs."""
+        return [
+            _make_simple_block(0, (0, 0), (10, 0)),
+            _make_simple_block(1, (50, 0), (60, 0)),
+        ]
+
+    @staticmethod
+    def _recording_submit(
+        factory: Callable[[int], Future],
+    ) -> Tuple[Callable[..., Future], List[Future]]:
+        """Return a submit stand-in plus the list recording what it returned.
+
+        ``as_completed`` is patched with the recorded list, so the futures it
+        yields are the very objects the ensemble keyed its results by.
+        """
+        submitted: List[Future] = []
+
+        def _submit(*args: object, **kwargs: object) -> Future:
+            future = factory(len(submitted))
+            submitted.append(future)
+            return future
+
+        return _submit, submitted
+
+    def test_is_pool_broken_error_matches_canonical_forms(self) -> None:
+        """BrokenProcessPool and its cross-process message both count as breaks."""
+        from plt_optimizer.core.optimizer import _is_pool_broken_error
+
+        assert _is_pool_broken_error(BrokenProcessPool("boom")) is True
+        assert (
+            _is_pool_broken_error(
+                RuntimeError(
+                    "A process in the process pool was terminated abruptly while the "
+                    "future was running or pending."
+                )
+            )
+            is True
+        )
+        assert _is_pool_broken_error(RuntimeError("genuine strategy error")) is False
+
+    def test_select_best_result_uses_improvement_then_distance(self) -> None:
+        """Selection prefers improvement % with a baseline, else absolute distance."""
+        strategy_with_baseline = ParallelEnsembleStrategy(baseline_distance=100.0)
+        near = self._good_future("near", 40.0).result().result
+        far = self._good_future("far", 80.0).result().result
+        near_bench = StrategyBenchmarkResult("near", near, 0.01, improvement_percent=60.0)
+        far_bench = StrategyBenchmarkResult("far", far, 0.01, improvement_percent=20.0)
+
+        best = strategy_with_baseline._select_best_result([far_bench, near_bench])
+        assert best is not None
+        assert best.strategy_name == "near"
+
+        # Without a baseline the lower absolute distance wins.
+        strategy_no_baseline = ParallelEnsembleStrategy(baseline_distance=None)
+        best = strategy_no_baseline._select_best_result([far_bench, near_bench])
+        assert best is not None
+        assert best.strategy_name == "near"
+        assert strategy_no_baseline._select_best_result([]) is None
+
+    def test_jobs_lost_with_pool_are_retried_in_fresh_pool(self) -> None:
+        """A mid-run pool break re-runs only the lost jobs and keeps their results."""
+        strategy = ParallelEnsembleStrategy(baseline_distance=100.0)
+
+        # Attempt 1: the first job finishes, everything else dies with the pool.
+        submit1, submitted1 = self._recording_submit(
+            lambda i: (
+                self._good_future("NoOp (Baseline)", 40.0) if i == 0 else self._broken_future()
+            )
+        )
+        ctx1 = MagicMock()
+        ctx1.submit = MagicMock(side_effect=submit1)
+
+        # Attempt 2: every retried job succeeds with a better distance.
+        submit2, submitted2 = self._recording_submit(
+            lambda _i: self._good_future("Insertion Heuristic", 30.0)
+        )
+        ctx2 = MagicMock()
+        ctx2.submit = MagicMock(side_effect=submit2)
+
+        with patch(
+            "plt_optimizer.core.optimizer.ProcessPoolExecutor",
+            side_effect=[self._executor_mock(ctx1), self._executor_mock(ctx2)],
+        ) as mock_exec:
+            with patch(
+                "plt_optimizer.core.optimizer.as_completed",
+                side_effect=[submitted1, submitted2],
+            ):
+                result = strategy.optimize(self._two_blocks())
+
+        assert mock_exec.call_count == 2
+        # The retry pool is capped so a resource-pressure crash is less likely.
+        assert mock_exec.call_args_list[1].kwargs["max_workers"] <= 4
+        # Results from both attempts survive; the better one wins.
+        assert result.winner_name == "Insertion Heuristic"
+        assert len(result.all_benchmarks) == 1 + len(submitted2)
+        # Only the jobs lost with the pool were re-submitted, not all of them.
+        assert len(submitted2) == len(submitted1) - 1
+
+    def test_pool_break_during_submission_retries_all_jobs(self) -> None:
+        """A pool that dies before any job runs re-runs the whole job list."""
+        strategy = ParallelEnsembleStrategy(baseline_distance=100.0)
+
+        ctx1 = MagicMock()
+        ctx1.submit = MagicMock(side_effect=BrokenProcessPool("died on startup"))
+
+        submit2, submitted2 = self._recording_submit(
+            lambda _i: self._good_future("Simulated Annealing", 25.0)
+        )
+        ctx2 = MagicMock()
+        ctx2.submit = MagicMock(side_effect=submit2)
+
+        with patch(
+            "plt_optimizer.core.optimizer.ProcessPoolExecutor",
+            side_effect=[self._executor_mock(ctx1), self._executor_mock(ctx2)],
+        ) as mock_exec:
+            # The first pool dies during submission, before as_completed runs,
+            # so only the retry consumes an as_completed stub.
+            with patch(
+                "plt_optimizer.core.optimizer.as_completed",
+                side_effect=[submitted2],
+            ):
+                result = strategy.optimize(self._two_blocks())
+
+        assert mock_exec.call_count == 2
+        assert result.winner_name == "Simulated Annealing"
+        assert len(result.all_benchmarks) == len(submitted2)
+
+    def test_genuine_strategy_failure_is_not_retried(self) -> None:
+        """A real strategy exception must not trigger a whole-pool retry."""
+        strategy = ParallelEnsembleStrategy(baseline_distance=100.0)
+
+        submit1, submitted1 = self._recording_submit(
+            lambda i: (
+                self._good_future("NoOp (Baseline)", 40.0) if i == 0 else self._failing_future(
+                    "genuine strategy error"
+                )
+            )
+        )
+        ctx1 = MagicMock()
+        ctx1.submit = MagicMock(side_effect=submit1)
+
+        with patch(
+            "plt_optimizer.core.optimizer.ProcessPoolExecutor",
+            side_effect=[self._executor_mock(ctx1)],
+        ) as mock_exec:
+            with patch(
+                "plt_optimizer.core.optimizer.as_completed",
+                side_effect=[submitted1],
+            ):
+                result = strategy.optimize(self._two_blocks())
+
+        assert mock_exec.call_count == 1
+        assert result.winner_name == "NoOp (Baseline)"
+        assert len(result.all_benchmarks) == 1
+
+    def test_repeated_pool_breaks_exhaust_retries_and_use_fallback(self) -> None:
+        """When every attempt breaks, the serial NN2Opt fallback still produces a route."""
+        strategy = ParallelEnsembleStrategy(baseline_distance=100.0)
+
+        executors = []
+        drains: List[List[object]] = []
+        for _ in range(2):
+            submit, submitted = self._recording_submit(lambda _i: self._broken_future())
+            ctx = MagicMock()
+            ctx.submit = MagicMock(side_effect=submit)
+            executors.append(self._executor_mock(ctx))
+            drains.append(submitted)
+
+        with patch(
+            "plt_optimizer.core.optimizer.ProcessPoolExecutor",
+            side_effect=executors,
+        ) as mock_exec:
+            with patch("plt_optimizer.core.optimizer.as_completed", side_effect=drains):
+                result = strategy.optimize(self._two_blocks())
+
+        assert mock_exec.call_count == 2
+        assert result.winner_name == "NearestNeighbor + 2-Opt (Fallback)"

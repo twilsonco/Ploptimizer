@@ -9,14 +9,61 @@ be traversed forward or in reverse.
 from __future__ import annotations
 
 import math
+import multiprocessing
+import sys
 import time
 from abc import ABC, abstractmethod
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import (
+    Future,
+    ProcessPoolExecutor,
+    as_completed,
+)
+from concurrent.futures import (
+    TimeoutError as FuturesTimeoutError,
+)
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple
+from multiprocessing.context import BaseContext
+from typing import Dict, List, Optional, Set, Tuple, Type
 
 from plt_optimizer.core.chunker import MacroBlock
 from plt_optimizer.utils.logging import get_text_logger
+
+# Maximum worker processes used when retrying the parallel ensemble after a
+# broken process pool. The first attempt uses the caller-provided worker count
+# (auto = one worker per strategy job); the retry caps the pool so a crash that
+# was caused by resource pressure (many spawn workers booting at once inside a
+# frozen executable) is less likely to recur.
+ENSEMBLE_RETRY_MAX_WORKERS = 4
+
+# Number of times the whole worker pool is re-run when it breaks mid-flight
+# (worker processes dying abruptly, e.g. crashes or antivirus kills inside a
+# PyInstaller frozen executable on Windows).
+ENSEMBLE_POOL_BREAK_RETRIES = 1
+
+# One ensemble work item: a strategy to run plus the fixed start/end terminals
+# for that run. ``(strategy_name, start_position, end_position)``.
+_StrategyJob = Tuple[str, Tuple[float, float], Optional[Tuple[float, float]]]
+
+
+def _is_pool_broken_error(error: BaseException) -> bool:
+    """Return True when ``error`` indicates worker processes died abruptly.
+
+    :class:`concurrent.futures.process.BrokenProcessPool` is raised by
+    :class:`ProcessPoolExecutor` when a worker exits unexpectedly. The check
+    also matches the exception's canonical message because the exception can
+    be re-raised as a different class after crossing a process boundary
+    (e.g. when a nested pool inside a worker breaks).
+
+    Args:
+        error: Exception raised while consuming a strategy job's future.
+
+    Returns:
+        True if the error signifies a broken process pool.
+    """
+    if isinstance(error, BrokenProcessPool):
+        return True
+    return "process pool was terminated abruptly" in str(error)
 
 
 class OptimizationError(Exception):
@@ -178,7 +225,13 @@ class OptimizationStrategy(ABC):
 
     Attributes:
         name: Human-readable name of the strategy.
+        supports_end_point: Whether this strategy actively uses the ``end_point``
+            terminal argument in its optimization. Strategies that accept but
+            ignore ``end_point`` leave this as False so callers (e.g. the
+            parallel ensemble) avoid re-running them once per end candidate.
     """
+
+    supports_end_point: bool = False
 
     def __init__(self) -> None:
         """Initialize the optimization strategy."""
@@ -199,6 +252,7 @@ class OptimizationStrategy(ABC):
         self,
         blocks: List[MacroBlock],
         initial_position: Optional[Tuple[float, float]] = None,
+        end_point: Optional[Tuple[float, float]] = None,
     ) -> OptimizationResult:
         """Optimize the traversal order of MacroBlocks.
 
@@ -206,6 +260,9 @@ class OptimizationStrategy(ABC):
             blocks: List of MacroBlocks to optimize (in original chronological order).
             initial_position: Optional starting position as (x, y) tuple.
                 If None, uses the first block's entrance.
+            end_point: Optional fixed ending position as (x, y) tuple. Only
+                strategies with ``supports_end_point = True`` act on it; the
+                remaining strategies accept and ignore it.
 
         Returns:
             An OptimizationResult with optimal traverse order and connections.
@@ -214,6 +271,80 @@ class OptimizationStrategy(ABC):
             OptimizationError: If optimization cannot be completed.
         """
         ...  # pragma: no cover
+
+    def _find_nearest_origin_endpoints(
+        self,
+        blocks: List[MacroBlock],
+        origin: Tuple[float, float] = (0.0, 0.0),
+        n_candidates: int = 5,
+    ) -> List[Tuple[Tuple[float, float], int, bool, float]]:
+        """Find the N block endpoints nearest to a reference point.
+
+        This ensures the optimization evaluates multiple starting candidates
+        when there are ties or near-ties for closest endpoint to origin.
+
+        Args:
+            blocks: List of MacroBlocks to search.
+            origin: Reference point for distance calculation (default origin).
+            n_candidates: Number of closest endpoints to return.
+
+        Returns:
+            List of tuples sorted by distance: [(position, block_index, is_exit, distance), ...].
+            - position: (x, y) coordinates of the endpoint
+            - block_index: index of the block containing this endpoint
+            - is_exit: True if endpoint is block's exit (needs reversal)
+            - distance: Euclidean distance from origin
+        """
+        return _endpoints_sorted_by_distance(blocks, origin, reverse=False)[:n_candidates]
+
+    def _find_farthest_origin_endpoints(
+        self,
+        blocks: List[MacroBlock],
+        origin: Tuple[float, float] = (0.0, 0.0),
+        n_candidates: int = 5,
+    ) -> List[Tuple[Tuple[float, float], int, bool, float]]:
+        """Find the N block endpoints farthest from a reference point.
+
+        This is used to evaluate candidate ending points for optimization,
+        ensuring the tour ends at a point far from machine origin when desired.
+
+        Args:
+            blocks: List of MacroBlocks to search.
+            origin: Reference point for distance calculation (default origin).
+            n_candidates: Number of farthest endpoints to return.
+
+        Returns:
+            List of tuples sorted by distance descending: [(position, block_index, is_exit, distance), ...].
+            - position: (x, y) coordinates of the endpoint
+            - block_index: index of the block containing this endpoint
+            - is_exit: True if endpoint is block's exit (needs reversal)
+            - distance: Euclidean distance from origin
+        """
+        return _endpoints_sorted_by_distance(blocks, origin, reverse=True)[:n_candidates]
+
+    def _find_nearest_origin_endpoint(
+        self,
+        blocks: List[MacroBlock],
+        origin: Tuple[float, float] = (0.0, 0.0),
+    ) -> Tuple[Tuple[float, float], int, bool]:
+        """Find the block endpoint nearest to the origin.
+
+        This ensures the optimization always starts from the stroke end closest
+        to where the tool begins (typically at machine origin).
+
+        Args:
+            blocks: List of MacroBlocks to search.
+            origin: Reference point for distance calculation (default origin).
+
+        Returns:
+            Tuple of (nearest_position, block_index, is_exit).
+            - nearest_position: (x, y) coordinates closest to origin
+            - block_index: index of the block containing this endpoint
+            - is_exit: True if nearest position is block's exit (needs reversal)
+        """
+        candidates = self._find_nearest_origin_endpoints(blocks, origin, n_candidates=1)
+        pos, idx, is_exit, _ = candidates[0]
+        return (pos, idx, is_exit)
 
     def _calculate_block_cost(
         self,
@@ -254,9 +385,6 @@ class OptimizationStrategy(ABC):
     ) -> Tuple[BlockConnection, ...]:
         """Build the connection list from a traverse order.
 
-        Thin delegate to :func:`build_block_connections`, kept as a method for
-        the existing strategy call sites and test seams.
-
         Args:
             blocks: All macro blocks.
             traverse_order: Optimized traversal order.
@@ -265,7 +393,41 @@ class OptimizationStrategy(ABC):
         Returns:
             Tuple of BlockConnections between consecutive blocks.
         """
-        return build_block_connections(blocks, traverse_order, initial_pos)
+        connections: List[BlockConnection] = []
+
+        # Build a lookup map from block_id to MacroBlock for correct indexing
+        block_by_id: Dict[int, MacroBlock] = {b.block_id: b for b in blocks}
+
+        for i, state in enumerate(traverse_order):
+            target_block = block_by_id[state.block_id]
+
+            # Determine entry and exit coordinates based on reversal
+            if state.reversed:
+                actual_entrance = (target_block.exit.x, target_block.exit.y)
+            else:
+                actual_entrance = (target_block.entrance.x, target_block.entrance.y)
+
+            if i > 0 and traverse_order[i - 1].block_id != state.block_id:
+                # Connect from previous block's exit to current block's entrance
+                prev_state = traverse_order[i - 1]
+                travel_dist = math.sqrt(
+                    (actual_entrance[0] - prev_state.exit[0]) ** 2
+                    + (actual_entrance[1] - prev_state.exit[1]) ** 2
+                )
+
+                connections.append(
+                    BlockConnection(
+                        source_block_id=prev_state.block_id,
+                        target_block_id=state.block_id,
+                        travel_distance=travel_dist,
+                        entry_at_source=prev_state.exit,
+                        entry_at_target=actual_entrance,
+                    )
+                )
+            # Note: connections from initial_pos to first block are not included here;
+            # they are tracked separately via total_travel_distance calculation.
+
+        return tuple(connections)
 
 
 class NoOpStrategy(OptimizationStrategy):
@@ -284,12 +446,14 @@ class NoOpStrategy(OptimizationStrategy):
         self,
         blocks: List[MacroBlock],
         initial_position: Optional[Tuple[float, float]] = None,
+        end_point: Optional[Tuple[float, float]] = None,
     ) -> OptimizationResult:
         """Return blocks in original order without optimization.
 
         Args:
             blocks: List of MacroBlocks to process.
             initial_position: Ignored for NoOp strategy.
+            end_point: Ignored for NoOp strategy.
 
         Returns:
             OptimizationResult with original ordering and zero improvement.
@@ -367,6 +531,7 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
         self,
         blocks: List[MacroBlock],
         initial_position: Optional[tuple[float, float]] = None,
+        end_point: Optional[tuple[float, float]] = None,
     ) -> OptimizationResult:
         """Optimize using nearest neighbor greedy algorithm with 2-opt refinement.
 
@@ -377,6 +542,7 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
         Args:
             blocks: List of MacroBlocks to optimize.
             initial_position: Starting position for optimization.
+            end_point: Ignored by this strategy (accepted for interface parity).
 
         Returns:
             OptimizationResult with optimized traversal order.
@@ -509,109 +675,6 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
             unvisited.remove(best_block_idx)
 
         return tour
-
-    def _find_nearest_origin_endpoints(
-        self,
-        blocks: List[MacroBlock],
-        origin: Tuple[float, float] = (0.0, 0.0),
-        n_candidates: int = 5,
-    ) -> List[tuple[tuple[float, float], int, bool, float]]:
-        """Find the N block endpoints nearest to the origin.
-
-        This ensures the optimization evaluates multiple starting candidates
-        when there are ties or near-ties for closest endpoint to origin.
-
-        Args:
-            blocks: List of MacroBlocks to search.
-            origin: Reference point for distance calculation (default origin).
-            n_candidates: Number of closest endpoints to return.
-
-        Returns:
-            List of tuples sorted by distance: [(position, block_index, is_exit, distance), ...].
-            - position: (x, y) coordinates of the endpoint
-            - block_index: index of the block containing this endpoint
-            - is_exit: True if endpoint is block's exit (needs reversal)
-            - distance: Euclidean distance from origin
-        """
-        candidates: List[Tuple[float, tuple[tuple[float, float], int, bool]]] = []
-
-        for i, block in enumerate(blocks):
-            dist_entrance = math.sqrt(
-                (block.entrance.x - origin[0]) ** 2 + (block.entrance.y - origin[1]) ** 2
-            )
-            candidates.append((dist_entrance, ((block.entrance.x, block.entrance.y), i, False)))
-
-            dist_exit = math.sqrt((block.exit.x - origin[0]) ** 2 + (block.exit.y - origin[1]) ** 2)
-            candidates.append((dist_exit, ((block.exit.x, block.exit.y), i, True)))
-
-        candidates.sort(key=lambda x: x[0])
-        return [
-            (pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]
-        ]
-
-    def _find_farthest_origin_endpoints(
-        self,
-        blocks: List[MacroBlock],
-        origin: Tuple[float, float] = (0.0, 0.0),
-        n_candidates: int = 5,
-    ) -> List[tuple[tuple[float, float], int, bool, float]]:
-        """Find the N block endpoints farthest from the origin.
-
-        This is used to evaluate candidate ending points for optimization,
-        ensuring the tour ends at a point far from machine origin when desired.
-
-        Args:
-            blocks: List of MacroBlocks to search.
-            origin: Reference point for distance calculation (default origin).
-            n_candidates: Number of farthest endpoints to return.
-
-        Returns:
-            List of tuples sorted by distance descending: [(position, block_index, is_exit, distance), ...].
-            - position: (x, y) coordinates of the endpoint
-            - block_index: index of the block containing this endpoint
-            - is_exit: True if endpoint is block's exit (needs reversal)
-            - distance: Euclidean distance from origin
-        """
-        candidates: List[Tuple[float, tuple[tuple[float, float], int, bool]]] = []
-
-        for i, block in enumerate(blocks):
-            dist_entrance = math.sqrt(
-                (block.entrance.x - origin[0]) ** 2 + (block.entrance.y - origin[1]) ** 2
-            )
-            candidates.append((dist_entrance, ((block.entrance.x, block.entrance.y), i, False)))
-
-            dist_exit = math.sqrt((block.exit.x - origin[0]) ** 2 + (block.exit.y - origin[1]) ** 2)
-            candidates.append((dist_exit, ((block.exit.x, block.exit.y), i, True)))
-
-        # Sort by distance descending to get farthest first
-        candidates.sort(key=lambda x: x[0], reverse=True)
-        return [
-            (pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]
-        ]
-
-    def _find_nearest_origin_endpoint(
-        self,
-        blocks: List[MacroBlock],
-        origin: Tuple[float, float] = (0.0, 0.0),
-    ) -> Tuple[tuple[float, float], int, bool]:
-        """Find the block endpoint nearest to the origin.
-
-        This ensures the optimization always starts from the stroke end closest
-        to where the tool begins (typically at machine origin).
-
-        Args:
-            blocks: List of MacroBlocks to search.
-            origin: Reference point for distance calculation (default origin).
-
-        Returns:
-            Tuple of (nearest_position, block_index, is_exit).
-            - nearest_position: (x, y) coordinates closest to origin
-            - block_index: index of the block containing this endpoint
-            - is_exit: True if nearest position is block's exit (needs reversal)
-        """
-        candidates = self._find_nearest_origin_endpoints(blocks, origin, n_candidates=1)
-        pos, idx, is_exit, _ = candidates[0]
-        return (pos, idx, is_exit)
 
     def _greedy_nearest_neighbor_from_start(
         self,
@@ -767,7 +830,7 @@ class NearestNeighbor2OptStrategy(OptimizationStrategy):
                 for j in range(i + 2, len(tour)):
                     if self._two_opt_swap_improves(tour, blocks, i, j):
                         # Perform the swap by reversing segment [i+1, j]
-                        tour[i + 1 : j + 1] = reversed(tour[i + 1 : j + 1])
+                        tour[i + 1 : j + 1] = list(reversed(tour[i + 1 : j + 1]))
                         improved = True
 
         self._logger.debug(f"2-opt completed in {iterations} iterations")
@@ -847,6 +910,7 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
         self,
         blocks: List[MacroBlock],
         initial_position: Optional[tuple[float, float]] = None,
+        end_point: Optional[tuple[float, float]] = None,
     ) -> OptimizationResult:
         """Optimize using cheapest insertion heuristic.
 
@@ -854,6 +918,7 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
             blocks: List of MacroBlocks to optimize.
             initial_position: Starting position for optimization. If None,
                 uses the closest endpoint to origin as starting point.
+            end_point: Ignored by this strategy (accepted for interface parity).
 
         Returns:
             OptimizationResult with optimized traversal order.
@@ -1360,6 +1425,8 @@ class ChristofidesStrategy(OptimizationStrategy):
     DEFAULT_N_CANDIDATES: int = 2  # For finding closest to origin (start)
     DEFAULT_M_CANDIDATES: int = 2  # For finding farthest from origin (end)
 
+    supports_end_point: bool = True
+
     def __init__(self) -> None:
         """Initialize the Christofides-Serdyukov strategy."""
         super().__init__()
@@ -1371,18 +1438,27 @@ class ChristofidesStrategy(OptimizationStrategy):
         """Return the strategy name."""
         return "Christofides-Serdyukov S-T Path (5/3 approx)"
 
-    def optimize(  # type: ignore[override]
+    def optimize(
         self,
         blocks: List[MacroBlock],
-        start_point: Tuple[float, float],
-        end_point: Tuple[float, float],
+        initial_position: Optional[Tuple[float, float]] = None,
+        end_point: Optional[Tuple[float, float]] = None,
     ) -> OptimizationResult:
         """Optimize using Christofides-Serdyukov algorithm for S-T Path.
 
+        When both ``initial_position`` and ``end_point`` are provided (e.g. by
+        the parallel ensemble, which enumerates candidate terminal combinations
+        itself), they are used as the fixed S/T terminals for a single S-T path
+        optimization. When omitted, candidate terminals are derived from the
+        block endpoints (nearest-to-origin starts, farthest-from-origin ends)
+        and every start/end combination is evaluated, keeping the best result.
+
         Args:
             blocks: List of MacroBlocks to optimize.
-            start_point: Fixed starting point as (x, y) tuple.
-            end_point: Fixed ending point as (x, y) tuple.
+            initial_position: Fixed starting point (S terminal) as (x, y) tuple.
+                If None, start candidates are derived from block endpoints.
+            end_point: Fixed ending point (T terminal) as (x, y) tuple.
+                If None, end candidates are derived from block endpoints.
 
         Returns:
             OptimizationResult with optimized traversal order from start_point
@@ -1390,40 +1466,53 @@ class ChristofidesStrategy(OptimizationStrategy):
         """
         self._logger.info(f"Running {self.name} on {len(blocks)} blocks")
 
-        # Store terminal points as instance variables for access by helper methods
-        self._start_point = start_point
-        self._end_point = end_point
-
         if not blocks:
+            start = initial_position if initial_position is not None else (0.0, 0.0)
             return OptimizationResult(
                 traverse_order=(),
                 connections=(),
                 total_travel_distance=0.0,
-                initial_position=start_point,
+                initial_position=start,
             )
 
+        # Build candidate terminal lists. Explicit terminals (from callers such
+        # as the parallel ensemble) are used as-is; otherwise derive candidates
+        # from block endpoints as a standalone fallback.
+        if initial_position is not None and end_point is not None:
+            start_candidates: List[Tuple[Tuple[float, float], int, bool, float]] = [
+                (initial_position, -1, False, 0.0)
+            ]
+            end_candidates: List[Tuple[Tuple[float, float], int, bool, float]] = [
+                (end_point, -1, True, 0.0)
+            ]
+        else:
+            start_candidates = list(
+                self._find_nearest_origin_endpoints(
+                    blocks, origin=(0.0, 0.0), n_candidates=self.DEFAULT_N_CANDIDATES
+                )
+            )
+            end_candidates = list(
+                self._find_farthest_origin_endpoints(
+                    blocks, origin=(0.0, 0.0), n_candidates=self.DEFAULT_M_CANDIDATES
+                )
+            )
+            if initial_position is not None:
+                start_candidates = [(initial_position, -1, False, 0.0)]
+            if end_point is not None:
+                end_candidates = [(end_point, -1, True, 0.0)]
+
         if len(blocks) == 1:
-            return self._optimize_single_block(blocks, start_point, end_point)
+            return self._optimize_single_block(blocks, start_candidates[0][0], end_candidates[0][0])
 
         if len(blocks) == 2:
-            return self._optimize_two_blocks(blocks, start_point, end_point)
-
-        # Evaluate multiple candidates for best S-T path
-        # Find closest endpoints to origin for start candidates,
-        # and farthest endpoints from origin for end candidates
-        start_candidates = self._find_nearest_endpoints(
-            blocks, origin=(0.0, 0.0), n_candidates=self.DEFAULT_N_CANDIDATES
-        )
-        end_candidates = self._find_farthest_origin_endpoints(
-            blocks, origin=(0.0, 0.0), n_candidates=self.DEFAULT_M_CANDIDATES
-        )
+            return self._optimize_two_blocks(blocks, start_candidates[0][0], end_candidates[0][0])
 
         best_result: Optional[OptimizationResult] = None
 
         # Try combinations of start and end endpoint candidates
         for start_entry, start_block_idx, start_is_exit, _ in start_candidates:
             for end_entry, end_block_idx, end_is_exit, _ in end_candidates:
-                if start_block_idx == end_block_idx and len(blocks) > 1:
+                if start_block_idx == end_block_idx and start_block_idx != -1 and len(blocks) > 1:
                     # Can't use same block as both entry and exit unless it's the only one
                     continue
 
@@ -1762,85 +1851,6 @@ class ChristofidesStrategy(OptimizationStrategy):
             vid += 1
 
         return vertices
-
-    def _find_nearest_endpoints(
-        self,
-        blocks: List[MacroBlock],
-        origin: Tuple[float, float] = (0.0, 0.0),
-        n_candidates: int = 5,
-    ) -> List[tuple[tuple[float, float], int, bool, float]]:
-        """Find the N block endpoints nearest to a reference point.
-
-        This ensures the optimization evaluates multiple starting/ending candidates
-        when there are ties or near-ties for closest endpoint to origin.
-
-        Args:
-            blocks: List of MacroBlocks to search.
-            origin: Reference point for distance calculation (default origin).
-            n_candidates: Number of closest endpoints to return.
-
-        Returns:
-            List of tuples sorted by distance: [(position, block_index, is_exit, distance), ...].
-            - position: (x, y) coordinates of the endpoint
-            - block_index: index of the block containing this endpoint
-            - is_exit: True if endpoint is block's exit (needs reversal)
-            - distance: Euclidean distance from origin
-        """
-        candidates: List[Tuple[float, tuple[tuple[float, float], int, bool]]] = []
-
-        for i, block in enumerate(blocks):
-            dist_entrance = math.sqrt(
-                (block.entrance.x - origin[0]) ** 2 + (block.entrance.y - origin[1]) ** 2
-            )
-            candidates.append((dist_entrance, ((block.entrance.x, block.entrance.y), i, False)))
-
-            dist_exit = math.sqrt((block.exit.x - origin[0]) ** 2 + (block.exit.y - origin[1]) ** 2)
-            candidates.append((dist_exit, ((block.exit.x, block.exit.y), i, True)))
-
-        candidates.sort(key=lambda x: x[0])
-        return [
-            (pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]
-        ]
-
-    def _find_farthest_origin_endpoints(
-        self,
-        blocks: List[MacroBlock],
-        origin: Tuple[float, float] = (0.0, 0.0),
-        n_candidates: int = 5,
-    ) -> List[tuple[tuple[float, float], int, bool, float]]:
-        """Find the N block endpoints farthest from a reference point.
-
-        This is used for finding candidate ending points that are far from
-        the origin (machine home position).
-
-        Args:
-            blocks: List of MacroBlocks to search.
-            origin: Reference point for distance calculation (default origin).
-            n_candidates: Number of farthest endpoints to return.
-
-        Returns:
-            List of tuples sorted by distance descending: [(position, block_index, is_exit, distance), ...].
-            - position: (x, y) coordinates of the endpoint
-            - block_index: index of the block containing this endpoint
-            - is_exit: True if endpoint is block's exit (needs reversal)
-            - distance: Euclidean distance from origin
-        """
-        candidates: List[Tuple[float, tuple[tuple[float, float], int, bool]]] = []
-
-        for i, block in enumerate(blocks):
-            dist_entrance = math.sqrt(
-                (block.entrance.x - origin[0]) ** 2 + (block.entrance.y - origin[1]) ** 2
-            )
-            candidates.append((dist_entrance, ((block.entrance.x, block.entrance.y), i, False)))
-
-            dist_exit = math.sqrt((block.exit.x - origin[0]) ** 2 + (block.exit.y - origin[1]) ** 2)
-            candidates.append((dist_exit, ((block.exit.x, block.exit.y), i, True)))
-
-        # Sort by distance descending to get farthest first
-        candidates.sort(key=lambda x: x[0], reverse=True)
-        return [
-            (pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]
-        ]
 
     def _build_mst_prim(
         self,
@@ -2386,6 +2396,7 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
         self,
         blocks: List[MacroBlock],
         initial_position: Optional[tuple[float, float]] = None,
+        end_point: Optional[tuple[float, float]] = None,
     ) -> OptimizationResult:
         """Optimize using Simulated Annealing algorithm.
 
@@ -2397,6 +2408,7 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
             blocks: List of MacroBlocks to optimize.
             initial_position: Starting position for optimization. If None,
                 uses the closest endpoint to origin as starting point.
+            end_point: Ignored by this strategy (accepted for interface parity).
 
         Returns:
             OptimizationResult with optimized traversal order.
@@ -2694,126 +2706,6 @@ class SimulatedAnnealingStrategy(OptimizationStrategy):
             initial_position=start_pos,
         )
 
-    def _find_nearest_origin_endpoint(
-        self,
-        blocks: List[MacroBlock],
-        origin: Tuple[float, float] = (0.0, 0.0),
-    ) -> Tuple[tuple[float, float], int, bool]:
-        """Find the block endpoint nearest to the origin.
-
-        Args:
-            blocks: List of MacroBlocks to search.
-            origin: Reference point for distance calculation (default origin).
-
-        Returns:
-            Tuple of (nearest_position, block_index, is_exit).
-            - nearest_position: (x, y) coordinates closest to origin
-            - block_index: index of the block containing this endpoint
-            - is_exit: True if nearest position is block's exit (needs reversal)
-        """
-        min_dist = float("inf")
-        best_pos: Tuple[float, float] = (0.0, 0.0)
-        best_idx = 0
-        best_is_exit = False
-
-        for i, block in enumerate(blocks):
-            dist_entrance = math.sqrt(
-                (block.entrance.x - origin[0]) ** 2 + (block.entrance.y - origin[1]) ** 2
-            )
-            if dist_entrance < min_dist:
-                min_dist = dist_entrance
-                best_pos = (block.entrance.x, block.entrance.y)
-                best_idx = i
-                best_is_exit = False
-
-            dist_exit = math.sqrt((block.exit.x - origin[0]) ** 2 + (block.exit.y - origin[1]) ** 2)
-            if dist_exit < min_dist:
-                min_dist = dist_exit
-                best_pos = (block.exit.x, block.exit.y)
-                best_idx = i
-                best_is_exit = True
-
-        return (best_pos, best_idx, best_is_exit)
-
-    def _find_nearest_origin_endpoints(
-        self,
-        blocks: List[MacroBlock],
-        origin: Tuple[float, float] = (0.0, 0.0),
-        n_candidates: int = 5,
-    ) -> List[tuple[tuple[float, float], int, bool, float]]:
-        """Find the N block endpoints nearest to the origin.
-
-        This ensures the optimization evaluates multiple starting candidates
-        when there are ties or near-ties for closest endpoint to origin.
-
-        Args:
-            blocks: List of MacroBlocks to search.
-            origin: Reference point for distance calculation (default origin).
-            n_candidates: Number of closest endpoints to return.
-
-        Returns:
-            List of tuples sorted by distance: [(position, block_index, is_exit, distance), ...].
-            - position: (x, y) coordinates of the endpoint
-            - block_index: index of the block containing this endpoint
-            - is_exit: True if endpoint is block's exit (needs reversal)
-            - distance: Euclidean distance from origin
-        """
-        candidates: List[Tuple[float, tuple[tuple[float, float], int, bool]]] = []
-
-        for i, block in enumerate(blocks):
-            dist_entrance = math.sqrt(
-                (block.entrance.x - origin[0]) ** 2 + (block.entrance.y - origin[1]) ** 2
-            )
-            candidates.append((dist_entrance, ((block.entrance.x, block.entrance.y), i, False)))
-
-            dist_exit = math.sqrt((block.exit.x - origin[0]) ** 2 + (block.exit.y - origin[1]) ** 2)
-            candidates.append((dist_exit, ((block.exit.x, block.exit.y), i, True)))
-
-        candidates.sort(key=lambda x: x[0])
-        return [
-            (pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]
-        ]
-
-    def _find_farthest_origin_endpoints(
-        self,
-        blocks: List[MacroBlock],
-        origin: Tuple[float, float] = (0.0, 0.0),
-        n_candidates: int = 5,
-    ) -> List[tuple[tuple[float, float], int, bool, float]]:
-        """Find the N block endpoints farthest from the origin.
-
-        This is used to evaluate candidate ending points for optimization,
-        ensuring the tour ends at a point far from machine origin when desired.
-
-        Args:
-            blocks: List of MacroBlocks to search.
-            origin: Reference point for distance calculation (default origin).
-            n_candidates: Number of farthest endpoints to return.
-
-        Returns:
-            List of tuples sorted by distance descending: [(position, block_index, is_exit, distance), ...].
-            - position: (x, y) coordinates of the endpoint
-            - block_index: index of the block containing this endpoint
-            - is_exit: True if endpoint is block's exit (needs reversal)
-            - distance: Euclidean distance from origin
-        """
-        candidates: List[Tuple[float, tuple[tuple[float, float], int, bool]]] = []
-
-        for i, block in enumerate(blocks):
-            dist_entrance = math.sqrt(
-                (block.entrance.x - origin[0]) ** 2 + (block.entrance.y - origin[1]) ** 2
-            )
-            candidates.append((dist_entrance, ((block.entrance.x, block.entrance.y), i, False)))
-
-            dist_exit = math.sqrt((block.exit.x - origin[0]) ** 2 + (block.exit.y - origin[1]) ** 2)
-            candidates.append((dist_exit, ((block.exit.x, block.exit.y), i, True)))
-
-        # Sort by distance descending to get farthest first
-        candidates.sort(key=lambda x: x[0], reverse=True)
-        return [
-            (pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]
-        ]
-
 
 class GeneticAlgorithmStrategy(OptimizationStrategy):
     """Genetic Algorithm (GA) for TSP optimization.
@@ -2877,6 +2769,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
         self,
         blocks: List[MacroBlock],
         initial_position: Optional[tuple[float, float]] = None,
+        end_point: Optional[tuple[float, float]] = None,
     ) -> OptimizationResult:
         """Optimize using Genetic Algorithm.
 
@@ -2888,6 +2781,7 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
             blocks: List of MacroBlocks to optimize.
             initial_position: Starting position for optimization. If None,
                 uses the closest endpoint to origin as starting point.
+            end_point: Ignored by this strategy (accepted for interface parity).
 
         Returns:
             OptimizationResult with optimized traversal order.
@@ -3072,85 +2966,6 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
             population.append(chromosome)
 
         return population[: self._population_size]
-
-    def _find_nearest_origin_endpoints(
-        self,
-        blocks: List[MacroBlock],
-        origin: Tuple[float, float] = (0.0, 0.0),
-        n_candidates: int = 5,
-    ) -> List[tuple[tuple[float, float], int, bool, float]]:
-        """Find the N block endpoints nearest to the origin.
-
-        This ensures the optimization evaluates multiple starting candidates
-        when there are ties or near-ties for closest endpoint to origin.
-
-        Args:
-            blocks: List of MacroBlocks to search.
-            origin: Reference point for distance calculation (default origin).
-            n_candidates: Number of closest endpoints to return.
-
-        Returns:
-            List of tuples sorted by distance: [(position, block_index, is_exit, distance), ...].
-            - position: (x, y) coordinates of the endpoint
-            - block_index: index of the block containing this endpoint
-            - is_exit: True if endpoint is block's exit (needs reversal)
-            - distance: Euclidean distance from origin
-        """
-        candidates: List[Tuple[float, tuple[tuple[float, float], int, bool]]] = []
-
-        for i, block in enumerate(blocks):
-            dist_entrance = math.sqrt(
-                (block.entrance.x - origin[0]) ** 2 + (block.entrance.y - origin[1]) ** 2
-            )
-            candidates.append((dist_entrance, ((block.entrance.x, block.entrance.y), i, False)))
-
-            dist_exit = math.sqrt((block.exit.x - origin[0]) ** 2 + (block.exit.y - origin[1]) ** 2)
-            candidates.append((dist_exit, ((block.exit.x, block.exit.y), i, True)))
-
-        candidates.sort(key=lambda x: x[0])
-        return [
-            (pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]
-        ]
-
-    def _find_farthest_origin_endpoints(
-        self,
-        blocks: List[MacroBlock],
-        origin: Tuple[float, float] = (0.0, 0.0),
-        n_candidates: int = 5,
-    ) -> List[tuple[tuple[float, float], int, bool, float]]:
-        """Find the N block endpoints farthest from the origin.
-
-        This is used to evaluate candidate ending points for optimization,
-        ensuring the tour ends at a point far from machine origin when desired.
-
-        Args:
-            blocks: List of MacroBlocks to search.
-            origin: Reference point for distance calculation (default origin).
-            n_candidates: Number of farthest endpoints to return.
-
-        Returns:
-            List of tuples sorted by distance descending: [(position, block_index, is_exit, distance), ...].
-            - position: (x, y) coordinates of the endpoint
-            - block_index: index of the block containing this endpoint
-            - is_exit: True if endpoint is block's exit (needs reversal)
-            - distance: Euclidean distance from origin
-        """
-        candidates: List[Tuple[float, tuple[tuple[float, float], int, bool]]] = []
-
-        for i, block in enumerate(blocks):
-            dist_entrance = math.sqrt(
-                (block.entrance.x - origin[0]) ** 2 + (block.entrance.y - origin[1]) ** 2
-            )
-            candidates.append((dist_entrance, ((block.entrance.x, block.entrance.y), i, False)))
-
-            dist_exit = math.sqrt((block.exit.x - origin[0]) ** 2 + (block.exit.y - origin[1]) ** 2)
-            candidates.append((dist_exit, ((block.exit.x, block.exit.y), i, True)))
-
-        # Sort by distance descending to get farthest first
-        candidates.sort(key=lambda x: x[0], reverse=True)
-        return [
-            (pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates[:n_candidates]
-        ]
 
     def _calculate_fitness(
         self,
@@ -3680,47 +3495,6 @@ class GeneticAlgorithmStrategy(OptimizationStrategy):
             initial_position=start_pos,
         )
 
-    def _find_nearest_origin_endpoint(
-        self,
-        blocks: List[MacroBlock],
-        origin: Tuple[float, float] = (0.0, 0.0),
-    ) -> Tuple[tuple[float, float], int, bool]:
-        """Find the block endpoint nearest to the origin.
-
-        Args:
-            blocks: List of MacroBlocks to search.
-            origin: Reference point for distance calculation (default origin).
-
-        Returns:
-            Tuple of (nearest_position, block_index, is_exit).
-            - nearest_position: (x, y) coordinates closest to origin
-            - block_index: index of the block containing this endpoint
-            - is_exit: True if nearest position is block's exit (needs reversal)
-        """
-        min_dist = float("inf")
-        best_pos: Tuple[float, float] = (0.0, 0.0)
-        best_idx = 0
-        best_is_exit = False
-
-        for i, block in enumerate(blocks):
-            dist_entrance = math.sqrt(
-                (block.entrance.x - origin[0]) ** 2 + (block.entrance.y - origin[1]) ** 2
-            )
-            if dist_entrance < min_dist:
-                min_dist = dist_entrance
-                best_pos = (block.entrance.x, block.entrance.y)
-                best_idx = i
-                best_is_exit = False
-
-            dist_exit = math.sqrt((block.exit.x - origin[0]) ** 2 + (block.exit.y - origin[1]) ** 2)
-            if dist_exit < min_dist:
-                min_dist = dist_exit
-                best_pos = (block.exit.x, block.exit.y)
-                best_idx = i
-                best_is_exit = True
-
-        return (best_pos, best_idx, best_is_exit)
-
 
 class OptimizerEngine:
     def __init__(
@@ -3761,10 +3535,11 @@ class OptimizerEngine:
 
         Args:
             blocks: List of MacroBlocks to optimize.
-            initial_position: Starting position for standard strategies (used as
-                start_point for S-T Path ChristofidesStrategy).
-            end_point: Fixed ending point for S-T Path strategies. If not provided,
-                uses origin (0, 0) for ChristofidesStrategy compatibility.
+            initial_position: Optional fixed starting position as (x, y) tuple.
+                Strategies that derive their own start candidates ignore it.
+            end_point: Optional fixed ending position as (x, y) tuple. Only
+                strategies with ``supports_end_point = True`` (e.g.
+                ChristofidesStrategy's S-T path) act on it; the rest ignore it.
 
         Returns:
             An OptimizationResult with optimized traversal order.
@@ -3777,16 +3552,9 @@ class OptimizerEngine:
         )
 
         try:
-            # Check if this is ChristofidesStrategy (S-T Path variant)
-            if isinstance(self._strategy, ChristofidesStrategy):
-                # For S-T Path: use initial_position as start_point
-                start_point = initial_position if initial_position is not None else (0.0, 0.0)
-                # Default end_point to origin for backward compatibility when not specified
-                final_end_point = end_point if end_point is not None else (0.0, 0.0)
-                result = self._strategy.optimize(blocks, start_point, final_end_point)
-            else:
-                # Standard strategies use initial_position
-                result = self._strategy.optimize(blocks, initial_position)
+            # Every strategy accepts both terminals; strategies that do not use
+            # the end point simply ignore it.
+            result = self._strategy.optimize(blocks, initial_position, end_point)
 
             # Handle ParallelEnsembleOptimizationResult (unwrap for logging)
             if isinstance(result, ParallelEnsembleOptimizationResult):
@@ -3855,10 +3623,122 @@ class ParallelEnsembleOptimizationResult:
         return self.result.total_travel_distance
 
 
+@dataclass(frozen=True)
+class TerminalCandidate:
+    """A single candidate terminal (start or end) for an optimization run.
+
+    Attributes:
+        position: The (x, y) coordinate of the candidate terminal.
+        block_index: Index of the block this endpoint belongs to, or -1 when
+            the terminal is a free-standing point not tied to a block.
+        is_exit: True when the candidate is the block's exit endpoint.
+    """
+
+    position: Tuple[float, float]
+    block_index: int = -1
+    is_exit: bool = False
+
+
+@dataclass(frozen=True)
+class TerminalCandidates:
+    """Precomputed candidate start and end terminals for an optimization run.
+
+    The choice of start (and end) terminal bounds the achievable optimization,
+    and the optimal choice is unknown ahead of time. Rather than each strategy
+    re-deriving candidates from the block list, callers (typically the parallel
+    ensemble) compute them once and pass them down to every strategy, which then
+    evaluates each candidate combination and keeps the best result.
+
+    Attributes:
+        start_candidates: Candidate starting terminals, ordered from most to
+            least preferred (nearest to origin first).
+        end_candidates: Candidate ending terminals, ordered from most to least
+            preferred (farthest from origin first). Only strategies with
+            ``supports_end_point = True`` iterate over these.
+    """
+
+    start_candidates: Tuple[TerminalCandidate, ...] = ()
+    end_candidates: Tuple[TerminalCandidate, ...] = ()
+
+
+def compute_terminal_candidates(
+    blocks: List[MacroBlock],
+    origin: Tuple[float, float] = (0.0, 0.0),
+    n_start_candidates: int = 2,
+    n_end_candidates: int = 2,
+) -> TerminalCandidates:
+    """Compute candidate start/end terminals for a set of MacroBlocks.
+
+    Start candidates are the block endpoints nearest the origin (roughly the
+    top-left-most stroke ends); end candidates are the endpoints farthest from
+    the origin (roughly the bottom-right-most stroke ends). Computing these
+    once and passing them to every strategy avoids each strategy redundantly
+    re-deriving the same candidate lists.
+
+    Args:
+        blocks: All macro blocks to scan for endpoints.
+        origin: Reference point for distance calculations (default machine home).
+        n_start_candidates: Number of nearest endpoints to return as starts.
+        n_end_candidates: Number of farthest endpoints to return as ends.
+
+    Returns:
+        A TerminalCandidates bundle of ordered start and end terminals.
+    """
+    if not blocks:
+        return TerminalCandidates()
+
+    starts = [
+        TerminalCandidate(position=pos, block_index=idx, is_exit=is_exit)
+        for pos, idx, is_exit, _dist in _endpoints_sorted_by_distance(
+            blocks, origin, reverse=False
+        )[:n_start_candidates]
+    ]
+    ends = [
+        TerminalCandidate(position=pos, block_index=idx, is_exit=is_exit)
+        for pos, idx, is_exit, _dist in _endpoints_sorted_by_distance(blocks, origin, reverse=True)[
+            :n_end_candidates
+        ]
+    ]
+    return TerminalCandidates(start_candidates=tuple(starts), end_candidates=tuple(ends))
+
+
+def _endpoints_sorted_by_distance(
+    blocks: List[MacroBlock],
+    origin: Tuple[float, float],
+    reverse: bool,
+) -> List[Tuple[Tuple[float, float], int, bool, float]]:
+    """Return all block endpoints sorted by distance from a reference point.
+
+    Args:
+        blocks: All macro blocks to scan.
+        origin: Reference point for distance calculation.
+        reverse: When True sort farthest-first; otherwise nearest-first.
+
+    Returns:
+        List of (position, block_index, is_exit, distance) tuples sorted by
+        distance according to ``reverse``.
+    """
+    candidates: List[Tuple[float, Tuple[Tuple[float, float], int, bool]]] = []
+
+    for i, block in enumerate(blocks):
+        dist_entrance = math.sqrt(
+            (block.entrance.x - origin[0]) ** 2 + (block.entrance.y - origin[1]) ** 2
+        )
+        candidates.append((dist_entrance, ((block.entrance.x, block.entrance.y), i, False)))
+
+        dist_exit = math.sqrt((block.exit.x - origin[0]) ** 2 + (block.exit.y - origin[1]) ** 2)
+        candidates.append((dist_exit, ((block.exit.x, block.exit.y), i, True)))
+
+    candidates.sort(key=lambda x: x[0], reverse=reverse)
+    return [(pos, idx, is_exit, dist) for dist, (pos, idx, is_exit) in candidates]
+
+
 def _run_strategy_worker(
     strategy_name: str,
     blocks_serialized: Tuple[Tuple[int, tuple[float, float], tuple[float, float]], ...],
     initial_position: Optional[tuple[float, float]],
+    end_point: Optional[tuple[float, float]] = None,
+    same_row_preference: float = 1.0,
 ) -> StrategyBenchmarkResult:
     """Worker function to run a single strategy in a subprocess.
 
@@ -3868,6 +3748,11 @@ def _run_strategy_worker(
         strategy_name: Name of the strategy class to instantiate and run.
         blocks_serialized: Serializable representation of MacroBlocks.
         initial_position: Starting position for optimization.
+        end_point: Fixed ending position for strategies that support it
+            (e.g. ChristofidesStrategy S-T path). Ignored by the rest.
+        same_row_preference: Penalty multiplier for y-differences during greedy
+            selection. Only consumed by NearestNeighbor2OptStrategy; ignored
+            by the other strategies.
 
     Returns:
         StrategyBenchmarkResult with timing and result data.
@@ -3908,7 +3793,9 @@ def _run_strategy_worker(
 
     strategy_map: Dict[str, OptimizationStrategy] = {
         "NoOp (Baseline)": NoOpStrategy(),
-        "NearestNeighbor + 2-Opt": NearestNeighbor2OptStrategy(),
+        "NearestNeighbor + 2-Opt": NearestNeighbor2OptStrategy(
+            same_row_preference=same_row_preference
+        ),
         "Insertion Heuristic": InsertionHeuristicStrategy(),
         "Simulated Annealing": SimulatedAnnealingStrategy(),
         "Genetic Algorithm": GeneticAlgorithmStrategy(),
@@ -3920,7 +3807,7 @@ def _run_strategy_worker(
 
     strategy = strategy_map[strategy_name]
     start_time = time.perf_counter()
-    result = strategy.optimize(blocks, initial_position)
+    result = strategy.optimize(blocks, initial_position, end_point)
     execution_time = time.perf_counter() - start_time
 
     return StrategyBenchmarkResult(
@@ -3928,6 +3815,28 @@ def _run_strategy_worker(
         result=result,
         execution_time_seconds=execution_time,
     )
+
+
+@dataclass(frozen=True)
+class _EnsembleAttemptOutcome:
+    """Results from one worker-pool attempt of the parallel ensemble.
+
+    Attributes:
+        all_benchmarks: Benchmark results for jobs that completed successfully
+            during this attempt.
+        failed_strategies: ``(strategy_name, error_message)`` pairs for jobs
+            that permanently failed (strategy error, timeout, or pool breakage
+            with no retries left).
+        retry_jobs: Jobs lost with a broken pool that should be re-run in a
+            fresh pool. Empty when no retry is needed or no retries remain.
+        pool_broken: True when worker processes died abruptly during this
+            attempt (broken process pool).
+    """
+
+    all_benchmarks: List[StrategyBenchmarkResult]
+    failed_strategies: List[Tuple[str, str]]
+    retry_jobs: List[_StrategyJob]
+    pool_broken: bool
 
 
 class ParallelEnsembleStrategy(OptimizationStrategy):
@@ -3938,18 +3847,37 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
     as they complete (fast strategies return first), and the best result is
     selected based on improvement score.
 
+    Candidate start/end terminals are computed once (via
+    :func:`compute_terminal_candidates`) and passed down to every strategy.
+    Strategies that ignore the end point are run once per start candidate;
+    strategies with ``supports_end_point = True`` (e.g. ChristofidesStrategy)
+    are run once per (start, end) combination, and the best result wins.
+
     The selection metric is:
     - If baseline_distance provided: maximize improvement percent
     - Otherwise: minimize absolute travel distance
 
-    Note: ChristofidesStrategy is excluded because it requires fixed start/end
-    points and operates as an S-T Path variant rather than a standard tour.
+    Each submitted job gets ``job_timeout`` seconds to complete (measured from
+    submission, since every job is submitted up-front). Jobs still queued at
+    the deadline are cancelled and jobs still running are terminated; both are
+    recorded as failures. When every job fails (including by timeout), the
+    serial NearestNeighbor + 2-Opt fallback runs without a timeout as the
+    last-resort chain.
+
+    Worker processes inside a frozen (PyInstaller) executable can die abruptly
+    on Windows, which breaks the whole :class:`ProcessPoolExecutor` and fails
+    every job still in flight at once with ``BrokenProcessPool``. Those jobs
+    never got a fair chance, so they are re-run once in a fresh pool capped at
+    :data:`ENSEMBLE_RETRY_MAX_WORKERS` workers. Jobs that raised a genuine
+    strategy error are never retried.
     """
 
     def __init__(
         self,
         baseline_distance: Optional[float] = None,
         max_workers: Optional[int] = None,
+        job_timeout: Optional[float] = 10.0,
+        same_row_preference: float = 1.0,
     ) -> None:
         """Initialize the parallel ensemble strategy.
 
@@ -3958,26 +3886,243 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
                 If None, selection is based on absolute travel distance.
             max_workers: Maximum number of parallel workers. Defaults to number
                 of available strategies (typically 5-6).
+            job_timeout: Seconds each submitted strategy job may take before it
+                is cancelled/terminated and marked as failed. ``None`` disables
+                the timeout (jobs may run indefinitely).
+            same_row_preference: Penalty multiplier for y-differences during
+                greedy selection, forwarded to NearestNeighbor2OptStrategy jobs.
         """
         super().__init__()
         self._baseline_distance = baseline_distance
         self._max_workers = max_workers
+        self._job_timeout = job_timeout
+        self._same_row_preference = same_row_preference
 
     @property
     def name(self) -> str:
         """Return the strategy name."""
         return "Parallel Ensemble"
 
+    def _terminate_running_jobs(self, executor: ProcessPoolExecutor) -> None:
+        """Forcefully terminate worker processes still executing jobs.
+
+        Used when the per-job deadline expires: queued futures have already
+        been cancelled, and the processes still running live jobs are killed
+        so the ensemble can return within a bounded time.
+
+        Relies on the ``_processes`` private attribute of
+        :class:`ProcessPoolExecutor` (a ``pid -> _ProcessImage`` mapping,
+        stable through Python 3.13). Guarded so exotic executor
+        implementations (e.g. test mocks) degrade to a no-op.
+
+        Args:
+            executor: The executor whose worker processes should be terminated.
+        """
+        processes = getattr(executor, "_processes", None)
+        if not isinstance(processes, dict):
+            return
+        for process in list(processes.values()):
+            try:
+                process.terminate()
+            except Exception as terminate_err:  # noqa: BLE001 - best-effort kill
+                self._logger.debug(f"Failed to terminate worker process: {terminate_err}")
+
+    def _select_best_result(
+        self, benchmarks: List[StrategyBenchmarkResult]
+    ) -> Optional[StrategyBenchmarkResult]:
+        """Pick the best benchmark result from a set of completed jobs.
+
+        Prefers the highest improvement percent when a baseline distance was
+        provided, otherwise the lowest absolute travel distance.
+
+        Args:
+            benchmarks: Completed benchmark results to choose from.
+
+        Returns:
+            The best result, or ``None`` when ``benchmarks`` is empty.
+        """
+        best: Optional[StrategyBenchmarkResult] = None
+        for benchmark in benchmarks:
+            if best is None:
+                best = benchmark
+            elif self._baseline_distance is not None and best.improvement_percent is not None:
+                # Prefer higher improvement percent
+                if (benchmark.improvement_percent or 0) > best.improvement_percent:
+                    best = benchmark
+            else:
+                # Fall back to absolute distance minimization
+                if benchmark.result.total_travel_distance < best.result.total_travel_distance:
+                    best = benchmark
+        return best
+
+    def _run_pool_attempt(
+        self,
+        blocks_serialized: Tuple[Tuple[int, tuple[float, float], tuple[float, float]], ...],
+        jobs: List[_StrategyJob],
+        mp_context: Optional[BaseContext],
+        max_workers: Optional[int],
+    ) -> _EnsembleAttemptOutcome:
+        """Run a set of strategy jobs once in a fresh worker pool.
+
+        Collects results dynamically as they complete, enforces the
+        ``job_timeout`` deadline (cancelling queued jobs and terminating live
+        workers at the deadline), and detects broken-process-pool failures so
+        the caller can re-run the lost jobs in a fresh pool.
+
+        A broken pool kills every job still in flight at once, so those jobs
+        are reported in ``retry_jobs`` rather than as permanent failures: they
+        never got a fair chance. Jobs that raised a genuine strategy error are
+        permanent failures and are never retried.
+
+        Args:
+            blocks_serialized: Picklable representation of the MacroBlocks.
+            jobs: Jobs to run in this attempt.
+            mp_context: Multiprocessing context (``spawn`` on Windows/frozen),
+                or ``None`` for the default.
+            max_workers: Worker cap for this attempt's pool; ``None`` lets
+                :class:`ProcessPoolExecutor` choose.
+
+        Returns:
+            An :class:`_EnsembleAttemptOutcome` describing completions,
+            permanent failures, jobs to retry, and whether the pool broke.
+        """
+        all_benchmarks: List[StrategyBenchmarkResult] = []
+        failed_strategies: List[Tuple[str, str]] = []  # (name, error_msg) pairs
+        lost_jobs: List[_StrategyJob] = []  # Jobs killed by a broken pool
+        pool_broken = False
+
+        with ProcessPoolExecutor(max_workers=max_workers, mp_context=mp_context) as executor:
+            try:
+                futures = {
+                    executor.submit(
+                        _run_strategy_worker,
+                        name,
+                        blocks_serialized,
+                        start_pos,
+                        end_pos,
+                        self._same_row_preference,
+                    ): (name, start_pos, end_pos)
+                    for (name, start_pos, end_pos) in jobs
+                }
+            except BrokenProcessPool as pool_err:
+                # The pool died before/during submission (e.g. spawn workers
+                # crashing on startup inside a frozen executable). Nothing ran,
+                # so every job is retryable rather than permanently failed.
+                self._logger.warning(
+                    f"Worker process pool broke during submission ({pool_err}); "
+                    "no strategy jobs executed"
+                )
+                return _EnsembleAttemptOutcome(
+                    all_benchmarks=all_benchmarks,
+                    failed_strategies=failed_strategies,
+                    retry_jobs=list(jobs),
+                    pool_broken=True,
+                )
+
+            completed_futures: Set[Future[StrategyBenchmarkResult]] = set()
+
+            def _consume(future: Future[StrategyBenchmarkResult]) -> None:
+                """Record one finished job's benchmark result."""
+                nonlocal pool_broken
+                strategy_name, job_start, job_end = futures[future]
+                try:
+                    benchmark_result = future.result()
+
+                    self._logger.debug(
+                        f"Strategy {strategy_name} completed in "
+                        f"{benchmark_result.execution_time_seconds:.3f}s with "
+                        f"distance={benchmark_result.result.total_travel_distance:.3f}"
+                    )
+
+                    # Calculate improvement percent if baseline provided
+                    if self._baseline_distance is not None and self._baseline_distance > 0:
+                        pct_improvement = (
+                            (
+                                self._baseline_distance
+                                - benchmark_result.result.total_travel_distance
+                            )
+                            / self._baseline_distance
+                            * 100
+                        )
+                        # Create new result with improvement percent attached
+                        benchmark_result = StrategyBenchmarkResult(
+                            strategy_name=benchmark_result.strategy_name,
+                            result=benchmark_result.result,
+                            execution_time_seconds=benchmark_result.execution_time_seconds,
+                            improvement_percent=pct_improvement,
+                        )
+
+                    all_benchmarks.append(benchmark_result)
+
+                except Exception as e:
+                    if _is_pool_broken_error(e):
+                        # A dead worker poisons every pending future with the
+                        # same error: log the pool break once, then mark each
+                        # affected job as retryable instead of failed.
+                        if not pool_broken:
+                            self._logger.warning(
+                                "Worker process pool terminated abruptly; strategy jobs "
+                                "still in flight were lost with the pool"
+                            )
+                        pool_broken = True
+                        self._logger.debug(f"Strategy {strategy_name} lost with pool: {e}")
+                        lost_jobs.append((strategy_name, job_start, job_end))
+                    else:
+                        self._logger.warning(f"Strategy {strategy_name} failed: {e}")
+                        failed_strategies.append((strategy_name, str(e)))
+
+            timed_out = False
+            try:
+                for future in as_completed(futures, timeout=self._job_timeout):
+                    completed_futures.add(future)
+                    _consume(future)
+            except FuturesTimeoutError:
+                timed_out = True
+
+            if timed_out:
+                # Deadline reached: cancel queued jobs, then terminate the
+                # worker processes still running live jobs.
+                for future in futures:
+                    if future not in completed_futures:
+                        future.cancel()
+                self._terminate_running_jobs(executor)
+                for future, (strategy_name, _s, _e) in futures.items():
+                    if future in completed_futures:
+                        continue
+                    if future.cancelled() or not future.done():
+                        # Queued-and-cancelled, or running-and-terminated.
+                        self._logger.warning(
+                            f"Strategy {strategy_name} timed out after "
+                            f"{self._job_timeout}s and was aborted"
+                        )
+                        failed_strategies.append(
+                            (strategy_name, f"timed out after {self._job_timeout}s")
+                        )
+                    else:
+                        # Finished (or failed) just after the deadline; still usable.
+                        _consume(future)
+
+        return _EnsembleAttemptOutcome(
+            all_benchmarks=all_benchmarks,
+            failed_strategies=failed_strategies,
+            retry_jobs=lost_jobs,
+            pool_broken=pool_broken,
+        )
+
     def optimize(  # type: ignore[override]
         self,
         blocks: List[MacroBlock],
         initial_position: Optional[tuple[float, float]] = None,
+        end_point: Optional[tuple[float, float]] = None,
     ) -> ParallelEnsembleOptimizationResult:
         """Run all strategies in parallel and select the best result.
 
         Args:
             blocks: List of MacroBlocks to optimize.
-            initial_position: Starting position for optimization.
+            initial_position: Fixed starting position for optimization. If None,
+                start candidates are derived from block endpoints.
+            end_point: Fixed ending position for strategies that support it.
+                If None, end candidates are derived from block endpoints.
 
         Returns:
             A ParallelEnsembleOptimizationResult containing the winning
@@ -4011,98 +4156,135 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
             for block in blocks
         )
 
-        strategy_names = [
-            "NoOp (Baseline)",
-            "NearestNeighbor + 2-Opt",
-            "Insertion Heuristic",
-            "Simulated Annealing",
-            "Genetic Algorithm",
-            "Christofides-Serdyukov S-T Path (5/3 approx)",
-        ]
+        # Compute candidate start/end terminals once for every strategy.
+        # Explicit terminals from the caller take precedence over derived ones.
+        candidates = compute_terminal_candidates(blocks)
+        if initial_position is not None:
+            start_candidates: Tuple[TerminalCandidate, ...] = (
+                TerminalCandidate(position=initial_position),
+            )
+        else:
+            start_candidates = candidates.start_candidates
+        if end_point is not None:
+            end_candidates: Tuple[TerminalCandidate, ...] = (TerminalCandidate(position=end_point),)
+        else:
+            end_candidates = candidates.end_candidates
 
-        all_benchmarks: List[StrategyBenchmarkResult] = []
-        best_result: Optional[StrategyBenchmarkResult] = None
-        completed_count = 0
+        strategy_classes: Dict[str, Type[OptimizationStrategy]] = {
+            "NoOp (Baseline)": NoOpStrategy,
+            "NearestNeighbor + 2-Opt": NearestNeighbor2OptStrategy,
+            "Insertion Heuristic": InsertionHeuristicStrategy,
+            "Simulated Annealing": SimulatedAnnealingStrategy,
+            "Genetic Algorithm": GeneticAlgorithmStrategy,
+            "Christofides-Serdyukov S-T Path (5/3 approx)": ChristofidesStrategy,
+        }
 
-        with ProcessPoolExecutor(max_workers=self._max_workers) as executor:
-            futures = {
-                executor.submit(
-                    _run_strategy_worker,
-                    name,
-                    blocks_serialized,
-                    initial_position,
-                ): name
-                for name in strategy_names
-            }
-
-            # Collect results dynamically as they complete (fast strategies first)
-            failed_strategies: List[Tuple[str, str]] = []  # Track (name, error_msg) for logging
-            for future in as_completed(futures):
-                strategy_name = futures[future]
-                try:
-                    benchmark_result = future.result()
-                    completed_count += 1
-
-                    self._logger.debug(
-                        f"Strategy {strategy_name} completed in "
-                        f"{benchmark_result.execution_time_seconds:.3f}s with "
-                        f"distance={benchmark_result.result.total_travel_distance:.3f}"
-                    )
-
-                    # Calculate improvement percent if baseline provided
-                    if self._baseline_distance is not None and self._baseline_distance > 0:
-                        pct_improvement = (
-                            (
-                                self._baseline_distance
-                                - benchmark_result.result.total_travel_distance
-                            )
-                            / self._baseline_distance
-                            * 100
-                        )
-                        # Create new result with improvement percent attached
-                        benchmark_result = StrategyBenchmarkResult(
-                            strategy_name=benchmark_result.strategy_name,
-                            result=benchmark_result.result,
-                            execution_time_seconds=benchmark_result.execution_time_seconds,
-                            improvement_percent=pct_improvement,
-                        )
-
-                    all_benchmarks.append(benchmark_result)
-
-                    # Select best result based on metric
-                    if best_result is None:
-                        best_result = benchmark_result
-                    elif (
-                        self._baseline_distance is not None
-                        and best_result.improvement_percent is not None
-                    ):
-                        # Prefer higher improvement percent
+        # Build the job list: one job per (strategy, start candidate); strategies
+        # that support a fixed end point get one job per (start, end) combination.
+        jobs: List[Tuple[str, Tuple[float, float], Optional[Tuple[float, float]]]] = []
+        skip_same_block = len(blocks) > 1
+        for strategy_name, strategy_cls in strategy_classes.items():
+            if strategy_cls.supports_end_point:
+                for start_cand in start_candidates:
+                    for end_cand in end_candidates:
                         if (
-                            benchmark_result.improvement_percent or 0
-                        ) > best_result.improvement_percent:
-                            best_result = benchmark_result
-                    else:
-                        # Fall back to absolute distance minimization
-                        if (
-                            benchmark_result.result.total_travel_distance
-                            < best_result.result.total_travel_distance
+                            skip_same_block
+                            and start_cand.block_index == end_cand.block_index
+                            and start_cand.block_index != -1
                         ):
-                            best_result = benchmark_result
+                            # Can't use the same block as both entry and exit.
+                            continue
+                        jobs.append((strategy_name, start_cand.position, end_cand.position))
+            else:
+                for start_cand in start_candidates:
+                    jobs.append((strategy_name, start_cand.position, None))
 
-                except Exception as e:
-                    failed_strategies.append((strategy_name, str(e)))
-                    self._logger.warning(f"Strategy {strategy_name} failed: {e}")
+        # Use 'spawn' context for Windows compatibility (PyInstaller frozen executables).
+        # 'fork' is not safe on Windows, and PyInstaller needs explicit context setup.
+        # For frozen executables (PyInstaller), spawn is more reliable than fork.
+        mp_context: Optional[BaseContext] = None
+        if sys.platform == "win32" or getattr(sys, "frozen", False):
+            try:
+                mp_context = multiprocessing.get_context("spawn")
+            except ValueError:
+                # Fallback if spawn is not available; use default
+                mp_context = None
+
+        # Run every strategy job in a fresh worker pool. When worker processes
+        # die abruptly mid-run (a broken process pool: crashes, resource
+        # pressure, or antivirus kills inside a frozen executable), the jobs
+        # lost with the pool are re-run once in a fresh pool with a capped
+        # worker count. Each attempt gets its own ``job_timeout`` budget.
+        all_benchmarks: List[StrategyBenchmarkResult] = []
+        failed_strategies: List[Tuple[str, str]] = []
+        pending_jobs: List[_StrategyJob] = jobs
+        for attempt_index in range(1 + ENSEMBLE_POOL_BREAK_RETRIES):
+            max_workers = self._max_workers
+            if attempt_index > 0:
+                cap = min(len(pending_jobs), ENSEMBLE_RETRY_MAX_WORKERS)
+                max_workers = cap if self._max_workers is None else min(self._max_workers, cap)
+                self._logger.warning(
+                    f"Parallel ensemble lost {len(pending_jobs)} job(s) to a broken worker "
+                    f"pool; retrying them with at most {max_workers} workers"
+                )
+            attempt = self._run_pool_attempt(
+                blocks_serialized, pending_jobs, mp_context, max_workers
+            )
+            all_benchmarks.extend(attempt.all_benchmarks)
+            failed_strategies.extend(attempt.failed_strategies)
+            if not attempt.pool_broken:
+                pending_jobs = []
+                break
+            pending_jobs = attempt.retry_jobs
+
+        if pending_jobs:
+            # Retries exhausted and the pool kept breaking: report the jobs that
+            # never completed so failure accounting stays accurate.
+            lost_names = ", ".join(name for (name, _s, _e) in pending_jobs)
+            self._logger.warning(
+                f"Parallel ensemble: {len(pending_jobs)} job(s) lost to broken worker "
+                f"pools after all retries: {lost_names}"
+            )
+            failed_strategies.extend(
+                (name, "worker process pool terminated abruptly") for (name, _s, _e) in pending_jobs
+            )
+
+        best_result = self._select_best_result(all_benchmarks)
+        completed_count = len(all_benchmarks)
 
         if best_result is None:
-            # All strategies failed - fall back to NoOp
-            self._logger.warning("All parallel strategies failed, using NoOp fallback")
-            noop = NoOpStrategy()
-            noop_result = noop.optimize(blocks, initial_position)
-            return ParallelEnsembleOptimizationResult(
-                result=noop_result,
-                winner_name="NoOp (Baseline)",
-                all_benchmarks=(),
+            # All strategies failed - try NearestNeighbor2OptStrategy serially as fallback.
+            # This handles the case where multiprocessing failed (e.g., PyInstaller frozen
+            # executables on Windows) but a single-threaded strategy can still work.
+            self._logger.warning(
+                "All parallel strategies failed; attempting NearestNeighbor + 2-Opt "
+                "as single-threaded fallback"
             )
+            fallback_start = start_candidates[0].position if start_candidates else None
+            try:
+                fallback_strategy = NearestNeighbor2OptStrategy(
+                    same_row_preference=self._same_row_preference
+                )
+                fallback_result = fallback_strategy.optimize(blocks, fallback_start)
+                self._logger.info(
+                    f"Fallback strategy succeeded with distance={fallback_result.total_travel_distance:.3f}"
+                )
+                return ParallelEnsembleOptimizationResult(
+                    result=fallback_result,
+                    winner_name="NearestNeighbor + 2-Opt (Fallback)",
+                    all_benchmarks=(),
+                )
+            except Exception as fallback_error:
+                # Even the fallback failed; resort to NoOp
+                self._logger.error(f"Fallback strategy also failed: {fallback_error}")
+                self._logger.warning("Using NoOp (Baseline) as last resort")
+                noop = NoOpStrategy()
+                noop_result = noop.optimize(blocks, initial_position)
+                return ParallelEnsembleOptimizationResult(
+                    result=noop_result,
+                    winner_name="NoOp (Baseline)",
+                    all_benchmarks=(),
+                )
 
         # Sort benchmarks by improvement percent (descending), then by distance (ascending)
         sorted_benchmarks = sorted(
@@ -4117,7 +4299,7 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
         if failed_count > 0:
             failed_names = ", ".join(name for name, _ in failed_strategies)
             self._logger.warning(
-                f"Parallel ensemble: {failed_count}/{len(strategy_names)} strategies "
+                f"Parallel ensemble: {failed_count}/{len(jobs)} strategy jobs "
                 f"failed: {failed_names}"
             )
 
@@ -4127,8 +4309,8 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
             else ""
         )
         self._logger.info(
-            f"Parallel ensemble complete: {completed_count}/{len(strategy_names)} "
-            f"strategies succeeded. Best: {best_result.strategy_name} "
+            f"Parallel ensemble complete: {completed_count}/{len(jobs)} "
+            f"strategy jobs succeeded. Best: {best_result.strategy_name} "
             f"(distance={best_result.result.total_travel_distance:.3f}{imp_str})"
         )
 

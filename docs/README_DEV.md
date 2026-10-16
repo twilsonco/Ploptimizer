@@ -124,16 +124,34 @@ powershell -Command "irm https://astral.sh/uv/install.ps1 | iex"
    uv sync --extra tray
    ```
 
-6. (Optional) To build standalone executable (requires Windows):
+6. (Optional) To build the Windows installer (requires Windows + [Inno Setup 6](https://jrsoftware.org/isdl.php)):
    ```powershell
    # Install build tools (maintainer/release builder only)
    uv sync --extra build
 
-   # Build with PyInstaller
-   uv run pyinstaller --noconsole --windowed --name PLT-Optimizer ^
-       --icon=assets/icon.ico --add-data "assets/icon.ico;assets" ^
+   # Build with PyInstaller (one-dir layout, same as CI)
+   uv run pyinstaller --clean --noconfirm --noconsole `
+       --name "Ploptimizer" `
+       --add-data "assets;assets" `
+       --icon "assets/icon.ico" `
        run_tray.py
+
+   # Package dist\Ploptimizer\ into a single installer EXE
+   "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\ploptimizer.iss
    ```
+
+   The one-dir build produces `dist\Ploptimizer\Ploptimizer.exe` plus a sibling
+   `_internal\` folder (which contains `python311.dll`); the Inno Setup script
+   (`installer\ploptimizer.iss`) packages the whole tree into a single
+   `dist\Ploptimizer-Setup-<version>-windows-x64.exe` installer. The one-dir
+   layout is deliberate: one-file self-extracting archives commonly trigger
+   the `Trojan:Win32/Wacatac.B!ml` Defender false positive, and the installer
+   removes the "copying the `.exe` by itself fails" pitfall.
+
+   > **Note:** For a *portable* single-file build (e.g. dropping the EXE into
+   > `System32`), `--onefile` still works — see "Build the Executable" under
+   > [Windows 7 Notes](#windows-7-notes) below. Never ship a one-dir
+   > `Ploptimizer.exe` without its `_internal\` folder.
 
 ### Windows-Specific Setup
 
@@ -302,6 +320,64 @@ logs a `Watch daemon stopped.` line on graceful shutdown. Stop it with
 > `run_tray.py` (system tray GUI) is only supported on Windows 10+; see
 > [System Tray Application (GUI)](#system-tray-application-gui).
 
+### Step 4: Building the Executable for Windows 7
+
+**Important:** The CI-built Windows executables are compiled with newer toolchains and will not run on Windows 7. You must build the executable on your Windows 7 machine or use a compatible build environment.
+
+#### Prerequisites
+
+Ensure you have completed Steps 1-3 above, then install PyInstaller:
+
+```batch
+cd C:\path\to\plt-optimizer
+uv pip install pyinstaller==5.13.2
+```
+
+(PyInstaller 5.13.2 is the last version supporting Python 3.8)
+
+#### Build the Executable
+
+```batch
+cd C:\path\to\plt-optimizer
+
+:: Build the standalone executable
+uv run pyinstaller --onefile --noconsole ^
+    --name "Ploptimizer" ^
+    --add-data "assets;assets" ^
+    --icon "assets\icon.ico" ^
+    run_tray.py
+```
+
+The compiled executable will be created at `dist\Ploptimizer.exe`.
+
+#### Install the Built Executable
+
+To make the executable available system-wide, copy it to a directory in your PATH:
+
+```batch
+copy dist\Ploptimizer.exe C:\Windows\System32\
+```
+
+Or keep it in a custom location and add that location to your PATH:
+
+```batch
+setx PATH "%PATH%;C:\path\to\plt-optimizer\dist"
+```
+
+#### Using the Built Executable
+
+You can now run the application from anywhere:
+
+```batch
+Ploptimizer.exe
+```
+
+Or use it directly with the watch daemon:
+
+```batch
+Ploptimizer.exe watch --watch-dir D:\PlotterFiles\Watch --output-dir D:\PlotterFiles\Optimized --log-dir D:\Logs
+```
+
 ---
 
 ### Verifying Installation
@@ -412,6 +488,8 @@ uv run plt-optimizer watch --watch-dir /input/plt \
 - `--fast-mode`: Use only `NearestNeighbor2OptStrategy` for faster processing
 - `--debug-save-files`: Save before/after PLT files and comparison plots to a `debug/` subdirectory of the log directory (only effective with `--log-dir`)
 - `--debounce-seconds` (default: 2.0): Quiet period after the last modification before a file is processed; also waits for OS file locks to release
+- `--ensemble-timeout` (default: `10.0`): Seconds each ParallelEnsemble strategy job may take before it is aborted and marked as failed. If all jobs fail, the serial NearestNeighbor + 2-Opt fallback runs. Ignored with `--fast-mode`
+- `--same-row-preference` (default: `1.0`): Penalty multiplier for y-differences during greedy selection (values > 1.0 prefer same-row blocks)
 
 The daemon processes existing files on startup, then continues watching for new changes. Press Ctrl+C for graceful shutdown.
 
@@ -442,6 +520,9 @@ python run_tray.py
 - "Run at Windows Startup" checkbox for auto-start
 
 The tray application stores configuration in `%LOCALAPPDATA%\PLT-Optimizer\config.json`.
+Recognized keys include `watch_dir`, `output_dir`, `log_dir`, `processed_dir`,
+`fast_mode`, `debug_save_files`, `ensemble_timeout_seconds` (default `10.0`),
+`same_row_preference` (default `1.0`), and `run_at_startup`.
 
 #### Windows-Specific Usage
 
@@ -472,7 +553,7 @@ uv run plt-optimizer watch --watch-dir \\Server\Plotter\Input --output-dir \\Ser
 
 The simplest method is to use the **system tray application** which provides a "Run at Startup" checkbox in its settings:
 
-1. Run `run_tray.py` or launch the compiled executable (`PLT-Optimizer.exe`)
+1. Run `run_tray.py` or launch the compiled executable (`Ploptimizer.exe`)
 2. Right-click the system tray icon → **Open Settings**
 3. Configure your watch directory, output directory, and other options
 4. Check **Run at Windows Startup**
@@ -490,6 +571,11 @@ The application will now start automatically when you log in to Windows, with no
   This installs: `winshell` and `pywin32`
 
 ##### Method 2: Standalone Executable (PyInstaller)
+
+> **Note:** GitHub Releases publish only the installer
+> (`Ploptimizer-Setup-<version>-windows-x64.exe`); building a standalone EXE
+> is a developer/portable scenario (e.g. a single file in `System32`). For
+> normal Windows 10+/11 deployments, install the released installer instead.
 
 **Note:** This build step must be run on **Windows**. The system tray functionality requires Windows APIs.
 
@@ -509,7 +595,48 @@ The application will now start automatically when you log in to Windows, with no
       run_tray.py
    ```
 
-4. The compiled executable will be in `dist/PLT-Optimizer.exe`
+4. The compiled executable will be in `dist/Ploptimizer.exe`
+
+##### Method 3: Task Scheduler (Recommended)
+
+1. Open **Task Scheduler** (`taskschd.msc`)
+
+2. Click **Create Basic Task** → Name it "PLT-Optimizer Watch"
+
+3. Set Trigger: **When the computer starts**
+
+4. Set Action: **Start a program**
+   - Program: `cmd.exe`
+   - Arguments: `/c cd /d C:\PLT-Optimizer && uv run plt-optimizer watch --watch-dir D:\PlotterFiles\Watch --output-dir D:\PlotterFiles\Optimized --log-dir D:\Logs`
+
+5. Configure:
+   - Check **Run whether user is logged on or not** (requires password)
+   - Check **Run with highest privileges** if writing to protected directories
+   - Set **Stop task if it runs longer than:** 1 day (optional)
+
+6. Click **OK** and enter your Windows password when prompted.
+
+##### Method 4: Windows Service (Advanced)
+
+For a persistent background service that survives user logoff, use NSSM (Non-Sucking Service Manager):
+
+```powershell
+# Install NSSM via Chocolatey
+choco install nssm -y
+
+# Or download from https://nssm.cc/download
+
+# Create the service (run PowerShell as Administrator)
+$nssm = "C:\Program Files\nssm\win64\nssm.exe"
+
+& $nssm install PLT-Optimizer "C:\Users\<YourUser>\.local\bin\uv.exe" "run plt-optimizer watch --watch-dir D:\PlotterFiles\Watch --output-dir D:\PlotterFiles\Optimized --log-dir D:\Logs"
+# Note: Use full path to uv.exe from your user directory
+
+# Configure startup type
+& $nssm set PLT-Optimizer Start SERVICE_AUTO_START
+
+# Start the service
+& $nssm start PLT-Optimizer
 
 ##### Method 3: Task Scheduler (Recommended)
 
@@ -750,21 +877,28 @@ pre-commit install
 
 Now `ruff check`, `ruff format`, and `mypy` will run automatically on each `git commit`.
 
+The hooks invoke the tools through `uv run --extra dev` (plus `--extra plotting`
+for mypy) so the tool versions come from `uv.lock` — the exact same versions CI
+uses. Never commit with `git commit --no-verify`; CI runs the identical checks
+(`ruff check`, `ruff format --check`, and `mypy` in
+`.github/workflows/ci.yml`), and mypy is pinned to `platform = "win32"` in
+`pyproject.toml` so results are identical on every OS.
+
 #### Manual Checks
 
 Run the linter:
 ```bash
-uv run ruff check plt_optimizer/
+uv run --extra dev ruff check plt_optimizer/
 ```
 
 Format code:
 ```bash
-uv run ruff format plt_optimizer/
+uv run --extra dev ruff format plt_optimizer/
 ```
 
 Type checking:
 ```bash
-uv run mypy plt_optimizer/
+uv run --extra dev --extra plotting mypy plt_optimizer/
 ```
 
 ### Adding New Commands
@@ -817,20 +951,31 @@ New-NetFirewallRule -DisplayName "PLT-Optimizer Python" -Direction Inbound -Prog
 
 This project uses GitHub Actions for continuous integration and automated builds:
 
-| Workflow | Trigger | Purpose |
+| Workflow / Job | Trigger | Purpose |
 |----------|---------|---------|
 | **CI** | Push to main / PRs | Lint, type check, run tests |
-| **Build** | Push to main / Tags | Build Windows executable |
+| **CI → `build-windows-exe`** | Release created / `v*` tag push / manual `workflow_dispatch` | Build the Windows installer |
 
 ### Automated Build Process
 
-1. On every push to `main`, the build workflow:
-   - Creates a Windows executable via PyInstaller
-   - Uploads it as an artifact (downloadable from Actions tab)
+1. On every push to `main`, the CI workflow lints, type-checks, and tests the code.
 
-2. On every git tag, the build workflow:
-   - Creates a proper release with the `.exe` attached
-   - Users can download `PLT-Optimizer.exe` from GitHub Releases
+2. When release-please cuts a release, the CI workflow:
+   - Builds the app via PyInstaller (one-dir layout)
+   - Packages it with Inno Setup (`installer/ploptimizer.iss`) into a single
+     installer: `Ploptimizer-Setup-<version>-windows-x64.exe`
+   - Attaches the installer to the GitHub Release. The installer is the
+     **only** published file — the former practice of publishing the bare
+     `Ploptimizer.exe` directly has been retired (a one-dir EXE is useless
+     without its `_internal\` folder, and a bare EXE has no uninstaller,
+     Start Menu entries, or upgrade-in-place support)
+   - Users download and run the installer from GitHub Releases
+
+3. Non-release builds (`v*` tag runs without a release, PRs, and manual
+   `workflow_dispatch` runs) also produce the installer, but publish it as a
+   downloadable **workflow artifact** (`Ploptimizer-installer-windows-x64-build<run>`)
+   on the run summary page instead of attaching it to a release. Manual runs
+   resolve the version from `pyproject.toml`.
 
 ## See Also
 
