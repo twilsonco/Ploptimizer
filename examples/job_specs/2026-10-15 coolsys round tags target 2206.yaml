@@ -1,0 +1,17 @@
+# 2026-10-15
+# Coolsys Target 2206
+job:
+  job_name: Coolsys Target 2206
+  type: round
+  width: 2
+  text_height: 0.2
+  cutter_size: 0.02
+  margin: 0.2
+  line_spacing: 0.2
+  replacement_text_file: 2026-10-15 coolsys round tags target 2206.txt
+  font: dino sc
+  sc_scale: 1.0
+  holes:
+    - location: top
+      diameter: 0.1875
+  
