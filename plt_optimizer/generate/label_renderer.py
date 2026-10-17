@@ -6065,11 +6065,14 @@ def _render_boundary_local(label: ResolvedLabel) -> vp.LineCollection:
     """Render the label boundary at local coordinates.
 
     ``type: rect`` (the default) emits the historical ``width`` x ``height``
-    rectangle at the label edge, bit-identical. ``type: round`` emits the
-    inscribed **ellipse** (semi-axes ``width / 2`` and ``height / 2``,
-    centred at ``(width / 2, height / 2)``) as a closed polygon sampled at
-    the shared arc chord tolerance, so the engraved boundary follows the
-    round label's shape to the same fidelity as every flattened arc.
+    rectangle at the label edge, bit-identical. ``type: round`` (and the
+    fully-rounded rounded-rectangle limit) emits the inscribed **ellipse**
+    (semi-axes ``width / 2`` and ``height / 2``, centred at
+    ``(width / 2, height / 2)``) as a closed polygon sampled at the shared arc
+    chord tolerance, so the engraved boundary follows the round label's shape
+    to the same fidelity as every flattened arc. A partially-rounded
+    rectangular label emits the G2 superellipse-corner contour (see
+    :func:`_rounded_rect_boundary_polygon`).
 
     Args:
         label: The resolved label whose boundary should be drawn.
@@ -6091,8 +6094,6 @@ def _render_boundary_local(label: ResolvedLabel) -> vp.LineCollection:
 
     rounded_corner = _rounded_rect_corner(label)
     if rounded_corner is not None:
-        if label.width <= 0.0 or label.height <= 0.0:
-            return lc
         lc.append(_rounded_rect_boundary_polygon(label.width, label.height, rounded_corner))
         return lc
 

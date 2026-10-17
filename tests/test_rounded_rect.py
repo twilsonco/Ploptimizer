@@ -121,6 +121,12 @@ class TestRoundedRectCornerParams:
         assert rounded_rect_corner_params(0.0, 2.0, 0.5, False) is None
         assert rounded_rect_corner_params(4.0, -1.0, 0.5, False) is None
 
+    def test_subnormal_fraction_underflows_to_sharp(self) -> None:
+        """A subnormal fraction whose rounding distance underflows is sharp."""
+        # 5e-324 is the smallest subnormal; halving it rounds to 0.0, so the
+        # patch semi-axis vanishes and the border stays the sharp rectangle.
+        assert rounded_rect_corner_params(1.0, 1.0, 5e-324, True) is None
+
     def test_equal_distance_uses_shorter_edge(self) -> None:
         """The TODO example: 4x8 at 0.5 rounds 2in of the 4in sides."""
         corner = rounded_rect_corner_params(4.0, 8.0, 0.5, False)
@@ -307,6 +313,38 @@ class TestRoundedRectContentInset:
             width, _height = rounded_rect_content_inset(4.0, 4.0, 0.25, 0.25, corner)
             widths.append(width)
         assert widths == sorted(widths, reverse=True)
+
+    def test_wide_label_fits_the_inset_directly(self) -> None:
+        """A label whose aspect-limited block clears the patches skips the bisect.
+
+        A 10x4 label at fraction 0.25 rounds only 0.5in of the 4in sides, so
+        the largest centered block of the label's aspect inside the inset
+        boundary is limited by the vertical inset (v = 1.75), and its corner
+        (4.375, 1.75) sits inside the inset corner patch -- the closed-form
+        answer is returned directly, no bisection.
+        """
+        corner = rounded_rect_corner_params(10.0, 4.0, 0.25, False)
+        assert corner is not None
+        width, height = rounded_rect_content_inset(10.0, 4.0, 0.25, 0.25, corner)
+        assert height == pytest.approx(3.5)
+        assert width == pytest.approx(3.5 * 2.5)  # the label's aspect, 8.75
+
+    def test_bisection_converges_on_the_inset_boundary(self) -> None:
+        """A label whose block corners hit the patches bisects to the curve.
+
+        The 4x4 square at fraction 0.5 puts the block's corner exactly on the
+        corner patch, so the inset shrinks below the rectangular rule and the
+        bisected block's corner lands on the inset superellipse.
+        """
+        corner = rounded_rect_corner_params(4.0, 4.0, 0.5, False)
+        assert corner is not None
+        width, height = rounded_rect_content_inset(4.0, 4.0, 0.25, 0.25, corner)
+        # Inset boundary: half-extents 1.75, radii 0.75, exponent 4. The
+        # block's corner (width/2, height/2) about the centre satisfies it.
+        rx = ry = corner.rx - 0.25
+        dx = max(width / 2.0 - (1.75 - rx), 0.0) / rx
+        dy = max(height / 2.0 - (1.75 - ry), 0.0) / ry
+        assert dx**corner.exponent + dy**corner.exponent == pytest.approx(1.0, abs=1e-6)
 
 
 class TestRoundedRectCornerHole:
