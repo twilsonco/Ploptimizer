@@ -7,5 +7,6 @@ job:
   width: 3.0
   height: 1.0
   text_height: 0.75
+  rounded_rectangle_fraction: 0.75
   holes:
     - location: sides
