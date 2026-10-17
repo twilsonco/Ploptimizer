@@ -73,7 +73,7 @@
             }
           ],
           "default": null,
-          "description": "Font name: a PLT-extracted font key (the font_name fields of Fonts/VP-EL-Fonts/catalog/*.json, rendered arc-native with arcs preserved) or a TrueType basename (*.ttf under Fonts/, extension stripped); case-insensitive, canonicalized at validation. Appending ' SC' to any name selects its synthetic small-caps variant (uppercase glyphs verbatim, ASCII lowercase a-z downscaled by sc_scale). Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list.",
+          "description": "Font name: a PLT-extracted font key (the font_name fields of Fonts/VP-EL-Fonts/catalog/*.json, rendered arc-native with arcs preserved) or a TrueType basename (*.ttf under Fonts/, extension stripped); case-insensitive, canonicalized at validation. Appending ' SC' to any name selects its synthetic small-caps variant (uppercase glyphs verbatim, ASCII lowercase a-z downscaled by sc_scale). Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list. The inline <f:font name>...</f> markup tag selects any of these names for the wrapped characters of a text line (the run engraves with the cutter its own font's ladder gives that text height); '+' is the canonical space in the tag argument (e.g. <f:Dino+SC>).",
           "title": "Font"
         },
         "character_spacing": {
@@ -1589,7 +1589,7 @@
             }
           ],
           "default": null,
-          "description": "Font name: a PLT-extracted font key (the font_name fields of Fonts/VP-EL-Fonts/catalog/*.json, rendered arc-native with arcs preserved) or a TrueType basename (*.ttf under Fonts/, extension stripped); case-insensitive, canonicalized at validation. Appending ' SC' to any name selects its synthetic small-caps variant (uppercase glyphs verbatim, ASCII lowercase a-z downscaled by sc_scale). Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list.",
+          "description": "Font name: a PLT-extracted font key (the font_name fields of Fonts/VP-EL-Fonts/catalog/*.json, rendered arc-native with arcs preserved) or a TrueType basename (*.ttf under Fonts/, extension stripped); case-insensitive, canonicalized at validation. Appending ' SC' to any name selects its synthetic small-caps variant (uppercase glyphs verbatim, ASCII lowercase a-z downscaled by sc_scale). Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list. The inline <f:font name>...</f> markup tag selects any of these names for the wrapped characters of a text line (the run engraves with the cutter its own font's ladder gives that text height); '+' is the canonical space in the tag argument (e.g. <f:Dino+SC>).",
           "title": "Font"
         },
         "character_spacing": {
@@ -2097,7 +2097,7 @@
         }
       ],
       "default": null,
-      "description": "Font name: a PLT-extracted font key (the font_name fields of Fonts/VP-EL-Fonts/catalog/*.json, rendered arc-native with arcs preserved) or a TrueType basename (*.ttf under Fonts/, extension stripped); case-insensitive, canonicalized at validation. Appending ' SC' to any name selects its synthetic small-caps variant (uppercase glyphs verbatim, ASCII lowercase a-z downscaled by sc_scale). Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list.",
+      "description": "Font name: a PLT-extracted font key (the font_name fields of Fonts/VP-EL-Fonts/catalog/*.json, rendered arc-native with arcs preserved) or a TrueType basename (*.ttf under Fonts/, extension stripped); case-insensitive, canonicalized at validation. Appending ' SC' to any name selects its synthetic small-caps variant (uppercase glyphs verbatim, ASCII lowercase a-z downscaled by sc_scale). Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list. The inline <f:font name>...</f> markup tag selects any of these names for the wrapped characters of a text line (the run engraves with the cutter its own font's ladder gives that text height); '+' is the canonical space in the tag argument (e.g. <f:Dino+SC>).",
       "title": "Font"
     },
     "character_spacing": {

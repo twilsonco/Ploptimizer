@@ -1158,8 +1158,7 @@ rebuilding raw markup.
   runs at **resolution time** (`_resolve_content`), so the abort lands with
   the other spec-level errors.
 - **The tag registry** (`TAG_REGISTRY` + `register_tag(name, apply,
-  accepts_args)`) is the extension point for the remaining TODO tag
-  (`<f:name>`): one registry entry plus
+  accepts_args)`) is the extension point: one registry entry plus
   render-side handling of the new `Style` field. The parser, cascade,
   serialization and reflow need no change. `apply` must be **idempotent** so
   `serialize_runs` can recover the tag stack from styles; with several tags
@@ -1167,8 +1166,15 @@ rebuilding raw markup.
   round-trips). `<u>` (see Inline Underline below) is the second shipped tag:
   `Style.underline` + `register_tag("u", ...)`, and nested `<i>...<u>...</u>
   ...</i>` composes (every transformation applies to its runs, in stack order).
-  The registry order is `i, u, b, scale, sup, sub, s, sc` (each tag registers
-  last so every earlier tag's serialization stays bit-identical).
+  The registry order is `i, u, b, scale, sup, sub, s, sc, f` (each tag registers
+  last so every earlier tag's serialization stays bit-identical). The font tag
+  (`<f:font name>`, see Inline Font Selection below) is the one tag whose
+  argument needs pipeline knowledge (the font catalog): `parse_markup` accepts
+  an injected `font_resolver` (raw name -> canonical name, `ValueError` for
+  unknown) that canonicalizes `Style.font` at open time and on every
+  crossing-close replay, so markup.py stays free of pipeline imports (the
+  Windows 7 / Python 3.8 guarantee) and an unknown font raises `MarkupError`
+  (CLI non-zero).
 - **Resolved fields**: `ResolvedTextLine` gains `html_brackets`,
   `italic_angle`, `plain_text` (the markup-free text) and `styled_runs`
   (`()` for a markup-free line — the renderers' fast path). Every line resolves
@@ -1942,6 +1948,127 @@ caps has no additional effect.
   `tests/test_ftext_renderer.py`), `TestInlineSmallCapsGate` /
   `TestInlineSmallCapsDispatch` (`tests/test_label_renderer_gaps.py`), and the
   `<sc>` reflow round-trips (`tests/test_line_content.py`).
+
+### Inline Font Selection (`<f:font name>`)
+
+`<f:font name>...</f>` is the ninth shipped markup tag: the wrapped characters
+engrave with a **different font** than the line's cascaded `font` — the same
+names the `font` field accepts (a PLT catalog key, a TTF basename, or a
+`<base> SC` variant; case-insensitive), so one line mixes fonts (the motivating
+case: Wingdings symbols inside a Dino line). The run engraves at the line's
+`text_height` and with the cutter that size of text **in that font** gets
+authored on its own (the `<scale:N>` contract), so it lands on its own pen /
+`<cutter>_txt_` file. **PLT and TTF families mix freely** in one line.
+
+- **The argument regex stays `\S*`** (zero risk to the eight shipped tags), so
+  `+` is the canonical space of a multi-word name (`<f:Foo+Bar>`); `_` stays
+  literal (catalog names keep underscores). A bare `<f>` is literal text (the
+  name is mandatory, the `<scale:N>` rule); `<f:>` is `MarkupError` → CLI
+  non-zero. The `arg` serializer re-encodes spaces as `+`, so the reflow
+  round-trip (`serialize_word` → raw text → `with_markup` re-parse) is exact.
+- **Dependency injection is the framework upgrade**: `parse_markup` gained the
+  optional `font_resolver` (`(decoded name -> canonical name)`, raising
+  `ValueError` for an unknown name, wrapped into `MarkupError` with the tag
+  position). markup.py imports no pipeline module, so the Win7/3.8 import
+  guarantee holds; the pipeline injects `resolution._canonical_font_name` (a
+  `resolve_font(name).name` wrapper) from `_resolve_content` **and**
+  `ResolvedTextLine.with_markup`, so a re-parse re-resolves canonical names to
+  identity. The resolver runs at **open** time and the stack stores the
+  canonical name, so the crossing-close replay reproduces it without
+  re-resolving.
+- **`Style.font: Optional[str] = None`** (canonical name; `None` = the line's
+  own font) is a set-to-value field (idempotent), so a nested `<f:B>` inside
+  `<f:A>` restores `A` for the trailing text for free (the close pops the
+  pre-open style), and crossing spans intersect like every other tag.
+  `StyledText.font_values` / `ResolvedTextLine.font_runs` / `has_font_runs`
+  are the per-character views, DERIVED from `styled_runs` (never stored
+  positionally — the `<scale:N>` staleness rule, pinned by
+  `test_font_run_survives_the_with_markup_text_swap`).
+- **The run cutter = the ladder for the run's font + effective height.**
+  `scale_cutter_ladder` gained `font` + `run_ladder`: a single-stroke run font
+  takes the plain height ladder, a **multi-stroke (bold) run font re-runs the
+  boldness ladder** at its own `stroke_count` (snap + gap-free step-up, exactly
+  like the line-level cutter block), and the bold rung resolves against the run
+  font too. `per_char_cutters` keys its ladder cache on `(scale, run_font)`, so
+  a `<f:>` run at scale 1.0 needs no scale tag to move to its own tool.
+  `glyph_render_plan`'s gate includes `has_font_runs`; its centerline formula
+  `g = (s*nominal - d)/(nominal - cutter)` is font-agnostic, so the run's cap
+  engraves at `nominal - run_cutter` (the run's engraved cap matches the plain
+  run's) and the engraved-baseline raise `(d - c)/2` rides the existing
+  `baseline_shifts` array. An explicit line `cutter_size` governs the **plain**
+  runs only (the scaled-run precedent); the run font keeps its own ladder.
+  `used_cutters` → `build_cutter_pen_map` → the N-way `_split_block_by_cutters`
+  → per-cutter `<cutter>_txt_` files: all free.
+- **All-PLT lines kern EXACTLY inside the walk.** `plt_font_renderer._walk_line`
+  (and the three public wrappers) gained keyword-only `font_names`: each named
+  character fetches its geometry from that font's catalog entry (`_glyph_entry`
+  is already keyed on the font), and every distinct run font resolves once into
+  a render frame (library name + scale + design-unit kerning window +
+  inch→design floor). Every v2 library shares the design frame
+  (`normalized_ref_height` 1.0, baseline y=0, ref char exactly 1000 units), so
+  the envelope kerning across a font switch is the same exact math as a
+  same-font pair, the per-pair stroke floor `0.5*(d_L + d_R)` widens a pair
+  against a thicker run tool, and `glyph_groups` stay exact by construction.
+  `label_renderer._font_names_kwargs` is the gate: `{}` (the historical call
+  shape) when the line has no font run, the base font is TTF, any run font is
+  TTF, or a name fails to resolve.
+- **A `<f:Base+SC>` run font gets small caps per character.** The walk's
+  font-level `lowercase_scale` is whole-line, so
+  `label_renderer._walk_small_caps_kwargs` merges the per-character selection:
+  the union of the characters whose run font resolves to a PLT small-caps
+  variant and the inline `<sc>` gate's flags (the gate's flags win where both
+  apply), with a per-character **symbol-font exclusion** (a symbol font has no
+  lowercase to shrink — the line-level gate's exemption, applied per character
+  here). Inert on a ` SC` base font (the variant owns the whole line, the
+  "already small caps" contract) and on a TTF base (the composer handles it).
+- **Cross-family lines compose per-font segments.** The PLT walk renders PLT
+  only and the TTF path shapes a whole line with ONE face, so
+  `_render_line_block` splits into `_render_line_core` (the historical dispatch,
+  now with `skip_decorations`) and the composer: each maximal single-font
+  segment renders through a core call on a clone built by
+  `_font_segment_line` (the segment's font as its `font`, the `<f:>` tag
+  stripped, the run's ladder cutter / toolpath height / bold rung applied) and
+  is placed on a running cursor. The boundary advance is the **bounding-box
+  rule** (previous ink's right edge + `0.5*(d_L + d_R) + character_spacing +
+  kerning_min_gap`) — a TTF glyph carries no envelopes, so an exact silhouette
+  kern across a TTF boundary is not computable; the rule is conservative
+  (accepted, documented). A run of spaces is its own segment: it advances by
+  the walk's space width and breaks kerning. Word groups concatenate with
+  stroke offsets (a word split across fonts yields two groups — chunking
+  granularity only); glyph groups concatenate **exactly**, so the descender
+  relief's character map and the intra-chunk glyph sweep stay valid.
+  Decorations (`<u>`/`<s>`) apply once on the composed block (the whole-line
+  gates unchanged), so a run spanning two fonts stays one continuous stroke and
+  `_split_runs_at_cutter` splits it at the cutter boundary for free.
+- **Single-font lines are bit-identical.** No font run ⇒ no `font_names` kwarg,
+  no composer call, the historical renderer call shape.
+- **No schema field, no `job-config.json` key, no cascade** — the value rides
+  the tag (the `<scale:N>` precedent). The schema `font` field description
+  documents the tag; `docs/schema/generate_ai_docs.py` regen is required (no new
+  `DEFAULT_*` constant ⇒ no `_FALLBACK_NOTES` row).
+- **Reporting**: `layout_report.py` prints a per-line finding
+  `Line N: '<text>' font Wingdings (run cutter 0.030in, line cutter 0.060in)`
+  (the run fonts are invisible in the YAML and each run steps to its own tool;
+  multiple fonts/cutters print ascending ranges; the 11th slot of the findings
+  tuple; reads `plain_text`, compact-mode finding).
+- Fixture: `tests_deps/font_job.yaml` (15 labels) pinned by
+  `TestFontDemoExample` — the Wingdings-in-Dino headline vs its plain twin (the
+  S4 ladder 0.030 run cutter, the run's cap at `nominal - 0.030`),
+  case-insensitivity, `<f:Dino+SC>` (the 0.7 ratio vs the plain-caps control,
+  one pen), per-character selection, nesting (the close restores the outer
+  font), `<f>`+`<b>` (the boosted run ladder 0.045, three pens),
+  `<f>`+`<scale:N>`, `<f>`+`<i>`, `<f>`+`<u>` (the run split at the cutter
+  boundary), a TTF run in a PLT line and a PLT run in a TTF line (exact glyph
+  groups), the all-TTF control, an explicit-`cutter_size` line, and the
+  per-cutter file set; the unknown-font `MarkupError` abort is pinned too. Unit
+  tests: `TestFontRegistry` / `TestFontParse` / `TestFontResolver` /
+  `TestFontSerialize` (`tests/test_markup.py`), `TestFontRunResolution` /
+  `TestRunLadderCutter` (`tests/test_resolution.py`), `TestFontNames`
+  (`tests/test_plt_font_renderer.py`), `TestFontNamesGate` /
+  `TestWalkSmallCapsGate` / `TestFontNamesDispatch` /
+  `TestFontSegmentComposition` (`tests/test_label_renderer_gaps.py`),
+  `TestFontMarkupFindings` (`tests/test_layout_report.py`), and the `<f>`
+  reflow round-trips (`tests/test_line_content.py`).
 
 ### Horizontal Text Alignment
 

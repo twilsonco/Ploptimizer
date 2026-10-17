@@ -713,7 +713,11 @@ class TextAttributes(BaseModel):
             "Cascades line -> label -> job "
             f"(fallback {DEFAULT_FONT_NAME}). Unknown names are rejected; run "
             "docs/schema/generate_schema_docs.py --show-fonts for the full "
-            "valid list."
+            "valid list. The inline <f:font name>...</f> markup tag selects "
+            "any of these names for the wrapped characters of a text line "
+            "(the run engraves with the cutter its own font's ladder gives "
+            "that text height); '+' is the canonical space in the tag "
+            "argument (e.g. <f:Dino+SC>)."
         ),
     )
     character_spacing: Optional[float] = Field(

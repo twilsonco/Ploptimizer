@@ -4197,6 +4197,324 @@ class TestOverlapDemoExample:
         assert "0.090_txt_ovl.plt" in names  # the crossing bold rung
 
 
+class TestFontDemoExample:
+    """Regression tests for tests_deps/font_job.yaml.
+
+    The fixture pins inline font-selection markup (``<f:font name>``): the
+    wrapped characters engrave with a DIFFERENT font than the line's cascaded
+    ``font`` (a PLT catalog key, a TTF basename, or a ``<base> SC`` variant;
+    case-insensitive, ``+`` the canonical space). The run engraves at the
+    line's ``text_height`` with the cutter that size of text IN THAT FONT gets
+    on its own (the ``<scale:N>`` ladder, multi-stroke boldness ladder for a
+    bold run font), so it lands on its own pen / ``<cutter>_txt_`` file. An
+    all-PLT line kerns the font switch on the profile envelopes (exact, every
+    v2 library shares the design frame); a line crossing the PLT/TTF families
+    composes per-font segments and kerns the boundary on the bbox + stroke
+    floor. The controls pin the plain twin, case-insensitivity, the SC variant,
+    per-character selection, nesting, the ``<b>``/``<scale:N>``/``<i>``/``<u>``
+    compositions, the TTF family, the explicit-cutter contract, and the
+    per-cutter file set.
+    """
+
+    _SPEC = Path("tests_deps/font_job.yaml")
+    _INVENTORY = [0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.09, 0.125, 0.25]
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled (against the inventory)."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job, available_cutters=self._INVENTORY)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="font",
+            optimize=False,
+            plots=False,
+            available_cutters=self._INVENTORY,
+        )
+
+    @staticmethod
+    def _glyph_bounds(
+        line: ResolvedTextLine, glyph_index: int
+    ) -> tuple[float, float, float, float]:
+        """Rendered bounds of one glyph of the line (LINE chunk mode)."""
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+        from plt_optimizer.generate.text_geometry import TextBlock
+
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        bounds = TextBlock(strokes=tuple(block.strokes[i] for i in glyphs[glyph_index])).bounds()
+        assert bounds is not None
+        return bounds
+
+    def test_markup_parses_to_plain_text_and_font_runs(self, tmp_path: Path) -> None:
+        """Tags never engrave: plain_text strips them, runs carry the font name."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+
+        run = by_id["plt_wingdings"].content[0]
+        assert run.text == "Hello <f:Wingdings>abcd</f> world"
+        assert run.plain_text == "Hello abcd world"
+        assert run.has_font_runs is True
+        # The 6 plain chars + trailing ' world' are None (the line's Dino);
+        # the 4 run chars are Wingdings.
+        assert run.font_runs == (None,) * 6 + ("Wingdings",) * 4 + (None,) * 6
+
+        plain = by_id["plt_plain"].content[0]
+        assert plain.plain_text == "Hello abcd world"
+        assert plain.has_font_runs is False
+
+    def test_font_run_steps_to_its_own_font_ladder_cutter(self, tmp_path: Path) -> None:
+        """The run engraves with the cutter its own font's ladder gives.
+
+        Dino auto-selects 0.060 for 0.5in text; Wingdings is a 4-stroke (bold)
+        font, so its run re-runs the boldness ladder at 0.5in (0.0215 ideal,
+        snapped to the 0.030 rung). The plain characters keep 0.060, so the
+        line splits onto the 0.030 and 0.060 pens.
+        """
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_wingdings"].source_label.content[0]
+        assert line.cutter_diameter == pytest.approx(0.06)
+        # The run's four characters step to the Wingdings ladder cutter.
+        assert all(math.isclose(c, 0.03) for c in line.per_char_cutters[6:10])
+        assert all(math.isclose(c, 0.06) for c in line.per_char_cutters[:6])
+        assert line.used_cutters == (0.03, 0.06)
+
+    def test_font_run_cap_matches_the_plain_run(self, tmp_path: Path) -> None:
+        """The centerline contract: the run's cap engraves at nominal - run_cutter.
+
+        The run's geometry scales uniformly about the baseline by
+        ``(nominal - run_cutter) / (nominal - line_cutter)``, so its engraved
+        cap reaches the same height as a run authored at ``text_height`` with
+        its own tool. The run's 'a' glyph is therefore TALLER than the plain
+        twin's (its toolpath cap is 0.47 vs the plain 0.44, the thinner tool
+        leaving more material).
+        """
+        result = self._export(tmp_path)
+        run_line = result.rendered_labels["plt_wingdings"].source_label.content[0]
+        plain_line = result.rendered_labels["plt_plain"].source_label.content[0]
+        # The run's 'a' (glyph 5) vs the plain twin's 'a' (glyph 5).
+        run_cap = self._glyph_bounds(run_line, 5)[3]
+        plain_cap = self._glyph_bounds(plain_line, 5)[3]
+        assert run_cap > plain_cap
+
+    def test_case_insensitive_font_matches_the_canonical_run(self, tmp_path: Path) -> None:
+        """``<f:wingdings>`` engraves exactly like ``<f:Wingdings>``."""
+        result = self._export(tmp_path)
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+
+        canonical = result.rendered_labels["plt_wingdings"].source_label.content[0]
+        lowered = result.rendered_labels["plt_case"].source_label.content[0]
+        assert canonical.font_runs == lowered.font_runs
+        bc, _, _ = _render_line_block(canonical, TextChunkMode.LINE)
+        bl, _, _ = _render_line_block(lowered, TextChunkMode.LINE)
+        assert bc.bounds() == pytest.approx(bl.bounds(), abs=1e-12)
+
+    def test_small_caps_variant_run_shrinks_lowercase(self, tmp_path: Path) -> None:
+        """``<f:Dino+SC>`` renders the run's lowercase as capitals at sc_scale.
+
+        The SC variant shares Dino's cutter (0.060), so the line stays on one
+        pen; the run's 'a' engraves as Dino's capital 'A' shrunk to sc_scale
+        (0.7) of the cap height, measured against the plain-caps control.
+        """
+        result = self._export(tmp_path)
+        run_line = result.rendered_labels["plt_sc"].source_label.content[0]
+        caps_line = result.rendered_labels["plt_sc_plain"].source_label.content[0]
+        assert run_line.font_runs[6] == "Dino SC"
+        assert run_line.used_cutters == (0.06,)  # the variant shares Dino's tool
+        sc_a = self._glyph_bounds(run_line, 6)  # the run's first 'a'
+        plain_a = self._glyph_bounds(caps_line, 6)  # the plain 'A'
+        ratio = (sc_a[3] - sc_a[1]) / (plain_a[3] - plain_a[1])
+        assert ratio == pytest.approx(0.7, abs=1e-3)
+
+    def test_partial_font_run_moves_only_the_selected_glyph(self, tmp_path: Path) -> None:
+        """A per-glyph font run leaves the plain neighbours at the line's font."""
+
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_partial"].source_label.content[0]
+        a = self._glyph_bounds(line, 0)
+        b = self._glyph_bounds(line, 1)
+        c = self._glyph_bounds(line, 2)
+        # The run's 'B' (Wingdings) is taller than its plain Dino 'A'/'C'
+        # neighbours (the run's cap reaches nominal - 0.030 = 0.47).
+        assert b[3] > a[3]
+        assert b[3] > c[3]
+        # The plain neighbours share the same cap height (round overshoot).
+        assert a[3] == pytest.approx(c[3], abs=1e-3)
+
+    def test_nested_font_restores_the_outer_run(self, tmp_path: Path) -> None:
+        """The inner ``</f>`` restores the enclosing font for the trailing text.
+
+        ``<f:Stylus>A<f:Wingdings>B</f>C</f>D``: A/C engrave Stylus, B
+        Wingdings, D the line's Dino. The close pops the pre-open style, so C
+        returns to Stylus (the ``<scale:N>`` nesting rule).
+        """
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_nested"].source_label.content[0]
+        assert line.font_runs == ("Stylus", "Wingdings", "Stylus", None)
+        # C (glyph 2) matches a standalone Stylus 'C' (the outer font restored).
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+        from plt_optimizer.generate.text_geometry import TextBlock
+
+        stylus_c = ResolvedTextLine(
+            text="C",
+            nominal_text_height=0.5,
+            toolpath_text_height=0.44,
+            cutter_diameter=0.06,
+            character_spacing=0.09,
+            line_spacing=0.1,
+            font="Stylus",
+        )
+        block, _w, glyphs = _render_line_block(stylus_c, TextChunkMode.LINE)
+        ref = TextBlock(strokes=tuple(block.strokes[i] for i in glyphs[0])).bounds()
+        assert ref is not None
+        nested_c = self._glyph_bounds(line, 2)
+        # The glyph sits mid-line, so compare its SHAPE (width + vertical
+        # extent), not its absolute X.
+        assert nested_c[2] - nested_c[0] == pytest.approx(ref[2] - ref[0], abs=1e-9)
+        assert nested_c[1] == pytest.approx(ref[1], abs=1e-9)
+        assert nested_c[3] == pytest.approx(ref[3], abs=1e-9)
+
+    def test_font_bold_composes_the_run_ladder_with_the_bold_rung(
+        self, tmp_path: Path
+    ) -> None:
+        """``<b>`` + ``<f:>``: the font run re-runs its ladder at the bold rung.
+
+        The bold run steps to the line's bold rung (0.090); the Wingdings run
+        inside it re-runs the Wingdings boldness ladder, boosted by the bold
+        multiplier, landing on 0.045 -- so the line splits across three tools.
+        """
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_bold"].source_label.content[0]
+        assert line.bold_cutter_diameter == pytest.approx(0.09)
+        # The run's characters step to the boosted Wingdings ladder (0.045).
+        assert all(math.isclose(c, 0.045) for c in line.per_char_cutters[5:8])
+        assert line.used_cutters == (0.045, 0.06, 0.09)
+
+    def test_font_scale_run_takes_its_own_effective_height_cutter(
+        self, tmp_path: Path
+    ) -> None:
+        """``<f:>`` + ``<scale:N>``: each run takes its own ladder cutter."""
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_scale"].source_label.content[0]
+        # The Wingdings run (0.5in) and the 0.5x run (0.25in) both land on 0.030.
+        assert all(math.isclose(c, 0.03) for c in line.per_char_cutters[0:3])
+        assert math.isclose(line.per_char_cutters[3], 0.06)  # the space's plain
+        assert all(math.isclose(c, 0.03) for c in line.per_char_cutters[4:8])
+
+    def test_font_underline_splits_the_run_at_the_cutter_boundary(
+        self, tmp_path: Path
+    ) -> None:
+        """``<u>`` + ``<f:>``: the underline splits where the cutter changes.
+
+        The underline is cut with each run's own tool, so the gate splits the
+        run at the Dino (0.060) / Wingdings (0.030) boundary -- each half rides
+        its own pen. The rendered block carries the decoration strokes appended
+        after the glyph partition.
+        """
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_underline"].source_label.content[0]
+        assert line.used_cutters == (0.03, 0.06)
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        # The underline strokes are appended after the glyph partition.
+        underline_count = len(block.strokes) - sum(len(g) for g in glyphs)
+        assert underline_count >= 2  # one per cutter-split run
+
+    def test_mixed_family_line_composes_segments_with_exact_glyph_groups(
+        self, tmp_path: Path
+    ) -> None:
+        """A TTF run inside a PLT line composes segments; glyph groups stay exact.
+
+        The PLT walk renders PLT only and the TTF path shapes a whole line with
+        one face, so a cross-family line composes per-font segments. The glyph
+        groups concatenate exactly (one per non-space character), so the
+        descender relief and intra-chunk glyph sweep stay valid.
+        """
+        result = self._export(tmp_path)
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+
+        line = result.rendered_labels["plt_with_ttf_run"].source_label.content[0]
+        assert line.font_runs[6] == "ReliefSingleLineCAD-Regular"
+        for mode in (TextChunkMode.LINE, TextChunkMode.WORD):
+            block, _words, glyphs = _render_line_block(line, mode)
+            non_space = sum(1 for c in line.plain_text if c != " ")
+            assert len(glyphs) == non_space
+            flat = [i for group in glyphs for i in group]
+            assert sorted(flat) == list(range(len(block.strokes)))
+
+    def test_plt_run_inside_ttf_line_composes(self, tmp_path: Path) -> None:
+        """The reverse mix (PLT run in a TTF line) composes and renders."""
+        result = self._export(tmp_path)
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+
+        line = result.rendered_labels["ttf_with_plt_run"].source_label.content[0]
+        # 'Hello PLT world': the PLT run covers indices 6..8 ('PLT').
+        assert line.font_runs[6:9] == ("Dino",) * 3
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        non_space = sum(1 for c in line.plain_text if c != " ")
+        assert len(glyphs) == non_space
+
+    def test_font_run_ignores_the_line_explicit_cutter_for_its_own_ladder(
+        self, tmp_path: Path
+    ) -> None:
+        """An explicit ``cutter_size`` governs the plain runs, not the run font.
+
+        The explicit tool is a human decision (the scaled-run precedent); the
+        run font still takes its own ladder cutter.
+        """
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_explicit_cutter"].source_label.content[0]
+        assert line.cutter_size == pytest.approx(0.045)
+        assert line.cutter_diameter == pytest.approx(0.045)  # the snapped plain tool
+        assert all(math.isclose(c, 0.03) for c in line.per_char_cutters[6:10])
+
+    def test_font_markup_emits_the_run_cutter_files(self, tmp_path: Path) -> None:
+        """Every run's ladder cutter lands in its own per-cutter text file.
+
+        The fixture's runs use 0.030 (Wingdings ladder), 0.045 (the bold
+        Wingdings ladder + the explicit-cutter line's plain tool), 0.060 (the
+        plain Dino/TTF runs) and 0.090 (the bold rung); the structural layer is
+        the 0.015 boundary/hole cutter.
+        """
+        result = self._export(tmp_path)
+        assert sorted(p.name for p in result.plt_paths) == [
+            "0.015_bh_font.plt",
+            "0.030_txt_font.plt",  # Wingdings ladder runs
+            "0.045_txt_font.plt",  # bold Wingdings ladder + explicit-cutter plain
+            "0.060_txt_font.plt",  # plain Dino + TTF runs
+            "0.090_txt_font.plt",  # the <b> bold rung
+        ]
+
+    def test_unknown_font_run_aborts_the_job(self, tmp_path: Path) -> None:
+        """An unknown ``<f:...>`` font name raises MarkupError (CLI non-zero)."""
+        from plt_optimizer.generate.markup import MarkupError
+
+        spec = {
+            "job": {
+                "job_name": "x",
+                "width": 3.0,
+                "height": 1.0,
+                "text_height": 0.5,
+                "font": "Dino",
+                "labels": [
+                    {
+                        "id": "a",
+                        "width": 3.0,
+                        "height": 1.0,
+                        "content": [{"text": "A<f:NoSuchFont>B</f>"}],
+                    }
+                ],
+            }
+        }
+        import yaml
+
+        path = tmp_path / "bad_font.yaml"
+        path.write_text(yaml.dump(spec))
+        with pytest.raises(MarkupError, match="NoSuchFont"):
+            resolve_job_spec(parse_yaml(path), available_cutters=self._INVENTORY)
+
+
 class TestEllipseDemoExample:
     """Regression tests for tests_deps/ellipse_job.yaml.
 

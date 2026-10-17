@@ -30,7 +30,11 @@ from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from typing import Callable, List, Optional, Sequence, Tuple, Union
 
-from plt_optimizer.generate.font_registry import DEFAULT_FONT_NAME, plt_font_stroke_count
+from plt_optimizer.generate.font_registry import (
+    DEFAULT_FONT_NAME,
+    plt_font_stroke_count,
+    resolve_font,
+)
 from plt_optimizer.generate.markup import Run, SupSub, parse_markup, split_brackets
 from plt_optimizer.generate.schema import JobSpec, LabelShape, LabelSpec
 
@@ -86,6 +90,26 @@ class CutterSizeError(ValueError):
     (a zero or negative toolpath height), so the job aborts instead of
     emitting degenerate glyphs.
     """
+
+
+def _canonical_font_name(name: str) -> str:
+    """Resolve a ``<f:...>`` tag argument to its canonical font name.
+
+    The :func:`plt_optimizer.generate.markup.parse_markup` font resolver:
+    case-insensitive registry lookup (PLT catalog key, TTF basename, or a
+    ``<base> SC`` variant), identity on canonical names -- so the
+    line-content reflow round-trip (serialize -> raw text -> re-parse) is
+    exact. An unknown name raises :class:`FontNotFoundError` (a
+    :class:`ValueError`), which ``parse_markup`` wraps into ``MarkupError``
+    with the tag position -- fail-loud like an unclosed tag (CLI non-zero).
+
+    Args:
+        name: The decoded tag argument (``+`` already mapped to spaces).
+
+    Returns:
+        The canonical font name.
+    """
+    return resolve_font(name).name
 
 
 class LineContentConfigError(ValueError):
@@ -1097,7 +1121,7 @@ class ResolvedTextLine:
         if text == self.text:
             return self
         left, right = split_brackets(self.html_brackets)
-        styled = parse_markup(text, left, right)
+        styled = parse_markup(text, left, right, font_resolver=_canonical_font_name)
         return replace(self, text=text, plain_text=styled.plain_text, styled_runs=styled.runs)
 
     @property
@@ -1188,6 +1212,26 @@ class ResolvedTextLine:
         return tuple(
             style.small_caps for run in self.styled_runs for style in (run.style,) * len(run.text)
         )
+
+    @property
+    def font_runs(self) -> Tuple[Optional[str], ...]:
+        """Per-character ``<f:...>`` font names aligned with :attr:`plain_text`.
+
+        ``None`` marks a character the line's own :attr:`font` engraves; the
+        canonical font name inside an ``<f:...>`` span. Mirrors
+        :attr:`small_caps_flags`: ``()`` with no markup, DERIVED from
+        :attr:`styled_runs` (never a stored positional array), so a pre-pass
+        that rewrites the line's text (:meth:`with_markup`, the line-content
+        reflow) keeps every run on its own font.
+        """
+        return tuple(
+            style.font for run in self.styled_runs for style in (run.style,) * len(run.text)
+        )
+
+    @property
+    def has_font_runs(self) -> bool:
+        """True when any markup run of this line carries a ``<f:...>`` font tag."""
+        return any(run.style.font is not None for run in self.styled_runs)
 
     @property
     def strikethrough_cap(self) -> float:
@@ -1306,22 +1350,44 @@ class ResolvedTextLine:
             )
         bolds = self.bold_flags
         bold_cutter = self.bold_cutter_diameter
+        font_runs = self.font_runs
         # A bold rung at the effective height is only needed when some
-        # character is BOTH bold and scaled; asking for it otherwise would log
-        # a meaningless "no larger rung" warning on a line with no bold run.
+        # character is BOTH bold and scaled/font-selected; asking for it
+        # otherwise would log a meaningless "no larger rung" warning on a
+        # line with no such run.
         scaled_bold = bold_cutter is not None and any(
-            scale != 1.0 and index < len(bolds) and bolds[index]
-            for index, scale in enumerate(scales)
+            index < len(bolds)
+            and bolds[index]
+            and (
+                (scale := (scales[index] if index < len(scales) else 1.0)) != 1.0
+                or (font_runs[index] if index < len(font_runs) else None) is not None
+            )
+            for index in range(len(self.plain_text))
         )
-        ladder: dict[float, Tuple[float, float]] = {}
+        ladder: dict[Tuple[float, Optional[str]], Tuple[float, float]] = {}
         cutters: list[float] = []
         for index in range(len(self.plain_text)):
             scale = scales[index] if index < len(scales) else 1.0
             is_bold = bold_cutter is not None and index < len(bolds) and bolds[index]
-            if scale != 1.0:
-                if scale not in ladder:
-                    ladder[scale] = scale_cutter_ladder(self, scale, need_bold=scaled_bold)
-                plain_cutter, scaled_bold_cutter = ladder[scale]
+            run_font = font_runs[index] if index < len(font_runs) else None
+            if scale != 1.0 or run_font is not None:
+                # A <f:...> run engraves with the ladder for its OWN font at
+                # its effective height (the <scale:N> contract): the tool
+                # that size of text in that font gets authored on its own,
+                # including the multi-stroke boldness ladder for a bold run
+                # font. Keyed on (scale, font) so each distinct pair pays one
+                # ladder lookup; the ladder is derived from the style, never
+                # stored positionally (the reflow staleness rule).
+                key = (scale, run_font)
+                if key not in ladder:
+                    ladder[key] = scale_cutter_ladder(
+                        self,
+                        scale,
+                        need_bold=scaled_bold,
+                        font=run_font,
+                        run_ladder=run_font is not None,
+                    )
+                plain_cutter, scaled_bold_cutter = ladder[key]
                 cutters.append(scaled_bold_cutter if is_bold else plain_cutter)
             elif is_bold and bold_cutter is not None:
                 cutters.append(bold_cutter)
@@ -2597,7 +2663,7 @@ def glyph_render_plan(
     """
     bold_cutter = line.bold_cutter_diameter
     has_bold = line.has_bold and bold_cutter is not None
-    if not has_bold and not line.has_scale and not line.has_sup_sub:
+    if not has_bold and not line.has_scale and not line.has_sup_sub and not line.has_font_runs:
         return None
     scale_flags = line.scale_values
     # The <sup>/<sub> downscale composes multiplicatively with <scale:N>:
@@ -2643,6 +2709,7 @@ def _scale_cutter_ladder_cached(
     multistroke_overlap_ratio: float,
     bold_boldness_multiplier: float,
     need_bold: bool,
+    run_ladder: bool = False,
 ) -> Tuple[float, float]:
     """Cached ladder body -- see :func:`scale_cutter_ladder`.
 
@@ -2655,10 +2722,31 @@ def _scale_cutter_ladder_cached(
     ``need_bold`` skips the bold-rung lookup entirely for a run that is not
     bold: ``_bold_cutter_diameter`` warns when no larger rung exists, and that
     warning is meaningless for a line with no bold run at all.
+
+    ``run_ladder`` selects the RUN font's own plain-cutter ladder (the
+    ``<f:...>`` contract): a multi-stroke (bold) run font re-runs the
+    boldness ladder at the effective height (snap + gap-free step-up, exactly
+    like the line-level cutter block), a single-stroke/TTF run font takes the
+    height ladder. Without it the plain cutter is the plain height ladder
+    (the shipped ``<scale:N>`` behaviour on the line's own font).
     """
     effective = scale * nominal_height
     cutters = list(inventory) if inventory else None
-    plain = get_cutter_diameter(effective, cutters, tolerance)
+    stroke_count = plt_font_stroke_count(font) if run_ladder else 1
+    if stroke_count > 1:
+        ladder = multi_stroke_cutter_diameter(
+            effective,
+            stroke_count,
+            overlap_floor=multistroke_overlap_ratio,
+            boldness_factor=target_boldness_factor,
+        )
+        plain = snap_boundary_hole_cutter(ladder.cutter, cutters)
+        if cutters and plain < ladder.floor - 1e-12:
+            bumped = next_larger_cutter(plain, cutters)
+            if bumped is not None:
+                plain = bumped
+    else:
+        plain = get_cutter_diameter(effective, cutters, tolerance)
     if not need_bold:
         return plain, plain
     rung = _bold_cutter_diameter(
@@ -2678,9 +2766,14 @@ def _scale_cutter_ladder_cached(
 
 
 def scale_cutter_ladder(
-    line: ResolvedTextLine, scale: float, *, need_bold: bool = True
+    line: ResolvedTextLine,
+    scale: float,
+    *,
+    need_bold: bool = True,
+    font: Optional[str] = None,
+    run_ladder: bool = False,
 ) -> Tuple[float, float]:
-    """Return the ``(plain, bold)`` cutters a ``<scale:N>`` run engraves with.
+    """Return the ``(plain, bold)`` cutters a ``<scale:N>``/``<f:...>`` run uses.
 
     A scaled run is a smaller (or larger) glyph, so it engraves with the
     cutter that ``scale * nominal_text_height`` of text would get on its own
@@ -2688,6 +2781,14 @@ def scale_cutter_ladder(
     shop inventory. The run's engraved stroke weight therefore matches text
     authored at that height: a 0.5x run on 1in text takes the 0.5in text's
     tool, not the 1in tool (which fills a half-size glyph into a blob).
+
+    A **``<f:...>`` font run** passes ``font`` (the run's canonical font name)
+    and ``run_ladder=True``: the plain cutter comes from the RUN font's own
+    ladder at the effective height -- the tool that size of text in that font
+    gets authored on its own, multi-stroke boldness ladder included -- so a
+    symbol run on large text drops to its own tool instead of engraving a
+    blob with the line's fat cutter (the ``<scale:N>`` symptom). The bold
+    rung then resolves against the run font too.
 
     A **bold + scaled** run takes the bold rung at the effective height (the
     next larger rung, or the boosted multi-stroke ladder re-run at that
@@ -2700,10 +2801,13 @@ def scale_cutter_ladder(
 
     Args:
         line: The resolved text line carrying the ladder inputs.
-        scale: The ``<scale:N>`` factor (``!= 1.0``).
+        scale: The effective silhouette factor (``1.0`` for a bare font run).
         need_bold: Look up the bold rung at the effective height. Pass False
             for a run that is not bold (the common case) to skip the lookup
             and its "no larger rung" warning.
+        font: The font the ladder resolves against (``None`` = the line's).
+        run_ladder: Use the run font's own plain-cutter ladder (multi-stroke
+            aware) instead of the plain height ladder.
 
     Returns:
         ``(plain_cutter, bold_cutter)`` at ``scale * nominal_text_height``;
@@ -2715,11 +2819,12 @@ def scale_cutter_ladder(
         scale,
         tuple(sorted(set(line.scale_cutter_inventory))) if line.scale_cutter_inventory else None,
         line.scale_cutter_tolerance,
-        line.font,
+        font if font is not None else line.font,
         line.target_boldness_factor,
         line.multistroke_overlap_ratio,
         line.bold_boldness_multiplier,
         need_bold,
+        run_ladder,
     )
 
 
@@ -3320,9 +3425,14 @@ def _resolve_content(
 
         # Parse the line's inline markup with its own resolved delimiters
         # (validation-time loud failure, like an unknown font: a
-        # MarkupError propagates as a ValueError and aborts the job).
+        # MarkupError propagates as a ValueError and aborts the job). The
+        # font resolver canonicalizes every <f:...> argument at open time, so
+        # an unknown run font aborts here with the tag position (MarkupError)
+        # and the reflow round-trip re-resolves canonical names to identity.
         markup_left, markup_right = split_brackets(line_html_brackets)
-        styled = parse_markup(line.text, markup_left, markup_right)
+        styled = parse_markup(
+            line.text, markup_left, markup_right, font_resolver=_canonical_font_name
+        )
 
         # Scale markup: a ``<scale:N>`` run engraves with the cutter that its
         # effective height (``N * nominal_height``) of text would get on its

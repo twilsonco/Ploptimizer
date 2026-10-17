@@ -644,8 +644,18 @@ class TestUnderlineRegistry:
         assert spec.accepts_args is False
 
     def test_italic_and_underline_are_distinct_tags(self) -> None:
-        """Registry order (i, u, b, scale, sup, sub, s, sc) fixes serialization nesting."""
-        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale", "sup", "sub", "s", "sc"]
+        """Registry order (i, u, b, scale, sup, sub, s, sc, f) fixes serialization nesting."""
+        assert list(TAG_REGISTRY) == [
+            "i",
+            "u",
+            "b",
+            "scale",
+            "sup",
+            "sub",
+            "s",
+            "sc",
+            "f",
+        ]
 
 
 class TestParseBold:
@@ -734,7 +744,17 @@ class TestScaleRegistry:
         mandatory-arg tags; sup/sub joined after it)."""
         spec = TAG_REGISTRY["scale"]
         assert spec.accepts_args is True
-        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale", "sup", "sub", "s", "sc"]
+        assert list(TAG_REGISTRY) == [
+            "i",
+            "u",
+            "b",
+            "scale",
+            "sup",
+            "sub",
+            "s",
+            "sc",
+            "f",
+        ]
         assert spec.apply(PLAIN, "0.5") == SCALED_HALF
         # Set-to-value: re-applying with the same argument is idempotent.
         assert spec.apply(SCALED_HALF, "0.5") == SCALED_HALF
@@ -878,7 +898,17 @@ class TestSupSubRegistry:
 
     def test_sup_sub_are_registered_last(self) -> None:
         """Both tags accept an optional arg and are registered after scale."""
-        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale", "sup", "sub", "s", "sc"]
+        assert list(TAG_REGISTRY) == [
+            "i",
+            "u",
+            "b",
+            "scale",
+            "sup",
+            "sub",
+            "s",
+            "sc",
+            "f",
+        ]
         for name in ("sup", "sub"):
             spec = TAG_REGISTRY[name]
             assert spec.accepts_args is True
@@ -1173,8 +1203,18 @@ class TestStrikethroughRegistry:
         assert len(styled.runs) == 1
 
     def test_strike_and_underline_are_distinct_tags(self) -> None:
-        """Registry order (i, u, b, scale, sup, sub, s, sc) fixes nesting."""
-        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale", "sup", "sub", "s", "sc"]
+        """Registry order (i, u, b, scale, sup, sub, s, sc, f) fixes nesting."""
+        assert list(TAG_REGISTRY) == [
+            "i",
+            "u",
+            "b",
+            "scale",
+            "sup",
+            "sub",
+            "s",
+            "sc",
+            "f",
+        ]
 
     def test_nested_strike_serializes_flat(self) -> None:
         """The idempotent nesting serializes to one span (no nested <s>)."""
@@ -1275,8 +1315,18 @@ class TestSmallCapsRegistry:
         assert serialize_runs(styled.runs) == "<sc>abc</sc>"
 
     def test_small_caps_is_registered_last(self) -> None:
-        """Registry order (i, u, b, scale, sup, sub, s, sc) fixes nesting."""
-        assert list(TAG_REGISTRY) == ["i", "u", "b", "scale", "sup", "sub", "s", "sc"]
+        """Registry order (i, u, b, scale, sup, sub, s, sc, f) fixes nesting."""
+        assert list(TAG_REGISTRY) == [
+            "i",
+            "u",
+            "b",
+            "scale",
+            "sup",
+            "sub",
+            "s",
+            "sc",
+            "f",
+        ]
 
     def test_small_caps_and_scale_are_distinct_tags(self) -> None:
         """<sc> (small caps) and <scale:N> (silhouette scale) are separate fields."""
@@ -1289,3 +1339,172 @@ class TestSmallCapsRegistry:
         """A small-caps span is a style boundary for the reflow's scope guard."""
         styled = parse_markup("ab<sc>cd</sc>ef")
         assert style_boundaries(styled) == (2, 4)
+
+
+FONTS = Style(font="Wingdings")
+
+
+def _upper_resolver(name: str) -> str:
+    """A test font resolver: canonicalize by upper-casing, reject 'bad'."""
+    if name.lower() == "bad":
+        raise ValueError(f"Unknown font {name!r}.")
+    return name.upper()
+
+
+class TestFontRegistry:
+    """The <f> registry entry (the font-selection value tag)."""
+
+    def test_font_is_registered_with_args(self) -> None:
+        """The tag accepts a mandatory arg and is registered last."""
+        spec = TAG_REGISTRY["f"]
+        assert spec.accepts_args is True
+        assert spec.args_optional is False
+        assert list(TAG_REGISTRY)[-1] == "f"
+        assert spec.apply(PLAIN, "Wingdings") == FONTS
+        # Set-to-value: re-applying with the same argument is idempotent.
+        assert spec.apply(FONTS, "Wingdings") == FONTS
+        # A new argument replaces the active font.
+        assert spec.apply(FONTS, "Dino") == Style(font="Dino")
+        # Applying <f> inside <i> composes.
+        assert spec.apply(ITALIC, "Wingdings") == Style(italic=True, font="Wingdings")
+
+    def test_is_active_predicate(self) -> None:
+        """The tag is active exactly when a font is selected."""
+        spec = TAG_REGISTRY["f"]
+        assert spec.is_active(PLAIN) is False
+        assert spec.is_active(FONTS) is True
+
+    def test_arg_serializer_round_trip(self) -> None:
+        """The arg serializer emits the canonical argument the parser accepts."""
+        spec = TAG_REGISTRY["f"]
+        assert spec.arg is not None
+        assert spec.arg(FONTS) == "Wingdings"
+        assert spec.apply(PLAIN, spec.arg(FONTS)) == FONTS
+
+    def test_arg_serializer_reencodes_spaces(self) -> None:
+        r"""A font name with a space re-encodes as '+' (the \S* argument rule)."""
+        spec = TAG_REGISTRY["f"]
+        assert spec.arg(Style(font="Foo Bar")) == "Foo+Bar"
+        assert spec.apply(PLAIN, "Foo+Bar") == Style(font="Foo Bar")
+
+    def test_plus_decodes_to_space(self) -> None:
+        """`+` is the canonical space of the argument (decoded on parse)."""
+        styled = parse_markup("<f:Foo+Bar>x</f>")
+        assert styled.font_values == ("Foo Bar",)
+
+    def test_underscore_stays_literal(self) -> None:
+        """Catalog names keep underscores (ReliefSingleLineCAD-Regular style)."""
+        styled = parse_markup("<f:Foo_Bar>x</f>")
+        assert styled.font_values == ("Foo_Bar",)
+
+
+class TestFontParse:
+    """Parsing the <f:font name> tag."""
+
+    def test_font_run_and_values(self) -> None:
+        """The run carries the font and font_values align with plain_text."""
+        styled = parse_markup("Hello <f:Wingdings>abcd</f> world")
+        assert styled.plain_text == "Hello abcd world"
+        assert styled.has_markup is True
+        assert styled.runs == (
+            Run("Hello ", PLAIN),
+            Run("abcd", FONTS),
+            Run(" world", PLAIN),
+        )
+        assert styled.font_values == (None,) * 6 + ("Wingdings",) * 4 + (None,) * 6
+
+    def test_bare_f_tag_is_literal(self) -> None:
+        """A font name is mandatory: <f> without an argument engraves literally."""
+        styled = parse_markup("a <f>x")
+        assert styled.plain_text == "a <f>x"
+        assert styled.has_markup is False
+
+    def test_empty_argument_is_a_hard_error(self) -> None:
+        """<f:> aborts loudly (MarkupError, fail-loud contract)."""
+        with pytest.raises(MarkupError, match="font tag argument is empty"):
+            parse_markup("<f:>x</f>")
+
+    def test_nested_font_restores_the_outer(self) -> None:
+        """The close of an inner font tag restores the outer font."""
+        styled = parse_markup("<f:Stylus>A<f:Wingdings>B</f>C</f>D")
+        assert styled.font_values == ("Stylus", "Wingdings", "Stylus", None)
+
+    def test_font_inside_italic_composes(self) -> None:
+        """A font span nested in italic carries both styles."""
+        styled = parse_markup("<i>it <f:Wingdings>mix</f></i>")
+        assert styled.italic_flags == (True, True, True, True, True, True)
+        assert styled.font_values == (None, None, None, "Wingdings", "Wingdings", "Wingdings")
+
+    def test_crossing_font_spans_are_legal(self) -> None:
+        """A crossing font close replays the remaining opens (the crossing rule)."""
+        styled = parse_markup("<f:A>ab<f:B>cd</f>ef</f>")
+        # 'ab' A, 'cd' B, 'ef' A (the close of the inner <f> restores A).
+        assert styled.font_values == ("A", "A", "B", "B", "A", "A")
+
+
+class TestFontResolver:
+    """The injected font_resolver canonicalizes and validates the argument."""
+
+    def test_resolver_canonicalizes_at_open(self) -> None:
+        """The resolver's canonical name lands in the style (and the stack)."""
+        styled = parse_markup("<f:dino>x</f>", font_resolver=_upper_resolver)
+        assert styled.font_values == ("DINO",)
+
+    def test_resolver_replay_reuses_the_canonical_name(self) -> None:
+        """A crossing close replays the canonical argument (no re-resolving)."""
+        styled = parse_markup("<f:dino>a<f:wingdings>b</f>c</f>", font_resolver=_upper_resolver)
+        assert styled.font_values == ("DINO", "WINGDINGS", "DINO")
+
+    def test_unknown_font_is_a_hard_error(self) -> None:
+        """A resolver's ValueError becomes MarkupError (fail-loud contract)."""
+        with pytest.raises(MarkupError, match="Unknown font"):
+            parse_markup("<f:bad>x</f>", font_resolver=_upper_resolver)
+
+    def test_no_resolver_keeps_the_decoded_argument(self) -> None:
+        """Direct API callers (no resolver) keep the raw decoded name."""
+        styled = parse_markup("<f:dino>x</f>")
+        assert styled.font_values == ("dino",)
+
+    def test_resolver_runs_on_every_open(self) -> None:
+        """Each open resolves its own argument (per-run fonts)."""
+        styled = parse_markup("<f:dino>a<f:wing>b</f></f>", font_resolver=_upper_resolver)
+        assert styled.font_values == ("DINO", "WING")
+
+
+class TestFontSerialize:
+    """The serialize round-trip keeps the font argument (the reflow depends on it)."""
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "Hello <f:Wingdings>abcd</f> world",
+            "<f:Stylus>A<f:Wingdings>B</f>C</f>D",
+            "<i>it </i><i><f:Wingdings>mix</f></i>",
+            "<b>bd <f:Foo+Bar>sym</f></b>",
+        ],
+    )
+    def test_round_trip_is_lossless(self, raw: str) -> None:
+        """Serialization re-emits the argument and re-parses to the same runs."""
+        styled = parse_markup(raw)
+        serialized = serialize_runs(styled.runs)
+        assert parse_markup(serialized).runs == styled.runs
+
+    def test_serialize_word_keeps_the_font_argument(self) -> None:
+        """A styled word token round-trips with its font."""
+        styled = parse_markup("big <f:Wingdings>sym</f>")
+        words = split_styled_words(styled)
+        assert [word.text for word in words] == ["big", "sym"]
+        assert serialize_word(words[1]) == "<f:Wingdings>sym</f>"
+        assert serialize_word(words[0]) == "big"
+
+    def test_style_boundaries_see_the_font_change(self) -> None:
+        """A font span's edges are style boundaries (the reflow's guard)."""
+        styled = parse_markup("ab<f:Wingdings>cd</f>ef")
+        assert style_boundaries(styled) == (2, 4)
+
+    def test_space_spanning_font_run_keeps_the_separator(self) -> None:
+        """<f:X>foo bar</f> tokenizes with the font separator (underline rule)."""
+        styled = parse_markup("<f:Wingdings>foo bar</f>")
+        words, separators = split_styled_words_with_separators(styled)
+        assert [word.text for word in words] == ["foo", "bar"]
+        assert all(sep.font == "Wingdings" for sep in separators)

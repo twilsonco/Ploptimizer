@@ -105,7 +105,7 @@ import logging
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from plt_optimizer.core.parser import PLTParser
 from plt_optimizer.generate.font_registry import (
@@ -655,6 +655,7 @@ def _walk_line(
     cutter_diameters: Optional[Sequence[float]] = None,
     glyph_scales: Optional[Sequence[float]] = None,
     baseline_shifts: Optional[Sequence[float]] = None,
+    font_names: Optional[Sequence[Optional[str]]] = None,
 ) -> Tuple[
     TextBlock,
     List[Tuple[str, List[int]]],
@@ -765,6 +766,21 @@ def _walk_line(
             envelope math stays exact and no pair is engraved tighter than
             the geometry asks. ``None`` (the default) places every glyph on
             the baseline, so every legacy call site renders bit-identically.
+        font_names: Per-character ``<f:...>`` font selection aligned with
+            ``text`` (one entry per character, spaces included; ``None``
+            entries engrave with the line's :attr:`font`). Each named
+            character fetches its glyph geometry from the named PLT font's
+            catalog entry -- every v2 library shares the design frame
+            (baseline y=0, reference char exactly 1000 units), so the
+            envelope kerning across a font switch is **exact**: the previous
+            glyph's transformed geometry and the next glyph's transformed
+            geometry kern like any same-font pair. The caller resolves the
+            run cutter into :attr:`cutter_diameters` (the per-pair stroke
+            floor widens the pair for a thicker run tool) and the
+            centerline scale into :attr:`glyph_scales`. ``None`` (the
+            default) renders every character in :attr:`font_name`, so every
+            legacy call site renders bit-identically. TTF run fonts are
+            handled by the caller's segment composition, never here.
 
     Returns:
         ``(block, word_groups, glyph_groups)`` where ``block`` is the
@@ -780,11 +796,12 @@ def _walk_line(
         Blank input yields an empty block and two empty lists.
 
     Raises:
-        PltFontRenderError: If the font is unknown/not a PLT font, or a
-            character has no glyph in the font.
+        PltFontRenderError: If the font is unknown/not a PLT font, a
+            ``font_names`` entry is unknown/not a PLT font, or a character
+            has no glyph in its font.
         ValueError: If ``lowercase_flags``, ``italic_flags``,
-            ``cutter_diameters``, ``glyph_scales`` or ``baseline_shifts``
-            length differs from ``text``.
+            ``cutter_diameters``, ``glyph_scales``, ``baseline_shifts`` or
+            ``font_names`` length differs from ``text``.
     """
     canonical = _resolve_plt_font(font_name, library_dir, fonts_dir)
     if not text:
@@ -805,6 +822,8 @@ def _walk_line(
         raise ValueError(
             f"baseline_shifts length {len(baseline_shifts)} != text length {len(text)}"
         )
+    if font_names is not None and len(font_names) != len(text):
+        raise ValueError(f"font_names length {len(font_names)} != text length {len(text)}")
 
     library_dir_key = str(library_dir) if library_dir is not None else ""
     # The small-caps variant is a render-time transform: the glyph library
@@ -840,6 +859,30 @@ def _walk_line(
         if fallback_advance_fraction is None
         else fallback_advance_fraction
     )
+
+    # Per-character font selection (<f:...> markup): resolve every distinct
+    # run font ONCE into a render frame (library name + scale + design-unit
+    # kerning window + inch->design floor). All v2 libraries share the design
+    # frame (normalized_ref_height 1.0), so the frames coincide and the
+    # envelope kerning across a font switch is exact; a legacy library with a
+    # different ref height kerns in its own frame, scaled by the RIGHT glyph's
+    # frame at placement (the pair's output scale -- documented precision
+    # boundary for pre-v2 libraries, which the loader rejects today).
+    frames: Dict[str, Tuple[str, float, float, float]] = {}
+    if font_names is not None:
+        for run_font in font_names:
+            if run_font is None or run_font in frames:
+                continue
+            run_canonical = _resolve_plt_font(run_font, library_dir, fonts_dir)
+            run_library = base_font_name(run_canonical)
+            run_data = fonts[run_library]  # resolved above; presence guaranteed
+            run_scale = target_height_inches / run_data.normalized_ref_height
+            frames[run_font] = (
+                run_library,
+                run_scale,
+                0.5 * window_fraction * run_data.normalized_ref_height,
+                min_width_inches / run_scale if run_scale > 0 else 0.0,
+            )
 
     words = text.split(" ")
 
@@ -886,7 +929,24 @@ def _walk_line(
                 lowercase_flags is None or lowercase_flags[char_index]
             )
             source = _small_caps_source(char) if small_caps_on else char
-            geometry = _glyph_entry(library_dir_key, library_name, source)
+            # <f:...> markup: the character's own font frame (None = the
+            # line's). The glyph fetch, the kerning window/floor conversion
+            # and the placement scale all follow the frame; every v2 frame
+            # coincides, so a font switch kerns exactly like a same-font pair.
+            run_font = font_names[char_index] if font_names is not None else None
+            if run_font is None:
+                char_library = library_name
+                char_scale = scale
+                char_window = window_design
+                char_min_width = min_width_design
+            else:
+                (
+                    char_library,
+                    char_scale,
+                    char_window,
+                    char_min_width,
+                ) = frames[run_font]
+            geometry = _glyph_entry(library_dir_key, char_library, source)
             if source != char and lowercase_scale is not None:
                 geometry = _scale_geometry(geometry, lowercase_scale)
             # Bold markup: the thicker-cutter glyphs shrink uniformly about
@@ -910,8 +970,8 @@ def _walk_line(
                 offset = kerning_offset(
                     previous,
                     geometry,
-                    min_width_design,
-                    window_design,
+                    char_min_width,
+                    char_window,
                     penetration_scale,
                     recession_scale,
                     fallback_fraction,
@@ -921,12 +981,12 @@ def _walk_line(
                 pair_clearance = 0.5 * (previous_cutter + char_cutter)
                 cursor = (
                     previous_origin
-                    + offset * scale
+                    + offset * char_scale
                     + pair_clearance
                     + character_spacing
                     + min_gap_inches
                 )
-            placed = geometry.block.scaled(scale).translate(
+            placed = geometry.block.scaled(char_scale).translate(
                 cursor,
                 0.0 if baseline_shifts is None else baseline_shifts[char_index],
             )
@@ -964,6 +1024,7 @@ def render_text_line_plt_font_with_words(
     cutter_diameters: Optional[Sequence[float]] = None,
     glyph_scales: Optional[Sequence[float]] = None,
     baseline_shifts: Optional[Sequence[float]] = None,
+    font_names: Optional[Sequence[Optional[str]]] = None,
 ) -> Tuple[TextBlock, List[Tuple[str, List[int]]]]:
     """Render a text line in a PLT-extracted font, partitioned by word.
 
@@ -1019,6 +1080,8 @@ def render_text_line_plt_font_with_words(
         baseline_shifts: Per-character baseline shift in inches for
             ``<sup>``/``<sub>`` markup (``None`` = off; see
             :func:`_walk_line`).
+        font_names: Per-character ``<f:...>`` font selection (``None`` =
+            off; see :func:`_walk_line`).
 
     Returns:
         ``(block, word_groups)`` with the semantics documented on
@@ -1050,6 +1113,7 @@ def render_text_line_plt_font_with_words(
         cutter_diameters=cutter_diameters,
         glyph_scales=glyph_scales,
         baseline_shifts=baseline_shifts,
+        font_names=font_names,
     )
     return block, word_groups
 
@@ -1077,6 +1141,7 @@ def render_text_line_plt_font_with_glyphs(
     cutter_diameters: Optional[Sequence[float]] = None,
     glyph_scales: Optional[Sequence[float]] = None,
     baseline_shifts: Optional[Sequence[float]] = None,
+    font_names: Optional[Sequence[Optional[str]]] = None,
 ) -> Tuple[
     TextBlock,
     List[Tuple[str, List[int]]],
@@ -1126,6 +1191,8 @@ def render_text_line_plt_font_with_glyphs(
         baseline_shifts: Per-character baseline shift in inches for
             ``<sup>``/``<sub>`` markup (``None`` = off; see
             :func:`_walk_line`).
+        font_names: Per-character ``<f:...>`` font selection (``None`` =
+            off; see :func:`_walk_line`).
 
     Returns:
         ``(block, word_groups, glyph_groups)`` with the semantics
@@ -1157,6 +1224,7 @@ def render_text_line_plt_font_with_glyphs(
         cutter_diameters=cutter_diameters,
         glyph_scales=glyph_scales,
         baseline_shifts=baseline_shifts,
+        font_names=font_names,
     )
 
 
@@ -1183,6 +1251,7 @@ def render_text_line_plt_font(
     cutter_diameters: Optional[Sequence[float]] = None,
     glyph_scales: Optional[Sequence[float]] = None,
     baseline_shifts: Optional[Sequence[float]] = None,
+    font_names: Optional[Sequence[Optional[str]]] = None,
 ) -> TextBlock:
     """Render a text line in a PLT-extracted font (arcs preserved).
 
@@ -1233,6 +1302,8 @@ def render_text_line_plt_font(
         baseline_shifts: Per-character baseline shift in inches for
             ``<sup>``/``<sub>`` markup (``None`` = off; see
             :func:`_walk_line`).
+        font_names: Per-character ``<f:...>`` font selection (``None`` =
+            off; see :func:`_walk_line`).
 
     Returns:
         The positioned :class:`TextBlock` (empty for blank input).
@@ -1262,5 +1333,6 @@ def render_text_line_plt_font(
         cutter_diameters=cutter_diameters,
         glyph_scales=glyph_scales,
         baseline_shifts=baseline_shifts,
+        font_names=font_names,
     )
     return block

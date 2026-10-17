@@ -63,6 +63,7 @@ from plt_optimizer.generate.geometry import (
     circle_aabb_gap,
     ink_gap,
 )
+from plt_optimizer.generate.markup import Run, serialize_runs, split_brackets
 from plt_optimizer.generate.plt_font_renderer import (
     PltFontRenderError,
     render_text_line_plt_font,
@@ -79,6 +80,7 @@ from plt_optimizer.generate.resolution import (
     fit_baseline_spacing_to_margins,
     fit_line_spacing_to_margins,
     glyph_render_plan,
+    scale_cutter_ladder,
 )
 from plt_optimizer.generate.schema import LabelShape
 from plt_optimizer.generate.text_geometry import (
@@ -1933,11 +1935,12 @@ def _word_local_glyph_groups(
     return tuple(groups)
 
 
-def _render_line_block(
+def _render_line_core(
     line: ResolvedTextLine,
     chunk_mode: TextChunkMode,
     *,
     check_glyph_coverage: bool = True,
+    skip_decorations: bool = False,
 ) -> Tuple[
     TextBlock,
     Optional[List[Tuple[str, List[int]]]],
@@ -1950,11 +1953,17 @@ def _render_line_block(
     - ``kind == "plt"``: PLT-extracted fonts render through
       :func:`~plt_optimizer.generate.plt_font_renderer.render_text_line_plt_font_with_words`;
       arcs stay arcs end-to-end. Word groups index the block's strokes and
-      are exact by construction.
+      are exact by construction. A ``<f:...>`` run of an all-PLT line renders
+      through the same walk via its ``font_names`` array (exact envelope
+      kerning across the font switch).
     - ``kind == "ttf"``: TrueType fonts render through the ftext (matplotlib)
       path; the resulting LineCollection is adapted losslessly (it is
       polyline-only anyway) via :func:`block_from_linecollection`. ftext word
       groups index contours, which map 1:1 onto the adapted block's strokes.
+
+    A line that mixes font FAMILIES (a PLT base with a TTF run, or the
+    reverse) never reaches this function: :func:`_render_line_block`
+    composes it from per-font segments, each rendered through a core call.
 
     Args:
         line: The resolved text line (font, height, cutter, spacing).
@@ -1962,6 +1971,10 @@ def _render_line_block(
         check_glyph_coverage: When True (the default), a TrueType font missing
             a glyph raises :class:`FtextRenderError`. The font-showcase tool
             sets it False to render ``.notdef`` boxes as coverage info.
+        skip_decorations: When True, the ``<u>``/``<s>`` strokes are NOT
+            appended (the segment-composition caller applies the whole-line
+            decorations once on the composed block, so a run spanning two
+            fonts stays one continuous stroke).
 
     Returns:
         ``(block, word_groups, glyph_groups)`` where ``word_groups`` is
@@ -2018,6 +2031,11 @@ def _render_line_block(
         sc_scale_value, sc_flags = small_caps_gate
         plt_kwargs["lowercase_scale"] = sc_scale_value
         plt_kwargs["lowercase_flags"] = sc_flags
+    # <f:...> run fonts that are "<base> SC" variants apply small caps to their
+    # OWN characters; the walk needs per-character flags for that (the
+    # font-level branch above is whole-line). No-op without font runs, so every
+    # pre-tag line keeps its historical call shape.
+    plt_kwargs.update(_walk_small_caps_kwargs(line, ref, small_caps_gate))
 
     # Inline markup: the renderers always receive the PLAIN text (tags never
     # engrave) plus the per-character italic selection. A line without markup
@@ -2040,25 +2058,24 @@ def _render_line_block(
             _walk, _word_pairs, glyph_pairs = render_text_line_plt_font_with_glyphs(
                 render_text, **plt_kwargs, **italic_kwargs
             )
-            return _apply_strikethrough(
-                line,
-                *_apply_underline(
-                    line,
-                    block,
-                    (groups or None),
-                    _validated_glyph_groups(glyph_pairs, len(block.strokes)),
-                ),
+            decorated: Tuple[
+                TextBlock,
+                Optional[List[Tuple[str, List[int]]]],
+                Tuple[Tuple[int, ...], ...],
+            ] = (
+                block,
+                (groups or None),
+                _validated_glyph_groups(glyph_pairs, len(block.strokes)),
             )
-        block = render_text_line_plt_font(render_text, **plt_kwargs, **italic_kwargs)
-        _walk, _word_pairs, glyph_pairs = render_text_line_plt_font_with_glyphs(
-            render_text, **plt_kwargs, **italic_kwargs
-        )
-        return _apply_strikethrough(
-            line,
-            *_apply_underline(
-                line, block, None, _validated_glyph_groups(glyph_pairs, len(block.strokes))
-            ),
-        )
+        else:
+            block = render_text_line_plt_font(render_text, **plt_kwargs, **italic_kwargs)
+            _walk, _word_pairs, glyph_pairs = render_text_line_plt_font_with_glyphs(
+                render_text, **plt_kwargs, **italic_kwargs
+            )
+            decorated = (block, None, _validated_glyph_groups(glyph_pairs, len(block.strokes)))
+        if skip_decorations:
+            return decorated
+        return _apply_strikethrough(line, *_apply_underline(line, *decorated))
 
     # TrueType family: the historical ftext path, adapted to TextBlock.
     ftext_kwargs: dict[str, Any] = {
@@ -2089,6 +2106,11 @@ def _render_line_block(
         if ref.italic_path is not None:
             ftext_kwargs["italic_face"] = ref.italic_path
     ftext_kwargs.update(_glyph_render_kwargs(line, plt=False))
+    ttf_decorated: Tuple[
+        TextBlock,
+        Optional[List[Tuple[str, List[int]]]],
+        Tuple[Tuple[int, ...], ...],
+    ]
     if chunk_mode is TextChunkMode.WORD:
         filtered_lc, groups = render_text_line_ftext_with_words(render_text, **ftext_kwargs)
         block = block_from_linecollection(filtered_lc)
@@ -2102,32 +2124,305 @@ def _render_line_block(
                 small_caps=sc_groups,
                 small_caps_flags=sc_group_flags,
             )
-            return _apply_strikethrough(
-                line,
-                *_apply_underline(
-                    line, block, groups, _validated_glyph_groups(pairs, len(block.strokes))
-                ),
+            ttf_decorated = (
+                block,
+                groups,
+                _validated_glyph_groups(pairs, len(block.strokes)),
             )
-        return _apply_strikethrough(line, *_apply_underline(line, block, None, ()))
-    filtered_lc = render_text_line_ftext(render_text, **ftext_kwargs)
-    block = block_from_linecollection(filtered_lc)
-    # Glyph groups slice the whole-line contours by per-glyph contour
-    # counts; valid only while every contour survived adaptation (1:1).
-    if len(block.strokes) == len(filtered_lc):
-        pairs = glyph_groups_for_line(
-            render_text,
-            ref.path,
-            len(filtered_lc),
-            small_caps=sc_groups,
-            small_caps_flags=sc_group_flags,
+        else:
+            ttf_decorated = (block, None, ())
+    else:
+        filtered_lc = render_text_line_ftext(render_text, **ftext_kwargs)
+        block = block_from_linecollection(filtered_lc)
+        # Glyph groups slice the whole-line contours by per-glyph contour
+        # counts; valid only while every contour survived adaptation (1:1).
+        if len(block.strokes) == len(filtered_lc):
+            pairs = glyph_groups_for_line(
+                render_text,
+                ref.path,
+                len(filtered_lc),
+                small_caps=sc_groups,
+                small_caps_flags=sc_group_flags,
+            )
+            ttf_decorated = (
+                block,
+                None,
+                _validated_glyph_groups(pairs, len(block.strokes)),
+            )
+        else:
+            ttf_decorated = (block, None, ())
+    if skip_decorations:
+        return ttf_decorated
+    return _apply_strikethrough(line, *_apply_underline(line, *ttf_decorated))
+
+
+def _slice_runs(runs: Tuple[Run, ...], start: int, end: int) -> Tuple[Run, ...]:
+    """Clip styled runs to the plain-text range ``[start, end)``.
+
+    The segment-composition helper: a ``<f:...>`` segment carries exactly the
+    styling of its own characters, so the per-character arrays of its clone
+    (cutters, scales, shifts, italic/small-caps flags) derive to the parent
+    line's values at the same indices.
+
+    Args:
+        runs: The parent line's parsed runs.
+        start: First plain-text index of the segment (inclusive).
+        end: Last plain-text index of the segment (exclusive).
+
+    Returns:
+        The clipped runs (empty-text runs dropped).
+    """
+    clipped: List[Run] = []
+    position = 0
+    for run in runs:
+        run_start = position
+        run_end = position + len(run.text)
+        position = run_end
+        if run_end <= start or run_start >= end:
+            continue
+        lo = max(start, run_start) - run_start
+        hi = min(end, run_end) - run_start
+        clipped.append(Run(run.text[lo:hi], run.style))
+    return tuple(clipped)
+
+
+def _font_segments(line: ResolvedTextLine) -> List[Tuple[Optional[str], int, int]]:
+    """Split a font-run line into maximal single-font segments.
+
+    A segment is a maximal span of ``plain_text`` sharing one effective font
+    (the ``<f:...>`` name, or ``None`` for the line's own font). Whitespace is
+    additionally split into its own segments: a space carries no ink, breaks
+    kerning (the walk's rule), and advances by the space width, so the
+    composer never renders a space-only segment.
+
+    Args:
+        line: The resolved line carrying ``<f:...>`` runs.
+
+    Returns:
+        ``(font, start, end)`` triples in text order; ``font`` is ``None``
+        for the line's own font.
+    """
+    fonts = line.font_runs
+    text = line.plain_text
+    segments: List[Tuple[Optional[str], int, int]] = []
+    start = 0
+    for index in range(1, len(text) + 1):
+        if index < len(text) and fonts[index] == fonts[start]:
+            if (text[index] == " ") == (text[start] == " "):
+                continue
+        segments.append((fonts[start], start, index))
+        start = index
+    return segments
+
+
+def _font_segment_line(
+    line: ResolvedTextLine, font: Optional[str], start: int, end: int
+) -> ResolvedTextLine:
+    """Build the single-font clone of one ``<f:...>`` segment.
+
+    The clone carries the segment's font as its own ``font`` (so
+    :func:`_render_line_core` dispatches on it) and the segment's styling
+    with the ``<f:...>`` tag stripped (the font is now the line's, so the tag
+    would be redundant markup). Every other field is inherited, and all the
+    per-character arrays derive from the clipped runs, so the segment renders
+    with the parent's kerning knobs, spacing and styling.
+
+    The run cutter contract (the ``<scale:N>`` precedent): the clone engraves
+    with the ladder for the RUN font at the line's nominal height --
+    :attr:`cutter_diameter` becomes the run's plain ladder cutter (the run
+    font's multi-stroke boldness ladder included), ``toolpath_text_height``
+    becomes ``nominal - run_cutter`` (so the run's cap renders at the same
+    engraved height as the plain run), and ``bold_cutter_diameter`` becomes
+    the run ladder's bold rung. The clone's derived per-character cutters
+    then equal the parent's :attr:`ResolvedTextLine.per_char_cutters` at the
+    same indices (single-stroke run fonts exactly; a multi-stroke run font
+    combined with ``<scale:N>``/``<sup>`` resolves the run's scaled cutter on
+    the plain height ladder -- one-rung staleness, documented).
+
+    Args:
+        line: The parent resolved line.
+        font: The segment's font (``None`` = the parent's ``font``).
+        start: First plain-text index of the segment (inclusive).
+        end: Last plain-text index of the segment (exclusive).
+
+    Returns:
+        The segment's resolved line (``plain_text`` == the segment's text).
+    """
+    left, right = split_brackets(line.html_brackets)
+    stripped = tuple(
+        Run(run.text, replace(run.style, font=None))
+        for run in _slice_runs(line.styled_runs, start, end)
+    )
+    raw = serialize_runs(stripped, left, right)
+    clone = line.with_markup(raw)
+    if font is None:
+        return clone
+    run_plain, run_bold = scale_cutter_ladder(
+        line,
+        1.0,
+        need_bold=any(run.style.bold for run in stripped),
+        font=font,
+        run_ladder=True,
+    )
+    return replace(
+        clone,
+        font=font,
+        cutter_diameter=run_plain,
+        toolpath_text_height=line.nominal_text_height - run_plain,
+        bold_cutter_diameter=run_bold if run_bold != run_plain else None,
+        bold_toolpath_text_height=(
+            line.nominal_text_height - run_bold if run_bold != run_plain else None
+        ),
+    )
+
+
+def _segment_cutter(cutters: Tuple[float, ...], index: int, fallback: float) -> float:
+    """Return the cutter of one plain-text index (the per-char array's rule)."""
+    if not cutters or index >= len(cutters):
+        return fallback
+    return cutters[index]
+
+
+def _render_line_block_composed(
+    line: ResolvedTextLine,
+    chunk_mode: TextChunkMode,
+    *,
+    check_glyph_coverage: bool = True,
+) -> Tuple[
+    TextBlock,
+    Optional[List[Tuple[str, List[int]]]],
+    Tuple[Tuple[int, ...], ...],
+]:
+    """Render a line that mixes PLT and TTF fonts, one segment at a time.
+
+    The PLT walk renders PLT geometry only and the TTF path shapes a whole
+    line with ONE face, so a line whose ``<f:...>`` runs cross families
+    composes here: each maximal single-font segment renders through
+    :func:`_render_line_core` (decorations deferred) and is placed on a
+    running cursor.
+
+    The boundary advance is the **bounding-box rule**: the next segment's
+    left edge sits at the previous ink's right edge plus the engraved-stroke
+    floor ``0.5 * (cutter_left + cutter_right) + character_spacing +
+    kerning_min_gap`` -- the same clearance the PLT walk adds per pair, with
+    the envelope offset replaced by the bbox gap. A TTF glyph carries no
+    profile envelopes, so an exact silhouette kern across a TTF boundary is
+    not computable; the bbox rule is conservative (never tighter than the
+    geometry asks). An all-PLT line never reaches this function: its font
+    switches kern **exactly** inside the walk (``font_names``).
+
+    A run of spaces between segments advances by the walk's space width and
+    breaks the clearance, mirroring the walk's space rule. Word groups
+    concatenate with stroke offsets (a word split across two fonts yields two
+    groups -- chunking granularity only); glyph groups concatenate exactly,
+    so the descender relief's character mapping and the intra-chunk glyph
+    sweep stay valid.
+
+    Args:
+        line: The resolved line carrying cross-family ``<f:...>`` runs.
+        chunk_mode: When ``WORD``, request per-word stroke groups.
+        check_glyph_coverage: Forwarded to the per-segment core render.
+
+    Returns:
+        ``(block, word_groups, glyph_groups)`` with the same semantics as
+        :func:`_render_line_block`.
+    """
+    space_advance = line.space_width_fraction * line.toolpath_text_height + line.character_spacing
+    cutters = line.per_char_cutters
+    strokes: List[Stroke] = []
+    word_groups: List[Tuple[str, List[int]]] = []
+    glyph_groups: List[Tuple[int, ...]] = []
+    cursor = 0.0
+    # Right edge of the ink placed so far (absolute); None = kerning broken
+    # (start of the line, or a space in between).
+    previous_right: Optional[float] = None
+    previous_cutter = line.cutter_diameter
+    for font, start, end in _font_segments(line):
+        segment_text = line.plain_text[start:end]
+        if segment_text.strip() == "":
+            cursor = (
+                previous_right if previous_right is not None else cursor
+            ) + space_advance * len(segment_text)
+            previous_right = None
+            previous_cutter = line.cutter_diameter
+            continue
+        clone = _font_segment_line(line, font, start, end)
+        block, words, glyphs = _render_line_core(
+            clone,
+            chunk_mode,
+            check_glyph_coverage=check_glyph_coverage,
+            skip_decorations=True,
         )
-        return _apply_strikethrough(
-            line,
-            *_apply_underline(
-                line, block, None, _validated_glyph_groups(pairs, len(block.strokes))
-            ),
+        bounds = block.bounds()
+        if bounds is None:  # pragma: no cover - non-blank segments carry ink
+            continue
+        first_cutter = _segment_cutter(cutters, start, line.cutter_diameter)
+        if previous_right is not None:
+            cursor = (
+                previous_right
+                + 0.5 * (previous_cutter + first_cutter)
+                + line.character_spacing
+                + line.kerning_min_gap
+            )
+        offset = len(strokes)
+        # The clone's baseline_shifts carry its own engraved-baseline raise
+        # ((run cutter - run cutter)/2 = 0 for plain characters); the parent's
+        # frame raises every character by (run cutter - LINE cutter)/2, so the
+        # composer adds the constant difference for the segment.
+        y_offset = (clone.cutter_diameter - line.cutter_diameter) / 2.0
+        strokes.extend(block.translate(cursor, y_offset).strokes)
+        previous_right = cursor + bounds[2]
+        previous_cutter = _segment_cutter(cutters, end - 1, line.cutter_diameter)
+        if words is not None:
+            word_groups.extend((word, [i + offset for i in indices]) for word, indices in words)
+        glyph_groups.extend(tuple(i + offset for i in indices) for indices in glyphs)
+    return (
+        TextBlock(strokes=tuple(strokes)),
+        word_groups if chunk_mode is TextChunkMode.WORD else None,
+        tuple(glyph_groups),
+    )
+
+
+def _render_line_block(
+    line: ResolvedTextLine,
+    chunk_mode: TextChunkMode,
+    *,
+    check_glyph_coverage: bool = True,
+) -> Tuple[
+    TextBlock,
+    Optional[List[Tuple[str, List[int]]]],
+    Tuple[Tuple[int, ...], ...],
+]:
+    """Render one resolved text line, composing per-font segments when needed.
+
+    The dispatch for the ``<f:...>`` inline font markup:
+
+    * a line with no font run, or whose base font and every run font are PLT,
+      renders through :func:`_render_line_core` -- the historical call shape,
+      bit-identical output (the all-PLT font run flows through the walk's
+      ``font_names`` array, where the envelope kerning is exact);
+    * a line whose runs cross the PLT/TTF families renders through
+      :func:`_render_line_block_composed`.
+
+    Args:
+        line: The resolved text line.
+        chunk_mode: When ``WORD``, request per-word stroke groups.
+        check_glyph_coverage: Forwarded to the renderer (TTF glyph coverage).
+
+    Returns:
+        ``(block, word_groups, glyph_groups)`` -- see
+        :func:`_render_line_core`.
+
+    Raises:
+        PltFontRenderError: If a PLT font lacks a glyph.
+        FtextRenderError: If a TrueType font lacks a glyph.
+    """
+    if line.has_font_runs and "font_names" not in _font_names_kwargs(line):
+        block, words, glyphs = _render_line_block_composed(
+            line, chunk_mode, check_glyph_coverage=check_glyph_coverage
         )
-    return _apply_strikethrough(line, *_apply_underline(line, block, None, ()))
+        return _apply_strikethrough(line, *_apply_underline(line, block, words, glyphs))
+    return _render_line_core(line, chunk_mode, check_glyph_coverage=check_glyph_coverage)
 
 
 def _decoration_runs(
@@ -2853,24 +3148,136 @@ def _glyph_render_kwargs(line: ResolvedTextLine, *, plt: bool) -> dict[str, Any]
     """
     plan = glyph_render_plan(line)
     shifts = _baseline_shift_inches(line)
+    font_kwargs = _font_names_kwargs(line)
     if plan is None:
-        return {} if shifts is None else {"baseline_shifts": shifts}
+        if shifts is None:
+            return font_kwargs
+        return {"baseline_shifts": shifts, **font_kwargs}
     diameters, scales = plan
     if not plt and all(scale == 1.0 for scale in scales):
         # The all-unity fallback (e.g. top-of-inventory bold): no geometry
         # scale to pass, but a <sup>/<sub> shift still rides along.
-        return {} if shifts is None else {"baseline_shifts": shifts}
+        if shifts is None:
+            return font_kwargs
+        return {"baseline_shifts": shifts, **font_kwargs}
     if shifts is None:
         if plt:
-            return {"cutter_diameters": diameters, "glyph_scales": scales}
+            return {"cutter_diameters": diameters, "glyph_scales": scales, **font_kwargs}
         return {"glyph_scales": scales}
     if plt:
         return {
             "cutter_diameters": diameters,
             "glyph_scales": scales,
             "baseline_shifts": shifts,
+            **font_kwargs,
         }
     return {"glyph_scales": scales, "baseline_shifts": shifts}
+
+
+def _walk_small_caps_kwargs(
+    line: ResolvedTextLine,
+    ref: FontRef,
+    small_caps_gate: Optional[Tuple[float, Tuple[bool, ...]]],
+) -> dict[str, Any]:
+    """Return the walk-level small-caps kwargs for ``<f:...>`` SC run fonts.
+
+    A ``<f:Base+SC>`` run font is a small-caps VARIANT: its characters render
+    the base font's capitals with ASCII lowercase shrunk by ``sc_scale``
+    (top-down). The walk applies the variant transform per character, so the
+    per-character selection is the union of:
+
+    * the characters whose ``<f:...>`` font resolves to a PLT small-caps
+      variant (the run's own variant, when the run is PLT), and
+    * the inline ``<sc>`` gate's flags (merged in, so a line carrying both
+      keeps the shipped inline behaviour exactly -- the gate already owns
+      ``lowercase_scale``/``lowercase_flags`` in that case).
+
+    A character whose ``<f:...>`` font is a **symbol** font
+    (``non_text_fonts.txt``) is always excluded: a symbol font engraves
+    symbols in its ASCII slots and has no lowercase to shrink, so the
+    transform is inert there -- the same exemption the line-level gate applies
+    (the gate is per-line, so the per-character exclusion is applied here).
+
+    Empty dict when the line carries no font run, the base font is TTF (the
+    segment composer handles that family), no run font is an SC variant, or
+    the font-level variant already owns the whole-line transform
+    (``ref.small_caps`` -- the run variant is inert there, the
+    "already small caps" contract). ``scale`` is the cascaded ``sc_scale``.
+
+    Args:
+        line: The resolved text line.
+        ref: The line's resolved font reference.
+        small_caps_gate: The inline ``<sc>`` gate result (merged, never
+            overridden -- the gate's flags win where both apply).
+
+    Returns:
+        ``{"lowercase_scale": ..., "lowercase_flags": (...)}`` when the walk's
+        small-caps selection differs from the gate's, else ``{}``.
+    """
+    if not line.has_font_runs or ref.small_caps:
+        return {}
+    try:
+        if resolve_font(line.font).kind != "plt":
+            return {}
+    except FontNotFoundError:  # pragma: no cover - render surfaces the error
+        return {}
+    non_text = non_text_font_names()
+    gate_flags = small_caps_gate[1] if small_caps_gate is not None else ()
+    flags: List[bool] = []
+    changed = False
+    for index, name in enumerate(line.font_runs):
+        variant = False
+        symbol = False
+        if name is not None:
+            try:
+                run_ref = resolve_font(name)
+            except FontNotFoundError:  # pragma: no cover - render surfaces it
+                run_ref = None
+            if run_ref is not None:
+                variant = run_ref.small_caps
+                symbol = base_font_name(run_ref.name).lower() in non_text
+        gate_flag = gate_flags[index] if index < len(gate_flags) else False
+        flag = (variant or gate_flag) and not symbol
+        flags.append(flag)
+        changed = changed or variant or flag != gate_flag
+    if not changed:
+        return {}
+    return {"lowercase_scale": line.sc_scale, "lowercase_flags": tuple(flags)}
+
+
+def _font_names_kwargs(line: ResolvedTextLine) -> dict[str, Any]:
+    """Return the per-character ``font_names`` renderer kwarg, or ``{}``.
+
+    The ``<f:...>`` gate for the **all-PLT** line: when the line's base font
+    and every run font resolve to a PLT font, the whole line renders through
+    the single PLT cursor walk, which fetches each character's geometry from
+    its own font's catalog entry and kerns across a font switch **exactly**
+    (every v2 library shares the design frame). The run cutters and centerline
+    scales already ride :func:`_glyph_render_kwargs`' arrays.
+
+    Empty dict when: the line carries no font run (the fast path,
+    bit-identical); the base font is TTF, or any run font is TTF (a mixed
+    PLT/TTF line composes per-font segments in :func:`_render_line_block`
+    instead -- the walk renders PLT only); or a font name fails to resolve
+    (the render call below surfaces the real error).
+
+    Args:
+        line: The resolved text line.
+
+    Returns:
+        ``{"font_names": (...)}`` for an all-PLT font-run line, else ``{}``.
+    """
+    if not line.has_font_runs:
+        return {}
+    try:
+        if resolve_font(line.font).kind != "plt":
+            return {}
+        for run_font in set(line.font_runs):
+            if run_font is not None and resolve_font(run_font).kind != "plt":
+                return {}
+    except FontNotFoundError:
+        return {}
+    return {"font_names": line.font_runs}
 
 
 def _italic_render_kwargs(line: ResolvedTextLine) -> dict[str, Any]:

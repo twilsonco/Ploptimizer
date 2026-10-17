@@ -1831,3 +1831,119 @@ class TestBaselineShiftMarkup:
         """A baseline_shifts length that is not the text length raises ValueError."""
         with pytest.raises(ValueError, match="baseline_shifts length"):
             _render("AB", 1.0, synth_lib, baseline_shifts=(0.5,))
+
+
+def _write_second_font(catalog: Path, name: str, characters: Dict[str, Dict[str, Any]]) -> Path:
+    """Add a second v2 font file to an existing catalog directory.
+
+    Args:
+        catalog: The catalog directory (from :func:`_write_library`).
+        name: The font's ``font_name`` key.
+        characters: Character -> v2 entry mapping.
+
+    Returns:
+        The catalog directory.
+    """
+    (catalog / f"{name}.json").write_text(
+        json.dumps(
+            {
+                "font_name": name,
+                "reference_char": "A",
+                "declared_height_in": 1.0,
+                "reference_char_height_in": 1.0,
+                "normalized_ref_height": 1.0,
+                "characters": characters,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return catalog
+
+
+class TestFontNames:
+    """The per-character ``font_names`` selection (the inline ``<f:...>`` tag).
+
+    Every v2 library shares the design frame (baseline y=0, reference char
+    exactly 1000 units), so a character fetched from a second font's catalog
+    entry kerns on the envelopes exactly like a same-font pair.
+    """
+
+    @pytest.fixture
+    def two_fonts(self, tmp_path: Path) -> Path:
+        """Two fonts: ``Test`` (full-height A) + ``Half`` (half-height A)."""
+        catalog = _write_library(tmp_path, dict(_SYNTH_CHARACTERS))
+        # The second font's 'A' is a half-height diagonal (0.5 x 0.5 in), so a
+        # run in it is visibly shorter than the base font's full-height 'A'.
+        _write_second_font(
+            catalog,
+            "Half",
+            {
+                "A": _v2_entry(
+                    "PU0,0;PD500,500;",
+                    (0, 0, 500, 500),
+                    [(0, 0), (500, 500)],
+                    [(0, 0), (500, 500)],
+                ),
+                "B": _SYNTH_CHARACTERS["B"],
+            },
+        )
+        return catalog
+
+    def test_font_names_length_mismatch_raises(self, two_fonts: Path) -> None:
+        """A font_names array shorter than the text is a hard ValueError."""
+        with pytest.raises(ValueError, match="font_names length"):
+            _render("AB", 1.0, two_fonts, font_names=(None,))
+
+    def test_all_none_matches_the_base_font(self, two_fonts: Path) -> None:
+        """All-None font_names render the base font exactly (the fast path)."""
+        plain = _render("AB", 1.0, two_fonts, cutter_diameter=0.02)
+        flagged = _render(
+            "AB", 1.0, two_fonts, cutter_diameter=0.02, font_names=(None, None)
+        )
+        assert flagged.bounds() == pytest.approx(plain.bounds())
+
+    def test_selection_is_per_character(self, two_fonts: Path) -> None:
+        """Only the named character fetches its geometry from the run font.
+
+        ``"AA"`` in the base font is two full-height glyphs; flagging the
+        second ``A`` to ``Half`` shrinks only that glyph, so the line is
+        strictly shorter than the all-base render and taller than the
+        all-Half render.
+        """
+        def width(font_names: Tuple[Optional[str], Optional[str]]) -> float:
+            block = _render(
+                "AA", 1.0, two_fonts, cutter_diameter=0.02, font_names=font_names
+            )
+            return block.bounds()[2]
+
+        base = width((None, None))
+        second = width((None, "Half"))
+        first = width(("Half", None))
+        both = width(("Half", "Half"))
+        # The parallel diagonals kern to offset 0 (full penetration), so the
+        # total width is the leading glyph's origin + the trailing glyph's own
+        # width. Shrinking the TRAILING glyph (second) narrows the line; the
+        # leading glyph's width never sets the right edge, so leading with the
+        # half glyph (first) keeps the base width; both-half is the narrowest.
+        assert second < base
+        assert first == pytest.approx(base, abs=1e-9)
+        assert both < second
+
+    def test_run_font_height_follows_the_frame(self, two_fonts: Path) -> None:
+        """A run glyph scales by its own font's frame (half-height A -> 0.5).
+
+        The base font's 'A' is 1.0 tall at target height 1.0; the ``Half``
+        font's 'A' is 0.5 tall (its reference char is the full-height 'A', so
+        the half-height glyph renders at half the target).
+        """
+        block = _render("A", 1.0, two_fonts, font_names=("Half",))
+        bounds = block.bounds()
+        assert bounds is not None
+        assert bounds[3] == pytest.approx(0.5, abs=1e-9)
+
+    def test_glyph_groups_are_exact_across_the_switch(self, two_fonts: Path) -> None:
+        """The per-glyph partition stays a 1:1 cover across a font switch."""
+        _block, _words, glyphs = render_text_line_plt_font_with_glyphs(
+            "AB", 1.0, "Test", library_dir=two_fonts, font_names=(None, "Half")
+        )
+        assert [char for char, _ in glyphs] == ["A", "B"]

@@ -37,6 +37,11 @@ what is engraved without appearing in the YAML spec:
   the baseline-shift range a line's ``<sup>``/``<sub>`` runs engrave at (in
   cap-height units), alongside the cutter the downscaled runs stepped to --
   the geometry change the markup caused, which the YAML spec never states.
+- **Font markup**
+  (:attr:`plt_optimizer.generate.resolution.ResolvedTextLine.font_runs`):
+  the fonts a line's ``<f:...>`` runs engrave with, alongside the cutters
+  those runs stepped to (each run font's own ladder) -- the font/tool swap
+  the markup caused, which the YAML spec never states.
 
 This module is the single source of truth for the report text: the
 ``generate`` CLI (compact by default, full under ``-v``) and
@@ -105,6 +110,27 @@ def _scale_run_cutters(line: ResolvedTextLine) -> tuple[float, ...]:
     return tuple(sorted(used)) if used else (line.cutter_diameter,)
 
 
+def _font_run_info(line: ResolvedTextLine) -> tuple[tuple[str, ...], tuple[float, ...]]:
+    """Return the ``(fonts, cutters)`` a line's ``<f:...>`` runs engrave with.
+
+    Both ascending and de-duplicated, read from the derived per-character
+    arrays: the run fonts (the line's own font is ``None`` and never named --
+    the finding exists to surface the fonts the tag introduced) and the
+    cutters those characters step to (the run font's own ladder, so a symbol
+    run's thin tool is visible next to the line's fat one).
+    """
+    fonts = line.font_runs
+    cutters = line.per_char_cutters
+    names: set[str] = set()
+    used: set[float] = set()
+    for index, name in enumerate(fonts):
+        if name is None:
+            continue
+        names.add(name)
+        used.add(cutters[index] if index < len(cutters) else line.cutter_diameter)
+    return tuple(sorted(names)), tuple(sorted(used))
+
+
 def _label_findings(
     rendered: RenderedLabel,
 ) -> list[
@@ -119,9 +145,10 @@ def _label_findings(
         tuple[float, float] | None,
         tuple[float, float] | None,
         tuple[float, float] | None,
+        tuple[tuple[str, ...], tuple[float, ...]] | None,
     ]
 ]:
-    """Collect the per-line findings (compression / spacing / downsize / relief / bold / scale / sup-sub).
+    """Collect the per-line findings (compression / spacing / downsize / relief / bold / scale / sup-sub / font).
 
     Args:
         rendered: The rendered label carrying the render-time maps plus the
@@ -130,10 +157,10 @@ def _label_findings(
 
     Returns:
         One ``(line_index, line_text, scale, requested, effective, downsize,
-        relief_count, bold, markup_scale, sup_sub)`` tuple per finding, in
-        content order. ``scale`` is set (below ``1.0``) only for compressed
-        lines; ``requested``/``effective`` are set only for spacing gaps
-        (always in full mode, or when deviating in compact mode);
+        relief_count, bold, markup_scale, sup_sub, font_runs)`` tuple per
+        finding, in content order. ``scale`` is set (below ``1.0``) only for
+        compressed lines; ``requested``/``effective`` are set only for spacing
+        gaps (always in full mode, or when deviating in compact mode);
         ``downsize`` is the ``(original, final)`` cutter pair only for lines
         whose automatic cutter was reduced; ``relief_count`` is how many
         descending glyphs the automatic descending-character adjustment
@@ -142,7 +169,8 @@ def _label_findings(
         ``markup_scale`` is the ``(min, max)`` ``<scale:N>`` factor range
         only for lines carrying a ``<scale:N>`` run; ``sup_sub`` is the
         ``(min, max)`` baseline-shift range (cap-height units) only for lines
-        carrying a ``<sup>``/``<sub>`` run.
+        carrying a ``<sup>``/``<sub>`` run; ``font_runs`` is the ``(fonts,
+        cutters)`` pair only for lines carrying a ``<f:...>`` run.
     """
     content = rendered.source_label.content
     downsizes = rendered.source_label.cutter_downsize_by_line
@@ -159,6 +187,7 @@ def _label_findings(
             tuple[float, float] | None,
             tuple[float, float] | None,
             tuple[float, float] | None,
+            tuple[tuple[str, ...], tuple[float, ...]] | None,
         ]
     ] = []
     for line_index in sorted(
@@ -169,6 +198,7 @@ def _label_findings(
         | {index for index, line in enumerate(content) if line.bold_cutter_diameter is not None}
         | {index for index, line in enumerate(content) if line.has_scale}
         | {index for index, line in enumerate(content) if line.has_sup_sub}
+        | {index for index, line in enumerate(content) if line.has_font_runs}
     ):
         if line_index >= len(content):  # pragma: no cover - defensive
             continue
@@ -193,6 +223,9 @@ def _label_findings(
         if line.has_sup_sub:
             shifts = line.sup_sub_shifts
             sup_sub = (min(shifts), max(shifts))
+        font_runs: tuple[tuple[str, ...], tuple[float, ...]] | None = None
+        if line.has_font_runs:
+            font_runs = _font_run_info(line)
         if (
             not compressed
             and not deviates
@@ -201,6 +234,7 @@ def _label_findings(
             and bold is None
             and markup_scale is None
             and sup_sub is None
+            and font_runs is None
         ):
             continue
         findings.append(
@@ -215,6 +249,7 @@ def _label_findings(
                 bold,
                 markup_scale,
                 sup_sub,
+                font_runs,
             )
         )
     return findings
@@ -251,6 +286,7 @@ def _label_lines(
             tuple[float, float] | None,
             tuple[float, float] | None,
             tuple[float, float] | None,
+            tuple[tuple[str, ...], tuple[float, ...]] | None,
         ],
     ] = {
         index: (
@@ -262,8 +298,9 @@ def _label_lines(
             bold,
             markup_scale,
             sup_sub,
+            font_runs,
         )
-        for index, _t, scale, requested, effective, downsize, relief_count, bold, markup_scale, sup_sub in findings
+        for index, _t, scale, requested, effective, downsize, relief_count, bold, markup_scale, sup_sub, font_runs in findings
     }
 
     if not full and not findings:
@@ -360,6 +397,22 @@ def _label_lines(
                 lines.append(
                     f"    Line {line_index}: {line.plain_text!r} "
                     f"sup/sub shift {shift_text} cap (run cutter {cutter_text}, "
+                    f"line cutter {line.cutter_diameter:.3f}in)"
+                )
+            font_runs = entry[8]
+            if font_runs is not None:
+                names, run_cutters = font_runs
+                # The run fonts are invisible in the YAML (they ride the tag)
+                # and each run steps to its own font's ladder cutter, so name
+                # both the fonts and the tools the markup caused.
+                cutter_text = (
+                    f"{run_cutters[0]:.3f}in"
+                    if len(run_cutters) == 1
+                    else "-".join(f"{cutter:.3f}" for cutter in run_cutters) + "in"
+                )
+                lines.append(
+                    f"    Line {line_index}: {line.plain_text!r} "
+                    f"font {', '.join(names)} (run cutter {cutter_text}, "
                     f"line cutter {line.cutter_diameter:.3f}in)"
                 )
             if entry[4]:

@@ -86,6 +86,7 @@ from plt_optimizer.generate.resolution import (
     next_larger_cutter,
     next_smaller_cutter,
     resolve_job_spec,
+    scale_cutter_ladder,
     should_downsize_cutter,
     snap_boundary_hole_cutter,
     solve_baseline_spacing_to_fill,
@@ -6082,3 +6083,165 @@ class TestConditionalHoleAwareCentering:
         # Vertical shift should be identical regardless of flag
         assert v_shift_disabled == pytest.approx(v_shift_enabled)
         assert v_shift_disabled == pytest.approx(0.05)  # (0.2 - 0.1) / 2
+
+
+class TestFontRunResolution:
+    """The <f:...> font run resolves its canonical name and its own ladder cutter."""
+
+    @staticmethod
+    def _job(*lines: TextLine, **job_kwargs: object) -> JobSpec:
+        """Build a single-label Dino job over ``lines`` (inventory wired)."""
+        job_kwargs.setdefault("font", "Dino")
+        job_kwargs.setdefault("text_height", 0.5)
+        return JobSpec(
+            job_name="J",
+            labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=list(lines))],
+            **job_kwargs,
+        )
+
+    def test_font_run_resolves_to_the_canonical_name(self) -> None:
+        """The tag argument canonicalizes through the registry at resolution."""
+        job = self._job(TextLine(text="Hello <f:wingdings>abcd</f>"))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        assert line.plain_text == "Hello abcd"
+        assert line.has_font_runs is True
+        assert line.font_runs == (None,) * 6 + ("Wingdings",) * 4
+
+    def test_font_run_sc_variant_canonicalizes_the_space(self) -> None:
+        """``<f:Dino+SC>`` decodes the '+' and canonicalizes to 'Dino SC'."""
+        job = self._job(TextLine(text="a<f:Dino+SC>b</f>"))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        assert line.font_runs == (None, "Dino SC")
+
+    def test_font_run_steps_to_its_own_font_ladder(self) -> None:
+        """A run engraves with the cutter its own font's ladder gives.
+
+        Dino auto-selects 0.060 for 0.5in text; Wingdings (a 4-stroke font)
+        re-runs the boldness ladder at 0.5in (0.0215 ideal -> 0.030 rung).
+        """
+        job = self._job(TextLine(text="A<f:Wingdings>B</f>"))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        assert line.cutter_diameter == pytest.approx(0.06)
+        assert line.per_char_cutters[0] == pytest.approx(0.06)  # the plain 'A'
+        assert line.per_char_cutters[1] == pytest.approx(0.03)  # the run's 'B'
+        assert line.used_cutters == (0.03, 0.06)
+
+    def test_font_run_baseline_raise_follows_the_cutter(self) -> None:
+        """The run's engraved-baseline raise is (run_cutter - line_cutter)/2."""
+        job = self._job(TextLine(text="A<f:Wingdings>B</f>"))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        assert line.baseline_raises[0] == pytest.approx(0.0)
+        assert line.baseline_raises[1] == pytest.approx((0.03 - 0.06) / 2)
+
+    def test_font_run_composes_with_scale(self) -> None:
+        """A font run + <scale:N> resolves the run ladder at the scaled height."""
+        job = self._job(TextLine(text="<f:Wingdings><scale:0.5>s</scale></f>"))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        # The run's font (Wingdings) at 0.25in: the S4 ladder -> 0.015 rung.
+        assert line.font_runs == ("Wingdings",)
+        assert line.scale_values == (0.5,)
+        assert line.per_char_cutters[0] == pytest.approx(0.015)
+
+    def test_font_run_composes_with_bold(self) -> None:
+        """A bold font run takes the boosted ladder for its own font."""
+        job = self._job(TextLine(text="<b>A<f:Wingdings>B</f></b>"))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        assert line.bold_cutter_diameter == pytest.approx(0.09)
+        # The bold Wingdings run: the boosted S4 ladder -> 0.045 rung.
+        assert line.per_char_cutters[0] == pytest.approx(0.09)  # bold plain
+        assert line.per_char_cutters[1] == pytest.approx(0.045)  # bold run
+
+    def test_font_run_respects_the_line_explicit_cutter_for_plain_runs(self) -> None:
+        """An explicit cutter_size governs the plain runs; the run takes its ladder."""
+        job = self._job(TextLine(text="A<f:Wingdings>B</f>", cutter_size=0.045))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        assert line.cutter_diameter == pytest.approx(0.045)
+        assert line.per_char_cutters[0] == pytest.approx(0.045)
+        assert line.per_char_cutters[1] == pytest.approx(0.03)
+
+    def test_font_run_survives_the_with_markup_text_swap(self) -> None:
+        """The run cutter DERIVES from the style, so a text swap keeps it.
+
+        The <scale:N> staleness rule: a per-character array that must survive
+        a text rewrite is derived from the style, never stored positionally.
+        """
+        job = self._job(TextLine(text="plain"))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        swapped = line.with_markup("A<f:Wingdings>B</f>")
+        assert swapped.font_runs == (None, "Wingdings")
+        assert swapped.per_char_cutters[0] == pytest.approx(0.06)
+        assert swapped.per_char_cutters[1] == pytest.approx(0.03)
+
+    def test_unknown_font_run_aborts_resolution(self) -> None:
+        """An unknown run font is a loud MarkupError at resolution time."""
+        from plt_optimizer.generate.markup import MarkupError
+
+        with pytest.raises(MarkupError, match="NoSuchFont"):
+            resolve_job_spec(
+                self._job(TextLine(text="A<f:NoSuchFont>B</f>")),
+                available_cutters=list(_INVENTORY),
+            )
+
+    def test_glyph_render_plan_includes_font_runs(self) -> None:
+        """A font-only run (no scale/bold/sup) still produces a plan (not None)."""
+        job = self._job(TextLine(text="A<f:Wingdings>B</f>"))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        plan = glyph_render_plan(line)
+        assert plan is not None
+        diameters, scales = plan
+        assert diameters[1] == pytest.approx(0.03)
+        # The run's centerline scale: (nominal - run_cutter)/(nominal - cutter).
+        assert scales[1] == pytest.approx((0.5 - 0.03) / (0.5 - 0.06))
+        assert scales[0] == pytest.approx(1.0)
+
+    def test_markup_free_line_has_no_font_runs(self) -> None:
+        """A tag-free line keeps the fast path (no active font, no plan)."""
+        job = self._job(TextLine(text="plain"))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        assert line.has_font_runs is False
+        # Every position falls back to the line's own font (None = unset).
+        assert line.font_runs == (None,) * 5
+        assert glyph_render_plan(line) is None
+        # A resolved markup-free line carries one plain run, so the derived
+        # cutters are all the line's own tool (a single-tool line: no split).
+        assert line.per_char_cutters == (0.06,) * 5
+
+
+class TestRunLadderCutter:
+    """scale_cutter_ladder resolves a run font's own ladder (multi-stroke aware)."""
+
+    @staticmethod
+    def _line(**kwargs: object) -> ResolvedTextLine:
+        """Build a resolved line carrying the ladder inputs."""
+        kwargs.setdefault("scale_cutter_inventory", tuple(_INVENTORY))
+        return ResolvedTextLine(
+            text="x",
+            nominal_text_height=0.5,
+            toolpath_text_height=0.44,
+            cutter_diameter=0.06,
+            character_spacing=0.0,
+            line_spacing=0.0,
+            **kwargs,  # type: ignore[arg-type]
+        )
+
+    def test_run_ladder_uses_the_run_font_height(self) -> None:
+        """A single-stroke run font takes the plain height ladder at scale."""
+        line = self._line(font="Dino")
+        plain, bold = scale_cutter_ladder(line, 1.0, need_bold=False, font="Dino", run_ladder=True)
+        assert plain == pytest.approx(0.06)
+        assert bold == pytest.approx(0.06)
+
+    def test_run_ladder_multi_stroke_font_re_runs_boldness(self) -> None:
+        """A multi-stroke (bold) run font re-runs the boldness ladder."""
+        line = self._line(font="Dino")
+        plain, _ = scale_cutter_ladder(
+            line, 1.0, need_bold=False, font="Wingdings", run_ladder=True
+        )
+        # Wingdings S4 at 0.5in: 0.0215 ideal -> snapped 0.030 rung.
+        assert plain == pytest.approx(0.03)
+
+    def test_plain_ladder_defaults_to_the_line_font(self) -> None:
+        """No font argument: the ladder resolves against the line's own font."""
+        line = self._line(font="Dino")
+        plain, _ = scale_cutter_ladder(line, 1.0, need_bold=False)
+        assert plain == pytest.approx(0.06)

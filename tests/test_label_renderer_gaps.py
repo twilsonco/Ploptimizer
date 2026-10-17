@@ -844,3 +844,227 @@ class TestRenderBoundaryLocalGuards:
         monkeypatch.setattr(label_renderer.vp, "rect", lambda *a, **k: [1 + 2j])
 
         assert _render_boundary_local(_label()).is_empty()
+
+
+def _stroke_block(x_min: float, x_max: float, y_top: float = 0.4) -> TextBlock:
+    """Build a single-stroke rectangular block spanning [x_min, x_max]."""
+    y_bottom = 0.0
+    points = [
+        complex(x_min, y_bottom),
+        complex(x_max, y_bottom),
+        complex(x_max, y_top),
+        complex(x_min, y_top),
+        complex(x_min, y_bottom),
+    ]
+    segments = [
+        LineSeg(points[i], points[i + 1]) for i in range(len(points) - 1)
+    ]
+    return TextBlock(strokes=(Stroke(pen_up=points[0], segments=tuple(segments)),))
+
+
+class TestFontNamesGate:
+    """``_font_names_kwargs``: the all-PLT gate for the per-character font array."""
+
+    def test_markup_free_line_is_inert(self) -> None:
+        """A tag-free line returns {} (the historical call shape)."""
+        assert label_renderer._font_names_kwargs(_markup_line("Hello")) == {}
+
+    def test_all_plt_line_selects_the_font_array(self) -> None:
+        """A PLT base + PLT run yields the per-character font tuple."""
+        line = _markup_line("a<f:Wingdings>b</f>", font="Dino")
+        kwargs = label_renderer._font_names_kwargs(line)
+        assert kwargs == {"font_names": (None, "Wingdings")}
+
+    def test_ttf_base_line_is_inert(self) -> None:
+        """A TTF base font composes segments instead (the walk renders PLT only)."""
+        line = _markup_line(
+            "a<f:Wingdings>b</f>", font=font_registry.DEFAULT_FONT_NAME
+        )
+        assert label_renderer._font_names_kwargs(line) == {}
+
+    def test_ttf_run_font_is_inert(self) -> None:
+        """A TTF run font composes segments (the walk cannot render TTF)."""
+        line = _markup_line(
+            "a<f:" + font_registry.DEFAULT_FONT_NAME + ">b</f>", font="Dino"
+        )
+        assert label_renderer._font_names_kwargs(line) == {}
+
+    def test_unknown_font_is_inert_for_the_gate(self) -> None:
+        """An unresolvable font name returns {} (the render surfaces the error)."""
+        line = _markup_line("a<f:NoSuchFont>b</f>", font="Dino")
+        assert label_renderer._font_names_kwargs(line) == {}
+
+
+class TestWalkSmallCapsGate:
+    """``_walk_small_caps_kwargs``: the <f:Base+SC> run-font small caps."""
+
+    def test_markup_free_line_is_inert(self) -> None:
+        """A tag-free line returns {} (the historical call shape)."""
+        ref = font_registry.resolve_font("Dino")
+        assert label_renderer._walk_small_caps_kwargs(_markup_line("a"), ref, None) == {}
+
+    def test_plain_run_font_is_inert(self) -> None:
+        """A non-variant run font adds no small-caps selection."""
+        ref = font_registry.resolve_font("Dino")
+        line = _markup_line("a<f:Wingdings>b</f>", font="Dino")
+        assert label_renderer._walk_small_caps_kwargs(line, ref, None) == {}
+
+    def test_sc_variant_run_font_selects_its_characters(self) -> None:
+        """``<f:Dino+SC>`` flags exactly the run's characters."""
+        ref = font_registry.resolve_font("Dino")
+        line = _markup_line("a<f:Dino+SC>bc</f>d", font="Dino", sc_scale=0.7)
+        kwargs = label_renderer._walk_small_caps_kwargs(line, ref, None)
+        assert kwargs["lowercase_scale"] == pytest.approx(0.7)
+        assert kwargs["lowercase_flags"] == (False, True, True, False)
+
+    def test_inert_on_a_small_caps_base_font(self) -> None:
+        """A SC base font owns the whole-line transform (the variant is inert)."""
+        ref = font_registry.resolve_font("Dino SC")
+        line = _markup_line("a<f:Dino+SC>b</f>", font="Dino SC")
+        assert label_renderer._walk_small_caps_kwargs(line, ref, None) == {}
+
+    def test_symbol_font_run_is_excluded(self) -> None:
+        """A symbol-font run never shrinks (no lowercase to shrink)."""
+        ref = font_registry.resolve_font("Dino")
+        # The inline <sc> gate flags all 4 chars; the Wingdings run's 2 are
+        # excluded, so the flags differ from the gate's -> the merge fires.
+        line = _markup_line("a<f:Wingdings>bc</f>d", font="Dino", sc_scale=0.7)
+        gate = (0.7, (True, True, True, True))
+        kwargs = label_renderer._walk_small_caps_kwargs(line, ref, gate)
+        assert kwargs["lowercase_flags"] == (True, False, False, True)
+
+
+class TestFontNamesDispatch:
+    """``_render_line_block`` forwards font runs to the walk / composes segments."""
+
+    def test_plt_line_forwards_font_names(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An all-PLT font-run line passes ``font_names`` to the walk."""
+        calls: dict[str, object] = {}
+
+        def fake_render(*args: object, **kwargs: object) -> TextBlock:
+            calls.update(kwargs)
+            return TextBlock.empty()
+
+        monkeypatch.setattr(label_renderer, "render_text_line_plt_font", fake_render)
+        monkeypatch.setattr(
+            label_renderer,
+            "render_text_line_plt_font_with_glyphs",
+            lambda *a, **k: (TextBlock.empty(), [], []),
+        )
+        line = _markup_line("a<f:Wingdings>b</f>", font="Dino")
+        _render_line_block(line, label_renderer.TextChunkMode.LINE)
+        assert calls["font_names"] == (None, "Wingdings")
+
+    def test_markup_free_line_keeps_the_historical_call_shape(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A tag-free line receives no font_names kwarg at all."""
+        calls: dict[str, object] = {}
+
+        def fake_render(*args: object, **kwargs: object) -> TextBlock:
+            calls.update(kwargs)
+            return TextBlock.empty()
+
+        monkeypatch.setattr(label_renderer, "render_text_line_plt_font", fake_render)
+        monkeypatch.setattr(
+            label_renderer,
+            "render_text_line_plt_font_with_glyphs",
+            lambda *a, **k: (TextBlock.empty(), [], []),
+        )
+        line = _markup_line("abc", font="Dino")
+        _render_line_block(line, label_renderer.TextChunkMode.LINE)
+        assert "font_names" not in calls
+
+
+class TestFontSegmentComposition:
+    """``_render_line_block_composed``: cross-family segments on a running cursor."""
+
+    def test_segments_compose_on_the_cursor(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Each segment lands after the previous ink's right edge + clearance.
+
+        A PLT base with a TTF run: the fake renders return fixed-width blocks,
+        so the composed bounds pin the bbox + stroke-floor boundary advance
+        (0.5 * (cutter_L + cutter_R) + character_spacing + kerning_min_gap).
+        """
+        blocks = {"plt": _stroke_block(0.0, 1.0), "ttf": _stroke_block(0.0, 0.5)}
+
+        def fake_plt(text: str, **kwargs: object) -> TextBlock:
+            return blocks["plt"]
+
+        def fake_ftext(text: str, **kwargs: object) -> vp.LineCollection:
+            lc = vp.LineCollection()
+            # The TTF block adapts from the LineCollection; reuse the PLT box
+            # via the adapted path by emitting the same rectangle.
+            lc.append(
+                np.array(
+                    [0 + 0j, 0.5 + 0j, 0.5 + 0.4j, 0 + 0.4j, 0 + 0j], dtype=complex
+                )
+            )
+            return lc
+
+        monkeypatch.setattr(label_renderer, "render_text_line_plt_font", fake_plt)
+        monkeypatch.setattr(label_renderer, "render_text_line_ftext", fake_ftext)
+        monkeypatch.setattr(
+            label_renderer,
+            "render_text_line_plt_font_with_glyphs",
+            lambda *a, **k: (blocks["plt"], [], [("x", [0])]),
+        )
+        monkeypatch.setattr(
+            label_renderer,
+            "glyph_groups_for_line",
+            lambda *a, **k: [("x", [0])],
+        )
+        line = _markup_line(
+            "a<f:" + font_registry.DEFAULT_FONT_NAME + ">b</f>",
+            font="Dino",
+            scale_cutter_inventory=(0.06,),
+        )
+        block, _words, glyphs = _render_line_block(line, label_renderer.TextChunkMode.LINE)
+        bounds = block.bounds()
+        assert bounds is not None
+        # Segment 1: the Dino 'a' at x = 0..1. Segment 2 (the TTF run) lands at
+        # the previous ink's right edge + the engraved-stroke floor
+        # 0.5 * (0.06 + 0.06) = 0.06 (no space between the segments, and
+        # character_spacing / kerning_min_gap are 0 on this line).
+        expected_x = 1.0 + 0.06
+        assert bounds[0] == pytest.approx(0.0)
+        assert bounds[2] == pytest.approx(expected_x + 0.5, abs=1e-9)
+        # One glyph group per non-space character, exact cover.
+        assert len(glyphs) == 2
+        flat = [i for group in glyphs for i in group]
+        assert sorted(flat) == list(range(len(block.strokes)))
+
+    def test_space_only_segment_advances_by_the_space_width(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A space between segments breaks kerning and advances by the space."""
+        calls: list[str] = []
+
+        def fake_plt(text: str, **kwargs: object) -> TextBlock:
+            calls.append(text)
+            return _stroke_block(0.0, 1.0)
+
+        def fake_ftext(text: str, **kwargs: object) -> vp.LineCollection:
+            calls.append(text)
+            lc = vp.LineCollection()
+            lc.append(np.array([0 + 0j, 0.5 + 0j, 0.5 + 0.4j, 0 + 0.4j, 0 + 0j], dtype=complex))
+            return lc
+
+        monkeypatch.setattr(label_renderer, "render_text_line_plt_font", fake_plt)
+        monkeypatch.setattr(label_renderer, "render_text_line_ftext", fake_ftext)
+        monkeypatch.setattr(
+            label_renderer,
+            "render_text_line_plt_font_with_glyphs",
+            lambda *a, **k: (_stroke_block(0.0, 1.0), [], [("x", [0])]),
+        )
+        monkeypatch.setattr(
+            label_renderer, "glyph_groups_for_line", lambda *a, **k: [("x", [0])]
+        )
+        line = _markup_line(
+            "a <f:" + font_registry.DEFAULT_FONT_NAME + ">b</f>",
+            font="Dino",
+            scale_cutter_inventory=(0.06,),
+        )
+        _render_line_block(line, label_renderer.TextChunkMode.LINE)
+        # The space is its own (skipped) segment: the renderers see 'a' and 'b'.
+        assert calls == ["a", "b"]

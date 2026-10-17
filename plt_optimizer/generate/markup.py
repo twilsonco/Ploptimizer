@@ -38,7 +38,12 @@ Tag registry
 ------------
 Markup types are registered in :data:`TAG_REGISTRY` as :class:`TagSpec`
 entries (name + an ``apply(style, arg)`` mapping + an ``accepts_args`` flag
-for the ``name:args`` syntax, e.g. ``<scale:0.5>``). A tag that accepts args
+for the ``name:args`` syntax, e.g. ``<scale:0.5>``). The ``<f:font name>``
+font tag is the one tag whose argument needs pipeline knowledge (the font
+catalog): :func:`parse_markup` accepts an injected ``font_resolver``
+(raw name -> canonical name, ``ValueError`` for unknown) that canonicalizes
+``Style.font`` at open time and on every crossing-close replay, so this
+module stays free of pipeline imports (Windows 7 / Python 3.8 guarantee). A tag that accepts args
 validates its argument inside ``apply`` (raising :class:`MarkupError` for a
 bad value) and supplies an ``arg(style)`` serializer so
 :func:`serialize_runs` re-emits the value (the line-content reflow
@@ -175,6 +180,17 @@ class Style:
             already a small-caps variant (the run is *already* in small caps,
             so the tag has no additional effect) and on a symbol font
             (``non_text_fonts.txt``), which has no lowercase to shrink.
+        font: The ``<f:font name>`` font selection active on the run
+            (``None`` = the line's own cascaded ``font``). The run's
+            characters engrave with the named font -- the same names the
+            ``font`` field accepts (PLT catalog key, TTF basename, or a
+            ``<base> SC`` variant; case-insensitive, canonicalized by the
+            ``font_resolver`` injected into :func:`parse_markup`) -- at the
+            line's ``text_height`` and with the cutter that font's own
+            ladder gives that height (the ``<scale:N>`` contract). The tag
+            argument regex is ``\\S*`` (no whitespace), so ``+`` is the
+            canonical space in a multi-word name (``<f:Foo+Bar>``); ``_``
+            stays literal. PLT and TTF families mix freely inside one line.
     """
 
     italic: bool = False
@@ -184,6 +200,7 @@ class Style:
     sup_sub: Optional[SupSub] = None
     strikethrough: bool = False
     small_caps: bool = False
+    font: Optional[str] = None
 
 
 #: The style of unmarked text (every field at its default).
@@ -292,6 +309,42 @@ def _format_sup_sub_arg(sup_sub: Optional[SupSub], direction: int) -> str:
     return "" if sup_sub.shift is None else f"{sup_sub.shift:g}"
 
 
+def _parse_font_arg(arg: str) -> str:
+    """Parse and validate a ``<f:font name>`` argument.
+
+    The tag-argument regex is ``\\S*`` (no whitespace), so ``+`` is the
+    canonical space for a font name that contains one (``<f:Foo+Bar>``);
+    ``_`` stays literal (catalog file names keep underscores). The name is
+    NOT validated here -- markup.py imports no pipeline module -- the
+    pipeline's ``font_resolver`` (a :func:`parse_markup` parameter)
+    canonicalizes and validates it, raising :class:`MarkupError` for an
+    unknown name (fail-loud, like an unclosed tag).
+
+    Args:
+        arg: The raw ``name:args`` argument text.
+
+    Returns:
+        The decoded font name (``+`` -> space, stripped), unvalidated.
+
+    Raises:
+        MarkupError: If the argument is empty (``<f:>``).
+    """
+    name = arg.replace("+", " ").strip()
+    if not name:
+        raise MarkupError("font tag argument is empty (expected e.g. <f:Dino>).")
+    return name
+
+
+def _format_font_arg(font: Optional[str]) -> str:
+    """Format :attr:`Style.font` back into the canonical tag argument.
+
+    Spaces re-encode as ``+`` (the canonical space of the ``\\S*`` argument
+    regex), so the line-content reflow round-trip
+    (serialize -> raw text -> re-parse) is exact.
+    """
+    return "" if font is None else font.replace(" ", "+")
+
+
 @dataclass(frozen=True)
 class TagSpec:
     """A registered inline markup tag.
@@ -342,6 +395,10 @@ TAG_REGISTRY: Dict[str, TagSpec] = {}
 _TAG_NAME_RE: Pattern[str] = re.compile(r"[A-Za-z]+")
 _OPEN_RE: Pattern[str] = re.compile(r"([A-Za-z]+)(?::(\S*))?")
 _CLOSE_RE: Pattern[str] = re.compile(r"/([A-Za-z]+)")
+
+#: The font-selection tag name (``<f:font name>``); :func:`parse_markup`
+#: canonicalizes its argument through the injected ``font_resolver``.
+_FONT_TAG = "f"
 
 
 def register_tag(
@@ -438,6 +495,23 @@ register_tag("s", lambda style, arg: replace(style, strikethrough=True))
 # renders the tag inert on a <base> SC font (the whole line is already small
 # caps) and on a symbol font, which has no lowercase to shrink.
 register_tag("sc", lambda style, arg: replace(style, small_caps=True))
+# Registered LAST so every existing serialization order stays bit-identical.
+# The font-selection tag: a value tag (like <scale:N>) whose argument names
+# the run's font. A bare <f> is literal text (the name is mandatory, the
+# <scale> rule). apply is set-to-value (idempotent), so a nested <f:B> inside
+# <f:A> restores A for the trailing text for free (the close pops the
+# pre-open Style), and serialize_runs re-emits name:arg via _format_font_arg
+# (the reflow round-trip depends on it). The argument is decoded here
+# (+ -> space); canonicalization/validation runs through the font_resolver
+# injected into parse_markup -- markup.py imports no pipeline module, so an
+# unknown font name raises MarkupError at resolution time (CLI non-zero).
+register_tag(
+    "f",
+    lambda style, arg: replace(style, font=_parse_font_arg(arg)),
+    accepts_args=True,
+    arg=lambda style: _format_font_arg(style.font),
+    is_active=lambda style: style.font is not None,
+)
 
 
 @dataclass(frozen=True)
@@ -518,6 +592,19 @@ class StyledText:
         run on its own style.
         """
         return tuple(style.small_caps for style in _per_char_styles(self))
+
+    @property
+    def font_values(self) -> Tuple[Optional[str], ...]:
+        """Per-character ``<f:...>`` font names, aligned with :attr:`plain_text`.
+
+        ``None`` at every position the line's own cascaded ``font`` engraves
+        (every character outside an ``<f:...>`` span); the canonical font name
+        inside one. The per-character sibling of :attr:`italic_flags`, derived
+        from the runs like every other flag array, so a pre-pass that rewrites
+        the line's text (``with_markup``, the line-content reflow) keeps every
+        run on its own font.
+        """
+        return tuple(style.font for style in _per_char_styles(self))
 
 
 @dataclass(frozen=True)
@@ -611,6 +698,7 @@ def parse_markup(
     text: str,
     left: str = "<",
     right: str = ">",
+    font_resolver: Optional[Callable[[str], str]] = None,
 ) -> StyledText:
     """Parse one text line's raw text into styled runs.
 
@@ -624,6 +712,14 @@ def parse_markup(
         text: The raw line text (may contain markup).
         left: Left delimiter (first half of ``html_brackets``).
         right: Right delimiter (second half of ``html_brackets``).
+        font_resolver: Optional ``(decoded name -> canonical name)`` mapping
+            applied to every ``<f:...>`` argument at open time (the stack
+            stores the canonical name, so the crossing-close replay reuses it
+            for free). The pipeline injects the font-catalog lookup; markup.py
+            imports no pipeline module, so an unknown font name raises
+            :class:`MarkupError` here (fail-loud, like an unclosed tag). A
+            resolver's own :class:`ValueError` is wrapped. ``None`` (direct
+            API / test callers) keeps the decoded argument verbatim.
 
     Returns:
         The parsed :class:`StyledText`. A text with no parsed tag returns a
@@ -738,9 +834,22 @@ def parse_markup(
             assert spec is not None
             assert open_match is not None
             open_arg = open_match.group(2) or ""
+            if spec.name == _FONT_TAG and font_resolver is not None:
+                # Canonicalize at open time; the stack carries the canonical
+                # name, so every replay (crossing closes) reproduces it
+                # without re-resolving. Decoding (+ -> space) happens in
+                # apply; canonical font names contain no '+', so decoding a
+                # canonical name is the identity (idempotency preserved).
+                try:
+                    open_arg = font_resolver(_parse_font_arg(open_arg))
+                except (MarkupError, ValueError) as exc:
+                    raise MarkupError(
+                        f"Invalid tag {left}{body}{right} at position "
+                        f"{open_at} in text {text!r}: {exc}"
+                    ) from None
             stack.append((spec.name, open_arg, open_at))
             try:
-                current = spec.apply(current, open_match.group(2) or "")
+                current = spec.apply(current, open_arg)
             except MarkupError as exc:
                 raise MarkupError(
                     f"Invalid tag {left}{body}{right} at position {open_at} in text {text!r}: {exc}"

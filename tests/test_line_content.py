@@ -1040,3 +1040,45 @@ def test_crossing_spans_survive_the_reflow() -> None:
     caps2 = tuple(run.style.small_caps for run in second.styled_runs for _ in run.text)
     assert strike2 == (True, True) + (False,) * 6
     assert caps2 == (True,) * 5 + (False,) * 3
+
+
+def test_font_argument_survives_the_reflow() -> None:
+    """A ``<f:font>`` word keeps its font when it moves between lines.
+
+    The reflow round-trips words through ``serialize_word`` into raw text and
+    re-parses; an arg-unaware serializer would emit a bare ``<f>`` (literal
+    text), silently engraving the tags. The font run's per-character cutters
+    are derived from the runs, so they follow the moved word.
+    """
+    label = _label(
+        "m",
+        _line("<f:Wingdings>AAAA</f> BB"),
+        _line("CC"),
+    )
+    result = _reflow_label(label, _plain_probe())
+    assert result is not None
+    first, second = result.content
+    assert first.text == "<f:Wingdings>AAAA</f>"
+    assert first.plain_text == "AAAA"
+    assert first.font_runs == ("Wingdings",) * 4
+    assert second.text == "BB CC"
+    assert second.has_font_runs is False
+
+
+def test_font_span_covering_a_space_stays_one_span() -> None:
+    """``<f:X>foo bar</f>`` reflows into ONE continuous font span.
+
+    The space between the words sits inside the tag span, so its style is the
+    span's; a plain join would drop it and split the span per word (the
+    underline-space rule).
+    """
+    label = _label(
+        "m",
+        _line("<f:Wingdings>AAAA BB</f> CC"),
+        _line("DD"),
+    )
+    result = _reflow_label(label, _plain_probe())
+    assert result is not None
+    first = result.content[0]
+    # The whole first line stays one Wingdings span (font on every char).
+    assert first.font_runs == ("Wingdings",) * len(first.plain_text)

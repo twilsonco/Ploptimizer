@@ -604,3 +604,67 @@ class TestSupSubMarkupFindings:
         assert (
             "'up' sup/sub shift 0.500 cap (run cutter 0.030in, line cutter 0.030in)" in text
         )
+
+
+class TestFontMarkupFindings:
+    """A ``<f:...>`` run's font + run cutter is a report finding."""
+
+    def test_font_run_is_a_compact_finding(self) -> None:
+        """A line with a font run prints its font, run + line cutter."""
+        from dataclasses import replace as dc_replace
+
+        line = dc_replace(
+            _line("Hello abcd").with_markup("Hello <f:Wingdings>abcd</f>"),
+            scale_cutter_inventory=(0.015, 0.03),
+        )
+        resolved, rendered = _label("l1", [line])
+
+        lines = format_layout_report([resolved], {"l1": rendered})
+        text = "\n".join(lines)
+
+        # Wingdings (S4) at 0.3in nominal: the boldness ladder snaps to the
+        # 0.015 rung, so the run cutter is 0.015 vs the line's 0.03.
+        assert (
+            "'Hello abcd' font Wingdings (run cutter 0.015in, "
+            "line cutter 0.030in)" in text
+        )
+        assert has_layout_findings([resolved], {"l1": rendered}) is True
+
+    def test_font_finding_strips_markup(self) -> None:
+        """The finding reports the plain text, never the tags."""
+        from dataclasses import replace as dc_replace
+
+        line = dc_replace(
+            _line("abcd").with_markup("<f:Wingdings>abcd</f>"),
+            scale_cutter_inventory=(0.015, 0.03),
+        )
+        resolved, rendered = _label("l1", [line])
+
+        text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
+
+        assert "<f:" not in text
+
+    def test_markup_free_line_is_not_a_finding(self) -> None:
+        """A tag-free line produces no font finding (no compact output)."""
+        line = _line("plain")
+        resolved, rendered = _label("l1", [line])
+
+        assert format_layout_report([resolved], {"l1": rendered}) == []
+        assert has_layout_findings([resolved], {"l1": rendered}) is False
+
+    def test_multiple_run_fonts_are_listed(self) -> None:
+        """A line with two run fonts lists both, ascending, with their cutters."""
+        from dataclasses import replace as dc_replace
+
+        line = dc_replace(
+            _line("AB").with_markup("<f:Wingdings>A</f><f:Stylus>B</f>"),
+            scale_cutter_inventory=(0.015, 0.03, 0.06),
+        )
+        resolved, rendered = _label("l1", [line])
+
+        text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
+
+        # Stylus (S1) takes the plain height ladder (0.06 at 0.3in), Wingdings
+        # (S4) the boldness ladder (0.015): both fonts and both cutters print.
+        assert "font Stylus, Wingdings (run cutter" in text
+        assert "line cutter 0.030in)" in text

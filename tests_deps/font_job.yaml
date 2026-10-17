@@ -1,0 +1,162 @@
+# Fixture for inline font-selection markup (`<f:font name>`).
+#
+# `<f:font name>...</f>` engraves the wrapped characters with a DIFFERENT font
+# than the line's cascaded `font` -- the same names the `font` field accepts
+# (a PLT catalog key, a TTF basename, or a `<base> SC` variant; case-
+# insensitive). The argument regex is `\S*` (no whitespace), so `+` is the
+# canonical space of a multi-word name (`<f:Foo+Bar>`); `_` stays literal.
+#
+# The run engraves at the line's `text_height` with the cutter that size of
+# text IN THAT FONT gets authored on its own (the `<scale:N>` contract): the
+# height ladder, with a multi-stroke (bold) run font re-running the boldness
+# ladder at its own `stroke_count`. Under the centerline contract the glyph
+# geometry scales uniformly about the baseline by
+#
+#     g = (nominal - run_cutter) / (nominal - line_cutter)
+#
+# so the run's cap engraves at the same height as the plain run's, and the run
+# lands on its own pen / `<cutter>_txt_` file (the pen map keys
+# `ResolvedTextLine.used_cutters`).
+#
+# Kerning: an all-PLT line renders through the single PLT cursor walk, which
+# fetches each character's geometry from its own font's catalog entry, so a
+# font switch kerns on the profile ENVELOPES exactly (every v2 library shares
+# the design frame: baseline y=0, reference char exactly 1000 units). A line
+# crossing the PLT/TTF families composes per-font segments and kerns the
+# boundary on the bounding box + the engraved-stroke floor (a TTF glyph
+# carries no envelopes).
+#
+# Against the test inventory
+# [0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.09, 0.125, 0.25] at text_height 0.5:
+#   - Dino (S1, auto) ................. plain 0.060
+#   - Dino + `<b>` .................... bold rung 0.090
+#   - Wingdings (S4, symbol font) ..... boldness ladder 0.0215 -> 0.030
+#   - ReliefSingleLineCAD-Regular ..... height ladder 0.060 (TTF)
+job:
+  job_name: Font Demo
+  width: 3.0
+  height: 1.0
+  margin: 0.1
+  text_height: 0.5
+  line_spacing: 0.15
+  auto_descending_character_adjustment: false
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. The motivating case: Wingdings symbols inside a Dino line. The four
+    #    run characters engrave with Wingdings' own ladder cutter (0.030, the
+    #    S4 boldness ladder at 0.5in), so the line splits onto two pens.
+    - id: plt_wingdings
+      font: Dino
+      content:
+        - text: "Hello <f:Wingdings>abcd</f> world"
+
+    # 2. The plain control for label 1 (same text, no markup): the reference
+    #    the run's geometry, kerning and cutter are measured against.
+    - id: plt_plain
+      font: Dino
+      content:
+        - text: "Hello abcd world"
+
+    # 3. Case-insensitive lookup: `<f:wingdings>` engraves exactly like label 1.
+    - id: plt_case
+      font: Dino
+      content:
+        - text: "Hello <f:wingdings>abcd</f> world"
+
+    # 4. A small-caps VARIANT run: `<f:Dino+SC>` renders the run's ASCII
+    #    lowercase as Dino's capitals shrunk to sc_scale (0.7) of the cap
+    #    height, top-down. The variant shares Dino's cutter (0.060), so the
+    #    line stays on one pen.
+    - id: plt_sc
+      font: Dino
+      content:
+        - text: "Hello <f:Dino+SC>abcd</f> world"
+
+    # 5. The plain-caps control for label 4 (the capitals the SC run shrinks).
+    - id: plt_sc_plain
+      font: Dino
+      content:
+        - text: "Hello ABCD world"
+
+    # 6. A per-character selection: only `B` switches font, so `A`/`C` keep the
+    #    line's Dino geometry and cutter.
+    - id: plt_partial
+      font: Dino
+      content:
+        - text: "A<f:Wingdings>B</f>C"
+
+    # 7. Nested fonts: the inner `<f:Wingdings>` overrides `Stylus` for `B`
+    #    only, and the close restores `Stylus` for `C` (the close pops the
+    #    pre-open style, the `<scale:N>` nesting rule).
+    - id: plt_nested
+      font: Dino
+      content:
+        - text: "<f:Stylus>A<f:Wingdings>B</f>C</f>D"
+
+    # 8. `<f>` + `<b>`: the bold run engraves with the thicker tool (0.090) and
+    #    the font run re-runs its OWN font's ladder at the boosted factor, so
+    #    the line splits across the plain (0.060), bold (0.090) and run (0.045)
+    #    tools.
+    - id: plt_bold
+      font: Dino
+      content:
+        - text: "<b>bold <f:Wingdings>sym</f></b>"
+
+    # 9. `<f>` + `<scale:N>`: the font run takes its font's ladder at the line
+    #    height (0.030) and the scaled run takes the 0.25in ladder (0.030), so
+    #    both runs share one file while the plain text keeps 0.060.
+    - id: plt_scale
+      font: Dino
+      content:
+        - text: "<f:Wingdings>sym</f> <scale:0.5>tiny</scale>"
+
+    # 10. `<f>` + `<i>`: the shear applies to each run's own font geometry
+    #     (the italic-then-kern contract holds across a font switch).
+    - id: plt_italic
+      font: Dino
+      content:
+        - text: "<i>lean <f:Wingdings>sym</f></i>"
+
+    # 11. `<f>` + `<u>`: the underline is cut with each run's own tool, so the
+    #     gate splits the run at the cutter boundary (0.060 -> 0.030) and each
+    #     half rides its own pen.
+    - id: plt_underline
+      font: Dino
+      content:
+        - text: "<u>pay <f:Wingdings>sym</f></u>"
+
+    # 12. Mixed families: a TTF run inside a PLT line. The line composes
+    #     per-font segments (the PLT walk renders PLT only, the TTF path shapes
+    #     a whole line with one face) and kerns the boundary on the bbox +
+    #     stroke floor. The TTF run takes the height ladder (0.060 = the
+    #     line's tool), so the split is by font, not by tool.
+    - id: plt_with_ttf_run
+      font: Dino
+      content:
+        - text: "Hello <f:ReliefSingleLineCAD-Regular>abcd</f> world"
+
+    # 13. The reverse: a PLT run inside a TTF line.
+    - id: ttf_with_plt_run
+      font: ReliefSingleLineCAD-Regular
+      content:
+        - text: "Hello <f:Dino>PLT</f> world"
+
+    # 14. The all-TTF control for label 12 (same text, no markup).
+    - id: ttf_plain
+      font: ReliefSingleLineCAD-Regular
+      content:
+        - text: "Hello abcd world"
+
+    # 15. A font run on a line with an explicit `cutter_size`: the explicit tool
+    #     is a human decision and governs the PLAIN runs; the run font still
+    #     takes its own ladder (the scaled-run precedent).
+    - id: plt_explicit_cutter
+      font: Dino
+      cutter_size: 0.045
+      content:
+        - text: "Hello <f:Wingdings>abcd</f>"
