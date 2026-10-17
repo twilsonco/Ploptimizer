@@ -29,6 +29,7 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_FALLBACK_ADVANCE_FRACTION,
     DEFAULT_FONT,
     DEFAULT_H_COMPRESS_GLOBAL,
+    DEFAULT_HOLE_ADJUST_FOR_CUTTER,
     DEFAULT_HOLE_MARGIN,
     DEFAULT_HOLE_TEXT_COLLISION_DISTANCE,
     DEFAULT_HTML_BRACKETS,
@@ -66,6 +67,7 @@ from plt_optimizer.generate.resolution import (
     DESIGN_MULTISTROKE_OVERLAP,
     IDEAL_CUTTER_MAP,
     MAX_TARGET_BOLDNESS_FACTOR,
+    MIN_HOLE_EMITTED_RADIUS_INCHES,
     CutterSizeError,
     LineContentConfigError,
     MultiStrokeCutter,
@@ -84,6 +86,7 @@ from plt_optimizer.generate.resolution import (
     fit_line_spacing_to_margins,
     get_cutter_diameter,
     glyph_render_plan,
+    hole_engraved_radius,
     memoize_extents_probe,
     multi_stroke_cutter_diameter,
     next_larger_cutter,
@@ -6382,3 +6385,126 @@ class TestRunLadderCutter:
         line = self._line(font="Dino")
         plain, _ = scale_cutter_ladder(line, 1.0, need_bold=False)
         assert plain == pytest.approx(0.06)
+
+
+class TestHoleEngravedRadius:
+    """hole_engraved_radius: the cutter-compensated emitted hole radius."""
+
+    def test_adjust_shrinks_by_the_cutter_diameter(self) -> None:
+        """A 0.1in hole with a 0.015in cutter emits a 0.085in circle."""
+        radius = hole_engraved_radius(0.1, 0.015, True)
+        assert 2.0 * radius == pytest.approx(0.085)
+
+    def test_adjust_off_keeps_the_specified_radius(self) -> None:
+        """adjust=False returns the historical diameter / 2 verbatim."""
+        assert hole_engraved_radius(0.1, 0.015, False) == pytest.approx(0.05)
+
+    def test_zero_cutter_is_a_no_op(self) -> None:
+        """A zero cutter leaves the emitted diameter unchanged."""
+        assert hole_engraved_radius(0.125, 0.0, True) == pytest.approx(0.0625)
+
+    def test_degenerate_hole_clamps_to_the_emittable_floor(self) -> None:
+        """A hole at/below the cutter clamps to one plotter unit radius."""
+        for diameter in (0.01, 0.015, 0.0):
+            radius = hole_engraved_radius(diameter, 0.015, True)
+            assert radius == pytest.approx(MIN_HOLE_EMITTED_RADIUS_INCHES)
+
+    def test_floor_is_one_plotter_unit(self) -> None:
+        """The floor is ONE unit: a half-unit radius rounds to 0 in the writer."""
+        from plt_optimizer.core.units import inches_to_units
+
+        assert MIN_HOLE_EMITTED_RADIUS_INCHES == pytest.approx(1.0 / 1016.0)
+        assert inches_to_units(MIN_HOLE_EMITTED_RADIUS_INCHES) == 1
+
+    def test_just_above_the_floor_is_not_clamped(self) -> None:
+        """A diameter barely above cutter + floor keeps its exact difference."""
+        diameter = 0.015 + 3.0 * MIN_HOLE_EMITTED_RADIUS_INCHES
+        radius = hole_engraved_radius(diameter, 0.015, True)
+        assert radius == pytest.approx(1.5 * MIN_HOLE_EMITTED_RADIUS_INCHES)
+
+
+class TestHoleAdjustForCutterCascade:
+    """hole_adjust_for_cutter cascades label -> job -> True (explicit-None)."""
+
+    @staticmethod
+    def _job(**levels: bool | None) -> JobSpec:
+        """Build a one-label job applying hole_adjust_for_cutter at the given levels."""
+        job_kwargs: dict[str, bool | None] = {}
+        label_kwargs: dict[str, bool | None] = {}
+        if "job" in levels:
+            job_kwargs["hole_adjust_for_cutter"] = levels["job"]
+        if "label" in levels:
+            label_kwargs["hole_adjust_for_cutter"] = levels["label"]
+        return JobSpec(
+            job_name="J",
+            text_height=0.5,
+            **job_kwargs,  # type: ignore[arg-type]
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    **label_kwargs,  # type: ignore[arg-type]
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+
+    def test_default_module_constant_is_true(self) -> None:
+        """The shipped default enables cutter compensation."""
+        assert DEFAULT_HOLE_ADJUST_FOR_CUTTER is True
+
+    def test_default_resolves_true(self) -> None:
+        """All levels omitting resolves to the True fallback."""
+        assert resolve_job_spec(self._job())[0].hole_adjust_for_cutter is True
+
+    def test_job_false_used_when_label_omits(self) -> None:
+        """Job-level False cascades onto labels that omit the field."""
+        assert resolve_job_spec(self._job(job=False))[0].hole_adjust_for_cutter is False
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level True beats the job-level False."""
+        assert resolve_job_spec(self._job(job=False, label=True))[0].hole_adjust_for_cutter is True
+
+    def test_label_false_is_honored(self) -> None:
+        """An intentional False (specified diameter emitted) never falls through."""
+        assert resolve_job_spec(self._job(job=True, label=False))[0].hole_adjust_for_cutter is False
+
+    def test_root_level_job_resolves_own_value(self) -> None:
+        """A root-level job masquerading as a label resolves its own field."""
+        job = JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            text_height=0.5,
+            content=[TextLine(text="X")],
+            hole_adjust_for_cutter=False,
+        )
+        assert resolve_job_spec(job)[0].hole_adjust_for_cutter is False
+
+    def test_resolved_label_defaults_true(self) -> None:
+        """A manually constructed ResolvedLabel defaults to the shipped default."""
+        label = ResolvedLabel(
+            id="l",
+            count=1,
+            width=2.0,
+            height=1.0,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+        )
+        assert label.hole_adjust_for_cutter is DEFAULT_HOLE_ADJUST_FOR_CUTTER
+
+    def test_hole_diameters_stay_nominal(self) -> None:
+        """Resolution keeps the SPECIFIED diameters; the renderer shrinks the radius."""
+        job = JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            text_height=0.5,
+            holes=[{"location": "left", "diameter": 0.1}],
+            content=[TextLine(text="X")],
+        )
+        label = resolve_job_spec(job, boundary_hole_cutter_size=0.015)[0]
+        assert label.holes[0].diameter == pytest.approx(0.1)
+        assert label.hole_adjust_for_cutter is True

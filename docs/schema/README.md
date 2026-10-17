@@ -189,6 +189,7 @@ always wins at its level. Precedence per attribute:
 | `h_margin`, `v_margin` | label → job → config | `margin` (then 0.125) |
 | `hole_margin` | label → job → config | 0.1875 |
 | `min_hole_margin`, `hole_text_collision_distance` | label → job → config | see fallback table |
+| `hole_adjust_for_cutter` | label → job → config (never lines; plate parity) | `true` |
 | `holes` | label (replaces job list entirely; `[]` suppresses) → job → config | none |
 | `layout`, `allow_rotation`, `text_chunk_mode` | job → config | `columns` / `true` / `line` |
 | `layout` (per plate) | plate → job → config | — |
@@ -211,6 +212,17 @@ entries that omit it).
 - **Hole groups**: `location: corners` expands in place to the four corner
   holes; `sides` to left+right — at validation time, so downstream only ever
   sees the 8 atomic locations.
+- **Cutter-compensated holes** (`hole_adjust_for_cutter`, default true): the
+  drill path is the circle the cutter *centre* follows, so the cutter engraves
+  half a cutter width on each side of it. With the mechanism on, the emitted
+  circle shrinks by the boundary/hole cutter diameter (the cutter radius on
+  each side of the path) so the engraved hole measures the specified diameter:
+  a `0.1` hole cut by a `0.015` cutter emits a `0.085` circle. The hole
+  **centre** is always placed from the specified diameter, so hole positions
+  never move; a hole at or below the cutter diameter clamps to the smallest
+  emittable circle (one plotter unit radius) with a WARNING. The text-hole
+  collision check measures the engraved circle, so near misses relax by the
+  same half cutter.
 - **Auto-sizing**: omitting `width`/`height` sizes the label from rendered
   text + margin.
 - **Plates**: `width`/`height` are the *usable* pack area;
@@ -240,7 +252,7 @@ entries that omit it).
   `v_center_by_content`,
   `auto_descending_character_adjustment`, `descending_character_v_scale`,
   `descending_character_raise`, `descending_character_clearance`,
-  `descending_character_reciprocal_scale`) are
+  `descending_character_reciprocal_scale`, `hole_adjust_for_cutter`) are
   accepted on plates for schema parity but **not applied** at plate level —
   labels render once before packing.
 - **Multi-stroke (bold) fonts** (`target_boldness_factor` default 0.14, bounds

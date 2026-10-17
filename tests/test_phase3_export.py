@@ -5065,3 +5065,164 @@ class TestEnforceCapLineDemoExample:
         assert enforced == pytest.approx(cap, abs=0.01)
         assert unenforced == pytest.approx(1.095588 * cap, abs=0.01)
         assert unenforced > enforced + 1e-3
+
+
+class TestHoleAdjustForCutterDemoExample:
+    """Regression tests for tests_deps/hole_adjust_for_cutter_job.yaml.
+
+    The fixture pins cutter-compensated drill holes (``hole_adjust_for_cutter``,
+    default true): the emitted circle shrinks by the boundary/hole cutter
+    diameter so the engraved hole measures the specified diameter, while every
+    hole CENTRE (placed from the specified diameter) stays bit-identical. The
+    export passes ``boundary_hole_cutter_size=0.015`` explicitly, so the pinned
+    diameters never drift with the shop's tools.json.
+    """
+
+    _SPEC = Path("tests_deps/hole_adjust_for_cutter_job.yaml")
+    _CUTTER = 0.015
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting and routing disabled."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(
+            job, boundary_hole_cutter_size=self._CUTTER
+        )
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="hafc",
+            optimize=False,
+            plots=False,
+        )
+
+    @staticmethod
+    def _hole_radii_inches(rendered_labels: dict, label_id: str) -> list[float]:
+        """One drill-hole arc radius per distinct hole centre, in inches.
+
+        Each hole emits four quarter-arcs sharing one centre, so the arcs are
+        deduplicated by their (rounded) centre before measuring the radius.
+        """
+        from plt_optimizer.core.models import ArcSegment
+        from plt_optimizer.core.parser import PLTParser
+
+        content = rendered_labels[label_id].plt_content
+        doc = PLTParser().parse_string(content)
+        by_centre: dict[tuple[int, int], float] = {}
+        for path in doc.stroke_paths:
+            for segment in path.segments:
+                if isinstance(segment, ArcSegment):
+                    key = (round(segment.center.x), round(segment.center.y))
+                    by_centre[key] = segment.radius / HPGL_UNITS_PER_INCH
+        return list(by_centre.values())
+
+    def test_flags_resolve_per_label(self, tmp_path: Path) -> None:
+        """The default is on; the opt-out is off; the plate tier is inert."""
+        result = self._export(tmp_path)
+        labels = result.rendered_labels
+        assert labels["on_default"].source_label.hole_adjust_for_cutter is True
+        assert labels["opt_out"].source_label.hole_adjust_for_cutter is False
+        # plate_1 declares hole_adjust_for_cutter: false; labels render before
+        # plate assignment, so the parity field changes nothing.
+        assert labels["mixed_diameters"].source_label.hole_adjust_for_cutter is True
+
+    def test_default_shrinks_the_emitted_circle(self, tmp_path: Path) -> None:
+        """A 0.1in hole emits a 0.085in circle at the shipped default."""
+        result = self._export(tmp_path)
+        radii = self._hole_radii_inches(result.rendered_labels, "on_default")
+        assert len(radii) == 2
+        # Emitted radii are integer plotter units: 1/2 unit = 4.9e-4in of
+        # quantization, so the pins use a 1e-3in tolerance.
+        for radius in radii:
+            assert radius == pytest.approx((0.1 - self._CUTTER) / 2.0, abs=1e-3)
+
+    def test_opt_out_keeps_the_specified_circle(self, tmp_path: Path) -> None:
+        """hole_adjust_for_cutter: false emits the specified 0.1in circle."""
+        result = self._export(tmp_path)
+        radii = self._hole_radii_inches(result.rendered_labels, "opt_out")
+        assert len(radii) == 2
+        for radius in radii:
+            assert radius == pytest.approx(0.05, abs=1e-3)
+
+    def test_centres_are_identical_on_and_off(self, tmp_path: Path) -> None:
+        """Compensation moves no centre: on/off hole centres coincide."""
+        from plt_optimizer.core.models import ArcSegment
+        from plt_optimizer.core.parser import PLTParser
+
+        labels = self._export(tmp_path).rendered_labels
+
+        def centres(label_id: str) -> set[tuple[int, int]]:
+            doc = PLTParser().parse_string(labels[label_id].plt_content)
+            return {
+                (round(segment.center.x), round(segment.center.y))
+                for path in doc.stroke_paths
+                for segment in path.segments
+                if isinstance(segment, ArcSegment)
+            }
+
+        assert centres("on_default") == centres("opt_out")
+
+    def test_every_specified_diameter_shrinks_by_the_cutter(self, tmp_path: Path) -> None:
+        """0.125 -> 0.110 and 0.25 -> 0.235 (one shared hole tool)."""
+        result = self._export(tmp_path)
+        radii = sorted(self._hole_radii_inches(result.rendered_labels, "mixed_diameters"))
+        assert len(radii) == 2
+        assert radii[0] == pytest.approx((0.125 - self._CUTTER) / 2.0, abs=1e-3)
+        assert radii[1] == pytest.approx((0.25 - self._CUTTER) / 2.0, abs=1e-3)
+
+    def test_round_corner_holes_shrink_too(self, tmp_path: Path) -> None:
+        """The ellipse-diagonal placement emits the compensated circle."""
+        result = self._export(tmp_path)
+        radii = self._hole_radii_inches(result.rendered_labels, "round_corners")
+        assert len(radii) == 4
+        for radius in radii:
+            assert radius == pytest.approx((0.2 - self._CUTTER) / 2.0, abs=1e-3)
+
+    def test_degenerate_hole_clamps_with_warning(self, tmp_path: Path) -> None:
+        """A 0.01in hole with a 0.015in cutter clamps to one plotter unit."""
+        result = self._export(tmp_path)
+        radii = self._hole_radii_inches(result.rendered_labels, "degenerate")
+        assert radii == [pytest.approx(1.0 / HPGL_UNITS_PER_INCH, abs=1e-6)]
+
+    def test_degenerate_warning_names_the_label(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The clamp logs a WARNING naming the label and the sizes."""
+        with caplog.at_level(logging.WARNING, logger="plt_optimizer.generate.label_renderer"):
+            self._export(tmp_path)
+        messages = [
+            record.getMessage()
+            for record in caplog.records
+            if "cannot be cutter-compensated" in record.getMessage()
+        ]
+        assert any("degenerate" in message for message in messages)
+
+    def test_hole_finding_appears_in_the_layout_report(self, tmp_path: Path) -> None:
+        """The report surfaces the specified -> engraved diameter per label."""
+        from plt_optimizer.generate.layout_report import format_layout_report
+
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job, boundary_hole_cutter_size=self._CUTTER)
+        result = export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="hafc",
+            optimize=False,
+            plots=False,
+        )
+        report = "\n".join(
+            format_layout_report(labels, result.rendered_labels, full=True)
+        )
+        assert "Holes 0.100in -> 0.085in (cutter 0.015in)" in report
+        assert "Holes 0.125in -> 0.110in (cutter 0.015in)" in report
+        assert "Holes 0.250in -> 0.235in (cutter 0.015in)" in report
+        # The opt-out label states its diameters unchanged -- no finding.
+        off_block = report.split("Label opt_out:")[1].split("Label ")[0]
+        assert "Holes" not in off_block
+
+    def test_one_bh_file_carries_every_hole(self, tmp_path: Path) -> None:
+        """Compensation changes geometry only: the cutter set is unchanged."""
+        result = self._export(tmp_path)
+        bh_files = [p.name for p in result.plt_paths if "_bh_" in p.name]
+        assert bh_files == ["0.015_bh_hafc.plt"]

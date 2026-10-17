@@ -2201,6 +2201,60 @@ intersection-invariant.
 - Adjusted label clones propagate to downstream rendering via
   `RenderedLabel.source_label` (consumed by `layout.unroll_labels_with_rendered_bounds`).
 
+### Cutter-Compensated Drill Holes (`hole_adjust_for_cutter`)
+
+The drill path is the circle the cutter **centre** follows, so the cutter
+engraves a stroke half a cutter width on each side of it: a path of diameter
+`D` engraves a hole of `D + cutter`. A spec diameter of 0.1in cut by the
+0.015in boundary/hole tool therefore engraves a 0.115in hole. 
+`hole_adjust_for_cutter` (default **true**) shrinks the **emitted** circle by
+the cutter diameter — the cutter radius on each side of the path — so the
+engraved hole measures the specified diameter: a 0.1in hole with a 0.015in
+cutter emits a 0.085in circle. Cascades label → job → `job-config.json`
+(plate parity, like every render-affecting field — labels render before
+packing); the code fallback is `DEFAULT_HOLE_ADJUST_FOR_CUTTER = True`.
+
+- **Single geometry chokepoint**: `resolution.hole_engraved_radius(diameter,
+  cutter_diameter, adjust)` is the pure math; the only call site is
+  `label_renderer._hole_circles_local`, which is the single source of hole
+  circles for BOTH the emitted `AA` arcs (`_render_holes_hpgl`) and the
+  text-hole collision checks (`_detect_text_hole_collisions`, the Phase 2
+  margin sweep) — collision detection measures the circle that is actually
+  engraved, so a near miss relaxes by exactly the half cutter, with zero
+  changes at the collision sites.
+- **Centres never move**: the centre offset keeps using the **specified**
+  radius (`hole_margin + cutter/2 + diameter/2`), so every placement rule
+  (rect edges, round-label ellipse diagonal, rounded-rect patch) is
+  bit-identical with the mechanism off — only the drawn circle shrinks.
+  `ResolvedHoleSpec.diameter` stays the nominal spec value (never mutated),
+  which also keeps `_compute_hole_aware_shifts` bit-identical — provably
+  correct: the shift `(D_top − D_bot)/2` cancels the common cutter.
+- **Clamp, never a point**: a specified diameter at/below the cutter
+  diameter leaves no path to draw; the radius clamps to
+  `MIN_HOLE_EMITTED_RADIUS_INCHES` = **one plotter unit**
+  (`1 / HPGL_UNITS_PER_INCH`), with a WARNING naming label id, location,
+  diameter and cutter. NOT `_INK_EMISSION_FLOOR` (half a unit):
+  `inches_to_units` is `int(round(v * 1016))` and Python's `round(0.5) == 0`
+  (banker's rounding), so a half-unit radius emits a degenerate `AA` arc.
+- **The flag rides `ResolvedLabel.hole_adjust_for_cutter`** (explicit-`None`
+  cascade label → job → config → true; explicit `false` emits the specified
+  diameter, the historical bit-identical behaviour). No `_LineEntry` /
+  `RenderedLabel` field; the layout report prints a per-label finding
+  `Holes 0.125in -> 0.110in (cutter 0.015in)` (one line per distinct
+  specified diameter, compact-mode finding) from
+  `layout_report._hole_adjust_lines`.
+- Fixture: `tests_deps/hole_adjust_for_cutter_job.yaml` (pinned by
+  `tests/test_phase3_export.py::TestHoleAdjustForCutterDemoExample`) — the
+  default 0.1 → 0.085in, the `opt_out` twin (0.1in emitted, centres identical
+  to the on-label), mixed diameters (0.125 → 0.110, 0.25 → 0.235), the
+  degenerate 0.01in clamp + WARNING, and a round label's corner holes. Unit
+  tests: `TestHoleAdjustForCutterField` (`tests/test_schema.py`),
+  `TestHoleEngravedRadius` / `TestHoleAdjustForCutterCascade`
+  (`tests/test_resolution.py`), `TestCutterCompensatedHoles`
+  (`tests/test_round_labels.py`), `TestHoleAdjustFindings`
+  (`tests/test_layout_report.py`), and the `hole_adjust_for_cutter`
+  job-config key tests (`tests/test_job_config.py`).
+
 ### Applied Layout Reporting
 
 Two render-time typography effects change what is engraved without
@@ -2251,8 +2305,10 @@ the value actually used for stacking, so it is what the report shows.
   `TYPE_CHECKING`-only imports), so it is unit-testable without
   matplotlib and safe on the CLI's lazy-import path. A *finding* is a
   compressed line (scale < 1.0), a spacing gap that deviates from the
-  requested value (compared with `math.isclose`), or a downsized cutter
-  (`source_label.cutter_downsize_by_line` non-empty).
+  requested value (compared with `math.isclose`), a downsized cutter
+  (`source_label.cutter_downsize_by_line` non-empty), or a label with
+  cutter-compensated drill holes (`source_label.hole_adjust_for_cutter`
+  with holes — `layout_report._hole_adjust_lines`, a label-level line).
 - `scripts/run_integration_test.py` prints the full report (`full=True`)
   as the **Phase 3.6: LAYOUT REPORT** section (per label, one line per
   compressed text line: `Line N: '<text>' scale 0.870 (13.0%
@@ -2560,7 +2616,7 @@ already knows each toolpath's kind, the `Profiler` is skipped entirely.
   **removed**; optimization now happens pre-write in plate space.
 
 ### Cascading Resolution
-When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.15), `space_width_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.3), `min_glyph_width` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `kerning_window_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.05), `kerning_penetration_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_recession_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_min_gap` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `fallback_advance_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `underline_offset` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), `underline_break_clearance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0; the air at each underline break, never a position) and `underline_break_spaces` (explicit `false` is honored; only `None` means unset, falling back to the config or false; whether the underline breaks at inter-word spaces) and `html_brackets` (explicit pair is honored; only `None` means unset, falling back to the config or `"<>";` the value is an even-length string, first half left delimiter / second half right, halves must differ and contain no alphanumeric/newline characters) and `italic_angle` (explicit 0.0 is honored = upright; only `None` means unset, falling back to the config or 12; schema bounds `[0, 45]`), `cutter_downsize` (explicit `false` is honored; only `None` means unset, falling back to the config or true), `max_cutter_downsizes` (explicit 0 is honored; only `None` means unset, falling back to the config or 1) and `cutter_downsize_global` (explicit `false` is honored; only `None` means unset, falling back to the config or true) and `h_compress_global` (explicit `true` is honored; only `None` means unset, falling back to the config or false) and `optimize_line_content` (explicit `true` is honored; only `None` means unset, falling back to the config or false) and `optimize_line_content_max_lines` (explicit `None` means unset = no growth, no fallback; only an explicit cap > 0 applies) and `enforce_cap_line` (explicit `false` is honored; only `None` means unset, falling back to the config or true; the alphanumeric cap-line clamp, strictly pre-markup) and `use_baseline_spacing` (explicit `false` is honored; only `None` means unset, falling back to the config or true; cascades job → plate → label, never text lines, plate parity only) and `v_center_by_content` (explicit `true` is honored; only `None` means unset, falling back to the config or false; cascades job → plate → label, never text lines, plate parity only; inert while `auto_descending_character_adjustment` is false) and `auto_descending_character_adjustment` (explicit `false` is honored; only `None` means unset, falling back to the config or true; cascades job → plate → label, never text lines, plate parity only) and `descending_character_v_scale` (explicit `0.2` is honored; only `None` means unset, falling back to the config or 0.5) and `descending_character_raise` (explicit `0.0` is honored; only `None` means unset, falling back to the config or 0.7) and `descending_character_clearance` (explicit `0.0` is honored; only `None` means unset, falling back to the config or 0.0; a unitless factor of the engraved-stroke floor, not inches) and `descending_character_reciprocal_scale` (explicit `0.2` is honored; only `None` means unset, falling back to the config or 0.5; `[0.2, 1.0]`, `1.0` = reciprocal downscaling forbidden; all four floats cascade job → plate → label, never text lines, plate parity only). `cutter_size` (explicit-`None` precedence line → label → job → auto-select; no config tier, `gt=0.0` so an explicit `0.0` is a validation error, not a cascade value) and `target_boldness_factor` / `multistroke_overlap_ratio` (explicit-`None` precedence line → label → job → config, plate parity; falling back to 0.14 / 0.25; multi-stroke PLT fonts only, inert on an explicit `cutter_size`) and `supersubscript_downscale` (explicit `0.2` is honored; only `None` means unset, falling back to the config or 0.5; `[0.2, 1.0]`; the bare `<sup>`/`<sub>` run downscale + baseline-shift derivation, inert on the argumented `<sup:0.3>`/`<sub:-0.2>` form) and `strikethrough_offset` (explicit `0.0` is honored = the stroke sits on the baseline; only `None` means unset, which centres the `<s>` stroke on the cap-band midline — half `toolpath_text_height` — so the *default* is a derived value, not a constant) and `strikethrough_break_spaces` (explicit `false` is honored; only `None` means unset, falling back to the config or false; whether the strikethrough breaks at inter-word spaces). `material` cascades label → job (and plate → job via the clearance-style plate cascade): an explicit label/plate value wins, an explicit `null` counts as unset, and empty-after-trim strings are validation errors.
+When a value is `None` at the TextLine/LabelSpec level, it inherits from the parent JobSpec. Cascade order for `hole_margin`: explicit label value → job value → default. Same precedence applies to `max_h_compress` (explicit 0.0 is honored, not treated as unset), `text_h_alignment` (explicit `center` is honored, not treated as unset), `min_hole_margin` (explicit 0.0 is honored; only `None` means unset), `hole_text_collision_distance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.15), `space_width_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.3), `min_glyph_width` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `kerning_window_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.05), `kerning_penetration_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_recession_scale` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `kerning_min_gap` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), and `fallback_advance_fraction` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 1.0), `underline_offset` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0), `underline_break_clearance` (explicit 0.0 is honored; only `None` means unset, falling back to the config or 0.0; the air at each underline break, never a position) and `underline_break_spaces` (explicit `false` is honored; only `None` means unset, falling back to the config or false; whether the underline breaks at inter-word spaces) and `html_brackets` (explicit pair is honored; only `None` means unset, falling back to the config or `"<>";` the value is an even-length string, first half left delimiter / second half right, halves must differ and contain no alphanumeric/newline characters) and `italic_angle` (explicit 0.0 is honored = upright; only `None` means unset, falling back to the config or 12; schema bounds `[0, 45]`), `cutter_downsize` (explicit `false` is honored; only `None` means unset, falling back to the config or true), `max_cutter_downsizes` (explicit 0 is honored; only `None` means unset, falling back to the config or 1) and `cutter_downsize_global` (explicit `false` is honored; only `None` means unset, falling back to the config or true) and `h_compress_global` (explicit `true` is honored; only `None` means unset, falling back to the config or false) and `optimize_line_content` (explicit `true` is honored; only `None` means unset, falling back to the config or false) and `optimize_line_content_max_lines` (explicit `None` means unset = no growth, no fallback; only an explicit cap > 0 applies) and `enforce_cap_line` (explicit `false` is honored; only `None` means unset, falling back to the config or true; the alphanumeric cap-line clamp, strictly pre-markup) and `use_baseline_spacing` (explicit `false` is honored; only `None` means unset, falling back to the config or true; cascades job → plate → label, never text lines, plate parity only) and `v_center_by_content` (explicit `true` is honored; only `None` means unset, falling back to the config or false; cascades job → plate → label, never text lines, plate parity only; inert while `auto_descending_character_adjustment` is false) and `auto_descending_character_adjustment` (explicit `false` is honored; only `None` means unset, falling back to the config or true; cascades job → plate → label, never text lines, plate parity only) and `descending_character_v_scale` (explicit `0.2` is honored; only `None` means unset, falling back to the config or 0.5) and `descending_character_raise` (explicit `0.0` is honored; only `None` means unset, falling back to the config or 0.7) and `descending_character_clearance` (explicit `0.0` is honored; only `None` means unset, falling back to the config or 0.0; a unitless factor of the engraved-stroke floor, not inches) and `descending_character_reciprocal_scale` (explicit `0.2` is honored; only `None` means unset, falling back to the config or 0.5; `[0.2, 1.0]`, `1.0` = reciprocal downscaling forbidden; all four floats cascade job → plate → label, never text lines, plate parity only). `cutter_size` (explicit-`None` precedence line → label → job → auto-select; no config tier, `gt=0.0` so an explicit `0.0` is a validation error, not a cascade value) and `target_boldness_factor` / `multistroke_overlap_ratio` (explicit-`None` precedence line → label → job → config, plate parity; falling back to 0.14 / 0.25; multi-stroke PLT fonts only, inert on an explicit `cutter_size`) and `supersubscript_downscale` (explicit `0.2` is honored; only `None` means unset, falling back to the config or 0.5; `[0.2, 1.0]`; the bare `<sup>`/`<sub>` run downscale + baseline-shift derivation, inert on the argumented `<sup:0.3>`/`<sub:-0.2>` form) and `strikethrough_offset` (explicit `0.0` is honored = the stroke sits on the baseline; only `None` means unset, which centres the `<s>` stroke on the cap-band midline — half `toolpath_text_height` — so the *default* is a derived value, not a constant) and `strikethrough_break_spaces` (explicit `false` is honored; only `None` means unset, falling back to the config or false; whether the strikethrough breaks at inter-word spaces) and `hole_adjust_for_cutter` (explicit `false` is honored; only `None` means unset, falling back to the config or true; the cutter-compensated drill-hole diameter, cascades label -> job, plate parity only). `material` cascades label → job (and plate → job via the clearance-style plate cascade): an explicit label/plate value wins, an explicit `null` counts as unset, and empty-after-trim strings are validation errors.
 
 ### Stroke-Color Toolpath Splitting (`text_color`)
 
@@ -2957,7 +3013,7 @@ top-most layer:
   `max_cutter_downsizes`, `cutter_downsize_global`, `h_compress_global`,
   `optimize_line_content`, `enforce_cap_line`, `holes`, `allow_rotation`,
   `text_chunk_mode`, `layout`, `rounded_rectangle_fraction`,
-  `rounded_rectangle_proportional`) fill missing **job-level** keys; the existing
+  `rounded_rectangle_proportional`, `hole_adjust_for_cutter`) fill missing **job-level** keys; the existing
   label -> job cascade then works unchanged and YAML values always win (an
   explicit YAML `null` counts as unset; `holes: []` suppression is a value).
   `hole_diameter` additionally fills the `diameter` of any hole entry (config-

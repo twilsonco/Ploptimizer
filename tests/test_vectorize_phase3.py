@@ -280,9 +280,12 @@ class TestRotatePltContent90cw:
             for a in arcs
         }
         assert centers == {(5.26, 3.26)}
-        # The rigid transform preserves the drill radius.
+        # The rigid transform preserves the drill radius. The emitted circle is
+        # the cutter-compensated one (hole_adjust_for_cutter defaults on): the
+        # 0.125in hole emits (0.125 - 0.015) / 2 = 0.055in of path radius, so
+        # the cutter's own stroke brings the engraved hole up to 0.125in.
         assert all(
-            a.radius / HPGL_UNITS_PER_INCH == pytest.approx(0.0625, abs=0.001) for a in arcs
+            a.radius / HPGL_UNITS_PER_INCH == pytest.approx(0.055, abs=0.001) for a in arcs
         )
 
 

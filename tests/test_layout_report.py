@@ -668,3 +668,98 @@ class TestFontMarkupFindings:
         # (S4) the boldness ladder (0.015): both fonts and both cutters print.
         assert "font Stylus, Wingdings (run cutter" in text
         assert "line cutter 0.030in)" in text
+
+
+class TestHoleAdjustFindings:
+    """Cutter-compensated drill holes surface as a label-level finding."""
+
+    @staticmethod
+    def _hole_label(
+        diameters: tuple[float, ...],
+        *,
+        adjust: bool = True,
+        cutter: float = 0.015,
+    ) -> tuple[ResolvedLabel, RenderedLabel]:
+        """Build a (resolved, rendered) pair carrying drill holes of the sizes."""
+        from dataclasses import replace as dc_replace
+
+        from plt_optimizer.generate.resolution import ResolvedHoleSpec
+
+        resolved, rendered = _label("holes", [_line("TEXT")])
+        resolved = dc_replace(
+            resolved,
+            holes=[
+                ResolvedHoleSpec(diameter=diameter, location="left")
+                for diameter in diameters
+            ],
+            hole_adjust_for_cutter=adjust,
+            hole_cutter_diameter=cutter,
+        )
+        rendered = dc_replace(rendered, source_label=resolved)
+        return resolved, rendered
+
+    def test_finding_names_both_diameters(self) -> None:
+        """A 0.1in hole with a 0.015in cutter prints 0.100in -> 0.085in."""
+        resolved, rendered = self._hole_label((0.1,))
+
+        text = "\n".join(
+            format_layout_report([resolved], {"holes": rendered}, full=True)
+        )
+
+        assert "Holes 0.100in -> 0.085in (cutter 0.015in)" in text
+
+    def test_one_line_per_distinct_diameter(self) -> None:
+        """Repeated diameters print one finding; distinct ones print each."""
+        resolved, rendered = self._hole_label((0.1, 0.1, 0.25))
+
+        lines = format_layout_report([resolved], {"holes": rendered}, full=True)
+
+        hole_lines = [line for line in lines if "Holes" in line]
+        assert len(hole_lines) == 2
+        assert any("0.100in -> 0.085in" in line for line in hole_lines)
+        assert any("0.250in -> 0.235in" in line for line in hole_lines)
+
+    def test_opt_out_prints_no_finding(self) -> None:
+        """With the mechanism off the emitted diameter is the specified one."""
+        resolved, rendered = self._hole_label((0.1,), adjust=False)
+
+        assert format_layout_report([resolved], {"holes": rendered}) == []
+        assert has_layout_findings([resolved], {"holes": rendered}) is False
+
+    def test_no_holes_prints_no_finding(self) -> None:
+        """A label without holes is untouched by the mechanism."""
+        resolved, rendered = _label("plain", [_line("TEXT")])
+
+        assert format_layout_report([resolved], {"plain": rendered}) == []
+        assert has_layout_findings([resolved], {"plain": rendered}) is False
+
+    def test_compact_mode_prints_the_label(self) -> None:
+        """A compensated hole alone is a compact-mode finding."""
+        resolved, rendered = self._hole_label((0.125,))
+
+        lines = format_layout_report([resolved], {"holes": rendered})
+
+        assert "Label holes:" in lines
+        assert any("Holes 0.125in -> 0.110in" in line for line in lines)
+        assert has_layout_findings([resolved], {"holes": rendered}) is True
+
+    def test_degenerate_hole_reports_the_clamp(self) -> None:
+        """A clamped hole prints the emittable floor, not a negative size."""
+        resolved, rendered = self._hole_label((0.01,))
+
+        text = "\n".join(
+            format_layout_report([resolved], {"holes": rendered}, full=True)
+        )
+
+        # 2 * (1 plotter unit) = 2/1016 = 0.00197in -> prints 0.002in.
+        assert "Holes 0.010in -> 0.002in (cutter 0.015in)" in text
+
+    def test_custom_cutter_is_named(self) -> None:
+        """The finding names the cutter that produced the engraved size."""
+        resolved, rendered = self._hole_label((0.1,), cutter=0.03)
+
+        text = "\n".join(
+            format_layout_report([resolved], {"holes": rendered}, full=True)
+        )
+
+        assert "Holes 0.100in -> 0.070in (cutter 0.030in)" in text

@@ -1,0 +1,94 @@
+# Fixture for cutter-compensated drill holes (`hole_adjust_for_cutter`,
+# default true).
+#
+# The drill path is the circle the cutter CENTER follows, so the cutter
+# engraves half a cutter width on each side of it: a path of diameter D
+# engraves a hole of D + cutter. With the mechanism on, the emitted circle
+# shrinks by the cutter diameter -- the cutter radius on each side of the
+# path -- so the engraved hole measures the specified diameter: a 0.1in hole
+# cut by a 0.015in cutter emits a 0.085in circle.
+#
+# The hole CENTRE is always placed from the SPECIFIED diameter, so every hole
+# position is bit-identical with the mechanism off -- only the drawn circle
+# shrinks.
+#
+# `plate_1` deliberately declares `hole_adjust_for_cutter: false`: the plate
+# tier is schema parity only (labels render before plate assignment), so every
+# label omitting the field must still resolve to the shipped default (true).
+# The export test pins that the plate value changes nothing.
+#
+# The export test passes `boundary_hole_cutter_size=0.015` explicitly, so the
+# pinned diameters never drift with the shop's tools.json.
+job:
+  job_name: Hole Adjust For Cutter Demo
+
+  width: 3.0
+  height: 1.5
+  margin: 0.1
+  text_height: 0.4
+  line_spacing: 0.1
+  hole_margin: 0.1875
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+      hole_adjust_for_cutter: false
+
+  labels:
+    # 1. The shipped default (job/label unset -> true): 0.1in `sides` holes
+    #    emit 0.085in circles at the same centres.
+    - id: on_default
+      holes:
+        - location: left
+          diameter: 0.1
+        - location: right
+          diameter: 0.1
+      content:
+        - text: "ON"
+
+    # 2. The explicit opt-out: the emitted circle keeps the specified 0.1in
+    #    diameter (the historical behaviour, bit-identical). (The id is
+    #    'opt_out', not 'off' -- bare on/off/yes/no are YAML 1.1 booleans.)
+    - id: opt_out
+      hole_adjust_for_cutter: false
+      holes:
+        - location: left
+          diameter: 0.1
+        - location: right
+          diameter: 0.1
+      content:
+        - text: "OFF"
+
+    # 3. Every hole of a label shares the one boundary/hole tool, so each
+    #    specified diameter shrinks by the same 0.015in: 0.125 -> 0.110 and
+    #    0.25 -> 0.235. (Side holes: a 0.25in top/bottom hole would sit too
+    #    close to the centered text for the 3x1.5in label.)
+    - id: mixed_diameters
+      holes:
+        - location: left
+          diameter: 0.125
+        - location: right
+          diameter: 0.25
+      content:
+        - text: "MIX"
+
+    # 4. Degenerate: the 0.01in hole is below the 0.015in cutter, so nothing
+    #    is left to cut. The radius clamps to the smallest emittable circle
+    #    (one plotter unit) at the specified centre, with a WARNING.
+    - id: degenerate
+      holes:
+        - location: top
+          diameter: 0.01
+      content:
+        - text: "TINY"
+
+    # 5. A round label: the corner holes ride the ellipse diagonal (placement
+    #    from the specified radius) while the drawn circle shrinks.
+    - id: round_corners
+      type: round
+      holes:
+        - location: corners
+          diameter: 0.2
+      content:
+        - text: "RND"

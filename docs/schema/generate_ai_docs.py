@@ -79,6 +79,13 @@ _FALLBACK_NOTES: dict[str, str] = {
     "play (the shop job-config.json currently sets 0.1).",
     "DEFAULT_BOUNDARY_HOLE_CUTTER": "Boundary/hole cutter diameter feeding the collision stroke "
     "floor; tools.json boundary_hole_cutter_size overrides it.",
+    "DEFAULT_HOLE_ADJUST_FOR_CUTTER": "True = the emitted drill-hole circle shrinks by the "
+    "boundary/hole cutter diameter (the cutter radius on each side of the hole's path) so the "
+    "engraved hole measures the specified diameter: a 0.1in hole cut by a 0.015in cutter emits "
+    "a 0.085in circle. The hole centre is placed from the specified diameter and never moves; a "
+    "hole at or below the cutter diameter clamps to the smallest emittable circle (one plotter "
+    "unit radius) with a WARNING. Cascades label/job (accepted on plates for schema parity only, "
+    "never text lines); job-config supplies the shop default.",
     "DEFAULT_CUTTER_SIZE": "None = the text cutter is auto-selected from text_height "
     "(IDEAL_CUTTER_MAP + inventory snapping). An explicit cutter_size (line/label/job, no "
     "job-config tier) overrides the lookup: it snaps to the inventory (next size down, else "

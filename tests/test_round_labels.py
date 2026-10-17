@@ -13,6 +13,7 @@ round path is provably adjacent, never a replacement.
 
 from __future__ import annotations
 
+import logging
 import math
 from typing import Optional
 
@@ -156,7 +157,9 @@ class TestRoundHolePlacement:
         )
         circles = _hole_circles_local(label)
         # The horizontal axis keeps the rectangular edge-inset (exact there).
-        offset = label.hole_margin + label.hole_cutter_diameter / 2.0 + circles[0][2]
+        # The centre rides the SPECIFIED radius (0.0625); the emitted radius
+        # is the cutter-compensated one (hole_adjust_for_cutter defaults on).
+        offset = label.hole_margin + label.hole_cutter_diameter / 2.0 + 0.0625
         assert circles[0][0] == pytest.approx(offset)
         assert circles[1][0] == pytest.approx(4.0 - offset)
         for _x, y, _r in circles:
@@ -186,7 +189,9 @@ class TestRoundHolePlacement:
             holes=[_hole("top-right")],
         )
         (cx, cy, radius) = _hole_circles_local(label)[0]
-        offset = label.hole_margin + label.hole_cutter_diameter / 2.0 + radius
+        # The centre rides the SPECIFIED radius; `radius` is the emitted
+        # (cutter-compensated) one.
+        offset = label.hole_margin + label.hole_cutter_diameter / 2.0 + 0.0625
         assert cx == pytest.approx(4.0 - offset)
         assert cy == pytest.approx(2.0 - offset)
 
@@ -282,3 +287,129 @@ class TestRadialContentInsetApplied:
         # The rect label fits its wider box; the round label must compress.
         assert scale_of(base) >= scale_of(round_label)
         assert scale_of(round_label) < 1.0
+
+
+class TestCutterCompensatedHoles:
+    """``hole_adjust_for_cutter`` shrinks the emitted radius, never the centre.
+
+    The centre is placed from the SPECIFIED diameter, so every placement rule
+    (rect edges, round diagonal, rounded-rect patch) is bit-identical with the
+    mechanism off; only the drawn circle shrinks by half the cutter diameter.
+    """
+
+    _CUTTER = 0.015
+
+    @staticmethod
+    def _label_with_holes(
+        shape_type: str = "rect",
+        *,
+        adjust: bool = True,
+        diameter: float = 0.125,
+        locations: tuple[str, ...] = ("bottom-left",),
+        fraction: float = 0.0,
+    ) -> ResolvedLabel:
+        """Build a resolved label carrying holes and the compensation flag."""
+        from dataclasses import replace
+
+        label = _label(
+            shape_type,
+            width=4.0,
+            height=2.0,
+            holes=[_hole(location, diameter) for location in locations],
+        )
+        return replace(
+            label,
+            hole_adjust_for_cutter=adjust,
+            hole_cutter_diameter=TestCutterCompensatedHoles._CUTTER,
+            rounded_rectangle_fraction=fraction,
+        )
+
+    def test_centre_is_untouched_radius_shrinks(self) -> None:
+        """The centre matches the specified radius; the radius loses cutter/2."""
+        on = self._label_with_holes(adjust=True)
+        off = self._label_with_holes(adjust=False)
+        (cx_on, cy_on, r_on) = _hole_circles_local(on)[0]
+        (cx_off, cy_off, r_off) = _hole_circles_local(off)[0]
+
+        assert (cx_on, cy_on) == pytest.approx((cx_off, cy_off))
+        assert r_off == pytest.approx(0.0625)
+        assert r_on == pytest.approx(0.0625 - self._CUTTER / 2.0)
+
+    def test_rect_edge_placements_all_keep_their_centres(self) -> None:
+        """Every atomic location keeps its centre under compensation."""
+        locations = (
+            "top-left",
+            "top-right",
+            "bottom-left",
+            "bottom-right",
+            "left",
+            "right",
+            "top",
+            "bottom",
+        )
+        on = _hole_circles_local(self._label_with_holes(adjust=True, locations=locations))
+        off = _hole_circles_local(self._label_with_holes(adjust=False, locations=locations))
+        assert len(on) == len(off) == len(locations)
+        for (x_on, y_on, r_on), (x_off, y_off, r_off) in zip(on, off):
+            assert (x_on, y_on) == pytest.approx((x_off, y_off))
+            assert r_on < r_off
+
+    def test_round_corner_hole_centre_is_untouched(self) -> None:
+        """The ellipse-diagonal placement is centre-invariant too."""
+        on = _hole_circles_local(
+            self._label_with_holes("round", adjust=True, locations=("top-right",))
+        )[0]
+        off = _hole_circles_local(
+            self._label_with_holes("round", adjust=False, locations=("top-right",))
+        )[0]
+        assert on[:2] == pytest.approx(off[:2])
+        assert on[2] == pytest.approx(off[2] - self._CUTTER / 2.0)
+
+    def test_rounded_rect_corner_hole_centre_is_untouched(self) -> None:
+        """The superellipse-patch placement is centre-invariant too."""
+        on = _hole_circles_local(
+            self._label_with_holes(
+                adjust=True, locations=("bottom-right",), fraction=0.5
+            )
+        )[0]
+        off = _hole_circles_local(
+            self._label_with_holes(
+                adjust=False, locations=("bottom-right",), fraction=0.5
+            )
+        )[0]
+        assert on[:2] == pytest.approx(off[:2])
+        assert on[2] == pytest.approx(off[2] - self._CUTTER / 2.0)
+
+    def test_degenerate_hole_clamps_and_warns(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A hole at/below the cutter clamps to one plotter unit with a WARNING."""
+        from plt_optimizer.core.units import HPGL_UNITS_PER_INCH
+
+        label = self._label_with_holes(adjust=True, diameter=0.01)
+        with caplog.at_level(logging.WARNING):
+            (_cx, _cy, radius) = _hole_circles_local(label)[0]
+        assert radius == pytest.approx(1.0 / HPGL_UNITS_PER_INCH)
+        assert "cannot be cutter-compensated" in caplog.text
+
+    def test_no_warning_when_the_compensation_is_healthy(self) -> None:
+        """A normal hole emits no warning."""
+        _hole_circles_local(self._label_with_holes(adjust=True, diameter=0.125))
+
+    def test_opt_out_emits_no_warning_for_a_degenerate_hole(self) -> None:
+        """With the mechanism off there is nothing to clamp and nothing to log."""
+        _hole_circles_local(self._label_with_holes(adjust=False, diameter=0.01))
+
+    def test_collision_check_measures_the_engraved_circle(self) -> None:
+        """The collision sweep sees the smaller circle, so near misses relax.
+
+        The left hole sits at x = 0.15 + 0.0075 + 0.0625 = 0.22; the text box
+        starts at x = 0.45 (its y spans the hole centre after the +height/2
+        frame shift), so the geometric gap is 0.23 - r. The threshold is
+        0.5 * (0.015 + 0.03) + 0.15 = 0.1725: the specified circle (r =
+        0.0625, gap 0.1675) collides, the engraved circle (r = 0.055, gap
+        0.175) does not.
+        """
+        entries = [_LineEntry(0, "X", (0.45, -0.1, 4.0, 0.1), 1.0, None, ())]
+        tight = self._label_with_holes(adjust=True, diameter=0.125, locations=("left",))
+        loose = self._label_with_holes(adjust=False, diameter=0.125, locations=("left",))
+        assert _detect_text_hole_collisions(tight, entries) == []
+        assert len(_detect_text_hole_collisions(loose, entries)) == 1

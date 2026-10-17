@@ -184,6 +184,10 @@ class JobDefaults(BaseModel):
             downscale permitted for the colliding glyphs on the following line,
             in [0.2, 1.0] (1.0 = reciprocal downscaling forbidden). Unset falls
             back to 0.5.
+        hole_adjust_for_cutter: Default cutter-compensation permission for
+            drill holes. When true, the emitted hole circle shrinks by the
+            boundary/hole cutter diameter so the engraved hole measures the
+            specified diameter. Unset falls back to True.
         tool_options: Engraver tool options (header commands) metadata with
             HPGL command prefixes, types, units, dual defaults, and bounds.
     """
@@ -652,6 +656,18 @@ class JobDefaults(BaseModel):
             "back to true."
         ),
     )
+    hole_adjust_for_cutter: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Default cutter-compensation permission for drill holes (job "
+            "layer; cascades label -> job, never text lines). When true, the "
+            "emitted hole circle shrinks by the boundary/hole cutter diameter "
+            "(the cutter radius on each side of the hole's path) so the "
+            "engraved hole measures the specified diameter: a 0.1in hole cut "
+            "by a 0.015in cutter emits a 0.085in circle. Unset falls back to "
+            "true."
+        ),
+    )
     text_chunk_mode: Optional[Literal["line", "word"]] = Field(
         default=None, description="Default plate-space text optimization granularity."
     )
@@ -799,6 +815,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "descending_character_clearance",
     "descending_character_reciprocal_scale",
     "adjust_h_center_for_single_side_hole",
+    "hole_adjust_for_cutter",
     "allow_rotation",
     "text_chunk_mode",
     "layout",

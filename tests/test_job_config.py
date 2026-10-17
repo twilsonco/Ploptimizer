@@ -69,6 +69,7 @@ _FULL_CONFIG: dict[str, Any] = {
     "descending_character_raise": 0.25,
     "descending_character_clearance": 0.05,
     "descending_character_reciprocal_scale": 0.6,
+    "hole_adjust_for_cutter": False,
     "plate_width": 24.0,
     "plate_height": 16.0,
     "left_clearance": 0.0,
@@ -298,6 +299,7 @@ class TestJobDefaultsModel:
         assert "auto_descending_character_adjustment" not in REQUIRED_WHEN_UNCONFIGURED
         assert "descending_character_v_scale" not in REQUIRED_WHEN_UNCONFIGURED
         assert "descending_character_raise" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "hole_adjust_for_cutter" not in REQUIRED_WHEN_UNCONFIGURED
         assert "descending_character_clearance" not in REQUIRED_WHEN_UNCONFIGURED
         assert "descending_character_reciprocal_scale" not in REQUIRED_WHEN_UNCONFIGURED
         assert "underline_offset" not in REQUIRED_WHEN_UNCONFIGURED
@@ -392,6 +394,9 @@ class TestJobDefaultsModel:
             JobDefaults(multistroke_overlap_ratio=0.6)
         assert JobDefaults().use_baseline_spacing is None
         assert JobDefaults(use_baseline_spacing=False).use_baseline_spacing is False
+        assert JobDefaults().hole_adjust_for_cutter is None
+        assert JobDefaults(hole_adjust_for_cutter=False).hole_adjust_for_cutter is False
+        assert JobDefaults(hole_adjust_for_cutter=True).hole_adjust_for_cutter is True
         assert JobDefaults().rounded_rectangle_fraction is None
         assert JobDefaults(rounded_rectangle_fraction=0.5).rounded_rectangle_fraction == 0.5
         assert JobDefaults(rounded_rectangle_fraction=0.0).rounded_rectangle_fraction == 0.0
@@ -549,6 +554,18 @@ class TestApplyJobConfigDefaults:
         config = load_job_config(_write_config(tmp_path, config_data))
         filled = apply_job_config_defaults(_minimal_job(h_compress_global=False), config)
         assert filled["h_compress_global"] is False
+
+    def test_hole_adjust_for_cutter_job_layer_fill(self, tmp_path: Path) -> None:
+        """The configured hole-compensation default lands as a job-level value."""
+        config = load_job_config(_write_config(tmp_path, _FULL_CONFIG))
+        filled = apply_job_config_defaults(_minimal_job(), config)
+        assert filled["hole_adjust_for_cutter"] is False
+
+    def test_hole_adjust_for_cutter_yaml_wins(self, tmp_path: Path) -> None:
+        """A spec-declared hole_adjust_for_cutter is never overridden by the config."""
+        config = load_job_config(_write_config(tmp_path, _FULL_CONFIG))
+        filled = apply_job_config_defaults(_minimal_job(hole_adjust_for_cutter=True), config)
+        assert filled["hole_adjust_for_cutter"] is True
 
     def test_optimize_line_content_job_layer_fill(self, tmp_path: Path) -> None:
         """The configured reflow default lands as a job-level value."""
@@ -1062,6 +1079,8 @@ class TestParseYamlWithJobConfig:
         assert job.enforce_cap_line is True
         assert job.use_baseline_spacing is True
         assert job.v_center_by_content is False
+        # The shop ships cutter-compensated drill holes (the shipped default).
+        assert job.hole_adjust_for_cutter is True
         # The shipped config keeps the sharp rectangle (the historical border).
         assert job.rounded_rectangle_fraction == 0.0
         assert job.rounded_rectangle_proportional is False

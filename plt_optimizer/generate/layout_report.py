@@ -42,6 +42,11 @@ what is engraved without appearing in the YAML spec:
   the fonts a line's ``<f:...>`` runs engrave with, alongside the cutters
   those runs stepped to (each run font's own ladder) -- the font/tool swap
   the markup caused, which the YAML spec never states.
+- **Cutter-compensated drill holes**
+  (:attr:`plt_optimizer.generate.resolution.ResolvedLabel.hole_adjust_for_cutter`):
+  the emitted hole diameters the cutter compensation produced (specified ->
+  engraved, per distinct specified diameter) -- the size change the mechanism
+  caused, which the YAML spec never states.
 
 This module is the single source of truth for the report text: the
 ``generate`` CLI (compact by default, full under ``-v``) and
@@ -57,6 +62,8 @@ from __future__ import annotations
 
 import math
 from typing import TYPE_CHECKING, Mapping, Sequence
+
+from plt_optimizer.generate.resolution import hole_engraved_radius
 
 if TYPE_CHECKING:
     from plt_optimizer.generate.label_renderer import RenderedLabel
@@ -129,6 +136,37 @@ def _font_run_info(line: ResolvedTextLine) -> tuple[tuple[str, ...], tuple[float
         names.add(name)
         used.add(cutters[index] if index < len(cutters) else line.cutter_diameter)
     return tuple(sorted(names)), tuple(sorted(used))
+
+
+def _hole_adjust_lines(label: ResolvedLabel) -> list[str]:
+    """Return the cutter-compensated drill-hole finding lines for a label.
+
+    One line per distinct specified hole diameter: the emitted circle shrinks
+    by the boundary/hole cutter diameter when ``hole_adjust_for_cutter`` is
+    enabled, so the engraved hole measures the specified diameter. The YAML
+    states the specified diameter only -- the finding surfaces the engraved
+    size. Labels with no holes, or with the mechanism off, produce no lines.
+
+    Args:
+        label: The (source) resolved label carrying holes, the cutter
+            diameter and the compensation flag.
+
+    Returns:
+        Report lines (indented like the per-line findings); empty when there
+        is nothing to report.
+    """
+    if not label.hole_adjust_for_cutter or not label.holes:
+        return []
+    cutter = label.hole_cutter_diameter
+    lines: list[str] = []
+    seen: list[float] = []
+    for hole in label.holes:
+        if any(math.isclose(hole.diameter, known, rel_tol=1e-9, abs_tol=1e-9) for known in seen):
+            continue
+        seen.append(hole.diameter)
+        engraved = 2.0 * hole_engraved_radius(hole.diameter, cutter, True)
+        lines.append(f"    Holes {hole.diameter:.3f}in -> {engraved:.3f}in (cutter {cutter:.3f}in)")
+    return lines
 
 
 def _label_findings(
@@ -303,7 +341,7 @@ def _label_lines(
         for index, _t, scale, requested, effective, downsize, relief_count, bold, markup_scale, sup_sub, font_runs in findings
     }
 
-    if not full and not findings:
+    if not full and not findings and not _hole_adjust_lines(rendered.source_label):
         return []
 
     lines = [f"Label {rendered.source_label.id}:"]
@@ -315,6 +353,10 @@ def _label_lines(
         f"    Margins: horizontal {h_margin:.3f}in (left/right), "
         f"vertical {v_margin:.3f}in (top/bottom)"
     )
+
+    # Cutter-compensated drill holes (specified -> engraved diameter, per
+    # distinct specified diameter) -- a label-level finding.
+    lines.extend(_hole_adjust_lines(rendered.source_label))
 
     # Add spacing summary section showing all line gaps
     if rendered.line_spacing_by_line or content:
@@ -498,11 +540,12 @@ def has_layout_findings(
         rendered_by_id: The render cache keyed by label id.
 
     Returns:
-        ``True`` when at least one label carries a compressed line or a
-        spacing gap that deviates from the requested spacing.
+        ``True`` when at least one label carries a compressed line, a spacing
+        gap that deviates from the requested spacing, or cutter-compensated
+        drill holes.
     """
     return any(
-        _label_findings(rendered)
+        _label_findings(rendered) or _hole_adjust_lines(rendered.source_label)
         for label in resolved_labels
         if (rendered := rendered_by_id.get(label.id)) is not None
     )

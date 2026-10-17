@@ -1729,6 +1729,49 @@ class TestUseBaselineSpacing:
         assert plate.use_baseline_spacing is False
 
 
+class TestHoleAdjustForCutterField:
+    """Tests for the hole_adjust_for_cutter label-tier field."""
+
+    def test_inherited_on_label_and_job_tiers_only(self) -> None:
+        """hole_adjust_for_cutter lives on LabelAttributes, never on TextLine."""
+        assert "hole_adjust_for_cutter" in LabelAttributes.model_fields
+        assert "hole_adjust_for_cutter" in JobSpec.model_fields
+        assert "hole_adjust_for_cutter" in PlateSpec.model_fields
+        assert "hole_adjust_for_cutter" not in TextLine.model_fields
+        assert "hole_adjust_for_cutter" not in TextAttributes.model_fields
+
+    def test_label_and_job_accept_booleans(self) -> None:
+        """Both directions validate on the tiers that carry the field."""
+        label = LabelSpec(id="lbl", content=[TextLine(text="X")], hole_adjust_for_cutter=False)
+        assert label.hole_adjust_for_cutter is False
+        job = JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            hole_adjust_for_cutter=False,
+            content=[TextLine(text="X")],
+        )
+        assert job.hole_adjust_for_cutter is False
+
+    def test_default_is_none(self) -> None:
+        """Schema default is None (unset); resolution applies the True fallback."""
+        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).hole_adjust_for_cutter is None
+        assert (
+            JobSpec(
+                job_name="J",
+                width=2.0,
+                height=1.0,
+                content=[TextLine(text="X")],
+            ).hole_adjust_for_cutter
+            is None
+        )
+
+    def test_plate_accepts_field_for_parity(self) -> None:
+        """PlateSpec should accept the field for schema parity."""
+        plate = PlateSpec(id="plate_1", width=24.0, height=12.0, hole_adjust_for_cutter=False)
+        assert plate.hole_adjust_for_cutter is False
+
+
 class TestAutoDescendingCharacterAdjustment:
     """Tests for the label-tier descending-character relief fields.
 

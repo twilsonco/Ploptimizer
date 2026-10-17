@@ -814,6 +814,19 @@
           "description": "Permission to apply horizontal shift for asymmetric left/right drill holes. When enabled (true), text is horizontally shifted to center between left and right holes: shift = (left_diameter - right_diameter) / 2. Only applied to center-aligned text; left/right alignment ignores the shift. Vertical shifts (for top/bottom holes) are always applied and are not gated by this field. Cascades job -> plate -> label (never text lines); unset (null) falls back to job-config.json then false. Accepted on plates for schema parity only.",
           "title": "Adjust H Center For Single Side Hole"
         },
+        "hole_adjust_for_cutter": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Shrink the emitted drill-hole circle by the boundary/hole cutter diameter (the cutter radius on each side of the hole's path) so the engraved hole measures the specified diameter: a 0.1in hole cut by a 0.015in cutter emits a 0.085in circle. The hole centre is untouched (placed from the specified diameter); a hole at or below the cutter diameter clamps to the smallest emittable circle with a WARNING. Cascades job -> plate -> label (never text lines); unset (null) falls back to job-config.json then true. Accepted on plates for schema parity only.",
+          "title": "Hole Adjust For Cutter"
+        },
         "id": {
           "description": "Unique identifier for this label specification.",
           "title": "Id",
@@ -1555,6 +1568,19 @@
           "default": null,
           "description": "Maximum top-down downscale for the following line's colliding glyphs in [0.2, 1.0] (schema parity; not applied at plate level).",
           "title": "Descending Character Reciprocal Scale"
+        },
+        "hole_adjust_for_cutter": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Cutter-compensated drill-hole diameter (schema parity; not applied at plate level -- labels render before packing).",
+          "title": "Hole Adjust For Cutter"
         },
         "layout": {
           "anyOf": [
@@ -2932,6 +2958,19 @@
       "default": null,
       "description": "Permission to apply horizontal shift for asymmetric left/right drill holes. When enabled (true), text is horizontally shifted to center between left and right holes: shift = (left_diameter - right_diameter) / 2. Only applied to center-aligned text; left/right alignment ignores the shift. Vertical shifts (for top/bottom holes) are always applied and are not gated by this field. Cascades job -> plate -> label (never text lines); unset (null) falls back to job-config.json then false. Accepted on plates for schema parity only.",
       "title": "Adjust H Center For Single Side Hole"
+    },
+    "hole_adjust_for_cutter": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Shrink the emitted drill-hole circle by the boundary/hole cutter diameter (the cutter radius on each side of the hole's path) so the engraved hole measures the specified diameter: a 0.1in hole cut by a 0.015in cutter emits a 0.085in circle. The hole centre is untouched (placed from the specified diameter); a hole at or below the cutter diameter clamps to the smallest emittable circle with a WARNING. Cascades job -> plate -> label (never text lines); unset (null) falls back to job-config.json then true. Accepted on plates for schema parity only.",
+      "title": "Hole Adjust For Cutter"
     },
     "job_name": {
       "description": "Human-readable name for this job.",

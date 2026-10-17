@@ -1362,6 +1362,18 @@ class LabelAttributes(TextAttributes):
             field. Cascades job -> plate -> label (never text lines); ``None``
             (the default) means unset and falls back to ``job-config.json`` then
             ``False``. Accepted on plates for schema parity only.
+        hole_adjust_for_cutter: Optional cutter-compensation permission for
+            drill holes. When enabled (the default), the **emitted** hole
+            circle shrinks by the boundary/hole cutter diameter -- the cutter
+            radius on each side of the hole's path -- so the engraved hole
+            measures the specified diameter: a 0.1in hole cut by a 0.015in
+            cutter emits a 0.085in circle. The hole's centre is untouched
+            (placed from the specified diameter), and a hole at or below the
+            cutter diameter clamps to the smallest emittable circle with a
+            WARNING. Cascades job -> plate -> label (never text lines);
+            ``None`` (the default) means unset and falls back to
+            ``job-config.json`` then ``True``. Accepted on plates for schema
+            parity only.
     """
 
     width: Optional[float] = Field(
@@ -1569,6 +1581,20 @@ class LabelAttributes(TextAttributes):
             "plate -> label (never text lines); unset (null) falls back to "
             "job-config.json then false. Accepted on plates for schema parity "
             "only."
+        ),
+    )
+    hole_adjust_for_cutter: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Shrink the emitted drill-hole circle by the boundary/hole cutter "
+            "diameter (the cutter radius on each side of the hole's path) so "
+            "the engraved hole measures the specified diameter: a 0.1in hole "
+            "cut by a 0.015in cutter emits a 0.085in circle. The hole centre "
+            "is untouched (placed from the specified diameter); a hole at or "
+            "below the cutter diameter clamps to the smallest emittable "
+            "circle with a WARNING. Cascades job -> plate -> label (never "
+            "text lines); unset (null) falls back to job-config.json then "
+            "true. Accepted on plates for schema parity only."
         ),
     )
 
@@ -2349,6 +2375,13 @@ class PlateSpec(BaseModel):
         description=(
             "Maximum top-down downscale for the following line's colliding "
             "glyphs in [0.2, 1.0] (schema parity; not applied at plate level)."
+        ),
+    )
+    hole_adjust_for_cutter: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Cutter-compensated drill-hole diameter (schema parity; not "
+            "applied at plate level -- labels render before packing)."
         ),
     )
     layout: Optional[LayoutMode] = Field(

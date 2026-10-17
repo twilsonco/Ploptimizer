@@ -30,6 +30,7 @@ from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from typing import Callable, List, Optional, Sequence, Tuple, Union
 
+from plt_optimizer.core.units import HPGL_UNITS_PER_INCH
 from plt_optimizer.generate.font_registry import (
     DEFAULT_FONT_NAME,
     plt_font_stroke_count,
@@ -154,6 +155,21 @@ DEFAULT_HOLE_TEXT_COLLISION_DISTANCE: float = 0.15
 # effective value is snapped to the shop inventory (next size down, else
 # next size up).
 DEFAULT_BOUNDARY_HOLE_CUTTER: float = 0.015
+# Cutter-compensated drill holes. ``True`` (the default) shrinks the EMITTED
+# hole circle by the boundary/hole cutter diameter -- the cutter radius on
+# each side of the hole's path -- so the engraved hole measures the specified
+# diameter: a 0.1in hole cut by a 0.015in cutter emits a 0.085in circle. The
+# hole centre is untouched (placed from the specified diameter), so hole
+# positions stay bit-identical. See :func:`hole_engraved_radius`.
+DEFAULT_HOLE_ADJUST_FOR_CUTTER: bool = True
+# Smallest emittable drill-hole radius, in inches: ONE plotter unit
+# (``1 / HPGL_UNITS_PER_INCH``). Emitted coordinates are integer plotter
+# units, and ``inches_to_units`` rounds half-to-even, so a half-unit radius
+# (``_INK_EMISSION_FLOOR``) would round to 0 and emit a degenerate ``AA``
+# arc. A hole whose specified diameter is at or below the cutter diameter
+# clamps to a circle of this radius (with a WARNING) -- the smallest circle
+# the plotter can physically engrave.
+MIN_HOLE_EMITTED_RADIUS_INCHES: float = 1.0 / HPGL_UNITS_PER_INCH
 # Horizontal compression is opt-in: 0.0 disables it entirely.
 DEFAULT_MAX_H_COMPRESS: float = 0.0
 # Space advance (PLT-extracted fonts) as a fraction of the rendered text
@@ -574,6 +590,45 @@ def snap_boundary_hole_cutter(
     if narrower:
         return max(narrower)  # Exact match or next size down
     return min(available_inventory)  # No smaller tool: next size up
+
+
+def hole_engraved_radius(
+    diameter: float,
+    cutter_diameter: float,
+    adjust: bool,
+) -> float:
+    """Compute the radius of a drill hole's emitted circle, in inches.
+
+    The drill path is the circle the cutter *center* follows, so the cutter
+    engraves a stroke half a cutter width on each side of it: a path of
+    diameter ``D`` engraves a hole of ``D + cutter_diameter``. With cutter
+    compensation enabled (``adjust=True``), the emitted diameter therefore
+    shrinks by the cutter diameter -- the cutter radius on each side of the
+    path -- so the engraved hole measures the specified diameter: a 0.1in
+    hole cut by a 0.015in cutter emits a 0.085in circle. The hole CENTRE is
+    unaffected (it is placed from the specified diameter), so hole positions
+    stay bit-identical with the mechanism off.
+
+    A specified diameter at or below the cutter diameter leaves no path to
+    draw (the cutter alone is at least the target hole); the radius clamps
+    to :data:`MIN_HOLE_EMITTED_RADIUS_INCHES` -- the smallest circle the
+    plotter can emit (one plotter unit; a literal point is not emittable as
+    an ``AA`` arc). The caller logs the clamp.
+
+    Args:
+        diameter: The specified (nominal) hole diameter in inches.
+        cutter_diameter: The boundary/hole cutter diameter in inches
+            (``ResolvedLabel.hole_cutter_diameter``).
+        adjust: Cutter compensation on/off (``hole_adjust_for_cutter``
+            cascade). ``False`` returns the historical ``diameter / 2``.
+
+    Returns:
+        The emitted circle's radius in inches (always positive).
+    """
+    if not adjust:
+        return diameter / 2.0
+    engraved_diameter = max(diameter - cutter_diameter, 2.0 * MIN_HOLE_EMITTED_RADIUS_INCHES)
+    return engraved_diameter / 2.0
 
 
 def next_smaller_cutter(
@@ -1548,8 +1603,18 @@ class ResolvedLabel:
         hole_cutter_diameter: Cutter diameter in inches used to cut label
             boundaries and drill holes (from ``tools.json``
             ``boundary_hole_cutter_size``, snapped to the inventory;
-            default ``0.015``). Used only to compute the collision stroke
-            floor -- rendering itself emits pure geometry layers.
+            default ``0.015``). Used to compute the collision stroke floor
+            and -- when :attr:`hole_adjust_for_cutter` is enabled -- the
+            cutter-compensated emitted hole diameter.
+        hole_adjust_for_cutter: Shrink the emitted drill-hole circle by
+            :attr:`hole_cutter_diameter` so the engraved hole measures the
+            specified diameter (from the ``hole_adjust_for_cutter`` cascade,
+            label -> job, default ``True``; see
+            :func:`hole_engraved_radius`). The hole centres are placed from
+            the specified diameter and never move. Applied by
+            :func:`plt_optimizer.generate.label_renderer._hole_circles_local`,
+            which is the single source of hole geometry for both emission and
+            text-hole collision detection.
         text_chunk_mode: Plate-space text optimization granularity
             (``"line"`` or ``"word"``, cascaded from the job; default
             ``"line"``). Consumed by the renderer (chunk-record
@@ -1678,6 +1743,7 @@ class ResolvedLabel:
     hole_aware_vertical_shift_inches: float = 0.0
     hole_aware_horizontal_shift_inches: float = 0.0
     adjust_h_center_for_single_side_hole: bool = False
+    hole_adjust_for_cutter: bool = DEFAULT_HOLE_ADJUST_FOR_CUTTER
 
     @property
     def center_text_by_band(self) -> bool:
@@ -3935,6 +4001,19 @@ def _resolve_label(
     else:
         label_collision_distance = DEFAULT_HOLE_TEXT_COLLISION_DISTANCE
 
+    # Cutter-compensated drill holes (cascades label -> job; the plate tier
+    # is schema parity only, see schema.PlateSpec). Resolved at the LABEL
+    # level because hole geometry is a per-label property. Explicit ``False``
+    # is honored (the emitted circle keeps the specified diameter), and only
+    # ``None`` means unset. Consumed by the renderer's
+    # ``_hole_circles_local`` (see ``hole_engraved_radius``).
+    if label_input.hole_adjust_for_cutter is not None:
+        label_hole_adjust_for_cutter: bool = label_input.hole_adjust_for_cutter
+    elif job.hole_adjust_for_cutter is not None:
+        label_hole_adjust_for_cutter = job.hole_adjust_for_cutter
+    else:
+        label_hole_adjust_for_cutter = DEFAULT_HOLE_ADJUST_FOR_CUTTER
+
     # Snap the boundary/hole cutter to the shop inventory (next size down,
     # else next size up). Used only for the collision stroke floor.
     requested_hole_cutter = (
@@ -4153,6 +4232,7 @@ def _resolve_label(
         min_hole_margin=label_min_hole_margin,
         hole_text_collision_distance=label_collision_distance,
         hole_cutter_diameter=hole_cutter,
+        hole_adjust_for_cutter=label_hole_adjust_for_cutter,
         text_chunk_mode=label_text_chunk_mode,
         plate_id=label_plate_id,
         material=label_material,
