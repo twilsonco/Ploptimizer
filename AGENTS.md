@@ -2781,6 +2781,96 @@ boundary, and the rectangular path imports nothing new.
   `TestEllipseContentInset` (`tests/test_resolution.py`), and the ellipse
   distance classes (`tests/test_collision_detection.py`).
 
+### Rounded-Rectangle Borders (`rounded_rectangle_fraction`)
+
+`rounded_rectangle_fraction` (float `[0.0, 1.0]`, cascades label → job, plate
+parity, `job-config.json` key, default `0.0` = the sharp rectangle, bit-
+identical) rounds the **rectangular** border's corners, and
+`rounded_rectangle_proportional` (bool, same cascade, default `false`) picks
+the rounding mode. The corners are **superellipse-quadrant patches**
+`|X/rx|^n + |Y/ry|^n = 1` with exponent `n = 2 / fraction`, chosen so the
+curvature varies **continuously** along the whole boundary (G2): a superellipse
+patch of exponent `n > 2` has curvature **exactly zero** at its axis vertices
+(near a vertex `x = rx − c·y^n`, so `κ ∝ y^(n−2) → 0`) and axis-aligned
+tangents there, so the straight edges (κ = 0) join the patches with no
+curvature jump — the artifact a circular fillet (κ: 0 → 1/r step at each
+tangent point) cannot avoid. The exponent pins the family's endpoints:
+`fraction → 0` ⇒ `n → ∞` (sharp rectangle), `0.5` ⇒ `n = 4` (squircle),
+`1.0` ⇒ `n = 2` (the exact ellipse). The rounding distance follows the TODO
+contract: proportional `false` = one **identical** rounding distance on every
+side from the shorter edge (`rx = ry = fraction · min(W, H) / 2` — a 4x8 label
+at `0.5` rounds 2in of the 4in sides, starting 1in from each corner);
+proportional `true` = the fraction applies to each dimension
+(`rx = fraction · W / 2`, `ry = fraction · H / 2`).
+
+This is a **border change, never a packing change**: rounded labels keep
+`shape_type: rect` and pack through rectpack in their nominal box — each patch
+is tangent to the box at its axis vertices, so the rendered bounds equal the
+nominal box exactly (the packer and plate transforms are untouched, and
+`ellipse_packer.py` / `layout.py` see nothing new).
+
+- **The behaviour matrix** (`resolution.rounded_rect_corner_params`,
+  matplotlib-free, returns `None` for the sharp border): `0 < f < 1` = G2
+  fillets in the chosen mode; `f = 1` + proportional (or a square) = the
+  **exact ellipse/circle** — the renderer routes those labels to the shipped
+  `type: round` ellipse path (`_rounded_rect_full_ellipse` /
+  `_uses_ellipse_boundary`), so their boundary emission, corner holes, radial
+  inset and relief border are bit-identical to a `type: round` label of the
+  same box (only the packing stays rectangular); `f = 1` + non-proportional +
+  `W ≠ H` = the **smoothed stadium** — the short edges fully round, the long
+  edges keep straight runs, and the corner exponent is clamped to
+  `STADIUM_G2_EXPONENT = 4` (a quarter-circle there would join the straights
+  with a curvature jump; the clamp keeps every junction κ = 0). Inert on
+  `type: round` labels (the ellipse owns the boundary).
+- **`label_renderer.py`**: `_rounded_rect_corner` is the single predicate
+  (sharp / round-shaped / fully-rounded ⇒ `None`). `_superellipse_quad`
+  samples one patch from its X-vertex to its Y-vertex at
+  `ARC_FLATTEN_CHORD_TOL_INCHES` with a step from the patch's **numerically
+  measured** max curvature (`_superellipse_max_curvature`; the curvature is
+  non-uniform, zero at the vertices, so the ellipse's uniform-step formula
+  does not apply), endpoints exact. `_rounded_rect_boundary_polygon`
+  concatenates the four patches CCW (consecutive patches share exactly one
+  junction point, so the straight edges are the implied chords) and closes
+  the loop; `_render_boundary_hpgl` / `_render_boundary_local` branch on it
+  like the ellipse (one continuous PU-led polyline, no vpype fragmentation).
+  `_lower_rounded_rect_border` is the descender relief's bottom border (the
+  `_lower_ellipse_arc` counterpart: bottom edge + the two lower patches, so a
+  descender near a corner measures the rising curve). Corner drill holes ride
+  the patch's 45° parametric point inset along the **outward normal**
+  `(sign_x·cos²/rx, sign_y·sin²/ry)` — the gradient of the superellipse, the
+  generalization of `_round_corner_hole` (`_rounded_rect_corner_hole`; at
+  `n = 2` it is exactly the ellipse rule). Side/top/bottom holes keep the
+  rectangular inset (exact at the edge midpoints, where the border is
+  straight).
+- **Corner-aware text inset** (`resolution.rounded_rect_content_inset`, the
+  `ellipse_content_inset` rule): the margin applies to the engraved rounded
+  boundary, so the centered content block's **corners** are measured against
+  the inset boundary (half-extents `W/2 − h_margin` × `H/2 − v_margin`,
+  corner radii shrunk by `min(h_margin, v_margin)`, same exponent) — a
+  monotone fit test bisected for the largest centered block of the label's
+  aspect. Applied by recomputing the two local margins in
+  `_render_positioned_lines` (the `max` of the rectangular and rounded
+  insets, so the rule only ever tightens), reaching the available height,
+  compression width, alignment width and anchor with no per-site branching;
+  concentric, so centering is unaffected. A fully-spent inset radius falls
+  back to the plain rectangular inset (exact: the inset boundary is a box).
+- **Collision detection stays shape-agnostic** (the `type: round` precedent):
+  the text↔hole gap is `circle_aabb_gap` for every label; the rounding enters
+  through the hole POSITIONS and the content inset, never the gap.
+- Example fixture: `tests_deps/rounded_rect_job.yaml` (pinned by
+  `tests/test_phase3_export.py::TestRoundedRectDemoExample`) — sharp control,
+  equal-distance vs proportional rounding, the full-round ellipse with its
+  `type: round` twin (bit-identical border emission), the smoothed stadium
+  (flat long-edge runs), a full-round square (circle), corner holes on the
+  patches, and a squircle carrying text. Unit tests: `tests/test_rounded_rect.py`
+  (corner params, contour bounds/closure, **numeric curvature continuity**
+  across junctions, the exact ellipse/circle limits, inset monotonicity, hole
+  placement, the relief border, the routing predicates),
+  `TestRoundedRectangleField` (`tests/test_schema.py`),
+  `TestRoundedRectangleResolution` (`tests/test_resolution.py`), and the
+  `rounded_rectangle_*` job-config key tests (`tests/test_job_config.py`).
+  User-facing demo: `examples/job_specs/rounded_rect_demo.yaml`.
+
 ### Integration Points
 - `parse_yaml(file_path)` returns a `JobSpec` ready for downstream bin-packing and rendering pipelines
 - `expand_job_spec(job, yaml_path)` (substitution.py) must run immediately after `parse_yaml()` before `resolve_job_spec()` to flatten replacement-driven labels
@@ -2810,7 +2900,8 @@ top-most layer:
   `cutter_downsize`,
   `max_cutter_downsizes`, `cutter_downsize_global`, `h_compress_global`,
   `optimize_line_content`, `holes`, `allow_rotation`,
-  `text_chunk_mode`, `layout`) fill missing **job-level** keys; the existing
+  `text_chunk_mode`, `layout`, `rounded_rectangle_fraction`,
+  `rounded_rectangle_proportional`) fill missing **job-level** keys; the existing
   label -> job cascade then works unchanged and YAML values always win (an
   explicit YAML `null` counts as unset; `holes: []` suppression is a value).
   `hole_diameter` additionally fills the `diameter` of any hole entry (config-

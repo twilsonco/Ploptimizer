@@ -59,6 +59,8 @@ _FULL_CONFIG: dict[str, Any] = {
     "target_boldness_factor": 0.18,
     "multistroke_overlap_ratio": 0.35,
     "bold_boldness_multiplier": 2.0,
+    "rounded_rectangle_fraction": 0.35,
+    "rounded_rectangle_proportional": True,
     "use_baseline_spacing": False,
     "v_center_by_content": True,
     "auto_descending_character_adjustment": False,
@@ -282,6 +284,8 @@ class TestJobDefaultsModel:
         assert "optimize_line_content" not in REQUIRED_WHEN_UNCONFIGURED
         assert "optimize_line_content_max_lines" not in REQUIRED_WHEN_UNCONFIGURED
         assert "use_baseline_spacing" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "rounded_rectangle_fraction" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "rounded_rectangle_proportional" not in REQUIRED_WHEN_UNCONFIGURED
         assert "v_center_by_content" not in REQUIRED_WHEN_UNCONFIGURED
         assert "auto_descending_character_adjustment" not in REQUIRED_WHEN_UNCONFIGURED
         assert "descending_character_v_scale" not in REQUIRED_WHEN_UNCONFIGURED
@@ -380,6 +384,18 @@ class TestJobDefaultsModel:
             JobDefaults(multistroke_overlap_ratio=0.6)
         assert JobDefaults().use_baseline_spacing is None
         assert JobDefaults(use_baseline_spacing=False).use_baseline_spacing is False
+        assert JobDefaults().rounded_rectangle_fraction is None
+        assert JobDefaults(rounded_rectangle_fraction=0.5).rounded_rectangle_fraction == 0.5
+        assert JobDefaults(rounded_rectangle_fraction=0.0).rounded_rectangle_fraction == 0.0
+        assert JobDefaults(rounded_rectangle_fraction=1.0).rounded_rectangle_fraction == 1.0
+        with pytest.raises(Exception):
+            JobDefaults(rounded_rectangle_fraction=-0.1)
+        with pytest.raises(Exception):
+            JobDefaults(rounded_rectangle_fraction=1.1)
+        assert JobDefaults().rounded_rectangle_proportional is None
+        assert (
+            JobDefaults(rounded_rectangle_proportional=True).rounded_rectangle_proportional is True
+        )
         assert JobDefaults().v_center_by_content is None
         assert JobDefaults(v_center_by_content=True).v_center_by_content is True
 
@@ -473,6 +489,8 @@ class TestApplyJobConfigDefaults:
         assert filled["target_boldness_factor"] == 0.18
         assert filled["multistroke_overlap_ratio"] == 0.35
         assert filled["bold_boldness_multiplier"] == 2.0
+        assert filled["rounded_rectangle_fraction"] == 0.35
+        assert filled["rounded_rectangle_proportional"] is True
 
     def test_cutter_downsize_job_layer_fill(self, tmp_path: Path) -> None:
         """Configured cutter-downsize defaults land as job-level values."""
@@ -1019,6 +1037,9 @@ class TestParseYamlWithJobConfig:
         assert job.optimize_line_content_max_lines is None
         assert job.use_baseline_spacing is True
         assert job.v_center_by_content is False
+        # The shipped config keeps the sharp rectangle (the historical border).
+        assert job.rounded_rectangle_fraction == 0.0
+        assert job.rounded_rectangle_proportional is False
         # The descending-character relief knobs are shop-tuning values (the
         # repo config ships non-default numbers on purpose), so this test only
         # pins that the config layer resolves them -- never the exact numbers.

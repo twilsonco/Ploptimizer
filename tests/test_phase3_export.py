@@ -4515,6 +4515,165 @@ class TestFontDemoExample:
             resolve_job_spec(parse_yaml(path), available_cutters=self._INVENTORY)
 
 
+class TestRoundedRectDemoExample:
+    """Regression tests for tests_deps/rounded_rect_job.yaml.
+
+    The fixture is the hand-crafted rounded-rectangle demo: a sharp control,
+    equal-distance and proportional rounding, the full-round ellipse limit
+    with its ``type: round`` twin, the smoothed stadium, a full-round square
+    (circle), corner drill holes on a rounded border, and a squircle carrying
+    text. It pins the border contract: every rounding engraves a closed
+    contour whose bounds equal the nominal box, the full-round proportional
+    limit is bit-identical to ``type: round``, the sharp default stays the
+    historical rectangle, and every label keeps packing through rectpack (the
+    rounded rectangle is a border change, never a packing change).
+    """
+
+    _SPEC = Path("tests_deps/rounded_rect_job.yaml")
+
+    def _labels(self) -> dict[str, ResolvedLabel]:
+        """Resolve the fixture into an id-keyed mapping."""
+        return {label.id: label for label in resolve_job_spec(parse_yaml(self._SPEC))}
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the rounded-rect demo job with plotting disabled."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="rr",
+            optimize=False,
+            plots=False,
+        )
+
+    def test_fixture_resolves_the_declared_rounding(self) -> None:
+        """Each label carries its declared fraction / proportional mode."""
+        labels = self._labels()
+        assert labels["sharp_control"].rounded_rectangle_fraction == 0.0
+        assert labels["equal_round"].rounded_rectangle_fraction == pytest.approx(0.5)
+        assert labels["equal_round"].rounded_rectangle_proportional is False
+        assert labels["prop_round"].rounded_rectangle_proportional is True
+        assert labels["full_ellipse"].rounded_rectangle_fraction == pytest.approx(1.0)
+        # The border is a rect-shape feature: nothing routes to the ellipse
+        # PACKER (only the type: round twin does).
+        assert labels["full_ellipse"].shape_type == "rect"
+        assert labels["ellipse_twin"].shape_type == "round"
+
+    def test_every_label_renders_its_nominal_box(self, tmp_path: Path) -> None:
+        """Rounding never changes the packed size: bounds == nominal box.
+
+        Each corner patch is tangent to the box at its axis vertices, so the
+        engraved contour reaches the enclosing rectangle's extrema exactly --
+        the packer and the plate transforms depend on that.
+        """
+        result = self._export(tmp_path)
+        expected = {
+            "sharp_control": (4.0, 2.0),
+            "equal_round": (4.0, 2.0),
+            "prop_round": (4.0, 2.0),
+            "full_ellipse": (4.0, 2.0),
+            "ellipse_twin": (4.0, 2.0),
+            "stadium": (8.0, 4.0),
+            "full_circle": (3.0, 3.0),
+            "rounded_corners": (4.0, 2.0),
+            "squircle_text": (4.0, 2.0),
+        }
+        for label_id, (width, height) in expected.items():
+            rendered = result.rendered_labels[label_id]
+            assert rendered.width == pytest.approx(width, abs=1e-3), label_id
+            assert rendered.height == pytest.approx(height, abs=1e-3), label_id
+
+    def test_full_round_is_bit_identical_to_type_round(self) -> None:
+        """fraction 1 + proportional emits the exact ``type: round`` border."""
+        from plt_optimizer.generate.label_renderer import _render_boundary_hpgl
+
+        labels = self._labels()
+        assert _render_boundary_hpgl(
+            labels["full_ellipse"]
+        ) == _render_boundary_hpgl(labels["ellipse_twin"])
+
+    def test_sharp_control_is_the_historical_rectangle(self) -> None:
+        """fraction 0 emits the four-corner rectangle, bit-identical."""
+        from plt_optimizer.generate.label_renderer import _render_boundary_hpgl
+
+        labels = self._labels()
+        content = _render_boundary_hpgl(labels["sharp_control"])
+        # PU to one corner, then exactly four PD coordinates closing the box
+        # (4in x 2in at 1016 units/inch).
+        assert content == "PU0,0;PD4064,0,4064,2032,0,2032,0,0"
+
+    def test_rounded_border_is_a_fine_polyline(self) -> None:
+        """A rounded border samples into many vertices (not four corners)."""
+        from plt_optimizer.generate.label_renderer import _render_boundary_hpgl
+
+        labels = self._labels()
+        content = _render_boundary_hpgl(labels["equal_round"])
+        points = content.count(",") // 2
+        assert points > 40
+        assert content.startswith("PU")
+
+    def test_stadium_keeps_straight_long_edges(self) -> None:
+        """The stadium's long edges keep flat runs (the short edges round off)."""
+        from itertools import groupby
+
+        from plt_optimizer.core.units import units_to_inches
+        from plt_optimizer.generate.label_renderer import _render_boundary_hpgl
+
+        labels = self._labels()
+        content = _render_boundary_hpgl(labels["stadium"])
+        coords = content.replace("PU", "").replace("PD", "").replace(";", ",")
+        pairs = [float(v) for v in coords.split(",") if v]
+        ys = [units_to_inches(pairs[i + 1]) for i in range(0, len(pairs), 2)]
+        # The bottom edge (y == 0) carries a straight run of the 8 - 4 = 4in
+        # long edge: several consecutive vertices share y == 0.
+        flat_runs = max((len(list(g)) for k, g in groupby(ys) if k == 0.0), default=0)
+        assert flat_runs >= 2
+
+    def test_corner_holes_ride_the_rounded_border(self, tmp_path: Path) -> None:
+        """Corner holes engrave on the patch, never in cut-away corners."""
+        from plt_optimizer.generate.label_renderer import _hole_circles_local
+
+        labels = self._labels()
+        label = labels["rounded_corners"]
+        circles = _hole_circles_local(label)
+        assert len(circles) == 4
+        offset = label.hole_margin + label.hole_cutter_diameter / 2.0 + 0.0625
+        for cx, cy, _r in circles:
+            # The sharp-rect inset places a corner hole at (offset, offset);
+            # the patch pulls every centre inward, off the removed corner.
+            inset_x = min(cx, label.width - cx)
+            inset_y = min(cy, label.height - cy)
+            assert inset_x > offset + 1e-9
+            assert inset_y > offset + 1e-9
+
+    def test_structural_layer_carries_every_border_and_hole(self, tmp_path: Path) -> None:
+        """The borders/holes layer holds all nine contours + four drill arcs."""
+        result = self._export(tmp_path)
+        bh = next(p for p in result.plt_paths if "_bh_" in p.name)
+        content = bh.read_text()
+        # Four corner holes, each four quarter-arcs.
+        assert content.count("AA") == 16
+        # Nine boundaries (PU-led) plus one plunge per drill hole.
+        assert content.count("PU") >= 9 + 4
+
+    def test_all_labels_pack_through_the_rect_pipeline(self) -> None:
+        """Every instance lands on the plate; none routes to the ellipse packer."""
+        from plt_optimizer.generate.layout import generate_layout
+
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        plates = generate_layout(
+            labels, job.plates, allow_rotation=job.allow_rotation, layout=job.layout
+        )
+        placed = [packed for plate in plates for packed in plate.labels]
+        assert len(placed) == 9
+        # Only the type: round twin is a round placement; the rounded rects
+        # stay rectangular placements (they pack in their nominal box).
+        assert sum(1 for p in placed if p.source_label.shape_type == "round") == 1
+
+
 class TestEllipseDemoExample:
     """Regression tests for tests_deps/ellipse_job.yaml.
 

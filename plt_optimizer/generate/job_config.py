@@ -655,6 +655,28 @@ class JobDefaults(BaseModel):
             "(ellipse/circle). Job layer; labels that omit it inherit this."
         ),
     )
+    rounded_rectangle_fraction: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Default rectangular-border corner rounding fraction in "
+            "[0.0, 1.0] (job layer; 0.0 = sharp rectangle). Superellipse-"
+            "quadrant corners with continuously varying curvature; the "
+            "rounding spans 'fraction' of the shorter edge. Unset falls back "
+            "to 0.0."
+        ),
+    )
+    rounded_rectangle_proportional: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Default proportional corner rounding (job layer). True applies "
+            "rounded_rectangle_fraction proportionately to width and height; "
+            "false (the default) uses one identical rounding distance on "
+            "every side (the shorter edge determines it). Unset falls back "
+            "to false."
+        ),
+    )
     plate_width: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -770,6 +792,8 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "text_chunk_mode",
     "layout",
     "type",
+    "rounded_rectangle_fraction",
+    "rounded_rectangle_proportional",
     "left_clearance",
     "top_clearance",
     "auto_line_spacing_interline_to_top_bottom_ratio",

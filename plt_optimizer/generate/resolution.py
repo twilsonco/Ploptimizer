@@ -427,6 +427,25 @@ DEFAULT_TEXT_COLOR: str = "none"
 #: (see :attr:`plt_optimizer.generate.schema.LabelAttributes.type`).
 DEFAULT_LABEL_SHAPE: str = LabelShape.RECT.value
 
+#: Fallback rectangular-border corner rounding fraction when the
+#: ``rounded_rectangle_fraction`` cascade resolves to unset (see
+#: :attr:`plt_optimizer.generate.schema.LabelAttributes.rounded_rectangle_fraction`).
+#: ``0.0`` is the sharp rectangle, bit-identical to the historical border.
+DEFAULT_ROUNDED_RECTANGLE_FRACTION: float = 0.0
+
+#: Fallback proportional-rounding flag when the
+#: ``rounded_rectangle_proportional`` cascade resolves to unset (see
+#: :attr:`plt_optimizer.generate.schema.LabelAttributes.rounded_rectangle_proportional`).
+#: ``False`` uses one identical rounding distance on every side (the shorter
+#: edge determines it).
+DEFAULT_ROUNDED_RECTANGLE_PROPORTIONAL: bool = False
+
+# The corner exponent of a superellipse |x/rx|^n + |y/ry|^n = 1 that produces
+# a sharp rectangle in the limit (fraction -> 0 => n -> infinity). Used by the
+# renderer when the fraction is 0 (the sharp path never samples a patch, so
+# the value is a sentinel keeping the math total).
+ROUNDED_RECT_SHARP_EXPONENT: float = math.inf
+
 # Float tolerance guarding the downsize midpoint comparison: a scale exactly
 # at the midpoint keeps the current cutter (the rule is "compressed to 89%
 # takes the smaller tool, >= 90% keeps the original").
@@ -1574,6 +1593,19 @@ class ResolvedLabel:
             adjacent ellipse-packing pipeline and the collision checks measure
             the ellipse boundary. ``"rect"`` keeps the rectangular pipeline
             bit-identical.
+        rounded_rectangle_fraction: Rectangular-border corner rounding
+            fraction in ``[0.0, 1.0]`` (from the
+            ``rounded_rectangle_fraction`` cascade, label -> job, default
+            ``0.0``). Each corner is a superellipse-quadrant patch with
+            exponent ``2 / fraction`` so the curvature varies continuously
+            along the boundary; ``0.0`` is the sharp rectangle. The rounding
+            spans ``fraction`` of the shorter edge (see
+            :attr:`rounded_rectangle_proportional`). Inert on ``"round"``
+            labels (the ellipse owns the boundary).
+        rounded_rectangle_proportional: Whether
+            :attr:`rounded_rectangle_fraction` applies proportionately to
+            width and height (true) or as one identical rounding distance on
+            every side (false, the default -- the shorter edge determines it).
         hole_aware_vertical_shift_inches: Automatic vertical shift (in inches)
             applied to center the text block in the available space between
             top and bottom axis holes, accounting for their diameter
@@ -1620,6 +1652,8 @@ class ResolvedLabel:
     descending_character_clearance: float = DEFAULT_DESCENDING_CHARACTER_CLEARANCE
     descending_character_reciprocal_scale: float = DEFAULT_DESCENDING_CHARACTER_RECIPROCAL_SCALE
     shape_type: str = DEFAULT_LABEL_SHAPE
+    rounded_rectangle_fraction: float = DEFAULT_ROUNDED_RECTANGLE_FRACTION
+    rounded_rectangle_proportional: bool = DEFAULT_ROUNDED_RECTANGLE_PROPORTIONAL
     hole_aware_vertical_shift_inches: float = 0.0
     hole_aware_horizontal_shift_inches: float = 0.0
     adjust_h_center_for_single_side_hole: bool = False
@@ -2113,6 +2147,207 @@ def ellipse_content_inset(
     theta = math.atan2(semi_a, aspect * semi_b)
     inner_width = 2.0 * semi_a * math.cos(theta)
     inner_height = 2.0 * semi_b * math.sin(theta)
+    return inner_width, inner_height
+
+
+# ---------------------------------------------------------------------------
+# Rounded-rectangle border geometry (``rounded_rectangle_fraction``)
+# ---------------------------------------------------------------------------
+
+#: Corner exponent of the smoothed-stadium limit (``rounded_rectangle_fraction
+#: == 1.0``, ``rounded_rectangle_proportional == False``, non-square label).
+#: The corner patches fully round the short edges and meet at their midpoints;
+#: a quarter-circle (n = 2) would join the long-edge straights with a
+#: curvature jump, so the exponent is clamped above 2, where the patch
+#: curvature at its axis vertices is exactly zero and the whole boundary
+#: stays G2.
+STADIUM_G2_EXPONENT: float = 4.0
+
+
+@dataclass(frozen=True)
+class RoundedRectCorner:
+    """Corner-patch geometry of a rounded-rectangle border.
+
+    Attributes:
+        rx: Corner patch semi-axis along X (the rounding distance measured
+            along the label's width), inches.
+        ry: Corner patch semi-axis along Y (the rounding distance measured
+            along the label's height), inches.
+        exponent: Superellipse exponent ``n`` of the corner patch
+            ``|X / rx| ^ n + |Y / ry| ^ n = 1``. ``2 / fraction`` for
+            ``0 < fraction <= 1`` (so ``fraction -> 0`` is the sharp
+            rectangle and ``fraction == 1`` is the exact ellipse), and
+            :data:`STADIUM_G2_EXPONENT` in the smoothed-stadium limit.
+    """
+
+    rx: float
+    ry: float
+    exponent: float
+
+
+def rounded_rect_corner_params(
+    width: float,
+    height: float,
+    fraction: float,
+    proportional: bool,
+) -> Optional[RoundedRectCorner]:
+    """Corner-patch parameters of a rounded-rectangle border, in inches.
+
+    The boundary is four straight edges joined by four **superellipse
+    quadrants** ``|X / rx| ^ n + |Y / ry| ^ n = 1``. For ``n > 2`` the curve's
+    curvature at its axis vertices is exactly zero (near a vertex
+    ``x = rx - c * y ^ n``, so ``kappa`` scales as ``y ^ (n - 2) -> 0``) and
+    its tangent there is exactly axis-aligned, so the straight edges (zero
+    curvature) join the patches with **continuously varying curvature** --
+    the G2 continuity a circular fillet cannot provide.
+
+    The exponent ``n = 2 / fraction`` pins the endpoints of the family:
+
+    * ``fraction == 0`` -- ``n -> infinity``: the sharp rectangle (this
+      function returns ``None``; the renderer keeps the historical
+      unsampled border).
+    * ``fraction == 0.5`` -- ``n == 4``: the classic squircle corner.
+    * ``fraction == 1`` -- ``n == 2``: the exact ellipse (a circle on a
+      square), identical to ``type: round``.
+
+    The rounding distance follows the two cascade modes:
+
+    * ``proportional == False`` (the default) -- one **identical** rounding
+      distance on every side, set by the shorter edge:
+      ``rx = ry = fraction * min(width, height) / 2``. A 4x8 label at
+      ``0.5`` rounds 2in (50%) of the 4in sides, starting 1in from each
+      corner.
+    * ``proportional == True`` -- the fraction applies to each dimension:
+      ``rx = fraction * width / 2``, ``ry = fraction * height / 2``, so the
+      same 4x8 label rounds 50% of the 8in side too.
+
+    The one degenerate endpoint is ``fraction == 1`` with
+    ``proportional == False`` on a non-square: the short edges are fully
+    rounded and the long edges keep straight sections (a stadium). A
+    quarter-circle there would break G2 at the four junctions, so the
+    exponent is clamped to :data:`STADIUM_G2_EXPONENT` -- a smoothed
+    stadium.
+
+    Args:
+        width: Label width in inches (> 0).
+        height: Label height in inches (> 0).
+        fraction: Corner rounding fraction in ``[0.0, 1.0]``.
+        proportional: Proportional (true) or equal-distance (false) rounding.
+
+    Returns:
+        The corner parameters, or ``None`` when the border is the sharp
+        rectangle (``fraction <= 0``, a non-finite fraction, or a
+        degenerate size).
+    """
+    if not (width > 0.0) or not (height > 0.0):
+        return None
+    if not math.isfinite(fraction) or fraction <= 0.0:
+        return None
+
+    shorter = min(width, height)
+    if proportional:
+        rx = fraction * width / 2.0
+        ry = fraction * height / 2.0
+    else:
+        rx = fraction * shorter / 2.0
+        ry = fraction * shorter / 2.0
+
+    # Guard the degenerate float endpoints: a patch can never exceed its own
+    # semi-axis, and a zero semi-axis is the sharp rectangle.
+    rx = min(rx, width / 2.0)
+    ry = min(ry, height / 2.0)
+    if rx <= 0.0 or ry <= 0.0:
+        return None
+
+    exponent = 2.0 / fraction
+    # The stadium limit: the patches meet at the short edges' midpoints and
+    # join the long-edge straights. A quarter-circle (n == 2) has curvature
+    # 1 / r at its vertices -- a jump against the straights -- so clamp
+    # above 2.
+    stadium_limit = (
+        math.isclose(fraction, 1.0) and not proportional and not math.isclose(width, height)
+    )
+    if stadium_limit:
+        exponent = STADIUM_G2_EXPONENT
+    return RoundedRectCorner(rx=rx, ry=ry, exponent=max(exponent, 2.0))
+
+
+def rounded_rect_content_inset(
+    width: float,
+    height: float,
+    h_margin: float,
+    v_margin: float,
+    corner: RoundedRectCorner,
+) -> Tuple[float, float]:
+    """Inner content extents of a rounded-rectangle label, in inches.
+
+    The margin on a rounded label applies to the **engraved boundary**, not
+    to the enclosing rectangle: content must stay ``margin`` away from the
+    rounded stroke, so the rectangular inset overstates the room near the
+    corners (the rounding cuts that material away). The rule mirrors
+    :func:`ellipse_content_inset`: text stacks as a centered, axis-aligned
+    block, so the constraint lands on the block's **corners**, which must
+    lie on or inside the inset boundary. The returned extents are the
+    largest centered block of the label's own aspect ratio satisfying that.
+
+    The inset boundary is the centered rounded rectangle with half-extents
+    ``width / 2 - h_margin`` by ``height / 2 - v_margin`` and corner radii
+    shrunk by ``min(h_margin, v_margin)`` -- the standard superellipse
+    erosion, exact for a circle and for the straight-edge parts, and the
+    same standard inset :func:`ellipse_content_inset` applies to an ellipse.
+
+    Args:
+        width: Label width in inches (> 0).
+        height: Label height in inches (> 0).
+        h_margin: Horizontal (X-direction) margin in inches (>= 0).
+        v_margin: Vertical (Y-direction) margin in inches (>= 0).
+        corner: The label's corner parameters (never ``None`` here -- the
+            sharp rectangle keeps the plain rectangular inset).
+
+    Returns:
+        ``(inner_width, inner_height)`` in inches. ``(0.0, 0.0)`` when a
+        margin reaches past the centre.
+    """
+    semi_x = width / 2.0 - h_margin
+    semi_y = height / 2.0 - v_margin
+    if semi_x <= 0.0 or semi_y <= 0.0:
+        return 0.0, 0.0
+
+    shrink = min(h_margin, v_margin)
+    rx = corner.rx - shrink
+    ry = corner.ry - shrink
+    # A fully-spent inset radius means the inset boundary is the plain inset
+    # rectangle: the rectangular rule is exact.
+    if rx <= 0.0 or ry <= 0.0:
+        return 2.0 * semi_x, 2.0 * semi_y
+
+    exponent = corner.exponent
+    aspect = width / height
+    # The block's corner is ``(aspect * v, v)`` about the centre (the label's
+    # own aspect, the ellipse-inset rule). Both corner-patch coordinates grow
+    # monotonically with v, so the fit test is monotone -- bisect.
+    v_max = min(semi_y, semi_x / aspect)
+
+    def fits(v: float) -> bool:
+        u = aspect * v
+        dx = max(u - (semi_x - rx), 0.0) / rx
+        dy = max(v - (semi_y - ry), 0.0) / ry
+        inside: bool = dx**exponent + dy**exponent <= 1.0
+        return inside
+
+    if fits(v_max):
+        return 2.0 * min(semi_x, aspect * v_max), 2.0 * v_max
+    low, high = 0.0, v_max
+    for _ in range(100):
+        mid = (low + high) / 2.0
+        if fits(mid):
+            low = mid
+        else:
+            high = mid
+        if high - low < 1e-12:
+            break
+    inner_height = 2.0 * low
+    inner_width = min(2.0 * semi_x, inner_height * aspect)
     return inner_width, inner_height
 
 
@@ -3804,6 +4039,25 @@ def _resolve_label(
         elif final_height is None:
             final_height = final_width
 
+    # Rectangular-border corner rounding (cascades label -> job; the plate
+    # tier is schema parity only, see schema.PlateSpec). The border is a
+    # per-label property, so it resolves here next to the shape. Only ``None``
+    # means unset; an explicit ``0.0`` (sharp) is honored. Inert on ``round``
+    # labels -- the ellipse already owns the boundary.
+    if label_input.rounded_rectangle_fraction is not None:
+        label_rounded_fraction: float = label_input.rounded_rectangle_fraction
+    elif job.rounded_rectangle_fraction is not None:
+        label_rounded_fraction = job.rounded_rectangle_fraction
+    else:
+        label_rounded_fraction = DEFAULT_ROUNDED_RECTANGLE_FRACTION
+
+    if label_input.rounded_rectangle_proportional is not None:
+        label_rounded_proportional: bool = label_input.rounded_rectangle_proportional
+    elif job.rounded_rectangle_proportional is not None:
+        label_rounded_proportional = job.rounded_rectangle_proportional
+    else:
+        label_rounded_proportional = DEFAULT_ROUNDED_RECTANGLE_PROPORTIONAL
+
     # Sanity check: schema validation guarantees both are non-None
     assert final_width is not None and final_height is not None
 
@@ -3878,6 +4132,8 @@ def _resolve_label(
         descending_character_reciprocal_scale=label_descender_recip,
         adjust_h_center_for_single_side_hole=label_adjust_h_for_side_holes,
         shape_type=label_shape,
+        rounded_rectangle_fraction=label_rounded_fraction,
+        rounded_rectangle_proportional=label_rounded_proportional,
     )
 
     # Compute and apply hole-aware shifts after the label is constructed

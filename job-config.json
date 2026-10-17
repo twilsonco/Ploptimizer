@@ -31,6 +31,8 @@
   "h_compress_global": false,
   "optimize_line_content": false,
   "optimize_line_content_max_lines": null,
+  "rounded_rectangle_fraction": 0.0,
+  "rounded_rectangle_proportional": false,
   "use_baseline_spacing": true,
   "v_center_by_content": false,
   "auto_descending_character_adjustment": true,

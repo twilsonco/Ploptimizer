@@ -37,6 +37,8 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_KERNING_RECESSION_SCALE,
     DEFAULT_KERNING_WINDOW_FRACTION,
     DEFAULT_LABEL_SHAPE,
+    DEFAULT_ROUNDED_RECTANGLE_FRACTION,
+    DEFAULT_ROUNDED_RECTANGLE_PROPORTIONAL,
     DEFAULT_LINE_SPACING,
     DEFAULT_MARGIN,
     DEFAULT_MAX_CUTTER_DOWNSIZES,
@@ -5560,6 +5562,81 @@ class TestLabelShapeResolution:
         """A label-level round beats the job-level rect."""
         labels = resolve_job_spec(self._job(job="rect", label="round"))
         assert labels[0].shape_type == "round"
+
+
+class TestRoundedRectangleResolution:
+    """The rounded-rectangle cascade resolves onto ResolvedLabel."""
+
+    @staticmethod
+    def _job(**levels: object) -> JobSpec:
+        """Build a single-label job applying the fields at the given levels."""
+        job_kwargs: dict[str, object] = {}
+        label_kwargs: dict[str, object] = {}
+        for key, value in levels.items():
+            tier, _, field = key.partition("__")
+            if tier == "job":
+                job_kwargs[field] = value
+            else:
+                label_kwargs[field] = value
+        return JobSpec(
+            job_name="J",
+            text_height=0.5,
+            **job_kwargs,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=4.0,
+                    height=2.0,
+                    **label_kwargs,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+
+    def test_defaults_are_sharp(self) -> None:
+        """No level declaring the fields resolves to the sharp rectangle."""
+        assert DEFAULT_ROUNDED_RECTANGLE_FRACTION == 0.0
+        assert DEFAULT_ROUNDED_RECTANGLE_PROPORTIONAL is False
+        label = resolve_job_spec(self._job())[0]
+        assert label.rounded_rectangle_fraction == 0.0
+        assert label.rounded_rectangle_proportional is False
+
+    def test_job_level_cascades(self) -> None:
+        """Job-level values apply to labels that omit the fields."""
+        label = resolve_job_spec(
+            self._job(job__rounded_rectangle_fraction=0.5, job__rounded_rectangle_proportional=True)
+        )[0]
+        assert label.rounded_rectangle_fraction == pytest.approx(0.5)
+        assert label.rounded_rectangle_proportional is True
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level values beat the job level."""
+        label = resolve_job_spec(
+            self._job(
+                job__rounded_rectangle_fraction=0.5,
+                label__rounded_rectangle_fraction=0.0,
+            )
+        )[0]
+        assert label.rounded_rectangle_fraction == 0.0
+
+    def test_explicit_zero_is_honored(self) -> None:
+        """An explicit label-level 0.0 is a value, not 'unset'."""
+        label = resolve_job_spec(
+            self._job(
+                job__rounded_rectangle_fraction=0.25,
+                label__rounded_rectangle_fraction=0.0,
+            )
+        )[0]
+        assert label.rounded_rectangle_fraction == 0.0
+
+    def test_round_shape_keeps_the_fraction(self) -> None:
+        """Resolution carries the fraction onto round labels (the renderer
+        treats it as inert there)."""
+        label = resolve_job_spec(
+            self._job(label__type="round", label__rounded_rectangle_fraction=0.5)
+        )[0]
+        assert label.shape_type == "round"
+        assert label.rounded_rectangle_fraction == pytest.approx(0.5)
 
 
 class TestRoundLabelCircleFilling:

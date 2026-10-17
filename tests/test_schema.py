@@ -2737,6 +2737,68 @@ class TestLabelShapeField:
         assert PlateSpec(id="p", width=24.0, height=16.0, type="round").type is LabelShape.ROUND
 
 
+class TestRoundedRectangleField:
+    """The cascading rounded-rectangle fields (label -> job + plate parity)."""
+
+    def test_defaults_to_none_everywhere(self) -> None:
+        """Job, label and plate all default both fields to None (resolution -> 0.0/false)."""
+        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        assert job.rounded_rectangle_fraction is None
+        assert job.rounded_rectangle_proportional is None
+        label = LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")])
+        assert label.rounded_rectangle_fraction is None
+        assert label.rounded_rectangle_proportional is None
+        plate = PlateSpec(id="p", width=24.0, height=16.0)
+        assert plate.rounded_rectangle_fraction is None
+        assert plate.rounded_rectangle_proportional is None
+
+    def test_live_on_label_attributes_not_text(self) -> None:
+        """The border is a label-container property: TextLine must NOT carry it."""
+        for name in ("rounded_rectangle_fraction", "rounded_rectangle_proportional"):
+            assert name in LabelAttributes.model_fields
+            assert name in LabelSpec.model_fields
+            assert name in JobSpec.model_fields
+            assert name in PlateSpec.model_fields
+            assert name not in TextAttributes.model_fields
+            assert name not in TextLine.model_fields
+
+    def test_accepts_the_declared_range(self) -> None:
+        """The endpoints 0.0 and 1.0 are valid fractions."""
+        for fraction in (0.0, 0.5, 1.0):
+            label = LabelSpec(
+                id="l",
+                width=2.0,
+                height=1.0,
+                content=[TextLine(text="X")],
+                rounded_rectangle_fraction=fraction,
+            )
+            assert label.rounded_rectangle_fraction == fraction
+
+    def test_rejects_out_of_range_fraction(self) -> None:
+        """A fraction outside [0, 1] is a validation error."""
+        for fraction in (-0.1, 1.1):
+            with pytest.raises(ValidationError):
+                LabelSpec(
+                    id="l",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X")],
+                    rounded_rectangle_fraction=fraction,
+                )
+
+    def test_plate_parity_fields_accept_values(self) -> None:
+        """The plate parity fields accept the same values (not applied at plate level)."""
+        plate = PlateSpec(
+            id="p",
+            width=24.0,
+            height=16.0,
+            rounded_rectangle_fraction=0.5,
+            rounded_rectangle_proportional=True,
+        )
+        assert plate.rounded_rectangle_fraction == 0.5
+        assert plate.rounded_rectangle_proportional is True
+
+
 class TestRoundLabelDimensions:
     """Round labels relax the both-dimensions-required rule (one = circle)."""
 

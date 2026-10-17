@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Features
+
+* **generate:** rounded-rectangle label borders (`rounded_rectangle_fraction` + `rounded_rectangle_proportional`)
+  - Two cascading fields (label → job, plate parity, `job-config.json` keys; defaults `0.0` / `false`) round the rectangular border's corners; `0.0` keeps the sharp rectangle bit-identically
+  - Corners are **superellipse-quadrant patches** with exponent `n = 2 / fraction`, so the curvature varies **continuously** along the whole boundary (G2) — no circular-fillet curvature jump where the rounding begins/ends
+  - `proportional: false` (default) = one identical rounding distance on every side from the shorter edge (a 4x8 label at `0.5` rounds 2in of the 4in sides); `true` = the fraction applies to each dimension
+  - Exact endpoints: `1.0` + proportional (or a square) engraves the exact ellipse/circle of `type: round` (bit-identical border); `1.0` + non-proportional + non-square is a smoothed stadium (short edges fully rounded, long edges straight, corner exponent clamped to 4 for G2)
+  - Corner drill holes ride the patch normal (generalized `_round_corner_hole`); the text margin applies to the engraved rounded boundary (corner-aware content inset); the descender relief's bottom border follows the lower arc
+  - A border change, never a packing change: rounded labels keep `shape_type: rect` and pack through rectpack in their exact nominal box
+
 ### Bug Fixes
 
 * **parser:** fix multi-coordinate PD command fragmentation causing 99.2% path bloat in round labels

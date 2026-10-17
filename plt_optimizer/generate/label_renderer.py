@@ -73,13 +73,17 @@ from plt_optimizer.generate.plt_font_renderer import (
 from plt_optimizer.generate.resolution import (
     ResolvedLabel,
     ResolvedTextLine,
+    RoundedRectCorner,
     baseline_block_height,
     baseline_offsets,
     compute_horizontal_offset,
     compute_horizontal_scale,
+    ellipse_content_inset,
     fit_baseline_spacing_to_margins,
     fit_line_spacing_to_margins,
     glyph_render_plan,
+    rounded_rect_content_inset,
+    rounded_rect_corner_params,
     scale_cutter_ladder,
 )
 from plt_optimizer.generate.schema import LabelShape
@@ -133,6 +137,83 @@ def _label_ellipse(
         ``(center_x, center_y, semi_a, semi_b)`` in inches.
     """
     return (label.width / 2.0, label.height / 2.0, label.width / 2.0, label.height / 2.0)
+
+
+def _rounded_rect_full_ellipse(label: ResolvedLabel) -> bool:
+    """True when the rounding closes the border into the exact ellipse/circle.
+
+    ``rounded_rectangle_fraction == 1.0`` with
+    ``rounded_rectangle_proportional`` true -- or on a square, where the two
+    modes coincide -- makes the corner patches meet at every edge midpoint
+    and the exponent land on ``n = 2``: the boundary is exactly the
+    ``type: round`` ellipse (a circle on a square). Those labels route to the
+    shipped ellipse path (boundary polygon, corner holes, radial inset, the
+    relief's lower arc), so their engraved geometry matches a ``type: round``
+    label of the same box; only the packing stays rectangular (the nominal
+    box is exact for the ellipse too).
+
+    Args:
+        label: The resolved label.
+
+    Returns:
+        ``True`` for a fully-rounded rectangular label.
+    """
+    if _label_is_round(label):
+        return False
+    fraction = label.rounded_rectangle_fraction
+    if fraction <= 0.0 or not math.isclose(fraction, 1.0):
+        return False
+    return label.rounded_rectangle_proportional or math.isclose(label.width, label.height)
+
+
+def _uses_ellipse_boundary(label: ResolvedLabel) -> bool:
+    """True when the boundary is the shipped ellipse contour.
+
+    ``type: round`` labels and the fully-rounded rounded-rectangle limit
+    (see :func:`_rounded_rect_full_ellipse`) share the ellipse boundary
+    emission, the ellipse-aware drill-hole placement, the radial content
+    inset and the relief's lower arc. Packing is NOT dispatched here: a
+    fully-rounded rectangular label keeps packing in its nominal box (the
+    packer's ``shape_type`` check is untouched).
+
+    Args:
+        label: The resolved label.
+
+    Returns:
+        ``True`` when the renderer draws the ellipse boundary.
+    """
+    return _label_is_round(label) or _rounded_rect_full_ellipse(label)
+
+
+def _rounded_rect_corner(label: ResolvedLabel) -> Optional[RoundedRectCorner]:
+    """The label's rounded-rectangle corner parameters, if rounded.
+
+    The single predicate the renderer uses to branch onto the rounded-
+    rectangle border path (boundary emission, corner drill-hole placement,
+    corner-aware content inset, the descender relief's bottom border).
+    ``type: round`` labels and the fully-rounded ellipse limit return
+    ``None`` -- the shipped ellipse path owns those boundaries (see
+    :func:`_rounded_rect_full_ellipse`). Sharp labels
+    (``rounded_rectangle_fraction == 0.0``, the default) also return
+    ``None``, so their geometry stays bit-identical.
+
+    Args:
+        label: The resolved label.
+
+    Returns:
+        The corner parameters, or ``None`` for a sharp (or round-shaped /
+        fully-rounded) label.
+    """
+    if _label_is_round(label) or _rounded_rect_full_ellipse(label):
+        return None
+    if label.rounded_rectangle_fraction <= 0.0:
+        return None
+    return rounded_rect_corner_params(
+        label.width,
+        label.height,
+        label.rounded_rectangle_fraction,
+        label.rounded_rectangle_proportional,
+    )
 
 
 # PLT document framing (EngraveLab reference parity). The header is
@@ -4020,8 +4101,20 @@ def _border_box(label: ResolvedLabel) -> GlyphBox:
     Returns:
         A :class:`GlyphBox` whose ink is the bottom border centreline.
     """
-    if _label_is_round(label):
+    if _uses_ellipse_boundary(label):
         arc = _lower_ellipse_arc(label.width, label.height)
+        return GlyphBox(
+            glyph_index=_BORDER_GLYPH_INDEX,
+            char="",
+            bounds=(arc[0][0], min(y for _x, y in arc), arc[-1][0], max(y for _x, y in arc)),
+            descender=0.0,
+            ink=(arc,),
+            sub_baseline_ink=(),
+        )
+
+    rounded_corner = _rounded_rect_corner(label)
+    if rounded_corner is not None:
+        arc = _lower_rounded_rect_border(label.width, label.height, rounded_corner)
         return GlyphBox(
             glyph_index=_BORDER_GLYPH_INDEX,
             char="",
@@ -5075,6 +5168,32 @@ def _render_positioned_lines(
     h_margin = label.h_margin
     v_margin = label.v_margin
     inner_width = label.width
+    # A round label applies its margin **radially**: the content area is the
+    # largest centered block inscribed in the inset ellipse (see
+    # :func:`ellipse_content_inset`), strictly smaller than the rectangular
+    # box inset. Recomputing the two local margins from that inset feeds the
+    # radial rule to every downstream site -- the available height, the
+    # compression width, the alignment width and the alignment anchor -- with
+    # no per-site branching. Vertical centering is unaffected: the inset is
+    # concentric, so the inner-area center stays at ``height / 2``.
+    if _uses_ellipse_boundary(label):
+        content_width, content_height = ellipse_content_inset(
+            label.width, label.height, h_margin, v_margin
+        )
+        h_margin = (label.width - content_width) / 2.0
+        v_margin = (label.height - content_height) / 2.0
+    # A rounded-rectangle label applies its margin to the **engraved rounded
+    # boundary** by the same rule (see :func:`rounded_rect_content_inset`):
+    # the corner rounding cuts away the material the rectangular inset
+    # assumes, so the content block's corners are measured against the inset
+    # boundary. Concentric like the ellipse inset, so centering is unaffected.
+    rounded_corner = _rounded_rect_corner(label)
+    if rounded_corner is not None:
+        content_width, content_height = rounded_rect_content_inset(
+            label.width, label.height, h_margin, v_margin, rounded_corner
+        )
+        h_margin = max(h_margin, (label.width - content_width) / 2.0)
+        v_margin = max(v_margin, (label.height - content_height) / 2.0)
 
     # First pass: render all lines and measure their heights. Keep each
     # line's own line_spacing alongside the rendered geometry so empty or
@@ -5750,6 +5869,133 @@ def _ellipse_boundary_polygon(
     return center_x + semi_a * np.cos(theta) + 1j * (center_y + semi_b * np.sin(theta))
 
 
+def _superellipse_max_curvature(rx: float, ry: float, exponent: float) -> float:
+    """Maximum curvature of a superellipse quadrant, measured numerically.
+
+    The quadrant ``x = rx cos^p t, y = ry sin^p t`` (``p = 2 / exponent``,
+    ``t`` in ``[0, pi/2]``) has curvature that vanishes at both axis vertices
+    for ``exponent > 2`` and peaks near the middle. The peak is measured on a
+    dense sample (a closed form is messy for a general exponent and this runs
+    once per label render), so the caller can size the chord-tolerance sample
+    step from the true ``1 / kappa_max`` radius.
+
+    Args:
+        rx: Patch semi-axis along X, inches (> 0).
+        ry: Patch semi-axis along Y, inches (> 0).
+        exponent: Superellipse exponent ``n`` (>= 2).
+
+    Returns:
+        The maximum curvature (``1 / radius``), in inches ``-1``. ``0.0`` for
+        a straight (a fully-degenerate patch).
+    """
+    power = 2.0 / exponent
+    ts = np.linspace(1e-6, math.pi / 2.0 - 1e-6, 256)
+    cos_t, sin_t = np.cos(ts), np.sin(ts)
+    # x = rx cos^p t; derivatives via the chain rule.
+    cp, sp = cos_t ** (power - 1.0), sin_t ** (power - 1.0)
+    x1 = -rx * power * cp * sin_t
+    y1 = ry * power * sp * cos_t
+    x2 = rx * power * ((power - 1.0) * cp * (-sin_t) * sin_t - cos_t**power * cos_t)
+    y2 = ry * power * ((power - 1.0) * sp * cos_t * cos_t - sin_t**power * sin_t)
+    num = np.abs(x1 * y2 - y1 * x2)
+    den = (x1 * x1 + y1 * y1) ** 1.5
+    with np.errstate(divide="ignore", invalid="ignore"):
+        kappa = np.where(den > 0.0, num / den, 0.0)
+    return float(np.max(kappa)) if kappa.size else 0.0
+
+
+def _superellipse_quad(
+    center_x: float,
+    center_y: float,
+    rx: float,
+    ry: float,
+    exponent: float,
+    sign_x: float,
+    sign_y: float,
+) -> np.ndarray:
+    """Sample one superellipse corner patch in the label-local frame.
+
+    The patch is the quadrant of ``|X / rx| ^ n + |Y / ry| ^ n = 1`` centred
+    at ``(center_x, center_y)`` opening toward ``(sign_x, sign_y)``. It is
+    sampled from its X-axis vertex (``t = 0``) to its Y-axis vertex
+    (``t = pi / 2``) at a uniform parameter step bounded by the shared chord
+    tolerance at the patch's maximum curvature, so the engraved corner follows
+    the true curve to the same fidelity as every flattened arc. The endpoints
+    are exact (``cos ^ p`` and ``sin ^ p`` hit 1 and 0), so the patch meets the
+    straight edges at the label box's extrema -- the rendered bounds equal the
+    nominal box.
+
+    Args:
+        center_x: Patch centre X, inches.
+        center_y: Patch centre Y, inches.
+        rx: Patch semi-axis along X, inches (> 0).
+        ry: Patch semi-axis along Y, inches (> 0).
+        exponent: Superellipse exponent ``n`` (>= 2).
+        sign_x: +1 to open rightward, -1 leftward.
+        sign_y: +1 to open upward, -1 downward.
+
+    Returns:
+        The patch's complex vertices, X-vertex first, Y-vertex last.
+    """
+    power = 2.0 / exponent
+    kappa_max = _superellipse_max_curvature(rx, ry, exponent)
+    if kappa_max > 0.0:
+        # Sagitta s = R dtheta^2 / 8 <= tol with R = 1 / kappa_max.
+        step = math.sqrt(8.0 * ARC_FLATTEN_CHORD_TOL_INCHES * kappa_max)
+        steps = max(2, math.ceil((math.pi / 2.0) / step))
+    else:  # pragma: no cover - a patch always has some curvature
+        steps = 2
+    t = np.linspace(0.0, math.pi / 2.0, steps + 1)
+    xs = center_x + sign_x * rx * np.cos(t) ** power
+    ys = center_y + sign_y * ry * np.sin(t) ** power
+    return xs + 1j * ys
+
+
+def _rounded_rect_boundary_polygon(
+    width: float,
+    height: float,
+    corner: RoundedRectCorner,
+) -> np.ndarray:
+    """Sample a closed rounded-rectangle contour in the label-local frame.
+
+    The contour is the box ``[0, width] x [0, height]`` with each corner
+    replaced by a superellipse quadrant (see
+    :func:`plt_optimizer.generate.resolution.rounded_rect_corner_params`):
+    four straight edges joined by four patches whose curvature vanishes at
+    every junction, so the whole boundary has **continuously varying
+    curvature** (G2) -- the artifact-free rounding a circular fillet cannot
+    produce. The contour is closed (the last vertex repeats the first),
+    matching the boundary rectangle's closed loop, and its extrema hit the box
+    exactly, so the rendered bounds equal the nominal label box.
+
+    Args:
+        width: Label width in inches (> 0).
+        height: Label height in inches (> 0).
+        corner: The corner parameters.
+
+    Returns:
+        A closed complex-vertex array of the rounded-rectangle contour,
+        traversed counter-clockwise from the bottom edge's left junction.
+    """
+    rx, ry, exponent = corner.rx, corner.ry, corner.exponent
+    # Patch centres, one per corner. Each patch is sampled X-vertex first,
+    # Y-vertex last, opened toward its corner by the sign pair, so:
+    #   BL: (0, ry) -> (rx, 0)              BR: (width, ry) -> (width - rx, 0)
+    #   TL: (0, height - ry) -> (rx, height)
+    #   TR: (width, height - ry) -> (width - rx, height)
+    # Traversed counter-clockwise from (rx, 0): BL reversed, TL, TR reversed,
+    # BR. Each pair of consecutive patches shares exactly one endpoint on the
+    # box's edge, so the polyline through them runs the corner's straight
+    # edges exactly (the junctions are single points).
+    bl = _superellipse_quad(rx, ry, rx, ry, exponent, -1.0, -1.0)
+    br = _superellipse_quad(width - rx, ry, rx, ry, exponent, 1.0, -1.0)
+    tr = _superellipse_quad(width - rx, height - ry, rx, ry, exponent, 1.0, 1.0)
+    tl = _superellipse_quad(rx, height - ry, rx, ry, exponent, -1.0, 1.0)
+    pts = np.concatenate([bl[::-1], tl, tr[::-1], br])
+    # Close the loop, matching the boundary rectangle's closed contour.
+    return np.concatenate([pts, pts[:1]])
+
+
 def _lower_ellipse_arc(width: float, height: float) -> Polyline:
     """Sample the lower half of a round label's boundary in the relief frame.
 
@@ -5784,6 +6030,37 @@ def _lower_ellipse_arc(width: float, height: float) -> Polyline:
     return tuple((float(x), float(y)) for x, y in zip(xs, ys))
 
 
+def _lower_rounded_rect_border(
+    width: float,
+    height: float,
+    corner: RoundedRectCorner,
+) -> Polyline:
+    """Sample the lower boundary of a rounded-rectangle label in the relief frame.
+
+    The :func:`_lower_ellipse_arc` counterpart for a rounded rectangle: the
+    bottom border is the bottom edge plus the two lower corner patches, so a
+    descender near the label's left/right edge measures against the rising
+    curve instead of a flat edge that engraves no material there. The label's
+    bottom edge sits at label-local ``y = 0`` (the border is drawn at the
+    label edge), which the relief's stacked frame puts at ``-height / 2``.
+
+    Args:
+        width: Label width in inches (> 0).
+        height: Label height in inches (> 0).
+        corner: The corner parameters.
+
+    Returns:
+        The lower boundary's vertices, left to right, in the stacked frame.
+    """
+    rx, ry, exponent = corner.rx, corner.ry, corner.exponent
+    # Left to right: the BL patch from (0, ry) to (rx, 0), the implied bottom
+    # edge to (width - rx, 0), then the BR patch up to (width, ry).
+    bl = _superellipse_quad(rx, ry, rx, ry, exponent, -1.0, -1.0)
+    br = _superellipse_quad(width - rx, ry, rx, ry, exponent, 1.0, -1.0)
+    pts = np.concatenate([bl, br[::-1]])
+    return tuple((float(z.real), float(z.imag) - height / 2.0) for z in pts)
+
+
 def _render_boundary_local(label: ResolvedLabel) -> vp.LineCollection:
     """Render the label boundary at local coordinates.
 
@@ -5802,7 +6079,7 @@ def _render_boundary_local(label: ResolvedLabel) -> vp.LineCollection:
         degenerate label).
     """
     lc = vp.LineCollection()
-    if _label_is_round(label):
+    if _uses_ellipse_boundary(label):
         if label.width <= 0.0 or label.height <= 0.0:
             return lc
         lc.append(
@@ -5810,6 +6087,13 @@ def _render_boundary_local(label: ResolvedLabel) -> vp.LineCollection:
                 label.width / 2.0, label.height / 2.0, label.width, label.height
             )
         )
+        return lc
+
+    rounded_corner = _rounded_rect_corner(label)
+    if rounded_corner is not None:
+        if label.width <= 0.0 or label.height <= 0.0:
+            return lc
+        lc.append(_rounded_rect_boundary_polygon(label.width, label.height, rounded_corner))
         return lc
 
     rect_array = vp.rect(0, 0, label.width, label.height)
@@ -5834,7 +6118,9 @@ def _hole_circles_local(label: ResolvedLabel) -> List[Tuple[float, float, float]
         One ``(center_x, center_y, radius)`` tuple per hole, in inches.
     """
     circles: List[Tuple[float, float, float]] = []
-    is_round = _label_is_round(label)
+    is_round = _uses_ellipse_boundary(label)
+    rounded_corner = _rounded_rect_corner(label)
+    corner_locations = ("top-left", "top-right", "bottom-left", "bottom-right")
 
     for hole in label.holes:
         radius = hole.diameter / 2.0
@@ -5845,7 +6131,7 @@ def _hole_circles_local(label: ResolvedLabel) -> List[Tuple[float, float, float]
         offset = label.hole_margin + (label.hole_cutter_diameter / 2.0) + radius
         location = str(hole.location)
 
-        if is_round and location in ("top-left", "top-right", "bottom-left", "bottom-right"):
+        if is_round and location in corner_locations:
             # A round label's corner sits in the material the ellipse cuts
             # away, so a rectangular corner inset would drill outside the
             # boundary. Place the hole on the ellipse's diagonal instead:
@@ -5853,6 +6139,16 @@ def _hole_circles_local(label: ResolvedLabel) -> List[Tuple[float, float, float]
             # outward normal by ``offset`` so the stroke keeps hole_margin
             # from the engraved curve.
             hole_x, hole_y = _round_corner_hole(label, location, offset)
+            circles.append((hole_x, hole_y, radius))
+            continue
+
+        if rounded_corner is not None and location in corner_locations:
+            # Same rule on a rounded rectangle: the sharp corner is cut
+            # away, so the hole rides the corner patch at its 45-degree
+            # parametric point, inset along the patch's outward normal.
+            hole_x, hole_y = _rounded_rect_corner_hole(
+                label.width, label.height, rounded_corner, location, offset
+            )
             circles.append((hole_x, hole_y, radius))
             continue
 
@@ -5927,6 +6223,58 @@ def _round_corner_hole(
     return (bx - nx * offset, by - ny * offset)
 
 
+def _rounded_rect_corner_hole(
+    width: float,
+    height: float,
+    corner: RoundedRectCorner,
+    location: str,
+    offset: float,
+) -> Tuple[float, float]:
+    """Place a corner drill hole on a rounded rectangle's corner patch.
+
+    The generalization of :func:`_round_corner_hole` to a superellipse
+    quadrant: the boundary point toward the named corner is the patch's
+    45-degree parametric point ``C + (sign_x rx cos^p 45, sign_y ry sin^p 45)``
+    (``p = 2 / n``), and the outward normal there is the gradient of
+    ``|X / rx| ^ n + |Y / ry| ^ n``, i.e. ``(sign_x cos^2 / rx, sign_y sin^2 /
+    ry)`` scaled by the common factor ``cos^{n-2} sin^{n-2}`` -- which cancels
+    in the normalized direction. At ``n == 2`` this is exactly the ellipse
+    rule. Insetting by ``offset`` along it keeps the hole's stroke
+    ``offset`` from the engraved curve near the diagonal, where the
+    rectangular corner inset would land the hole in cut-away material.
+
+    Args:
+        width: Label width in inches (> 0).
+        height: Label height in inches (> 0).
+        corner: The corner parameters.
+        location: One of the four corner location strings.
+        offset: Inset distance from the boundary, inches.
+
+    Returns:
+        ``(center_x, center_y)`` in label-local y-up inches.
+    """
+    rx, ry, exponent = corner.rx, corner.ry, corner.exponent
+    power = 2.0 / exponent
+    sign_x = -1.0 if "left" in location else 1.0
+    sign_y = 1.0 if "top" in location else -1.0
+    cos45 = math.sqrt(0.5)
+    sin45 = math.sqrt(0.5)
+    # Patch centre: inset from the label's corner by (rx, ry).
+    cx = rx if sign_x < 0.0 else width - rx
+    cy = ry if sign_y < 0.0 else height - ry
+    # Boundary point toward the corner (the patch's 45-degree parametric point).
+    bx = cx + sign_x * rx * cos45**power
+    by = cy + sign_y * ry * sin45**power
+    # Unit outward normal (the gradient's direction; the common parametric
+    # factor cancels under normalization).
+    nx = (sign_x * cos45 * cos45) / rx
+    ny = (sign_y * sin45 * sin45) / ry
+    norm = math.hypot(nx, ny)
+    if norm == 0.0:  # pragma: no cover - rx, ry > 0 by construction
+        return (bx, by)
+    return (bx - nx / norm * offset, by - ny / norm * offset)
+
+
 def _render_boundary_hpgl(label: ResolvedLabel) -> str:
     """Render label boundary as native HPGL polyline command.
 
@@ -5954,11 +6302,15 @@ def _render_boundary_hpgl(label: ResolvedLabel) -> str:
         return ""
 
     # Generate the boundary polygon coordinates in inches
-    if _label_is_round(label):
+    if _uses_ellipse_boundary(label):
         # For ellipses: generate the polygon directly, bypassing vpype LineCollection
         polygon_points = _ellipse_boundary_polygon(
             label.width / 2.0, label.height / 2.0, label.width, label.height
         )
+    elif (rounded_corner := _rounded_rect_corner(label)) is not None:
+        # Rounded rectangle: the G2 superellipse-corner contour, same
+        # continuous-polyline emission as the ellipse.
+        polygon_points = _rounded_rect_boundary_polygon(label.width, label.height, rounded_corner)
     else:
         # For rectangles: generate the four corners
         polygon_points = np.array(

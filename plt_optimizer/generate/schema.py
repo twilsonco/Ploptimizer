@@ -1227,6 +1227,29 @@ class LabelAttributes(TextAttributes):
             plates for schema parity only. A ``round`` label is packed by the
             adjacent ellipse-packing pipeline and its collision checks measure
             the ellipse boundary -- the rectangular pipeline is untouched.
+        rounded_rectangle_fraction: Corner rounding fraction in ``[0.0, 1.0]``
+            of the rectangular border. Each corner is a superellipse-quadrant
+            patch with exponent ``2 / fraction``, so the curvature varies
+            **continuously** along the whole boundary (G2) -- no circular-fillet
+            curvature jump where the rounding begins. ``0.0`` (the default) is
+            the sharp rectangle, bit-identical. The rounding spans ``fraction``
+            of the **shorter** edge: a 4x8 label at ``0.5`` rounds 2in (50%)
+            of the 4in sides, starting 1in from each corner. At ``1.0`` with
+            :attr:`rounded_rectangle_proportional` true -- or on a square --
+            the boundary is the exact ellipse/circle of ``type: round``. On a
+            non-square at ``1.0`` with proportional false the short edges are
+            fully rounded and the long edges keep straight sections (a
+            smoothed stadium). Cascades job -> plate -> label (fallback 0.0);
+            accepted on plates for schema parity only. Inert on ``type: round``
+            labels (the ellipse owns the boundary).
+        rounded_rectangle_proportional: Whether :attr:`rounded_rectangle_fraction`
+            applies proportionately to width and height (true: the corner
+            semi-axes are ``fraction * width / 2`` and ``fraction * height / 2``,
+            so a 4x8 label at ``0.5`` rounds 50% of the 8in side too) or as one
+            **identical rounding distance** on every side (false, the default:
+            the shorter edge determines the rounding for all sides). Cascades
+            job -> plate -> label (fallback false); accepted on plates for
+            schema parity only.
         margin: Optional universal margin in inches (used as fallback for
             h_margin and v_margin when those are unset). Cascades
             label -> job (fallback 0.125).
@@ -1343,6 +1366,38 @@ class LabelAttributes(TextAttributes):
             "(ellipse with semi-axes width/2 and height/2; a circle when "
             "width == height). Cascades label -> job; unset (null) falls back "
             "to 'rect'. Accepted on plates for schema parity only."
+        ),
+    )
+    rounded_rectangle_fraction: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Corner rounding fraction in [0.0, 1.0] of the rectangular border "
+            "(0.0 = sharp rectangle, the default). Corners are superellipse-"
+            "quadrant patches with exponent 2/fraction, so curvature varies "
+            "continuously along the boundary (no circular-fillet curvature "
+            "jump). The rounding spans 'fraction' of the shorter edge: a 4x8 "
+            "label at 0.5 rounds 2in (50%) of the 4in sides, starting 1in from "
+            "each corner. At 1.0 with rounded_rectangle_proportional true (or "
+            "on a square) the boundary is the exact ellipse/circle of "
+            "type: round; on a non-square at 1.0 with proportional false the "
+            "short edges fully round and the long edges keep straights. "
+            "Cascades job -> plate -> label; unset (null) falls back to "
+            "job-config.json then 0.0. Accepted on plates for schema parity "
+            "only. Inert on type: round labels."
+        ),
+    )
+    rounded_rectangle_proportional: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Whether rounded_rectangle_fraction applies proportionately to "
+            "width and height (true: corner semi-axes fraction*width/2 and "
+            "fraction*height/2) or as one identical rounding distance on every "
+            "side (false, the default: the shorter edge determines the "
+            "rounding for all sides). Cascades job -> plate -> label; unset "
+            "(null) falls back to job-config.json then false. Accepted on "
+            "plates for schema parity only."
         ),
     )
     margin: Optional[float] = Field(
@@ -1783,6 +1838,15 @@ class PlateSpec(BaseModel):
             for schema parity with the label ``type`` cascade. NOTE: label
             shape is a per-label property resolved before packing; a
             per-plate value is not applied (parity only).
+        rounded_rectangle_fraction: Optional corner rounding fraction in
+            ``[0.0, 1.0]`` for rectangular borders. Accepted for schema parity
+            with the label ``rounded_rectangle_fraction`` cascade. NOTE: the
+            border is a per-label property resolved before packing; a
+            per-plate value is not applied (parity only).
+        rounded_rectangle_proportional: Optional proportional-rounding flag.
+            Accepted for schema parity with the label
+            ``rounded_rectangle_proportional`` cascade. NOTE: a per-plate
+            value is not applied (parity only).
         min_hole_margin: Optional minimum hole margin in inches. Accepted
             for schema parity with the job/label ``min_hole_margin``
             cascade. NOTE: labels are rendered once and cached before
@@ -1970,6 +2034,22 @@ class PlateSpec(BaseModel):
         description=(
             "Label boundary shape 'rect'/'round' (schema parity; label shape "
             "is resolved per label before packing; not applied at plate level)."
+        ),
+    )
+    rounded_rectangle_fraction: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Corner rounding fraction in [0.0, 1.0] (schema parity; the border "
+            "is resolved per label before packing; not applied at plate level)."
+        ),
+    )
+    rounded_rectangle_proportional: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Proportional corner rounding (schema parity; the border is "
+            "resolved per label before packing; not applied at plate level)."
         ),
     )
     font: Optional[str] = Field(

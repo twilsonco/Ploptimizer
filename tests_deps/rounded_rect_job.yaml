@@ -1,0 +1,135 @@
+# Fixture for rounded-rectangle label borders
+# (`rounded_rectangle_fraction` + `rounded_rectangle_proportional`).
+#
+# Both fields cascade job -> plate (parity) -> label, with a job-config.json
+# key; defaults 0.0 / false. The rectangular border's corners are
+# superellipse-quadrant patches with exponent n = 2 / fraction, so the
+# curvature varies CONTINUOUSLY along the whole boundary (G2) -- no
+# circular-fillet curvature jump where the rounding begins.
+#
+# The behaviour matrix pinned here:
+#   - fraction = 0.0 (default, `sharp_control`)   -> sharp rectangle,
+#     bit-identical to the historical border.
+#   - 0 < fraction < 1, proportional false        -> one identical rounding
+#     distance rx = ry = fraction * min(W, H) / 2 on every side (the
+#     `equal_round` label: 4 x 8 at 0.5 rounds 2in of the 4in sides,
+#     starting 1in from each corner).
+#   - 0 < fraction < 1, proportional true         -> rx = fraction * W / 2,
+#     ry = fraction * H / 2 (the `prop_round` label: 50% of the 8in side
+#     rounds too).
+#   - fraction = 1, proportional true (or square) -> the EXACT ellipse /
+#     circle: the boundary, corner holes, radial inset and relief border all
+#     route to the shipped `type: round` ellipse path (the `full_ellipse`
+#     label's boundary is bit-identical to the `ellipse_twin`'s).
+#   - fraction = 1, proportional false, W != H    -> the smoothed stadium:
+#     short edges fully rounded, long edges keep straights, corner exponent
+#     clamped to 4 so the junctions stay curvature-continuous
+#     (`stadium` label).
+#
+# Corner drill holes ride the corner patch at its 45-degree parametric point,
+# inset along the patch's outward normal (the `rounded_corners` label; the
+# `type: round` precedent). The text margin applies to the engraved rounded
+# boundary (the content block's corners are measured against the inset
+# boundary), so corner text respects the rounding.
+#
+# `max_h_compress` stays unset (0.0): no line compresses, so every pinned
+# number in the export test is pure border geometry.
+job:
+  job_name: Rounded Rect Demo
+
+  text_height: 0.5
+  margin: 0.1
+  line_spacing: 0.15
+  auto_descending_character_adjustment: false
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. Sharp control: the default fraction 0.0 engraves the historical
+    #    rectangle, bit-identical.
+    - id: sharp_control
+      width: 4.0
+      height: 2.0
+      content:
+        - text: "SHARP"
+
+    # 2. Equal-distance rounding: 4 x 8 at 0.5 -> rx = ry = 1.0in on every
+    #    side (50% of the short 4in... of the 2in half-edge: the rounding
+    #    starts 1in from each corner along the 4in sides).
+    - id: equal_round
+      width: 4.0
+      height: 2.0
+      rounded_rectangle_fraction: 0.5
+      content:
+        - text: "EQUAL"
+
+    # 3. Proportional rounding: the same label with proportional true ->
+    #    rx = 1.0, ry = 0.5 (the fraction applies to each dimension).
+    - id: prop_round
+      width: 4.0
+      height: 2.0
+      rounded_rectangle_fraction: 0.5
+      rounded_rectangle_proportional: true
+      content:
+        - text: "PROP"
+
+    # 4. Full rounding, proportional: fraction 1.0 -> the exact ellipse. The
+    #    boundary is bit-identical to the `ellipse_twin` (type: round).
+    - id: full_ellipse
+      width: 4.0
+      height: 2.0
+      rounded_rectangle_fraction: 1.0
+      rounded_rectangle_proportional: true
+      content:
+        - text: "FULL"
+
+    # 5. The type: round twin of label 4 (the parity control).
+    - id: ellipse_twin
+      type: round
+      width: 4.0
+      height: 2.0
+      content:
+        - text: "FULL"
+
+    # 6. Full rounding, non-proportional, non-square: the smoothed stadium
+    #    (short edges fully rounded, 4in straights on the long edges,
+    #    corner exponent clamped to 4 for G2 junctions).
+    - id: stadium
+      width: 8.0
+      height: 4.0
+      rounded_rectangle_fraction: 1.0
+      content:
+        - text: "STADIUM"
+
+    # 7. Full rounding on a square: the exact circle (the two modes
+    #    coincide), ellipse path.
+    - id: full_circle
+      width: 3.0
+      height: 3.0
+      rounded_rectangle_fraction: 1.0
+      content:
+        - text: "CIRCLE"
+
+    # 8. Corner holes on a rounded rectangle: they ride the corner patches
+    #    (inset along the normal), never the cut-away sharp corner.
+    - id: rounded_corners
+      width: 4.0
+      height: 2.0
+      rounded_rectangle_fraction: 0.5
+      hole_margin: 0.15
+      holes:
+        - location: corners
+      content:
+        - text: "CORNER"
+
+    # 9. A squircle with text: the corner-aware inset keeps the wide line
+    #    inside the rounded boundary.
+    - id: squircle_text
+      width: 4.0
+      height: 2.0
+      rounded_rectangle_fraction: 0.8
+      content:
+        - text: "SQUIRCLE"
