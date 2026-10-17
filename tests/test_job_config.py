@@ -63,6 +63,7 @@ _FULL_CONFIG: dict[str, Any] = {
     "rounded_rectangle_proportional": True,
     "use_baseline_spacing": False,
     "v_center_by_content": True,
+    "enforce_cap_line": False,
     "auto_descending_character_adjustment": False,
     "descending_character_v_scale": 0.3,
     "descending_character_raise": 0.25,
@@ -168,6 +169,12 @@ class TestJobDefaultsModel:
         assert JobDefaults(optimize_line_content=True).optimize_line_content is True
         assert JobDefaults(optimize_line_content=False).optimize_line_content is False
         assert JobDefaults().optimize_line_content is None
+
+    def test_enforce_cap_line_config_field(self) -> None:
+        """enforce_cap_line is a legal shop default (opt-out configurable)."""
+        assert JobDefaults(enforce_cap_line=True).enforce_cap_line is True
+        assert JobDefaults(enforce_cap_line=False).enforce_cap_line is False
+        assert JobDefaults().enforce_cap_line is None
 
     def test_optimize_line_content_max_lines_config_field(self) -> None:
         """optimize_line_content_max_lines is a legal shop default (int, ge=1)."""
@@ -283,6 +290,7 @@ class TestJobDefaultsModel:
         assert "h_compress_global" not in REQUIRED_WHEN_UNCONFIGURED
         assert "optimize_line_content" not in REQUIRED_WHEN_UNCONFIGURED
         assert "optimize_line_content_max_lines" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "enforce_cap_line" not in REQUIRED_WHEN_UNCONFIGURED
         assert "use_baseline_spacing" not in REQUIRED_WHEN_UNCONFIGURED
         assert "rounded_rectangle_fraction" not in REQUIRED_WHEN_UNCONFIGURED
         assert "rounded_rectangle_proportional" not in REQUIRED_WHEN_UNCONFIGURED
@@ -557,6 +565,22 @@ class TestApplyJobConfigDefaults:
         config = load_job_config(_write_config(tmp_path, config_data))
         filled = apply_job_config_defaults(_minimal_job(optimize_line_content=False), config)
         assert filled["optimize_line_content"] is False
+
+    def test_enforce_cap_line_job_layer_fill(self, tmp_path: Path) -> None:
+        """The configured cap-line clamping default lands as a job-level value."""
+        config_data = dict(_FULL_CONFIG)
+        config_data["enforce_cap_line"] = True
+        config = load_job_config(_write_config(tmp_path, config_data))
+        filled = apply_job_config_defaults(_minimal_job(), config)
+        assert filled["enforce_cap_line"] is True
+
+    def test_enforce_cap_line_yaml_wins(self, tmp_path: Path) -> None:
+        """A spec-declared enforce_cap_line is never overridden by the config."""
+        config_data = dict(_FULL_CONFIG)
+        config_data["enforce_cap_line"] = True
+        config = load_job_config(_write_config(tmp_path, config_data))
+        filled = apply_job_config_defaults(_minimal_job(enforce_cap_line=False), config)
+        assert filled["enforce_cap_line"] is False
 
     def test_optimize_line_content_max_lines_job_layer_fill(self, tmp_path: Path) -> None:
         """The configured reflow line cap lands as a job-level value."""
@@ -1035,6 +1059,7 @@ class TestParseYamlWithJobConfig:
         assert job.h_compress_global is False
         assert job.optimize_line_content is False
         assert job.optimize_line_content_max_lines is None
+        assert job.enforce_cap_line is True
         assert job.use_baseline_spacing is True
         assert job.v_center_by_content is False
         # The shipped config keeps the sharp rectangle (the historical border).

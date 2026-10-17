@@ -179,6 +179,7 @@ always wins at its level. Precedence per attribute:
 | `bold_boldness_multiplier` | line → label → job → config (plate parity) | `1.5` (`<b>` markup on multi-stroke PLT fonts only) |
 | `cutter_downsize`, `max_cutter_downsizes`, `cutter_downsize_global` | line → label → job → config | `true` / `1` / `true` |
 | `h_compress_global` | line → label → job → config | `false` |
+| `enforce_cap_line` | line → label → job → config (plate parity) | `true` |
 | `use_baseline_spacing` | label → job → config (never lines; plate parity) | `true` |
 | `v_center_by_content` | label → job → config (never lines; plate parity) | `false` |
 | `auto_descending_character_adjustment`, `descending_character_v_scale`, `descending_character_raise`, `descending_character_clearance`, `descending_character_reciprocal_scale` | label → job → config (never lines; plate parity) | `true` / `0.5` / `0.7` / `0.0` / `0.5` |
@@ -234,7 +235,8 @@ entries that omit it).
   `text_h_alignment`, `min_hole_margin`, `hole_text_collision_distance`,
   `cutter_size`, `target_boldness_factor`, `multistroke_overlap_ratio`,
   `cutter_downsize`, `max_cutter_downsizes`,
-  `cutter_downsize_global`, `h_compress_global`, `use_baseline_spacing`,
+  `cutter_downsize_global`, `h_compress_global`, `enforce_cap_line`,
+  `use_baseline_spacing`,
   `v_center_by_content`,
   `auto_descending_character_adjustment`, `descending_character_v_scale`,
   `descending_character_raise`, `descending_character_clearance`,
@@ -317,6 +319,19 @@ entries that omit it).
   cutter swap (accepted staleness). WARNING-logged per propagated line and
   reported in the layout report as an ordinary compressed line. `job-config.json`
   supplies the shop default.
+- **`enforce_cap_line` (default true)**: alphanumeric cap-line clamping.
+  Every ASCII alphanumeric `[0-9a-zA-Z]` glyph whose ink extends *beyond* the
+  per-font capline (the reference-character height) is downscaled **top-down**
+  — a vertical scale about the glyph's own bottom, X untouched, so the aspect
+  ratio changes — and its top lands exactly on the capline. The enforcement is
+  strictly **pre-markup**: it applies to the raw glyph, before the small-caps,
+  bold, scale, italic and superscript/subscript transforms. Non-alphanumeric
+  characters (punctuation, spaces, derived Unicode symbols) are never clamped,
+  and a glyph sitting exactly at the capline (the reference char) never moves.
+  The vertical-only scale cannot keep `AA` arcs native (a non-uniform scale
+  maps a circular arc to an ellipse), so clamped glyphs flatten at the chord
+  tolerance (the `scale_y` policy). Cascades line → label → job (plate parity);
+  `job-config.json` supplies the shop default.
 - **`use_baseline_spacing` (default true)**: baseline-to-baseline line
   spacing. Stacking a label by rendered ink box means a line carrying
   descenders (`g j p q y`) pushes the next line down by its full ink height,

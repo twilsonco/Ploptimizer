@@ -866,6 +866,95 @@ def _pop_occurrence(occurrences: List[int]) -> int:
     return occurrences.pop(0)
 
 
+def _apply_cap_line_enforcement(
+    scaled: vp.LineCollection,
+    text: str,
+    font_path: Path,
+    cap_height_inches: float,
+    *,
+    small_caps: bool = False,
+    small_caps_flags: Optional[Sequence[bool]] = None,
+) -> vp.LineCollection:
+    """Clamp the overshooting alphanumeric glyph contours down to the capline.
+
+    The cap-line enforcement's top-down vertical downscale (the TTF
+    counterpart of :func:`plt_optimizer.generate.plt_font_renderer._capline_geometry`):
+    the line's contours are sliced per character (see
+    :func:`_per_glyph_counts`); every **ASCII alphanumeric** ``[0-9a-zA-Z]``
+    glyph whose ink top extends above ``cap_height_inches`` is scaled
+    **vertically only** about its own lowest ink point --
+    ``y' = bottom + (y - bottom) * factor`` with
+    ``factor = (cap - bottom) / (top - bottom)``, X untouched, so the aspect
+    ratio changes -- and its top lands exactly on the capline. The glyph's
+    bottom stays exactly where it is (a descender keeps its depth, like the
+    small-caps anchor). Non-alphanumeric characters (punctuation, derived
+    Unicode symbols) and glyphs at/below the capline are never touched.
+
+    The enforcement is strictly **pre-markup**: the caller applies it right
+    after the normalization scale, before small caps / bold / scale / italic
+    / baseline shifts, so every markup transform composes on the clamped
+    silhouette.
+
+    Args:
+        scaled: The line's contours in inches (baseline at y=0), before
+            closing-chord removal.
+        text: The line's text (spaces own no contours).
+        font_path: The ``.ttf`` path (per-glyph contour slicing).
+        cap_height_inches: The capline in inches (the line's target height;
+            the reference glyph ``H`` is exactly this tall in this frame).
+        small_caps: True when the render used the small-caps mapped string
+            (the per-glyph slicing then probes the uppercase sources, as in
+            :func:`_apply_small_caps`).
+        small_caps_flags: Per-character small-caps selection aligned with
+            ``text`` (spaces included -- the inline ``<sc>`` tag); only
+            consulted when ``small_caps``.
+
+    Returns:
+        The line with the overshooting alphanumeric glyphs clamped. When the
+        per-glyph contour counts do not line up, the line is returned
+        unchanged with a WARNING (the natural overshooting render is the
+        graceful fallback, the sibling transforms' contract).
+    """
+    pairs = _per_glyph_counts(
+        text, font_path, len(scaled), small_caps=small_caps, small_caps_flags=small_caps_flags
+    )
+    if pairs is None:
+        counts_total = sum(_glyph_contour_count(font_path, ch) for ch in text if ch != " ")
+        logger.warning(
+            "cap-line TTF render: per-glyph contour counts (%d) do not sum to the "
+            "whole-line contour count (%d); rendering with the natural overshoot",
+            counts_total,
+            len(scaled),
+        )
+        return scaled
+
+    occurrences = [index for index, ch in enumerate(text) if ch != " "]
+    lines = [np.asarray(line) for line in scaled]
+    cursor = 0
+    for _char, count in pairs:
+        glyph_indices = list(range(cursor, cursor + count))
+        cursor += count
+        text_index = _pop_occurrence(occurrences)
+        char = text[text_index]
+        if not (char.isascii() and char.isalnum()):
+            continue
+        present = [lines[index] for index in glyph_indices if len(lines[index])]
+        if not present:  # pragma: no cover - a glyph slice carries contours
+            continue
+        points = np.concatenate(present)
+        bottom = float(points.imag.min())
+        top = float(points.imag.max())
+        if top <= cap_height_inches or top <= bottom:
+            continue
+        factor = max((cap_height_inches - bottom) / (top - bottom), 0.0)
+        for index in glyph_indices:
+            line = lines[index]
+            # Component-wise (a complex multiply would rotate: the scale is
+            # Y-only, X stays exactly in place).
+            lines[index] = line.real + 1j * (bottom + (line.imag - bottom) * factor)
+    return vp.LineCollection(lines)
+
+
 def _splice_native_italic(
     lines: List[np.ndarray],
     glyph_indices: List[int],
@@ -913,6 +1002,7 @@ def render_text_line_ftext(
     bold_flags: Optional[Sequence[bool]] = None,
     glyph_scales: Optional[Sequence[float]] = None,
     baseline_shifts: Optional[Sequence[float]] = None,
+    cap_line_enforced: bool = False,
 ) -> vp.LineCollection:
     """Render a single line of text with the Relief Single Line TTF font.
 
@@ -992,6 +1082,16 @@ def render_text_line_ftext(
             :func:`_apply_baseline_shifts`. ``None`` (the default) keeps
             every glyph on the baseline, keeping every legacy render
             bit-identical.
+        cap_line_enforced: Cap-line enforcement (``enforce_cap_line``): when
+            ``True``, every ASCII alphanumeric ``[0-9a-zA-Z]`` glyph whose
+            ink extends above the capline (``target_height_inches`` -- the
+            reference ``H`` is exactly this tall) is downscaled top-down
+            about its own lowest ink point (vertical only, X untouched) so
+            its top lands exactly on the capline -- see
+            :func:`_apply_cap_line_enforcement`. Strictly **pre-markup**:
+            applied before small caps / bold / scale / italic / baseline
+            shifts. ``False`` (the default) disables the transform, keeping
+            every legacy render bit-identical.
 
     Returns:
         A vpype.LineCollection containing the rendered glyph outlines, or an
@@ -1036,6 +1136,20 @@ def render_text_line_ftext(
     scaled = vp.LineCollection()
     for line in lc:
         scaled.append(line * scale)
+
+    # Cap-line enforcement FIRST (strictly pre-markup): an alphanumeric
+    # glyph overshooting the capline is clamped top-down before every
+    # markup transform below, so small caps / bold / scale / italic all
+    # compose on the clamped silhouette (the PLT walker's contract).
+    if cap_line_enforced:
+        scaled = _apply_cap_line_enforcement(
+            scaled,
+            text,
+            resolved_font,
+            target_height_inches,
+            small_caps=small_caps,
+            small_caps_flags=small_caps_flags,
+        )
 
     # Shrink the lowercase-origin glyphs before chord removal, while the
     # contour arrays still line up 1:1 with the per-glyph contour slicing.
@@ -1172,6 +1286,7 @@ def render_text_line_ftext_with_words(
     bold_flags: Optional[Sequence[bool]] = None,
     glyph_scales: Optional[Sequence[float]] = None,
     baseline_shifts: Optional[Sequence[float]] = None,
+    cap_line_enforced: bool = False,
 ) -> Tuple[vp.LineCollection, List[Tuple[str, List[int]]]]:
     """Render a line of text and partition its contours by whitespace-delimited word.
 
@@ -1216,6 +1331,8 @@ def render_text_line_ftext_with_words(
         baseline_shifts: Per-character baseline shift in inches for
             ``<sup>``/``<sub>`` markup (``None`` = off; see
             :func:`render_text_line_ftext`).
+        cap_line_enforced: Alphanumeric cap-line clamping (``False`` = off;
+            see :func:`render_text_line_ftext`).
 
     Returns:
         ``(whole_lc, word_groups)`` where ``whole_lc`` is identical to
@@ -1239,6 +1356,7 @@ def render_text_line_ftext_with_words(
         bold_flags=bold_flags,
         glyph_scales=glyph_scales,
         baseline_shifts=baseline_shifts,
+        cap_line_enforced=cap_line_enforced,
     )
     if whole.is_empty():
         return whole, []
@@ -1249,6 +1367,7 @@ def render_text_line_ftext_with_words(
         small_caps_scale is not None
         or italic_tan is not None
         or bold_scale is not None
+        or cap_line_enforced
         or (glyph_scales is not None and any(scale != 1.0 for scale in glyph_scales))
         or (baseline_shifts is not None and any(shift != 0.0 for shift in baseline_shifts))
     ):
@@ -1433,6 +1552,7 @@ def render_text_line_ftext_with_glyphs(
     bold_flags: Optional[Sequence[bool]] = None,
     glyph_scales: Optional[Sequence[float]] = None,
     baseline_shifts: Optional[Sequence[float]] = None,
+    cap_line_enforced: bool = False,
 ) -> Tuple[
     vp.LineCollection,
     List[Tuple[str, List[int]]],
@@ -1475,6 +1595,8 @@ def render_text_line_ftext_with_glyphs(
         baseline_shifts: Per-character baseline shift in inches for
             ``<sup>``/``<sub>`` markup (``None`` = off; see
             :func:`render_text_line_ftext`).
+        cap_line_enforced: Alphanumeric cap-line clamping (``False`` = off;
+            see :func:`render_text_line_ftext`).
 
     Returns:
         ``(whole_lc, word_groups, glyph_groups)`` where ``whole_lc`` and
@@ -1500,6 +1622,7 @@ def render_text_line_ftext_with_glyphs(
         bold_flags=bold_flags,
         glyph_scales=glyph_scales,
         baseline_shifts=baseline_shifts,
+        cap_line_enforced=cap_line_enforced,
     )
     if whole.is_empty():
         return whole, word_groups, []

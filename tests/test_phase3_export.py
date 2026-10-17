@@ -4145,8 +4145,13 @@ class TestOverlapDemoExample:
         assert len(strokes) == 1
         # The strike's mid-cap height lies inside the cap band, so the ink
         # height matches the plain control (the strike adds no vertical ink).
+        # Tolerance 1e-6in (a thousandth of a plotter unit): cap-line
+        # enforcement lands both labels' overshooting alphanumerics on the
+        # capline, and the clamp's Y-scale introduces sub-unit float rounding
+        # between the two renders (the struck run's small-caps shrink
+        # re-derives the clamped geometry through a second scale).
         assert self._height(by_id["plt_cross_sc"]) == pytest.approx(
-            self._height(by_id["plt_plain"]), abs=1e-9
+            self._height(by_id["plt_plain"]), abs=1e-6
         )
 
     def test_small_caps_run_narrows_the_line(self, tmp_path: Path) -> None:
@@ -4889,3 +4894,174 @@ class TestHoleAwareCenteringDemoExample:
         labels = resolve_job_spec(job)
         # If we got here, no errors were raised.
         assert len(labels) == 6
+
+
+class TestEnforceCapLineDemoExample:
+    """Regression tests for tests_deps/enforce_cap_line_job.yaml.
+
+    The fixture pins alphanumeric cap-line enforcement (``enforce_cap_line``,
+    default true): every ASCII alphanumeric ``[0-9a-zA-Z]`` glyph whose ink
+    extends above the per-font capline is downscaled **top-down** (a vertical
+    scale about the glyph's own bottom, X untouched -- the aspect ratio
+    changes) so its top lands exactly on the capline. The enforcement is
+    strictly **pre-markup**: it applies to the raw glyph, before the
+    small-caps, bold, scale, italic and superscript/subscript transforms.
+    Non-alphanumerics (punctuation, derived Unicode symbols) are never
+    clamped, and a glyph sitting exactly at the capline never moves.
+
+    The shipped Dino sheet overshoots on its digits (1000.6-1007.8 design
+    units against the 1000-unit cap) and its round/pointed capitals, while
+    its flat capitals (E/F/H/Z) sit exactly at the cap. The bundled TTF's
+    ASCII capitals sit at/below the cap while its ascender lowercase
+    overshoots (b/d ~1.096 of the cap). Pins compare the rendered **ink-box
+    height** (frame-centering independent) with the sub-unit tolerance the
+    overshoot contract needs.
+    """
+
+    _SPEC = Path("tests_deps/enforce_cap_line_job.yaml")
+    _INVENTORY = [0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.09, 0.125, 0.25]
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled (against the inventory)."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job, available_cutters=self._INVENTORY)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="cap",
+            optimize=False,
+            plots=False,
+            available_cutters=self._INVENTORY,
+        )
+
+    @staticmethod
+    def _line_bounds(label: ResolvedLabel) -> tuple[float, float, float, float]:
+        """Rendered bounds of the label's single text line."""
+        from plt_optimizer.generate.label_renderer import _render_text_local_with_bounds
+
+        _lc, entries = _render_text_local_with_bounds(label)
+        return entries[0].bounds
+
+    def _height(self, result: PerCutterExport, label_id: str) -> float:
+        """Rendered ink-box height of one label's single text line."""
+        bounds = self._line_bounds(result.rendered_labels[label_id].source_label)
+        return bounds[3] - bounds[1]
+
+    def test_fixture_resolves_with_the_field_on_every_line(self, tmp_path: Path) -> None:
+        """The cascade lands: every line resolves true except the opt-outs."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        assert by_id["plt_digits"].content[0].enforce_cap_line is True
+        assert by_id["plt_opt_out"].content[0].enforce_cap_line is False
+        assert by_id["plt_sup_off"].content[0].enforce_cap_line is False
+        assert by_id["ttf_opt_out"].content[0].enforce_cap_line is False
+
+    def test_overshooting_digits_clamped_shorter_than_opt_out(self, tmp_path: Path) -> None:
+        """The clamped digit line is shorter than its opt-out twin.
+
+        Every Dino digit's top lands on the capline (``toolpath_text_height``
+        = 0.44in at text_height 0.5), so the enforced ink box is the cap
+        height plus the tallest digit's sub-baseline sliver; the opt-out twin
+        keeps the sheet's 0.776% overshoot.
+        """
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_digits"].source_label.content[0]
+        enforced = self._height(result, "plt_digits")
+        unenforced = self._height(result, "plt_opt_out")
+        cap = line.toolpath_text_height
+        # Clamped: cap height + the tallest digit's sub-baseline sliver
+        # (Dino '3' bottoms at -6.39 units = 0.639% of the cap).
+        assert enforced == pytest.approx(cap * 1.00639, abs=0.005)
+        # Opt-out: cap + the tallest digit's overshoot (1007.758 = 0.7758%).
+        assert unenforced == pytest.approx(cap * (1 + 0.007758 + 0.00639), abs=0.005)
+        assert unenforced > enforced + 1e-3
+
+    def test_flat_capitals_are_bit_identical(self, tmp_path: Path) -> None:
+        """E/F/H/Z sit exactly at the capline: the clamp never moves them."""
+        result = self._export(tmp_path)
+        on = self._line_bounds(result.rendered_labels["plt_flat_caps"].source_label)
+        off = self._line_bounds(
+            result.rendered_labels["plt_flat_caps_off"].source_label
+        )
+        assert on == pytest.approx(off, abs=1e-9)
+
+    def test_round_capitals_clamp_shorter_than_the_cap_overshoot(self, tmp_path: Path) -> None:
+        """A/C/G/O/S overshoot the capline; the clamp lands them on it."""
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_round_caps"].source_label.content[0]
+        enforced = self._height(result, "plt_round_caps")
+        cap = line.toolpath_text_height
+        # Clamped to the capline (plus the tallest round glyph's sub-baseline
+        # sliver, Dino 'C' bottoms at -6.00 units = 0.6% of the cap).
+        assert enforced == pytest.approx(cap * 1.006, abs=0.005)
+
+    def test_punctuation_is_exempt(self, tmp_path: Path) -> None:
+        """Dino's '(' tops at 1103.9 units and is never clamped."""
+        result = self._export(tmp_path)
+        on = self._line_bounds(result.rendered_labels["plt_punctuation"].source_label)
+        off = self._line_bounds(
+            result.rendered_labels["plt_punctuation_off"].source_label
+        )
+        assert on == pytest.approx(off, abs=1e-9)
+        # The unclamped parenthesis towers above the cap (box > cap height).
+        assert on[3] - on[1] > 0.44
+
+    def test_symbol_font_glyphs_clamp_by_character(self, tmp_path: Path) -> None:
+        """A symbol font's ASCII slots ARE alphanumeric, so they clamp.
+
+        Wingdings' ``A``/``B`` symbols top at 1044.95/1044.43 units; the
+        character-based contract clamps them (the enforcement keys off the
+        character, not the font family).
+        """
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_wingdings"].source_label.content[0]
+        enforced = self._height(result, "plt_wingdings")
+        cap = line.toolpath_text_height
+        # Clamped: the top lands on the capline, so the box is the cap height
+        # less the symbols' sub-baseline air (Wingdings 'B' bottoms at 168.8
+        # units = 0.1688 of the cap, the lower of the two).
+        assert enforced == pytest.approx(cap * (1 - 0.1688), abs=0.005)
+
+    def test_enforcement_is_strictly_pre_markup(self, tmp_path: Path) -> None:
+        """The bare ``<sup>`` centers the CLAMPED digit, not the raw one.
+
+        ``E<sup>0</sup>``: the clamp lands the ``0`` on the capline first, so
+        the downscaled/centered superscript's box grows by ``d/2`` cap heights
+        of the clamped glyph. The enforcement-off twin centers the
+        overshooting digit, so its ink box is strictly taller.
+        """
+        result = self._export(tmp_path)
+        on = self._height(result, "plt_sup")
+        off = self._height(result, "plt_sup_off")
+        assert on < off - 1e-3
+
+    def test_small_caps_composes_on_the_clamped_capital(self, tmp_path: Path) -> None:
+        """SC shrinks the CLAMPED capital: the enforcement runs first.
+
+        ``Dino SC`` at ``sc_scale`` 0.7: the ``O`` capital clamps to the
+        capline, so the full-size capital dominates the line's ink box at the
+        cap height (the small capital is 0.7 of the clamped box).
+        """
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_small_caps"].source_label.content[0]
+        enforced = self._height(result, "plt_small_caps")
+        cap = line.toolpath_text_height
+        # The full-size (clamped) capital dominates the line's ink box.
+        assert enforced == pytest.approx(cap * 1.006, abs=0.005)
+
+    def test_ttf_ascenders_clamp_and_opt_out_keeps_them(self, tmp_path: Path) -> None:
+        """The bundled TTF's ascender lowercase overshoots the cap and clamps.
+
+        ``b``/``d`` top at ~1.096 of the cap while ``H``/``0`` sit at/below
+        it, so the enforced line's box is the cap height and the opt-out
+        twin's is ~1.096 of it.
+        """
+        result = self._export(tmp_path)
+        line = result.rendered_labels["ttf_ascenders"].source_label.content[0]
+        enforced = self._height(result, "ttf_ascenders")
+        unenforced = self._height(result, "ttf_opt_out")
+        cap = line.toolpath_text_height
+        assert enforced == pytest.approx(cap, abs=0.01)
+        assert unenforced == pytest.approx(1.095588 * cap, abs=0.01)
+        assert unenforced > enforced + 1e-3

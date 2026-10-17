@@ -632,6 +632,55 @@ def _scale_baseline_geometry(geometry: _GlyphGeometry, factor: float) -> _GlyphG
     )
 
 
+def _capline_geometry(geometry: _GlyphGeometry, cap: float) -> _GlyphGeometry:
+    """Return ``geometry`` with its ink clamped down to the capline ``cap``.
+
+    The cap-line enforcement's top-down vertical downscale: the transform is
+    ``y' = min_y + (y - min_y) * factor`` with ``x' = x`` (``min_y`` the
+    glyph's lowest ink, ``factor = (cap - min_y) / (max_y - min_y)``), so the
+    glyph's bottom stays exactly where it is and its top descends onto the
+    capline. The scale is **vertical only** -- the aspect ratio changes (X is
+    untouched), the deliberate contract of ``enforce_cap_line``. A glyph
+    whose top already sits at or below ``cap`` (and a degenerate zero-height
+    glyph) is returned unchanged.
+
+    Arcs flatten inside :meth:`~plt_optimizer.generate.text_geometry.TextBlock.scaled_y`
+    (a non-uniform scale maps a circular arc to an ellipse), at the standard
+    chord tolerance -- the ``scale_y`` policy (a routine render-time
+    transform, DEBUG log), not the :meth:`compress_x` WARNING.
+
+    The block, bounding box and both profile envelopes transform together,
+    so kerning measures the *clamped* silhouette in the shared baseline
+    frame.
+
+    Args:
+        geometry: Cached glyph geometry in design units.
+        cap: Capline height in the same design frame (the font's
+            ``normalized_ref_height``; the reference character is exactly
+            this tall).
+
+    Returns:
+        The clamped geometry, or ``geometry`` unchanged when it does not
+        overshoot.
+    """
+    min_x, min_y, max_x, max_y = geometry.bounding_box
+    if max_y <= cap or max_y <= min_y:
+        return geometry
+    factor = max((cap - min_y) / (max_y - min_y), 0.0)
+
+    def _point(x: float, y: float) -> Tuple[float, float]:
+        return (x, min_y + (y - min_y) * factor)
+
+    # Pure Y translation carrying the baseline-scaled glyph onto its own
+    # bottom: (y - min_y) * factor + min_y keeps min_y exactly in place.
+    return _GlyphGeometry(
+        block=geometry.block.translate(0.0, -min_y).scaled_y(factor).translate(0.0, min_y),
+        bounding_box=(min_x, min_y, max_x, min_y + (max_y - min_y) * factor),
+        left_envelope=tuple(_point(x, y) for x, y in geometry.left_envelope),
+        right_envelope=tuple(_point(x, y) for x, y in geometry.right_envelope),
+    )
+
+
 def _walk_line(
     text: str,
     target_height_inches: float,
@@ -656,6 +705,7 @@ def _walk_line(
     glyph_scales: Optional[Sequence[float]] = None,
     baseline_shifts: Optional[Sequence[float]] = None,
     font_names: Optional[Sequence[Optional[str]]] = None,
+    enforce_cap_line: bool = False,
 ) -> Tuple[
     TextBlock,
     List[Tuple[str, List[int]]],
@@ -781,6 +831,19 @@ def _walk_line(
             default) renders every character in :attr:`font_name`, so every
             legacy call site renders bit-identically. TTF run fonts are
             handled by the caller's segment composition, never here.
+        enforce_cap_line: Cap-line enforcement (``enforce_cap_line``): when
+            ``True``, every ASCII alphanumeric ``[0-9a-zA-Z]`` glyph whose
+            ink extends above the capline (the character's own font frame's
+            ``normalized_ref_height``) is downscaled **top-down** about its
+            own bottom via :func:`_capline_geometry` -- a vertical-only
+            scale, so the aspect ratio changes -- so its top lands exactly
+            on the capline. The clamp is strictly **pre-markup**: it applies
+            to the raw glyph, before the small-caps, bold/scale and italic
+            transforms below. Non-alphanumeric characters (punctuation,
+            spaces, derived Unicode symbols) are never clamped; the
+            reference character sits exactly at the capline and never moves.
+            ``False`` (the default) disables the transform entirely, so
+            every legacy call site renders bit-identically.
 
     Returns:
         ``(block, word_groups, glyph_groups)`` where ``block`` is the
@@ -868,7 +931,7 @@ def _walk_line(
     # different ref height kerns in its own frame, scaled by the RIGHT glyph's
     # frame at placement (the pair's output scale -- documented precision
     # boundary for pre-v2 libraries, which the loader rejects today).
-    frames: Dict[str, Tuple[str, float, float, float]] = {}
+    frames: Dict[str, Tuple[str, float, float, float, float]] = {}
     if font_names is not None:
         for run_font in font_names:
             if run_font is None or run_font in frames:
@@ -882,6 +945,7 @@ def _walk_line(
                 run_scale,
                 0.5 * window_fraction * run_data.normalized_ref_height,
                 min_width_inches / run_scale if run_scale > 0 else 0.0,
+                run_data.normalized_ref_height,
             )
 
     words = text.split(" ")
@@ -939,14 +1003,24 @@ def _walk_line(
                 char_scale = scale
                 char_window = window_design
                 char_min_width = min_width_design
+                char_ref_height = font_data.normalized_ref_height
             else:
                 (
                     char_library,
                     char_scale,
                     char_window,
                     char_min_width,
+                    char_ref_height,
                 ) = frames[run_font]
             geometry = _glyph_entry(library_dir_key, char_library, source)
+            # Cap-line enforcement (strictly pre-markup): an alphanumeric
+            # glyph overshooting its frame's capline is clamped top-down
+            # FIRST, so every markup transform below (small caps, bold/scale,
+            # italic) composes on the clamped silhouette and kerning measures
+            # it. Non-alphanumerics and glyphs at/below the capline are
+            # returned unchanged.
+            if enforce_cap_line and source.isascii() and source.isalnum():
+                geometry = _capline_geometry(geometry, char_ref_height)
             if source != char and lowercase_scale is not None:
                 geometry = _scale_geometry(geometry, lowercase_scale)
             # Bold markup: the thicker-cutter glyphs shrink uniformly about
@@ -1025,6 +1099,7 @@ def render_text_line_plt_font_with_words(
     glyph_scales: Optional[Sequence[float]] = None,
     baseline_shifts: Optional[Sequence[float]] = None,
     font_names: Optional[Sequence[Optional[str]]] = None,
+    enforce_cap_line: bool = False,
 ) -> Tuple[TextBlock, List[Tuple[str, List[int]]]]:
     """Render a text line in a PLT-extracted font, partitioned by word.
 
@@ -1082,6 +1157,8 @@ def render_text_line_plt_font_with_words(
             :func:`_walk_line`).
         font_names: Per-character ``<f:...>`` font selection (``None`` =
             off; see :func:`_walk_line`).
+        enforce_cap_line: Alphanumeric cap-line clamping (``False`` = off;
+            see :func:`_walk_line`).
 
     Returns:
         ``(block, word_groups)`` with the semantics documented on
@@ -1114,6 +1191,7 @@ def render_text_line_plt_font_with_words(
         glyph_scales=glyph_scales,
         baseline_shifts=baseline_shifts,
         font_names=font_names,
+        enforce_cap_line=enforce_cap_line,
     )
     return block, word_groups
 
@@ -1142,6 +1220,7 @@ def render_text_line_plt_font_with_glyphs(
     glyph_scales: Optional[Sequence[float]] = None,
     baseline_shifts: Optional[Sequence[float]] = None,
     font_names: Optional[Sequence[Optional[str]]] = None,
+    enforce_cap_line: bool = False,
 ) -> Tuple[
     TextBlock,
     List[Tuple[str, List[int]]],
@@ -1193,6 +1272,8 @@ def render_text_line_plt_font_with_glyphs(
             :func:`_walk_line`).
         font_names: Per-character ``<f:...>`` font selection (``None`` =
             off; see :func:`_walk_line`).
+        enforce_cap_line: Alphanumeric cap-line clamping (``False`` = off;
+            see :func:`_walk_line`).
 
     Returns:
         ``(block, word_groups, glyph_groups)`` with the semantics
@@ -1225,6 +1306,7 @@ def render_text_line_plt_font_with_glyphs(
         glyph_scales=glyph_scales,
         baseline_shifts=baseline_shifts,
         font_names=font_names,
+        enforce_cap_line=enforce_cap_line,
     )
 
 
@@ -1252,6 +1334,7 @@ def render_text_line_plt_font(
     glyph_scales: Optional[Sequence[float]] = None,
     baseline_shifts: Optional[Sequence[float]] = None,
     font_names: Optional[Sequence[Optional[str]]] = None,
+    enforce_cap_line: bool = False,
 ) -> TextBlock:
     """Render a text line in a PLT-extracted font (arcs preserved).
 
@@ -1304,6 +1387,8 @@ def render_text_line_plt_font(
             :func:`_walk_line`).
         font_names: Per-character ``<f:...>`` font selection (``None`` =
             off; see :func:`_walk_line`).
+        enforce_cap_line: Alphanumeric cap-line clamping (``False`` = off;
+            see :func:`_walk_line`).
 
     Returns:
         The positioned :class:`TextBlock` (empty for blank input).
@@ -1334,5 +1419,6 @@ def render_text_line_plt_font(
         glyph_scales=glyph_scales,
         baseline_shifts=baseline_shifts,
         font_names=font_names,
+        enforce_cap_line=enforce_cap_line,
     )
     return block

@@ -2124,6 +2124,12 @@ def _render_line_core(
     # bit-identically; italic_angle 0 is upright by contract (the shear is
     # skipped, italic runs engrave like plain text).
     render_text = line.plain_text
+    # Cap-line enforcement (strictly pre-markup): both renderers clamp the
+    # overshooting alphanumeric glyphs to the capline FIRST, before the
+    # small-caps / bold / scale / italic transforms. The kwarg is passed only
+    # when enabled, so every opted-out line keeps the historical call shape.
+    if line.enforce_cap_line:
+        plt_kwargs["enforce_cap_line"] = True
     italic_kwargs = _italic_render_kwargs(line)
     # Bold / scale markup: the flagged characters render with a per-glyph
     # cutter diameter and a baseline-anchored uniform scale (PLT: per-character
@@ -2164,6 +2170,8 @@ def _render_line_core(
         "font_path": ref.path,
         "check_glyph_coverage": check_glyph_coverage,
     }
+    if line.enforce_cap_line:
+        ftext_kwargs["cap_line_enforced"] = True
     if ref.small_caps:
         ftext_kwargs["small_caps_scale"] = line.sc_scale
     # Inline <sc> markup (per-character selection) — the gate is inert on a SC

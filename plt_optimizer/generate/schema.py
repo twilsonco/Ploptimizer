@@ -1130,6 +1130,21 @@ class TextAttributes(BaseModel):
             "line -> label -> job (unset by default = no growth)."
         ),
     )
+    enforce_cap_line: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Clamp alphanumeric characters to the capline: when true (the "
+            "default), every ASCII alphanumeric [0-9a-zA-Z] glyph whose ink "
+            "extends above the per-font cap height is downscaled top-down "
+            "(a vertical downscale about the glyph's own bottom, X untouched "
+            "-- the aspect ratio changes) so its top lands exactly on the "
+            "capline. The enforcement is strictly pre-markup: it applies "
+            "before the small-caps, bold, scale, italic and superscript/"
+            "subscript transforms. Non-alphanumeric characters (punctuation, "
+            "spaces, derived Unicode symbols) are never clamped. Cascades "
+            "line -> label -> job (fallback true); explicit false is honored."
+        ),
+    )
     text_color: Optional[TextColor] = Field(
         default=None,
         description=(
@@ -2262,6 +2277,13 @@ class PlateSpec(BaseModel):
         description=(
             "Ceiling on the number of consecutive lines a reflow group may "
             "use (schema parity; not applied at plate level)."
+        ),
+    )
+    enforce_cap_line: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Alphanumeric cap-line clamping (schema parity; not applied at "
+            "plate level -- labels render before packing)."
         ),
     )
     hole_text_collision_distance: Optional[float] = Field(

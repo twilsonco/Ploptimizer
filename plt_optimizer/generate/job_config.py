@@ -642,6 +642,16 @@ class JobDefaults(BaseModel):
             "growth."
         ),
     )
+    enforce_cap_line: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Default alphanumeric cap-line clamping (job layer). When true, "
+            "every ASCII alphanumeric [0-9a-zA-Z] glyph whose ink extends "
+            "above the per-font cap height is downscaled top-down so its top "
+            "lands exactly on the capline (strictly pre-markup). Unset falls "
+            "back to true."
+        ),
+    )
     text_chunk_mode: Optional[Literal["line", "word"]] = Field(
         default=None, description="Default plate-space text optimization granularity."
     )
@@ -780,6 +790,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "h_compress_global",
     "optimize_line_content",
     "optimize_line_content_max_lines",
+    "enforce_cap_line",
     "use_baseline_spacing",
     "v_center_by_content",
     "auto_descending_character_adjustment",

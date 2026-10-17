@@ -750,6 +750,19 @@
       "description": "Default ceiling N on the consecutive lines a reflow group may use (job layer). Growth-only: the group starts at its existing line count and may gain lines up to N. Unset (null) means no growth.",
       "title": "Optimize Line Content Max Lines"
     },
+    "enforce_cap_line": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default alphanumeric cap-line clamping (job layer). When true, every ASCII alphanumeric [0-9a-zA-Z] glyph whose ink extends above the per-font cap height is downscaled top-down so its top lands exactly on the capline (strictly pre-markup). Unset falls back to true.",
+      "title": "Enforce Cap Line"
+    },
     "text_chunk_mode": {
       "anyOf": [
         {

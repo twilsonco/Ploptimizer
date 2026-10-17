@@ -134,6 +134,12 @@ _FALLBACK_NOTES: dict[str, str] = {
     "A disabled line breaks the group; runs of one line, blank lines and groups with fewer words "
     "than lines are left alone. Runs as an export pre-pass before the cutter-reduction and "
     "shared-compression pre-passes. Cascades line/label/job; job-config supplies the shop default.",
+    "DEFAULT_ENFORCE_CAP_LINE": "True = every ASCII alphanumeric [0-9a-zA-Z] glyph whose ink "
+    "extends above the per-font capline is downscaled top-down (a vertical scale about the "
+    "glyph's own bottom, X untouched - the aspect ratio changes) so its top lands exactly on the "
+    "capline. Strictly pre-markup: applied before the small-caps, bold, scale, italic and "
+    "superscript/subscript transforms. Non-alphanumerics (punctuation, derived Unicode symbols) "
+    "are never clamped. Cascades line/label/job; job-config supplies the shop default.",
     "DEFAULT_TEXT_H_ALIGNMENT": "Horizontal alignment fallback when unset everywhere.",
     "DEFAULT_USE_BASELINE_SPACING": "True = a label's text lines stack by baseline pitch "
     "(cap height + line_spacing), so descenders hang into the gap below their line and every "

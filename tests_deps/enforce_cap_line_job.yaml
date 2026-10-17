@@ -1,0 +1,125 @@
+# Fixture for alphanumeric cap-line enforcement (`enforce_cap_line`).
+#
+# When true (the default), every ASCII alphanumeric [0-9a-zA-Z] glyph whose
+# ink extends above the per-font capline is downscaled TOP-DOWN (a vertical
+# scale about the glyph's own bottom, X untouched -- the aspect ratio
+# changes) so its top lands exactly on the capline. The enforcement is
+# strictly PRE-markup: it applies before the small-caps, bold, scale, italic
+# and superscript/subscript transforms. Non-alphanumeric characters
+# (punctuation, spaces, derived Unicode symbols) are never clamped.
+#
+# The shipped Dino sheet overshoots on its digits (0-9 top at 1000.6-1007.8
+# design units against the 1000-unit cap) and on round/pointed capitals
+# (A/C/G/O/Q/S), while its flat capitals (E/F/H/Z) sit exactly at the cap --
+# the reference chars never move. The bundled TTF's ASCII capitals sit at/below
+# the cap while its ascender lowercase overshoot (b/d/f/h/k/l ~1.096, i/j
+# ~1.154 of the cap).
+job:
+  job_name: Enforce Cap Line Demo
+  width: 3.0
+  height: 1.0
+  margin: 0.1
+  text_height: 0.5
+  line_spacing: 0.15
+  auto_descending_character_adjustment: false
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. Overshooting digits, enforcement ON (the default): every digit's top
+    #    lands exactly on the capline.
+    - id: plt_digits
+      font: Dino
+      content:
+        - text: "0123456789"
+
+    # 2. The opt-out twin: the digits keep their sheet-engraved overshoot.
+    - id: plt_opt_out
+      font: Dino
+      enforce_cap_line: false
+      content:
+        - text: "0123456789"
+
+    # 3. Flat capitals at exactly the cap (E/F/H/Z): bit-identical both ways.
+    - id: plt_flat_caps
+      font: Dino
+      content:
+        - text: "EFHZ"
+
+    # 3b. The opt-out twin of #3 (the enforcement is a no-op on both).
+    - id: plt_flat_caps_off
+      font: Dino
+      enforce_cap_line: false
+      content:
+        - text: "EFHZ"
+
+    # 4. Overshooting round/pointed capitals (A/C/G/O/S) clamp to the cap.
+    - id: plt_round_caps
+      font: Dino
+      content:
+        - text: "ACGOS"
+
+    # 5. Strictly pre-markup: the clamp applies to the raw glyph, THEN the
+    #    bare <sup> centers the clamped (not the overshooting) glyph on the
+    #    capline.
+    - id: plt_sup
+      font: Dino
+      supersubscript_downscale: 0.5
+      content:
+        - text: "E<sup>0</sup>"
+
+    # 5b. The enforcement-off twin of #5: the <sup> centers the OVERSHOOTING
+    #     digit, so the line's ink box grows past the clamped twin's.
+    - id: plt_sup_off
+      font: Dino
+      enforce_cap_line: false
+      supersubscript_downscale: 0.5
+      content:
+        - text: "E<sup>0</sup>"
+
+    # 6. Small caps: the clamp runs before the SC shrink, so the small
+    #    capital's top lands at sc_scale * cap (not sc_scale * overshoot).
+    - id: plt_small_caps
+      font: "Dino SC"
+      sc_scale: 0.7
+      content:
+        - text: "Oo"
+
+    # 7. The character-based contract: a symbol font's ASCII slots ARE
+    #    alphanumeric, so its overshooting symbols clamp too (Wingdings 'A'
+    #    tops at 1044.95 design units).
+    - id: plt_wingdings
+      font: Wingdings
+      content:
+        - text: "AB"
+
+    # 8. Punctuation exemption: Dino's '(' tops at 1103.9 units and is never
+    #    clamped (the alphanumeric gate).
+    - id: plt_punctuation
+      font: Dino
+      content:
+        - text: "H(H"
+
+    # 8b. The opt-out twin of #8 (the parenthesis is exempt, so both match).
+    - id: plt_punctuation_off
+      font: Dino
+      enforce_cap_line: false
+      content:
+        - text: "H(H"
+
+    # 9. The TTF family: the bundled font's ascender lowercase overshoots the
+    #    cap and clamps; its capitals/digits sit at/below the cap.
+    - id: ttf_ascenders
+      font: ReliefSingleLineCAD-Regular
+      content:
+        - text: "b d H 0"
+
+    # 10. The TTF opt-out twin keeps the natural ascender overshoot.
+    - id: ttf_opt_out
+      font: ReliefSingleLineCAD-Regular
+      enforce_cap_line: false
+      content:
+        - text: "b d H 0"

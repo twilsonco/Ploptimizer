@@ -976,6 +976,123 @@ class TestFontNamesDispatch:
         assert "font_names" not in calls
 
 
+class TestEnforceCapLineDispatch:
+    """``_render_line_core`` threads the cap-line clamp to both renderer families."""
+
+    def test_plt_line_forwards_the_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An enabled PLT line passes ``enforce_cap_line=True`` to the walk."""
+        calls: dict[str, object] = {}
+
+        def fake_render(*args: object, **kwargs: object) -> TextBlock:
+            calls.update(kwargs)
+            return TextBlock.empty()
+
+        monkeypatch.setattr(label_renderer, "render_text_line_plt_font", fake_render)
+        monkeypatch.setattr(
+            label_renderer,
+            "render_text_line_plt_font_with_glyphs",
+            lambda *a, **k: (TextBlock.empty(), [], []),
+        )
+        line = _markup_line("abc", font="Dino", enforce_cap_line=True)
+        _render_line_block(line, label_renderer.TextChunkMode.LINE)
+        assert calls["enforce_cap_line"] is True
+
+    def test_disabled_plt_line_keeps_the_historical_call_shape(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An opted-out PLT line receives no enforce kwarg at all."""
+        calls: dict[str, object] = {}
+
+        def fake_render(*args: object, **kwargs: object) -> TextBlock:
+            calls.update(kwargs)
+            return TextBlock.empty()
+
+        monkeypatch.setattr(label_renderer, "render_text_line_plt_font", fake_render)
+        monkeypatch.setattr(
+            label_renderer,
+            "render_text_line_plt_font_with_glyphs",
+            lambda *a, **k: (TextBlock.empty(), [], []),
+        )
+        line = _markup_line("abc", font="Dino", enforce_cap_line=False)
+        _render_line_block(line, label_renderer.TextChunkMode.LINE)
+        assert "enforce_cap_line" not in calls
+
+    def test_ttf_line_forwards_the_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An enabled TTF line passes ``cap_line_enforced=True`` to ftext."""
+        calls: dict[str, object] = {}
+
+        def fake_ftext(text: str, **kwargs: object) -> vp.LineCollection:
+            calls.update(kwargs)
+            lc = vp.LineCollection()
+            lc.append(np.array([0 + 0j, 0.5 + 0.4j], dtype=complex))
+            return lc
+
+        monkeypatch.setattr(label_renderer, "render_text_line_ftext", fake_ftext)
+        monkeypatch.setattr(
+            label_renderer, "glyph_groups_for_line", lambda *a, **k: [("x", [0])]
+        )
+        line = _markup_line(
+            "abc", font=font_registry.DEFAULT_FONT_NAME, enforce_cap_line=True
+        )
+        _render_line_block(line, label_renderer.TextChunkMode.LINE)
+        assert calls["cap_line_enforced"] is True
+
+    def test_disabled_ttf_line_keeps_the_historical_call_shape(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An opted-out TTF line receives no enforcement kwarg at all."""
+        calls: dict[str, object] = {}
+
+        def fake_ftext(text: str, **kwargs: object) -> vp.LineCollection:
+            calls.update(kwargs)
+            lc = vp.LineCollection()
+            lc.append(np.array([0 + 0j, 0.5 + 0.4j], dtype=complex))
+            return lc
+
+        monkeypatch.setattr(label_renderer, "render_text_line_ftext", fake_ftext)
+        monkeypatch.setattr(
+            label_renderer, "glyph_groups_for_line", lambda *a, **k: [("x", [0])]
+        )
+        line = _markup_line(
+            "abc", font=font_registry.DEFAULT_FONT_NAME, enforce_cap_line=False
+        )
+        _render_line_block(line, label_renderer.TextChunkMode.LINE)
+        assert "cap_line_enforced" not in calls
+
+    def test_font_segment_clone_carries_the_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A cross-family segment clone inherits the parent's enforcement."""
+        seen: dict[str, bool] = {}
+
+        def fake_plt(text: str, **kwargs: object) -> TextBlock:
+            seen["plt"] = bool(kwargs.get("enforce_cap_line", False))
+            return _stroke_block(0.0, 1.0)
+
+        def fake_ftext(text: str, **kwargs: object) -> vp.LineCollection:
+            seen["ttf"] = bool(kwargs.get("cap_line_enforced", False))
+            lc = vp.LineCollection()
+            lc.append(np.array([0 + 0j, 0.5 + 0.4j], dtype=complex))
+            return lc
+
+        monkeypatch.setattr(label_renderer, "render_text_line_plt_font", fake_plt)
+        monkeypatch.setattr(label_renderer, "render_text_line_ftext", fake_ftext)
+        monkeypatch.setattr(
+            label_renderer,
+            "render_text_line_plt_font_with_glyphs",
+            lambda *a, **k: (_stroke_block(0.0, 1.0), [], [("x", [0])]),
+        )
+        monkeypatch.setattr(
+            label_renderer, "glyph_groups_for_line", lambda *a, **k: [("x", [0])]
+        )
+        line = _markup_line(
+            "a <f:" + font_registry.DEFAULT_FONT_NAME + ">b</f>",
+            font="Dino",
+            scale_cutter_inventory=(0.06,),
+            enforce_cap_line=True,
+        )
+        _render_line_block(line, label_renderer.TextChunkMode.LINE)
+        assert seen == {"plt": True, "ttf": True}
+
+
 class TestFontSegmentComposition:
     """``_render_line_block_composed``: cross-family segments on a running cursor."""
 

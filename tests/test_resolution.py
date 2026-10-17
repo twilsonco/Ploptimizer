@@ -25,6 +25,7 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_DESCENDING_CHARACTER_RAISE,
     DEFAULT_DESCENDING_CHARACTER_RECIPROCAL_SCALE,
     DEFAULT_DESCENDING_CHARACTER_V_SCALE,
+    DEFAULT_ENFORCE_CAP_LINE,
     DEFAULT_FALLBACK_ADVANCE_FRACTION,
     DEFAULT_FONT,
     DEFAULT_H_COMPRESS_GLOBAL,
@@ -2968,6 +2969,65 @@ class TestHCompressGlobalCascade:
         """Line-level True beats the label-level False."""
         line = resolve_job_spec(self._job(job=False, label=False, line=True))[0].content[0]
         assert line.h_compress_global is True
+
+
+class TestEnforceCapLineCascade:
+    """enforce_cap_line cascades line -> label -> job -> True (explicit-None)."""
+
+    @staticmethod
+    def _job(**levels: bool | None) -> JobSpec:
+        """Build a single-line job applying enforce_cap_line at the given levels."""
+        job_kwargs: dict[str, bool | None] = {}
+        label_kwargs: dict[str, bool | None] = {}
+        line_kwargs: dict[str, bool | None] = {}
+        if "job" in levels:
+            job_kwargs["enforce_cap_line"] = levels["job"]
+        if "label" in levels:
+            label_kwargs["enforce_cap_line"] = levels["label"]
+        if "line" in levels:
+            line_kwargs["enforce_cap_line"] = levels["line"]
+        return JobSpec(
+            job_name="J",
+            text_height=0.5,
+            **job_kwargs,  # type: ignore[arg-type]
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    **label_kwargs,  # type: ignore[arg-type]
+                    content=[TextLine(text="X", **line_kwargs)],  # type: ignore[arg-type]
+                )
+            ],
+        )
+
+    def test_default_module_constant_is_true(self) -> None:
+        """The shipped default clamps alphanumeric glyphs to the capline."""
+        assert DEFAULT_ENFORCE_CAP_LINE is True
+
+    def test_default_resolves_true(self) -> None:
+        """All levels omitting resolves to the True fallback."""
+        line = resolve_job_spec(self._job())[0].content[0]
+        assert line.enforce_cap_line is True
+
+    def test_job_false_used_when_label_omits(self) -> None:
+        """Job-level False cascades to labels and lines that omit the field."""
+        line = resolve_job_spec(self._job(job=False))[0].content[0]
+        assert line.enforce_cap_line is False
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level True beats the job-level False."""
+        line = resolve_job_spec(self._job(job=False, label=True))[0].content[0]
+        assert line.enforce_cap_line is True
+
+    def test_line_overrides_label(self) -> None:
+        """Line-level False beats the label-level True."""
+        line = resolve_job_spec(self._job(job=True, label=True, line=False))[0].content[0]
+        assert line.enforce_cap_line is False
+
+    def test_resolved_dataclass_default_is_true(self) -> None:
+        """Direct test callers constructing ResolvedTextLine get clamping on."""
+        assert _make_line().enforce_cap_line is True
 
 
 class TestNextSmallerCutter:

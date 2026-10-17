@@ -359,6 +359,16 @@ DEFAULT_OPTIMIZE_LINE_CONTENT: bool = False
 # still need horizontal compression) and never removes any. Consumed by
 # :mod:`plt_optimizer.generate.line_content`.
 DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES: Optional[int] = None
+# Alphanumeric cap-line clamping. ``True`` (the default) clamps every ASCII
+# alphanumeric ``[0-9a-zA-Z]`` glyph whose ink extends above the per-font cap
+# height: the glyph is downscaled top-down (a vertical scale about its own
+# bottom, X untouched -- the aspect ratio changes) so its top lands exactly on
+# the capline. The enforcement is strictly pre-markup -- it applies before the
+# small-caps, bold, scale, italic and superscript/subscript transforms. Non-
+# alphanumeric characters (punctuation, spaces, derived Unicode symbols) are
+# never clamped. Consumed by both renderers (PLT ``_walk_line``, TTF
+# ``render_text_line_ftext``).
+DEFAULT_ENFORCE_CAP_LINE: bool = True
 # Baseline-to-baseline line spacing. ``True`` (the default) stacks a label's
 # text lines by baseline pitch (``nominal_text_height + line_spacing``) so a
 # line's descenders hang *into* the gap below it and every gap on the label
@@ -957,6 +967,16 @@ class ResolvedTextLine:
             two *different* values in one group raise
             :class:`LineContentConfigError`, and so does declaring it while
             no line of the label enables ``optimize_line_content``.
+        enforce_cap_line: Whether alphanumeric glyphs are clamped to the
+            capline (cascaded line -> label -> job, default
+            ``DEFAULT_ENFORCE_CAP_LINE`` (``True``)). When enabled, every
+            ASCII alphanumeric ``[0-9a-zA-Z]`` glyph whose ink extends above
+            the per-font cap height is downscaled top-down (a vertical scale
+            about its own bottom, X untouched) so its top lands exactly on
+            the capline. The enforcement is strictly pre-markup: it applies
+            before the small-caps, bold, scale, italic and superscript/
+            subscript transforms. Consumed by both renderers. Explicit
+            ``False`` is honored; only ``None`` means unset.
         html_brackets: Delimiter pair for the inline markup syntax
             (cascaded line -> label -> job, default
             ``DEFAULT_HTML_BRACKETS`` (``"<>"``)): an even-length string
@@ -1105,6 +1125,7 @@ class ResolvedTextLine:
     h_compress_global: bool = DEFAULT_H_COMPRESS_GLOBAL
     optimize_line_content: bool = DEFAULT_OPTIMIZE_LINE_CONTENT
     optimize_line_content_max_lines: Optional[int] = DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES
+    enforce_cap_line: bool = DEFAULT_ENFORCE_CAP_LINE
 
     def __post_init__(self) -> None:
         """Default :attr:`plain_text` to :attr:`text` (markup-free fast path).
@@ -3782,6 +3803,17 @@ def _resolve_content(
         else:
             line_max_lines = DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES
 
+        # Resolve the alphanumeric cap-line clamping flag with the same
+        # precedence; an intentional ``False`` (no clamping) is honored.
+        if line.enforce_cap_line is not None:
+            line_enforce_cap_line: bool = line.enforce_cap_line
+        elif label_input.enforce_cap_line is not None:
+            line_enforce_cap_line = label_input.enforce_cap_line
+        elif job.enforce_cap_line is not None:
+            line_enforce_cap_line = job.enforce_cap_line
+        else:
+            line_enforce_cap_line = DEFAULT_ENFORCE_CAP_LINE
+
         resolved_content.append(
             ResolvedTextLine(
                 text=line.text,
@@ -3826,6 +3858,7 @@ def _resolve_content(
                 h_compress_global=line_h_compress_global,
                 optimize_line_content=line_optimize_line_content,
                 optimize_line_content_max_lines=line_max_lines,
+                enforce_cap_line=line_enforce_cap_line,
             )
         )
     return _apply_reflow_line_caps(resolved_content, label_id)

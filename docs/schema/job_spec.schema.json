@@ -525,6 +525,19 @@
           "description": "Ceiling N on how many consecutive lines an optimize_line_content group may use. This option can only ever ADD lines to a label; it never removes, blanks or collapses one. Unset reflows across the group's existing lines and adds none. When set, the reflow starts at the group's existing line count G and grows the group (inserting lines cloned from the group's typography) until its lines need no horizontal compression, M reaches N, or M reaches the group's word count. N <= G leaves the cap inert. Setting it on any one line of a group applies it to the whole group; two different values in one group are an error, and so is specifying it while optimize_line_content is not enabled. Cascades line -> label -> job (unset by default = no growth).",
           "title": "Optimize Line Content Max Lines"
         },
+        "enforce_cap_line": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Clamp alphanumeric characters to the capline: when true (the default), every ASCII alphanumeric [0-9a-zA-Z] glyph whose ink extends above the per-font cap height is downscaled top-down (a vertical downscale about the glyph's own bottom, X untouched -- the aspect ratio changes) so its top lands exactly on the capline. The enforcement is strictly pre-markup: it applies before the small-caps, bold, scale, italic and superscript/subscript transforms. Non-alphanumeric characters (punctuation, spaces, derived Unicode symbols) are never clamped. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "title": "Enforce Cap Line"
+        },
         "text_color": {
           "anyOf": [
             {
@@ -1418,6 +1431,19 @@
           "description": "Ceiling on the number of consecutive lines a reflow group may use (schema parity; not applied at plate level).",
           "title": "Optimize Line Content Max Lines"
         },
+        "enforce_cap_line": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Alphanumeric cap-line clamping (schema parity; not applied at plate level -- labels render before packing).",
+          "title": "Enforce Cap Line"
+        },
         "hole_text_collision_distance": {
           "anyOf": [
             {
@@ -2097,6 +2123,19 @@
           "description": "Ceiling N on how many consecutive lines an optimize_line_content group may use. This option can only ever ADD lines to a label; it never removes, blanks or collapses one. Unset reflows across the group's existing lines and adds none. When set, the reflow starts at the group's existing line count G and grows the group (inserting lines cloned from the group's typography) until its lines need no horizontal compression, M reaches N, or M reaches the group's word count. N <= G leaves the cap inert. Setting it on any one line of a group applies it to the whole group; two different values in one group are an error, and so is specifying it while optimize_line_content is not enabled. Cascades line -> label -> job (unset by default = no growth).",
           "title": "Optimize Line Content Max Lines"
         },
+        "enforce_cap_line": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Clamp alphanumeric characters to the capline: when true (the default), every ASCII alphanumeric [0-9a-zA-Z] glyph whose ink extends above the per-font cap height is downscaled top-down (a vertical downscale about the glyph's own bottom, X untouched -- the aspect ratio changes) so its top lands exactly on the capline. The enforcement is strictly pre-markup: it applies before the small-caps, bold, scale, italic and superscript/subscript transforms. Non-alphanumeric characters (punctuation, spaces, derived Unicode symbols) are never clamped. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "title": "Enforce Cap Line"
+        },
         "text_color": {
           "anyOf": [
             {
@@ -2604,6 +2643,19 @@
       "default": null,
       "description": "Ceiling N on how many consecutive lines an optimize_line_content group may use. This option can only ever ADD lines to a label; it never removes, blanks or collapses one. Unset reflows across the group's existing lines and adds none. When set, the reflow starts at the group's existing line count G and grows the group (inserting lines cloned from the group's typography) until its lines need no horizontal compression, M reaches N, or M reaches the group's word count. N <= G leaves the cap inert. Setting it on any one line of a group applies it to the whole group; two different values in one group are an error, and so is specifying it while optimize_line_content is not enabled. Cascades line -> label -> job (unset by default = no growth).",
       "title": "Optimize Line Content Max Lines"
+    },
+    "enforce_cap_line": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Clamp alphanumeric characters to the capline: when true (the default), every ASCII alphanumeric [0-9a-zA-Z] glyph whose ink extends above the per-font cap height is downscaled top-down (a vertical downscale about the glyph's own bottom, X untouched -- the aspect ratio changes) so its top lands exactly on the capline. The enforcement is strictly pre-markup: it applies before the small-caps, bold, scale, italic and superscript/subscript transforms. Non-alphanumeric characters (punctuation, spaces, derived Unicode symbols) are never clamped. Cascades line -> label -> job (fallback true); explicit false is honored.",
+      "title": "Enforce Cap Line"
     },
     "text_color": {
       "anyOf": [

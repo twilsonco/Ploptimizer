@@ -2580,6 +2580,27 @@ class TestStrikethroughBreakSpacesField:
         assert plate.strikethrough_break_spaces is True
 
 
+class TestEnforceCapLineField:
+    """The cascading ``enforce_cap_line`` field (line -> label -> job + plate)."""
+
+    def test_defaults_to_none_everywhere(self) -> None:
+        """Every tier defaults enforce_cap_line to None (unset = true fallback)."""
+        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        assert job.enforce_cap_line is None
+        assert TextLine(text="X").enforce_cap_line is None
+        assert PlateSpec(id="p", width=24.0, height=16.0).enforce_cap_line is None
+
+    @pytest.mark.parametrize("value", [True, False])
+    def test_bool_accepted(self, value: bool) -> None:
+        """Both True and False are accepted (explicit False honored)."""
+        assert TextLine(text="X", enforce_cap_line=value).enforce_cap_line is value
+
+    def test_plate_parity_accepts_the_field(self) -> None:
+        """The plate tier carries the field for schema parity."""
+        plate = PlateSpec(id="p", width=24.0, height=16.0, enforce_cap_line=False)
+        assert plate.enforce_cap_line is False
+
+
 class TestTargetBoldnessFactorField:
     """The cascading ``target_boldness_factor`` field (line -> label -> job + plate)."""
 

@@ -30,6 +30,7 @@ from plt_optimizer.generate.plt_font_renderer import (
     SPACE_HEIGHT_FRACTION,
     PltFontRenderError,
     _GlyphGeometry,
+    _capline_geometry,
     clear_glyph_cache,
     interpolate_envelope,
     kerning_offset,
@@ -1418,11 +1419,20 @@ class TestPltFontDemoExample:
         the multi-stroke library regen: the shipped Dino/Jhanuni sheets are
         now the 0.67/0.6 ``_S1`` engravings, so the demo fonts' geometry (and
         the compression that flattens arcs) shifted.
+
+        Re-pinned for alphanumeric cap-line enforcement (``enforce_cap_line``,
+        default true): the shipped sheets' digits and round/pointed capitals
+        overshoot the capline, and the clamp's **vertical-only** scale cannot
+        keep ``AA`` arcs native (a non-uniform scale maps a circular arc to an
+        ellipse), so every clamped glyph flattens at the chord tolerance --
+        the ``TextBlock.scale_y`` policy. The counts drop accordingly; a label
+        of exact-cap glyphs (or an ``enforce_cap_line: false`` line) keeps its
+        arcs.
         """
         rendered = self._rendered()
         counts = {key: content.plt_content.count("AA") for key, (_rl, content) in rendered.items()}
-        assert counts["dino_banner"] == 177
-        assert counts["mixed_tag"] == 383
+        assert counts["dino_banner"] == 15
+        assert counts["mixed_tag"] == 92
         assert counts["ttf_card"] == 0
 
 
@@ -1947,3 +1957,330 @@ class TestFontNames:
             "AB", 1.0, "Test", library_dir=two_fonts, font_names=(None, "Half")
         )
         assert [char for char, _ in glyphs] == ["A", "B"]
+
+
+_CAP_ENFORCE_CHARACTERS: Dict[str, Dict[str, Any]] = {
+    # Overshooting round cap: 1.0 wide, top 5% above the capline (1050).
+    "O": _v2_entry(
+        "PU0,0;PD1000,0;PD1000,1050;PD0,1050;PD0,0;",
+        (0, 0, 1000, 1050),
+        [(0, 0), (0, 1050)],
+        [(1000, 0), (1000, 1050)],
+    ),
+    # Exact-cap flat cap: top exactly 1000, must never move.
+    "H": _v2_entry(
+        "PU0,0;PD1000,0;PD1000,1000;PD0,1000;PD0,0;",
+        (0, 0, 1000, 1000),
+        [(0, 0), (0, 1000)],
+        [(1000, 0), (1000, 1000)],
+    ),
+    # Overshooting punctuation: never clamped (the alphanumeric gate).
+    "!": _v2_entry(
+        "PU0,0;PD100,0;PD100,1100;PD0,1100;PD0,0;",
+        (0, 0, 100, 1100),
+        [(0, 0), (0, 1100)],
+        [(100, 0), (100, 1100)],
+    ),
+    # Descender + overshoot: bottom -500, top 1100.
+    "g": _v2_entry(
+        "PU0,-500;PD500,-500;PD500,1100;PD0,1100;PD0,-500;",
+        (0, -500, 500, 1100),
+        [(0, -500), (0, 1100)],
+        [(500, -500), (500, 1100)],
+    ),
+    # Small lowercase for the SC ordering pin.
+    "o": _v2_entry(
+        "PU0,0;PD500,0;PD500,500;PD0,500;PD0,0;",
+        (0, 0, 500, 500),
+        [(0, 0), (0, 500)],
+        [(500, 0), (500, 500)],
+    ),
+    # Tapered glyph: its deepest envelope penetration sits at the top, so
+    # clamping the top measurably narrows a "VV" pair.
+    "V": _v2_entry(
+        "PU0,1050;PD500,0;PD1000,1050;",
+        (0, 0, 1000, 1050),
+        [(0, 1050), (500, 0)],
+        [(500, 0), (1000, 1050)],
+    ),
+    # Non-ASCII alphanumeric: the gate is ASCII-only, never clamped.
+    "é": _v2_entry(
+        "PU0,0;PD1000,0;PD1000,1080;PD0,1080;PD0,0;",
+        (0, 0, 1000, 1080),
+        [(0, 0), (0, 1080)],
+        [(1000, 0), (1000, 1080)],
+    ),
+    # Derived-style symbol above cap: non-alphanumeric, never clamped.
+    "–": _v2_entry(
+        "PU0,400;PD1000,400;PD1000,1080;PD0,1080;PD0,400;",
+        (0, 400, 1000, 1080),
+        [(0, 400), (0, 1080)],
+        [(1000, 400), (1000, 1080)],
+    ),
+}
+
+
+@pytest.fixture
+def cap_lib(tmp_path: Path) -> Path:
+    """A synthetic v2 library with overshooting alphanumeric glyphs."""
+    return _write_library(tmp_path, _CAP_ENFORCE_CHARACTERS)
+
+
+class TestCapLineGeometryHelper:
+    """``_capline_geometry`` clamps a geometry top-down onto the capline."""
+
+    def test_overshoot_clamped_exactly_to_cap(self) -> None:
+        """The top lands on the capline; bottom and X stay exactly put."""
+        geometry = _GlyphGeometry(
+            block=TextBlock(
+                strokes=(
+                    Stroke(
+                        pen_up=complex(0.0, 0.0),
+                        segments=(LineSeg(complex(0.0, 0.0), complex(1.0, 1.05)),),
+                    ),
+                )
+            ),
+            bounding_box=(0.0, 0.0, 1.0, 1.05),
+            left_envelope=((0.0, 0.0), (0.0, 1.05)),
+            right_envelope=((1.0, 0.0), (1.0, 1.05)),
+        )
+        clamped = _capline_geometry(geometry, 1.0)
+        assert clamped.bounding_box == pytest.approx((0.0, 0.0, 1.0, 1.0))
+        # The envelope top sample lands on the capline, x untouched.
+        assert clamped.left_envelope[-1] == pytest.approx((0.0, 1.0))
+        assert clamped.right_envelope[-1] == pytest.approx((1.0, 1.0))
+        bounds = clamped.block.bounds()
+        assert bounds is not None
+        assert bounds[3] == pytest.approx(1.0, abs=1e-9)
+        assert bounds[1] == pytest.approx(0.0, abs=1e-9)
+
+    def test_undershoot_returns_the_same_object(self) -> None:
+        """A glyph at/below the capline is returned unchanged (identity)."""
+        geometry = _GlyphGeometry(
+            block=TextBlock(
+                strokes=(
+                    Stroke(
+                        pen_up=complex(0.0, 0.0),
+                        segments=(LineSeg(complex(0.0, 0.0), complex(1.0, 1.0)),),
+                    ),
+                )
+            ),
+            bounding_box=(0.0, 0.0, 1.0, 1.0),
+            left_envelope=(),
+            right_envelope=(),
+        )
+        assert _capline_geometry(geometry, 1.0) is geometry
+
+    def test_degenerate_zero_height_returns_the_same_object(self) -> None:
+        """A zero-height glyph has no scale factor: returned unchanged."""
+        geometry = _GlyphGeometry(
+            block=TextBlock(
+                strokes=(
+                    Stroke(
+                        pen_up=complex(0.0, 1.2),
+                        segments=(LineSeg(complex(0.0, 1.2), complex(1.0, 1.2)),),
+                    ),
+                )
+            ),
+            bounding_box=(0.0, 1.2, 1.0, 1.2),
+            left_envelope=(),
+            right_envelope=(),
+        )
+        assert _capline_geometry(geometry, 1.0) is geometry
+
+    def test_descender_bottom_is_the_anchor(self) -> None:
+        """A sub-baseline glyph clamps about its own lowest ink, not y=0."""
+        geometry = _GlyphGeometry(
+            block=TextBlock(
+                strokes=(
+                    Stroke(
+                        pen_up=complex(0.0, -0.5),
+                        segments=(LineSeg(complex(0.0, -0.5), complex(0.5, 1.1)),),
+                    ),
+                )
+            ),
+            bounding_box=(0.0, -0.5, 0.5, 1.1),
+            left_envelope=((0.0, -0.5), (0.0, 1.1)),
+            right_envelope=((0.5, -0.5), (0.5, 1.1)),
+        )
+        clamped = _capline_geometry(geometry, 1.0)
+        assert clamped.bounding_box[1] == pytest.approx(-0.5)
+        assert clamped.bounding_box[3] == pytest.approx(1.0)
+        bounds = clamped.block.bounds()
+        assert bounds is not None
+        assert bounds[1] == pytest.approx(-0.5, abs=1e-9)
+        assert bounds[3] == pytest.approx(1.0, abs=1e-9)
+
+    def test_arcs_flatten_under_the_clamp(self) -> None:
+        """The non-uniform Y scale flattens arcs (the scale_y policy)."""
+        geometry = _GlyphGeometry(
+            block=TextBlock(
+                strokes=(
+                    Stroke(
+                        pen_up=complex(0.0, 525.0),
+                        segments=(
+                            ArcSeg(complex(0.0, 525.0), complex(500.0, 525.0), 360.0),
+                        ),
+                    ),
+                )
+            ),
+            bounding_box=(0.0, 0.0, 1000.0, 1050.0),
+            left_envelope=(),
+            right_envelope=(),
+        )
+        clamped = _capline_geometry(geometry, 1000.0)
+        arcs = sum(
+            1
+            for stroke in clamped.block.strokes
+            for seg in stroke.segments
+            if isinstance(seg, ArcSeg)
+        )
+        lines = sum(
+            1
+            for stroke in clamped.block.strokes
+            for seg in stroke.segments
+            if isinstance(seg, LineSeg)
+        )
+        assert arcs == 0
+        assert lines > 0
+        bounds = clamped.block.bounds()
+        assert bounds is not None
+        assert bounds[3] <= 1000.0 + 1e-6
+
+
+class TestWalkLineCapLineEnforcement:
+    """``enforce_cap_line`` clamps alphanumerics first, before all markup."""
+
+    def test_overshooting_cap_clamped_to_capline(self, cap_lib: Path) -> None:
+        """The overshooting ``O`` top lands exactly on the capline."""
+        plain = _render("O", 1.0, cap_lib)
+        enforced = _render("O", 1.0, cap_lib, enforce_cap_line=True)
+        assert plain.bounds()[3] == pytest.approx(1.05, abs=1e-9)
+        assert enforced.bounds()[3] == pytest.approx(1.0, abs=1e-9)
+        # X untouched: the clamp changes the aspect ratio, not the width.
+        assert enforced.bounds()[2] == pytest.approx(plain.bounds()[2], abs=1e-9)
+
+    def test_default_off_is_bit_identical(self, cap_lib: Path) -> None:
+        """``enforce_cap_line=False`` (the default) matches the plain render."""
+        plain = _render("OV", 1.0, cap_lib, cutter_diameter=0.02)
+        off = _render("OV", 1.0, cap_lib, cutter_diameter=0.02, enforce_cap_line=False)
+        assert off.bounds() == pytest.approx(plain.bounds())
+
+    def test_exact_cap_glyph_never_moves(self, cap_lib: Path) -> None:
+        """A glyph whose top sits exactly at the capline is untouched."""
+        plain = _render("H", 1.0, cap_lib)
+        enforced = _render("H", 1.0, cap_lib, enforce_cap_line=True)
+        assert enforced.bounds() == pytest.approx(plain.bounds())
+
+    def test_punctuation_never_clamped(self, cap_lib: Path) -> None:
+        """The overshooting ``!`` is outside the alphanumeric gate."""
+        plain = _render("!", 1.0, cap_lib)
+        enforced = _render("!", 1.0, cap_lib, enforce_cap_line=True)
+        assert enforced.bounds() == pytest.approx(plain.bounds())
+        assert enforced.bounds()[3] == pytest.approx(1.1, abs=1e-9)
+
+    def test_derived_symbol_never_clamped(self, cap_lib: Path) -> None:
+        """A non-alphanumeric symbol above the capline engraves verbatim."""
+        plain = _render("–", 1.0, cap_lib)
+        enforced = _render("–", 1.0, cap_lib, enforce_cap_line=True)
+        assert enforced.bounds() == pytest.approx(plain.bounds())
+
+    def test_non_ascii_alnum_never_clamped(self, cap_lib: Path) -> None:
+        """The gate is ASCII-only: ``é`` keeps its overshoot."""
+        plain = _render("é", 1.0, cap_lib)
+        enforced = _render("é", 1.0, cap_lib, enforce_cap_line=True)
+        assert enforced.bounds() == pytest.approx(plain.bounds())
+
+    def test_descender_bottom_stays_put(self, cap_lib: Path) -> None:
+        """``g`` keeps its sub-baseline depth; only the top descends."""
+        enforced = _render("g", 1.0, cap_lib, enforce_cap_line=True)
+        bounds = enforced.bounds()
+        assert bounds[1] == pytest.approx(-0.5, abs=1e-9)
+        assert bounds[3] == pytest.approx(1.0, abs=1e-9)
+        assert bounds[2] == pytest.approx(0.5, abs=1e-9)
+
+    def test_clamp_runs_before_small_caps(self, cap_lib: Path) -> None:
+        """SC shrinks the CLAMPED capital: top = sc_scale * cap, not * 1.05."""
+        sc = _render(
+            "o",
+            1.0,
+            cap_lib,
+            lowercase_scale=0.7,
+            lowercase_flags=(True,),
+            enforce_cap_line=True,
+        )
+        assert sc.bounds()[3] == pytest.approx(0.7, abs=1e-9)
+        unenforced = _render("o", 1.0, cap_lib, lowercase_scale=0.7, lowercase_flags=(True,))
+        assert unenforced.bounds()[3] == pytest.approx(0.735, abs=1e-9)
+
+    def test_clamp_runs_before_bold_scale(self, cap_lib: Path) -> None:
+        """The bold baseline scale composes on the clamped silhouette."""
+        bold = _render("O", 1.0, cap_lib, glyph_scales=(0.5,), enforce_cap_line=True)
+        assert bold.bounds()[3] == pytest.approx(0.5, abs=1e-9)
+        unenforced = _render("O", 1.0, cap_lib, glyph_scales=(0.5,))
+        assert unenforced.bounds()[3] == pytest.approx(0.525, abs=1e-9)
+
+    def test_clamp_runs_before_italic(self, cap_lib: Path) -> None:
+        """The shear keeps the clamped top; the overhang uses the clamped top."""
+        italic = _render("O", 1.0, cap_lib, italic_tan=0.5, enforce_cap_line=True)
+        bounds = italic.bounds()
+        assert bounds[3] == pytest.approx(1.0, abs=1e-9)
+        # Right edge = 1.0 (glyph) + 1.0 * 0.5 (overhang from the clamped top).
+        assert bounds[2] == pytest.approx(1.5, abs=1e-9)
+
+    def test_sup_shift_composes_on_the_clamped_glyph(self, cap_lib: Path) -> None:
+        """The <sup> translate rides on top of the clamped geometry."""
+        sup = _render("O", 1.0, cap_lib, baseline_shifts=(0.1,), enforce_cap_line=True)
+        assert sup.bounds()[3] == pytest.approx(1.1, abs=1e-9)
+        assert sup.bounds()[1] == pytest.approx(0.1, abs=1e-9)
+
+    def test_kerning_advance_is_symmetry_invariant(self, cap_lib: Path) -> None:
+        """A pair of identically clamped glyphs kerns exactly like the plain pair.
+
+        The clamp is a Y-only scale: envelope samples move in Y, their X
+        (and so the penetration values) stay put. Both glyphs of a pair
+        clamp identically, so the paired samples stay Y-aligned and the
+        advance is unchanged -- the clamped silhouette IS what kerns (the
+        envelopes transform together, see TestCapLineGeometryHelper).
+        """
+        plain = _render("VV", 1.0, cap_lib, cutter_diameter=0.0, character_spacing=0.0)
+        enforced = _render(
+            "VV",
+            1.0,
+            cap_lib,
+            cutter_diameter=0.0,
+            character_spacing=0.0,
+            enforce_cap_line=True,
+        )
+        assert enforced.bounds()[2] == pytest.approx(plain.bounds()[2], abs=1e-9)
+
+    def test_glyph_groups_stay_exact(self, cap_lib: Path) -> None:
+        """The per-glyph partition is a 1:1 cover under the clamp."""
+        block, _words, glyphs = render_text_line_plt_font_with_glyphs(
+            "OH", 1.0, "Test", library_dir=cap_lib, enforce_cap_line=True
+        )
+        assert [char for char, _ in glyphs] == ["O", "H"]
+        covered = sorted(index for _char, indices in glyphs for index in indices)
+        assert covered == list(range(len(block.strokes)))
+
+    def test_words_wrapper_threads_the_flag(self, cap_lib: Path) -> None:
+        """``with_words`` clamps exactly like the plain wrapper."""
+        block, _groups = render_text_line_plt_font_with_words(
+            "O", 1.0, "Test", library_dir=cap_lib, enforce_cap_line=True
+        )
+        assert block.bounds()[3] == pytest.approx(1.0, abs=1e-9)
+
+    def test_all_glyphs_at_cap_render_bit_identically(self, cap_lib: Path) -> None:
+        """A line of exact-cap glyphs is untouched by the enforcement."""
+        plain = _render("HH", 1.0, cap_lib, cutter_diameter=0.02)
+        enforced = _render(
+            "HH", 1.0, cap_lib, cutter_diameter=0.02, enforce_cap_line=True
+        )
+        assert enforced.bounds() == pytest.approx(plain.bounds())
+
+    def test_bundled_dino_digits_clamped(self) -> None:
+        """The shipped Dino digits overshoot; the clamp lands them on cap."""
+        plain = render_text_line_plt_font("0", 0.5, "Dino")
+        enforced = render_text_line_plt_font("0", 0.5, "Dino", enforce_cap_line=True)
+        assert plain.bounds()[3] > 0.5 + 1e-6
+        assert enforced.bounds()[3] == pytest.approx(0.5, abs=1e-5)

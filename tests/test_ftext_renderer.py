@@ -1174,3 +1174,178 @@ class TestApplyBaselineShifts:
         )
         assert [char for char, _ in glyph_groups] == ["A", "V"]
         assert len(shifted) == sum(len(indices) for _char, indices in glyph_groups)
+
+
+class TestApplyCapLineEnforcement:
+    """The alphanumeric cap-line clamp (``enforce_cap_line``, TTF family).
+
+    The bundled CAD font's ASCII capitals sit exactly at the reference ``H``
+    height (no overshoot), while its ascender lowercase overshoot: ``b/d/f/
+    h/k/l`` reach ~1.096 and ``i/j`` ~1.154 of the cap. The clamp is a
+    vertical-only scale about the glyph's own lowest ink point (the aspect
+    ratio changes, X and the pen advance stay put -- the italic/bold
+    precedent).
+    """
+
+    def test_overshooting_ascender_clamped_to_cap(self) -> None:
+        """The overshooting ``b`` top lands exactly on the capline."""
+        plain = render_text_line_ftext("b", 1.0, DEFAULT_FONT_PATH)
+        enforced = render_text_line_ftext("b", 1.0, DEFAULT_FONT_PATH, cap_line_enforced=True)
+        assert _extents(plain)[3] > 1.0 + 1e-6
+        assert _extents(enforced)[3] == pytest.approx(1.0, abs=1e-9)
+        # X untouched: the clamp changes the aspect ratio, not the width.
+        assert _extents(enforced)[0] == pytest.approx(_extents(plain)[0], abs=1e-9)
+        assert _extents(enforced)[1] == pytest.approx(_extents(plain)[1], abs=1e-9)
+
+    def test_default_off_is_bit_identical(self) -> None:
+        """``cap_line_enforced=False`` (the default) matches the plain render."""
+        plain = render_text_line_ftext("b d", 1.0, DEFAULT_FONT_PATH)
+        off = render_text_line_ftext("b d", 1.0, DEFAULT_FONT_PATH, cap_line_enforced=False)
+        assert _extents(off) == pytest.approx(_extents(plain))
+
+    def test_exact_cap_glyphs_never_move(self) -> None:
+        """The bundled capitals/digits sit at the cap: untouched."""
+        plain = render_text_line_ftext("HOUSE0123", 1.0, DEFAULT_FONT_PATH)
+        enforced = render_text_line_ftext(
+            "HOUSE0123", 1.0, DEFAULT_FONT_PATH, cap_line_enforced=True
+        )
+        assert _extents(enforced) == pytest.approx(_extents(plain))
+
+    def test_non_ascii_alnum_never_clamped(self) -> None:
+        """The gate is ASCII-only: ``é`` keeps its overshooting accent."""
+        plain = render_text_line_ftext("é", 1.0, DEFAULT_FONT_PATH)
+        enforced = render_text_line_ftext("é", 1.0, DEFAULT_FONT_PATH, cap_line_enforced=True)
+        assert _extents(plain)[3] > 1.0 + 1e-6
+        assert _extents(enforced) == pytest.approx(_extents(plain))
+
+    def test_anchor_is_the_glyph_bottom(self) -> None:
+        """A descender glyph clamps about its own lowest ink, not y=0."""
+        plain = render_text_line_ftext("g", 1.0, DEFAULT_FONT_PATH)
+        # The bundled 'g' sits below the cap; force a clamp with a low cap.
+        clamped = ftext_renderer._apply_cap_line_enforcement(
+            plain, "g", DEFAULT_FONT_PATH, 0.5
+        )
+        extents = _extents(clamped)
+        assert extents[2] == pytest.approx(_extents(plain)[2], abs=1e-9)
+        assert extents[3] == pytest.approx(0.5, abs=1e-9)
+
+    def test_helper_clamps_forced_overshoot(self) -> None:
+        """The helper clamps exactly and leaves X exactly in place."""
+        plain = render_text_line_ftext("H", 1.0, DEFAULT_FONT_PATH)
+        clamped = ftext_renderer._apply_cap_line_enforcement(
+            plain, "H", DEFAULT_FONT_PATH, 0.5
+        )
+        assert _extents(clamped)[3] == pytest.approx(0.5, abs=1e-9)
+        assert _extents(clamped)[2] == pytest.approx(_extents(plain)[2], abs=1e-9)
+        assert _extents(clamped)[0] == pytest.approx(_extents(plain)[0], abs=1e-9)
+        assert _extents(clamped)[1] == pytest.approx(_extents(plain)[1], abs=1e-9)
+
+    def test_helper_punctuation_exempt(self) -> None:
+        """The helper's alphanumeric gate skips overshooting punctuation."""
+        plain = render_text_line_ftext("!", 1.0, DEFAULT_FONT_PATH)
+        clamped = ftext_renderer._apply_cap_line_enforcement(
+            plain, "!", DEFAULT_FONT_PATH, 0.5
+        )
+        assert _extents(clamped) == pytest.approx(_extents(plain))
+
+    def test_helper_count_drift_warns_and_keeps_the_render(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A contour-count mismatch degrades to the natural render + WARNING."""
+        plain = render_text_line_ftext("H", 1.0, DEFAULT_FONT_PATH)
+        monkeypatch.setattr(ftext_renderer, "_per_glyph_counts", lambda *a, **k: None)
+        with caplog.at_level(logging.WARNING, logger="plt_optimizer.generate.ftext_renderer"):
+            result = ftext_renderer._apply_cap_line_enforcement(
+                plain, "H", DEFAULT_FONT_PATH, 0.5
+            )
+        assert _extents(result) == pytest.approx(_extents(plain))
+        assert "do not sum" in caplog.text
+
+    def test_small_caps_composes_on_the_clamped_glyph(self) -> None:
+        """SC is inert on the clamp for this font, and the order is exact.
+
+        The enforcement clamps the render string's glyphs; under SC the
+        render string is the mapped capitals, and the bundled CAD capitals
+        sit at/below the cap, so the clamp is a no-op and the SC shrink
+        lands the top at ``sc_scale`` times the capital's own top.
+        """
+        sc = render_text_line_ftext(
+            "b",
+            1.0,
+            DEFAULT_FONT_PATH,
+            small_caps_scale=0.7,
+            small_caps_flags=(True,),
+            cap_line_enforced=True,
+        )
+        sc_plain = render_text_line_ftext(
+            "b", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.7, small_caps_flags=(True,)
+        )
+        caps = render_text_line_ftext("B", 1.0, DEFAULT_FONT_PATH)
+        assert _extents(sc) == pytest.approx(_extents(sc_plain), abs=1e-9)
+        # The shrink lands the top near 0.7 of the capital's own top (the
+        # pre-chord-removal slice frame carries the closing vertex, so the
+        # pin is loose -- the PLT suite pins the strict ordering exactly).
+        assert _extents(sc)[3] == pytest.approx(0.7 * _extents(caps)[3], abs=1e-2)
+        assert _extents(sc)[3] < 1.0
+
+    def test_clamp_runs_before_bold_scale(self) -> None:
+        """The bold baseline scale composes on the clamped silhouette."""
+        bold = render_text_line_ftext(
+            "b", 1.0, DEFAULT_FONT_PATH, glyph_scales=(0.5,), cap_line_enforced=True
+        )
+        assert _extents(bold)[3] == pytest.approx(0.5, abs=1e-9)
+        unenforced = render_text_line_ftext("b", 1.0, DEFAULT_FONT_PATH, glyph_scales=(0.5,))
+        assert _extents(unenforced)[3] > 0.5 + 1e-6
+
+    def test_clamp_runs_before_italic(self) -> None:
+        """The italic transform composes on the CLAMPED silhouette.
+
+        The bundled font's TTF shear (see :class:`TestItalicShear`) lifts the
+        ink top by ``top * tan`` with the baseline fixed, so the clamped
+        line's top is ``cap * (1 + tan)`` while the unenforced line's is
+        ``overshoot * (1 + tan)`` -- the clamp's effect survives the shear
+        and scales with it.
+        """
+        plain = render_text_line_ftext("b", 1.0, DEFAULT_FONT_PATH)
+        italic = render_text_line_ftext(
+            "b", 1.0, DEFAULT_FONT_PATH, italic_tan=0.5, cap_line_enforced=True
+        )
+        italic_plain = render_text_line_ftext("b", 1.0, DEFAULT_FONT_PATH, italic_tan=0.5)
+        assert _extents(italic)[3] == pytest.approx(1.0 * 1.5, abs=1e-9)
+        assert _extents(italic_plain)[3] == pytest.approx(
+            _extents(plain)[3] * 1.5, abs=1e-9
+        )
+        assert _extents(italic)[3] < _extents(italic_plain)[3]
+
+    def test_sup_shift_composes_on_the_clamped_glyph(self) -> None:
+        """The <sup> translate rides on top of the clamped geometry."""
+        sup = render_text_line_ftext(
+            "b", 1.0, DEFAULT_FONT_PATH, baseline_shifts=(0.1,), cap_line_enforced=True
+        )
+        assert _extents(sup)[3] == pytest.approx(1.1, abs=1e-9)
+        assert _extents(sup)[2] == pytest.approx(0.1, abs=1e-9)
+
+    def test_contour_partition_survives_the_clamp(self) -> None:
+        """The per-glyph contour partition stays 1:1 (the sweep stays valid)."""
+        clamped = render_text_line_ftext("bd", 1.0, DEFAULT_FONT_PATH, cap_line_enforced=True)
+        _lc, _words, glyph_groups = ftext_renderer.render_text_line_ftext_with_glyphs(
+            "bd", 1.0, DEFAULT_FONT_PATH, cap_line_enforced=True
+        )
+        assert [char for char, _ in glyph_groups] == ["b", "d"]
+        assert len(clamped) == sum(len(indices) for _char, indices in glyph_groups)
+        assert _extents(clamped)[3] == pytest.approx(1.0, abs=1e-9)
+
+    def test_with_words_groups_survive_the_clamp(self) -> None:
+        """The clamped render partitions by word through the exact slicing.
+
+        The signature matcher cannot match clamped glyphs, so the gate must
+        route the line to the per-glyph contour slicing (the small-caps
+        precedent).
+        """
+        whole, groups = ftext_renderer.render_text_line_ftext_with_words(
+            "b d", 1.0, DEFAULT_FONT_PATH, cap_line_enforced=True
+        )
+        assert [word for word, _ in groups] == ["b", "d"]
+        covered = sorted(index for _word, indices in groups for index in indices)
+        assert covered == list(range(len(whole)))
+        assert _extents(whole)[3] == pytest.approx(1.0, abs=1e-9)
