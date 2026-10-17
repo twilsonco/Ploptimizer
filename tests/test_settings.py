@@ -1452,11 +1452,12 @@ class TestWindowsStartupSection:
             sections[str(kwargs.get("text", ""))] = section
             return section
 
-        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
-            with patch(
-                "plt_optimizer.ui.settings.ttk.LabelFrame", side_effect=make_section
-            ) as mock_labelframe:
-                window = SettingsWindow({}, MagicMock())
+        with patch("plt_optimizer.ui.settings._IS_WINDOWS", False):
+            with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+                with patch(
+                    "plt_optimizer.ui.settings.ttk.LabelFrame", side_effect=make_section
+                ) as mock_labelframe:
+                    window = SettingsWindow({}, MagicMock())
 
         assert "Startup" not in sections
         assert mock_labelframe.call_count == 3
@@ -1495,10 +1496,11 @@ class TestLoadCurrentValuesWindows:
 
     def test_load_skips_reflection_when_startup_var_missing(self) -> None:
         """Test reflection is skipped when the Startup section was never built."""
-        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
-            window = SettingsWindow({"run_at_startup": True}, MagicMock())
-
         # Built on a non-Windows layout, so the attribute does not exist.
+        with patch("plt_optimizer.ui.settings._IS_WINDOWS", False):
+            with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+                window = SettingsWindow({"run_at_startup": True}, MagicMock())
+
         with patch("plt_optimizer.ui.settings._IS_WINDOWS", True):
             window._load_current_values()
 
@@ -1592,8 +1594,10 @@ class TestOnSaveWindowsStartup:
         """Test a non-Windows layout never writes run_at_startup on save."""
         callback = MagicMock()
 
-        with patch("plt_optimizer.ui.settings.tk.Toplevel"):
-            window = self._build_window({"run_at_startup": True}, callback)
+        # Built on a non-Windows layout, so the startup var does not exist.
+        with patch("plt_optimizer.ui.settings._IS_WINDOWS", False):
+            with patch("plt_optimizer.ui.settings.tk.Toplevel"):
+                window = self._build_window({"run_at_startup": True}, callback)
 
         with patch("plt_optimizer.ui.settings._IS_WINDOWS", True):
             with patch("plt_optimizer.utils.startup.create_shortcut") as mock_create:

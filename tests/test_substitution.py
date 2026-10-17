@@ -35,8 +35,13 @@ from plt_optimizer.generate.substitution import (
 
 
 def _write(path: Path, text: str) -> Path:
-    """Write ``text`` to ``path`` and return the path."""
-    path.write_text(text, encoding="utf-8")
+    """Write ``text`` to ``path`` and return the path.
+
+    ``newline=""`` disables newline translation so explicit ``\\r\\n`` /
+    ``\\r`` sequences in the text land in the file verbatim on every
+    platform (Windows would otherwise rewrite every ``\\n`` as ``\\r\\n``).
+    """
+    path.write_text(text, encoding="utf-8", newline="")
     return path
 
 

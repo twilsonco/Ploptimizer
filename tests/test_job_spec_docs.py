@@ -109,6 +109,10 @@ class TestSchemaSelfDescribing:
             (generator.build_job_spec_schema(), "JobSpec"),
             (generator.build_job_config_schema(), "JobDefaults"),
         ],
+        # Explicit ids: the schema texts are hundreds of KB, and the
+        # auto-generated ids (the whole JSON) blow past the 32767-char
+        # environment-variable limit on Windows, erroring collection.
+        ids=["JobSpec", "JobDefaults"],
     )
     def test_every_field_has_a_description(self, schema_text: str, model_name: str) -> None:
         """Every property in every model/enum node carries a description.
