@@ -384,7 +384,7 @@ precedent). No tag args ship: the parser's reserved `name:args` form keeps
   UNION of all text pens.
 - **Stroke floors read the line's widest tool.** A `<b>` line engraves part of
   its ink with the thicker tool (and a large `<scale:N>` run with a larger
-  tool), so `_collision_threshold` (the whole-line AABB floor) and
+  tool), so `collision_threshold` (the whole-line AABB floor) and
   `_line_cutter` (the descender relief's pair/border floors) use
   `max(used_cutters)`. Deliberately conservative: a plain descender on a
   wide-tool-carrying line asks for a touch more air than its own stroke
@@ -634,7 +634,7 @@ current baseline, `1` = the capline, `-1` = one cap height below) and applies
   now reflects the shifted kerning).
 - **Everything downstream is free**: the pen split (`_stroke_cutter_map` reads
   `per_char_cutters`), the underline run-split, `_line_cutter` /
-  `_collision_threshold` (`max(used_cutters)`), the descender relief, the
+  `collision_threshold` (`max(used_cutters)`), the descender relief, the
   band centering, `measure_line_vertical_extents` and the plate-space chunk
   records all read the resolved/rendered geometry. A bare tag lifts the
   ascender to `(1 + d/2) * cap` (the glyph's centre rides the capline), so

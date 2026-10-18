@@ -377,7 +377,7 @@ Enumeration of plate fill-order preferences for bin packing.
 emergent order is a side effect of placement tie-breaking), so
 ``columns`` is realized by packing in a transposed frame with a
 bottom-row fill algorithm and mapping every placement back into plate
-space (see ``plt_optimizer.generate.layout``).
+space (see ``plt_optimizer.generate.packing.layout``).
 
 | Value | Description |
 |---|---|
@@ -426,7 +426,7 @@ the ``width`` x ``height`` rectangle, the packer packs that rectangle, and
 every collision check measures the rectangle. ``round`` makes the boundary
 an ellipse with semi-axes ``width / 2`` and ``height / 2`` -- a circle when
 the two are equal -- which switches the label onto the adjacent
-ellipse-packing pipeline (see :mod:`plt_optimizer.generate.ellipse_packer`)
+ellipse-packing pipeline (see :mod:`plt_optimizer.generate.packing.ellipse_packer`)
 and makes the collision checks measure the ellipse boundary.
 
 | Value | Description |

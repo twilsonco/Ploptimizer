@@ -23,6 +23,20 @@ import numpy as np
 import vpype as vp
 
 from plt_optimizer.core.units import HPGL_UNITS_PER_INCH, inches_to_units, units_to_inches
+from plt_optimizer.generate.collision.detection import (
+    LabelRenderError,
+    collision_line_desc,
+    detect_text_hole_collisions,
+    format_unresolvable_collision,
+    log_collisions,
+    resolve_via_compression,
+    resolve_via_margin_adjustment,
+)
+from plt_optimizer.generate.collision.holes import render_holes_hpgl
+from plt_optimizer.generate.collision.shapes import (
+    rounded_rect_corner,
+    uses_ellipse_boundary,
+)
 from plt_optimizer.generate.descender_adjust import (
     DescenderFix,
     GlyphBox,
@@ -54,13 +68,11 @@ from plt_optimizer.generate.ftext_renderer import (
     render_text_line_ftext_with_words,
 )
 from plt_optimizer.generate.geometry import (
-    CollisionResult,
     Ink,
     InkGrid,
     Point,
     Polyline,
     arc_swept_bounds,
-    circle_aabb_gap,
     ink_gap,
 )
 from plt_optimizer.generate.markup import Run, serialize_runs, split_brackets
@@ -71,7 +83,6 @@ from plt_optimizer.generate.plt_font_renderer import (
     render_text_line_plt_font_with_words,
 )
 from plt_optimizer.generate.resolution import (
-    MIN_HOLE_EMITTED_RADIUS_INCHES,
     ResolvedLabel,
     ResolvedTextLine,
     RoundedRectCorner,
@@ -83,12 +94,9 @@ from plt_optimizer.generate.resolution import (
     fit_baseline_spacing_to_margins,
     fit_line_spacing_to_margins,
     glyph_render_plan,
-    hole_engraved_radius,
     rounded_rect_content_inset,
-    rounded_rect_corner_params,
     scale_cutter_ladder,
 )
-from plt_optimizer.generate.schema import LabelShape
 from plt_optimizer.generate.text_geometry import (
     ARC_FLATTEN_CHORD_TOL_INCHES,
     LineSeg,
@@ -106,118 +114,6 @@ LAYER_BOUNDARY: int = 2
 LAYER_HOLES: int = 3
 
 
-def _label_is_round(label: ResolvedLabel) -> bool:
-    """True when the label's boundary is an ellipse (``type: round``).
-
-    The single shape predicate the renderer uses to branch onto the ellipse
-    path (boundary emission, hole placement, collision distance, radial
-    content inset). Rectangular labels never enter it, so their geometry is
-    bit-identical.
-
-    Args:
-        label: The resolved label.
-
-    Returns:
-        ``True`` for ``shape_type == "round"``.
-    """
-    return label.shape_type == LabelShape.ROUND.value
-
-
-def _label_ellipse(
-    label: ResolvedLabel,
-) -> tuple[float, float, float, float]:
-    """The label's elliptical boundary in the label-local y-up frame.
-
-    The boundary rectangle is drawn at the label edge, so the ellipse is
-    centred at ``(width / 2, height / 2)`` with semi-axes ``width / 2`` and
-    ``height / 2`` -- the same frame the drill holes and text bounds use.
-
-    Args:
-        label: The resolved (round) label.
-
-    Returns:
-        ``(center_x, center_y, semi_a, semi_b)`` in inches.
-    """
-    return (label.width / 2.0, label.height / 2.0, label.width / 2.0, label.height / 2.0)
-
-
-def _rounded_rect_full_ellipse(label: ResolvedLabel) -> bool:
-    """True when the rounding closes the border into the exact ellipse/circle.
-
-    ``rounded_rectangle_fraction == 1.0`` with
-    ``rounded_rectangle_proportional`` true -- or on a square, where the two
-    modes coincide -- makes the corner patches meet at every edge midpoint
-    and the exponent land on ``n = 2``: the boundary is exactly the
-    ``type: round`` ellipse (a circle on a square). Those labels route to the
-    shipped ellipse path (boundary polygon, corner holes, radial inset, the
-    relief's lower arc), so their engraved geometry matches a ``type: round``
-    label of the same box; only the packing stays rectangular (the nominal
-    box is exact for the ellipse too).
-
-    Args:
-        label: The resolved label.
-
-    Returns:
-        ``True`` for a fully-rounded rectangular label.
-    """
-    if _label_is_round(label):
-        return False
-    fraction = label.rounded_rectangle_fraction
-    if fraction <= 0.0 or not math.isclose(fraction, 1.0):
-        return False
-    return label.rounded_rectangle_proportional or math.isclose(label.width, label.height)
-
-
-def _uses_ellipse_boundary(label: ResolvedLabel) -> bool:
-    """True when the boundary is the shipped ellipse contour.
-
-    ``type: round`` labels and the fully-rounded rounded-rectangle limit
-    (see :func:`_rounded_rect_full_ellipse`) share the ellipse boundary
-    emission, the ellipse-aware drill-hole placement, the radial content
-    inset and the relief's lower arc. Packing is NOT dispatched here: a
-    fully-rounded rectangular label keeps packing in its nominal box (the
-    packer's ``shape_type`` check is untouched).
-
-    Args:
-        label: The resolved label.
-
-    Returns:
-        ``True`` when the renderer draws the ellipse boundary.
-    """
-    return _label_is_round(label) or _rounded_rect_full_ellipse(label)
-
-
-def _rounded_rect_corner(label: ResolvedLabel) -> Optional[RoundedRectCorner]:
-    """The label's rounded-rectangle corner parameters, if rounded.
-
-    The single predicate the renderer uses to branch onto the rounded-
-    rectangle border path (boundary emission, corner drill-hole placement,
-    corner-aware content inset, the descender relief's bottom border).
-    ``type: round`` labels and the fully-rounded ellipse limit return
-    ``None`` -- the shipped ellipse path owns those boundaries (see
-    :func:`_rounded_rect_full_ellipse`). Sharp labels
-    (``rounded_rectangle_fraction == 0.0``, the default) also return
-    ``None``, so their geometry stays bit-identical.
-
-    Args:
-        label: The resolved label.
-
-    Returns:
-        The corner parameters, or ``None`` for a sharp (or round-shaped /
-        fully-rounded) label.
-    """
-    if _label_is_round(label) or _rounded_rect_full_ellipse(label):
-        return None
-    if label.rounded_rectangle_fraction <= 0.0:
-        return None
-    return rounded_rect_corner_params(
-        label.width,
-        label.height,
-        label.rounded_rectangle_fraction,
-        label.rounded_rectangle_proportional,
-    )
-
-
 # PLT document framing (EngraveLab reference parity). The header is
 # ``IN;PA;`` -- tool option headers (VS/ZO/...) are inserted after ``IN;``
 # by ``tool_options.prepend_tool_option_headers``, so the header always
@@ -228,12 +124,6 @@ def _rounded_rect_corner(label: ResolvedLabel) -> Optional[RoundedRectCorner]:
 PLT_HEADER: str = "IN;PA;"
 PLT_FOOTER: str = "SP;"
 
-# Resolution sweep granularity for text-hole collision avoidance. The
-# margin sweep reuses already-rendered text geometry (holes move, text
-# does not), so it is cheap; the compression sweep re-renders text per
-# step, so it stays small.
-_MARGIN_ADJUST_STEPS: int = 32
-_COMPRESSION_RESOLVE_STEPS: int = 16
 
 # Iteration cap for the descending-character relief loop. Each pass is
 # monotone (every glyph ramp grows, every spacing grows), so the loop
@@ -388,18 +278,6 @@ class TextChunkRecord:
         )
 
 
-class LabelRenderError(Exception):
-    """Raised to abort a job containing unavoidable text-hole collisions.
-
-    Emitted by :func:`assert_no_collisions` once every label in the job has
-    been rendered (so all per-label ERROR diagnostics were logged first)
-    and at least one label still overlaps a drill hole. Collisions that
-    collision avoidance repaired are tolerated (logged as WARNING at render
-    time); only collisions that survive every enabled avoidance phase are
-    unacceptable output requiring a jobspec revision.
-    """
-
-
 @dataclass(frozen=True)
 class RenderedLabel:
     """A label rendered to HPGL format with measured bounds.
@@ -489,400 +367,6 @@ class RenderedLabel:
     band_center_offset_inches: float = 0.0
 
 
-def _collision_threshold(label: ResolvedLabel, line_index: int) -> float:
-    """Compute the stroke-aware collision threshold for one text line.
-
-    Collision checks measure the gap between *toolpath geometry* (text
-    bounding box vs. hole circle), but the machine removes material half a
-    cutter width on each side of every path. Two strokes therefore touch
-    once the geometric gap reaches ``0.5 * (hole_cutter + text_cutter)``
-    (the stroke floor), and stay visibly separated only beyond that floor
-    plus the requested air gap:
-
-    ``threshold = 0.5 * (hole_cutter + text_cutter[line]) +
-    hole_text_collision_distance``
-
-    A gap at or above the threshold is safe (strokes are separated by at
-    least ``hole_text_collision_distance``); below it the engraved strokes
-    bleed into each other.
-
-    Args:
-        label: The resolved label providing cutter diameters and the
-            cascaded collision distance.
-        line_index: Index of the text line within ``label.content``.
-
-    Returns:
-        The minimum safe geometric gap in inches.
-    """
-    if 0 <= line_index < len(label.content):
-        line = label.content[line_index]
-        # The widest tool the line uses: a ``<b>`` line's bold run engraves
-        # thicker, a large ``<scale:N>`` run engraves with a larger tool, and
-        # the whole-line AABB is measured against it.
-        text_cutter = max(line.used_cutters)
-    else:  # Defensive: unknown line (should not happen) assumes no stroke.
-        text_cutter = 0.0
-    stroke_floor = 0.5 * (label.hole_cutter_diameter + text_cutter)
-    return stroke_floor + label.hole_text_collision_distance
-
-
-def _detect_text_hole_collisions(
-    label: ResolvedLabel,
-    line_entries: Sequence[_LineEntry],
-    band_center_offset_inches: float = 0.0,
-) -> List[CollisionResult]:
-    """Find all (text line, drill hole) pairs closer than the threshold.
-
-    A pair collides when its geometric gap is below the stroke-aware
-    threshold of :func:`_collision_threshold` (stroke floor plus the
-    cascaded ``hole_text_collision_distance``), so near misses that would
-    make the engraved strokes bleed together are reported too. A gap
-    exactly equal to the threshold is safe.
-
-    Collision checks run in label-local, y-up coordinates before plate
-    placement. The rendered line bounds are anchored around y=0 by
-    :func:`_render_text_local_with_bounds`; the export pipeline vertically
-    centers the block at ``height / 2`` (``_center_text_layer_vertically``),
-    so bounds are shifted by that amount before the check. Band centering
-    lowers that target by ``band_center_offset_inches`` (the band, not the ink,
-    lands on the inner-area center), so the shift subtracts it. The export's
-    Y-flip mirrors text and holes across the *same* centerline, which
-    preserves circle/AABB intersection relationships exactly, so the check
-    is valid in this pre-flip frame.
-
-    Args:
-        label: The resolved label providing hole positions, cutter
-            diameters and the collision distance.
-        line_entries: Per-line :class:`_LineEntry` records as returned by
-            :func:`_render_text_local_with_bounds`.
-        band_center_offset_inches: The band-center offset the renderer applied
-            to these bounds (inches); ``0.0`` when the label centers by ink.
-
-    Returns:
-        One :class:`CollisionResult` per colliding (line, hole) pair.
-        Empty when the label has no holes or no rendered lines.
-    """
-    if not label.holes or not line_entries:
-        return []
-
-    circles = _hole_circles_local(label)
-    shift_y = label.height / 2.0 - band_center_offset_inches
-    results: List[CollisionResult] = []
-
-    for line_index, line_text, bounds, _scale, _spacing, _cutters in line_entries:
-        threshold = _collision_threshold(label, line_index)
-        x_min, y_min, x_max, y_max = bounds
-        shifted: Tuple[float, float, float, float] = (
-            x_min,
-            y_min + shift_y,
-            x_max,
-            y_max + shift_y,
-        )
-        for hole_index, (center_x, center_y, radius) in enumerate(circles):
-            # The gap is text-box to drill-hole circle -- a shape-agnostic
-            # measurement (the label shape enters through the hole
-            # POSITIONS, which _hole_circles_local places on the ellipse for
-            # round labels, and through the radial content inset, which
-            # keeps the text box itself inside the inset ellipse). The
-            # engraved-boundary clearance is the margin system's job, not
-            # this check's, exactly as on rectangular labels.
-            gap = circle_aabb_gap(shifted, (center_x, center_y), radius)
-            if gap < threshold:
-                results.append(
-                    CollisionResult(
-                        line_index=line_index,
-                        line_text=line_text,
-                        hole_index=hole_index,
-                        hole_location=str(label.holes[hole_index].location),
-                        gap=gap,
-                    )
-                )
-    return results
-
-
-def _log_collisions(
-    label: ResolvedLabel,
-    collisions: Sequence[CollisionResult],
-    level: int = logging.ERROR,
-) -> None:
-    """Log each detected text-hole collision at the given severity.
-
-    Args:
-        label: The resolved label being checked (provides the threshold
-            components used in the message breakdown).
-        collisions: Collision results from :func:`_detect_text_hole_collisions`.
-        level: Logging severity. WARNING when collision avoidance resolved
-            the collisions, ERROR when they remain unresolved.
-    """
-    for collision in collisions:
-        required = _collision_threshold(label, collision.line_index)
-        clearance = label.hole_text_collision_distance
-        stroke_floor = required - clearance
-        logger.log(
-            level,
-            "Label %s: text line %d (%r) collides with %s drill hole "
-            "(index %d); gap %.4fin is below the required %.4fin "
-            "(%.4fin clearance + %.4fin stroke floor).",
-            label.id,
-            collision.line_index,
-            collision.line_text,
-            collision.hole_location,
-            collision.hole_index,
-            collision.gap,
-            required,
-            clearance,
-            stroke_floor,
-        )
-
-
-def _collision_line_desc(collisions: Sequence[CollisionResult]) -> str:
-    """Describe the distinct colliding text lines for log messages.
-
-    Args:
-        collisions: Collision results from :func:`_detect_text_hole_collisions`.
-
-    Returns:
-        A human-readable summary such as ``line 0 ('TOP/BOT DRILL')``, with
-        multiple distinct lines joined by ``"; "``. Empty string when there
-        are no collisions.
-    """
-    seen: List[str] = []
-    for collision in collisions:
-        desc = f"line {collision.line_index} ({collision.line_text!r})"
-        if desc not in seen:
-            seen.append(desc)
-    return "; ".join(seen)
-
-
-def _resolve_collision_via_margin_adjustment(
-    label: ResolvedLabel,
-    line_entries: Sequence[_LineEntry],
-    line_desc: str = "",
-    band_center_offset_inches: float = 0.0,
-) -> Optional[ResolvedLabel]:
-    """Phase 2: shrink ``hole_margin`` toward ``min_hole_margin`` (no re-render).
-
-    Drill-hole positions are pure functions of ``hole_margin``
-    (:func:`_hole_circles_local`), so candidate margins are evaluated
-    analytically against the already-rendered text bounds -- the text
-    geometry never changes in this phase. The sweep walks from the current
-    margin down to the configured floor and returns the first (smallest)
-    reduction that clears every collision.
-
-    Args:
-        label: The label whose collision should be resolved.
-        line_entries: Rendered text bounds from the initial render.
-        line_desc: Optional description of the offending text lines,
-            included in the resolution WARNING for informative output.
-        band_center_offset_inches: The band-center offset of the supplied
-            ``line_entries`` (inches); ``0.0`` when the label centers by ink.
-
-    Returns:
-        A clone of ``label`` with a reduced ``hole_margin`` when one clears
-        all collisions, otherwise ``None`` (no floor configured, no
-        reduction budget, or the floor still collides).
-    """
-    if label.min_hole_margin is None:
-        return None
-    floor = max(0.0, label.min_hole_margin)
-    if label.hole_margin <= floor:
-        return None
-
-    steps = max(1, _MARGIN_ADJUST_STEPS)
-    for i in range(1, steps + 1):
-        candidate = label.hole_margin - (label.hole_margin - floor) * i / steps
-        candidate_label = replace(label, hole_margin=candidate)
-        if not _detect_text_hole_collisions(
-            candidate_label, line_entries, band_center_offset_inches
-        ):
-            logger.warning(
-                "Label %s: adjusted hole_margin from %.4fin to %.4fin to "
-                "avoid text-hole collision on %s (minimum allowed %.4fin).",
-                label.id,
-                label.hole_margin,
-                candidate,
-                line_desc or "colliding text",
-                floor,
-            )
-            return candidate_label
-    return None
-
-
-def _resolve_collision_via_compression(
-    label: ResolvedLabel,
-    budget: float,
-    line_desc: str = "",
-    band_center_offset_inches: float = 0.0,
-) -> Optional[ResolvedLabel]:
-    """Phase 3: compress text horizontally until collisions clear.
-
-    Calculates the minimum compression needed for each line that is
-    colliding with a hole, and applies per-line compression. Non-colliding
-    lines remain at full width. Returns a label with
-    ``collision_compress_by_line`` set to the per-line scales when one
-    clears all collisions, otherwise ``None``.
-
-    Args:
-        label: The label whose collision should be resolved (may already
-            carry a Phase 2 margin reduction).
-        budget: Maximum compression fraction in ``(0.0, 1.0]`` (the
-            label-level ``max_h_compress`` budget, i.e. the minimum across
-            all content lines).
-        line_desc: Optional description of the offending text lines,
-            included in the resolution WARNING for informative output.
-
-    Returns:
-        A clone of ``label`` with ``collision_compress_by_line`` set to
-        per-line scales when one clears all collisions, otherwise ``None``.
-    """
-    floor = max(0.0, 1.0 - min(budget, 1.0))
-
-    # First pass: detect collisions and identify which lines are colliding
-    _candidate_lc, candidate_entries = _render_text_local_with_bounds(label)
-    sweep_collisions = _detect_text_hole_collisions(
-        label, candidate_entries, band_center_offset_inches
-    )
-    if not sweep_collisions:
-        return None  # No collisions to resolve
-
-    # Build a set of colliding line indices
-    colliding_lines = {collision.line_index for collision in sweep_collisions}
-
-    # Sweep over compression levels and track per-line success
-    steps = max(1, _COMPRESSION_RESOLVE_STEPS)
-    for i in range(1, steps + 1):
-        scale = floor + (1.0 - floor) * (steps - i) / steps
-
-        # Create per-line compression map: only compress colliding lines
-        per_line_compress: dict[int, float] = dict.fromkeys(colliding_lines, scale)
-        candidate_label = replace(label, collision_compress_by_line=per_line_compress)
-
-        # Re-render and check collisions. Horizontal compression does not move
-        # the block vertically, so the band-center offset is unchanged.
-        _candidate_lc, candidate_entries = _render_text_local_with_bounds(candidate_label)
-        sweep_collisions = _detect_text_hole_collisions(
-            candidate_label, candidate_entries, band_center_offset_inches
-        )
-
-        if not sweep_collisions:
-            logger.warning(
-                "Label %s: compressed %d text line(s) horizontally to %.1f%% width to "
-                "avoid text-hole collision on %s (max_h_compress budget %.2f).",
-                label.id,
-                len(colliding_lines),
-                scale * 100.0,
-                line_desc or "colliding text",
-                budget,
-            )
-            logger.debug(
-                "Label %s: Compression sweep iteration %d/%d found successful scale %.3f "
-                "for %d line(s): %s",
-                label.id,
-                i,
-                steps,
-                scale,
-                len(colliding_lines),
-                sorted(colliding_lines),
-            )
-            return candidate_label
-
-    return None
-
-
-def _format_unresolvable_collision(
-    label: ResolvedLabel,
-    collisions: Sequence[CollisionResult],
-    attempted_scale: Optional[float] = None,
-) -> str:
-    """Build the diagnostic message for an unresolvable text-hole collision.
-
-    Args:
-        label: The label state after all resolution phases ran (may carry
-            a reduced ``hole_margin``).
-        collisions: The collisions still present after all phases ran.
-        attempted_scale: Most aggressive collision-compression scale tried
-            (Phase 3 floor), or ``None`` when compression was not attempted.
-
-    Returns:
-        A multi-line diagnostic string naming each colliding pair plus the
-        current margin/compression state and actionable recommendations.
-    """
-    budget = min((line.max_h_compress for line in label.content), default=0.0)
-    if attempted_scale is not None:
-        scale_text = f"{attempted_scale:.3f}"
-    elif label.collision_compress_by_line:
-        scales = list(label.collision_compress_by_line.values())
-        avg_scale = sum(scales) / len(scales) if scales else 1.0
-        scale_text = f"{avg_scale:.3f}"
-    else:
-        scale_text = "1.000"
-    details = "; ".join(
-        f"line {collision.line_index} ({collision.line_text!r}) vs "
-        f"{collision.hole_location} hole (gap {collision.gap:.4f}in below "
-        f"required {_collision_threshold(label, collision.line_index):.4f}in)"
-        for collision in collisions
-    )
-    worst_shortfall = max(
-        (_collision_threshold(label, c.line_index) - c.gap for c in collisions),
-        default=0.0,
-    )
-    if label.min_hole_margin is None and budget <= 0.0:
-        advice = (
-            "enable collision avoidance (set min_hole_margin and/or "
-            "max_h_compress), increase label width, or reduce text height."
-        )
-    else:
-        advice = (
-            "increase label width, reduce text height, lower "
-            "min_hole_margin, or increase max_h_compress."
-        )
-    return (
-        f"Label {label.id}: text-hole collision cannot be resolved.\n"
-        f"- Collisions: {details}\n"
-        f"- Hole margin: {label.hole_margin:.4f}in "
-        f"(min: {label.min_hole_margin if label.min_hole_margin is not None else 'unset'})\n"
-        f"- Compression: max_h_compress={budget:.2f} applied, still insufficient "
-        f"(most aggressive text scale {scale_text})\n"
-        f"- Worst clearance shortfall: {worst_shortfall:.4f}in\n"
-        f"- Recommendations: {advice}"
-    )
-
-
-def assert_no_collisions(rendered_labels: Iterable[RenderedLabel]) -> None:
-    """Abort a job when any rendered label still has a text-hole collision.
-
-    Only *unresolved* collisions are unacceptable output: a collision that
-    avoidance repaired (by shrinking hole margins or compressing text) logs
-    a WARNING during :func:`render_label_to_plt` and the job proceeds.
-    Each unresolved label already received its per-label ERROR diagnostics
-    during :func:`render_label_to_plt`; this gate runs once *after* every
-    label in the job has been rendered (so all errors were printed) and
-    raises a single job-level error.
-
-    Args:
-        rendered_labels: All RenderedLabel objects produced for the job
-            (typically the render cache's values).
-
-    Raises:
-        LabelRenderError: If at least one rendered label reports
-            :attr:`RenderedLabel.has_collisions` (a collision that no
-            enabled avoidance phase could resolve).
-    """
-    offending: List[str] = []
-    for rendered in rendered_labels:
-        label_id = rendered.source_label.id
-        if rendered.has_collisions and label_id not in offending:
-            offending.append(label_id)
-    if not offending:
-        return
-    raise LabelRenderError(
-        f"Job aborted: {len(offending)} label(s) have text-hole collisions "
-        f"and the jobspec must be revised: {', '.join(offending)}. "
-        "See the per-label ERROR messages above for the offending text "
-        "lines and drill holes."
-    )
-
-
 def render_label_to_plt(
     label: ResolvedLabel,
     pen_map: Optional[dict[tuple[float, str], int]] = None,
@@ -899,7 +383,7 @@ def render_label_to_plt(
     Text-hole collision avoidance runs in three phases. A (line, hole)
     pair collides when its geometric gap falls below the stroke-aware
     threshold ``0.5 * (hole_cutter + text_cutter) +
-    hole_text_collision_distance`` (see :func:`_collision_threshold`), so
+    hole_text_collision_distance`` (see :func:`collision_threshold`), so
     near misses that would make the engraved strokes bleed together are
     caught too:
 
@@ -963,7 +447,7 @@ def render_label_to_plt(
     # places them in the label lowers its target by this offset, so every
     # collision check against these bounds must subtract it too.
     band_offset = rendered.band_center_offset_inches
-    collisions = _detect_text_hole_collisions(label, line_entries, band_offset)
+    collisions = detect_text_hole_collisions(label, line_entries, band_offset)
     if not collisions:
         return rendered
 
@@ -973,15 +457,15 @@ def render_label_to_plt(
     # they remain unresolved (only unresolved collisions are unacceptable).
     detected_collisions = collisions
     base_label: ResolvedLabel = label
-    line_desc = _collision_line_desc(collisions)
+    line_desc = collision_line_desc(collisions)
 
     # ---- Phase 2: reduce hole_margin toward min_hole_margin ----
     if label.min_hole_margin is not None:
-        margin_label = _resolve_collision_via_margin_adjustment(
+        margin_label = resolve_via_margin_adjustment(
             label, line_entries, line_desc=line_desc, band_center_offset_inches=band_offset
         )
         if margin_label is not None:
-            _log_collisions(label, detected_collisions, level=logging.WARNING)
+            log_collisions(label, detected_collisions, level=logging.WARNING)
             resolved_rendered, _ = _render_label_once(
                 margin_label, pen_map=pen_map, check_glyph_coverage=check_glyph_coverage
             )
@@ -992,7 +476,7 @@ def render_label_to_plt(
         floor = max(0.0, label.min_hole_margin)
         if floor < label.hole_margin:
             base_label = replace(label, hole_margin=floor)
-            collisions = _detect_text_hole_collisions(base_label, line_entries, band_offset)
+            collisions = detect_text_hole_collisions(base_label, line_entries, band_offset)
             logger.debug(
                 "Label %s: Phase 2 margin adjustment failed. "
                 "Reduced hole_margin from %.4fin to %.4fin floor. "
@@ -1007,8 +491,12 @@ def render_label_to_plt(
     budget = min((line.max_h_compress for line in label.content), default=0.0)
     attempted_scale: Optional[float] = None
     if budget > 0.0:
-        compressed_label = _resolve_collision_via_compression(
-            base_label, budget, line_desc=line_desc, band_center_offset_inches=band_offset
+        compressed_label = resolve_via_compression(
+            base_label,
+            budget,
+            render=_render_text_local_with_bounds,
+            line_desc=line_desc,
+            band_center_offset_inches=band_offset,
         )
         if compressed_label is not None:
             # Verify that the compression actually cleared collisions in the
@@ -1020,11 +508,11 @@ def render_label_to_plt(
                 pen_map=pen_map,
                 check_glyph_coverage=check_glyph_coverage,
             )
-            final_collisions = _detect_text_hole_collisions(
+            final_collisions = detect_text_hole_collisions(
                 compressed_label, resolved_line_entries, resolved_rendered.band_center_offset_inches
             )
             if not final_collisions:
-                _log_collisions(label, detected_collisions, level=logging.WARNING)
+                log_collisions(label, detected_collisions, level=logging.WARNING)
                 return replace(resolved_rendered, collision_detected=True)
             # Compression found a scale that cleared collisions in the sweep,
             # but the final render still has collisions. Log at DEBUG level
@@ -1053,7 +541,7 @@ def render_label_to_plt(
             check_glyph_coverage=check_glyph_coverage,
             band_center_offset=final_band,
         )
-        collisions = _detect_text_hole_collisions(
+        collisions = detect_text_hole_collisions(
             final_label,
             final_entries,
             final_band[0] if final_band else band_offset,
@@ -1064,8 +552,8 @@ def render_label_to_plt(
     # Log the detections plus full diagnostics at ERROR level and flag the
     # render. The job-level gate (assert_no_collisions) aborts the run once
     # every label has been rendered, so all offending labels report first.
-    _log_collisions(label, detected_collisions, level=logging.ERROR)
-    logger.error("%s", _format_unresolvable_collision(base_label, collisions, attempted_scale))
+    log_collisions(label, detected_collisions, level=logging.ERROR)
+    logger.error("%s", format_unresolvable_collision(base_label, collisions, attempted_scale))
     return replace(rendered, has_collisions=True, collision_detected=True)
 
 
@@ -1107,7 +595,7 @@ def _render_label_once(
     Returns:
         Tuple of the :class:`RenderedLabel` (with ``has_collisions`` left
         at its default) and the per-line rendered bounds used by
-        :func:`_detect_text_hole_collisions`.
+        :func:`detect_text_hole_collisions`.
     """
     # Render text layers, one arc-native block tuple per cutter pen (SP1
     # only when no pen_map is supplied, preserving the historical
@@ -1128,7 +616,7 @@ def _render_label_once(
     boundary_hpgl = _render_boundary_hpgl(label)
 
     # Render drill holes as native HPGL arc commands
-    holes_hpgl = _render_holes_hpgl(label)
+    holes_hpgl = render_holes_hpgl(label)
 
     # NOTE: Both boundary and drill holes are emitted as native HPGL, not via
     # vpype's LineCollection. This avoids fragmentation where vpype would
@@ -4117,7 +3605,7 @@ def _border_box(label: ResolvedLabel) -> GlyphBox:
     Returns:
         A :class:`GlyphBox` whose ink is the bottom border centreline.
     """
-    if _uses_ellipse_boundary(label):
+    if uses_ellipse_boundary(label):
         arc = _lower_ellipse_arc(label.width, label.height)
         return GlyphBox(
             glyph_index=_BORDER_GLYPH_INDEX,
@@ -4128,7 +3616,7 @@ def _border_box(label: ResolvedLabel) -> GlyphBox:
             sub_baseline_ink=(),
         )
 
-    rounded_corner = _rounded_rect_corner(label)
+    rounded_corner = rounded_rect_corner(label)
     if rounded_corner is not None:
         arc = _lower_rounded_rect_border(label.width, label.height, rounded_corner)
         return GlyphBox(
@@ -5192,7 +4680,7 @@ def _render_positioned_lines(
     # compression width, the alignment width and the alignment anchor -- with
     # no per-site branching. Vertical centering is unaffected: the inset is
     # concentric, so the inner-area center stays at ``height / 2``.
-    if _uses_ellipse_boundary(label):
+    if uses_ellipse_boundary(label):
         content_width, content_height = ellipse_content_inset(
             label.width, label.height, h_margin, v_margin
         )
@@ -5203,7 +4691,7 @@ def _render_positioned_lines(
     # the corner rounding cuts away the material the rectangular inset
     # assumes, so the content block's corners are measured against the inset
     # boundary. Concentric like the ellipse inset, so centering is unaffected.
-    rounded_corner = _rounded_rect_corner(label)
+    rounded_corner = rounded_rect_corner(label)
     if rounded_corner is not None:
         content_width, content_height = rounded_rect_content_inset(
             label.width, label.height, h_margin, v_margin, rounded_corner
@@ -6098,7 +5586,7 @@ def _render_boundary_local(label: ResolvedLabel) -> vp.LineCollection:
         degenerate label).
     """
     lc = vp.LineCollection()
-    if _uses_ellipse_boundary(label):
+    if uses_ellipse_boundary(label):
         if label.width <= 0.0 or label.height <= 0.0:
             return lc
         lc.append(
@@ -6108,7 +5596,7 @@ def _render_boundary_local(label: ResolvedLabel) -> vp.LineCollection:
         )
         return lc
 
-    rounded_corner = _rounded_rect_corner(label)
+    rounded_corner = rounded_rect_corner(label)
     if rounded_corner is not None:
         lc.append(_rounded_rect_boundary_polygon(label.width, label.height, rounded_corner))
         return lc
@@ -6118,210 +5606,6 @@ def _render_boundary_local(label: ResolvedLabel) -> vp.LineCollection:
     if isinstance(rect_array, np.ndarray) and rect_array.size > 0:
         lc.append(rect_array)
     return lc
-
-
-def _hole_circles_local(label: ResolvedLabel) -> List[Tuple[float, float, float]]:
-    """Compute drill-hole circles in the label's local coordinate space.
-
-    Each circle center is inset from the relevant edge(s) by ``hole_margin +
-    half the hole cutter diameter + radius``, so the closest point of the
-    circle's stroke sits exactly ``label.hole_margin`` inches from the label
-    boundary. This ensures consistent spacing regardless of hole cutter size.
-    The centre is always placed from the **specified** (nominal) hole
-    diameter, so hole positions are independent of
-    ``label.hole_adjust_for_cutter``.
-
-    The returned **radius** is the emitted (engraved) one: with
-    ``label.hole_adjust_for_cutter`` enabled it shrinks by half the hole
-    cutter diameter, so the cutter's own stroke -- half a cutter width on
-    each side of the path -- brings the finished hole up to the specified
-    diameter (see :func:`hole_engraved_radius`). Both the emitted ``AA``
-    arcs and the text-hole collision checks consume these circles, so a
-    collision check always measures the circle that is actually engraved.
-
-    Args:
-        label: The resolved label whose ``holes`` should be measured.
-
-    Returns:
-        One ``(center_x, center_y, radius)`` tuple per hole, in inches.
-    """
-    circles: List[Tuple[float, float, float]] = []
-    is_round = _uses_ellipse_boundary(label)
-    rounded_corner = _rounded_rect_corner(label)
-    corner_locations = ("top-left", "top-right", "bottom-left", "bottom-right")
-
-    for hole in label.holes:
-        # The centre rides the SPECIFIED diameter (positions never move);
-        # the emitted radius is the cutter-compensated one.
-        center_radius = hole.diameter / 2.0
-        radius = hole_engraved_radius(
-            hole.diameter, label.hole_cutter_diameter, label.hole_adjust_for_cutter
-        )
-        if (
-            label.hole_adjust_for_cutter
-            and hole.diameter - label.hole_cutter_diameter < 2.0 * MIN_HOLE_EMITTED_RADIUS_INCHES
-        ):
-            logger.warning(
-                "Label %s: %s drill hole of %.4fin cannot be cutter-compensated "
-                "with a %.4fin cutter (the tool alone is at least the target "
-                "hole); emitting the smallest possible circle (%.4fin diameter) "
-                "at the specified centre. Increase the hole diameter above the "
-                "cutter size, or set hole_adjust_for_cutter: false.",
-                label.id,
-                hole.location,
-                hole.diameter,
-                label.hole_cutter_diameter,
-                2.0 * MIN_HOLE_EMITTED_RADIUS_INCHES,
-            )
-        # Distance from the edge to the hole center: the requested hole
-        # margin plus half the hole cutter diameter (for visual consistency)
-        # plus the specified radius, so the circle's stroke edge sits exactly
-        # hole_margin inches away from the edge.
-        offset = label.hole_margin + (label.hole_cutter_diameter / 2.0) + center_radius
-        location = str(hole.location)
-
-        if is_round and location in corner_locations:
-            # A round label's corner sits in the material the ellipse cuts
-            # away, so a rectangular corner inset would drill outside the
-            # boundary. Place the hole on the ellipse's diagonal instead:
-            # at the 45-degree parametric point, inset inward along the
-            # outward normal by ``offset`` so the stroke keeps hole_margin
-            # from the engraved curve.
-            hole_x, hole_y = _round_corner_hole(label, location, offset)
-            circles.append((hole_x, hole_y, radius))
-            continue
-
-        if rounded_corner is not None and location in corner_locations:
-            # Same rule on a rounded rectangle: the sharp corner is cut
-            # away, so the hole rides the corner patch at its 45-degree
-            # parametric point, inset along the patch's outward normal.
-            hole_x, hole_y = _rounded_rect_corner_hole(
-                label.width, label.height, rounded_corner, location, offset
-            )
-            circles.append((hole_x, hole_y, radius))
-            continue
-
-        if location == "top-left":
-            hole_x = offset
-            hole_y = label.height - offset
-        elif location == "top-right":
-            hole_x = label.width - offset
-            hole_y = label.height - offset
-        elif location == "bottom-left":
-            hole_x = offset
-            hole_y = offset
-        elif location == "bottom-right":
-            hole_x = label.width - offset
-            hole_y = offset
-        elif location == "left":
-            hole_x = offset
-            hole_y = label.height / 2.0
-        elif location == "right":
-            hole_x = label.width - offset
-            hole_y = label.height / 2.0
-        elif location == "top":
-            hole_x = label.width / 2.0
-            hole_y = label.height - offset
-        elif location == "bottom":
-            hole_x = label.width / 2.0
-            hole_y = offset
-        else:  # pragma: no cover - schema validates the location enum
-            continue
-
-        circles.append((hole_x, hole_y, radius))
-
-    return circles
-
-
-def _round_corner_hole(
-    label: ResolvedLabel,
-    location: str,
-    offset: float,
-) -> Tuple[float, float]:
-    """Place a corner drill hole on a round label's elliptical boundary.
-
-    The corner is measured along the 45-degree parametric direction (the
-    diagonal toward the named corner): the boundary point
-    ``(cx + a cos45, cy + b sin45)`` inset inward along the outward normal
-    ``(cos45 / a, sin45 / b)`` (normalized) by ``offset``. The result keeps
-    the hole's stroke ``offset`` from the engraved curve near the diagonal,
-    where the rectangular corner inset would land the hole in cut-away
-    material.
-
-    Args:
-        label: The resolved round label.
-        location: One of the four corner location strings.
-        offset: Inset distance from the boundary, inches.
-
-    Returns:
-        ``(center_x, center_y)`` in label-local y-up inches.
-    """
-    cx, cy, semi_a, semi_b = _label_ellipse(label)
-    sign_x = -1.0 if "left" in location else 1.0
-    sign_y = 1.0 if "top" in location else -1.0
-    cos45 = math.sqrt(0.5)
-    sin45 = math.sqrt(0.5)
-    # Boundary point toward the corner.
-    bx = cx + sign_x * semi_a * cos45
-    by = cy + sign_y * semi_b * sin45
-    # Unit outward normal at that parametric angle.
-    nx = (sign_x * cos45) / semi_a
-    ny = (sign_y * sin45) / semi_b
-    norm = math.hypot(nx, ny)
-    nx, ny = nx / norm, ny / norm
-    return (bx - nx * offset, by - ny * offset)
-
-
-def _rounded_rect_corner_hole(
-    width: float,
-    height: float,
-    corner: RoundedRectCorner,
-    location: str,
-    offset: float,
-) -> Tuple[float, float]:
-    """Place a corner drill hole on a rounded rectangle's corner patch.
-
-    The generalization of :func:`_round_corner_hole` to a superellipse
-    quadrant: the boundary point toward the named corner is the patch's
-    45-degree parametric point ``C + (sign_x rx cos^p 45, sign_y ry sin^p 45)``
-    (``p = 2 / n``), and the outward normal there is the gradient of
-    ``|X / rx| ^ n + |Y / ry| ^ n``, i.e. ``(sign_x cos^2 / rx, sign_y sin^2 /
-    ry)`` scaled by the common factor ``cos^{n-2} sin^{n-2}`` -- which cancels
-    in the normalized direction. At ``n == 2`` this is exactly the ellipse
-    rule. Insetting by ``offset`` along it keeps the hole's stroke
-    ``offset`` from the engraved curve near the diagonal, where the
-    rectangular corner inset would land the hole in cut-away material.
-
-    Args:
-        width: Label width in inches (> 0).
-        height: Label height in inches (> 0).
-        corner: The corner parameters.
-        location: One of the four corner location strings.
-        offset: Inset distance from the boundary, inches.
-
-    Returns:
-        ``(center_x, center_y)`` in label-local y-up inches.
-    """
-    rx, ry, exponent = corner.rx, corner.ry, corner.exponent
-    power = 2.0 / exponent
-    sign_x = -1.0 if "left" in location else 1.0
-    sign_y = 1.0 if "top" in location else -1.0
-    cos45 = math.sqrt(0.5)
-    sin45 = math.sqrt(0.5)
-    # Patch centre: inset from the label's corner by (rx, ry).
-    cx = rx if sign_x < 0.0 else width - rx
-    cy = ry if sign_y < 0.0 else height - ry
-    # Boundary point toward the corner (the patch's 45-degree parametric point).
-    bx = cx + sign_x * rx * cos45**power
-    by = cy + sign_y * ry * sin45**power
-    # Unit outward normal (the gradient's direction; the common parametric
-    # factor cancels under normalization).
-    nx = (sign_x * cos45 * cos45) / rx
-    ny = (sign_y * sin45 * sin45) / ry
-    norm = math.hypot(nx, ny)
-    if norm == 0.0:  # pragma: no cover - rx, ry > 0 by construction
-        return (bx, by)
-    return (bx - nx / norm * offset, by - ny / norm * offset)
 
 
 def _render_boundary_hpgl(label: ResolvedLabel) -> str:
@@ -6351,12 +5635,12 @@ def _render_boundary_hpgl(label: ResolvedLabel) -> str:
         return ""
 
     # Generate the boundary polygon coordinates in inches
-    if _uses_ellipse_boundary(label):
+    if uses_ellipse_boundary(label):
         # For ellipses: generate the polygon directly, bypassing vpype LineCollection
         polygon_points = _ellipse_boundary_polygon(
             label.width / 2.0, label.height / 2.0, label.width, label.height
         )
-    elif (rounded_corner := _rounded_rect_corner(label)) is not None:
+    elif (rounded_corner := rounded_rect_corner(label)) is not None:
         # Rounded rectangle: the G2 superellipse-corner contour, same
         # continuous-polyline emission as the ellipse.
         polygon_points = _rounded_rect_boundary_polygon(label.width, label.height, rounded_corner)
@@ -6395,52 +5679,3 @@ def _render_boundary_hpgl(label: ResolvedLabel) -> str:
 
     result = ";".join(commands)
     return result
-
-
-def _render_holes_hpgl(label: ResolvedLabel) -> str:
-    """Render drill holes as native HPGL arc (``AA``) commands.
-
-    Each hole becomes one closed circle drawn as four 90-degree absolute
-    arcs, matching the EngraveLab drill-hole convention already understood
-    by the parser, writer, profiler and plotter::
-
-        PU{sx},{sy};PD{sx},{sy};AA{cx},{cy},90;AA{cx},{cy},90;AA{cx},{cy},90;AA{cx},{cy},90
-
-    The zero-length ``PD`` plunge is deliberate: the parser only opens a new
-    stroke path when a pen-down segment is emitted, so without it every hole
-    on the layer would merge into one path and the profiler's "3+ arcs
-    totaling ~360 degrees plus an optional plunge" drill-hole rule would not
-    fire.
-
-    Emitting arcs instead of a sampled polygon keeps the drill circles
-    perfectly smooth on the plotter regardless of hole diameter, and lets
-    the profiler recognise them as structural features.
-
-    Args:
-        label: The resolved label whose ``holes`` should be emitted.
-
-    Returns:
-        HPGL command string (without the ``SP`` wrapper), or an empty string
-        when the label has no holes. Coordinates are in plotter units
-        (``HPGL_UNITS_PER_INCH`` units = 1 inch).
-    """
-    commands: List[str] = []
-
-    for center_x, center_y, radius in _hole_circles_local(label):
-        # Convert to plotter units so the emitted PU start and AA center are
-        # mutually consistent integers (the parser derives the radius from
-        # their distance).
-        cx = inches_to_units(center_x)
-        cy = inches_to_units(center_y)
-        r = inches_to_units(radius)
-        if r <= 0:  # pragma: no cover - degenerate hole
-            continue
-
-        # Begin at the rightmost point of the circle, then sweep four
-        # quarter-arcs back to it.
-        start = f"{cx + r},{cy}"
-        commands.append(f"PU{start}")
-        commands.append(f"PD{start}")  # zero-length plunge, opens a new path
-        commands.extend(f"AA{cx},{cy},90" for _ in range(4))
-
-    return ";".join(commands)

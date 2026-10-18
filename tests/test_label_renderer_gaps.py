@@ -5,7 +5,7 @@ The main suites (``test_label_renderer.py``, ``test_collision_detection.py``,
 pipeline. This file drives the residual statements and partial branches that
 only fire on degenerate or hand-crafted inputs:
 
-- the out-of-range line-index guard in ``_collision_threshold``;
+- the out-of-range line-index guard in ``collision_threshold``;
 - empty text-pen / empty boundary guards in ``_render_label_once``;
 - the PLT terminator normalization branches (already ``%`` vs. bare ``;``);
 - malformed ``AA`` arcs and un-flipped transforms in the HPGL helpers;
@@ -35,10 +35,10 @@ import vpype as vp
 
 from plt_optimizer.core.units import HPGL_UNITS_PER_INCH
 from plt_optimizer.generate import font_registry, label_renderer
+from plt_optimizer.generate.collision.detection import collision_threshold
 from plt_optimizer.generate.label_renderer import (
     _center_text_layer_vertically,
     _collect_hpgl_geometry,
-    _collision_threshold,
     _linecollection_to_hpgl,
     _render_boundary_local,
     _render_line_block,
@@ -140,11 +140,11 @@ class TestCollisionThresholdDefensiveIndex:
         )
         expected = 0.5 * (0.015 + 0.0) + 0.15
         for line_index in (-1, len(label.content)):
-            assert _collision_threshold(label, line_index) == pytest.approx(expected)
+            assert collision_threshold(label, line_index) == pytest.approx(expected)
 
         # Sanity: the in-range index uses the line's own 0.03in cutter.
         in_range = 0.5 * (0.015 + 0.03) + 0.15
-        assert _collision_threshold(label, 0) == pytest.approx(in_range)
+        assert collision_threshold(label, 0) == pytest.approx(in_range)
 
 
 class TestRenderLabelOnceLayerGuards:

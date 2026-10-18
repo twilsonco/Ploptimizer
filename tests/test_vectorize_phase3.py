@@ -8,7 +8,7 @@ import pytest
 
 from plt_optimizer.core.units import HPGL_UNITS_PER_INCH
 from plt_optimizer.generate.label_renderer import RenderedLabel, render_label_to_plt
-from plt_optimizer.generate.layout import PackedLabel, PackedPlate
+from plt_optimizer.generate.packing.layout import PackedLabel, PackedPlate
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
 from plt_optimizer.generate.schema import parse_yaml
 from plt_optimizer.generate.vectorize import (

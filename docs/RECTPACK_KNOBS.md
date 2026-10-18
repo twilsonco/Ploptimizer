@@ -7,7 +7,7 @@ the packing algorithm"* (packing labels onto plates during label generation).
 **Scope & method.** Every claim below was read from the vendored
 `rectpack` **0.2.2** source (`.venv/lib/python3.11/site-packages/rectpack/`,
 = github.com/secnot/rectpack) and from our layout engine
-(`plt_optimizer/generate/layout.py`: `PACK_CONFIGS`, `PACK_CONFIGS_COLUMNS`,
+(`plt_optimizer/generate/packing/layout.py`: `PACK_CONFIGS`, `PACK_CONFIGS_COLUMNS`,
 `_pack_best`). This is a **report only** — no schema, config, or engine code
 was changed. Section 6 records the agreed design guidance (job-level-only
 cascade) should any knob be exposed later.

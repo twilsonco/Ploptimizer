@@ -48,7 +48,7 @@ GENERATE_DEFAULT_PLOTS = True
 from plt_optimizer.core.units import units_to_inches
 from plt_optimizer.generate.job_config import JobConfig, load_job_config
 from plt_optimizer.generate.label_renderer import measure_line_vertical_extents
-from plt_optimizer.generate.layout import generate_layout
+from plt_optimizer.generate.packing.layout import generate_layout
 from plt_optimizer.generate.layout_report import format_layout_report
 from plt_optimizer.generate.resolution import (
     ResolvedLabel,

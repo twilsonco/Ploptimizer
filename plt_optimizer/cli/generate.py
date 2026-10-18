@@ -278,11 +278,9 @@ def run(args: argparse.Namespace) -> int:
     inventory, boundary_hole_cutter = _load_cutter_inventory(args.tools)
 
     # Lazy heavy imports (see module docstring note in the top-level imports).
-    from plt_optimizer.generate.label_renderer import (
-        LabelRenderError,
-        measure_line_vertical_extents,
-    )
-    from plt_optimizer.generate.layout import LayoutFitError
+    from plt_optimizer.generate.collision.detection import LabelRenderError
+    from plt_optimizer.generate.label_renderer import measure_line_vertical_extents
+    from plt_optimizer.generate.packing.layout import LayoutFitError
     from plt_optimizer.generate.resolution import (
         CutterSizeError,
         memoize_extents_probe,

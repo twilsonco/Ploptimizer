@@ -1,8 +1,17 @@
 # AGENTS.md - Text/Hole Collision & Drill Holes (`plt_optimizer/generate/collision/`)
 
-Doc-only directory: the code lives in the parent - `../geometry.py` (distance
-primitives), `../label_renderer.py` (detection + avoidance phases),
-`../resolution.py` (`hole_engraved_radius`). Parent contracts:
+The collision system lives in this package: `geometry.py` (the signed
+circle-vs-AABB gap, the circle-vs-ellipse primitives, `CollisionResult`),
+`shapes.py` (the label-shape predicates shared by renderer + holes + checks),
+`holes.py` (drill-hole circle placement in the label frame + the native
+four-arc `AA` emission), `detection.py` (the stroke-aware threshold,
+detection, the two opt-in avoidance phases, diagnostics, and the
+`assert_no_collisions` job gate). The renderer
+(`../label_renderer.py`) orchestrates the phases inside `render_label_to_plt`
+and injects its text renderer into the compression sweep (the `render`
+callback), so this package has zero runtime imports from `label_renderer`.
+`../resolution.py` keeps `hole_engraved_radius` (the cutter-compensation
+chokepoint). Parent contracts:
 [`../../../AGENTS.md`](../../../AGENTS.md), [`../AGENTS.md`](../AGENTS.md).
 The sections below moved verbatim from the old root AGENTS.md section 6.
 
@@ -25,7 +34,7 @@ exactly equal to the threshold is safe. Detection runs in the label-local
 y-up frame, shifted by `height / 2` to match export centering; Y-flip is
 intersection-invariant.
 
-- **Phase 1 (always on, observational):** `_detect_text_hole_collisions()`
+- **Phase 1 (always on, observational):** `detect_text_hole_collisions()`
   flags per-(line, hole) threshold violations. `RenderedLabel.collision_detected`
   marks any render where a collision was found (even if a later phase fixed
   it) and `RenderedLabel.has_collisions` marks renders that still collide
@@ -34,7 +43,7 @@ intersection-invariant.
   of clearance + stroke floor) are logged once the outcome is known: at
   WARNING when an avoidance phase resolves them, at ERROR when they remain
   unresolved. Detection runs inside `render_label_to_plt` (and the
-  collision-avoidance sweeps re-check via `_detect_text_hole_collisions()`).
+  collision-avoidance sweeps re-check via `detect_text_hole_collisions()`).
 - **Phase 2 (opt-in via `min_hole_margin`):** sweep `hole_margin` toward the
   floor (analytical — hole positions are pure functions of `hole_margin`);
   on success re-render from the adjusted label clone and log WARNING with
@@ -76,9 +85,9 @@ packing); the code fallback is `DEFAULT_HOLE_ADJUST_FOR_CUTTER = True`.
 
 - **Single geometry chokepoint**: `resolution.hole_engraved_radius(diameter,
   cutter_diameter, adjust)` is the pure math; the only call site is
-  `label_renderer._hole_circles_local`, which is the single source of hole
+  `collision.holes.hole_circles_local`, which is the single source of hole
   circles for BOTH the emitted `AA` arcs (`_render_holes_hpgl`) and the
-  text-hole collision checks (`_detect_text_hole_collisions`, the Phase 2
+  text-hole collision checks (`detect_text_hole_collisions`, the Phase 2
   margin sweep) — collision detection measures the circle that is actually
   engraved, so a near miss relaxes by exactly the half cutter, with zero
   changes at the collision sites.

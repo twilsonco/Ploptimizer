@@ -1613,7 +1613,7 @@ class ResolvedLabel:
             label -> job, default ``True``; see
             :func:`hole_engraved_radius`). The hole centres are placed from
             the specified diameter and never move. Applied by
-            :func:`plt_optimizer.generate.label_renderer._hole_circles_local`,
+            :func:`plt_optimizer.generate.collision.holes.hole_circles_local`,
             which is the single source of hole geometry for both emission and
             text-hole collision detection.
         text_chunk_mode: Plate-space text optimization granularity
@@ -1628,7 +1628,7 @@ class ResolvedLabel:
         material: Stock material name this label must be cut from (from
             the ``material`` cascade, label -> job). Labels sharing a
             material pack together and a plate never mixes materials (see
-            :func:`plt_optimizer.generate.layout.generate_layout`).
+            :func:`plt_optimizer.generate.packing.layout.generate_layout`).
             ``None`` (the default) means unset: the label groups with the
             job-level material, and a job without materials packs exactly
             like a single material group.

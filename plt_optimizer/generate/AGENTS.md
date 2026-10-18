@@ -1032,8 +1032,8 @@ the reported Sunwest symptom (`B29ABg` on a 1x1.0in label: the visible text sat
   `_render_label_once`) and stored on **`RenderedLabel.band_center_offset_inches`**.
 - **Every consumer of the centering rule must see the same delta** — three
   sites, all reading `RenderedLabel.band_center_offset_inches`:
-  `_detect_text_hole_collisions` (its `shift_y = height/2` frame shift),
-  `_resolve_collision_via_margin_adjustment` / `_resolve_collision_via_compression`
+  `detect_text_hole_collisions` (its `shift_y = height/2` frame shift),
+  `resolve_via_margin_adjustment` / `resolve_via_compression`
   (threaded through), and `plate_optimizer._label_transform` (the plate-space
   text transform, which mirrors the centering math exactly — a missed site here
   desynchronizes the optimized text layer from the emitted border).
@@ -1192,7 +1192,7 @@ the value actually used for stacking, so it is what the report shows.
   effective gap *below* the line (`adjusted_spacings[i]`), `None` on the
   last renderable line (n-1 gaps for n lines). ⚠️ Adding a field to
   `_LineEntry` requires updating the tuple-unpack in
-  `_detect_text_hole_collisions`.
+  `detect_text_hole_collisions`.
 - `RenderedLabel.compression_by_line: dict[int, float]` carries the
   per-line scales; only lines below `1.0` are included, so the common
   case is an empty dict. `RenderedLabel.line_spacing_by_line:

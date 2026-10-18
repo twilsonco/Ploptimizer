@@ -11,7 +11,7 @@ from typing import Optional
 
 import pytest
 
-from plt_optimizer.generate.layout import (
+from plt_optimizer.generate.packing.layout import (
     DEFAULT_PLATE_HEIGHT,
     DEFAULT_ROUND_CLEARANCE_IN,
     DEFAULT_PLATE_WIDTH,
@@ -355,7 +355,7 @@ class TestRotationEnabled:
         (long text, compression disabled) packs unrotated and must report
         rotated=False.
         """
-        from plt_optimizer.generate.layout import generate_layout_with_bounds
+        from plt_optimizer.generate.packing.layout import generate_layout_with_bounds
 
         label = ResolvedLabel(
             id="overflow",
@@ -515,7 +515,7 @@ class TestBestAlgorithmSelection:
         stacks labels up the plate height instead, where the 2-row optimum
         does not apply.
         """
-        from plt_optimizer.generate.layout import generate_layout_with_bounds
+        from plt_optimizer.generate.packing.layout import generate_layout_with_bounds
 
         # Two wide (10") and three narrow (3") plus one medium (6"), all 1" tall.
         labels = [
@@ -540,7 +540,7 @@ class TestBestAlgorithmSelection:
 
     def test_no_overlap_in_selected_layout(self) -> None:
         """The selected best-fit layout must never contain overlapping labels."""
-        from plt_optimizer.generate.layout import generate_layout_with_bounds
+        from plt_optimizer.generate.packing.layout import generate_layout_with_bounds
 
         labels = [_make_label(label_id=f"l{i}", width=3.0, height=1.0) for i in range(4)] + [
             _make_label(label_id="wide", width=10.0, height=1.0)
@@ -561,7 +561,7 @@ class TestBestAlgorithmSelection:
         """Footprint metric should be smaller for tighter layouts."""
         import rectpack
 
-        from plt_optimizer.generate.layout import PACK_CONFIGS, _plate_footprint
+        from plt_optimizer.generate.packing.layout import PACK_CONFIGS, _plate_footprint
 
         # Build packers with the same 24x16 bin and confirm footprint is
         # positive (non-empty) across all candidate configurations.
@@ -921,7 +921,7 @@ class TestLayoutFillOrder:
 
     def test_columns_transpose_entries_swaps_rid_width(self) -> None:
         """The transposed rid payload carries the packer-space width."""
-        from plt_optimizer.generate.layout import _transpose_entries
+        from plt_optimizer.generate.packing.layout import _transpose_entries
 
         label = _make_label(label_id="a", width=3.0, height=1.0)
         entries = [(3.0, 1.0, ("a_0", label, 3.0, 0))]
@@ -1876,7 +1876,7 @@ class TestRoundLabelPacking:
         """The placed label's buffered ellipse polygon (usable-area, y-up)."""
         from shapely.affinity import translate as shapely_translate
 
-        from plt_optimizer.generate.ellipse_packer import ellipse_polygon
+        from plt_optimizer.generate.packing.ellipse_packer import ellipse_polygon
 
         center_x = packed.x + packed.width / 2.0 - plate.left_clearance
         center_y = packed.y + packed.height / 2.0 - plate.top_clearance

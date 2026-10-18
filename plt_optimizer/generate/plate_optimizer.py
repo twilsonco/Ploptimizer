@@ -75,7 +75,7 @@ from plt_optimizer.generate.label_renderer import (
     RenderedLabel,
     TextChunkRecord,
 )
-from plt_optimizer.generate.layout import PackedLabel
+from plt_optimizer.generate.packing.layout import PackedLabel
 from plt_optimizer.generate.resolution import ResolvedLabel
 from plt_optimizer.generate.text_geometry import LineSeg, Stroke, TextBlock
 from plt_optimizer.utils.logging import TextLogger

@@ -42,7 +42,7 @@ from plt_optimizer.generate.label_renderer import (
     RenderedLabel,
     extract_bounds_from_plt,
 )
-from plt_optimizer.generate.layout import PackedPlate
+from plt_optimizer.generate.packing.layout import PackedPlate
 from plt_optimizer.generate.plate_optimizer import (
     PlateOptimization,
     StrategyFactory,
@@ -410,7 +410,7 @@ class PerCutterExport:
             :attr:`combined_by_plate` keys. Reporting-only: labels are
             partitioned by material at packing time, so each plate carries
             at most one material (see
-            :attr:`~plt_optimizer.generate.layout.PackedPlate.material`).
+            :attr:`~plt_optimizer.generate.packing.layout.PackedPlate.material`).
     """
 
     plt_paths: list[Path] = field(default_factory=list)
@@ -796,7 +796,7 @@ def export_per_cutter_plts(
         A :class:`PerCutterExport` with written PLT paths, PDF paths, and
         the in-memory combined content per plate.
     """
-    from plt_optimizer.generate.layout import generate_layout_with_bounds
+    from plt_optimizer.generate.packing.layout import generate_layout_with_bounds
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

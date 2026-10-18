@@ -484,9 +484,9 @@ def _scrape_constants() -> dict[str, str]:
         if name.startswith("DEFAULT_")
     }
     constants["DEFAULT_HOLE_DIAMETER"] = repr(DEFAULT_HOLE_DIAMETER)
-    layout_source = (REPO_ROOT / "plt_optimizer" / "generate" / "layout.py").read_text(
-        encoding="utf-8"
-    )
+    layout_source = (
+        REPO_ROOT / "plt_optimizer" / "generate" / "packing" / "layout.py"
+    ).read_text(encoding="utf-8")
     for match in re.finditer(r"^(DEFAULT_PLATE_\w+): [^=]+= (.+)$", layout_source, re.MULTILINE):
         constants[match.group(1)] = match.group(2).strip()
     return constants

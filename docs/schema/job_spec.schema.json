@@ -39,7 +39,7 @@
       "type": "object"
     },
     "LabelShape": {
-      "description": "Enumeration of valid label boundary shapes.\n\n``rect`` (the default) is the historical behaviour: the label boundary is\nthe ``width`` x ``height`` rectangle, the packer packs that rectangle, and\nevery collision check measures the rectangle. ``round`` makes the boundary\nan ellipse with semi-axes ``width / 2`` and ``height / 2`` -- a circle when\nthe two are equal -- which switches the label onto the adjacent\nellipse-packing pipeline (see :mod:`plt_optimizer.generate.ellipse_packer`)\nand makes the collision checks measure the ellipse boundary.\n\nAttributes:\n    RECT: Rectangular boundary (default; the historical behaviour).\n    ROUND: Elliptical boundary; a circle when ``width == height``.",
+      "description": "Enumeration of valid label boundary shapes.\n\n``rect`` (the default) is the historical behaviour: the label boundary is\nthe ``width`` x ``height`` rectangle, the packer packs that rectangle, and\nevery collision check measures the rectangle. ``round`` makes the boundary\nan ellipse with semi-axes ``width / 2`` and ``height / 2`` -- a circle when\nthe two are equal -- which switches the label onto the adjacent\nellipse-packing pipeline (see :mod:`plt_optimizer.generate.packing.ellipse_packer`)\nand makes the collision checks measure the ellipse boundary.\n\nAttributes:\n    RECT: Rectangular boundary (default; the historical behaviour).\n    ROUND: Elliptical boundary; a circle when ``width == height``.",
       "enum": [
         "rect",
         "round"
@@ -902,7 +902,7 @@
       "type": "object"
     },
     "LayoutMode": {
-      "description": "Enumeration of plate fill-order preferences for bin packing.\n\n``rectpack`` has no sort option that controls fill order directly (the\nemergent order is a side effect of placement tie-breaking), so\n``columns`` is realized by packing in a transposed frame with a\nbottom-row fill algorithm and mapping every placement back into plate\nspace (see ``plt_optimizer.generate.layout``).\n\nAttributes:\n    ROWS: Fill the plate width first, then extend downward (row-major;\n        the historical packing behaviour).\n    COLUMNS: Fill the plate height first, then extend rightward\n        (column-major; the default).",
+      "description": "Enumeration of plate fill-order preferences for bin packing.\n\n``rectpack`` has no sort option that controls fill order directly (the\nemergent order is a side effect of placement tie-breaking), so\n``columns`` is realized by packing in a transposed frame with a\nbottom-row fill algorithm and mapping every placement back into plate\nspace (see ``plt_optimizer.generate.packing.layout``).\n\nAttributes:\n    ROWS: Fill the plate width first, then extend downward (row-major;\n        the historical packing behaviour).\n    COLUMNS: Fill the plate height first, then extend rightward\n        (column-major; the default).",
       "enum": [
         "rows",
         "columns"

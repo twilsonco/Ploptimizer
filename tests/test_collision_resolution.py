@@ -25,14 +25,16 @@ from dataclasses import replace
 
 import pytest
 
-from plt_optimizer.generate.label_renderer import (
+from plt_optimizer.generate.collision.detection import (
     LabelRenderError,
-    _collision_threshold,
-    _detect_text_hole_collisions,
-    _render_text_local_with_bounds,
-    _resolve_collision_via_compression,
-    _resolve_collision_via_margin_adjustment,
     assert_no_collisions,
+    collision_threshold,
+    detect_text_hole_collisions,
+    resolve_via_compression,
+    resolve_via_margin_adjustment,
+)
+from plt_optimizer.generate.label_renderer import (
+    _render_text_local_with_bounds,
     render_label_to_plt,
 )
 from plt_optimizer.generate.resolution import (
@@ -41,7 +43,7 @@ from plt_optimizer.generate.resolution import (
     ResolvedTextLine,
 )
 
-LOGGER_NAME = "plt_optimizer.generate.label_renderer"
+LOGGER_NAME = "plt_optimizer.generate.collision.detection"
 
 BOTTOM_HOLE = [ResolvedHoleSpec(diameter=0.25, location="bottom")]
 SIDE_HOLES = [
@@ -122,7 +124,7 @@ class TestMarginAdjustment:
         # The emitted PLT must come from the adjusted label: re-detecting
         # collisions on the adjusted geometry finds none.
         _lc, entries = _render_text_local_with_bounds(adjusted)
-        assert _detect_text_hole_collisions(adjusted, entries) == []
+        assert detect_text_hole_collisions(adjusted, entries) == []
 
     def test_margin_adjustment_respects_min_hole_margin_floor(self) -> None:
         """The reduced margin never drops below the configured floor."""
@@ -131,7 +133,7 @@ class TestMarginAdjustment:
         # default 0.1875in margin.
         label = _label(text="HELLO", holes=BOTTOM_HOLE, height=1.25, min_hole_margin=0.1)
         _lc, entries = _render_text_local_with_bounds(label)
-        resolved = _resolve_collision_via_margin_adjustment(label, entries)
+        resolved = resolve_via_margin_adjustment(label, entries)
 
         assert resolved is not None
         assert resolved.hole_margin >= 0.1 - 1e-9
@@ -141,7 +143,7 @@ class TestMarginAdjustment:
         """A floor above the clearing margin leaves the collision in place."""
         label = _label(text="HELLO", holes=BOTTOM_HOLE, min_hole_margin=0.16)
         _lc, entries = _render_text_local_with_bounds(label)
-        assert _resolve_collision_via_margin_adjustment(label, entries) is None
+        assert resolve_via_margin_adjustment(label, entries) is None
 
         rendered = render_label_to_plt(label)
         assert rendered.has_collisions is True
@@ -150,13 +152,13 @@ class TestMarginAdjustment:
         """Without min_hole_margin, margin adjustment is not attempted."""
         label = _label(text="HELLO", holes=BOTTOM_HOLE, min_hole_margin=None)
         _lc, entries = _render_text_local_with_bounds(label)
-        assert _resolve_collision_via_margin_adjustment(label, entries) is None
+        assert resolve_via_margin_adjustment(label, entries) is None
 
     def test_no_budget_when_margin_at_floor(self) -> None:
         """hole_margin already at the floor leaves nothing to shrink."""
         label = _label(text="HELLO", holes=BOTTOM_HOLE, hole_margin=0.05, min_hole_margin=0.05)
         _lc, entries = _render_text_local_with_bounds(label)
-        assert _resolve_collision_via_margin_adjustment(label, entries) is None
+        assert resolve_via_margin_adjustment(label, entries) is None
 
     def test_adjustment_logs_before_and_after_margins(
         self, caplog: pytest.LogCaptureFixture
@@ -175,7 +177,7 @@ class TestMarginAdjustment:
         """Full-width centered text over side holes ignores margin reduction."""
         label = _label(min_hole_margin=0.0)
         _lc, entries = _render_text_local_with_bounds(label)
-        assert _resolve_collision_via_margin_adjustment(label, entries) is None
+        assert resolve_via_margin_adjustment(label, entries) is None
 
     def test_margin_already_at_floor_flags_collision(self) -> None:
         """With hole_margin pinned at the floor, Phase 2 has no budget to shrink."""
@@ -266,7 +268,7 @@ class TestCompressionFallback:
         at_floor = replace(label, collision_compress_by_line={0: 0.0})
         # No collisions detected (empty list returned), so compression returns None
         # because there are no collisions to resolve
-        result = _resolve_collision_via_compression(at_floor, 1.0)
+        result = resolve_via_compression(at_floor, 1.0, render=_render_text_local_with_bounds)
         # The function returns None when there are no collisions to resolve
         # (since we're testing with a pre-compressed label that has no collisions)
         assert result is None
@@ -359,7 +361,7 @@ class TestJobLevelAbort:
 
     def test_layout_gate_aborts_before_packing(self) -> None:
         """generate_layout_with_bounds aborts when any label collides."""
-        from plt_optimizer.generate.layout import generate_layout_with_bounds
+        from plt_optimizer.generate.packing.layout import generate_layout_with_bounds
 
         clean = _label(text="HI", holes=[], width=2.0)
         colliding = replace(_label(), id="bad_label")
@@ -390,10 +392,10 @@ class TestStrokeAwareThreshold:
             hole_cutter_diameter=0.015,
         )
         _lc, entries = _render_text_local_with_bounds(label)
-        collisions = _detect_text_hole_collisions(label, entries)
+        collisions = detect_text_hole_collisions(label, entries)
         assert len(collisions) == 1
         assert collisions[0].gap > 0.0  # near miss, not penetration
-        assert collisions[0].gap < _collision_threshold(label, 0)
+        assert collisions[0].gap < collision_threshold(label, 0)
 
         rendered = render_label_to_plt(label)
         assert rendered.collision_detected is True
@@ -412,11 +414,11 @@ class TestStrokeAwareThreshold:
         # Required 0.015 + 0.02 = 0.035 < gap -> safe.
         safe = _label(hole_text_collision_distance=0.02, **base)
         _lc, entries = _render_text_local_with_bounds(safe)
-        assert _detect_text_hole_collisions(safe, entries) == []
+        assert detect_text_hole_collisions(safe, entries) == []
 
         # Required 0.015 + 0.04 = 0.055 > gap -> collision (near miss).
         tight = _label(hole_text_collision_distance=0.04, **base)
-        assert len(_detect_text_hole_collisions(tight, entries)) == 1
+        assert len(detect_text_hole_collisions(tight, entries)) == 1
 
     def test_tangent_paths_collide_under_stroke_floor(self) -> None:
         """Tangent toolpaths still collide: the cut strokes would overlap."""
@@ -431,7 +433,7 @@ class TestStrokeAwareThreshold:
             hole_cutter_diameter=0.0,
         )
         _lc, entries = _render_text_local_with_bounds(label)
-        assert len(_detect_text_hole_collisions(label, entries)) == 1
+        assert len(detect_text_hole_collisions(label, entries)) == 1
 
         # A zero-threshold label (no stroke floor at all) keeps the legacy
         # semantics: tangency alone is not a collision.
@@ -440,17 +442,17 @@ class TestStrokeAwareThreshold:
             content=[replace(_make_line("HELLO"), cutter_diameter=0.0)],
         )
         _lc2, zero_entries = _render_text_local_with_bounds(zero_cutter)
-        assert _detect_text_hole_collisions(zero_cutter, zero_entries) == []
+        assert detect_text_hole_collisions(zero_cutter, zero_entries) == []
 
     def test_threshold_uses_per_line_text_cutter(self) -> None:
         """Each line's own cutter diameter feeds the stroke floor."""
         label = _label(hole_text_collision_distance=0.15, hole_cutter_diameter=0.015)
         big_cutter_line = replace(_make_line("B"), cutter_diameter=0.06)
         wide = replace(label, content=[_make_line("A"), big_cutter_line])
-        base = _collision_threshold(wide, 0)
+        base = collision_threshold(wide, 0)
         assert base == pytest.approx(0.5 * (0.015 + 0.03) + 0.15)
         # The second line's larger cutter raises its threshold.
-        assert _collision_threshold(wide, 1) == pytest.approx(0.5 * (0.015 + 0.06) + 0.15)
+        assert collision_threshold(wide, 1) == pytest.approx(0.5 * (0.015 + 0.06) + 0.15)
 
     def test_phase2_sweep_stops_at_stroke_aware_threshold(self) -> None:
         """Margin reduction must clear the floor, not just tangency."""
@@ -470,9 +472,9 @@ class TestStrokeAwareThreshold:
         )
 
         _lc, entries = _render_text_local_with_bounds(strict)
-        strict_resolved = _resolve_collision_via_margin_adjustment(strict, entries)
+        strict_resolved = resolve_via_margin_adjustment(strict, entries)
         _lc2, entries2 = _render_text_local_with_bounds(stroke_aware)
-        aware_resolved = _resolve_collision_via_margin_adjustment(stroke_aware, entries2)
+        aware_resolved = resolve_via_margin_adjustment(stroke_aware, entries2)
 
         assert strict_resolved is not None
         assert aware_resolved is not None
@@ -481,7 +483,7 @@ class TestStrokeAwareThreshold:
         assert aware_resolved.hole_margin < strict_resolved.hole_margin
         # And the resolved geometry genuinely clears the threshold.
         _lc3, aware_entries = _render_text_local_with_bounds(aware_resolved)
-        assert _detect_text_hole_collisions(aware_resolved, aware_entries) == []
+        assert detect_text_hole_collisions(aware_resolved, aware_entries) == []
 
     def test_unresolved_collision_logs_error(
         self, caplog: pytest.LogCaptureFixture

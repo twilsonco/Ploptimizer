@@ -1,9 +1,11 @@
 """Renderer tests for circular/elliptical (``type: round``) labels.
 
-Covers the shape-aware branches of ``plt_optimizer.generate.label_renderer``:
+Covers the shape-aware branches of the renderer and the collision package
+(``plt_optimizer.generate.label_renderer`` /
+``plt_optimizer.generate.collision``):
 
 - the ellipse boundary emission (``_render_boundary_local``);
-- the ellipse-aware drill-hole placement (``_hole_circles_local``);
+- the ellipse-aware drill-hole placement (``hole_circles_local``);
 - the shape-aware collision distance dispatcher (``_label_boundary_gap``);
 - the radial content inset applied while positioning text.
 
@@ -21,16 +23,14 @@ import numpy as np
 import pytest
 
 from plt_optimizer.core.units import units_to_inches
+from plt_optimizer.generate.collision.detection import detect_text_hole_collisions
+from plt_optimizer.generate.collision.holes import hole_circles_local, round_corner_hole
+from plt_optimizer.generate.collision.shapes import label_ellipse, label_is_round
 from plt_optimizer.generate.label_renderer import (
     _border_box,
-    _detect_text_hole_collisions,
-    _hole_circles_local,
-    _label_ellipse,
-    _label_is_round,
     _LineEntry,
     _lower_ellipse_arc,
     _render_boundary_local,
-    _round_corner_hole,
 )
 from plt_optimizer.generate.resolution import (
     ResolvedHoleSpec,
@@ -85,20 +85,20 @@ class TestLabelIsRound:
     """The single shape predicate."""
 
     def test_rect_is_not_round(self) -> None:
-        assert _label_is_round(_label("rect")) is False
+        assert label_is_round(_label("rect")) is False
 
     def test_round_is_round(self) -> None:
-        assert _label_is_round(_label("round")) is True
+        assert label_is_round(_label("round")) is True
 
 
 class TestLabelEllipseGeometry:
     """The ellipse boundary in the label-local y-up frame."""
 
     def test_center_and_semi_axes(self) -> None:
-        assert _label_ellipse(_label("round", width=4.0, height=2.0)) == (2.0, 1.0, 2.0, 1.0)
+        assert label_ellipse(_label("round", width=4.0, height=2.0)) == (2.0, 1.0, 2.0, 1.0)
 
     def test_circle_has_equal_semi_axes(self) -> None:
-        _cx, _cy, semi_a, semi_b = _label_ellipse(_label("round", width=3.0, height=3.0))
+        _cx, _cy, semi_a, semi_b = label_ellipse(_label("round", width=3.0, height=3.0))
         assert semi_a == semi_b == 1.5
 
 
@@ -155,7 +155,7 @@ class TestRoundHolePlacement:
             height=2.0,
             holes=[_hole("left"), _hole("right")],
         )
-        circles = _hole_circles_local(label)
+        circles = hole_circles_local(label)
         # The horizontal axis keeps the rectangular edge-inset (exact there).
         # The centre rides the SPECIFIED radius (0.0625); the emitted radius
         # is the cutter-compensated one (hole_adjust_for_cutter defaults on).
@@ -173,7 +173,7 @@ class TestRoundHolePlacement:
             height=2.0,
             holes=[_hole("top-right")],
         )
-        (cx, cy, radius) = _hole_circles_local(label)[0]
+        (cx, cy, radius) = hole_circles_local(label)[0]
         # Toward the top-right: x past centre, y past centre.
         assert cx > 2.0
         assert cy > 1.0
@@ -188,7 +188,7 @@ class TestRoundHolePlacement:
             height=2.0,
             holes=[_hole("top-right")],
         )
-        (cx, cy, radius) = _hole_circles_local(label)[0]
+        (cx, cy, radius) = hole_circles_local(label)[0]
         # The centre rides the SPECIFIED radius; `radius` is the emitted
         # (cutter-compensated) one.
         offset = label.hole_margin + label.hole_cutter_diameter / 2.0 + 0.0625
@@ -199,8 +199,8 @@ class TestRoundHolePlacement:
         """The four corner holes are symmetric about the centre."""
         label = _label("round", width=4.0, height=2.0)
         offset = 0.3
-        tr = _round_corner_hole(label, "top-right", offset)
-        tl = _round_corner_hole(label, "top-left", offset)
+        tr = round_corner_hole(label, "top-right", offset)
+        tl = round_corner_hole(label, "top-left", offset)
         assert tl[0] == pytest.approx(4.0 - tr[0])
         assert tl[1] == pytest.approx(tr[1])
 
@@ -224,7 +224,7 @@ class TestRoundCollisionDetection:
         )
         # A text line box well inside the ellipse.
         entry = _LineEntry(line_index=0, line_text="HELLO", bounds=(2.5, 1.5, 3.5, 2.5))
-        collisions = _detect_text_hole_collisions(label, [entry])
+        collisions = detect_text_hole_collisions(label, [entry])
         assert collisions == []
 
 
@@ -328,8 +328,8 @@ class TestCutterCompensatedHoles:
         """The centre matches the specified radius; the radius loses cutter/2."""
         on = self._label_with_holes(adjust=True)
         off = self._label_with_holes(adjust=False)
-        (cx_on, cy_on, r_on) = _hole_circles_local(on)[0]
-        (cx_off, cy_off, r_off) = _hole_circles_local(off)[0]
+        (cx_on, cy_on, r_on) = hole_circles_local(on)[0]
+        (cx_off, cy_off, r_off) = hole_circles_local(off)[0]
 
         assert (cx_on, cy_on) == pytest.approx((cx_off, cy_off))
         assert r_off == pytest.approx(0.0625)
@@ -347,8 +347,8 @@ class TestCutterCompensatedHoles:
             "top",
             "bottom",
         )
-        on = _hole_circles_local(self._label_with_holes(adjust=True, locations=locations))
-        off = _hole_circles_local(self._label_with_holes(adjust=False, locations=locations))
+        on = hole_circles_local(self._label_with_holes(adjust=True, locations=locations))
+        off = hole_circles_local(self._label_with_holes(adjust=False, locations=locations))
         assert len(on) == len(off) == len(locations)
         for (x_on, y_on, r_on), (x_off, y_off, r_off) in zip(on, off):
             assert (x_on, y_on) == pytest.approx((x_off, y_off))
@@ -356,10 +356,10 @@ class TestCutterCompensatedHoles:
 
     def test_round_corner_hole_centre_is_untouched(self) -> None:
         """The ellipse-diagonal placement is centre-invariant too."""
-        on = _hole_circles_local(
+        on = hole_circles_local(
             self._label_with_holes("round", adjust=True, locations=("top-right",))
         )[0]
-        off = _hole_circles_local(
+        off = hole_circles_local(
             self._label_with_holes("round", adjust=False, locations=("top-right",))
         )[0]
         assert on[:2] == pytest.approx(off[:2])
@@ -367,12 +367,12 @@ class TestCutterCompensatedHoles:
 
     def test_rounded_rect_corner_hole_centre_is_untouched(self) -> None:
         """The superellipse-patch placement is centre-invariant too."""
-        on = _hole_circles_local(
+        on = hole_circles_local(
             self._label_with_holes(
                 adjust=True, locations=("bottom-right",), fraction=0.5
             )
         )[0]
-        off = _hole_circles_local(
+        off = hole_circles_local(
             self._label_with_holes(
                 adjust=False, locations=("bottom-right",), fraction=0.5
             )
@@ -386,17 +386,17 @@ class TestCutterCompensatedHoles:
 
         label = self._label_with_holes(adjust=True, diameter=0.01)
         with caplog.at_level(logging.WARNING):
-            (_cx, _cy, radius) = _hole_circles_local(label)[0]
+            (_cx, _cy, radius) = hole_circles_local(label)[0]
         assert radius == pytest.approx(1.0 / HPGL_UNITS_PER_INCH)
         assert "cannot be cutter-compensated" in caplog.text
 
     def test_no_warning_when_the_compensation_is_healthy(self) -> None:
         """A normal hole emits no warning."""
-        _hole_circles_local(self._label_with_holes(adjust=True, diameter=0.125))
+        hole_circles_local(self._label_with_holes(adjust=True, diameter=0.125))
 
     def test_opt_out_emits_no_warning_for_a_degenerate_hole(self) -> None:
         """With the mechanism off there is nothing to clamp and nothing to log."""
-        _hole_circles_local(self._label_with_holes(adjust=False, diameter=0.01))
+        hole_circles_local(self._label_with_holes(adjust=False, diameter=0.01))
 
     def test_collision_check_measures_the_engraved_circle(self) -> None:
         """The collision sweep sees the smaller circle, so near misses relax.
@@ -411,5 +411,5 @@ class TestCutterCompensatedHoles:
         entries = [_LineEntry(0, "X", (0.45, -0.1, 4.0, 0.1), 1.0, None, ())]
         tight = self._label_with_holes(adjust=True, diameter=0.125, locations=("left",))
         loose = self._label_with_holes(adjust=False, diameter=0.125, locations=("left",))
-        assert _detect_text_hole_collisions(tight, entries) == []
-        assert len(_detect_text_hole_collisions(loose, entries)) == 1
+        assert detect_text_hole_collisions(tight, entries) == []
+        assert len(detect_text_hole_collisions(loose, entries)) == 1

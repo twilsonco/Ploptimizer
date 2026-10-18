@@ -12,7 +12,7 @@ Covers the G2 superellipse-corner border added to
   stadium;
 - the corner-aware content inset (``rounded_rect_content_inset``);
 - corner drill-hole placement on the patch normal
-  (``_rounded_rect_corner_hole``);
+  (``rounded_rect_corner_hole``);
 - the descender relief's rounded bottom border
   (``_border_box`` / ``_lower_rounded_rect_border``);
 - the renderer predicates routing each label onto the sharp / rounded /
@@ -30,16 +30,20 @@ from typing import Optional
 import numpy as np
 import pytest
 
+from plt_optimizer.generate.collision.holes import (
+    hole_circles_local,
+    rounded_rect_corner_hole,
+)
+from plt_optimizer.generate.collision.shapes import (
+    rounded_rect_corner,
+    rounded_rect_full_ellipse,
+    uses_ellipse_boundary,
+)
 from plt_optimizer.generate.label_renderer import (
     _border_box,
-    _hole_circles_local,
     _lower_rounded_rect_border,
     _render_boundary_local,
     _rounded_rect_boundary_polygon,
-    _rounded_rect_corner,
-    _rounded_rect_corner_hole,
-    _rounded_rect_full_ellipse,
-    _uses_ellipse_boundary,
 )
 from plt_optimizer.generate.resolution import (
     STADIUM_G2_EXPONENT,
@@ -353,7 +357,7 @@ class TestRoundedRectCornerHole:
     def test_reduces_to_the_ellipse_rule_at_n_two(self) -> None:
         """The exponent-2 normal is the shipped ellipse diagonal rule."""
         corner = RoundedRectCorner(rx=2.0, ry=1.0, exponent=2.0)
-        x, y = _rounded_rect_corner_hole(4.0, 2.0, corner, "top-right", 0.3)
+        x, y = rounded_rect_corner_hole(4.0, 2.0, corner, "top-right", 0.3)
         # Compare against the analytic ellipse point/normal at 45 degrees.
         cos45 = math.sqrt(0.5)
         bx, by = 2.0 + 2.0 * cos45, 1.0 + 1.0 * cos45
@@ -367,17 +371,17 @@ class TestRoundedRectCornerHole:
         corner = rounded_rect_corner_params(4.0, 2.0, 0.5, False)
         assert corner is not None
         for location in ("top-left", "top-right", "bottom-left", "bottom-right"):
-            x, y = _rounded_rect_corner_hole(4.0, 2.0, corner, location, 0.2)
+            x, y = rounded_rect_corner_hole(4.0, 2.0, corner, location, 0.2)
             dx = max(abs(x - 2.0) - (2.0 - corner.rx), 0.0) / corner.rx
             dy = max(abs(y - 1.0) - (1.0 - corner.ry), 0.0) / corner.ry
             assert dx**corner.exponent + dy**corner.exponent < 1.0
 
     def test_hole_circles_local_uses_the_patch(self) -> None:
-        """``_hole_circles_local`` places corner holes off the sharp corner."""
+        """``hole_circles_local`` places corner holes off the sharp corner."""
         label = _label(
             width=4.0, height=2.0, fraction=0.5, holes=[_hole("bottom-right")]
         )
-        (cx, cy, _r) = _hole_circles_local(label)[0]
+        (cx, cy, _r) = hole_circles_local(label)[0]
         # The sharp-rect inset would sit at (4 - offset, offset); the patch
         # pulls the centre toward the label's centre.
         offset = label.hole_margin + label.hole_cutter_diameter / 2.0 + 0.0625
@@ -387,7 +391,7 @@ class TestRoundedRectCornerHole:
     def test_side_holes_keep_the_rect_inset(self) -> None:
         """Side holes stay on the straight edge midpoints (exact rule)."""
         label = _label(width=4.0, height=2.0, fraction=0.5, holes=[_hole("left")])
-        (cx, cy, _r) = _hole_circles_local(label)[0]
+        (cx, cy, _r) = hole_circles_local(label)[0]
         offset = label.hole_margin + label.hole_cutter_diameter / 2.0 + 0.0625
         assert cx == pytest.approx(offset)
         assert cy == pytest.approx(1.0)
@@ -432,39 +436,39 @@ class TestRendererPredicates:
     def test_sharp_label_is_unrouted(self) -> None:
         """fraction 0: no corner, no ellipse boundary (bit-identical path)."""
         label = _label()
-        assert _rounded_rect_corner(label) is None
-        assert _rounded_rect_full_ellipse(label) is False
-        assert _uses_ellipse_boundary(label) is False
+        assert rounded_rect_corner(label) is None
+        assert rounded_rect_full_ellipse(label) is False
+        assert uses_ellipse_boundary(label) is False
 
     def test_partial_rounding_routes_to_the_patch(self) -> None:
         """0 < fraction < 1: the rounded-rect patch path."""
         label = _label(fraction=0.5)
-        assert _rounded_rect_corner(label) is not None
-        assert _rounded_rect_full_ellipse(label) is False
-        assert _uses_ellipse_boundary(label) is False
+        assert rounded_rect_corner(label) is not None
+        assert rounded_rect_full_ellipse(label) is False
+        assert uses_ellipse_boundary(label) is False
 
     def test_full_rounding_routes_to_the_ellipse(self) -> None:
         """fraction 1 proportional (or square): the shipped ellipse path."""
         prop = _label(width=4.0, height=2.0, fraction=1.0, proportional=True)
         square = _label(width=3.0, height=3.0, fraction=1.0)
         for label in (prop, square):
-            assert _rounded_rect_full_ellipse(label) is True
-            assert _uses_ellipse_boundary(label) is True
-            assert _rounded_rect_corner(label) is None
+            assert rounded_rect_full_ellipse(label) is True
+            assert uses_ellipse_boundary(label) is True
+            assert rounded_rect_corner(label) is None
 
     def test_stadium_stays_on_the_patch_path(self) -> None:
         """The smoothed stadium is a patch label, not an ellipse."""
         label = _label(width=8.0, height=4.0, fraction=1.0)
-        assert _rounded_rect_full_ellipse(label) is False
-        assert _uses_ellipse_boundary(label) is False
-        assert _rounded_rect_corner(label) is not None
+        assert rounded_rect_full_ellipse(label) is False
+        assert uses_ellipse_boundary(label) is False
+        assert rounded_rect_corner(label) is not None
 
     def test_round_shape_is_inert(self) -> None:
         """type: round ignores the fraction (the ellipse owns the border)."""
         label = _label(fraction=0.5, shape_type="round")
-        assert _rounded_rect_corner(label) is None
-        assert _rounded_rect_full_ellipse(label) is False
-        assert _uses_ellipse_boundary(label) is True
+        assert rounded_rect_corner(label) is None
+        assert rounded_rect_full_ellipse(label) is False
+        assert uses_ellipse_boundary(label) is True
 
 
 class TestRenderBoundaryLocal:

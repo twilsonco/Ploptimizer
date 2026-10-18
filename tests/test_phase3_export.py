@@ -9,7 +9,7 @@ from typing import Optional
 import pytest
 
 from plt_optimizer.core.units import HPGL_UNITS_PER_INCH
-from plt_optimizer.generate.layout import LayoutMode
+from plt_optimizer.generate.packing.layout import LayoutMode
 from plt_optimizer.generate.resolution import (
     LineContentConfigError,
     ResolvedLabel,
@@ -4691,11 +4691,11 @@ class TestRoundedRectDemoExample:
 
     def test_corner_holes_ride_the_rounded_border(self, tmp_path: Path) -> None:
         """Corner holes engrave on the patch, never in cut-away corners."""
-        from plt_optimizer.generate.label_renderer import _hole_circles_local
+        from plt_optimizer.generate.collision.holes import hole_circles_local
 
         labels = self._labels()
         label = labels["rounded_corners"]
-        circles = _hole_circles_local(label)
+        circles = hole_circles_local(label)
         assert len(circles) == 4
         offset = label.hole_margin + label.hole_cutter_diameter / 2.0 + 0.0625
         for cx, cy, _r in circles:
@@ -4718,7 +4718,7 @@ class TestRoundedRectDemoExample:
 
     def test_all_labels_pack_through_the_rect_pipeline(self) -> None:
         """Every instance lands on the plate; none routes to the ellipse packer."""
-        from plt_optimizer.generate.layout import generate_layout
+        from plt_optimizer.generate.packing.layout import generate_layout
 
         job = parse_yaml(self._SPEC)
         labels = resolve_job_spec(job)
@@ -4807,7 +4807,7 @@ class TestEllipseDemoExample:
 
     def test_round_labels_pack_onto_the_plate(self) -> None:
         """Every instance lands on the plate through the ellipse pipeline."""
-        from plt_optimizer.generate.layout import generate_layout
+        from plt_optimizer.generate.packing.layout import generate_layout
 
         job = parse_yaml(self._SPEC)
         labels = resolve_job_spec(job)
@@ -4831,8 +4831,8 @@ class TestEllipseDemoExample:
         from shapely.affinity import translate as shapely_translate
         from shapely.geometry import box as shapely_box
 
-        from plt_optimizer.generate.ellipse_packer import ellipse_polygon
-        from plt_optimizer.generate.layout import generate_layout
+        from plt_optimizer.generate.packing.ellipse_packer import ellipse_polygon
+        from plt_optimizer.generate.packing.layout import generate_layout
 
         job = parse_yaml(self._SPEC)
         labels = resolve_job_spec(job)

@@ -1239,7 +1239,7 @@ class TestGenerateRun:
     ) -> None:
         """A LayoutFitError from export is logged and aborts with exit 1."""
         from plt_optimizer.cli.generate import run
-        from plt_optimizer.generate.layout import LayoutFitError
+        from plt_optimizer.generate.packing.layout import LayoutFitError
 
         def _boom(*args: Any, **kwargs: Any) -> None:
             raise LayoutFitError("no room")

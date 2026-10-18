@@ -1,6 +1,6 @@
 """Unit tests for the circular/elliptical label packer.
 
-Covers :mod:`plt_optimizer.generate.ellipse_packer`: polygonization,
+Covers :mod:`plt_optimizer.generate.packing.ellipse_packer`: polygonization,
 bounds, clearance, collision-freedom, the scrap-direction objectives,
 rotation selection, and the fit-failure path.
 """
@@ -13,7 +13,7 @@ import pytest
 
 from shapely.affinity import translate as shapely_translate
 
-from plt_optimizer.generate.ellipse_packer import (
+from plt_optimizer.generate.packing.ellipse_packer import (
     DEFAULT_CLEARANCE_IN,
     EllipsePacker,
     EllipsePackingResult,

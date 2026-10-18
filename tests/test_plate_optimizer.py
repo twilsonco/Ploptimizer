@@ -21,7 +21,7 @@ from plt_optimizer.generate.label_renderer import (
     _collect_hpgl_geometry,
     _transform_hpgl_coordinates,
 )
-from plt_optimizer.generate.layout import PackedLabel
+from plt_optimizer.generate.packing.layout import PackedLabel
 from plt_optimizer.generate.plate_optimizer import (
     _block_text_y_extents,
     _label_transform,

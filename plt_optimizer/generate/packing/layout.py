@@ -14,7 +14,7 @@ rectangles so the bin packer can place every physical instance.
 
 Example:
     >>> from plt_optimizer.generate.resolution import resolve_job_spec
-    >>> from plt_optimizer.generate.layout import generate_layout
+    >>> from plt_optimizer.generate.packing.layout import generate_layout
     >>> job = parse_yaml("tests_deps/sample_spec.yaml")
     >>> labels = resolve_job_spec(job)
     >>> plates = generate_layout(labels, job.plates)
@@ -31,12 +31,12 @@ from typing import Mapping, Optional, Sequence
 
 import rectpack
 
-from plt_optimizer.generate.ellipse_packer import ScrapDirection as ScrapDirectionValue
+from plt_optimizer.generate.collision.detection import assert_no_collisions
 from plt_optimizer.generate.label_renderer import (
     RenderedLabel,
-    assert_no_collisions,
     render_label_to_plt,
 )
+from plt_optimizer.generate.packing.ellipse_packer import ScrapDirection as ScrapDirectionValue
 from plt_optimizer.generate.resolution import ResolvedLabel
 from plt_optimizer.generate.schema import (
     DEFAULT_LAYOUT_MODE,
@@ -1435,7 +1435,7 @@ def _pack_round_entries_on_plate(
         ``(plate, leftover)`` where ``plate`` carries the placements (empty
         when nothing fit) and ``leftover`` holds the entries that did not fit.
     """
-    from plt_optimizer.generate.ellipse_packer import (
+    from plt_optimizer.generate.packing.ellipse_packer import (
         EllipseSpec,
         ScrapDirection,
         pack_ellipses,
@@ -1518,7 +1518,7 @@ def _scrap_direction(layout: LayoutMode) -> ScrapDirectionValue:
         layout: The plate/job fill-order mode.
 
     Returns:
-        The matching :class:`~plt_optimizer.generate.ellipse_packer.ScrapDirection`
+        The matching :class:`~plt_optimizer.generate.packing.ellipse_packer.ScrapDirection`
         value.
     """
     if layout == LayoutMode.ROWS:

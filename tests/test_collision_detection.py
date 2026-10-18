@@ -1,9 +1,10 @@
 """Unit tests for the collision-avoidance geometric primitives.
 
-Covers ``plt_optimizer.generate.geometry``: the signed circle/AABB
-clearance used by the text-hole collision detection system, the swept-ink
-distance primitives backing the descending-character relief's rolling-circle
-test (segment/polyline/ink gaps and the spatial grid accelerating them),
+Covers ``plt_optimizer.generate.collision.geometry`` (the signed circle/AABB
+clearance used by the text-hole collision detection system) and the
+swept-ink distance primitives in ``plt_optimizer.generate.geometry`` backing
+the descending-character relief's rolling-circle test
+(segment/polyline/ink gaps and the spatial grid accelerating them),
 including edge cases (tangency, containment, adjacency, X-disjoint near
 misses) that must not produce false positives or false negatives.
 """
@@ -16,17 +17,19 @@ import random
 
 import pytest
 
-from plt_optimizer.generate.geometry import (
+from plt_optimizer.generate.collision.geometry import (
     CollisionResult,
+    circle_aabb_gap,
+    circle_ellipse_aabb_gap,
+    circle_ellipse_gap,
+    point_ellipse_signed_distance,
+)
+from plt_optimizer.generate.geometry import (
     Ink,
     InkGrid,
     aabb_vertical_gap,
     arc_swept_bounds,
-    circle_aabb_gap,
-    circle_ellipse_aabb_gap,
-    circle_ellipse_gap,
     ink_gap,
-    point_ellipse_signed_distance,
     point_segment_gap,
     polyline_gap,
     segment_gap,

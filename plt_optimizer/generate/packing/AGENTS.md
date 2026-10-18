@@ -1,8 +1,11 @@
 # AGENTS.md - Plate-Space Routing & Bin-Packing (`plt_optimizer/generate/packing/`)
 
-Doc-only directory: the code lives in the parent (`../layout.py`,
-`../ellipse_packer.py`, `../plate_optimizer.py`, `../vectorize.py`) and in
-`../core/` (the shared routing pipeline - see
+The packing engines live in this package: `packing/layout.py` (the `rectpack`
+bounds-aware multi-heuristic engine for rectangular labels - rotation, fill
+order, plate clearances, material partitioning) and `packing/ellipse_packer.py` (the
+pure-shapely grid-search engine for `type: round` labels). Plate-frame TSP
+*routing* is not packing and stays in `../plate_optimizer.py`; assembly/export
+in `../vectorize.py`; the shared routing pipeline in `../core/` (see
 [`../../core/AGENTS.md`](../../core/AGENTS.md)). Parent contracts:
 [`../../../AGENTS.md`](../../../AGENTS.md), [`../AGENTS.md`](../AGENTS.md).
 The sections below moved verbatim from the old root AGENTS.md section 6.
@@ -332,7 +335,7 @@ keeps packing through `rectpack` exactly as before (bit-identical); `round`
 labels route to the shapely packer. The dispatch is per label at the packing
 boundary, and the rectangular path imports nothing new.
 
-- **`plt_optimizer/generate/ellipse_packer.py`** (NEW, pure shapely, no
+- **`plt_optimizer/generate/packing/ellipse_packer.py`** (NEW, pure shapely, no
   pipeline imports): `ellipse_polygon` (unit circle polygonized at
   `quad_segs`, scaled to the semi-axes buffered by `clearance / 2`, so a plain
   `intersects` test is collision-exact), `EllipsePacker.pack` (largest-area
@@ -348,7 +351,7 @@ boundary, and the rectangular path imports nothing new.
   `layout._pack_round_entries_on_plate` maps them to `PackedLabel` by adding
   the plate clearances (no Y flip); the label's slot is the ellipse's
   enclosing rectangle.
-- **`layout.py`**: `_pack_entries_with_pinners` is the single dispatcher — it
+- **`packing/layout.py`**: `_pack_entries_with_pinners` is the single dispatcher — it
   splits entries by `shape_type` (`_split_shape_entries`), runs the
   **unchanged** rectangular pipeline (`_pack_rect_entries_with_pinners`, the
   renamed original), and only then the round pipeline
@@ -359,14 +362,14 @@ boundary, and the rectangular path imports nothing new.
   never share a plate, unbounded overflow onto `round_default_plate_{i}`
   sheets). The inter-label kerf is the group's widest boundary/hole cutter
   (`_round_clearance`) — two engraved borders never touch.
-- **`label_renderer.py`**: `_label_is_round` is the single shape predicate.
+- **`label_renderer.py`**: `label_is_round` is the single shape predicate.
   `_render_boundary_local` emits the ellipse (closed polygon, sampled at
   `ARC_FLATTEN_CHORD_TOL_INCHES` with an EVEN vertex count so the four axis
   vertices are hit exactly and the rendered bounds equal the nominal box —
   the packer and plate transforms depend on that) instead of `vp.rect`.
-  `_hole_circles_local` places `sides`/`top`/`bottom` holes on the axis
+  `hole_circles_local` places `sides`/`top`/`bottom` holes on the axis
   vertices (the inset is exact on an axis) and the four corner holes on the
-  45° diagonal inset along the outward normal (`_round_corner_hole`) — the
+  45° diagonal inset along the outward normal (`round_corner_hole`) — the
   rectangular corner inset would drill in the material the ellipse cuts away.
   The text margin applies **radially** (`resolution.ellipse_content_inset`:
   the largest centered block of the label's aspect inscribed in the inset
@@ -387,7 +390,7 @@ boundary, and the rectangular path imports nothing new.
   `circle_ellipse_gap` / `point_ellipse_signed_distance` primitives (exact
   Lagrange-multiplier point-to-ellipse distance, bisection, evolute-aware on
   the major axis) ship with the feature for boundary-aware work.
-- **Win7/3.8 guarantee**: `layout.py` is the only shapely importer and stays
+- **Win7/3.8 guarantee**: `packing/layout.py` is the only shapely importer and stays
   lazily imported inside `generate.run()`, so `main` + `watch` + `optimize`
   import without shapely (pinned by the matplotlib-import-blocker pattern in
   [`../../cli/AGENTS.md`](../../cli/AGENTS.md); verified).
@@ -428,14 +431,14 @@ This is a **border change, never a packing change**: rounded labels keep
 `shape_type: rect` and pack through rectpack in their nominal box — each patch
 is tangent to the box at its axis vertices, so the rendered bounds equal the
 nominal box exactly (the packer and plate transforms are untouched, and
-`ellipse_packer.py` / `layout.py` see nothing new).
+`packing/ellipse_packer.py` / `packing/layout.py` see nothing new).
 
 - **The behaviour matrix** (`resolution.rounded_rect_corner_params`,
   matplotlib-free, returns `None` for the sharp border): `0 < f < 1` = G2
   fillets in the chosen mode; `f = 1` + proportional (or a square) = the
   **exact ellipse/circle** — the renderer routes those labels to the shipped
-  `type: round` ellipse path (`_rounded_rect_full_ellipse` /
-  `_uses_ellipse_boundary`), so their boundary emission, corner holes, radial
+  `type: round` ellipse path (`rounded_rect_full_ellipse` /
+  `uses_ellipse_boundary`), so their boundary emission, corner holes, radial
   inset and relief border are bit-identical to a `type: round` label of the
   same box (only the packing stays rectangular); `f = 1` + non-proportional +
   `W ≠ H` = the **smoothed stadium** — the short edges fully round, the long
@@ -443,7 +446,7 @@ nominal box exactly (the packer and plate transforms are untouched, and
   `STADIUM_G2_EXPONENT = 4` (a quarter-circle there would join the straights
   with a curvature jump; the clamp keeps every junction κ = 0). Inert on
   `type: round` labels (the ellipse owns the boundary).
-- **`label_renderer.py`**: `_rounded_rect_corner` is the single predicate
+- **`label_renderer.py`**: `rounded_rect_corner` is the single predicate
   (sharp / round-shaped / fully-rounded ⇒ `None`). `_superellipse_quad`
   samples one patch from its X-vertex to its Y-vertex at
   `ARC_FLATTEN_CHORD_TOL_INCHES` with a step from the patch's **numerically
@@ -459,7 +462,7 @@ nominal box exactly (the packer and plate transforms are untouched, and
   descender near a corner measures the rising curve). Corner drill holes ride
   the patch's 45° parametric point inset along the **outward normal**
   `(sign_x·cos²/rx, sign_y·sin²/ry)` — the gradient of the superellipse, the
-  generalization of `_round_corner_hole` (`_rounded_rect_corner_hole`; at
+  generalization of `round_corner_hole` (`rounded_rect_corner_hole`; at
   `n = 2` it is exactly the ellipse rule). Side/top/bottom holes keep the
   rectangular inset (exact at the edge midpoints, where the border is
   straight).

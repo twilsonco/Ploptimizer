@@ -25,11 +25,13 @@ PLT-Optimizer/
 │   │   ├── schema.py       # Pydantic YAML job-spec data contract
 │   │   ├── substitution.py # Replacement text files ("badges"/multiples)
 │   │   ├── resolution.py   # Cascade resolution + cutter compensation
-│   │   ├── layout.py       # Bounds-aware multi-heuristic bin packing
-│   │   ├── label_renderer.py    # Per-label PLT rendering, collision avoidance
+│   │   ├── label_renderer.py    # Per-label PLT rendering
 │   │   ├── ftext_renderer.py    # matplotlib TTF glyph vectorization
-│   │   ├── geometry.py     # Circle-vs-AABB collision math
-│   │   └── vectorize.py    # Per-cutter PLT/PDF export (lossless HPGL writer)
+│   │   ├── geometry.py     # Shared geometric primitives (ink/arc/gap math)
+│   │   ├── vectorize.py    # Per-cutter PLT/PDF export (lossless HPGL writer)
+│   │   ├── collision/      # Text-hole collision + drill-hole geometry
+│   │   ├── markup/         # Inline markup framework (<i> <u> <b> ...)
+│   │   └── packing/        # Bin packing: rectpack layout + shapely ellipse
 │   ├── ui/                 # GUI components (system tray, Windows-only)
 │   │   ├── __init__.py
 │   │   ├── tray.py         # System tray icon and notification handling

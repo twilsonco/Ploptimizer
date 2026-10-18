@@ -86,11 +86,12 @@ class TestGeneratedArtifacts:
     def test_fallback_constants_are_scraped_live(self) -> None:
         """The fallback table carries the real current constant values.
 
-        Guards the ``layout.py`` regex scrape specifically: a renamed or
+        Guards the ``packing/layout.py`` regex scrape specifically: a renamed or
         retyped constant must surface here rather than silently dropping
         out of the docs.
         """
-        from plt_optimizer.generate import layout, resolution
+        from plt_optimizer.generate import resolution
+        from plt_optimizer.generate.packing import layout
 
         constants = generator._scrape_constants()
         for name in dir(resolution):
