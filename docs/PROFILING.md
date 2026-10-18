@@ -85,7 +85,8 @@ Five specs covering the pipeline's distinct hot paths
 ## Measured results (2026-10-17, `--repeats 3`, plots off, ensemble optimize on)
 
 Historical pre-fix baseline; see "Bottleneck fixes" below for the
-post-fix re-run.
+post-fix re-run and "Current bottlenecks" for the latest full-sweep
+re-profile.
 
 Machine: macOS dev box (Apple Silicon, Python 3.11). Wall = median of 3;
 stage seconds = sums of the last timed run. `cpu_s` is process CPU
@@ -147,7 +148,7 @@ Same box, same harness. Post-fix medians:
 | 2026-10-07 coolsys 1 big label | 68.7 | **3.6** | `reflow` 2.1 |
 | 2026-10-15 coolsys round tags 910+walmart | 51.0 | **2.7** | `optimize_layer` 1.3 / `layout_render_pack` 1.3 |
 | 2026-10-06 seer intrachunk opt TTF | 0.3 | 0.04 | — |
-| 2026-10-06 seer wb-uv | 5.8 | 6.1 | `cutter_downsize` 3.9 (unchanged, next target) |
+| 2026-10-06 seer wb-uv | 5.8 | 6.1 | `cutter_downsize` 3.9 (untouched by these fixes; see Current #2) |
 
 What fixed what:
 
@@ -192,7 +193,81 @@ is the source). Seeding each strategy job deterministically (e.g. from a
 hash of the serialized blocks + job payload) is the remaining step toward
 the identical-input-identical-output invariant.
 
-### Python optimized mode (`-O`) — verdict: **no benefit, safe, not adopted**
+## Current bottlenecks (2026-10-18, post-fix re-profile, full sweep)
+
+Full sweep after the fixes above (`--repeats 3` + cProfile + tracemalloc,
+plots off). Wall = median of 3; profile seconds are cProfile cumulative
+(inflated ~1.5-2.6x on pure-Python hot loops — call counts are the
+reliable signal). Memory is a non-issue everywhere (peak 1.3-30.7 MiB).
+
+| Spec | wall s | dominant stage(s) |
+|---|---|---|
+| 2026-07-22 sunwest | 11.6 | `optimize_layer` 10.5 (481-block bh layer) |
+| 2026-10-06 seer wb-uv | 5.8 | `cutter_downsize` 3.7 + `layout_render_pack` 1.8 |
+| 2026-10-07 coolsys 1 big label | 3.4 | `reflow` 1.9 |
+| 2026-10-15 coolsys round tags 910+walmart | 2.6 | `optimize_layer` 1.3 / `layout_render_pack` 1.2 |
+| 2026-10-06 seer intrachunk opt TTF | 0.04 | — |
+
+The three original bottlenecks are gone. What dominates now, in
+size-of-prize order:
+
+### Current #1: `TextBlock.bounds` recompute (the universal render leaf)
+
+The sweep's top cost center on every render-heavy spec:
+`text_geometry.TextBlock.bounds` (L546) recomputes the union of its
+strokes' swept bounds on EVERY call — the frozen dataclass caches nothing,
+and the render pipeline calls it per line, per pass, per probe. wb-uv:
+**25,894 calls / 4.7 s cumulative** (via 90,477 `Stroke.bounds` +
+116 k segment bounds); coolsys: **7,660 calls / 3.2 s = 36 % of the whole
+profiled run** (50,314 `Stroke.bounds`, 400,222 segment-level `bounds`).
+It is now the single highest-leverage remaining optimization: memoize the
+bounds on the frozen block (e.g. compute-once in `__post_init__` via
+`object.__setattr__`, or an explicit cached field threaded through the
+transform constructors). Memoization is exact — a frozen block's strokes
+never mutate — so every pin stays bit-identical.
+
+### Current #2: `cutter_downsize` probe renders + collision compression sweep (wb-uv)
+
+wb-uv's 3.7 s stage is 14 full `render_label_to_plt` probes
+(`cutter_downsize._default_probe`, 10.0 s profiled) — the same
+full-render-per-measurement shape as the old reflow probe, plus the
+collision Phase-3 sweep inside those renders
+(`detection.resolve_via_compression`, 18 calls / 11.1 s profiled = 144
+thin `_render_text_local_with_bounds` renders). Two shrinkable multipliers:
+(a) the downsize probe measures ONE line's compressed width — like the
+reflow probe, it needs no drill holes, no PLT export, and no relief, so a
+text-only render path serves it; (b) the 16-step compression sweep
+re-renders from scratch per step while only the X scale changes. The
+`_share_downsizes` re-measure pass doubles the probe count.
+
+### Current #3: sunwest's 481-block bh layer (real compute, knob not bug)
+
+Confirmed by the profile: 10.1 s of the 10.5 s stage is the parent
+blocking in `as_completed` on the pooled 481-block layer (the strategies'
+real parallel compute; sequential is ~3.5x worse). `--fast-mode` isolates
+it. Improving THIS means cheaper big-instance strategies (e.g. capping
+2-opt passes by block count), not plumbing.
+
+### Current #4: coolsys `reflow` residual (2x, no longer pathological)
+
+1.9 s = 8 probe renders (0.62 s each) of the 24x16in label; inside each,
+`bounds` (36 %) + `_walk_line` + the relief (2.2 s profiled across 11
+renders, down from ~140 s). The relief pre-filters made it linear-ish;
+further wins come from Current #1 and from caching per-glyph ink between
+probe renders (the word partition changes line breaks, not glyph geometry).
+
+### Ruled out
+
+- **Ellipse packing is no longer a hot spot**: round-tags packing is now
+  ~0.5 s profiled (~0.2 s real, was ~50 s); the spec's
+  `layout_render_pack` 1.2 s is the 83 `render_label_to_plt` renders
+  (Current #1 again).
+- **Ensemble pool spawn** on the benchmark set: the small layers
+  (1-48 blocks) run sequentially; the 146/166-block round-tags layers
+  pool in 1.1 s profiled total — spawn is amortized there.
+- **Memory**: peak <= 31 MiB on every spec, unchanged.
+
+## Python optimized mode (`-O`) — verdict: **no benefit, safe, not adopted**
 
 Static: the package contains exactly ONE `assert` (the module-level
 1016-units invariant in `core/units.py`, import-time), zero `__debug__`
