@@ -29,5 +29,15 @@ per-directory `AGENTS.md` files (root file has the component map).
   (`scripts/run_integration_test.py`).
 - `RECTPACK_KNOBS.md` - packing knob analysis (fill-order contract:
   [`../plt_optimizer/generate/packing/AGENTS.md`](../plt_optimizer/generate/packing/AGENTS.md)).
+- `PROFILING.md` - the generate-pipeline perf loop (measure → identify →
+  patch → re-measure → plot). The full procedure lives in the
+  `generate-pipeline-profiling` skill
+  ([`../.github/skills/generate-pipeline-profiling/SKILL.md`](../.github/skills/generate-pipeline-profiling/SKILL.md)):
+  `scripts/profile_generate.py` appends to the `test_output/profiling/summary.csv`
+  run history (`run_id`/`run_ts` stamps; `--fresh` resets),
+  `scripts/plot_profiling_history.py` plots every metric per job across
+  sweeps, and pre-optimization baselines come from a git worktree
+  (never a checkout of the main tree), stamped with the baseline commit's
+  date so iteration order follows code state.
 - Keep prose in sync with the component AGENTS.md files when behavior changes;
   DONE.md tracks per-feature doc updates (historical record - do not rewrite).
