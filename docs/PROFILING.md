@@ -51,7 +51,9 @@ uv run python scripts/profile_generate.py --plots         # include matplotlib P
 Outputs under `test_output/profiling/`:
 
 - `summary.csv` — per spec: median wall/cpu, peak traced MiB, summed
-  seconds per stage.
+  seconds per stage. It is a **run history**: every sweep APPENDS its rows
+  (leading `run_id` groups one sweep, `run_ts` stamps each row), so
+  before/after comparisons need no git archaeology. `--fresh` resets it.
 - `<spec>/<spec>.prof` — cProfile binary; inspect with
   `python -m pstats "<spec>.prof"` (`cum` sort) or
   `uv run --with snakeviz snakeviz "<spec>.prof"`.
@@ -68,6 +70,27 @@ uv run --with py-spy py-spy record -o /tmp/profile.svg -- \
 uv run --with memray memray run --output /tmp/run.bin \
     scripts/profile_generate.py --specs "<spec>" --no-profile
 ```
+
+## Comparing across optimization work
+
+`summary.csv` accumulates every sweep, so the trend is one command away:
+
+```sh
+# One PNG per numeric metric (wall/cpu/memory/every stage): x = sweep
+# iteration (oldest first), one line per job spec.
+uv run python scripts/plot_profiling_history.py
+uv run python scripts/plot_profiling_history.py --metrics wall_s,cpu_s --log-y
+uv run python scripts/plot_profiling_history.py --show
+```
+
+PNGs land in `test_output/profiling/plots/`. Matplotlib is dev-side (root
+§5), so a matplotlib-free machine gets a `uv run --extra plotting` hint
+instead of a traceback. A pre-fix baseline row set can be re-measured with
+a worktree at the pre-optimization commit (`git worktree add` + that tree's
+`scripts/profile_generate.py`), then merged into the history so the plots
+start from the true before-state; iteration order follows the code state
+(the baseline rows carry the pre-fix commit's date, not the later
+measurement date).
 
 ## Benchmark set
 
