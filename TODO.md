@@ -1,3 +1,2 @@
 # TODO List
 - [ ] Run profiler for toolpath generation (using one or more sufficiently complex test cases to test all available features). Identify bottlenecks and optimize performance accordingly. Consider writing rust library called from python for demanding computations.
-- [x] AGENTS.md cleanup. Main file is too large. Need to create per-directory AGENTS.md files in order to shrink down the main file. The main AGENTS.md file should just have coding/project standards, project background/motivation, and a description of the different main components of the project and where to find them (so that the agent can then discover the other AGENTS.md files that will inform about each component/module).
