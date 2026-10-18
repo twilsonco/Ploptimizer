@@ -54,6 +54,7 @@ import subprocess
 import sys
 import time
 import tracemalloc
+from datetime import datetime
 from io import StringIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
@@ -261,6 +262,7 @@ def profile_one_spec(
     stage_order = list(capture.order)
 
     row: Dict[str, Any] = {
+        "run_ts": datetime.now().astimezone().isoformat(timespec="seconds"),
         "spec": stem,
         "wall_s": statistics.median(walls),
         "wall_min_s": min(walls),
@@ -438,6 +440,43 @@ def _write_csv(path: Path, rows: Sequence[Dict[str, Any]]) -> None:
         writer.writerows(rows)
 
 
+def _append_csv(
+    path: Path, rows: Sequence[Dict[str, Any]], *, fresh: bool = False
+) -> List[Dict[str, str]]:
+    """Append *rows* to the CSV at *path*, preserving any existing history.
+
+    The summary CSV is a run HISTORY: every sweep appends its rows (each
+    stamped with ``run_ts``), so wall-time trends across optimization work
+    are diffable and comparable without digging through git. Column order
+    is the existing file's, with any new keys appended; rows missing a key
+    write an empty cell. ``fresh=True`` discards the existing file.
+
+    Args:
+        path: Target CSV.
+        rows: Rows from this sweep.
+        fresh: Overwrite instead of appending.
+
+    Returns:
+        The existing rows that were preserved (empty when ``fresh`` or no
+        file existed) — for the console summary.
+    """
+    existing: List[Dict[str, str]] = []
+    if path.exists() and not fresh:
+        with open(path, newline="") as f:
+            existing = list(csv.DictReader(f))
+    fieldnames: List[str] = []
+    for row in (*existing, *rows):
+        for key in row:
+            if key not in fieldnames:
+                fieldnames.append(key)
+    with open(path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames, restval="")
+        writer.writeheader()
+        writer.writerows(existing)
+        writer.writerows(rows)
+    return existing
+
+
 def _collect_specs(values: Sequence[str]) -> List[Path]:
     """Resolve spec paths (repo-relative allowed); directories expand to yaml."""
     specs: List[Path] = []
@@ -512,6 +551,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="A/B mode: median wall + byte-identical PLT manifest for "
         "PYTHONOPTIMIZE=0 vs 1 (spawns child runs of this script).",
     )
+    parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Reset summary.csv instead of appending this sweep to its history.",
+    )
     return parser
 
 
@@ -536,7 +580,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         rows.append(profile_one_spec(spec, out_root, args))
 
     csv_path = out_root / "summary.csv"
-    _write_csv(csv_path, rows)
+    preserved = _append_csv(csv_path, rows, fresh=args.fresh)
 
     stage_keys = [
         key for key in (rows[0] if rows else {}) if str(key).startswith("stage_")
@@ -554,7 +598,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 f"{row['spec']:<48}"
                 + "".join(f"{row.get(k, 0.0):>16.2f}" for k in stage_keys)
             )
-    print(f"\nSummary CSV: {csv_path}")
+    print(
+        f"\nSummary CSV: {csv_path} "
+        f"(history: {len(preserved)} prior row(s) + {len(rows)} new)"
+    )
     return 0
 
 
