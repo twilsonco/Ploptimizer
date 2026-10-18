@@ -29,8 +29,8 @@ from plt_optimizer.generate.plt_font_renderer import (
     MIN_GLYPH_WIDTH,
     SPACE_HEIGHT_FRACTION,
     PltFontRenderError,
-    _GlyphGeometry,
     _capline_geometry,
+    _GlyphGeometry,
     clear_glyph_cache,
     interpolate_envelope,
     kerning_offset,
@@ -760,9 +760,7 @@ class TestWordGroups:
 
     def test_empty_text(self, synth_lib: Path) -> None:
         """Empty input yields an empty block and no groups."""
-        block, groups = render_text_line_plt_font_with_words(
-            "", 0.5, "Test", library_dir=synth_lib
-        )
+        block, groups = render_text_line_plt_font_with_words("", 0.5, "Test", library_dir=synth_lib)
         assert block.is_empty()
         assert groups == []
 
@@ -873,9 +871,7 @@ class TestErrorPaths:
         """A missing library means no PLT fonts: resolution reports unknown."""
         with caplog.at_level("WARNING"):
             with pytest.raises(PltFontRenderError, match="Unknown font"):
-                render_text_line_plt_font(
-                    "A", 0.5, "Dino", library_dir=tmp_path / "absent"
-                )
+                render_text_line_plt_font("A", 0.5, "Dino", library_dir=tmp_path / "absent")
         assert "not found" in caplog.text
 
 
@@ -1126,17 +1122,13 @@ class TestInlineSmallCaps:
     def test_flags_none_matches_the_whole_line_transform(self, sc_lib: Path) -> None:
         """``lowercase_flags=None`` is the font-level whole-line behaviour."""
         whole = _render("aB", 1.0, sc_lib, lowercase_scale=0.7)
-        flagged = _render(
-            "aB", 1.0, sc_lib, lowercase_scale=0.7, lowercase_flags=(True, True)
-        )
+        flagged = _render("aB", 1.0, sc_lib, lowercase_scale=0.7, lowercase_flags=(True, True))
         assert flagged.bounds() == pytest.approx(whole.bounds())
 
     def test_unflagged_glyphs_engrave_verbatim(self, sc_lib: Path) -> None:
         """All-False flags render the base font exactly (the tag's fast path)."""
         plain = _render("aB", 1.0, sc_lib)
-        unflagged = _render(
-            "aB", 1.0, sc_lib, lowercase_scale=0.7, lowercase_flags=(False, False)
-        )
+        unflagged = _render("aB", 1.0, sc_lib, lowercase_scale=0.7, lowercase_flags=(False, False))
         assert unflagged.bounds() == pytest.approx(plain.bounds())
 
     def test_selection_is_per_character(self, sc_lib: Path) -> None:
@@ -1149,9 +1141,14 @@ class TestInlineSmallCaps:
         Flagging one ``a`` lands strictly between the two extremes, and
         flagging the middle ``B`` (a capital) changes nothing.
         """
+
         def width(flags: Tuple[bool, bool, bool]) -> float:
             block = _render(
-                "aBa", 1.0, sc_lib, lowercase_scale=0.7, lowercase_flags=flags,
+                "aBa",
+                1.0,
+                sc_lib,
+                lowercase_scale=0.7,
+                lowercase_flags=flags,
                 cutter_diameter=0.02,
             )
             return block.bounds()[2]
@@ -1182,9 +1179,7 @@ class TestInlineSmallCaps:
     def test_top_down_anchor_on_the_flagged_glyph(self, sc_lib: Path) -> None:
         """The flagged glyph's own lowest point stays put; its top descends."""
         base = _render("G", 1.0, sc_lib).bounds()
-        shrunk = _render(
-            "g", 1.0, sc_lib, lowercase_scale=0.7, lowercase_flags=(True,)
-        ).bounds()
+        shrunk = _render("g", 1.0, sc_lib, lowercase_scale=0.7, lowercase_flags=(True,)).bounds()
         assert base is not None and shrunk is not None
         assert shrunk[1] == pytest.approx(base[1], abs=1e-9)
         assert shrunk[3] == pytest.approx(0.2, abs=1e-9)
@@ -1198,7 +1193,11 @@ class TestInlineSmallCaps:
     def test_glyph_groups_keep_the_original_characters(self, sc_lib: Path) -> None:
         """The per-glyph partition is keyed by the text, not the mapped glyphs."""
         _block, _words, glyphs = render_text_line_plt_font_with_glyphs(
-            "aB", 1.0, "Test", library_dir=sc_lib, lowercase_scale=0.7,
+            "aB",
+            1.0,
+            "Test",
+            library_dir=sc_lib,
+            lowercase_scale=0.7,
             lowercase_flags=(True, False),
         )
         assert [char for char, _ in glyphs] == ["a", "B"]
@@ -1213,11 +1212,19 @@ class TestInlineSmallCaps:
         and the two renders would agree.
         """
         one = _render(
-            "a a", 1.0, sc_lib, lowercase_scale=0.7, lowercase_flags=(True, True, False),
+            "a a",
+            1.0,
+            sc_lib,
+            lowercase_scale=0.7,
+            lowercase_flags=(True, True, False),
             cutter_diameter=0.02,
         )
         two = _render(
-            "a a", 1.0, sc_lib, lowercase_scale=0.7, lowercase_flags=(True, False, True),
+            "a a",
+            1.0,
+            sc_lib,
+            lowercase_scale=0.7,
+            lowercase_flags=(True, False, True),
             cutter_diameter=0.02,
         )
         plain = _render("a a", 1.0, sc_lib, cutter_diameter=0.02)
@@ -1503,9 +1510,7 @@ class TestDerivedGlyphRendering:
 
     def test_all_derived_characters_render(self) -> None:
         """Every derived key in the shipped library renders without raising."""
-        catalog_dir = (
-            Path(__file__).resolve().parents[1] / "Fonts" / "VP-EL-Fonts" / "catalog"
-        )
+        catalog_dir = Path(__file__).resolve().parents[1] / "Fonts" / "VP-EL-Fonts" / "catalog"
         dino = json.loads((catalog_dir / "Dino.json").read_text(encoding="utf-8"))
         derived = [char for char in dino["characters"] if ord(char) > 0x7E]
         assert len(derived) == 17
@@ -1690,9 +1695,7 @@ class TestBoldMarkup:
     def test_per_pair_clearance_uses_the_two_cutters(self, synth_lib: Path) -> None:
         """A bold neighbour widens the pair's clearance to 0.5*(dL+dR)."""
         kwargs = {"character_spacing": 0.02}
-        plain = _render(
-            "AB", 1.0, synth_lib, cutter_diameter=0.04, **kwargs
-        ).bounds()
+        plain = _render("AB", 1.0, synth_lib, cutter_diameter=0.04, **kwargs).bounds()
         bold = _render(
             "AB",
             1.0,
@@ -1734,9 +1737,7 @@ class TestBoldMarkup:
         """Omitting the bold kwargs keeps the historical render."""
         kwargs = {"cutter_diameter": 0.04, "character_spacing": 0.02}
         legacy = _render("AB", 1.0, synth_lib, **kwargs)
-        explicit = _render(
-            "AB", 1.0, synth_lib, cutter_diameters=None, glyph_scales=None, **kwargs
-        )
+        explicit = _render("AB", 1.0, synth_lib, cutter_diameters=None, glyph_scales=None, **kwargs)
         assert explicit.to_hpgl() == legacy.to_hpgl()
 
     def test_bold_scales_the_silhouette_the_kerning_measures(self, synth_lib: Path) -> None:
@@ -1783,25 +1784,87 @@ class TestBaselineShiftMarkup:
 
     def test_shift_composes_with_the_glyph_scale(self, synth_lib: Path) -> None:
         """The bare <sup> shape: scaled about the baseline, then shifted."""
-        shifted = _render(
-            "A", 1.0, synth_lib, glyph_scales=(0.5,), baseline_shifts=(0.5,)
-        ).bounds()
+        shifted = _render("A", 1.0, synth_lib, glyph_scales=(0.5,), baseline_shifts=(0.5,)).bounds()
         assert shifted is not None
         # Scale first (0..1 -> 0..0.5), then the translate (+0.5).
         assert shifted == pytest.approx((0.0, 0.5, 0.5, 1.0))
 
-    def test_shift_leaves_the_advance_alone(self, synth_lib: Path) -> None:
-        """A shifted glyph's pair advance is the unshifted pair's.
+    def test_shift_leaves_a_constant_silhouette_advance_alone(self, synth_lib: Path) -> None:
+        """A shifted glyph with a constant-x silhouette keeps the pair advance.
 
-        Kerning compares the **unshifted** envelopes, so a vertical shift can
-        never narrow (or widen) the advance -- the line's width is exactly the
-        unshifted line's.
+        ``B`` is a zero-width vertical line (its right/left silhouettes sit at
+        a constant x), so a vertical shift changes no penetration: the pair's
+        advance is exactly the unshifted pair's. This is a property of the
+        glyph, not of kerning ignoring the shift -- a shifted *shaped* glyph
+        (see ``test_shift_narrows_a_pair``) does change the advance.
         """
         kwargs = {"character_spacing": 0.02, "cutter_diameter": 0.04}
         plain = _render("AB", 1.0, synth_lib, **kwargs).bounds()
         shifted = _render("AB", 1.0, synth_lib, baseline_shifts=(0.0, 0.5), **kwargs).bounds()
         assert plain is not None and shifted is not None
         assert shifted[2] == pytest.approx(plain[2])
+
+    def test_shift_narrows_a_pair(self, synth_lib: Path) -> None:
+        """A raised glyph kerns at its true height, narrowing the pair.
+
+        ``C`` is a circle radius 0.5 centred (0.5, 0.5). Two circles side by
+        side advance 1.0 (they touch at x = 1.0). Raising the second by 0.5
+        clears the first's widest bulge: the pair now overlaps only where the
+        first tapers, so the advance drops to 0.5 -- the reported symptom (a
+        raised superscript engraved with too much spacing).
+        """
+        plain = _render("CC", 1.0, synth_lib).bounds()
+        raised = _render("CC", 1.0, synth_lib, baseline_shifts=(0.0, 0.5)).bounds()
+        assert plain is not None and raised is not None
+        assert plain[2] == pytest.approx(2.0)
+        assert raised[2] == pytest.approx(1.5)
+
+    def test_shift_widens_a_pair(self, synth_lib: Path) -> None:
+        """A glyph raised past its neighbour's top overlaps only a sliver.
+
+        ``A`` is the diagonal ``(0,0)->(1,1)``. Two ``A``s advance 0 (their
+        silhouettes coincide). Raising the second by 1.0 leaves a single
+        overlap point at y = 1 where the second's left edge is its bottom
+        (x = 0), so the advance grows to 1.0.
+        """
+        plain = _render("AA", 1.0, synth_lib).bounds()
+        raised = _render("AA", 1.0, synth_lib, baseline_shifts=(0.0, 1.0)).bounds()
+        assert plain is not None and raised is not None
+        assert plain[2] == pytest.approx(1.0)
+        assert raised[2] == pytest.approx(2.0)
+
+    def test_shift_disjoint_pair_falls_to_the_fallback(self, synth_lib: Path) -> None:
+        """A shift that separates the boxes uses the fallback, not a phantom overlap.
+
+        ``A`` shifted 1.5 puts the second box entirely above the first (no
+        Y-overlap), so the pair falls to the bounding-box-width fallback
+        ``max(left_width, min_glyph_width) * fallback_fraction`` = the left
+        glyph's full width (1.0 at the default fallback fraction).
+        """
+        raised = _render("AA", 1.0, synth_lib, baseline_shifts=(0.0, 1.5)).bounds()
+        assert raised is not None
+        assert raised[2] == pytest.approx(2.0)
+
+    def test_shift_composes_with_the_glyph_scale_in_kerning(self, synth_lib: Path) -> None:
+        """The bare <sup> shape: scaled, then shifted, and kerned as that shape.
+
+        ``A`` scaled 0.5 about the baseline (0..1 -> 0..0.5) then shifted 0.5
+        spans y in [0.5, 1.0]. A following ``A`` at full height overlaps it in
+        [0.5, 1.0]; the scaled glyph's right envelope at y is x = 2y - 1 (the
+        scaled diagonal), so the pair's advance reflects the scaled+shifted
+        silhouette (the same geometry the placement engraves).
+        """
+        shifted = _render(
+            "AA", 1.0, synth_lib, glyph_scales=(1.0, 0.5), baseline_shifts=(0.0, 0.5)
+        ).bounds()
+        assert shifted is not None
+        # First A: origin 0, spans 0..1. Second A: scaled 0.5 -> box 0..0.5,
+        # shifted +0.5 -> 0.5..1.0. Overlap with the first [0.5, 1.0]; at y the
+        # second's left envelope is x = 2y - 1, the first's right is x = y, so
+        # penetration = y - (2y - 1) = 1 - y, maximised at y = 0.5 -> 0.5.
+        # The second glyph's origin lands at 0.5 and it spans 0.5, so the
+        # line's total width is 1.0.
+        assert shifted[2] == pytest.approx(1.0)
 
     def test_zero_shift_is_bit_identical(self, synth_lib: Path) -> None:
         """``baseline_shifts = 0.0`` renders the untouched geometry."""
@@ -1833,9 +1896,7 @@ class TestBaselineShiftMarkup:
         """A shifted glyph's plunge stays on the shifted geometry."""
         shifted = _render("A", 1.0, synth_lib, baseline_shifts=(0.5,))
         plain = _render("A", 1.0, synth_lib)
-        assert shifted.strokes[0].pen_up == pytest.approx(
-            plain.strokes[0].pen_up + 0.5j
-        )
+        assert shifted.strokes[0].pen_up == pytest.approx(plain.strokes[0].pen_up + 0.5j)
 
     def test_shift_length_mismatch_is_rejected(self, synth_lib: Path) -> None:
         """A baseline_shifts length that is not the text length raises ValueError."""
@@ -1907,9 +1968,7 @@ class TestFontNames:
     def test_all_none_matches_the_base_font(self, two_fonts: Path) -> None:
         """All-None font_names render the base font exactly (the fast path)."""
         plain = _render("AB", 1.0, two_fonts, cutter_diameter=0.02)
-        flagged = _render(
-            "AB", 1.0, two_fonts, cutter_diameter=0.02, font_names=(None, None)
-        )
+        flagged = _render("AB", 1.0, two_fonts, cutter_diameter=0.02, font_names=(None, None))
         assert flagged.bounds() == pytest.approx(plain.bounds())
 
     def test_selection_is_per_character(self, two_fonts: Path) -> None:
@@ -1920,10 +1979,9 @@ class TestFontNames:
         strictly shorter than the all-base render and taller than the
         all-Half render.
         """
+
         def width(font_names: Tuple[Optional[str], Optional[str]]) -> float:
-            block = _render(
-                "AA", 1.0, two_fonts, cutter_diameter=0.02, font_names=font_names
-            )
+            block = _render("AA", 1.0, two_fonts, cutter_diameter=0.02, font_names=font_names)
             return block.bounds()[2]
 
         base = width((None, None))
@@ -2118,9 +2176,7 @@ class TestCapLineGeometryHelper:
                 strokes=(
                     Stroke(
                         pen_up=complex(0.0, 525.0),
-                        segments=(
-                            ArcSeg(complex(0.0, 525.0), complex(500.0, 525.0), 360.0),
-                        ),
+                        segments=(ArcSeg(complex(0.0, 525.0), complex(500.0, 525.0), 360.0),),
                     ),
                 )
             ),
@@ -2273,9 +2329,7 @@ class TestWalkLineCapLineEnforcement:
     def test_all_glyphs_at_cap_render_bit_identically(self, cap_lib: Path) -> None:
         """A line of exact-cap glyphs is untouched by the enforcement."""
         plain = _render("HH", 1.0, cap_lib, cutter_diameter=0.02)
-        enforced = _render(
-            "HH", 1.0, cap_lib, cutter_diameter=0.02, enforce_cap_line=True
-        )
+        enforced = _render("HH", 1.0, cap_lib, cutter_diameter=0.02, enforce_cap_line=True)
         assert enforced.bounds() == pytest.approx(plain.bounds())
 
     def test_bundled_dino_digits_clamped(self) -> None:

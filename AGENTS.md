@@ -1486,8 +1486,10 @@ precedent). No tag args ship: the parser's reserved `name:args` form keeps
   its normal neighbours. `ResolvedTextLine.baseline_raises` therefore raises
   every character by `(run_cutter - cutter) / 2` inches, riding the renderers'
   existing per-character `baseline_shifts` array (the `<sup>`/`<sub>`
-  plumbing, composed in `label_renderer._baseline_shift_inches` -- a pure
-  translate at placement, so the renderers need no change). For a bold run
+  plumbing, composed in `label_renderer._baseline_shift_inches`; the PLT
+  walker bakes the array into each glyph's geometry before kerning, so the
+  raise is measured at its true engraved height -- a pure translate at
+  placement, so the renderers need no change). For a bold run
   this single value aligns the **engraved baseline AND the engraved
   capline**: the plain silhouette spans `[-c/2, nominal - c/2]` and the bold
   run's spans `[r - d/2, r + s*(nominal - c) + d/2]`, and bottom- and
@@ -1770,11 +1772,20 @@ current baseline, `1` = the capline, `-1` = one cap height below) and applies
   inches with `toolpath_text_height` (the per-font cap height, the same basis
   as the baseline pitch) and `_glyph_render_kwargs` gates it (empty dict for
   every markup-free line ⇒ bit-identical output).
-- **Kerning deliberately compares the unshifted envelopes.** A vertical
-  translate changes no envelope X, so a shifted pair's advance is exactly the
-  unshifted pair's: the shift can never narrow a pair (no engraved overlap)
-  and a shift-only run never changes the line's width
-  (`measure_line_natural_width` is shift-blind ⇒ the reflow stays exact).
+- **Kerning measures the shifted silhouette (PLT).** The PLT walker bakes the
+  baseline shift into each glyph's geometry (block + bbox + both envelopes)
+  as the LAST transform (`_shift_geometry`, a pure translate) **before**
+  kerning, so a pair's penetration is measured at the glyph's true engraved
+  height: a raised superscript kerns against its neighbour at the capline
+  (narrowing the pair — the reported over-spacing symptom), and a shift that
+  separates the boxes falls to the fallback advance instead of sampling a
+  phantom overlap. A vertical translate changes no envelope X, so the shift
+  can narrow a pair (a raise clears the neighbour's widest bulge) or widen it
+  (a glyph riding past the neighbour's top overlaps only a sliver). The TTF
+  path has no envelope kerning — matplotlib shaping owns the advances, so a
+  shift never changes a TTF line's width (`measure_line_natural_width` is
+  shift-blind there ⇒ the TTF reflow stays exact; a PLT markup line's width
+  now reflects the shifted kerning).
 - **Everything downstream is free**: the pen split (`_stroke_cutter_map` reads
   `per_char_cutters`), the underline run-split, `_line_cutter` /
   `_collision_threshold` (`max(used_cutters)`), the descender relief, the

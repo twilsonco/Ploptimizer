@@ -1150,7 +1150,6 @@ class TestMultistrokeDemoExample:
         job = parse_yaml(self._SPEC)
         return {label.id: label for label in resolve_job_spec(job, self._INVENTORY)}
 
-
     def _export(self, tmp_path: Path) -> PerCutterExport:
         """Export the demo job with plotting disabled against the inventory."""
         job = parse_yaml(self._SPEC)
@@ -3111,7 +3110,6 @@ class TestBoldDemoExample:
         ]
 
 
-
 class TestScaleDemoExample:
     """Regression tests for tests_deps/scale_job.yaml.
 
@@ -3320,6 +3318,7 @@ class TestScaleDemoExample:
         text_file = next(p for p in result.plt_paths if p.name.endswith("0.060_txt_sc.plt"))
         assert "AA" in text_file.read_text()
 
+
 class TestSupSubDemoExample:
     """Regression tests for tests_deps/sup_sub_job.yaml.
 
@@ -3403,6 +3402,66 @@ class TestSupSubDemoExample:
         run_cutter = line.per_char_cutters[-1]
         expected = 0.25 * line.toolpath_text_height + (run_cutter - line.cutter_diameter) / 2
         assert growth == pytest.approx(expected, abs=0.01)
+
+    def test_bare_sup_kerns_narrower_than_the_plain_twin(self, tmp_path: Path) -> None:
+        """The raised run kerns at its true height, so the line is narrower.
+
+        The reported symptom: a superscript engraved with too much spacing.
+        Kerning now measures the shifted silhouette, so the raised ``Small``
+        run clears the preceding ``o``'s widest bulge and the line's ink
+        width is strictly less than its plain twin's.
+        """
+        result = self._export(tmp_path)
+        sup = self._line_bounds(result.rendered_labels["plt_sup"].source_label)
+        plain = self._line_bounds(result.rendered_labels["plt_plain"].source_label)
+        assert sup is not None and plain is not None
+        assert sup[2] - sup[0] < plain[2] - plain[0]
+
+    def test_shift_narrows_a_boundary_pair(self, tmp_path: Path) -> None:
+        """The shift alone (no scale) tightens a shifted/unshifted boundary.
+
+        ``A<sup>B</sup>C`` has an unbroken shifted/unshifted boundary pair
+        (``A``->``B`` and ``B``->``C``), so kerning the shifted silhouette
+        narrows the line. Isolating the shift (zeroing ``baseline_shifts``
+        while keeping the scale) shows the shift alone is responsible -- the
+        raised ``B`` clears the ``A``/``C`` widest bulges.
+        """
+        from plt_optimizer.generate.label_renderer import _glyph_render_kwargs
+        from plt_optimizer.generate.plt_font_renderer import (
+            render_text_line_plt_font_with_words,
+        )
+
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_partial"].source_label.content[0]
+        kw = _glyph_render_kwargs(line, plt=True)
+        assert kw["baseline_shifts"] == (0.0, pytest.approx(0.315), 0.0)
+
+        def width(shifts: tuple[float, ...]) -> float:
+            k = dict(kw)
+            k["baseline_shifts"] = shifts
+            block, _ = render_text_line_plt_font_with_words(
+                line.plain_text,
+                line.toolpath_text_height,
+                line.font,
+                cutter_diameter=line.cutter_diameter,
+                character_spacing=line.character_spacing,
+                space_width_fraction=line.space_width_fraction,
+                min_glyph_width=line.min_glyph_width,
+                kerning_window_fraction=line.kerning_window_fraction,
+                kerning_penetration_scale=line.kerning_penetration_scale,
+                kerning_recession_scale=line.kerning_recession_scale,
+                kerning_min_gap=line.kerning_min_gap,
+                fallback_advance_fraction=line.fallback_advance_fraction,
+                **k,
+            )
+            bounds = block.bounds()
+            assert bounds is not None
+            return bounds[2] - bounds[0]
+
+        shifted = width(kw["baseline_shifts"])
+        unshifted = width(tuple(0.0 for _ in kw["baseline_shifts"]))
+        # The shift alone tightens the boundary pairs.
+        assert shifted < unshifted
 
     def test_bare_sub_drops_the_line_floor(self, tmp_path: Path) -> None:
         """The bare sub's ink hangs below the plain twin's baseline floor."""
@@ -3744,8 +3803,8 @@ class TestStrikethroughDemoExample:
         where the cutter changes and the strokes land on two per-cutter pens.
         """
         from plt_optimizer.generate.label_renderer import (
-            _stroke_cutter_map,
             _strikethrough_render_gate,
+            _stroke_cutter_map,
         )
 
         result = self._export(tmp_path)
@@ -4131,10 +4190,10 @@ class TestOverlapDemoExample:
         to the plain control's).
         """
         from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
             _strikethrough_render_gate,
             _strikethrough_strokes,
-            _render_line_block,
-            TextChunkMode,
         )
 
         result = self._export(tmp_path)
@@ -4379,9 +4438,7 @@ class TestFontDemoExample:
         assert nested_c[1] == pytest.approx(ref[1], abs=1e-9)
         assert nested_c[3] == pytest.approx(ref[3], abs=1e-9)
 
-    def test_font_bold_composes_the_run_ladder_with_the_bold_rung(
-        self, tmp_path: Path
-    ) -> None:
+    def test_font_bold_composes_the_run_ladder_with_the_bold_rung(self, tmp_path: Path) -> None:
         """``<b>`` + ``<f:>``: the font run re-runs its ladder at the bold rung.
 
         The bold run steps to the line's bold rung (0.090); the Wingdings run
@@ -4395,9 +4452,7 @@ class TestFontDemoExample:
         assert all(math.isclose(c, 0.045) for c in line.per_char_cutters[5:8])
         assert line.used_cutters == (0.045, 0.06, 0.09)
 
-    def test_font_scale_run_takes_its_own_effective_height_cutter(
-        self, tmp_path: Path
-    ) -> None:
+    def test_font_scale_run_takes_its_own_effective_height_cutter(self, tmp_path: Path) -> None:
         """``<f:>`` + ``<scale:N>``: each run takes its own ladder cutter."""
         result = self._export(tmp_path)
         line = result.rendered_labels["plt_scale"].source_label.content[0]
@@ -4406,9 +4461,7 @@ class TestFontDemoExample:
         assert math.isclose(line.per_char_cutters[3], 0.06)  # the space's plain
         assert all(math.isclose(c, 0.03) for c in line.per_char_cutters[4:8])
 
-    def test_font_underline_splits_the_run_at_the_cutter_boundary(
-        self, tmp_path: Path
-    ) -> None:
+    def test_font_underline_splits_the_run_at_the_cutter_boundary(self, tmp_path: Path) -> None:
         """``<u>`` + ``<f:>``: the underline splits where the cutter changes.
 
         The underline is cut with each run's own tool, so the gate splits the
@@ -4595,9 +4648,9 @@ class TestRoundedRectDemoExample:
         from plt_optimizer.generate.label_renderer import _render_boundary_hpgl
 
         labels = self._labels()
-        assert _render_boundary_hpgl(
-            labels["full_ellipse"]
-        ) == _render_boundary_hpgl(labels["ellipse_twin"])
+        assert _render_boundary_hpgl(labels["full_ellipse"]) == _render_boundary_hpgl(
+            labels["ellipse_twin"]
+        )
 
     def test_sharp_control_is_the_historical_rectangle(self) -> None:
         """fraction 0 emits the four-corner rectangle, bit-identical."""
@@ -4981,9 +5034,7 @@ class TestEnforceCapLineDemoExample:
         """E/F/H/Z sit exactly at the capline: the clamp never moves them."""
         result = self._export(tmp_path)
         on = self._line_bounds(result.rendered_labels["plt_flat_caps"].source_label)
-        off = self._line_bounds(
-            result.rendered_labels["plt_flat_caps_off"].source_label
-        )
+        off = self._line_bounds(result.rendered_labels["plt_flat_caps_off"].source_label)
         assert on == pytest.approx(off, abs=1e-9)
 
     def test_round_capitals_clamp_shorter_than_the_cap_overshoot(self, tmp_path: Path) -> None:
@@ -5000,9 +5051,7 @@ class TestEnforceCapLineDemoExample:
         """Dino's '(' tops at 1103.9 units and is never clamped."""
         result = self._export(tmp_path)
         on = self._line_bounds(result.rendered_labels["plt_punctuation"].source_label)
-        off = self._line_bounds(
-            result.rendered_labels["plt_punctuation_off"].source_label
-        )
+        off = self._line_bounds(result.rendered_labels["plt_punctuation_off"].source_label)
         assert on == pytest.approx(off, abs=1e-9)
         # The unclamped parenthesis towers above the cap (box > cap height).
         assert on[3] - on[1] > 0.44
@@ -5084,9 +5133,7 @@ class TestHoleAdjustForCutterDemoExample:
     def _export(self, tmp_path: Path) -> PerCutterExport:
         """Export the demo job with plotting and routing disabled."""
         job = parse_yaml(self._SPEC)
-        labels = resolve_job_spec(
-            job, boundary_hole_cutter_size=self._CUTTER
-        )
+        labels = resolve_job_spec(job, boundary_hole_cutter_size=self._CUTTER)
         return export_per_cutter_plts(
             labels,
             job.plates,
@@ -5211,9 +5258,7 @@ class TestHoleAdjustForCutterDemoExample:
             optimize=False,
             plots=False,
         )
-        report = "\n".join(
-            format_layout_report(labels, result.rendered_labels, full=True)
-        )
+        report = "\n".join(format_layout_report(labels, result.rendered_labels, full=True))
         assert "Holes 0.100in -> 0.085in (cutter 0.015in)" in report
         assert "Holes 0.125in -> 0.110in (cutter 0.015in)" in report
         assert "Holes 0.250in -> 0.235in (cutter 0.015in)" in report

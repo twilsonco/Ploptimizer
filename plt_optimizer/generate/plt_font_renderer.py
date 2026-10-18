@@ -594,6 +594,48 @@ def _shear_geometry(geometry: _GlyphGeometry, tan: float) -> _GlyphGeometry:
     )
 
 
+def _shift_geometry(geometry: _GlyphGeometry, shift: float) -> _GlyphGeometry:
+    """Return ``geometry`` translated straight up (positive) or down (negative).
+
+    The transform is ``x' = x``, ``y' = y + shift`` -- the ``<sup>``/``<sub>``
+    baseline shift (and the ``<b>``/``<scale:N>`` engraved-baseline alignment
+    raise): a **pure translate** applied to the block, bounding box **and both
+    profile envelopes** together, so kerning measures the *shifted* silhouette
+    in the shared baseline frame. A vertical translate changes no envelope X,
+    so the pair's penetration is measured at the glyph's true engraved height
+    (the stagger between a shifted glyph and its neighbours is exact): a raise
+    can narrow a pair (a superscript clears the neighbour's widest bulge) or
+    widen it (a glyph that rides past its neighbour's top overlaps only a
+    sliver), and a shift that fully separates the boxes falls to the fallback
+    advance instead of sampling the wrong stagger.
+
+    Because the transform is a pure translate, ``AA`` arcs stay native and the
+    stroke/glyph partition is untouched (the same guarantee the placement
+    translate gives).
+
+    Args:
+        geometry: Cached glyph geometry in design units.
+        shift: Vertical translate in design units (``0.0`` returns ``geometry``
+            itself).
+
+    Returns:
+        The shifted geometry, or ``geometry`` unchanged at ``0.0``.
+    """
+    if shift == 0.0:
+        return geometry
+    min_x, min_y, max_x, max_y = geometry.bounding_box
+
+    def _point(x: float, y: float) -> Tuple[float, float]:
+        return (x, y + shift)
+
+    return _GlyphGeometry(
+        block=geometry.block.translate(0.0, shift),
+        bounding_box=(min_x, min_y + shift, max_x, max_y + shift),
+        left_envelope=tuple(_point(x, y) for x, y in geometry.left_envelope),
+        right_envelope=tuple(_point(x, y) for x, y in geometry.right_envelope),
+    )
+
+
 def _scale_baseline_geometry(geometry: _GlyphGeometry, factor: float) -> _GlyphGeometry:
     """Return ``geometry`` uniformly scaled about the **baseline** ``y = 0``.
 
@@ -806,16 +848,23 @@ def _walk_line(
             glyph at ``1.0``.
         baseline_shifts: Per-character vertical baseline shift in inches
             (``<sup>``/``<sub>`` markup: the shift in cap-height units times
-            the line's toolpath height), aligned with ``text``. Each shifted
-            glyph is placed ``shift`` inches above (positive) or below
-            (negative) the baseline -- a **pure translate** applied at
-            placement, so ``AA`` arcs stay native and the stroke/glyph
-            partition is untouched. Kerning deliberately keeps comparing the
-            **unshifted** envelopes: a shifted pair can only ever widen the
-            advance relative to the unshifted pair, never narrow it, so the
-            envelope math stays exact and no pair is engraved tighter than
-            the geometry asks. ``None`` (the default) places every glyph on
-            the baseline, so every legacy call site renders bit-identically.
+            the line's toolpath height, plus the ``<b>``/``<scale:N>``
+            engraved-baseline alignment raise), aligned with ``text``. Each
+            shifted glyph is placed ``shift`` inches above (positive) or
+            below (negative) the baseline -- a **pure translate** applied to
+            the geometry (block + bbox + both envelopes) as the LAST
+            transform, so ``AA`` arcs stay native and the stroke/glyph
+            partition is untouched. The shift is baked in **before** kerning,
+            so a pair's penetration is measured at the glyph's true engraved
+            height (a raised superscript kerns against its neighbour at the
+            capline, not at the unshifted overlap, and a pair whose shifted
+            boxes lose Y-overlap falls to the fallback advance instead of
+            sampling the wrong stagger). A vertical translate changes no
+            envelope X, so the shift can narrow a pair (a raise clears the
+            neighbour's widest bulge) or widen it (a glyph riding past the
+            neighbour's top overlaps only a sliver). ``None`` (the default)
+            places every glyph on the baseline, so every legacy call site
+            renders bit-identically.
         font_names: Per-character ``<f:...>`` font selection aligned with
             ``text`` (one entry per character, spaces included; ``None``
             entries engrave with the line's :attr:`font`). Each named
@@ -1039,6 +1088,18 @@ def _walk_line(
             # exactly (mirrors the small-caps transform contract).
             if italic_tan is not None and (italic_flags is None or italic_flags[char_index]):
                 geometry = _shear_geometry(geometry, italic_tan)
+            # <sup>/<sub> baseline shift + the engraved-baseline alignment
+            # raise: bake the shift into the geometry (block + bbox + both
+            # envelopes) as the LAST transform, so kerning measures the
+            # glyph's TRUE engraved height -- a raised superscript kerns
+            # against its neighbour at the capline, not at the unshifted
+            # overlap, and a pair whose shifted boxes lose Y-overlap falls to
+            # the fallback instead of sampling the wrong stagger. A pure
+            # translate changes no envelope X, so the shift can never narrow
+            # a pair's advance below the geometry the unshifted pair allows.
+            char_shift = 0.0 if baseline_shifts is None else baseline_shifts[char_index]
+            if char_shift != 0.0 and char_scale > 0:
+                geometry = _shift_geometry(geometry, char_shift / char_scale)
             char_start = len(strokes)
             if previous is not None:
                 offset = kerning_offset(
@@ -1060,10 +1121,7 @@ def _walk_line(
                     + character_spacing
                     + min_gap_inches
                 )
-            placed = geometry.block.scaled(char_scale).translate(
-                cursor,
-                0.0 if baseline_shifts is None else baseline_shifts[char_index],
-            )
+            placed = geometry.block.scaled(char_scale).translate(cursor, 0.0)
             strokes.extend(placed.strokes)
             glyph_groups.append((char, list(range(char_start, len(strokes)))))
             previous_origin = cursor

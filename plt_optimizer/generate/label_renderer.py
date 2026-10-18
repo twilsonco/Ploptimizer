@@ -3184,6 +3184,12 @@ def _baseline_shift_inches(line: ResolvedTextLine) -> Optional[Tuple[float, ...]
       run's (and, for a ``<b>`` run, its **engraved** capline too -- the two
       alignments reduce to the same half-decrease).
 
+    The PLT renderer bakes these shifts into each glyph's geometry (block +
+    bbox + both envelopes) **before** kerning, so a pair's penetration is
+    measured at the glyph's true engraved height; the TTF renderer applies
+    them as a pure contour translate after shaping (TTF shaping owns the
+    advances, so a shift never changes a TTF line's width).
+
     ``None`` when the line carries neither (the markup-free fast path, and a
     line whose markup engraves with one tool: the renderers keep the
     historical call shape, bit-identical output).
