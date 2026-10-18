@@ -316,7 +316,11 @@ JobSpec (job-level defaults)
   the value out); two *different* values in one group, or a cap on a label
   whose lines never enable reflow, raise `LineContentConfigError`. Implemented
   as the M = G..N loop in `line_content.py`, driven by the shared `ScaleProbe`
-  (lazy `render_label_to_plt` → `compression_by_line`). Cascades line → label →
+  (lazy `render_label_to_plt` → `compression_by_line`). The default probe
+  renders a clone with `auto_descending_character_adjustment=False`: it
+  consumes only the horizontal scales, which the X phase computes before the
+  Y-only relief runs (pinned by `TestReliefFreeScaleProbeEquivalence`), so the
+  relief's swept-ink scan never runs on a probe. Cascades line → label →
   job → unset (plate parity only); `job-config.json` supplies the shop default
   (`null` = unset).
 
@@ -976,8 +980,16 @@ plate tier is schema parity only, like every render-affecting field.
   `ramp_for_measured` (ink bisection), `ramp_ink`, `apply_ramp`,
   `merge_ramps`, `ramps_changed`, `is_finite_gap`. The distance primitives
   live in `geometry.py` (`point_segment_gap`, `segment_gap`, `polyline_gap`,
-  `ink_gap`, the `InkGrid` spatial hash, and the `Ink`/`Polyline`/`Point`
-  aliases); `aabb_vertical_gap` stays for the box-model fallback. The border
+  `ink_gap`, the `InkGrid` spatial hash, the `Ink`/`Polyline`/`Point`
+  aliases, and `bbox_gap`/`polyline_bounds`/`ink_bounds`); `aabb_vertical_gap`
+  stays for the box-model fallback. The box gap is a lower bound on the ink
+  distance inside, so `polyline_gap`/`ink_gap` prune segment/polyline pairs
+  whose boxes sit beyond the current best, and `colliding_partners` skips
+  partner glyphs whose ink box is out of reach — exact (bit-identical
+  distances, pinned by randomized brute-force equivalence tests), and the
+  reason the relief's gap scan is affordable on long lines. `geometry.py`
+  stays dependency-free (no numpy: per-op overhead loses at glyph-sized
+  arrays; the pre-filters are the wholesale win). The border
   needs no solver changes: `_border_box` / `_border_required` (label_renderer)
   feed the border's centreline into the same `measure_glyph_gaps` /
   `ramp_for_measured` path, and `_BorderShortfall` carries the report.

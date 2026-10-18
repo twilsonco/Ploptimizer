@@ -336,17 +336,25 @@ labels route to the shapely packer. The dispatch is per label at the packing
 boundary, and the rectangular path imports nothing new.
 
 - **`plt_optimizer/generate/packing/ellipse_packer.py`** (NEW, pure shapely, no
-  pipeline imports): `ellipse_polygon` (unit circle polygonized at
+  pipeline imports; numpy only inside the placement index): `ellipse_polygon`
+  (unit circle polygonized at
   `quad_segs`, scaled to the semi-axes buffered by `clearance / 2`, so a plain
   `intersects` test is collision-exact), `EllipsePacker.pack` (largest-area
   first; a grid scan whose outer loop walks the primary axis ascending and
-  stops at the first fit — the extent score is minimized by the first hit;
+  stops at the first fit — the extent score is minimized by the first hit, and
+  the inner secondary scan breaks at that first hit too;
   both 0°/90° orientations evaluated, circles dedupe to one),
   `ScrapDirection.PREFER_WIDTH` (minimize used width → clean vertical scrap
   strip; the `columns` fill order) / `PREFER_HEIGHT` (the `rows` fill order),
   and the `occupancy` parameter (rectangular placements, buffered by
-  `clearance / 2`, seed the collision union so an ellipse never overlaps a
-  rectangle). Placements are plate-frame **y-down** centers — the emitted
+  `clearance / 2`, seed the collision test so an ellipse never overlaps a
+  rectangle). Feasibility is decided by `_PlacementIndex` (not a collision
+  union): a placed polygon's inscribed circle (`cos(pi/N) * min(buffered
+  semi-axes)`) and circumcircle bound center-distance tests that PROVE
+  collision/disjointness for nearly every candidate — batched per scan column
+  as one numpy broadcast — with the thin band between falling through to exact
+  per-polygon `intersects` (tangency = collision semantics preserved); the
+  occupancy seed is `shapely.prep`-prepared once. Placements are plate-frame **y-down** centers — the emitted
   device convention, the same frame rectpack fills — so
   `layout._pack_round_entries_on_plate` maps them to `PackedLabel` by adding
   the plate clearances (no Y flip); the label's slot is the ellipse's

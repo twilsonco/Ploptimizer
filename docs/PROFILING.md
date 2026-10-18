@@ -84,6 +84,9 @@ Five specs covering the pipeline's distinct hot paths
 
 ## Measured results (2026-10-17, `--repeats 3`, plots off, ensemble optimize on)
 
+Historical pre-fix baseline; see "Bottleneck fixes" below for the
+post-fix re-run.
+
 Machine: macOS dev box (Apple Silicon, Python 3.11). Wall = median of 3;
 stage seconds = sums of the last timed run. `cpu_s` is process CPU
 (wall >> cpu ⇒ subprocess-parallel work, not single-core compute).
@@ -96,7 +99,7 @@ stage seconds = sums of the last timed run. `cpu_s` is process CPU
 | 2026-10-06 seer intrachunk opt TTF | 0.3 | 0.1 | 1 MiB | `optimize_layer` 0.2 |
 | 2026-10-06 seer wb-uv | 5.8 | 5.7 | 9 MiB | `cutter_downsize` 3.6 |
 
-### Bottleneck #1: descender-relief ink gaps (the `reflow`/render path)
+### Bottleneck #1: descender-relief ink gaps (the `reflow`/render path) — FIXED 2026-10-18
 
 The coolsys big-label profile is one function deep:
 `line_content._reflow_label` → probe `render_label_to_plt` →
@@ -110,7 +113,7 @@ probe render re-runs the relief's O(lines × partners × segments²) gap
 scan over the huge label's long lines. Memory is a non-issue everywhere
 (≤ 31 MiB traced peak).
 
-### Bottleneck #2: ellipse-packing grid search (shapely)
+### Bottleneck #2: ellipse-packing grid search (shapely) — FIXED 2026-10-18
 
 The round-tags job spends ~80 s (profiled; real wall 51 s) in
 `packing/ellipse_packer.py::_find_best_position`: **4.34 M
@@ -118,12 +121,76 @@ The round-tags job spends ~80 s (profiled; real wall 51 s) in
 every placed polygon per candidate position instead of testing against
 pre-translated (or bbox-pruned) geometry.
 
-### Bottleneck #3: ensemble wall time on small jobs
+### Bottleneck #3: ensemble wall time on small jobs — PARTLY FIXED 2026-10-18
 
 sunwest's 10.5 s `optimize_layer` is process-pool wall time (cpu 1.4 s):
 the ParallelEnsemble spawns strategies per layer, so small jobs pay
 fixed spawn cost. `--fast-mode` isolates it; this is a knob, not a code
 hot spot.
+
+**Follow-up measurement corrected the diagnosis:** sunwest's layers are
+40/60/481 blocks, and the 10.5 s is the **481-block layer's real parallel
+compute** (pooled n=481 ≈ 10 s; sequential would be ~35 s), not spawn
+overhead. The spawn cost is real for genuinely small layers (1–48 blocks)
+and on the Windows spawn context (seconds per worker boot), where the
+sequential path (`ENSEMBLE_SEQUENTIAL_BLOCK_THRESHOLD`,
+`core/optimizer.py`) now skips the pool entirely. The big-layer compute
+stays parallel — that part is a knob (`--fast-mode`), not a hot spot.
+
+## Bottleneck fixes (2026-10-18, measured re-run, `--repeats 3`, plots off)
+
+Same box, same harness. Post-fix medians:
+
+| Spec | before wall s | after wall s | dominant stage after |
+|---|---|---|---|
+| 2026-07-22 sunwest | 11.6 | 11.6 | `optimize_layer` 10.6 (481-block layer, real compute) |
+| 2026-10-07 coolsys 1 big label | 68.7 | **3.6** | `reflow` 2.1 |
+| 2026-10-15 coolsys round tags 910+walmart | 51.0 | **2.7** | `optimize_layer` 1.3 / `layout_render_pack` 1.3 |
+| 2026-10-06 seer intrachunk opt TTF | 0.3 | 0.04 | — |
+| 2026-10-06 seer wb-uv | 5.8 | 6.1 | `cutter_downsize` 3.9 (unchanged, next target) |
+
+What fixed what:
+
+1. **`reflow` 66.7 s → 2.1 s.** (a) Exact AABB pre-filters in
+   `generate/geometry.py` (`bbox_gap` lower bound prunes `polyline_gap`
+   segment pairs and `ink_gap` polyline pairs) and
+   `descender_adjust.colliding_partners` (per-partner ink-bbox skip) —
+   bit-identical distances, pinned by randomized brute-force equivalence
+   tests. (b) The reflow scale probe (`line_content._default_scale_probe`)
+   renders a relief-disabled clone: the probe consumes only
+   `compression_by_line`, which the X phase computes before the Y-only
+   relief runs (pinned by `TestReliefFreeScaleProbeEquivalence`).
+   `geometry.py` deliberately stays numpy-free: per-op numpy overhead
+   loses to scalar at glyph-sized arrays; the pre-filters are the exact
+   wholesale win.
+2. **`layout_render_pack` 49.6 s → 1.3 s.** `ellipse_packer._find_best_position`
+   now breaks the inner (secondary) scan at the first feasible candidate of
+   a column (the first hit is the column's minimum), and the collision union
+   is replaced by a `_PlacementIndex`: inscribed/circumcircle center-distance
+   bounds (numpy, batched per column) PROVE collision/disjointness for
+   nearly every candidate, with the thin band falling through to exact
+   per-polygon `intersects` (tangency semantics unchanged). No per-placement
+   `unary_union` rebuild. All `test_ellipse_packer` /
+   `TestRoundLabelPacking` pins pass unchanged; emitted PLTs byte-identical.
+3. **Small ensemble layers** run in-process (`ENSEMBLE_SEQUENTIAL_BLOCK_THRESHOLD = 48`,
+   measured macOS crossover; Windows crossover is far higher). Large layers
+   stay pooled.
+4. **Determinism:** the ParallelEnsemble winner tie race is fixed (see the
+   `-O` section below) — winner selection is now a canonical total order
+   (improvement, distance, strategy name, job terminals), independent of
+   worker completion order. Post-fix verification: all 13 benchmark PLTs
+   match the pre-fix baseline byte-for-byte (8 files) or with identical
+   segment multisets and order-only diffs (5 files, the tie-break's intended
+   effect); coolsys + sunwest + round-tags `--fast-mode` runs are
+   byte-identical across repeated runs.
+
+**Remaining determinism gap (open, follow-up):** SA/GA use the unseeded
+global `random`, so on specs where a stochastic strategy wins (round-tags
+`bh`/`text`), the winning tour — and therefore the emitted stroke order —
+varies run to run (`--fast-mode` runs are byte-identical, proving the RNG
+is the source). Seeding each strategy job deterministically (e.g. from a
+hash of the serialized blocks + job payload) is the remaining step toward
+the identical-input-identical-output invariant.
 
 ### Python optimized mode (`-O`) — verdict: **no benefit, safe, not adopted**
 
@@ -164,16 +231,20 @@ engraving is identical; only the toolpath **order** changes:
   so a routing-order change moves the merge boundaries). Same engraving.
 
 Root cause is a pre-existing **ParallelEnsemble winner tie race**: worker
-results are appended in `as_completed` (wall-clock) order and
-`optimizer._select_best_result` breaks exact-distance ties toward the
+results were appended in `as_completed` (wall-clock) order and
+`optimizer._select_best_result` broke exact-distance ties toward the
 first-arriving job, so a layer whose strategies tie on travel distance
-routes through a timing-dependent winner. `-O` does not change output
+routed through a timing-dependent winner. `-O` does not change output
 (the three byte-identical specs prove it); it only shifts process timing
 enough to flip which tied worker lands first. This tie race is a
 **determinism bug** (identical input must engrave identical output —
-root AGENTS.md) tracked for a follow-up fix (a stable tie-break: sort
-benchmarks deterministically, tie-break by strategy name) and is
-independent of this profiling work.
+root AGENTS.md) and is independent of this profiling work.
+**Fixed 2026-10-18:** `StrategyBenchmarkResult` carries its job's
+start/end terminals and selection uses a canonical total-order key
+(improvement desc, distance asc, strategy name, terminals — never
+execution time), so the winner and the benchmark table are pure functions
+of the results. The remaining run-to-run byte differences on
+SA/GA-winning specs are the unseeded-RNG gap documented above, not ties.
 
 `-OO` (docstring stripping) was rejected outright: it strips
 matplotlib/pydantic docstrings consumed by `inspect.signature`-style

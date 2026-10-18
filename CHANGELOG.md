@@ -12,7 +12,21 @@
   - Corner drill holes ride the patch normal (generalized `_round_corner_hole`); the text margin applies to the engraved rounded boundary (corner-aware content inset); the descender relief's bottom border follows the lower arc
   - A border change, never a packing change: rounded labels keep `shape_type: rect` and pack through rectpack in their exact nominal box
 
+### Performance
+
+* **generate:** fixed the three profiled pipeline bottlenecks (`docs/PROFILING.md`); coolsys big label **68.7s → 3.6s**, round tags **51.0s → 2.7s** wall (median-of-3, same box)
+  - **`reflow` 66.7s → 2.1s**: exact AABB pre-filters in `generate/geometry.py` (`bbox_gap` is a proven lower bound on the ink distance inside, so `polyline_gap`/`ink_gap` skip segment/polyline pairs whose boxes sit beyond the current best) and in `descender_adjust.colliding_partners` (per-partner ink-bbox skip); every measured distance is bit-identical (pinned by randomized brute-force equivalence tests). The reflow growth-loop scale probe renders a relief-disabled clone — it consumes only `compression_by_line`, which the X phase computes before the Y-only relief runs
+  - **`layout_render_pack` 49.6s → 1.3s**: `ellipse_packer._find_best_position` breaks the secondary scan at the first feasible candidate of a column (the first hit is the column's minimum extent), and the collision union is replaced by a placement index whose inscribed/circumcircle center-distance bounds (numpy, batched per scan column) prove collision/disjointness for nearly every candidate, with the thin band falling through to exact per-polygon `intersects` (tangency semantics unchanged, no per-placement `unary_union` rebuild)
+  - **ensemble spawn**: layers of at most `ENSEMBLE_SEQUENTIAL_BLOCK_THRESHOLD` (48) blocks run their strategy jobs in-process — the per-layer `ProcessPoolExecutor` spawn costs seconds on the Windows spawn context for milliseconds of work; large layers stay pooled (a 481-block layer is ~35s sequential vs ~10s pooled). Follow-up measurement corrected the original diagnosis: sunwest's 10.5s is its 481-block layer's real parallel compute, not spawn cost
+  - **Verification**: all 13 benchmark PLTs match the pre-fix baseline byte-for-byte (8) or with identical segment multisets and order-only diffs (5, the tie-break's intended effect); `geometry.py` stays dependency-free (per-op numpy overhead loses at glyph-sized arrays)
+
 ### Bug Fixes
+
+* **core:** deterministic `ParallelEnsembleStrategy` winner tie-break (restores the identical-input-identical-output invariant)
+  - **Root cause**: worker benchmarks were appended in `as_completed` (wall-clock) order and `_select_best_result` broke exact-distance ties toward the first-arriving job, so a layer whose strategies tie on travel distance routed through a timing-dependent winner — identical inputs emitted different toolpath **order** between runs (the byte-MISMATCH rows in `docs/PROFILING.md`)
+  - **Solution**: `StrategyBenchmarkResult` carries its job's start/end terminals and a canonical total-order key (improvement desc, distance asc, strategy name, terminals — never execution time) drives both winner selection and the displayed benchmark table
+  - **Remaining gap (open)**: SA/GA use the unseeded global `random`, so on specs where a stochastic strategy wins the winning tour varies run to run (`--fast-mode` runs are byte-identical, proving the RNG is the source); seeding each job deterministically is the tracked follow-up
+  - **Regression testing**: scrambled-completion-order fake-pool test (submission vs reversed order select the same winner and table), permutation test on `_select_best_result`, sequential/pool path-agreement + pool-skip/boundary tests
 
 * **generate:** re-remove the buggy radial margin recomputation for round labels (regression in `7dde646`)
   - **Root cause**: `7dde646` "restored" the `ellipse_content_inset` margin recomputation in `_render_positioned_lines` as merge-lost wiring, but `4757694` had deliberately removed it — the recomputation double-applies the margin (box inset AND inscribed-block rule), compressing text that already fits

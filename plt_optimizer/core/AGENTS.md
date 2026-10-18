@@ -56,7 +56,25 @@ the `benchmark` tool, and the generate pipeline's plate-space optimization
   `ParallelEnsembleStrategy` uses a spawn context on win32/frozen; workers must
   stay module-level/picklable; all-fail fallback is serial NN2Opt → NoOp.
 - **Ensemble timeout:** per-job timeout (default 10 s) per strategy; timeout =
-  marked failed; every-fail = serial NN2Opt fallback.
+  marked failed; every-fail = serial NN2Opt fallback. Unused on the sequential
+  path (see next bullet) — safe because every strategy is polynomially bounded
+  at sequential sizes.
+- **Ensemble small layers run in-process:** layers with at most
+  `ENSEMBLE_SEQUENTIAL_BLOCK_THRESHOLD` (48) blocks run every strategy job
+  through `_run_strategy_worker` in the parent (no pool spawn — the per-layer
+  pool costs seconds on the Windows spawn context for milliseconds of work);
+  large layers stay pooled (a 481-block layer is ~35 s sequential vs ~10 s
+  pooled). `sequential_block_threshold=0` forces the pool (pool-mechanics
+  tests pin it). Both paths share `_finalize_result` (selection, fallback
+  chain, benchmark table).
+- **Ensemble selection is a canonical total order:** `_benchmark_sort_key`
+  (improvement desc, distance asc, strategy name, job start/end terminals —
+  never `execution_time_seconds`) drives `_select_best_result` and the
+  displayed table, so exact-distance ties resolve identically regardless of
+  `as_completed` arrival order (the identical-input-identical-output
+  invariant). Known open gap: SA/GA use the unseeded global `random`, so a
+  stochastic winner's tour varies run to run (deterministic seeding is a
+  tracked follow-up).
 - Keep the `with`-block pattern around `ProcessPoolExecutor` (tests patch it
   with `__enter__`-style mocks).
 - Float comparisons: `math.isclose` / tolerances, never `==` (root §1; the
