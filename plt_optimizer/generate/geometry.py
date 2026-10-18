@@ -14,7 +14,7 @@ circle-vs-ellipse primitives, ``CollisionResult``, ``HoleCenter``) live in
 from __future__ import annotations
 
 import math
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 # An axis-aligned bounding box as ``(x_min, y_min, x_max, y_max)``.
 TextBounds = Tuple[float, float, float, float]
@@ -260,11 +260,39 @@ def polyline_gap(upper: Polyline, lower: Polyline) -> float:
     second = _polyline_segments(lower)
     if not first or not second:
         return math.inf
+    # Exact prefilter: a segment pair's true distance is >= the gap between
+    # its bounding boxes, so a pair whose boxes sit at or beyond the current
+    # best can never improve it and skips segment_gap entirely. Far-apart
+    # chains (the overwhelming majority on a long text line) cost a handful
+    # of comparisons per pair instead of the full closest-points solve; the
+    # measured minimum is unchanged (skipped pairs provably cannot be the
+    # minimum).
+    second_boxes = [
+        (min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)) for (x1, y1, x2, y2) in second
+    ]
     best = math.inf
     for ax1, ay1, ax2, ay2 in first:
+        ax_min = ax1 if ax1 <= ax2 else ax2
+        ax_max = ax2 if ax1 <= ax2 else ax1
+        ay_min = ay1 if ay1 <= ay2 else ay2
+        ay_max = ay2 if ay1 <= ay2 else ay1
         a_start = (ax1, ay1)
         a_end = (ax2, ay2)
-        for bx1, by1, bx2, by2 in second:
+        for (bx1, by1, bx2, by2), (bx_min, by_min, bx_max, by_max) in zip(second, second_boxes):
+            dx = ax_min - bx_max
+            other = bx_min - ax_max
+            if other > dx:
+                dx = other
+            if dx < 0.0:
+                dx = 0.0
+            dy = ay_min - by_max
+            other = by_min - ay_max
+            if other > dy:
+                dy = other
+            if dy < 0.0:
+                dy = 0.0
+            if dx * dx + dy * dy >= best * best:
+                continue
             gap = segment_gap(a_start, a_end, (bx1, by1), (bx2, by2))
             if gap < best:
                 best = gap
@@ -291,15 +319,106 @@ def ink_gap(upper: Ink, lower: Ink) -> float:
         The smallest distance between any pair of the two glyphs' segments, in
         the caller's length units. ``math.inf`` when either glyph has no ink.
     """
+    # Exact prefilter (same argument as :func:`polyline_gap`): a polyline
+    # pair's true distance is >= the gap between its bounding boxes, so
+    # far-apart stroke pairs skip the chain scan entirely.
+    lower_boxes = [polyline_bounds(polyline) for polyline in lower]
     best = math.inf
     for first in upper:
-        for second in lower:
+        first_box = polyline_bounds(first)
+        if first_box is None:
+            continue
+        for second, second_box in zip(lower, lower_boxes):
+            if second_box is None:
+                continue
+            if bbox_gap(first_box, second_box) >= best:
+                continue
             gap = polyline_gap(first, second)
             if gap < best:
                 best = gap
                 if best <= 0.0:
                     return 0.0
     return best
+
+
+def polyline_bounds(polyline: Polyline) -> Optional[TextBounds]:
+    """Return the axis-aligned bounding box of a polyline's vertices.
+
+    Args:
+        polyline: The chain of vertices to box.
+
+    Returns:
+        ``(x_min, y_min, x_max, y_max)`` of the vertices, or ``None`` for an
+        empty polyline (no ink to box).
+    """
+    if not polyline:
+        return None
+    x_min = x_max = polyline[0][0]
+    y_min = y_max = polyline[0][1]
+    for x, y in polyline[1:]:
+        if x < x_min:
+            x_min = x
+        elif x > x_max:
+            x_max = x
+        if y < y_min:
+            y_min = y
+        elif y > y_max:
+            y_max = y
+    return (x_min, y_min, x_max, y_max)
+
+
+def bbox_gap(a: TextBounds, b: TextBounds) -> float:
+    """Return the Euclidean gap between two axis-aligned boxes.
+
+    The gap is ``0.0`` when the boxes overlap or touch, and the distance
+    between the closest corners when they are separated on one or both
+    axes. It is a lower bound on the distance between any two point sets
+    inside the boxes, which makes ``bbox_gap >= limit`` an exact prefilter
+    for the predicate ``ink gap < limit``.
+
+    Args:
+        a: ``(x_min, y_min, x_max, y_max)`` of the first box.
+        b: ``(x_min, y_min, x_max, y_max)`` of the second box.
+
+    Returns:
+        The box-to-box distance in the caller's length units.
+    """
+    dx = max(a[0] - b[2], b[0] - a[2], 0.0)
+    dy = max(a[1] - b[3], b[1] - a[3], 0.0)
+    return math.hypot(dx, dy)
+
+
+def ink_bounds(ink: Ink) -> Optional[TextBounds]:
+    """Return the axis-aligned bounding box of a glyph's complete ink.
+
+    Args:
+        ink: The glyph's polylines.
+
+    Returns:
+        ``(x_min, y_min, x_max, y_max)`` over every vertex, or ``None`` when
+        the ink is empty (nothing to box).
+    """
+    x_min = y_min = x_max = y_max = 0.0
+    seen = False
+    for polyline in ink:
+        box = polyline_bounds(polyline)
+        if box is None:
+            continue
+        if not seen:
+            x_min, y_min, x_max, y_max = box
+            seen = True
+            continue
+        if box[0] < x_min:
+            x_min = box[0]
+        if box[1] < y_min:
+            y_min = box[1]
+        if box[2] > x_max:
+            x_max = box[2]
+        if box[3] > y_max:
+            y_max = box[3]
+    if not seen:
+        return None
+    return (x_min, y_min, x_max, y_max)
 
 
 class InkGrid:

@@ -10,6 +10,7 @@ directly (no rendering), mirroring how the baseline-spacing helpers in
 from __future__ import annotations
 
 import math
+import random
 from dataclasses import replace
 
 import pytest
@@ -33,6 +34,7 @@ from plt_optimizer.generate.descender_adjust import (
     worst_deficit,
     worst_glyph_deficit,
 )
+from plt_optimizer.generate.geometry import ink_gap
 
 
 def _box(
@@ -328,6 +330,39 @@ class TestCollidingPartners:
         partner = _ink_box(1, "R", 0.0, -0.5, 0.2, 0.0, ink=(((0.0, -0.4), (0.2, -0.4)),))
         assert colliding_partners(upper, [partner], required=0.5) == ()
 
+    def test_bbox_prefilter_preserves_partner_selection(self) -> None:
+        """The exact box prefilter must select exactly the ink_gap partners.
+
+        A long line of partners at mixed distances: the prefilter skips the
+        far glyphs wholesale, so the result must equal the unfiltered
+        per-partner ink_gap scan for every required clearance.
+        """
+        rng = random.Random(7)
+        upper = _ink_box(0, "p", 0.0, -0.3, 0.1, 0.3, ink=(((0.0, 0.0), (0.0, -0.3)),))
+        lowers = []
+        for index in range(60):
+            x = rng.uniform(-30.0, 30.0)
+            y = rng.uniform(-0.45, 0.45)
+            lowers.append(
+                _ink_box(
+                    index,
+                    "x",
+                    x,
+                    y,
+                    x + 0.2,
+                    y + 0.3,
+                    ink=(((x, y), (x + 0.2, y + 0.3)),),
+                )
+            )
+        for required in (0.05, 0.15, 0.3, 1.0):
+            limit = required - 1e-6
+            expected = tuple(
+                box.glyph_index
+                for box in lowers
+                if ink_gap(upper.sub_baseline_ink, box.ink) < limit
+            )
+            assert colliding_partners(upper, lowers, required=required) == expected
+
     def test_sideways_hook_pulls_in_its_crook_partner(self) -> None:
         """The pair the box model hides is a partner for the reciprocal half.
 
@@ -336,9 +371,7 @@ class TestCollidingPartners:
         and the tittle must share the relief.
         """
         upper = _ink_box(0, "g", 0.0, -0.1, 0.1, 0.3, ink=(((0.0, 0.0), (0.1, -0.1)),))
-        dot = _ink_box(
-            5, "i", 0.15, -0.25, 0.2, -0.1, ink=(((0.15, -0.15), (0.2, -0.15)),)
-        )
+        dot = _ink_box(5, "i", 0.15, -0.25, 0.2, -0.1, ink=(((0.15, -0.15), (0.2, -0.15)),))
         assert colliding_partners(upper, [dot], required=0.1) == (5,)
 
 
@@ -463,9 +496,7 @@ def _ink_box(
         bounds=(x_min, y_min, x_max, y_max),
         descender=max(0.0, baseline_y - y_min),
         ink=ink,
-        sub_baseline_ink=tuple(
-            tuple((x, y) for x, y in polyline if y <= 0.0) for polyline in ink
-        ),
+        sub_baseline_ink=tuple(tuple((x, y) for x, y in polyline if y <= 0.0) for polyline in ink),
     )
 
 
@@ -534,9 +565,7 @@ class TestInkModelMeasurement:
         """The grid-accelerated path returns the same gap as ink_gap."""
         from plt_optimizer.generate.geometry import ink_gap
 
-        upper = _ink_box(
-            0, "g", 0.0, -0.3, 0.5, 0.3, ink=(((0.0, 0.3), (0.3, 0.0), (0.5, -0.3)),)
-        )
+        upper = _ink_box(0, "g", 0.0, -0.3, 0.5, 0.3, ink=(((0.0, 0.3), (0.3, 0.0), (0.5, -0.3)),))
         lowers = [
             _ink_box(0, "i", 0.55, -0.15, 0.6, -0.1, ink=(((0.55, -0.15), (0.6, -0.1)),)),
             _ink_box(1, "N", 1.0, -0.4, 1.2, 0.0, ink=(((1.0, -0.4), (1.2, 0.0)),)),

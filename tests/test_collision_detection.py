@@ -14,6 +14,7 @@ from __future__ import annotations
 import dataclasses
 import math
 import random
+from typing import List, Tuple
 
 import pytest
 
@@ -29,11 +30,35 @@ from plt_optimizer.generate.geometry import (
     InkGrid,
     aabb_vertical_gap,
     arc_swept_bounds,
+    bbox_gap,
+    ink_bounds,
     ink_gap,
     point_segment_gap,
+    polyline_bounds,
     polyline_gap,
     segment_gap,
 )
+
+
+def _segments(polyline: Tuple[Tuple[float, float], ...]) -> List[Tuple[float, float, float, float]]:
+    """Return a polyline's segments as flat ``(x1, y1, x2, y2)`` tuples (dots included)."""
+    if not polyline:
+        return []
+    if len(polyline) == 1:
+        x, y = polyline[0]
+        return [(x, y, x, y)]
+    return [(x1, y1, x2, y2) for (x1, y1), (x2, y2) in zip(polyline[:-1], polyline[1:])]
+
+
+def _random_ink(rng: random.Random, region: float, polylines: int, vertices: int) -> Ink:
+    """Build pseudo-random ink inside ``[0, region]^2`` from ``rng``."""
+    return tuple(
+        tuple(
+            (rng.uniform(0.0, region), rng.uniform(0.0, region))
+            for _vertex in range(max(1, vertices))
+        )
+        for _polyline in range(max(1, polylines))
+    )
 
 
 class TestCircleAabbGap:
@@ -78,7 +103,6 @@ class TestCircleAabbGap:
         """A zero-radius circle outside the box reports plain distance."""
         gap = circle_aabb_gap((0.0, 0.0, 1.0, 1.0), (3.0, 0.5), 0.0)
         assert math.isclose(gap, 2.0)
-
 
 
 class TestPointEllipseSignedDistance:
@@ -413,6 +437,37 @@ class TestSegmentGap:
         assert moved == pytest.approx(base)
 
 
+class TestBboxGap:
+    """Tests for the box-to-box distance used as the exact ink prefilter."""
+
+    def test_overlapping_boxes_report_zero(self) -> None:
+        """Overlapping (and touching) boxes have no clearance."""
+        assert bbox_gap((0.0, 0.0, 1.0, 1.0), (0.5, 0.5, 2.0, 2.0)) == 0.0
+        assert bbox_gap((0.0, 0.0, 1.0, 1.0), (1.0, 0.0, 2.0, 1.0)) == 0.0
+
+    def test_axis_separated_reports_the_gap(self) -> None:
+        """Boxes separated on one axis report that axis's distance."""
+        assert bbox_gap((0.0, 2.0, 1.0, 3.0), (0.0, 0.0, 1.0, 1.0)) == pytest.approx(1.0)
+
+    def test_corner_separated_reports_diagonal(self) -> None:
+        """Boxes separated on both axes report the corner-to-corner distance."""
+        assert bbox_gap((1.0, 1.0, 2.0, 2.0), (0.0, 0.0, 0.0, 0.0)) == pytest.approx(
+            math.hypot(1.0, 1.0)
+        )
+
+    def test_lower_bound_on_ink_gap(self) -> None:
+        """The box gap never exceeds the true ink distance of ink inside."""
+        upper: Ink = (((0.0, 2.0), (1.0, 2.5)),)
+        lower: Ink = (((0.0, 0.0), (1.0, 0.0)),)
+        assert bbox_gap(ink_bounds(upper), ink_bounds(lower)) <= ink_gap(upper, lower)
+
+    def test_empty_ink_has_no_box(self) -> None:
+        """Empty ink / empty polylines box to None."""
+        assert ink_bounds(()) is None
+        assert ink_bounds(((),)) is None
+        assert polyline_bounds(()) is None
+
+
 class TestPolylineGap:
     """Tests for the polyline-to-polyline minimum distance."""
 
@@ -437,6 +492,44 @@ class TestPolylineGap:
         upper = ((0.0, 0.0), (1.0, 0.0))
         lower = ((1.0, 0.0), (1.0, 1.0))
         assert polyline_gap(upper, lower) == 0.0
+
+    def test_far_apart_chains_match_brute_force(self) -> None:
+        """The bbox prefilter skips far pairs without changing the minimum."""
+        upper = ((0.0, 100.0), (1.0, 100.0), (2.0, 100.0))
+        lower = ((0.0, 0.0), (1.0, 0.0), (2.0, 0.0))
+        assert polyline_gap(upper, lower) == pytest.approx(100.0)
+
+    def test_randomized_matches_brute_force(self) -> None:
+        """Prefiltered gaps equal the unfiltered segment-pair minimum.
+
+        The prefilter may only skip pairs whose bounding-box distance is at
+        least the current best (a lower bound on their true distance), so the
+        measured minimum must be bit-identical to the naive double loop.
+        """
+        rng = random.Random(20261018)
+
+        def brute(first: Ink, second: Ink) -> float:
+            best = math.inf
+            for a_poly in first:
+                for b_poly in second:
+                    for ax1, ay1, ax2, ay2 in _segments(a_poly):
+                        for bx1, by1, bx2, by2 in _segments(b_poly):
+                            best = min(
+                                best,
+                                segment_gap((ax1, ay1), (ax2, ay2), (bx1, by1), (bx2, by2)),
+                            )
+            return best
+
+        for seed in range(40):
+            rng.seed(seed)
+            upper = _random_ink(rng, region=10.0, polylines=3, vertices=6)
+            lower = _random_ink(rng, region=10.0, polylines=3, vertices=6)
+            assert ink_gap(upper, lower) == pytest.approx(brute(upper, lower), abs=1e-12)
+            for first in upper:
+                for second in lower:
+                    assert polyline_gap(first, second) == pytest.approx(
+                        brute((first,), (second,)), abs=1e-12
+                    )
 
 
 class TestInkGap:

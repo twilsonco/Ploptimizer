@@ -91,7 +91,14 @@ import math
 from dataclasses import dataclass
 from typing import Callable, Mapping, Optional, Sequence
 
-from plt_optimizer.generate.geometry import Ink, InkGrid, aabb_vertical_gap, ink_gap
+from plt_optimizer.generate.geometry import (
+    Ink,
+    InkGrid,
+    aabb_vertical_gap,
+    bbox_gap,
+    ink_bounds,
+    ink_gap,
+)
 
 # A glyph counts as descending when its ink reaches this far below its own
 # baseline. Emitted geometry is integer plotter units
@@ -470,11 +477,27 @@ def colliding_partners(
     """
     if not upper.sub_baseline_ink:
         return ()
-    return tuple(
-        lower.glyph_index
-        for lower in lower_glyphs
-        if lower.ink and ink_gap(upper.sub_baseline_ink, lower.ink) < required - _GAP_TOLERANCE
-    )
+    # Exact prefilter: a glyph's ink lies inside its ink bounding box, so a
+    # partner whose box sits at least ``required`` away from the descending
+    # glyph's sub-baseline box cannot reach the collision distance and skips
+    # the full ink_gap scan (on a wide line, nearly every glyph is far). The
+    # measured partners are exactly the ink_gap result.
+    upper_box = ink_bounds(upper.sub_baseline_ink)
+    if upper_box is None:
+        return ()
+    limit = required - _GAP_TOLERANCE
+    partners: list[int] = []
+    for lower in lower_glyphs:
+        if not lower.ink:
+            continue
+        lower_box = ink_bounds(lower.ink)
+        if lower_box is None:  # pragma: no cover - ink implies a box
+            continue
+        if bbox_gap(upper_box, lower_box) >= limit:
+            continue
+        if ink_gap(upper.sub_baseline_ink, lower.ink) < limit:
+            partners.append(lower.glyph_index)
+    return tuple(partners)
 
 
 def reciprocal_scale_y(ramp: float, reciprocal_scale: float) -> float:
