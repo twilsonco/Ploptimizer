@@ -1704,7 +1704,7 @@ class TestHelpDisplay:
 
 
 class TestNoMatplotlibImportPath:
-    """Python 3.8 / Windows 7 guard (AGENTS.md section 7).
+    """Python 3.8 / Windows 7 guard (plt_optimizer/cli/AGENTS.md).
 
     The watch/optimize CLI path must stay importable without matplotlib.
     These tests run in a subprocess with a ``sys.meta_path`` blocker that

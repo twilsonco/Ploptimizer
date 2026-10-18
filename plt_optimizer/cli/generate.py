@@ -42,7 +42,7 @@ from typing import Optional, Tuple
 # numpy + matplotlib + vpype) are imported lazily inside run(): the main CLI
 # router builds every subparser at startup, and `plt-optimizer watch` must
 # remain importable on Python 3.8 / Windows 7 where matplotlib cannot be
-# installed (see AGENTS.md section 7).
+# installed (see plt_optimizer/cli/AGENTS.md).
 from plt_optimizer.generate.job_config import JobConfig, load_job_config
 from plt_optimizer.generate.layout_report import format_layout_report
 from plt_optimizer.generate.resolution import resolve_job_spec

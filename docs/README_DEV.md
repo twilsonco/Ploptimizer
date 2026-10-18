@@ -468,7 +468,7 @@ uv run plt-optimizer generate tests_deps/test123_spec.yaml
 
 Outputs are named `<plate>_<kind>_<cutter>_<job_id>.plt` (`kind` = `text` or `bh` for borders+holes). Text–hole collisions abort the job with a non-zero exit code — see [`INTEGRATION_TESTING.md`](INTEGRATION_TESTING.md).
 
-**Job spec schema:** see the "YAML Job Specification" section of [`AGENTS.md`](../AGENTS.md) and the example specs in `examples/job_specs/` (`sample_spec`-style jobs, `replacement_job.yaml`) plus the frozen unit-test fixtures in `tests_deps/` (`test123_spec.yaml`, `complex_test_job.yaml`, `sample_spec.yaml`, `rotation_demo_job.yaml`).
+**Job spec schema:** see [`plt_optimizer/generate/AGENTS.md`](../plt_optimizer/generate/AGENTS.md) and the example specs in `examples/job_specs/` (`sample_spec`-style jobs, `replacement_job.yaml`) plus the frozen unit-test fixtures in `tests_deps/` (`test123_spec.yaml`, `complex_test_job.yaml`, `sample_spec.yaml`, `rotation_demo_job.yaml`).
 
 #### `watch` — Hot-Watch Daemon
 

@@ -1,0 +1,63 @@
+# AGENTS.md - Core HPGL Pipeline (`plt_optimizer/core/`)
+
+Parent contract: [`../../AGENTS.md`](../../AGENTS.md) (coding standards, testing,
+git rules, the 1016 device-scale invariant, the Python 3.8 / Windows 7
+constraint). This directory is the parse → profile → chunk → optimize →
+reassemble → write pipeline shared by the `optimize` CLI, the `watch` daemon,
+the `benchmark` tool, and the generate pipeline's plate-space optimization
+(`../generate/plate_optimizer.py` calls into `pipeline.py`).
+
+## Module map
+
+- `models.py` - frozen dataclasses for parsed PLT structure (`PLTDocument`,
+  `StrokePath`, `LineSeg`, `ArcSeg`, `Coordinate`); precision kept to 3 decimal
+  places as required by the EngraveLab format.
+- `parser.py` / `writer.py` - HPGL tokenization / emission. Any change must pass
+  the identity validation suite (`input.plt -> parse -> write -> output.plt`
+  semantic equivalence, root AGENTS.md §2). The parser treats bare `PA` as
+  header and `SP` as footer; `extract_pens_from_plt_text` (generate side)
+  rewrites section-leading bare `PD` to `PU…;PD…` so dropped pen-selects never
+  join sections with a phantom cut.
+- `units.py` - THE device scale: `HPGL_UNITS_PER_INCH = 1016`,
+  `inches_to_units()` / `units_to_inches()`. Every inch↔coordinate conversion on
+  the emission/read-back path goes through here; never hardcode 1000 (root
+  AGENTS.md §4; pinned by `tests/test_units.py` +
+  `tests/test_phase3_export.py::TestDeviceScaleRegression`).
+- `profiler.py` - baseline extent (95th percentile, not max) + structural
+  classification.
+- `chunker.py` - chronological clustering of strokes into `MacroBlock`s by
+  tool-up jump distance; never spatially pre-sorts (preserves text entry order).
+  `ChunkerConfig.same_row_preference`; only `NN2OptStrategy` accepts it.
+- `optimizer.py` - Strategy Pattern over MacroBlock traversal
+  (`NearestNeighbor2Opt`, insertion, Christofides, SA, genetic,
+  `ParallelEnsembleStrategy`). `OptimizerEngine.optimize` passes the ensemble
+  result through - callers must unwrap `.result` before
+  `Reassembler.reassemble` (see `../cli/watch.py`).
+- `intra_chunk_optimizer.py` - within-block order/direction optimization with
+  fixed entrance/exit.
+- `direction_sweep.py` - post-TSP per-block forward/reverse re-pick (always on,
+  `direction_sweep=True` escape hatch); monotone, repairs 2-opt flag staleness.
+- `glyph_sweep.py` - intra-chunk per-glyph direction DP (generate path only;
+  parsed PLTs carry no glyph knowledge and stay byte-identical).
+- `path_merger.py` - tip-to-tail coincident-stroke merge (final stage,
+  `merge_coincident=True`); metric-neutral (win = PU/path count, not travel).
+- `stroke_simplifier.py` - deterministic symmetric interval-splitting dedupe of
+  overlapping linear strokes.
+- `reassembler.py` - traversal application + stroke reversal; deliberately a
+  pure applier (the merge is NOT inside it).
+- `pipeline.py` - the shared stage sequence
+  (`preprocess_document` → `chunk_document` → `optimize_and_reassemble`).
+
+## Invariants
+
+- **Python 3.8 / Windows 7:** this package is on the watch/optimize hot path -
+  no syntax or stdlib newer than 3.8, no matplotlib. `ProcessPoolExecutor`
+  `cancel_futures=` is 3.9+ and banned; `as_completed(timeout=)` is OK.
+  `ParallelEnsembleStrategy` uses a spawn context on win32/frozen; workers must
+  stay module-level/picklable; all-fail fallback is serial NN2Opt → NoOp.
+- **Ensemble timeout:** per-job timeout (default 10 s) per strategy; timeout =
+  marked failed; every-fail = serial NN2Opt fallback.
+- Keep the `with`-block pattern around `ProcessPoolExecutor` (tests patch it
+  with `__enter__`-style mocks).
+- Float comparisons: `math.isclose` / tolerances, never `==` (root §1; the
+  writer's `COORD_TOLERANCE = 1e-3` is the merge/suppression predicate).

@@ -1,10 +1,10 @@
 """Inline HTML-like markup parsing for label text lines.
 
 This module is the **framework** for the inline markup syntax described in
-``AGENTS.md`` (section 6, "Inline Markup & Italic"). It splits a text line's
-raw ``text`` into :class:`Run` s of (plain text, :class:`Style`), so each run
-can be rendered with its own typographic transform (the first markup being
-``<i>...</i>``, italicization).
+``plt_optimizer/generate/markup/AGENTS.md`` ("Inline Markup & Italic"). It
+splits a text line's raw ``text`` into :class:`Run` s of (plain text,
+:class:`Style`), so each run can be rendered with its own typographic
+transform (the first markup being ``<i>...</i>``, italicization).
 
 Design guarantees (mirroring ``descender_adjust.py``):
 

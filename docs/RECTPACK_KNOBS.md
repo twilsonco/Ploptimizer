@@ -190,4 +190,4 @@ global packing concern (user-approved; it never enters `ResolvedLabel`):
    pinned value replaces the `configs` list (single candidate) instead of
    the ensemble.
 4. Docs: regenerate `docs/schema/JOB_SPEC.md` + schema JSONs; document in
-   AGENTS.md §6 next to `layout`.
+   `plt_optimizer/generate/packing/AGENTS.md` next to `layout`.

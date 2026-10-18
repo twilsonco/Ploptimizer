@@ -288,7 +288,8 @@ DEFAULT_STRIKETHROUGH_BREAK_SPACES: bool = False
 # engrave heavier than the line's plain text. On single-stroke PLT and TTF
 # fonts ``<b>`` instead steps to the next larger inventory cutter and this
 # multiplier is inert. Bound to [1.0, 4.0] by the schema; job-config.json
-# supplies the shop default. See ``AGENTS.md`` "Inline Bold (``<b>``)".
+# supplies the shop default. See ``generate/markup/AGENTS.md``
+# "Inline Bold (``<b>``)".
 DEFAULT_BOLD_BOLDNESS_MULTIPLIER: float = 1.5
 # Horizontal text alignment defaults to centering (existing behaviour).
 DEFAULT_TEXT_H_ALIGNMENT: str = "center"
@@ -2955,7 +2956,8 @@ def glyph_render_plan(
     """Return the per-character (cutter diameter, geometry scale) plan for a line.
 
     The unified centerline contract for the ``<b>`` and ``<scale:N>`` markup
-    (see ``AGENTS.md`` "Inline Bold" / "Inline Text Scaling"). A glyph's
+    (see ``generate/markup/AGENTS.md`` "Inline Bold" / "Inline Text Scaling").
+    A glyph's
     stored geometry is the path the *design* cutter follows; the line's
     plain run scales it to ``nominal - cutter`` so the engraved silhouette
     is exactly ``nominal`` tall with the plain tool. A run that engraves
@@ -3764,7 +3766,8 @@ def _resolve_content(
         # only stores the ladder's inputs (the inventory + tolerance) below.
 
         # Bold markup: the ``<b>`` runs engrave with a thicker cutter (see
-        # ``AGENTS.md`` "Inline Bold (``<b>``)"). Single-stroke PLT and TTF
+        # ``generate/markup/AGENTS.md`` "Inline Bold (``<b>``)"). Single-stroke
+        # PLT and TTF
         # lines step to the next larger inventory rung; a multi-stroke (bold)
         # PLT font re-runs the boldness ladder at the boosted factor. ``None``
         # (no rung above, e.g. the top of the inventory) leaves the bold runs
