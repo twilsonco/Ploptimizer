@@ -92,3 +92,20 @@ class TestAppendCsv:
         with open(csv_path, newline="") as f:
             header = next(csv.reader(f))
         assert header[0] == "run_ts"
+
+    def test_run_id_leads_and_groups_a_sweep(self, harness: Any, tmp_path: Path) -> None:
+        """``run_id`` is the leading column and shared by one sweep's rows.
+
+        ``run_ts`` is stamped per spec (seconds apart within a sweep), so
+        history tools group iterations by the per-sweep ``run_id``.
+        """
+        csv_path = tmp_path / "summary.csv"
+        rows = [
+            {"run_id": "abc12345", "run_ts": "t1", "spec": "a", "wall_s": 1.0},
+            {"run_id": "abc12345", "run_ts": "t1.5", "spec": "b", "wall_s": 2.0},
+        ]
+        harness._append_csv(csv_path, rows)
+        with open(csv_path, newline="") as f:
+            header = next(csv.reader(f))
+        assert header[0] == "run_id"
+        assert [r["run_id"] for r in _read(csv_path)] == ["abc12345", "abc12345"]

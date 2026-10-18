@@ -54,6 +54,7 @@ import subprocess
 import sys
 import time
 import tracemalloc
+import uuid
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
@@ -220,6 +221,7 @@ def profile_one_spec(
     spec: Path,
     out_root: Path,
     args: argparse.Namespace,
+    run_id: str = "",
 ) -> Dict[str, Any]:
     """Profile a single spec: wall repeats + one profiled/memory-traced run.
 
@@ -262,6 +264,7 @@ def profile_one_spec(
     stage_order = list(capture.order)
 
     row: Dict[str, Any] = {
+        "run_id": run_id,
         "run_ts": datetime.now().astimezone().isoformat(timespec="seconds"),
         "spec": stem,
         "wall_s": statistics.median(walls),
@@ -575,9 +578,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return ab_mode(args, specs, out_root)
 
     rows: List[Dict[str, Any]] = []
+    # One id per sweep: rows of the same sweep share it (run_ts is stamped
+    # per spec, seconds apart), so history tools group by run_id.
+    run_id = uuid.uuid4().hex[:8]
     for spec in specs:
         print(f"\n=== profiling {spec.relative_to(REPO_ROOT)} ===")
-        rows.append(profile_one_spec(spec, out_root, args))
+        rows.append(profile_one_spec(spec, out_root, args, run_id))
 
     csv_path = out_root / "summary.csv"
     preserved = _append_csv(csv_path, rows, fresh=args.fresh)
