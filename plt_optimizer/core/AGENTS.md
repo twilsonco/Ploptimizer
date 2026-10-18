@@ -60,4 +60,6 @@ the `benchmark` tool, and the generate pipeline's plate-space optimization
 - Keep the `with`-block pattern around `ProcessPoolExecutor` (tests patch it
   with `__enter__`-style mocks).
 - Float comparisons: `math.isclose` / tolerances, never `==` (root §1; the
-  writer's `COORD_TOLERANCE = 1e-3` is the merge/suppression predicate).
+  canonical `COORD_TOLERANCE = 1e-3` lives in
+  [`../utils/AGENTS.md`](../utils/AGENTS.md) `geometry.py` and is the
+  merge/suppression predicate via `path_merger.DEFAULT_MERGE_TOLERANCE`).

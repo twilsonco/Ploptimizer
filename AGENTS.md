@@ -70,9 +70,9 @@ one of them inherits the standards above):
 | `plt_optimizer/generate/markup/` | The inline markup framework (`<i> <u> <b> <scale:N> <sup> <sub> <s> <sc> <f:>`) - parser, tag registry, cascade fields, per-tag geometry contracts | [`plt_optimizer/generate/markup/AGENTS.md`](plt_optimizer/generate/markup/AGENTS.md) |
 | `plt_optimizer/generate/collision/` | (doc-only) text-hole collision avoidance + cutter-compensated drill holes | [`plt_optimizer/generate/collision/AGENTS.md`](plt_optimizer/generate/collision/AGENTS.md) |
 | `plt_optimizer/generate/packing/` | (doc-only) plate-space toolpath optimization + bin-packing (rotation, fill order, clearances, material, ellipse, rounded-rect) | [`plt_optimizer/generate/packing/AGENTS.md`](plt_optimizer/generate/packing/AGENTS.md) |
-| `plt_optimizer/diagnostics/` | matplotlib path-visualization plots | (small; see module docstrings) |
-| `plt_optimizer/ui/` | System-tray app + Tkinter settings (Windows 10+ only) | (small; see module docstrings) |
-| `plt_optimizer/utils/` | Config loading, distance geometry, dual text/CSV logging, Windows startup shortcuts | (small; see module docstrings) |
+| `plt_optimizer/diagnostics/` | matplotlib path-visualization plots (import-guarded; never on the Win7 import path) | [`plt_optimizer/diagnostics/AGENTS.md`](plt_optimizer/diagnostics/AGENTS.md) |
+| `plt_optimizer/ui/` | System-tray app + Tkinter settings (Windows 10+ only; Win7 runs the headless CLI) | [`plt_optimizer/ui/AGENTS.md`](plt_optimizer/ui/AGENTS.md) |
+| `plt_optimizer/utils/` | Config loading, distance geometry, dual text/CSV logging, Windows startup shortcuts | [`plt_optimizer/utils/AGENTS.md`](plt_optimizer/utils/AGENTS.md) |
 | `Fonts/` | PLT font extraction from engraved sample sheets, derived Unicode glyphs, the v2 catalog the renderer loads | [`Fonts/AGENTS.md`](Fonts/AGENTS.md) |
 | `tests/` + `tests_deps/` | pytest suite + frozen fixtures (stale-pin patterns, conftest mocks) | [`tests/AGENTS.md`](tests/AGENTS.md) |
 | `docs/` + `docs/schema/` | Developer docs + generated `JOB_SPEC.md`/JSON schemas (regenerate via `generate_ai_docs.py`, drift-pinned) | [`docs/AGENTS.md`](docs/AGENTS.md) |
