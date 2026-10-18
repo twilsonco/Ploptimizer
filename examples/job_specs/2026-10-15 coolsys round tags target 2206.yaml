@@ -13,5 +13,5 @@ job:
   sc_scale: 1.0
   holes:
     - location: top
-      diameter: 0.125
+      diameter: 0.1875
   
