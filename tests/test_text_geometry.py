@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import json
 import math
+import random
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -253,6 +255,85 @@ class TestStroke:
         assert stroke.mirrored_y(2.0).segments[0].end == pytest.approx(1 + 1j)
 
 
+class TestStrokeBoundsMemoization:
+    """The lazy union-bounds memo on the frozen stroke (perf pin)."""
+
+    def test_repeat_calls_return_the_same_object(self) -> None:
+        """The second call is served from the memo (no recompute)."""
+        stroke = Stroke(pen_up=0j, segments=(LineSeg(0j, 1 + 1j), LineSeg(1 + 1j, 3 + 0j)))
+        first = stroke.bounds()
+        assert stroke.bounds() is first
+
+    def test_memo_is_exact_against_brute_force(self) -> None:
+        """The memoized union equals a fresh segment-by-segment union."""
+        rng = random.Random(20261018)
+        for _ in range(50):
+            segments = tuple(
+                LineSeg(complex(x1, y1), complex(x2, y2))
+                for x1, y1, x2, y2 in (
+                    (rng.uniform(-5, 5) for _ in range(4)) for _ in range(rng.randint(1, 8))
+                )
+            )
+            stroke = Stroke(pen_up=0j, segments=segments)
+            expected = (
+                min(min(s.start.real, s.end.real) for s in segments),
+                min(min(s.start.imag, s.end.imag) for s in segments),
+                max(max(s.start.real, s.end.real) for s in segments),
+                max(max(s.start.imag, s.end.imag) for s in segments),
+            )
+            assert stroke.bounds() == expected
+            assert stroke.bounds() == expected  # memoized path
+
+    def test_empty_stroke_never_caches(self) -> None:
+        """A bounds-less stroke keeps its memo empty (cheap scan, no sentinel)."""
+        stroke = Stroke(pen_up=1 + 1j, segments=())
+        assert stroke.bounds() is None
+        assert stroke._bounds_cache is None
+
+    def test_transform_constructors_start_uncached(self) -> None:
+        """Every transform builds a fresh stroke whose memo starts empty."""
+        stroke = Stroke(pen_up=0j, segments=(LineSeg(0j, 1 + 1j),))
+        assert stroke.bounds() is not None
+        for transformed in (
+            stroke.translate(1.0, 0.0),
+            stroke.scaled(2.0),
+            stroke.scaled_y(0.5),
+            stroke.sheared(0.3),
+            stroke.mirrored_y(1.0),
+        ):
+            assert transformed._bounds_cache is None
+            assert transformed.bounds() is not None
+
+    def test_replaced_field_keeps_the_memo_valid(self) -> None:
+        """The memo field is derived state: equality, repr, and hashing ignore it.
+
+        The memo is ``init=False``, and ``dataclasses.replace`` only replays
+        init fields, so a rebuilt stroke NEVER carries the memo -- it
+        re-measures from its segments, and the memo can never go stale
+        through the dataclass machinery.
+        """
+        stroke = Stroke(pen_up=0j, segments=(LineSeg(0j, 1 + 1j),))
+        fresh = Stroke(pen_up=0j, segments=(LineSeg(0j, 1 + 1j),))
+        assert stroke == fresh
+        assert hash(stroke) == hash(fresh)
+        memoized = stroke.bounds()
+        assert memoized is not None
+        assert stroke == fresh  # caching on one side keeps them equal
+        assert hash(stroke) == hash(fresh)
+        assert "_bounds_cache" not in repr(stroke)
+        rebuilt = replace(stroke, pen_up=5 + 5j)
+        assert rebuilt._bounds_cache is None
+        assert rebuilt.bounds() == stroke.bounds()
+
+    def test_replaced_segments_invalidate_the_memo(self) -> None:
+        """``replace`` with new segments re-measures (the memo never lies)."""
+        stroke = Stroke(pen_up=0j, segments=(LineSeg(0j, 1 + 1j),))
+        assert stroke.bounds() == (0.0, 0.0, 1.0, 1.0)
+        grown = replace(stroke, segments=(LineSeg(0j, 9 + 9j),))
+        assert grown.bounds() == (0.0, 0.0, 9.0, 9.0)
+        assert stroke.bounds() == (0.0, 0.0, 1.0, 1.0)
+
+
 class TestStrokeHpgl:
     """HPGL emission framing (parser round-trip + historical parity)."""
 
@@ -336,6 +417,53 @@ class TestTextBlock:
     def test_is_empty_ignores_strokes_without_segments(self) -> None:
         """Strokes without segments do not make a block non-empty."""
         assert TextBlock(strokes=(Stroke(pen_up=0j, segments=()),)).is_empty()
+
+    def test_bounds_memo_serves_repeat_calls(self) -> None:
+        """The block union is computed once and served from the memo."""
+        block = self._sample()
+        first = block.bounds()
+        assert first is not None
+        assert block.bounds() is first
+
+    def test_bounds_memo_is_exact_against_fresh_union(self) -> None:
+        """The memoized block union equals a freshly-built identical block's."""
+        block = self._sample()
+        memoized = block.bounds()
+        clone = TextBlock(strokes=block.strokes)
+        assert memoized == clone.bounds()
+
+    def test_empty_block_never_caches(self) -> None:
+        """A bounds-less block keeps its memo empty (cheap scan, no sentinel)."""
+        block = TextBlock(strokes=(Stroke(pen_up=0j, segments=()),))
+        assert block.bounds() is None
+        assert block._bounds_cache is None
+
+    def test_transform_constructors_start_uncached(self) -> None:
+        """Every transform builds a fresh block whose memo starts empty."""
+        block = self._sample()
+        assert block.bounds() is not None
+        for transformed in (
+            block.translate(1.0, 1.0),
+            block.scaled(2.0),
+            block.scaled_y(0.5),
+            block.sheared(0.3),
+            block.mirrored_y(1.0),
+            block.rotated_90cw(0.0, 1.0),
+            block.compress_x(0.5),
+            block.replaced_strokes({0: block.strokes[0].translate(0.0, 1.0)}),
+        ):
+            assert transformed._bounds_cache is None
+            assert transformed.bounds() is not None
+
+    def test_noop_transforms_share_the_memo_without_lying(self) -> None:
+        """No-op transforms return ``self`` -- the shared memo is exact for them."""
+        block = self._sample()
+        bounds = block.bounds()
+        assert block.scaled_y(1.0) is block
+        assert block.sheared(0.0) is block
+        assert block.compress_x(1.0) is block
+        assert block.replaced_strokes({}) is block
+        assert block.bounds() == bounds
 
     def test_translate_and_scaled(self) -> None:
         """Affine helpers map the whole block."""
@@ -626,9 +754,7 @@ def test_real_glyphs_roundtrip(char: str) -> None:
     from many vertices).
     """
     dino = json.loads(
-        (REPO_ROOT / "Fonts" / "VP-EL-Fonts" / "catalog" / "Dino.json").read_text(
-            encoding="utf-8"
-        )
+        (REPO_ROOT / "Fonts" / "VP-EL-Fonts" / "catalog" / "Dino.json").read_text(encoding="utf-8")
     )
     glyph = dino["characters"][char]["glyph"]
     doc = PLTParser().parse_string("IN;PA;" + glyph + "SP;")

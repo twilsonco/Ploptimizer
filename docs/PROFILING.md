@@ -171,7 +171,7 @@ Same box, same harness. Post-fix medians:
 | 2026-10-07 coolsys 1 big label | 68.7 | **3.6** | `reflow` 2.1 |
 | 2026-10-15 coolsys round tags 910+walmart | 51.0 | **2.7** | `optimize_layer` 1.3 / `layout_render_pack` 1.3 |
 | 2026-10-06 seer intrachunk opt TTF | 0.3 | 0.04 | — |
-| 2026-10-06 seer wb-uv | 5.8 | 6.1 | `cutter_downsize` 3.9 (untouched by these fixes; see Current #2) |
+| 2026-10-06 seer wb-uv | 5.8 | 6.1 | `cutter_downsize` 3.9 (untouched by these fixes; see Current #1) |
 
 What fixed what:
 
@@ -216,46 +216,65 @@ is the source). Seeding each strategy job deterministically (e.g. from a
 hash of the serialized blocks + job payload) is the remaining step toward
 the identical-input-identical-output invariant.
 
-## Current bottlenecks (2026-10-18, post-fix re-profile, full sweep)
+## Current bottlenecks (2026-10-18, post-bounds-memo re-profile, full sweep)
 
-Full sweep after the fixes above (`--repeats 3` + cProfile + tracemalloc,
+Full sweep after the fixes below (`--repeats 3` + cProfile + tracemalloc,
 plots off). Wall = median of 3; profile seconds are cProfile cumulative
 (inflated ~1.5-2.6x on pure-Python hot loops — call counts are the
 reliable signal). Memory is a non-issue everywhere (peak 1.3-30.7 MiB).
 
-| Spec | wall s | dominant stage(s) |
-|---|---|---|
-| 2026-07-22 sunwest | 11.6 | `optimize_layer` 10.5 (481-block bh layer) |
-| 2026-10-06 seer wb-uv | 5.8 | `cutter_downsize` 3.7 + `layout_render_pack` 1.8 |
-| 2026-10-07 coolsys 1 big label | 3.4 | `reflow` 1.9 |
-| 2026-10-15 coolsys round tags 910+walmart | 2.6 | `optimize_layer` 1.3 / `layout_render_pack` 1.2 |
-| 2026-10-06 seer intrachunk opt TTF | 0.04 | — |
+| Spec | wall s (pre-memo) | wall s (post-memo) | dominant stage(s) after |
+|---|---|---|---|
+| 2026-07-22 sunwest | 11.5 | 11.2 | `optimize_layer` 10.5 (481-block bh layer) |
+| 2026-10-06 seer wb-uv | 5.7 | **4.6** | `cutter_downsize` 2.9 + `layout_render_pack` 1.4 |
+| 2026-10-07 coolsys 1 big label | 3.4 | **2.7** | `reflow` 1.6 |
+| 2026-10-15 coolsys round tags 910+walmart | 2.6 | 2.5 | `optimize_layer` 1.4 / `layout_render_pack` 1.0 |
+| 2026-10-06 seer intrachunk opt TTF | 0.04 | 0.04 | — |
 
-The three original bottlenecks are gone. What dominates now, in
-size-of-prize order:
+### Bottleneck: `TextBlock.bounds` recompute (the universal render leaf) — FIXED 2026-10-18
 
-### Current #1: `TextBlock.bounds` recompute (the universal render leaf)
+The sweep's top cost center on every render-heavy spec was
+`text_geometry.TextBlock.bounds` recomputing the union of its strokes'
+swept bounds on EVERY call — the frozen dataclass cached nothing, and the
+render pipeline calls it per line, per pass, per probe. wb-uv: **25,894
+calls / 4.7 s cumulative** (via 90,477 `Stroke.bounds` + 116 k segment
+bounds); coolsys: **7,660 calls / 3.2 s = 36 % of the whole profiled
+run**.
 
-The sweep's top cost center on every render-heavy spec:
-`text_geometry.TextBlock.bounds` (L546) recomputes the union of its
-strokes' swept bounds on EVERY call — the frozen dataclass caches nothing,
-and the render pipeline calls it per line, per pass, per probe. wb-uv:
-**25,894 calls / 4.7 s cumulative** (via 90,477 `Stroke.bounds` +
-116 k segment bounds); coolsys: **7,660 calls / 3.2 s = 36 % of the whole
-profiled run** (50,314 `Stroke.bounds`, 400,222 segment-level `bounds`).
-It is now the single highest-leverage remaining optimization: memoize the
-bounds on the frozen block (e.g. compute-once in `__post_init__` via
-`object.__setattr__`, or an explicit cached field threaded through the
-transform constructors). Memoization is exact — a frozen block's strokes
-never mutate — so every pin stays bit-identical.
+**Fix:** `Stroke` and `TextBlock` each carry a lazy union-bounds memo —
+`_bounds_cache: Optional[TextBounds] = field(default=None, init=False,
+compare=False, repr=False)`, computed once in `bounds()` and written with
+`object.__setattr__`. Exact by construction: a frozen block's strokes
+never mutate, every transform constructor builds a fresh instance whose
+memo starts empty, and `init=False` means `dataclasses.replace` (which
+replays only init fields) can never copy a stale memo. Empty geometry
+returns `None` without caching (the empty scan is trivially cheap). The
+field is excluded from equality/hashing/repr — pure derived state. The
+microbenchmark at glyph sizes (300 strokes x 30 segments, 3000 query
+passes): recompute 7.79 s vs memoized 0.02 s (386x); construction cost
++0.04 us/instance.
 
-### Current #2: `cutter_downsize` probe renders + collision compression sweep (wb-uv)
+Measured (same box, full sweep): coolsys `bounds` 3.2 s -> **0.87 s**
+profiled (7,660 calls, only 392 first computes — 95 % memo hits); wb-uv's
+leaf vanishes from the top-25 entirely (was 4.8 s), total profiled calls
+91.5 M -> 60.9 M. Wall: coolsys **3.4 -> 2.7 s**, wb-uv **5.7 -> 4.6 s**.
+Identity: all 13 benchmark PLTs byte-identical under `--fast-mode`; in
+full mode 10/13 byte-identical and the 3 diffs (sunwest `txt`,
+round-tags `bh`/`text` — exactly the unseeded-SA/GA layers of the open
+determinism gap) have **identical undirected segment multisets**
+(15,918 / 13,529 / 35,777 segments, verified against a HEAD worktree).
+Pinned by `TestStrokeBoundsMemoization` + the block-level memo tests in
+`tests/test_text_geometry.py` (memo object identity, randomized
+brute-force equivalence, empty-never-cached, every transform constructor
+uncached, `replace()` never carries a memo, eq/hash/repr invariance).
 
-wb-uv's 3.7 s stage is 14 full `render_label_to_plt` probes
-(`cutter_downsize._default_probe`, 10.0 s profiled) — the same
+### Current #1: `cutter_downsize` probe renders + collision compression sweep (wb-uv)
+
+wb-uv's 2.9 s stage is 14 full `render_label_to_plt` probes
+(`cutter_downsize._default_probe`, 7.6 s profiled) — the same
 full-render-per-measurement shape as the old reflow probe, plus the
 collision Phase-3 sweep inside those renders
-(`detection.resolve_via_compression`, 18 calls / 11.1 s profiled = 144
+(`detection.resolve_via_compression`, 18 calls / 8.4 s profiled = 144
 thin `_render_text_local_with_bounds` renders). Two shrinkable multipliers:
 (a) the downsize probe measures ONE line's compressed width — like the
 reflow probe, it needs no drill holes, no PLT export, and no relief, so a
@@ -263,7 +282,7 @@ text-only render path serves it; (b) the 16-step compression sweep
 re-renders from scratch per step while only the X scale changes. The
 `_share_downsizes` re-measure pass doubles the probe count.
 
-### Current #3: sunwest's 481-block bh layer (real compute, knob not bug)
+### Current #2: sunwest's 481-block bh layer (real compute, knob not bug)
 
 Confirmed by the profile: 10.1 s of the 10.5 s stage is the parent
 blocking in `as_completed` on the pooled 481-block layer (the strategies'
@@ -271,20 +290,20 @@ real parallel compute; sequential is ~3.5x worse). `--fast-mode` isolates
 it. Improving THIS means cheaper big-instance strategies (e.g. capping
 2-opt passes by block count), not plumbing.
 
-### Current #4: coolsys `reflow` residual (2x, no longer pathological)
+### Current #3: coolsys `reflow` residual (no longer pathological)
 
-1.9 s = 8 probe renders (0.62 s each) of the 24x16in label; inside each,
-`bounds` (36 %) + `_walk_line` + the relief (2.2 s profiled across 11
-renders, down from ~140 s). The relief pre-filters made it linear-ish;
-further wins come from Current #1 and from caching per-glyph ink between
+1.6 s = 8 probe renders (0.45 s each) of the 24x16in label; inside each,
+`_walk_line` (1.8 s profiled across 410 calls) + the relief (1.6 s
+profiled across 11 renders, down from ~140 s) + kerning (0.9 s). The
+relief pre-filters made it linear-ish and the bounds memo removed the
+leaf recompute; further wins come from caching per-glyph ink between
 probe renders (the word partition changes line breaks, not glyph geometry).
 
 ### Ruled out
 
 - **Ellipse packing is no longer a hot spot**: round-tags packing is now
   ~0.5 s profiled (~0.2 s real, was ~50 s); the spec's
-  `layout_render_pack` 1.2 s is the 83 `render_label_to_plt` renders
-  (Current #1 again).
+  `layout_render_pack` 1.0 s is the 83 `render_label_to_plt` renders.
 - **Ensemble pool spawn** on the benchmark set: the small layers
   (1-48 blocks) run sequentially; the 146/166-block round-tags layers
   pool in 1.1 s profiled total — spawn is amortized there.

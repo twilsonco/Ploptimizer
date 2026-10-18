@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -342,6 +342,11 @@ class Stroke:
 
     pen_up: complex
     segments: Tuple[TextSegment, ...]
+    # Lazy union-bounds memo (see :meth:`bounds`). Pure derived state, so it
+    # is excluded from construction (``init=False``: ``dataclasses.replace``
+    # only replays init fields, so a replaced stroke can never carry a stale
+    # memo), equality, hashing, and repr.
+    _bounds_cache: Optional[TextBounds] = field(default=None, init=False, compare=False, repr=False)
 
     @property
     def is_empty(self) -> bool:
@@ -349,11 +354,22 @@ class Stroke:
         return not self.segments
 
     def bounds(self) -> Optional[TextBounds]:
-        """Return the union swept bounds of the segments, or ``None`` if empty."""
+        """Return the union swept bounds of the segments, or ``None`` if empty.
+
+        The union is computed once and memoized on the (immutable) stroke;
+        every transform constructor builds a fresh stroke whose cache starts
+        empty, so the memo is exact by construction. Empty strokes return
+        ``None`` without caching (the empty scan is trivially cheap).
+        """
+        cached = self._bounds_cache
+        if cached is not None:
+            return cached
         boxes = [seg.bounds() for seg in self.segments]
         if not boxes:
             return None
-        return _union_bounds(boxes)
+        result = _union_bounds(boxes)
+        object.__setattr__(self, "_bounds_cache", result)
+        return result
 
     def translate(self, dx: float, dy: float) -> Stroke:
         """Return this stroke shifted by ``(dx, dy)``."""
@@ -533,6 +549,11 @@ class TextBlock:
     """
 
     strokes: Tuple[Stroke, ...]
+    # Lazy union-bounds memo (see :meth:`bounds`). Pure derived state, so it
+    # is excluded from construction (``init=False``: ``dataclasses.replace``
+    # only replays init fields, so a replaced block can never carry a stale
+    # memo), equality, hashing, and repr.
+    _bounds_cache: Optional[TextBounds] = field(default=None, init=False, compare=False, repr=False)
 
     @classmethod
     def empty(cls) -> TextBlock:
@@ -544,11 +565,24 @@ class TextBlock:
         return all(stroke.is_empty for stroke in self.strokes)
 
     def bounds(self) -> Optional[TextBounds]:
-        """Return the union swept bounds, or ``None`` when empty."""
+        """Return the union swept bounds, or ``None`` when empty.
+
+        The union is computed once and memoized on the (immutable) block --
+        the render pipeline queries line bounds per pass/probe, and a
+        block's strokes never mutate, so the memo is exact. Every transform
+        constructor builds a fresh block whose cache starts empty. Blocks
+        with no ink return ``None`` without caching (the empty scan is
+        trivially cheap).
+        """
+        cached = self._bounds_cache
+        if cached is not None:
+            return cached
         boxes = [b for b in (stroke.bounds() for stroke in self.strokes) if b is not None]
         if not boxes:
             return None
-        return _union_bounds(boxes)
+        result = _union_bounds(boxes)
+        object.__setattr__(self, "_bounds_cache", result)
+        return result
 
     def translate(self, dx: float, dy: float) -> TextBlock:
         """Return this block shifted by ``(dx, dy)``."""
