@@ -6,6 +6,10 @@ description: 'Measure, optimize, and prove generate-pipeline performance. Use wh
 # Generate-Pipeline Profiling & Bottleneck Optimization
 
 The repo's perf loop: **measure → identify → patch → re-measure → plot**.
+The end-to-end optimization cycle (one bottleneck per cycle, with the
+gain report) is the sibling skill
+[`../generate-pipeline-optimization/SKILL.md`](../generate-pipeline-optimization/SKILL.md);
+this skill owns the mechanics it calls into.
 The machine-readable record is `test_output/profiling/summary.csv` (gitignored
 scratch, append-mode HISTORY — every sweep adds rows, `run_id` groups one
 sweep, `run_ts` stamps each row). The prose record is
