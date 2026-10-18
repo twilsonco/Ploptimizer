@@ -371,19 +371,21 @@ boundary, and the rectangular path imports nothing new.
   vertices (the inset is exact on an axis) and the four corner holes on the
   45° diagonal inset along the outward normal (`round_corner_hole`) — the
   rectangular corner inset would drill in the material the ellipse cuts away.
-  The text margin applies **radially** (`resolution.ellipse_content_inset`:
-  the largest centered block of the label's aspect inscribed in the inset
-  ellipse, closed form `θ = atan2(a′, aspect·b′)`), applied by recomputing the
-  two local margins in `_render_positioned_lines` so the radial rule reaches
-  the available height, the compression width, the alignment width and the
-  alignment anchor with no per-site branching (centering is unaffected — the
-  inset is concentric). `_border_box` (the descender relief's virtual
-  "following line") carries the ellipse's **lower arc** (`_lower_ellipse_arc`)
-  for round labels, so a descender near the shoulders measures the rising
-  boundary.
+  The text margin is the plain **rectangular** inset: the user margins are
+  trusted directly, with no radial recomputation. `resolution.ellipse_content_inset`
+  (the largest centered block of the label's aspect inscribed in the inset
+  ellipse, closed form `θ = atan2(a′, aspect·b′)`) ships as a tested geometry
+  primitive documenting the inset rule, and is deliberately NOT applied while
+  positioning text: recomputing the local margins from it double-applied the
+  margin and caused spurious horizontal compression (fixed in 4757694; the
+  restore in 7dde646 was a misdiagnosis — the wiring was removed on purpose,
+  not lost — and was reverted again). `_border_box` (the descender relief's
+  virtual "following line") carries the ellipse's **lower arc**
+  (`_lower_ellipse_arc`) for round labels, so a descender near the shoulders
+  measures the rising boundary.
 - **Collision detection stays shape-agnostic.** The text↔hole gap is
   `circle_aabb_gap` for every label: the label shape enters through the hole
-  POSITIONS and the radial content inset, not through the gap (the
+  POSITIONS, not through the gap (the
   engraved-boundary clearance is the margin system's job on both shapes —
   measuring the boundary here would make a rectangular label's corner hole
   collide with itself). The `geometry.circle_ellipse_aabb_gap` /
@@ -438,9 +440,9 @@ nominal box exactly (the packer and plate transforms are untouched, and
   fillets in the chosen mode; `f = 1` + proportional (or a square) = the
   **exact ellipse/circle** — the renderer routes those labels to the shipped
   `type: round` ellipse path (`rounded_rect_full_ellipse` /
-  `uses_ellipse_boundary`), so their boundary emission, corner holes, radial
-  inset and relief border are bit-identical to a `type: round` label of the
-  same box (only the packing stays rectangular); `f = 1` + non-proportional +
+  `uses_ellipse_boundary`), so their boundary emission, corner holes and
+  relief border are bit-identical to a `type: round` label of the same box
+  (only the packing stays rectangular); `f = 1` + non-proportional +
   `W ≠ H` = the **smoothed stadium** — the short edges fully round, the long
   edges keep straight runs, and the corner exponent is clamped to
   `STADIUM_G2_EXPONENT = 4` (a quarter-circle there would join the straights

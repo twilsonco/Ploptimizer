@@ -14,6 +14,11 @@
 
 ### Bug Fixes
 
+* **generate:** re-remove the buggy radial margin recomputation for round labels (regression in `7dde646`)
+  - **Root cause**: `7dde646` "restored" the `ellipse_content_inset` margin recomputation in `_render_positioned_lines` as merge-lost wiring, but `4757694` had deliberately removed it — the recomputation double-applies the margin (box inset AND inscribed-block rule), compressing text that already fits
+  - **Manifestation**: unnecessary horizontal text compression on `type: round` labels (and the `rounded_rectangle_fraction: 1.0` full-ellipse limit); e.g. a line fitting the user margins compressed to scale 0.395 → 0.271
+  - **Solution**: round labels trust the user-specified margins directly (the rounded-rect corner-aware inset for `0 < f < 1` is a deliberate design and stays); `ellipse_content_inset` remains a tested geometry primitive, unapplied
+  - **Regression testing**: `TestUserMarginsTrustedOnRoundLabels` pins round/full-ellipse compression == the rect twin (the old `TestRadialContentInsetApplied` used `>=` + the compression floor, so it passed under both behaviors)
 * **parser:** fix multi-coordinate PD command fragmentation causing 99.2% path bloat in round labels
   - **Root cause**: Stale `pen_state` variable check during coordinate iteration in `_build_document()` lines ~195-230
   - **Manifestation**: Each coordinate pair in multi-coordinate PD commands incorrectly created new StrokePath instead of appending to existing path

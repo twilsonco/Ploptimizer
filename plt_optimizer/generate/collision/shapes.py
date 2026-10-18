@@ -66,10 +66,10 @@ def rounded_rect_full_ellipse(label: ResolvedLabel) -> bool:
     modes coincide -- makes the corner patches meet at every edge midpoint
     and the exponent land on ``n = 2``: the boundary is exactly the
     ``type: round`` ellipse (a circle on a square). Those labels route to the
-    shipped ellipse path (boundary polygon, corner holes, radial inset, the
-    relief's lower arc), so their engraved geometry matches a ``type: round``
-    label of the same box; only the packing stays rectangular (the nominal
-    box is exact for the ellipse too).
+    shipped ellipse path (boundary polygon, corner holes, the relief's lower
+    arc), so their engraved geometry matches a ``type: round`` label of the
+    same box; only the packing stays rectangular (the nominal box is exact
+    for the ellipse too).
 
     Args:
         label: The resolved label.
@@ -90,8 +90,8 @@ def uses_ellipse_boundary(label: ResolvedLabel) -> bool:
 
     ``type: round`` labels and the fully-rounded rounded-rectangle limit
     (see :func:`rounded_rect_full_ellipse`) share the ellipse boundary
-    emission, the ellipse-aware drill-hole placement, the radial content
-    inset and the relief's lower arc. Packing is NOT dispatched here: a
+    emission, the ellipse-aware drill-hole placement and the relief's lower
+    arc. Packing is NOT dispatched here: a
     fully-rounded rectangular label keeps packing in its nominal box (the
     packer's ``shape_type`` check is untouched).
 

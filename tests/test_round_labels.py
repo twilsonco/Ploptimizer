@@ -7,7 +7,7 @@ Covers the shape-aware branches of the renderer and the collision package
 - the ellipse boundary emission (``_render_boundary_local``);
 - the ellipse-aware drill-hole placement (``hole_circles_local``);
 - the shape-aware collision distance dispatcher (``_label_boundary_gap``);
-- the radial content inset applied while positioning text.
+- user margins trusted while positioning text (no radial inset; regression pin).
 
 Rectangular labels are asserted to keep the historical geometry, so the
 round path is provably adjacent, never a replacement.
@@ -259,18 +259,27 @@ class TestShapeAwareBorderBox:
         assert arc[mid][1] < arc[-1][1]
 
 
-class TestRadialContentInsetApplied:
-    """Round labels position text inside the inscribed (radial) content box."""
+class TestUserMarginsTrustedOnRoundLabels:
+    """Round labels position text with the USER margins, never a radial inset.
 
-    def test_round_content_is_narrower_than_rect(self) -> None:
-        """The same text on a round label compresses sooner (smaller box)."""
-        from plt_optimizer.generate.label_renderer import _render_positioned_lines
+    Regression pin for commit 4757694: recomputing the local margins from
+    ``ellipse_content_inset`` applied the margin twice (the box inset AND the
+    inscribed-block rule), compressing text that already fits the specified
+    margin. That recomputation must never return -- a round label measures
+    text against ``width - 2 h_margin`` by ``height - 2 v_margin``, exactly
+    like its rectangular twin. (The rule also covers the fully-rounded
+    rounded-rectangle limit, which shares the ellipse boundary path.)
+    """
 
-        # A wide line + a compression budget: the round label's narrower
-        # inscribed box forces a smaller effective scale than the rect box.
-        content = [_make_line("WIDE TEXT THAT IS LONG", height=0.6)]
+    def test_round_content_is_no_narrower_than_rect(self) -> None:
+        """The same text compresses identically on round and rect labels."""
         from dataclasses import replace
 
+        from plt_optimizer.generate.label_renderer import _render_positioned_lines
+
+        # A wide line: both labels compress, and the round label must
+        # measure the SAME box as the rect twin -- no inscribed-rect inset.
+        content = [_make_line("WIDE TEXT THAT IS LONG", height=0.6)]
         base = _label(
             "rect", width=4.0, height=2.0, margin=0.1, content=content
         )
@@ -284,9 +293,35 @@ class TestRadialContentInsetApplied:
             positioned = _render_positioned_lines(label)
             return positioned[0][2].compression_scale
 
-        # The rect label fits its wider box; the round label must compress.
-        assert scale_of(base) >= scale_of(round_label)
-        assert scale_of(round_label) < 1.0
+        assert scale_of(base) < 1.0  # the line really does compress
+        assert scale_of(round_label) == pytest.approx(scale_of(base))
+
+    def test_full_ellipse_rounded_rect_uses_user_margins(self) -> None:
+        """The f=1 rounded-rect limit shares the margin rule, not an inset."""
+        from dataclasses import replace
+
+        from plt_optimizer.generate.label_renderer import _render_positioned_lines
+
+        content = [_make_line("WIDE TEXT THAT IS LONG", height=0.6)]
+        base = _label(
+            "rect", width=4.0, height=2.0, margin=0.1, content=content
+        )
+        base = replace(
+            base,
+            content=[replace(base.content[0], max_h_compress=0.9)],
+        )
+        full_ellipse = replace(
+            base,
+            rounded_rectangle_fraction=1.0,
+            rounded_rectangle_proportional=True,
+        )
+
+        def scale_of(label: ResolvedLabel) -> float:
+            positioned = _render_positioned_lines(label)
+            return positioned[0][2].compression_scale
+
+        assert scale_of(base) < 1.0
+        assert scale_of(full_ellipse) == pytest.approx(scale_of(base))
 
 
 class TestCutterCompensatedHoles:

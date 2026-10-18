@@ -2211,6 +2211,15 @@ def ellipse_content_inset(
     which is exactly the point of the radial rule: near the ellipse's
     shoulders there is far less room than a box inset assumes.
 
+    **Not applied while rendering.** ``type: round`` labels trust the
+    user-specified margins directly (fix 4757694): recomputing the local
+    margins from this inset double-applies the margin and spuriously
+    compresses text that already fits. This function ships as the tested
+    geometry primitive for the inset rule (and the reference contract for
+    :func:`rounded_rect_content_inset`, which IS applied for
+    ``0 < fraction < 1``); do not wire it back into
+    ``label_renderer._render_positioned_lines``.
+
     Args:
         width: Label width in inches (> 0).
         height: Label height in inches (> 0).
