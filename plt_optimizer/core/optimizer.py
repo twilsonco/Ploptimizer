@@ -3581,12 +3581,71 @@ class StrategyBenchmarkResult:
         result: The optimization result from this strategy.
         execution_time_seconds: Time taken to execute this strategy.
         improvement_percent: Percent improvement over baseline (if baseline provided).
+        start_position: The job's fixed start terminal (attached by the
+            ensemble parent from the job payload). Part of the canonical
+            benchmark ordering: two jobs of one strategy can tie on name and
+            distance while routing through different terminals.
+        end_position: The job's fixed end terminal, when the strategy
+            supports a fixed end point.
     """
 
     strategy_name: str
     result: OptimizationResult
     execution_time_seconds: float
     improvement_percent: Optional[float] = None
+    start_position: Optional[Tuple[float, float]] = None
+    end_position: Optional[Tuple[float, float]] = None
+
+
+def _terminal_sort_key(position: Optional[Tuple[float, float]]) -> Tuple[float, float, float]:
+    """Return a sortable key for an optional terminal coordinate.
+
+    Args:
+        position: The ``(x, y)`` terminal, or ``None`` (terminal derived by
+            the strategy).
+
+    Returns:
+        A tuple ordering ``None`` after every concrete position, then by
+        ``x`` and ``y`` ascending.
+    """
+    if position is None:
+        return (1.0, 0.0, 0.0)
+    return (0.0, position[0], position[1])
+
+
+def _benchmark_sort_key(
+    benchmark: StrategyBenchmarkResult,
+) -> Tuple[float, float, str, Tuple[float, float, float], Tuple[float, float, float]]:
+    """Return the canonical ensemble ranking key for one benchmark.
+
+    Best-first: improvement percent descending (when present), then total
+    travel distance ascending, then strategy name ascending, then the job's
+    start/end terminals. Worker results arrive in wall-clock order, and
+    exact-distance ties are common (several strategies converge on the same
+    optimal tour); breaking ties by arrival order made the winner
+    timing-dependent, which changed the emitted toolpath ORDER between
+    identical runs (violating the identical-input-identical-output
+    invariant). Every component of this key is a pure function of the job
+    and its result, and the job terminals make the order total (jobs are
+    unique ``(strategy, start, end)`` tuples), so selecting the minimum is
+    independent of completion order.
+
+    Args:
+        benchmark: The benchmark result to rank.
+
+    Returns:
+        The sort key; smaller sorts first (better).
+    """
+    improvement = (
+        benchmark.improvement_percent if benchmark.improvement_percent is not None else 0.0
+    )
+    return (
+        -improvement,
+        benchmark.result.total_travel_distance,
+        benchmark.strategy_name,
+        _terminal_sort_key(benchmark.start_position),
+        _terminal_sort_key(benchmark.end_position),
+    )
 
 
 @dataclass(frozen=True)
@@ -3933,7 +3992,10 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
         """Pick the best benchmark result from a set of completed jobs.
 
         Prefers the highest improvement percent when a baseline distance was
-        provided, otherwise the lowest absolute travel distance.
+        provided, otherwise the lowest absolute travel distance. Ties are
+        broken by :func:`_benchmark_sort_key` (strategy name, then job
+        terminals), never by completion order, so the winner is a pure
+        function of the results themselves.
 
         Args:
             benchmarks: Completed benchmark results to choose from.
@@ -3941,19 +4003,9 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
         Returns:
             The best result, or ``None`` when ``benchmarks`` is empty.
         """
-        best: Optional[StrategyBenchmarkResult] = None
-        for benchmark in benchmarks:
-            if best is None:
-                best = benchmark
-            elif self._baseline_distance is not None and best.improvement_percent is not None:
-                # Prefer higher improvement percent
-                if (benchmark.improvement_percent or 0) > best.improvement_percent:
-                    best = benchmark
-            else:
-                # Fall back to absolute distance minimization
-                if benchmark.result.total_travel_distance < best.result.total_travel_distance:
-                    best = benchmark
-        return best
+        if not benchmarks:
+            return None
+        return min(benchmarks, key=_benchmark_sort_key)
 
     def _run_pool_attempt(
         self,
@@ -4034,7 +4086,9 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
                         f"distance={benchmark_result.result.total_travel_distance:.3f}"
                     )
 
-                    # Calculate improvement percent if baseline provided
+                    # Attach the job terminals (canonical ordering payload)
+                    # and the improvement percent when a baseline was given.
+                    pct_improvement = benchmark_result.improvement_percent
                     if self._baseline_distance is not None and self._baseline_distance > 0:
                         pct_improvement = (
                             (
@@ -4044,13 +4098,14 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
                             / self._baseline_distance
                             * 100
                         )
-                        # Create new result with improvement percent attached
-                        benchmark_result = StrategyBenchmarkResult(
-                            strategy_name=benchmark_result.strategy_name,
-                            result=benchmark_result.result,
-                            execution_time_seconds=benchmark_result.execution_time_seconds,
-                            improvement_percent=pct_improvement,
-                        )
+                    benchmark_result = StrategyBenchmarkResult(
+                        strategy_name=benchmark_result.strategy_name,
+                        result=benchmark_result.result,
+                        execution_time_seconds=benchmark_result.execution_time_seconds,
+                        improvement_percent=pct_improvement,
+                        start_position=job_start,
+                        end_position=job_end,
+                    )
 
                     all_benchmarks.append(benchmark_result)
 
@@ -4286,14 +4341,9 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
                     all_benchmarks=(),
                 )
 
-        # Sort benchmarks by improvement percent (descending), then by distance (ascending)
-        sorted_benchmarks = sorted(
-            all_benchmarks,
-            key=lambda b: (
-                -(b.improvement_percent if b.improvement_percent is not None else 0.0),
-                b.result.total_travel_distance,
-            ),
-        )
+        # Canonical best-first order (improvement desc, distance asc, then
+        # strategy name / terminals as a timing-independent tie-break).
+        sorted_benchmarks = sorted(all_benchmarks, key=_benchmark_sort_key)
 
         failed_count = len(failed_strategies)
         if failed_count > 0:

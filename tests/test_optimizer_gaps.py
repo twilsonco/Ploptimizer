@@ -398,6 +398,7 @@ class TestParallelEnsembleResultSelection:
     def _install_fake_pool(
         monkeypatch: pytest.MonkeyPatch,
         outcomes: Dict[str, Any],
+        reverse: bool = False,
     ) -> None:
         """Replace ProcessPoolExecutor/as_completed in the optimizer namespace.
 
@@ -405,6 +406,9 @@ class TestParallelEnsembleResultSelection:
             monkeypatch: pytest monkeypatch fixture.
             outcomes: Mapping of strategy name to either a
                 StrategyBenchmarkResult (returned) or an Exception (raised).
+            reverse: When True, fake ``as_completed`` yields futures in
+                reverse submission order (simulating a scrambled wall-clock
+                completion order).
         """
 
         class _FakeFuture:
@@ -456,8 +460,11 @@ class TestParallelEnsembleResultSelection:
                 return future
 
         def _fake_as_completed(futures: Any, *args: Any, **kwargs: Any) -> Any:
-            """Yield submitted futures in submission order."""
-            return iter(list(futures))
+            """Yield submitted futures in submission (or reversed) order."""
+            ordered = list(futures)
+            if reverse:
+                ordered.reverse()
+            return iter(ordered)
 
         monkeypatch.setattr("plt_optimizer.core.optimizer.ProcessPoolExecutor", _FakeExecutor)
         monkeypatch.setattr("plt_optimizer.core.optimizer.as_completed", _fake_as_completed)
@@ -544,3 +551,69 @@ class TestParallelEnsembleResultSelection:
         # 6 surviving strategies x 2 start candidates (the failing NoOp
         # baseline contributes zero rows; terminal-candidate evaluation).
         assert len(result.all_benchmarks) == 12
+
+    def test_exact_distance_ties_break_deterministically(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """All-tied distances: winner is canonical, independent of completion order.
+
+        Worker results arrive in wall-clock order; breaking exact ties toward
+        the first arrival made the winner (and therefore the emitted toolpath
+        order) timing-dependent. The canonical key (improvement, distance,
+        strategy name, start/end terminals) must select the same winner for
+        submission order AND its reverse.
+        """
+        blocks = [
+            _make_simple_block(0, (0, 0), (10, 0)),
+            _make_simple_block(1, (50, 0), (60, 0)),
+        ]
+        names = [
+            "NoOp (Baseline)",
+            "NearestNeighbor + 2-Opt",
+            "Insertion Heuristic",
+            "Simulated Annealing",
+            "Genetic Algorithm",
+            "Christofides-Serdyukov S-T Path (5/3 approx)",
+        ]
+        outcomes: Dict[str, Any] = {name: self._benchmark(name, 10.0) for name in names}
+
+        self._install_fake_pool(monkeypatch, outcomes)
+        forward = ParallelEnsembleStrategy().optimize(blocks)
+
+        self._install_fake_pool(monkeypatch, outcomes, reverse=True)
+        reversed_ = ParallelEnsembleStrategy().optimize(blocks)
+
+        # Alphabetically first strategy name; its best job is the
+        # lexicographically smallest (start, end) terminal pair.
+        assert forward.winner_name == "Christofides-Serdyukov S-T Path (5/3 approx)"
+        assert reversed_.winner_name == forward.winner_name
+        assert [b.strategy_name for b in forward.all_benchmarks] == [
+            b.strategy_name for b in reversed_.all_benchmarks
+        ]
+        # Canonical best-first order: Christofides jobs first (name tie-break),
+        # ordered by (start, end) terminals ascending.
+        first = forward.all_benchmarks[0]
+        assert first.strategy_name == "Christofides-Serdyukov S-T Path (5/3 approx)"
+        assert first.start_position == (0.0, 0.0)
+        assert first.end_position == (50.0, 0.0)
+
+    def test_select_best_result_ties_break_by_name_then_terminals(self) -> None:
+        """``_select_best_result`` is order-independent on exact ties."""
+        strategy = ParallelEnsembleStrategy()
+        alpha = StrategyBenchmarkResult(
+            "Alpha", self._benchmark("Alpha", 5.0).result, 0.01, start_position=(1.0, 0.0)
+        )
+        alpha_early_terminal = StrategyBenchmarkResult(
+            "Alpha", self._benchmark("Alpha", 5.0).result, 0.01, start_position=(0.0, 0.0)
+        )
+        zeta = StrategyBenchmarkResult("Zeta", self._benchmark("Zeta", 5.0).result, 0.01)
+
+        for benchmarks in itertools.permutations([alpha, alpha_early_terminal, zeta]):
+            best = strategy._select_best_result(list(benchmarks))
+            assert best is not None
+            assert best.strategy_name == "Alpha"
+            assert best.start_position == (0.0, 0.0)
+
+    def test_select_best_result_empty_returns_none(self) -> None:
+        """``_select_best_result([])`` returns None (no benchmarks completed)."""
+        assert ParallelEnsembleStrategy()._select_best_result([]) is None
