@@ -756,7 +756,7 @@ class TestParallelEnsembleJobTimeout:
             yield good
             raise FuturesTimeoutError()
 
-        strategy = ParallelEnsembleStrategy(baseline_distance=100.0, job_timeout=0.01)
+        strategy = ParallelEnsembleStrategy(baseline_distance=100.0, job_timeout=0.01, sequential_block_threshold=0)
         mock_ctx = MagicMock()
         pending = [good]
 
@@ -791,7 +791,7 @@ class TestParallelEnsembleJobTimeout:
             raise FuturesTimeoutError()
             yield  # pragma: no cover - makes this function a generator
 
-        strategy = ParallelEnsembleStrategy(job_timeout=0.01)
+        strategy = ParallelEnsembleStrategy(job_timeout=0.01, sequential_block_threshold=0)
         mock_ctx = MagicMock()
         mock_ctx.submit = MagicMock(side_effect=lambda *a, **k: MagicMock())
         with patch(
@@ -820,7 +820,7 @@ class TestParallelEnsembleJobTimeout:
             raise FuturesTimeoutError()
             yield  # pragma: no cover - makes this function a generator
 
-        strategy = ParallelEnsembleStrategy(baseline_distance=100.0, job_timeout=0.01)
+        strategy = ParallelEnsembleStrategy(baseline_distance=100.0, job_timeout=0.01, sequential_block_threshold=0)
         mock_ctx = MagicMock()
         pending = [late]
 
@@ -846,7 +846,7 @@ class TestParallelEnsembleJobTimeout:
             _make_simple_block(0, (0, 0), (10, 0)),
             _make_simple_block(1, (50, 0), (60, 0)),
         ]
-        strategy = ParallelEnsembleStrategy(job_timeout=None)
+        strategy = ParallelEnsembleStrategy(job_timeout=None, sequential_block_threshold=0)
         mock_ctx = MagicMock()
         mock_ctx.submit = MagicMock(side_effect=lambda *a, **k: MagicMock())
         with patch(
@@ -873,7 +873,7 @@ class TestParallelEnsembleJobTimeout:
             raise FuturesTimeoutError()
             yield  # pragma: no cover - makes this function a generator
 
-        strategy = ParallelEnsembleStrategy(job_timeout=0.01)
+        strategy = ParallelEnsembleStrategy(job_timeout=0.01, sequential_block_threshold=0)
         mock_ctx = MagicMock()
         mock_ctx.submit = MagicMock(side_effect=lambda *a, **k: MagicMock())
         mock_proc = MagicMock()
@@ -891,7 +891,7 @@ class TestParallelEnsembleJobTimeout:
 
     def test_terminate_failure_is_swallowed(self) -> None:
         """A failing terminate() must not crash the timeout handling."""
-        strategy = ParallelEnsembleStrategy(job_timeout=0.01)
+        strategy = ParallelEnsembleStrategy(job_timeout=0.01, sequential_block_threshold=0)
         mock_ctx = MagicMock()
         mock_proc = MagicMock()
         mock_proc.terminate.side_effect = RuntimeError("cannot kill")
@@ -916,7 +916,7 @@ class TestParallelEnsembleJobTimeout:
             _make_simple_block(0, (0, 0), (10, 0)),
             _make_simple_block(1, (50, 0), (60, 0)),
         ]
-        strategy = ParallelEnsembleStrategy(job_timeout=None, same_row_preference=2.5)
+        strategy = ParallelEnsembleStrategy(job_timeout=None, same_row_preference=2.5, sequential_block_threshold=0)
         mock_ctx = MagicMock()
         mock_ctx.submit = MagicMock(side_effect=lambda *a, **k: MagicMock())
         with patch(
@@ -2528,7 +2528,7 @@ class TestParallelEnsembleCoverage2:
         failing_future: Future = Future()
         failing_future.set_exception(RuntimeError("All fail"))
 
-        strategy = ParallelEnsembleStrategy()
+        strategy = ParallelEnsembleStrategy(sequential_block_threshold=0)
         with patch("plt_optimizer.core.optimizer.ProcessPoolExecutor") as mock_exec:
             mock_ctx = MagicMock()
             mock_exec.return_value.__enter__ = MagicMock(return_value=mock_ctx)
@@ -2550,7 +2550,7 @@ class TestParallelEnsembleCoverage2:
             _make_simple_block(1, (50, 0), (60, 0)),
         ]
 
-        strategy = ParallelEnsembleStrategy(baseline_distance=None)
+        strategy = ParallelEnsembleStrategy(baseline_distance=None, sequential_block_threshold=0)
 
         # Create one good future and one failing future
         good_opt_result = OptimizationResult(
@@ -2705,7 +2705,7 @@ class TestParallelEnsemblePoolBreakRetry:
 
     def test_jobs_lost_with_pool_are_retried_in_fresh_pool(self) -> None:
         """A mid-run pool break re-runs only the lost jobs and keeps their results."""
-        strategy = ParallelEnsembleStrategy(baseline_distance=100.0)
+        strategy = ParallelEnsembleStrategy(baseline_distance=100.0, sequential_block_threshold=0)
 
         # Attempt 1: the first job finishes, everything else dies with the pool.
         submit1, submitted1 = self._recording_submit(
@@ -2744,7 +2744,7 @@ class TestParallelEnsemblePoolBreakRetry:
 
     def test_pool_break_during_submission_retries_all_jobs(self) -> None:
         """A pool that dies before any job runs re-runs the whole job list."""
-        strategy = ParallelEnsembleStrategy(baseline_distance=100.0)
+        strategy = ParallelEnsembleStrategy(baseline_distance=100.0, sequential_block_threshold=0)
 
         ctx1 = MagicMock()
         ctx1.submit = MagicMock(side_effect=BrokenProcessPool("died on startup"))
@@ -2773,7 +2773,7 @@ class TestParallelEnsemblePoolBreakRetry:
 
     def test_genuine_strategy_failure_is_not_retried(self) -> None:
         """A real strategy exception must not trigger a whole-pool retry."""
-        strategy = ParallelEnsembleStrategy(baseline_distance=100.0)
+        strategy = ParallelEnsembleStrategy(baseline_distance=100.0, sequential_block_threshold=0)
 
         submit1, submitted1 = self._recording_submit(
             lambda i: (
@@ -2801,7 +2801,7 @@ class TestParallelEnsemblePoolBreakRetry:
 
     def test_repeated_pool_breaks_exhaust_retries_and_use_fallback(self) -> None:
         """When every attempt breaks, the serial NN2Opt fallback still produces a route."""
-        strategy = ParallelEnsembleStrategy(baseline_distance=100.0)
+        strategy = ParallelEnsembleStrategy(baseline_distance=100.0, sequential_block_threshold=0)
 
         executors = []
         drains: List[List[object]] = []

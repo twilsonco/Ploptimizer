@@ -488,7 +488,7 @@ class TestParallelEnsembleResultSelection:
             ),
         }
         self._install_fake_pool(monkeypatch, outcomes)
-        strategy = ParallelEnsembleStrategy()
+        strategy = ParallelEnsembleStrategy(sequential_block_threshold=0)
 
         result = strategy.optimize(blocks)
 
@@ -516,7 +516,7 @@ class TestParallelEnsembleResultSelection:
             ),
         }
         self._install_fake_pool(monkeypatch, outcomes)
-        strategy = ParallelEnsembleStrategy(baseline_distance=100.0)
+        strategy = ParallelEnsembleStrategy(baseline_distance=100.0, sequential_block_threshold=0)
 
         result = strategy.optimize(blocks)
 
@@ -542,7 +542,7 @@ class TestParallelEnsembleResultSelection:
             ),
         }
         self._install_fake_pool(monkeypatch, outcomes)
-        strategy = ParallelEnsembleStrategy()
+        strategy = ParallelEnsembleStrategy(sequential_block_threshold=0)
 
         result = strategy.optimize(blocks)
 
@@ -578,10 +578,10 @@ class TestParallelEnsembleResultSelection:
         outcomes: Dict[str, Any] = {name: self._benchmark(name, 10.0) for name in names}
 
         self._install_fake_pool(monkeypatch, outcomes)
-        forward = ParallelEnsembleStrategy().optimize(blocks)
+        forward = ParallelEnsembleStrategy(sequential_block_threshold=0).optimize(blocks)
 
         self._install_fake_pool(monkeypatch, outcomes, reverse=True)
-        reversed_ = ParallelEnsembleStrategy().optimize(blocks)
+        reversed_ = ParallelEnsembleStrategy(sequential_block_threshold=0).optimize(blocks)
 
         # Alphabetically first strategy name; its best job is the
         # lexicographically smallest (start, end) terminal pair.
@@ -617,3 +617,137 @@ class TestParallelEnsembleResultSelection:
     def test_select_best_result_empty_returns_none(self) -> None:
         """``_select_best_result([])`` returns None (no benchmarks completed)."""
         assert ParallelEnsembleStrategy()._select_best_result([]) is None
+
+
+class TestParallelEnsembleSequentialPath:
+    """Small layers run their strategy jobs in-process (no pool spawn).
+
+    The pool is a per-layer spawn, so a handful of blocks pays seconds of
+    fixed cost for milliseconds of work. Layers at or below
+    ``ENSEMBLE_SEQUENTIAL_BLOCK_THRESHOLD`` blocks must run every job through
+    the same module-level worker entry point the pool uses, produce the same
+    canonical benchmark table, and never touch ``ProcessPoolExecutor``.
+    """
+
+    @staticmethod
+    def _blocks(count: int) -> List[Any]:
+        """Build ``count`` simple two-point blocks spread along the X axis."""
+        return [_make_simple_block(i, (i * 10.0, 0.0), (i * 10.0 + 5.0, 0.0)) for i in range(count)]
+
+    def test_small_layer_never_spawns_a_pool(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A layer at the threshold runs in-process; the pool is never built."""
+        import plt_optimizer.core.optimizer as optimizer
+
+        calls: List[int] = []
+
+        def _boom(*args: Any, **kwargs: Any) -> None:
+            calls.append(1)
+            raise AssertionError("ProcessPoolExecutor must not be constructed")
+
+        monkeypatch.setattr(optimizer, "ProcessPoolExecutor", _boom)
+        strategy = ParallelEnsembleStrategy()
+        result = strategy.optimize(self._blocks(optimizer.ENSEMBLE_SEQUENTIAL_BLOCK_THRESHOLD))
+
+        assert calls == []
+        assert result.winner_name
+        # Every job completed: 5 strategies x 2 starts + Christofides (start,
+        # end) pairs, all recorded in the canonical table.
+        assert len(result.all_benchmarks) == 14
+
+    def test_layer_above_threshold_uses_the_pool(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """One block above the threshold must still spawn the pool."""
+        from concurrent.futures import Future
+
+        import plt_optimizer.core.optimizer as optimizer
+
+        spawned: List[int] = []
+
+        def _failed_future() -> Future[object]:
+            fut: Future[object] = Future()
+            fut.set_exception(RuntimeError("no results"))
+            return fut
+
+        class _RecordingExecutor:
+            """Executor stub that records construction and fails every job."""
+
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                spawned.append(1)
+
+            def __enter__(self) -> _RecordingExecutor:
+                return self
+
+            def __exit__(self, *exc: Any) -> bool:
+                return False
+
+            def submit(self, *args: Any, **kwargs: Any) -> Future[object]:
+                return _failed_future()
+
+        monkeypatch.setattr(optimizer, "ProcessPoolExecutor", _RecordingExecutor)
+        monkeypatch.setattr(optimizer, "as_completed", lambda futures, *a, **k: iter(list(futures)))
+        strategy = ParallelEnsembleStrategy()
+        strategy.optimize(self._blocks(optimizer.ENSEMBLE_SEQUENTIAL_BLOCK_THRESHOLD + 1))
+
+        assert spawned, "the pool path must be taken above the threshold"
+
+    def test_sequential_threshold_zero_forces_the_pool(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``sequential_block_threshold=0`` disables the in-process path."""
+        from concurrent.futures import Future
+
+        class _RecordingExecutor:
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                pass
+
+            def __enter__(self) -> _RecordingExecutor:
+                return self
+
+            def __exit__(self, *exc: Any) -> bool:
+                return False
+
+            def submit(self, *args: Any, **kwargs: Any) -> Future[object]:
+                fut: Future[object] = Future()
+                fut.set_exception(RuntimeError("no results"))
+                return fut
+
+        monkeypatch.setattr("plt_optimizer.core.optimizer.ProcessPoolExecutor", _RecordingExecutor)
+        monkeypatch.setattr(
+            "plt_optimizer.core.optimizer.as_completed",
+            lambda futures, *a, **k: iter(list(futures)),
+        )
+        strategy = ParallelEnsembleStrategy(sequential_block_threshold=0)
+        result = strategy.optimize(self._blocks(1))
+
+        # The pool ran (and every job failed) -> serial NN2Opt fallback.
+        assert result.winner_name == "NearestNeighbor + 2-Opt (Fallback)"
+
+    def test_sequential_and_pool_paths_agree_on_a_small_layer(self) -> None:
+        """Both paths run the same jobs and select the same winner.
+
+        Deterministic strategies (NoOp, NN2Opt, Insertion, Christofides) tie
+        identically; the stochastic SA/GA rows are excluded from the
+        comparison because their tours legitimately vary run to run.
+        """
+        blocks = self._blocks(6)
+        deterministic = {
+            "NoOp (Baseline)",
+            "NearestNeighbor + 2-Opt",
+            "Insertion Heuristic",
+            "Christofides-Serdyukov S-T Path (5/3 approx)",
+        }
+
+        sequential = ParallelEnsembleStrategy(baseline_distance=1000.0).optimize(blocks)
+        pool = ParallelEnsembleStrategy(
+            baseline_distance=1000.0, sequential_block_threshold=0
+        ).optimize(blocks)
+
+        def by_strategy(result: Any) -> Dict[str, float]:
+            rows: Dict[str, float] = {}
+            for bench in result.all_benchmarks:
+                if bench.strategy_name in deterministic:
+                    rows.setdefault(bench.strategy_name, bench.result.total_travel_distance)
+            return rows
+
+        assert by_strategy(sequential) == by_strategy(pool)
+        assert sequential.winner_name in deterministic
+        assert pool.winner_name in deterministic

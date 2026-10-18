@@ -41,6 +41,23 @@ ENSEMBLE_RETRY_MAX_WORKERS = 4
 # PyInstaller frozen executable on Windows).
 ENSEMBLE_POOL_BREAK_RETRIES = 1
 
+# Layers with at most this many MacroBlocks run every strategy job IN-PROCESS
+# instead of in a worker pool. The pool is a per-layer spawn: on Windows
+# (spawn context) each worker re-imports the strategy module graph, so a small
+# layer pays seconds of fixed spawn cost to run jobs that take milliseconds.
+# Measured crossover (macOS, fork-cheap pool, 14 jobs): sequential wins up to
+# ~48 blocks (0.17s vs 0.15s pool at 48; 0.24s vs 0.16s at 60), and the pool's
+# spawn cost on Windows is seconds, so the crossover there is far higher - 48
+# is a safe macOS-neutral, Windows-beneficial floor. Every strategy is
+# polynomially bounded at this size (2-opt caps at n^2 iterations; SA runs 50
+# moves per temperature; GA 20x30), so the sequential path's missing per-job
+# kill timer costs nothing: no job can approach the 10s pool timeout at n<=48.
+# The jobs, results, and canonical selection are identical on both paths; the
+# threshold is a constructor knob (``0`` forces the pool, for tests that patch
+# it). Large layers stay parallel: a 481-block layer is ~35s sequential vs
+# ~10s pooled.
+ENSEMBLE_SEQUENTIAL_BLOCK_THRESHOLD = 48
+
 # One ensemble work item: a strategy to run plus the fixed start/end terminals
 # for that run. ``(strategy_name, start_position, end_position)``.
 _StrategyJob = Tuple[str, Tuple[float, float], Optional[Tuple[float, float]]]
@@ -3937,6 +3954,7 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
         max_workers: Optional[int] = None,
         job_timeout: Optional[float] = 10.0,
         same_row_preference: float = 1.0,
+        sequential_block_threshold: int = ENSEMBLE_SEQUENTIAL_BLOCK_THRESHOLD,
     ) -> None:
         """Initialize the parallel ensemble strategy.
 
@@ -3947,15 +3965,21 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
                 of available strategies (typically 5-6).
             job_timeout: Seconds each submitted strategy job may take before it
                 is cancelled/terminated and marked as failed. ``None`` disables
-                the timeout (jobs may run indefinitely).
+                the timeout (jobs may run indefinitely). Unused on the
+                sequential path (layers at or below ``sequential_block_threshold``
+                blocks, where every job finishes in milliseconds).
             same_row_preference: Penalty multiplier for y-differences during
                 greedy selection, forwarded to NearestNeighbor2OptStrategy jobs.
+            sequential_block_threshold: Layers with at most this many blocks run
+                their strategy jobs in-process (no pool spawn). ``0`` always
+                uses the worker pool.
         """
         super().__init__()
         self._baseline_distance = baseline_distance
         self._max_workers = max_workers
         self._job_timeout = job_timeout
         self._same_row_preference = same_row_preference
+        self._sequential_block_threshold = int(sequential_block_threshold)
 
     @property
     def name(self) -> str:
@@ -4254,6 +4278,30 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
                 for start_cand in start_candidates:
                     jobs.append((strategy_name, start_cand.position, None))
 
+        # Small layers run every job in-process: the pool is a per-layer spawn
+        # (each Windows worker re-imports the strategy graph), so a handful of
+        # blocks pays seconds of fixed spawn cost for milliseconds of work. The
+        # jobs and results are identical on both paths; selection is the same
+        # canonical order. See ENSEMBLE_SEQUENTIAL_BLOCK_THRESHOLD.
+        all_benchmarks: List[StrategyBenchmarkResult] = []
+        failed_strategies: List[Tuple[str, str]] = []
+        if len(blocks) <= self._sequential_block_threshold:
+            self._logger.debug(
+                f"Running {self.name} sequentially on {len(blocks)} blocks "
+                f"(<= {self._sequential_block_threshold}-block threshold)"
+            )
+            all_benchmarks, failed_strategies = self._run_sequential_attempt(
+                blocks_serialized, jobs
+            )
+            return self._finalize_result(
+                blocks,
+                all_benchmarks,
+                failed_strategies,
+                len(jobs),
+                start_candidates,
+                initial_position,
+            )
+
         # Use 'spawn' context for Windows compatibility (PyInstaller frozen executables).
         # 'fork' is not safe on Windows, and PyInstaller needs explicit context setup.
         # For frozen executables (PyInstaller), spawn is more reliable than fork.
@@ -4270,8 +4318,6 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
         # pressure, or antivirus kills inside a frozen executable), the jobs
         # lost with the pool are re-run once in a fresh pool with a capped
         # worker count. Each attempt gets its own ``job_timeout`` budget.
-        all_benchmarks: List[StrategyBenchmarkResult] = []
-        failed_strategies: List[Tuple[str, str]] = []
         pending_jobs: List[_StrategyJob] = jobs
         for attempt_index in range(1 + ENSEMBLE_POOL_BREAK_RETRIES):
             max_workers = self._max_workers
@@ -4304,6 +4350,117 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
                 (name, "worker process pool terminated abruptly") for (name, _s, _e) in pending_jobs
             )
 
+        return self._finalize_result(
+            blocks,
+            all_benchmarks,
+            failed_strategies,
+            len(jobs),
+            start_candidates,
+            initial_position,
+        )
+
+    def _run_sequential_attempt(
+        self,
+        blocks_serialized: Tuple[Tuple[int, tuple[float, float], tuple[float, float]], ...],
+        jobs: List[_StrategyJob],
+    ) -> Tuple[List[StrategyBenchmarkResult], List[Tuple[str, str]]]:
+        """Run every strategy job in-process (no worker pool, no spawn cost).
+
+        Uses the same module-level worker entry point as the pool path, so the
+        benchmark results are identical; the canonical selection downstream is
+        order-independent. There is deliberately no per-job kill timer: every
+        strategy is polynomially bounded at sequential-path sizes (see
+        :data:`ENSEMBLE_SEQUENTIAL_BLOCK_THRESHOLD`), so no job can approach
+        the pool's ``job_timeout``.
+
+        Args:
+            blocks_serialized: Picklable representation of the MacroBlocks.
+            jobs: Jobs to run, in submission order.
+
+        Returns:
+            ``(all_benchmarks, failed_strategies)`` with the same shapes the
+            pool attempt produces (benchmarks carry their job terminals and
+            improvement percent attached).
+        """
+        all_benchmarks: List[StrategyBenchmarkResult] = []
+        failed_strategies: List[Tuple[str, str]] = []
+        for name, start_pos, end_pos in jobs:
+            try:
+                benchmark_result = _run_strategy_worker(
+                    name,
+                    blocks_serialized,
+                    start_pos,
+                    end_pos,
+                    self._same_row_preference,
+                )
+            except Exception as e:
+                self._logger.warning(f"Strategy {name} failed: {e}")
+                failed_strategies.append((name, str(e)))
+                continue
+            all_benchmarks.append(self._attach_job_metadata(benchmark_result, start_pos, end_pos))
+        return all_benchmarks, failed_strategies
+
+    def _attach_job_metadata(
+        self,
+        benchmark_result: StrategyBenchmarkResult,
+        job_start: Tuple[float, float],
+        job_end: Optional[Tuple[float, float]],
+    ) -> StrategyBenchmarkResult:
+        """Attach job terminals and the improvement percent to one benchmark.
+
+        Args:
+            benchmark_result: The worker's raw benchmark result.
+            job_start: The job's fixed start terminal.
+            job_end: The job's fixed end terminal (``None`` when the strategy
+                derives its own end).
+
+        Returns:
+            The benchmark with ``start_position``/``end_position`` (canonical
+            ordering payload) and ``improvement_percent`` (when a baseline
+            was provided) attached.
+        """
+        improvement = benchmark_result.improvement_percent
+        if self._baseline_distance is not None and self._baseline_distance > 0:
+            improvement = (
+                (self._baseline_distance - benchmark_result.result.total_travel_distance)
+                / self._baseline_distance
+                * 100
+            )
+        return StrategyBenchmarkResult(
+            strategy_name=benchmark_result.strategy_name,
+            result=benchmark_result.result,
+            execution_time_seconds=benchmark_result.execution_time_seconds,
+            improvement_percent=improvement,
+            start_position=job_start,
+            end_position=job_end,
+        )
+
+    def _finalize_result(
+        self,
+        blocks: List[MacroBlock],
+        all_benchmarks: List[StrategyBenchmarkResult],
+        failed_strategies: List[Tuple[str, str]],
+        job_count: int,
+        start_candidates: Tuple[TerminalCandidate, ...],
+        initial_position: Optional[tuple[float, float]],
+    ) -> ParallelEnsembleOptimizationResult:
+        """Select the winner, apply the all-fail fallback, and build the result.
+
+        Shared by the sequential and pool paths so both produce identical
+        result shapes, logging, and fallback chains.
+
+        Args:
+            blocks: The MacroBlocks that were optimized.
+            all_benchmarks: Every completed benchmark result.
+            failed_strategies: ``(strategy_name, error_message)`` pairs.
+            job_count: Total jobs submitted (for the completion log line).
+            start_candidates: The start terminals used (fallback seeds from
+                the first one).
+            initial_position: The caller's fixed start (NoOp last resort).
+
+        Returns:
+            The ensemble result with the canonical best-first benchmark table.
+        """
         best_result = self._select_best_result(all_benchmarks)
         completed_count = len(all_benchmarks)
 
@@ -4349,7 +4506,7 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
         if failed_count > 0:
             failed_names = ", ".join(name for name, _ in failed_strategies)
             self._logger.warning(
-                f"Parallel ensemble: {failed_count}/{len(jobs)} strategy jobs "
+                f"Parallel ensemble: {failed_count}/{job_count} strategy jobs "
                 f"failed: {failed_names}"
             )
 
@@ -4359,7 +4516,7 @@ class ParallelEnsembleStrategy(OptimizationStrategy):
             else ""
         )
         self._logger.info(
-            f"Parallel ensemble complete: {completed_count}/{len(jobs)} "
+            f"Parallel ensemble complete: {completed_count}/{job_count} "
             f"strategy jobs succeeded. Best: {best_result.strategy_name} "
             f"(distance={best_result.result.total_travel_distance:.3f}{imp_str})"
         )
