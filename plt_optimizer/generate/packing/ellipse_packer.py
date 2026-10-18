@@ -29,7 +29,9 @@ placements by adding the plate's clearances.
 
 The module is pure Python + shapely: no rectpack, no matplotlib, no
 generate-pipeline imports (it is imported lazily from ``layout.py`` only
-when a job actually contains round labels).
+when a job actually contains round labels). Numpy is used only inside the
+placement index's vectorized center-distance prefilter (shapely itself
+depends on numpy, so the generate path always has it).
 """
 
 from __future__ import annotations
@@ -38,13 +40,15 @@ import logging
 import math
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
+import numpy as np
 from shapely.affinity import scale as shapely_scale
 from shapely.affinity import translate as shapely_translate
 from shapely.geometry import Point
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
+from shapely.prepared import prep
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +64,226 @@ DEFAULT_CLEARANCE_IN: float = 0.0625
 #: Multiplier turning the primary extent into a lexicographic score: the
 #: primary axis dominates, the secondary axis breaks ties.
 _PRIMARY_WEIGHT: float = 1000.0
+
+#: Circle-bound radii margins for the placement index. A buffered ellipse
+#: polygon CONTAINS its inscribed circle (radius ``cos(pi/N) * min(semi_x,
+#: semi_y) + clearance/2``, the apothem of the polygonized ring scaled to
+#: the semi-axes) and is INSCRIBED in its circumcircle (radius
+#: ``max(semi_x, semi_y) + clearance/2``). Center distance ``<`` the
+#: inscribed-radii sum therefore PROVES the polygons intersect (the
+#: inscribed circles are subsets of both), ``>`` the circum-radii sum
+#: PROVES them disjoint; only the band between falls through to the exact
+#: GEOS test. The margins absorb float noise in the squared-distance
+#: compares so near-tangent pairs always reach GEOS (tangency is a
+#: collision for ``intersects`` and must stay one). For CIRCLES the two
+#: radii nearly coincide and the band is a sub-grid-step sliver, so a
+#: packed circle sheet resolves almost entirely in numpy.
+_PREFILTER_EPSILON_IN: float = 1e-9
+
+
+def _polygon_inscribed_factor(num_points: int) -> float:
+    """Return the apothem factor of the polygonized ellipse ring.
+
+    ``ellipse_polygon`` polygonizes the unit circle as a regular
+    ``4 * max(1, num_points // 4)``-gon (circumradius 1, inradius
+    ``cos(pi / vertices)``) and scales it by ``(a, b)``. Every edge line of
+    the ring sits at distance ``cos(pi/V)`` from the origin with unit normal
+    ``n``, and the scaling maps it to a line at distance
+    ``cos(pi/V) / sqrt((n_x/a)**2 + (n_y/b)**2) >= cos(pi/V) * min(a, b)``,
+    so the polygon contains a circle of ``factor * min(a, b)``.
+
+    Args:
+        num_points: The polygonization resolution passed to
+            :func:`ellipse_polygon`.
+
+    Returns:
+        The inscribed/circumscribed radius ratio of the ring polygon.
+    """
+    vertices = 4 * max(1, num_points // 4)
+    return math.cos(math.pi / vertices)
+
+
+class _PlacementIndex:
+    """Placed-polygon index with a vectorized per-column center-distance test.
+
+    Replaces the collision union of the original scan. Two facts make it
+    exactly equivalent to ``union.intersects(candidate)``:
+
+    - ``union ∩ c ≠ ∅`` iff some placed polygon intersects ``c`` (closed
+      polygons, including at tangency), so per-polygon tests decide every
+      candidate identically.
+    - Inscribed/circumcircle bounds decide most candidates without GEOS:
+      a candidate is provably **colliding** when its center comes within the
+      inscribed-radii sum of a placed center, and provably **disjoint**
+      beyond the circum-radii sum of every placed center. Only the band in
+      between needs the exact per-polygon ``intersects`` test.
+
+    The classification is batched per scan **column**: one numpy broadcast
+    over the placed polygons whose primary-axis coordinate is within reach
+    (``|fixed - center| <= R + R_i``) fills a ``len(scan) x active``
+    squared-distance matrix; the per-candidate decision is a boolean row
+    lookup, so a fully occupied column costs a handful of vectorized ops,
+    zero per-candidate Python loops, and zero GEOS calls.
+
+    The rectangular occupancy seed (rect labels sharing the plate) is a
+    static geometry, prepared once for fast repeated tests.
+    """
+
+    def __init__(self, seed: Optional[BaseGeometry]) -> None:
+        """Seed the index with the pre-occupied rectangle union (or None).
+
+        Args:
+            seed: Buffered union of the pre-occupied rectangles, or ``None``
+                when the plate has no rectangular occupants.
+        """
+        self._seed_prepared = prep(seed) if seed is not None else None
+        self._polygons: List[BaseGeometry] = []
+        self._centers_x: List[float] = []
+        self._centers_y: List[float] = []
+        self._r_in: List[float] = []
+        self._r_out: List[float] = []
+        self._cx: Optional[np.ndarray] = None
+        self._cy: Optional[np.ndarray] = None
+        self._rin: Optional[np.ndarray] = None
+        self._rout: Optional[np.ndarray] = None
+
+    def add(
+        self,
+        polygon: BaseGeometry,
+        center_x: float,
+        center_y: float,
+        radius_in: float,
+        radius_out: float,
+    ) -> None:
+        """Index one placed polygon with its center and circle radii.
+
+        Args:
+            polygon: The placed (buffered) polygon.
+            center_x: Placement center X, inches.
+            center_y: Placement center Y, inches.
+            radius_in: Inscribed-circle radius, inches.
+            radius_out: Circumcircle radius, inches.
+        """
+        self._polygons.append(polygon)
+        self._centers_x.append(center_x)
+        self._centers_y.append(center_y)
+        self._r_in.append(radius_in)
+        self._r_out.append(radius_out)
+        # Rebuild the scan arrays (n is one plate's item count, ~10^2).
+        self._cx = np.asarray(self._centers_x)
+        self._cy = np.asarray(self._centers_y)
+        self._rin = np.asarray(self._r_in)
+        self._rout = np.asarray(self._r_out)
+
+    def column_scan(
+        self,
+        fixed: float,
+        scan: np.ndarray,
+        radius_in: float,
+        radius_out: float,
+        fixed_is_x: bool,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Classify every candidate of one scan column against placed ink.
+
+        Args:
+            fixed: The column's coordinate on the primary axis, inches.
+            scan: Ascending candidate coordinates on the secondary axis.
+            radius_in: Candidate inscribed-circle radius, inches.
+            radius_out: Candidate circumcircle radius, inches.
+            fixed_is_x: True when ``fixed`` is X (PREFER_WIDTH); the batch
+                then varies Y.
+
+        Returns:
+            ``(collide, dist_sq, active)``: ``collide[i]`` is True when
+            candidate ``i`` provably intersects a placed polygon (the
+            inscribed-circle test); ``active`` lists the placed polygons
+            whose primary-axis coordinate is within circumcircle reach of
+            the column, and ``dist_sq[i, j]`` is candidate ``i``'s squared
+            center distance to ``active[j]`` (the band test slices this
+            matrix).
+        """
+        cx, cy, rin, rout = self._cx, self._cy, self._rin, self._rout
+        if cx is None or cy is None or rin is None or rout is None or not self._polygons:
+            return (
+                np.zeros(scan.size, dtype=bool),
+                np.zeros((scan.size, 0)),
+                np.zeros(0, dtype=np.int64),
+            )
+        fixed_centers, scan_centers = (cx, cy) if fixed_is_x else (cy, cx)
+        reach = rout + radius_out + _PREFILTER_EPSILON_IN
+        active = np.flatnonzero(np.abs(fixed_centers - fixed) <= reach)
+        if active.size == 0:
+            return (
+                np.zeros(scan.size, dtype=bool),
+                np.zeros((scan.size, 0)),
+                active,
+            )
+        fixed_delta_sq = (fixed_centers[active] - fixed) * (fixed_centers[active] - fixed)
+        delta = scan[:, None] - scan_centers[active][None, :]
+        dist_sq = fixed_delta_sq[None, :] + delta * delta
+        collide_limit = (rin[active] + radius_in - _PREFILTER_EPSILON_IN) ** 2
+        collide = np.any(dist_sq < collide_limit[None, :], axis=1)
+        return collide, dist_sq, active
+
+    def band_indices(
+        self,
+        dist_row: np.ndarray,
+        active: np.ndarray,
+        radius_in: float,
+        radius_out: float,
+    ) -> List[int]:
+        """Return the placed polygons needing an exact GEOS test for one row.
+
+        The band is the distance range where the circle bounds decide
+        neither collision nor disjointness: at or beyond the
+        inscribed-radii sum (collision unproven) and within the
+        circum-radii sum (disjointness unproven).
+
+        Args:
+            dist_row: Squared center distances to the ``active`` polygons
+                (candidate's row of :meth:`column_scan`'s matrix).
+            active: Placed-polygon indices the row covers.
+            radius_in: Candidate inscribed-circle radius, inches.
+            radius_out: Candidate circumcircle radius, inches.
+
+        Returns:
+            Placed-polygon indices inside the band, in insertion order.
+        """
+        rin = self._rin
+        rout = self._rout
+        if rin is None or rout is None or active.size == 0:
+            return []
+        collide_limit = (rin[active] + radius_in - _PREFILTER_EPSILON_IN) ** 2
+        reach_limit = (rout[active] + radius_out + _PREFILTER_EPSILON_IN) ** 2
+        band = (dist_row >= collide_limit) & (dist_row <= reach_limit)
+        return [int(active[j]) for j in np.flatnonzero(band)]
+
+    def polygon(self, index: int) -> BaseGeometry:
+        """Return the placed polygon at *index* (a band entry).
+
+        Args:
+            index: Position in insertion order (a ``band_indices`` entry).
+
+        Returns:
+            The placed (buffered) polygon.
+        """
+        return self._polygons[index]
+
+    @property
+    def has_seed(self) -> bool:
+        """True when the plate carries rectangular occupancy to test."""
+        return self._seed_prepared is not None
+
+    def seed_intersects(self, candidate: BaseGeometry) -> bool:
+        """Return True when the candidate touches the rectangular occupancy.
+
+        Args:
+            candidate: The translated candidate polygon.
+
+        Returns:
+            True when a seed geometry exists and intersects the candidate.
+        """
+        return self._seed_prepared is not None and bool(self._seed_prepared.intersects(candidate))
 
 
 class ScrapDirection(str, Enum):
@@ -282,10 +506,10 @@ class EllipsePacker:
 
         placements: dict[str, PlacedEllipse] = {}
         unplaced: List[str] = []
-        occupied: BaseGeometry | None = _occupancy_union(occupancy, clearance)
+        index = _PlacementIndex(_occupancy_union(occupancy, clearance))
 
         for spec in sorted_specs:
-            best = self._find_best_position(spec, occupied, clearance, mode)
+            best = self._find_best_position(spec, index, clearance, mode)
             if best is None:
                 unplaced.append(spec.item_id)
                 logger.warning(
@@ -300,7 +524,14 @@ class EllipsePacker:
                 continue
             placed, candidate = best
             placements[spec.item_id] = placed
-            occupied = candidate if occupied is None else unary_union([occupied, candidate])
+            # The candidate polygon's buffered semi-axes are
+            # (placed.semi + clearance/2); its inradius is at least
+            # factor * min(buffered semi-axes).
+            radius_in = _polygon_inscribed_factor(self.num_points) * (
+                min(placed.semi_x, placed.semi_y) + clearance / 2.0
+            )
+            radius_out = max(placed.semi_x, placed.semi_y) + clearance / 2.0
+            index.add(candidate, placed.center_x, placed.center_y, radius_in, radius_out)
 
         placed_in_input_order = tuple(
             placements[spec.item_id] for spec in specs if spec.item_id in placements
@@ -323,7 +554,7 @@ class EllipsePacker:
     def _find_best_position(
         self,
         spec: EllipseSpec,
-        occupied: BaseGeometry | None,
+        index: _PlacementIndex,
         clearance: float,
         mode: ScrapDirection,
     ) -> Tuple[PlacedEllipse, BaseGeometry] | None:
@@ -334,10 +565,19 @@ class EllipsePacker:
         non-colliding, in-bounds candidate is the optimum for that
         orientation (both axes ascend, so the extent score is minimized by
         the first hit), and the two orientations' winners are compared.
+        Because the secondary axis ascends too, the scan stops at the first
+        feasible candidate of a column: every later candidate in the same
+        column scores worse, and every later column scores worse than this
+        one -- so the first hit is the orientation's optimum.
+
+        Feasibility is decided by :class:`_PlacementIndex`: a vectorized
+        center-distance prefilter proves most candidates disjoint without
+        touching GEOS, and only a candidate that survives it is translated
+        for the exact per-polygon ``intersects`` tests.
 
         Args:
             spec: The item to place.
-            occupied: Union of previously placed buffered polygons.
+            index: The placed-polygon index (includes the occupancy seed).
             clearance: Kerf allowance, inches.
             mode: Primary scrap direction.
 
@@ -356,24 +596,53 @@ class EllipsePacker:
                 continue
             base_poly = ellipse_polygon(semi_x, semi_y, clearance, self.num_points)
             half_w, half_h = semi_x + clearance / 2.0, semi_y + clearance / 2.0
-
+            radius_in = _polygon_inscribed_factor(self.num_points) * min(half_w, half_h)
+            radius_out = max(half_w, half_h)
             primary = self._axis_range(self.plate_w, half_w)
             secondary = self._axis_range(self.plate_h, half_h)
+            secondary_scan = np.asarray(secondary)
+            prefer_width = mode is ScrapDirection.PREFER_WIDTH
             for primary_pos in primary:
-                for secondary_pos in secondary:
-                    if mode is ScrapDirection.PREFER_WIDTH:
+                # One vectorized classification for the whole column:
+                # `collide[i]` proves candidate i collides (inscribed
+                # circles), `band` lists the polygons candidate i needs an
+                # exact GEOS test against.
+                collide, dist_sq, active = index.column_scan(
+                    primary_pos,
+                    secondary_scan,
+                    radius_in,
+                    radius_out,
+                    fixed_is_x=prefer_width,
+                )
+                for row, secondary_pos in enumerate(secondary):
+                    if prefer_width:
                         x, y = primary_pos, secondary_pos
                     else:
                         x, y = secondary_pos, primary_pos
-                    candidate = shapely_translate(base_poly, xoff=x, yoff=y)
-                    if occupied is not None and occupied.intersects(candidate):
+                    candidate: Optional[BaseGeometry] = None
+                    if collide[row]:
                         continue
+                    if not index.has_seed:
+                        band = index.band_indices(dist_sq[row], active, radius_in, radius_out)
+                        if band:
+                            candidate = shapely_translate(base_poly, xoff=x, yoff=y)
+                            if any(index.polygon(placed).intersects(candidate) for placed in band):
+                                continue
+                    else:
+                        candidate = shapely_translate(base_poly, xoff=x, yoff=y)
+                        band = index.band_indices(dist_sq[row], active, radius_in, radius_out)
+                        if any(
+                            index.polygon(placed).intersects(candidate) for placed in band
+                        ) or index.seed_intersects(candidate):
+                            continue
                     extent = (
                         (x + half_w) * _PRIMARY_WEIGHT + (y + half_h)
-                        if mode is ScrapDirection.PREFER_WIDTH
+                        if prefer_width
                         else (y + half_h) * _PRIMARY_WEIGHT + (x + half_w)
                     )
                     if best is None or extent < best[0]:
+                        if candidate is None:
+                            candidate = shapely_translate(base_poly, xoff=x, yoff=y)
                         best = (
                             extent,
                             PlacedEllipse(
@@ -386,9 +655,11 @@ class EllipsePacker:
                             ),
                             candidate,
                         )
-                # The primary axis ascends: every later primary position
-                # scores worse for this orientation, so stop at the first
-                # hit. The secondary axis scan is what found it.
+                    # The secondary axis ascends: every later candidate in
+                    # this column scores worse, and every later primary
+                    # position scores worse than this column's first hit.
+                    # The first feasible candidate is the optimum.
+                    break
                 if best is not None:
                     break
         if best is None:
