@@ -134,6 +134,14 @@ def _default_scale_probe(label: ResolvedLabel) -> Dict[int, float]:
     ``watch``/``optimize`` commands imports it, and the lazy import keeps that
     guarantee even if a future caller does).
 
+    The probe renders a clone with the descending-character relief disabled:
+    the relief is the probe's dominant cost (its swept-ink gap scan re-runs
+    on every probe render of a long-line label), and it is Y-only -- the
+    effective per-line scales are computed in the X phase (collision scale ×
+    margin-overflow scale, both width measures) *before* the relief runs, so
+    the returned scales are identical. Pinned by
+    ``TestReliefFreeScaleProbeEquivalence``.
+
     Args:
         label: The resolved label to render.
 
@@ -143,7 +151,8 @@ def _default_scale_probe(label: ResolvedLabel) -> Dict[int, float]:
     """
     from plt_optimizer.generate.label_renderer import render_label_to_plt
 
-    return dict(render_label_to_plt(label).compression_by_line)
+    probe_label = dataclasses.replace(label, auto_descending_character_adjustment=False)
+    return dict(render_label_to_plt(probe_label).compression_by_line)
 
 
 def _reflow_groups(content: Sequence[ResolvedTextLine]) -> List[List[int]]:

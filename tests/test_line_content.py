@@ -1082,3 +1082,64 @@ def test_font_span_covering_a_space_stays_one_span() -> None:
     first = result.content[0]
     # The whole first line stays one Wingdings span (font on every char).
     assert first.font_runs == ("Wingdings",) * len(first.plain_text)
+
+
+class TestReliefFreeScaleProbeEquivalence:
+    """The default scale probe renders relief-free; the scales must not move.
+
+    ``_default_scale_probe`` renders a clone with the descending-character
+    relief disabled (the relief's swept-ink scan is the probe's dominant
+    cost). The probe's contract is the *effective horizontal scales*, which
+    the renderer computes in the X phase (collision x margin-overflow)
+    before the relief (Y-only) runs. These tests pin that equivalence on a
+    label where BOTH levers fire: the probe result must equal the full
+    render's ``compression_by_line``, and the full render must actually
+    relieve (an empty relief would make the pin vacuous).
+    """
+
+    @staticmethod
+    def _compressed_relief_label() -> ResolvedLabel:
+        """Two long descender lines that compress and collide.
+
+        0.5in text over a 3in-wide label with ``max_h_compress`` budget
+        forces margin compression; the tight 0.05in line spacing puts the
+        ``p``/``y`` descenders of the first line within the stroke floor of
+        the capitals below, so the relief fires.
+        """
+        lines = [
+            ResolvedTextLine(
+                text=text,
+                nominal_text_height=0.5,
+                toolpath_text_height=0.44,
+                cutter_diameter=0.06,
+                character_spacing=0.09,
+                line_spacing=0.05,
+                max_h_compress=0.7,
+            )
+            for text in (
+                "Depth purity supply canopy",
+                "ROOTS CHARGING SYSTEM TYPE",
+            )
+        ]
+        return ResolvedLabel(
+            id="probe_equiv",
+            count=1,
+            width=3.0,
+            height=2.6,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+            content=list(lines),
+        )
+
+    def test_probe_scales_equal_full_render_scales(self) -> None:
+        """Relief-free probe scales == the full render's compression_by_line."""
+        from plt_optimizer.generate.label_renderer import render_label_to_plt
+        from plt_optimizer.generate.line_content import _default_scale_probe
+
+        label = self._compressed_relief_label()
+        rendered = render_label_to_plt(label)
+        # The pin is vacuous unless the relief actually fires on this label.
+        assert rendered.descender_adjustments_by_line
+        assert rendered.compression_by_line  # ...and the lines compress.
+        assert _default_scale_probe(label) == rendered.compression_by_line
