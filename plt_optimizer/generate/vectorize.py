@@ -24,6 +24,7 @@ Example:
 
 from __future__ import annotations
 
+import logging
 import re
 from collections import Counter
 from dataclasses import dataclass, field
@@ -61,7 +62,13 @@ from plt_optimizer.generate.schema import (
     TextColor,
     material_key,
 )
+from plt_optimizer.generate.stage_timing import stage_timer
 from plt_optimizer.utils.logging import TextLogger
+
+# Module logger for stage timing (named _LOG so the ``logger`` parameter of
+# export_per_cutter_plts -- a TextLogger for operational reports -- never
+# shadows it inside the function body).
+_LOG = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Layer assignments (structural pens of the assembled plate)
@@ -817,7 +824,8 @@ def export_per_cutter_plts(
     # No-op (same list) when no label enables it.
     from plt_optimizer.generate.line_content import apply_line_content_reflow
 
-    resolved_labels = apply_line_content_reflow(resolved_labels)
+    with stage_timer("reflow", _LOG):
+        resolved_labels = apply_line_content_reflow(resolved_labels)
 
     # Compression-driven cutter reduction (pre-pass): render-measure the
     # labels once and downsize the *automatic* cutters of compressed lines
@@ -826,7 +834,8 @@ def export_per_cutter_plts(
     # see the final tools. No-op (same list) without an inventory.
     from plt_optimizer.generate.cutter_downsize import apply_compression_cutter_downsize
 
-    resolved_labels = apply_compression_cutter_downsize(resolved_labels, available_cutters)
+    with stage_timer("cutter_downsize", _LOG):
+        resolved_labels = apply_compression_cutter_downsize(resolved_labels, available_cutters)
 
     # Per-label shared horizontal compression (pre-pass): when a label enables
     # ``h_compress_global``, a line's compression is measured and the group's
@@ -837,7 +846,8 @@ def export_per_cutter_plts(
     # staleness -- the two pre-passes are deliberately not looped together).
     from plt_optimizer.generate.h_compress import apply_global_h_compress
 
-    resolved_labels = apply_global_h_compress(resolved_labels)
+    with stage_timer("h_compress", _LOG):
+        resolved_labels = apply_global_h_compress(resolved_labels)
 
     # Pen == (cutter, color): assign one HPGL pen per distinct text
     # cutter/color layer so the assembled plate can be split into
@@ -854,15 +864,16 @@ def export_per_cutter_plts(
 
     # Phase 2: Generate layout with rendered bounds (labels rendered onto
     # their cutter pens).
-    packed_plates, rendered_labels_map = generate_layout_with_bounds(
-        resolved_labels,
-        provided_plates,
-        pen_map=pen_map,
-        allow_rotation=allow_rotation,
-        layout=layout,
-        default_plate_size=default_plate_size,
-        default_plate_clearance=default_plate_clearance,
-    )
+    with stage_timer("layout_render_pack", _LOG):
+        packed_plates, rendered_labels_map = generate_layout_with_bounds(
+            resolved_labels,
+            provided_plates,
+            pen_map=pen_map,
+            allow_rotation=allow_rotation,
+            layout=layout,
+            default_plate_size=default_plate_size,
+            default_plate_clearance=default_plate_clearance,
+        )
 
     plt_dir = output_dir / "plt"
     plt_dir.mkdir(parents=True, exist_ok=True)
@@ -947,20 +958,21 @@ def export_per_cutter_plts(
     for plate_no, plate in enumerate(packed_plates, start=1):
         prefix = _format_plate_prefix(plate_no, plate_counts[plate_no], plate.material)
         plate_str = prefix.rstrip("_") or f"{plate_no:02d}"
-        combined = assemble_plt_from_rendered_labels(plate, rendered_labels_map)
-        result.combined_by_plate[plate_no] = combined
-
         # Structural group: borders (SP2) + holes (SP3) share one run.
-        structure_content = extract_pens_from_plt_text(combined, [LAYER_BOUNDARY, LAYER_HOLES])
+        with stage_timer("assemble_split", _LOG):
+            combined = assemble_plt_from_rendered_labels(plate, rendered_labels_map)
+            structure_content = extract_pens_from_plt_text(combined, [LAYER_BOUNDARY, LAYER_HOLES])
+        result.combined_by_plate[plate_no] = combined
         if plt_has_geometry(structure_content):
             bh_content = structure_content
             if optimize and strategy_factory is not None:
-                optimization = optimize_structural_layer(
-                    structure_content,
-                    strategy_factory,
-                    logger=logger,
-                    log_prefix=f"[plate {plate_str} bh]",
-                )
+                with stage_timer("optimize_layer", _LOG):
+                    optimization = optimize_structural_layer(
+                        structure_content,
+                        strategy_factory,
+                        logger=logger,
+                        log_prefix=f"[plate {plate_str} bh]",
+                    )
                 if optimization is not None:
                     bh_content = optimization.content
                     _report(f"{plate_str} bh", optimization)
@@ -987,19 +999,21 @@ def export_per_cutter_plts(
             layer_tag = _format_text_layer(cutter, text_color)
             written_content: Optional[str] = None
             if optimize and strategy_factory is not None:
-                optimization = optimize_text_layer(
-                    plate.labels,
-                    rendered_labels_map,
-                    pen_id,
-                    strategy_factory,
-                    logger=logger,
-                    log_prefix=f"[plate {plate_str} text {layer_tag}]",
-                )
+                with stage_timer("optimize_layer", _LOG):
+                    optimization = optimize_text_layer(
+                        plate.labels,
+                        rendered_labels_map,
+                        pen_id,
+                        strategy_factory,
+                        logger=logger,
+                        log_prefix=f"[plate {plate_str} text {layer_tag}]",
+                    )
                 if optimization is not None:
                     written_content = optimization.content
                     _report(f"{plate_str} text {layer_tag}", optimization)
             if written_content is None:
-                text_content = extract_pens_from_plt_text(combined, [pen_id])
+                with stage_timer("assemble_split", _LOG):
+                    text_content = extract_pens_from_plt_text(combined, [pen_id])
                 if not plt_has_geometry(text_content):
                     continue
                 written_content = text_content
@@ -1023,13 +1037,15 @@ def export_per_cutter_plts(
         text_height = resolved_labels[0].content[0].nominal_text_height
 
     if plots:
-        result.pdf_paths = _write_simple_plots(
-            output_dir, job_id, result, job_name=job_name, text_height=text_height
-        )
+        with stage_timer("plots", _LOG):
+            result.pdf_paths = _write_simple_plots(
+                output_dir, job_id, result, job_name=job_name, text_height=text_height
+            )
     if default_plots:
-        result.default_pdf_paths = write_default_plots(
-            output_dir, job_id, result, job_name=job_name, text_height=text_height
-        )
+        with stage_timer("default_plots", _LOG):
+            result.default_pdf_paths = write_default_plots(
+                output_dir, job_id, result, job_name=job_name, text_height=text_height
+            )
 
     return result
 

@@ -47,8 +47,13 @@ from plt_optimizer.generate.job_config import JobConfig, load_job_config
 from plt_optimizer.generate.layout_report import format_layout_report
 from plt_optimizer.generate.resolution import resolve_job_spec
 from plt_optimizer.generate.schema import JobSpec, parse_yaml
+from plt_optimizer.generate.stage_timing import stage_timer
 from plt_optimizer.generate.substitution import SubstitutionError, expand_job_spec
 from plt_optimizer.utils.logging import setup_logging
+
+# Module logger for coarse stage timing (parse/expand/resolve/export);
+# named _LOG so it is never shadowed inside run() (see stage_timing.py).
+_LOG = logging.getLogger(__name__)
 
 
 def setup_parser(parser: argparse.ArgumentParser) -> None:
@@ -255,10 +260,11 @@ def run(args: argparse.Namespace) -> int:
 
     try:
         job_config = load_job_config(args.job_config)
-        job = parse_yaml(spec_path, job_config_path=args.job_config)
-        # Flatten replacement-driven labels (EngraveLab "badge"/multiples)
-        # into static LabelSpecs before resolution, per the schema contract.
-        job = expand_job_spec(job, spec_path)
+        with stage_timer("parse", _LOG):
+            job = parse_yaml(spec_path, job_config_path=args.job_config)
+            # Flatten replacement-driven labels (EngraveLab "badge"/multiples)
+            # into static LabelSpecs before resolution, per the schema contract.
+            job = expand_job_spec(job, spec_path)
         unique_labels = len(job.labels) if job.labels is not None else 0
         plate_count = len(job.plates) if job.plates is not None else 0
         job_id = _sanitize_job_id(job.job_name)
@@ -288,36 +294,38 @@ def run(args: argparse.Namespace) -> int:
     from plt_optimizer.generate.vectorize import export_per_cutter_plts
 
     try:
-        resolved_labels = resolve_job_spec(
-            job,
-            available_cutters=inventory,
-            boundary_hole_cutter_size=boundary_hole_cutter,
-            # Baseline spacing measures each line's real descender extent so
-            # auto spacing and margin fitting account for it (the probe is
-            # memoized and is never called for single-line labels, labels
-            # stacking by ink box, or jobs without a multi-line label).
-            extents_probe=memoize_extents_probe(measure_line_vertical_extents),
-        )
+        with stage_timer("resolve", _LOG):
+            resolved_labels = resolve_job_spec(
+                job,
+                available_cutters=inventory,
+                boundary_hole_cutter_size=boundary_hole_cutter,
+                # Baseline spacing measures each line's real descender extent so
+                # auto spacing and margin fitting account for it (the probe is
+                # memoized and is never called for single-line labels, labels
+                # stacking by ink box, or jobs without a multi-line label).
+                extents_probe=memoize_extents_probe(measure_line_vertical_extents),
+            )
         default_plate_size = _default_plate_size(job_config)
-        export_result = export_per_cutter_plts(
-            resolved_labels,
-            job.plates,
-            output_dir=output_dir,
-            job_id=job_id,
-            job_name=job.job_name,
-            optimize=True,
-            plots=not args.no_plots,
-            default_plots=args.default_plots,
-            allow_rotation=job.allow_rotation,
-            fast_mode=args.fast_mode,
-            logger=text_logger,
-            layout=job.layout,
-            default_plate_size=default_plate_size,
-            default_plate_clearance=_default_plate_clearance(job),
-            job_spec=job,
-            job_config=job_config,
-            available_cutters=inventory,
-        )
+        with stage_timer("export", _LOG):
+            export_result = export_per_cutter_plts(
+                resolved_labels,
+                job.plates,
+                output_dir=output_dir,
+                job_id=job_id,
+                job_name=job.job_name,
+                optimize=True,
+                plots=not args.no_plots,
+                default_plots=args.default_plots,
+                allow_rotation=job.allow_rotation,
+                fast_mode=args.fast_mode,
+                logger=text_logger,
+                layout=job.layout,
+                default_plate_size=default_plate_size,
+                default_plate_clearance=_default_plate_clearance(job),
+                job_spec=job,
+                job_config=job_config,
+                available_cutters=inventory,
+            )
         exported_paths = export_result.plt_paths
     except LabelRenderError as e:
         # Unacceptable output: per-label ERROR diagnostics were already

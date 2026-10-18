@@ -61,6 +61,7 @@ PLT-Optimizer/
 ├── docs/                   # Developer documentation
 │   ├── README_DEV.md
 │   ├── INTEGRATION_TESTING.md
+│   ├── PROFILING.md         # Generate-pipeline profiling harness + -O findings
 │   └── schema/             # AI-friendly job-spec reference (generated + curated)
 │       ├── generate_ai_docs.py   # Regenerates the artifacts below
 │       ├── job_spec.schema.json  # JSON Schema for a job YAML's `job:` mapping
@@ -816,6 +817,13 @@ uv run python scripts/run_integration_test.py tests_deps/complex_test_job.yaml
 Artifacts land under `test_output/integration_test/`. See
 [`INTEGRATION_TESTING.md`](INTEGRATION_TESTING.md) for phases, fixtures, and a
 verification checklist.
+
+### Profiling the generate pipeline
+
+`scripts/profile_generate.py` measures where the pipeline spends time and
+memory (cProfile + tracemalloc + per-stage wall-clock timers) over a
+benchmark set of real job specs, and A/B-benchmarks Python optimized mode.
+See [`PROFILING.md`](PROFILING.md).
 
 ## HPGL/PLT Format Reference
 

@@ -1487,3 +1487,23 @@ top-most layer:
 - Malformed JSON or unknown config keys fail loudly (`JobConfigError`);
   `description` is an accepted free-form key (mirrors `tools.json`).
 
+## Stage timing contract (`stage_timing.py`)
+
+- `plt_optimizer/generate/stage_timing.py` is the single source of the
+  pipeline timing-line format: `stage_timer(name, logger)` emits one INFO
+  line `stage <name>: <s>s` per completed stage (via `time.perf_counter`,
+  in a `finally`, so a raising stage is still timed). Import-light (stdlib
+  only) so it is safe on the Win7 import path; `vectorize`/`cli/generate`
+  import it at module scope.
+- Stage names are a stable contract consumed by
+  `scripts/profile_generate.py` (`STAGE_LINE_PATTERN`): `parse`, `resolve`
+  (cli/generate.py), and `reflow`, `cutter_downsize`, `h_compress`,
+  `layout_render_pack`, `assemble_split`, `optimize_layer`, `plots`,
+  `default_plots` (vectorize.export_per_cutter_plts). `optimize_layer` /
+  `assemble_split` fire per plate/layer (the harness sums repeats). Format
+  pinned by `tests/test_stage_timers.py`; changing the format must update
+  the regex + harness together.
+- Timers are log-only (zero pipeline behavior change); the module logger is
+  named `_LOG` so the `logger: TextLogger` parameter never shadows it.
+  Full profiling workflow: [`../../docs/PROFILING.md`](../../docs/PROFILING.md).
+
