@@ -27,7 +27,7 @@ font-registry bullets).
   loads via `../plt_optimizer/generate/font_registry.py`).
 - `VP-EL-fonts/non_text_fonts.txt` - symbol-font exemptions (Wingdings etc.):
   no derived glyphs, no `SC` variant, showcase = key→symbol grid.
-- `Line fonts/`, `ReliefSingleLine/` - raw font source files (`.VEF`, TTF/OTF).
+- `Line fonts/`, `ttf/` - raw font source files (`.VEF`, TTF/OTF).
 
 ## v2 library contract (the renderer depends on all of it)
 
