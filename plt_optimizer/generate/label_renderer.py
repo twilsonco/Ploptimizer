@@ -16,6 +16,7 @@ import re
 import tempfile
 from dataclasses import dataclass, field, replace
 from enum import Enum
+from functools import lru_cache
 from pathlib import Path
 from typing import (
     Any,
@@ -85,6 +86,7 @@ from plt_optimizer.generate.geometry import (
     Polyline,
     arc_swept_bounds,
     ink_gap,
+    ink_grid_for,
 )
 from plt_optimizer.generate.markup import Run, serialize_runs, split_brackets
 from plt_optimizer.generate.plt_font_renderer import (
@@ -3217,12 +3219,27 @@ def _sub_baseline_ink(ink: Ink) -> Ink:
     return tuple(clipped for clipped in (_clip_below_baseline(p) for p in ink) if clipped)
 
 
+#: Bound on :func:`_glyph_boxes`'s memo. The relief rebuilds every line's
+#: glyph boxes on each fixpoint pass, and the collision sweep re-renders
+#: whole labels whose non-compressed lines are byte-identical; the label's
+#: working set of distinct line blocks is small, so a modest LRU absorbs
+#: the repeat pattern while bounding memory to a few lines' ink.
+_GLYPH_BOX_CACHE_SIZE: int = 64
+
+
 def _glyph_boxes(
     block: TextBlock,
     glyph_groups: Tuple[Tuple[int, ...], ...],
     text: str,
 ) -> List[GlyphBox]:
     """Measure every glyph of one line in the renderer's baseline frame.
+
+    Memoized by ``(block, glyph_groups, text)``: the boxes are a pure
+    function of those (frozen, hashable) inputs, and the relief re-measures
+    the SAME unchanged lines every fixpoint pass and every collision-sweep
+    step (the sweep scales X only, on colliding lines). The memo stores the
+    immutable tuple; a fresh list is returned per call, so callers own
+    their result. See :func:`_cached_glyph_boxes`.
 
     Each glyph's ink box is the swept bounds of its own strokes (the same
     stroke-subset idiom the plate-space chunk records use), which is what makes
@@ -3244,9 +3261,21 @@ def _glyph_boxes(
         One :class:`GlyphBox` per glyph group, in text order. Empty when no
         per-glyph partition is available (the relief is a no-op then).
     """
+    # Deep coercion: a list-built partition (tests, hand-built callers) hashes
+    # as nested tuples -- identical geometry, and the cold path is unchanged.
+    return list(_cached_glyph_boxes(block, tuple(tuple(group) for group in glyph_groups), text))
+
+
+@lru_cache(maxsize=_GLYPH_BOX_CACHE_SIZE)
+def _cached_glyph_boxes(
+    block: TextBlock,
+    glyph_groups: Tuple[Tuple[int, ...], ...],
+    text: str,
+) -> Tuple[GlyphBox, ...]:
+    """Build the memoized glyph-box tuple for one ``(block, groups, text)``."""
     chars = _glyph_chars(text)
     if not glyph_groups or len(chars) != len(glyph_groups):
-        return []
+        return ()
     boxes: List[GlyphBox] = []
     for glyph_index, indices in enumerate(glyph_groups):
         if not indices:
@@ -3272,7 +3301,7 @@ def _glyph_boxes(
                 sub_baseline_ink=_sub_baseline_ink(ink),
             )
         )
-    return boxes
+    return tuple(boxes)
 
 
 def _line_cutter(label: ResolvedLabel, line_index: int) -> float:
@@ -3724,7 +3753,7 @@ def _solve_gap_growth(
     lower_ink: Ink = tuple(polyline for lower in lower_boxes for polyline in lower.ink)
     if not lower_ink or required <= 0.0:
         return 0.0
-    grid = InkGrid(lower_ink, required)
+    grid = ink_grid_for(lower_ink, required)
     queries: List[Ink] = [
         box.sub_baseline_ink for box in upper_boxes if box.sub_baseline_ink and box.descends
     ]
@@ -4170,7 +4199,7 @@ def _apply_descender_relief(
                 if lower.glyph_index not in shaken
                 for polyline in lower.ink
             )
-            grid = InkGrid(static_ink, required) if static_ink and required > 0.0 else None
+            grid = ink_grid_for(static_ink, required) if static_ink and required > 0.0 else None
             for gap in triggering:
                 key = (gap_index, gap.upper.glyph_index)
                 if key not in gap_before or gap.gap < gap_before[key]:
@@ -4210,7 +4239,7 @@ def _apply_descender_relief(
             if not triggering:
                 continue
             required = triggering[0].required
-            border_grid = InkGrid(border.ink, required) if required > 0.0 else None
+            border_grid = ink_grid_for(border.ink, required) if required > 0.0 else None
             for gap in triggering:
                 key = (line_index, gap.upper.glyph_index)
                 border_triggered[line_index].add(gap.upper.glyph_index)
@@ -4365,7 +4394,7 @@ def _apply_descender_relief(
             polyline for lower in stacked_boxes[gap_index + 1] for polyline in lower.ink
         )
         cell = max(required, _GAP_REPORT_RADIUS)
-        final_grid = InkGrid(lower_ink_final, cell) if lower_ink_final and cell > 0.0 else None
+        final_grid = ink_grid_for(lower_ink_final, cell) if lower_ink_final and cell > 0.0 else None
         box_by_glyph = {box.glyph_index: box for box in stacked_boxes[gap_index]}
         for glyph_index in ramps.get(gap_index, {}):
             box = box_by_glyph.get(glyph_index)
@@ -4409,7 +4438,7 @@ def _apply_descender_relief(
             if not box.sub_baseline_ink:
                 nearest = cell
             else:
-                grid = InkGrid(border.ink, cell) if cell > 0.0 else None
+                grid = ink_grid_for(border.ink, cell) if cell > 0.0 else None
                 nearest = (
                     min(grid.min_gap(box.sub_baseline_ink), cell) if grid is not None else cell
                 )

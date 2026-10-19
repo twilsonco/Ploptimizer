@@ -14,6 +14,7 @@ circle-vs-ellipse primitives, ``CollisionResult``, ``HoleCenter``) live in
 from __future__ import annotations
 
 import math
+from functools import lru_cache
 from typing import Dict, List, Optional, Tuple
 
 # An axis-aligned bounding box as ``(x_min, y_min, x_max, y_max)``.
@@ -511,3 +512,43 @@ class InkGrid:
 def _segment_span(first: float, second: float) -> Tuple[float, float]:
     """Return the ``(min, max)`` span of two segment endpoint coordinates."""
     return (min(first, second), max(first, second))
+
+
+#: Bound on :func:`ink_grid_for`'s memo. The relief builds one grid per
+#: (line pair, pass, probe render); a big label's line ink indexes cost
+#: milliseconds to build, so a small LRU covering the label's working set
+#: absorbs the whole repeat pattern while bounding memory to a few grids.
+_INK_GRID_CACHE_SIZE: int = 16
+
+
+def ink_grid_for(ink: Ink, cell_size: float) -> InkGrid:
+    """Return an :class:`InkGrid` over ``ink``, memoized by ``(ink, cell_size)``.
+
+    The relief re-indexes the SAME line ink over and over: every fixpoint
+    pass re-measures the unchanged lines, and every collision-sweep step
+    re-renders a label whose non-compressed lines are byte-identical (the
+    sweep scales X only, on colliding lines). Grid construction is a pure
+    function of hashable inputs and :class:`InkGrid` is read-only after
+    ``__init__`` (:meth:`InkGrid.min_gap` mutates nothing), so a shared
+    instance is exact by construction.
+
+    Non-hashable ink (hand-built lists in tests) falls back to a fresh
+    grid -- identical behaviour, just unmemoized.
+
+    Args:
+        ink: Every polyline to index (see :class:`InkGrid`).
+        cell_size: Cell edge length -- pass the required clearance.
+
+    Returns:
+        A (possibly shared) grid indexing ``ink`` at ``cell_size``.
+    """
+    try:
+        return _cached_ink_grid(ink, cell_size)
+    except TypeError:  # unhashable ink (e.g. lists of lists) -- no memo
+        return InkGrid(ink, cell_size)
+
+
+@lru_cache(maxsize=_INK_GRID_CACHE_SIZE)
+def _cached_ink_grid(ink: Ink, cell_size: float) -> InkGrid:
+    """Build the memoized :class:`InkGrid` for one ``(ink, cell_size)`` key."""
+    return InkGrid(ink, cell_size)

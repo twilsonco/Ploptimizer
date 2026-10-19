@@ -98,6 +98,7 @@ from plt_optimizer.generate.geometry import (
     bbox_gap,
     ink_bounds,
     ink_gap,
+    ink_grid_for,
 )
 
 # A glyph counts as descending when its ink reaches this far below its own
@@ -285,7 +286,7 @@ def measure_pairs(
     grid: Optional[InkGrid] = None
     if ink_lower and required > 0.0:
         lower_ink: Ink = tuple(polyline for lower in lower_glyphs for polyline in lower.ink)
-        grid = InkGrid(lower_ink, required)
+        grid = ink_grid_for(lower_ink, required)
 
     pairs: list[PairGap] = []
     for upper in descending:
@@ -409,7 +410,7 @@ def measure_glyph_gaps(
     if ink_lower:
         lower_ink = tuple(polyline for lower in lower_glyphs for polyline in lower.ink)
         if required > 0.0:
-            grid = InkGrid(lower_ink, required)
+            grid = ink_grid_for(lower_ink, required)
 
     gaps: list[GlyphGap] = []
     for upper in descending:
