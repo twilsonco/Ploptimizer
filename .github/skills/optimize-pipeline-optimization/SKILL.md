@@ -40,10 +40,14 @@ Rank by **size of prize** (wall seconds recoverable), not call count. Read
 then the profile: `test_output/optimize_profiling/<file>/<file>.top.txt`
 (cumulative functions; **call counts are the reliable signal** — cProfile
 inflates pure-Python seconds ~1.5–2.6×). Confirm the diagnosis before
-patching: check wall-vs-cpu first — `wall >> cpu` on `optimize_tsp` means
-ensemble pool-spawn wall (a knob: `--fast-mode`,
-`ENSEMBLE_SEQUENTIAL_BLOCK_THRESHOLD`), not recoverable single-core compute.
-Pick the single highest-leverage fix; do not batch.
+patching: for the ensemble, `wall >> cpu` means **pooled parallel work** —
+read the per-job strategy benchmark table in
+`test_output/optimize_profiling/<file>/run.log`: the slowest job's seconds
+are the pool's critical path (real compute; e.g. the 0.80 s IH jobs set
+the structural fixture's 0.90 s wall — NOT spawn, a noop pool is ~0.12 s).
+Only after the per-job table is flat is the residue spawn (a knob:
+`--fast-mode`, `ENSEMBLE_SEQUENTIAL_BLOCK_THRESHOLD`). Pick the single
+highest-leverage fix; do not batch.
 
 ### 3. Patch, exactly and pinned
 

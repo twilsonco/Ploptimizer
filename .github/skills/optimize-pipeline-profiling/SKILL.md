@@ -50,11 +50,15 @@ also land in `logs_optimize/optimizer.log` on any production `optimize` run
 - Sample the whole run for C-level visibility:
   `uv run --with py-spy py-spy record -o /tmp/profile.svg -- python scripts/profile_optimize.py --plts "<file>" --no-profile`
 - Beware misdiagnosis: confirm wall-vs-cpu before blaming a mechanism.
-  `wall >> cpu` on the ensemble means pool-spawn/subprocess wall (a knob —
-  `--fast-mode`, `ENSEMBLE_SEQUENTIAL_BLOCK_THRESHOLD`), not single-core
-  compute (the structural fixture's 0.9 s wall vs 0.04 s cpu is exactly
-  this; the generate side's sunwest "spawn" misdiagnosis is the cautionary
-  tale — a big layer's pooled compute is real work).
+  `wall >> cpu` on the ensemble means **pooled parallel work** — the next
+  step is the per-job strategy benchmark table in `run.log`, not a spawn
+  verdict. The slowest job's seconds ARE the pool wall (compute); spawn is
+  only ~0.12 s per pool on this box (14-worker noop bench). The structural
+  fixture's 0.90 s wall / 0.04 s cpu was originally blamed on spawn and was
+  actually two 0.80 s Insertion Heuristic jobs (O(n^3) compute) — fixed
+  2026-10-18 by the incremental insertion cache. The generate side's
+  sunwest "spawn" misdiagnosis is the second telling of the same tale: a
+  big layer's pooled compute is real work.
 
 ### 3. Patch, pinned
 
@@ -160,14 +164,22 @@ macOS dev box (Apple Silicon, Python 3.11). Wall = median of 3.
 | File | wall s | cpu s | imp% | dominant stage(s) |
 |---|---|---|---|---|
 | 334X712 RED DANGER (text) | 0.19 | 0.19 | 39.0 | `optimize_tsp` 0.16 (sequential ensemble) |
-| 1x3 half inch letters holes1 (structural) | 0.91 | 0.04 | 75.8 | `optimize_tsp` 0.90 (pooled ensemble; wall≫cpu = spawn) |
+| 1x3 half inch letters holes1 (structural) | 0.91 | 0.04 | 75.8 | `optimize_tsp` 0.90 (pooled ensemble) |
 
-Current #1 bottleneck: **ensemble pool-spawn wall on the structural
-fixture** (0.90 s wall / 0.04 s cpu; its 194 single-segment blocks sit
-above `ENSEMBLE_SEQUENTIAL_BLOCK_THRESHOLD` = 48, so the 14 strategy jobs
-run pooled). It is partly a knob
-(`ENSEMBLE_SEQUENTIAL_BLOCK_THRESHOLD`, `--fast-mode`); the exact next win
-is shrinking per-job work inside the pool, not removing the pool.
+Current #1 bottleneck: **Genetic Algorithm job on the structural fixture**
+(post-fix, sweep `487a74b0`: 0.35 s wall = ~0.12 s spawn + the 0.21 s GA
+job, the pool's critical path). Real parallel compute on a 194-block layer
+— a knob (`--fast-mode`, `ENSEMBLE_SEQUENTIAL_BLOCK_THRESHOLD`), the
+documented stop condition.
+
+Fixed #1 (2026-10-18): **O(n^3) cheapest-insertion scan** — the two IH
+jobs (0.80 s each, 1.2M `_calculate_insertion_cost` calls) set the
+structural fixture's 0.90 s pool wall; the original "pool-spawn wall"
+verdict was wrong (noop-pool bench = 0.12 s). The incremental insertion
+cache (`core/optimizer.py`, pinned by
+`tests/test_optimizer.py::TestInsertionHeuristicIncrementalEquivalence`)
+made IH 0.04 s: fixture 0.91 → 0.35 s (-62%), TOTAL -53.5%, byte-identical
+output. See docs/PROFILING.md "Optimize-pipeline profiling".
 
 ## Gotchas
 

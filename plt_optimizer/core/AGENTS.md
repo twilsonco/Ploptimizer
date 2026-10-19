@@ -82,6 +82,22 @@ the `benchmark` tool, and the generate pipeline's plate-space optimization
   invariant). Known open gap: SA/GA use the unseeded global `random`, so a
   stochastic winner's tour varies run to run (deterministic seeding is a
   tracked follow-up).
+- **Cheapest-insertion is incremental (O(n^2), bit-identical):**
+  `InsertionHeuristicStrategy.optimize` caches one insertion-cost row per
+  unvisited block and, after each insertion at position `p`, recomputes only
+  positions `p`/`p+1` (the only edges an insertion changes) instead of
+  re-scanning the full tour (the old O(n^3) loop: 1.2M
+  `_calculate_insertion_cost` calls on 194 blocks, 0.80 s/job). Rows are
+  built from the same `_calculate_insertion_cost` calls (bit-identical
+  floats); the cached per-block best follows the naive scan's strict-<
+  first-minimum tie rule (`_first_min_insertion` — ties resolve to the
+  LOWEST position). Tie bookkeeping on update: cached best below `p`
+  survives at a lower index (only a strict `<` replaces it); above `p` it
+  shifts to `best_pos+1` (ties go to the new lower index, `<=` replaces);
+  at `p` it is rescanned. Pinned by
+  `tests/test_optimizer.py::TestInsertionHeuristicIncrementalEquivalence`
+  (seeded randomized equivalence vs the verbatim naive loop + the
+  frozen-fixture distance pin).
 - Keep the `with`-block pattern around `ProcessPoolExecutor` (tests patch it
   with `__enter__`-style mocks).
 - Float comparisons: `math.isclose` / tolerances, never `==` (root §1; the
