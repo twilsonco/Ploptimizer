@@ -216,20 +216,20 @@ is the source). Seeding each strategy job deterministically (e.g. from a
 hash of the serialized blocks + job payload) is the remaining step toward
 the identical-input-identical-output invariant.
 
-## Current bottlenecks (2026-10-18, post-bounds-memo re-profile, full sweep)
+## Current bottlenecks (2026-10-18, post-sweep-cache re-profile, full sweep)
 
 Full sweep after the fixes below (`--repeats 3` + cProfile + tracemalloc,
 plots off). Wall = median of 3; profile seconds are cProfile cumulative
 (inflated ~1.5-2.6x on pure-Python hot loops — call counts are the
 reliable signal). Memory is a non-issue everywhere (peak 1.3-30.7 MiB).
 
-| Spec | wall s (pre-memo) | wall s (post-memo) | dominant stage(s) after |
-|---|---|---|---|
-| 2026-07-22 sunwest | 11.5 | 11.2 | `optimize_layer` 10.5 (481-block bh layer) |
-| 2026-10-06 seer wb-uv | 5.7 | **4.6** | `cutter_downsize` 2.9 + `layout_render_pack` 1.4 |
-| 2026-10-07 coolsys 1 big label | 3.4 | **2.7** | `reflow` 1.6 |
-| 2026-10-15 coolsys round tags 910+walmart | 2.6 | 2.5 | `optimize_layer` 1.4 / `layout_render_pack` 1.0 |
-| 2026-10-06 seer intrachunk opt TTF | 0.04 | 0.04 | — |
+| Spec | wall s (pre-memo) | wall s (pre-cache) | wall s (post-cache) | dominant stage(s) after |
+|---|---|---|---|---|
+| 2026-07-22 sunwest | 11.5 | 11.2 | 11.2 | `optimize_layer` 10.5 (481-block bh layer) |
+| 2026-10-06 seer wb-uv | 5.7 | 4.6 | **3.1** | `cutter_downsize` 1.9 + `layout_render_pack` 0.9 |
+| 2026-10-07 coolsys 1 big label | 3.4 | 2.7 | **2.6** | `reflow` 1.4 |
+| 2026-10-15 coolsys round tags 910+walmart | 2.6 | 2.5 | 2.4 | `optimize_layer` 1.3 / `layout_render_pack` 1.0 |
+| 2026-10-06 seer intrachunk opt TTF | 0.04 | 0.04 | 0.03 | — |
 
 ### Bottleneck: `TextBlock.bounds` recompute (the universal render leaf) — FIXED 2026-10-18
 
@@ -268,19 +268,59 @@ Pinned by `TestStrokeBoundsMemoization` + the block-level memo tests in
 brute-force equivalence, empty-never-cached, every transform constructor
 uncached, `replace()` never carries a memo, eq/hash/repr invariance).
 
-### Current #1: `cutter_downsize` probe renders + collision compression sweep (wb-uv)
+### Bottleneck: the Phase-3 sweep re-walks the glyphs per scale step (wb-uv) — FIXED 2026-10-18
 
-wb-uv's 2.9 s stage is 14 full `render_label_to_plt` probes
-(`cutter_downsize._default_probe`, 7.6 s profiled) — the same
-full-render-per-measurement shape as the old reflow probe, plus the
-collision Phase-3 sweep inside those renders
-(`detection.resolve_via_compression`, 18 calls / 8.4 s profiled = 144
-thin `_render_text_local_with_bounds` renders). Two shrinkable multipliers:
-(a) the downsize probe measures ONE line's compressed width — like the
-reflow probe, it needs no drill holes, no PLT export, and no relief, so a
-text-only render path serves it; (b) the 16-step compression sweep
-re-renders from scratch per step while only the X scale changes. The
-`_share_downsizes` re-measure pass doubles the probe count.
+wb-uv's 2.9 s `cutter_downsize` stage was 14 full `render_label_to_plt`
+probes (`cutter_downsize._default_probe`, 7.6 s profiled), and inside
+those renders the collision Phase-3 sweep
+(`detection.resolve_via_compression`, 18 calls / 8.4 s profiled) re-ran a
+full `_render_text_local_with_bounds` per scale step — **144 renders**
+whose first-pass glyph walk is byte-identical every step: the sweep
+changes ONLY the label-level `collision_compress_by_line` map, and
+`_render_line_block` depends on nothing else. The profile proved it: 577
+`_render_line_block` calls (~500 of them sweep steps, 3.9 s profiled).
+
+**Fix:** `render_label_to_plt` owns one `_LineBlockCache` per
+collision-resolution sequence — the initial render, the Phase-2
+re-render, every sweep step, the verification render, and the
+diagnostics render all share it — threaded through `_render_label_once` →
+`_render_text_lines_by_pen` → `_render_positioned_lines`. Keyed by
+`(line, chunk_mode, check_glyph_coverage)`; the line is a frozen
+hashable dataclass, so a content clone can never hit a stale entry.
+Values are the RAW pre-compression blocks (frozen `TextBlock`s, shared
+safely — the per-step X scale is applied downstream on every render
+exactly as before); word-group lists are copied in and out because
+downstream code mutates them. Exact by construction: the cache serves
+precisely the renders the sweep already proves identical.
+
+Measured (same box, full sweep): wb-uv profiled calls 60.9 M -> **47.1 M**,
+11.6 s -> 7.8 s; `_render_line_block` vanishes from the top-30 entirely.
+Wall: wb-uv **4.6 -> 3.1 s** (`cutter_downsize` 2.9 -> 1.9 s), coolsys
+**2.7 -> 2.6 s**, round-tags 2.5 -> 2.4 s, TOTAL 21.0 -> 19.3 s. The
+sweep's remaining per-step cost is the positioning/relief/collision-check
+that legitimately changes with the X scale. Identity: 11/13 benchmark
+PLTs byte-identical; the 2 diffs (round-tags `bh`/`text` — the unseeded
+SA/GA layers of the open determinism gap) compare **equal as undirected
+segment + arc multisets** (13,114/332 and 34,048/1,442) — order-only.
+Pinned by `tests/test_line_block_cache.py` (full-render bit-identity vs
+a null-cache sequence across resolving, Phase-2+3, unresolvable, clean,
+WORD-mode, markup, and multi-line labels; zero re-walks across a
+resolving sweep; pre-compression values; key isolation; the defensive
+copy).
+
+### Current #1: the descender relief inside every collision-sequence render (wb-uv)
+
+wb-uv's remaining 1.9 s `cutter_downsize` is now dominated by
+`_apply_descender_relief` (**183 calls / 5.2 s profiled**, via 2,241
+`measure_glyph_gaps` / 2.4 s): the relief re-runs on every render of
+every probe, and the sweep's 144 steps each re-measure glyph gaps whose
+Y-geometry is unchanged (compression is X-only). The X scale DOES change
+the overlapping-X spans the relief compares, so caching the relief result
+is not exact; the win is per-glyph ink caching between renders (the ink
+boxes depend only on (line, mode, coverage) — `measure_glyph_gaps`
+rebuilds them per render) plus pruning gap pairs beyond the required
+clearance. Same shape as the reflow-probe fix: exact pre-filters, not
+heuristics.
 
 ### Current #2: sunwest's 481-block bh layer (real compute, knob not bug)
 
