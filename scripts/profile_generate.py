@@ -67,7 +67,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:  # allow running as a plain script
     sys.path.insert(0, str(REPO_ROOT))
 
-from plt_optimizer.generate.stage_timing import STAGE_LINE_PATTERN  # noqa: E402
+from plt_optimizer.utils.stage_timing import STAGE_LINE_PATTERN  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Benchmark set: the five specs covering the pipeline's feature surface.

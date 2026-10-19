@@ -33,6 +33,7 @@ from plt_optimizer.core.stroke_simplifier import simplify_overlapping_strokes
 from plt_optimizer.core.writer import PLTWriter
 from plt_optimizer.utils.geometry import fracture_linear_paths
 from plt_optimizer.utils.logging import setup_logging
+from plt_optimizer.utils.stage_timing import stage_timer
 
 
 def setup_parser(parser: argparse.ArgumentParser) -> None:
@@ -131,12 +132,14 @@ def run(args: argparse.Namespace) -> int:
     try:
         # Parse the file
         parser = PLTParser()
-        doc = parser.parse_file(input_path)
+        with stage_timer("parse", text_logger_obj.logger):
+            doc = parser.parse_file(input_path)
         text_logger_obj.debug(f"[{job_id}] Parsed document with {doc.total_segments} segments")
 
         # Profile to determine document type BEFORE any preprocessing
         profiler = Profiler()
-        profile_result = profiler.profile(doc)
+        with stage_timer("profile", text_logger_obj.logger):
+            profile_result = profiler.profile(doc)
         text_logger_obj.debug(
             f"[{job_id}] Document classified as "
             f"{'structural' if profile_result.is_structural else 'text'}"
@@ -148,16 +151,18 @@ def run(args: argparse.Namespace) -> int:
         original_distance = metrics_calc.calculate_original_travel_distance(doc)
 
         # Bifurcate preprocessing pipeline based on document type
-        doc = preprocess_document(
-            doc,
-            is_structural=profile_result.is_structural,
-            fracture_factory=fracture_linear_paths,
-            dedupe_factory=simplify_overlapping_strokes,
-            logger=text_logger_obj,
-            log_prefix=f"[{job_id}]",
-        )
+        with stage_timer("preprocess", text_logger_obj.logger):
+            doc = preprocess_document(
+                doc,
+                is_structural=profile_result.is_structural,
+                fracture_factory=fracture_linear_paths,
+                dedupe_factory=simplify_overlapping_strokes,
+                logger=text_logger_obj,
+                log_prefix=f"[{job_id}]",
+            )
 
-        blocks = chunk_document(doc, profile_result, chunker_factory=Chunker)
+        with stage_timer("chunk", text_logger_obj.logger):
+            blocks = chunk_document(doc, profile_result, chunker_factory=Chunker)
 
         if not blocks:
             text_logger_obj.warning(f"[{job_id}] No blocks generated from file")
@@ -171,15 +176,19 @@ def run(args: argparse.Namespace) -> int:
 
         # Optimize and reassemble (ensemble results unwrapped by the helper,
         # which also logs the benchmark table and builds method notes).
-        outcome = optimize_and_reassemble(
-            doc,
-            blocks,
-            strategy,
-            engine_factory=OptimizerEngine,
-            reassembler_factory=Reassembler,
-            logger=text_logger_obj,
-            log_prefix=f"[{job_id}]",
-        )
+        # stage_timers=True emits the per-stage lines (optimize_tsp,
+        # direction_sweep, intra_sweep, reassemble, merge) inside the helper.
+        with stage_timer("optimize", text_logger_obj.logger):
+            outcome = optimize_and_reassemble(
+                doc,
+                blocks,
+                strategy,
+                engine_factory=OptimizerEngine,
+                reassembler_factory=Reassembler,
+                logger=text_logger_obj,
+                log_prefix=f"[{job_id}]",
+                stage_timers=True,
+            )
         optimized_doc = outcome.optimized_doc
         optimized_distance = outcome.optimized_distance
         method_name = outcome.method_name
@@ -187,7 +196,8 @@ def run(args: argparse.Namespace) -> int:
 
         # Write optimized file
         writer = PLTWriter()
-        writer.write_file(optimized_doc, output_path)
+        with stage_timer("write", text_logger_obj.logger):
+            writer.write_file(optimized_doc, output_path)
 
         # Calculate improvement percentage
         improvement_pct = (

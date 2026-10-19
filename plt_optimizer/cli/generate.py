@@ -47,9 +47,9 @@ from plt_optimizer.generate.job_config import JobConfig, load_job_config
 from plt_optimizer.generate.layout_report import format_layout_report
 from plt_optimizer.generate.resolution import resolve_job_spec
 from plt_optimizer.generate.schema import JobSpec, parse_yaml
-from plt_optimizer.generate.stage_timing import stage_timer
 from plt_optimizer.generate.substitution import SubstitutionError, expand_job_spec
 from plt_optimizer.utils.logging import setup_logging
+from plt_optimizer.utils.stage_timing import stage_timer
 
 # Module logger for coarse stage timing (parse/expand/resolve/export);
 # named _LOG so it is never shadowed inside run() (see stage_timing.py).

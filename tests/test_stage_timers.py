@@ -11,10 +11,10 @@ import logging
 
 import pytest
 
-from plt_optimizer.generate import stage_timing
-from plt_optimizer.generate.stage_timing import (
-    STAGE_LOG_FORMAT,
+from plt_optimizer.utils import stage_timing
+from plt_optimizer.utils.stage_timing import (
     STAGE_LINE_PATTERN,
+    STAGE_LOG_FORMAT,
     stage_timer,
 )
 

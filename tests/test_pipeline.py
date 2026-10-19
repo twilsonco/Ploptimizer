@@ -35,6 +35,7 @@ from plt_optimizer.core.pipeline import (
     preprocess_document,
 )
 from plt_optimizer.core.profiler import ProfileResult
+from plt_optimizer.utils.logging import TextLogger
 
 
 def _make_doc(n_paths: int = 3) -> PLTDocument:
@@ -955,3 +956,70 @@ class TestCoincidentMergeIntegration:
         # Post-sweep + post-merge emission: one 100-unit rapid remains.
         assert outcome.direction_sweep_emitted_after == pytest.approx(100.0)
         assert outcome.optimized_doc.rapid_distance() == pytest.approx(100.0)
+
+
+class TestStageTimers:
+    """The opt-in ``stage_timers`` flag: log-only per-stage timing lines."""
+
+    def _run(self, logger: Any, *, stage_timers: bool) -> Any:
+        """One optimize_and_reassemble run (sweep + merge active)."""
+        doc = _make_doc(n_paths=2)
+        blocks = [
+            MacroBlock(
+                block_id=i,
+                paths=(path,),
+                entrance=path.segments[0].start,
+                exit=path.segments[0].end,
+            )
+            for i, path in enumerate(doc.stroke_paths)
+        ]
+        return optimize_and_reassemble(
+            doc, blocks, NoOpStrategy(), logger=logger, stage_timers=stage_timers
+        )
+
+    def test_stage_lines_emitted_when_enabled(self, caplog: pytest.LogCaptureFixture) -> None:
+        """stage_timers=True emits one parseable INFO line per executed stage."""
+        from plt_optimizer.utils.stage_timing import STAGE_LINE_PATTERN
+
+        logger = TextLogger(name="plt_optimizer_test_stage_timers")
+        with caplog.at_level(logging.INFO, logger="plt_optimizer_test_stage_timers"):
+            self._run(logger, stage_timers=True)
+
+        stage_lines = [
+            r.getMessage()
+            for r in caplog.records
+            if r.name == "plt_optimizer_test_stage_timers"
+            and STAGE_LINE_PATTERN.match(r.getMessage())
+        ]
+        names = [STAGE_LINE_PATTERN.match(line).group("name") for line in stage_lines]
+        assert "optimize_tsp" in names
+        assert "direction_sweep" in names
+        assert "reassemble" in names
+        assert "merge" in names
+        # The intra sweep has no glyph groups on parsed documents.
+        assert "intra_sweep" not in names
+
+    def test_no_stage_lines_by_default(self, caplog: pytest.LogCaptureFixture) -> None:
+        """The default (stage_timers=False) keeps the production log stream."""
+        from plt_optimizer.utils.stage_timing import STAGE_LINE_PATTERN
+
+        logger = TextLogger(name="plt_optimizer_test_stage_timers_off")
+        with caplog.at_level(logging.INFO, logger="plt_optimizer_test_stage_timers_off"):
+            self._run(logger, stage_timers=False)
+
+        stage_lines = [
+            r.getMessage()
+            for r in caplog.records
+            if r.name == "plt_optimizer_test_stage_timers_off"
+            and STAGE_LINE_PATTERN.match(r.getMessage())
+        ]
+        assert stage_lines == []
+
+    def test_timers_are_log_only(self) -> None:
+        """The flag never changes the outcome (identical doc, distance, notes)."""
+        logger = TextLogger(name="plt_optimizer_test_stage_timers_identity")
+        off = self._run(logger, stage_timers=False)
+        on = self._run(logger, stage_timers=True)
+        assert on.optimized_doc == off.optimized_doc
+        assert on.optimized_distance == pytest.approx(off.optimized_distance)
+        assert on.method_notes == off.method_notes

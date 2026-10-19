@@ -1,0 +1,3 @@
+run_id,run_ts,spec,wall_s,wall_min_s,wall_max_s,cpu_s,rapid_before_in,rapid_after_in,improvement_pct,peak_mem_mib,stage_parse_s,stage_profile_s,stage_preprocess_s,stage_chunk_s,stage_optimize_tsp_s,stage_direction_sweep_s,stage_reassemble_s,stage_merge_s,stage_optimize_s,stage_write_s
+90446d5d,2026-10-18T20:21:59-06:00,334X712 RED DANGER conveyers start and stop2,0.1919298330321908,0.1886734999716282,0.20287074986845255,0.191214,341.407,208.356,38.97,2.8,0.025,0.002,0.0,0.0,0.156,0.0,0.001,0.0,0.157,0.004
+90446d5d,2026-10-18T20:22:03-06:00,1x3 half inch letters holes1,0.9119186250027269,0.8946480839513242,0.9288442090619355,0.04442799999999991,554.777,134.214,75.81,2.4,0.006,0.001,0.001,0.0,0.902,0.001,0.0,0.0,0.903,0.001

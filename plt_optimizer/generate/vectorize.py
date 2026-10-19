@@ -62,8 +62,8 @@ from plt_optimizer.generate.schema import (
     TextColor,
     material_key,
 )
-from plt_optimizer.generate.stage_timing import stage_timer
 from plt_optimizer.utils.logging import TextLogger
+from plt_optimizer.utils.stage_timing import stage_timer
 
 # Module logger for stage timing (named _LOG so the ``logger`` parameter of
 # export_per_cutter_plts -- a TextLogger for operational reports -- never

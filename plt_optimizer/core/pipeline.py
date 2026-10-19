@@ -27,6 +27,7 @@ imports, and no syntax newer than 3.8 at runtime.
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from typing import Callable, List, Mapping, Optional, Sequence, Tuple
 
@@ -47,6 +48,7 @@ from plt_optimizer.core.reassembler import Reassembler
 from plt_optimizer.core.stroke_simplifier import simplify_overlapping_strokes
 from plt_optimizer.utils.geometry import fracture_linear_paths
 from plt_optimizer.utils.logging import TextLogger
+from plt_optimizer.utils.stage_timing import stage_timer
 
 # Production chunking threshold used by every entry point (optimize, watch,
 # benchmark, generate). Kept here as the single source of truth.
@@ -336,6 +338,7 @@ def optimize_and_reassemble(
     intra_sweep: bool = True,
     glyph_groups_by_block: Optional[Mapping[int, Tuple[Tuple[int, ...], ...]]] = None,
     merge_coincident: bool = True,
+    stage_timers: bool = False,
 ) -> OptimizationOutcome:
     """Optimize pre-built blocks and reassemble the document.
 
@@ -378,6 +381,13 @@ def optimize_and_reassemble(
             bytes, never rapid travel -- and preserves the undirected segment
             multiset. Disable to reproduce the pre-merge emission exactly
             (test/escape-hatch seam).
+        stage_timers: Emit ``stage <name>: <s>s`` INFO timing lines (see
+            :mod:`plt_optimizer.utils.stage_timing`) around the TSP solve
+            (``optimize_tsp``), the direction sweep (``direction_sweep``),
+            the glyph sweep (``intra_sweep``), the reassembly
+            (``reassemble``), and the coincident-stroke merge (``merge``).
+            Log-only, off by default; the profiling harness
+            (``scripts/profile_optimize.py``) turns them on.
 
     Returns:
         An :class:`OptimizationOutcome` with the reassembled document and
@@ -389,8 +399,20 @@ def optimize_and_reassemble(
     """
     prefix = f"{log_prefix} " if log_prefix else ""
 
+    def _stage(name: str) -> AbstractContextManager[None]:
+        """Stage-timer context for one internal stage (no-op when disabled).
+
+        The timers are log-only and opt-in (``stage_timers=True``) so the
+        production hot path keeps its exact log stream; the profiling
+        harness enables them for the ``stage <name>: <s>s`` contract.
+        """
+        if stage_timers and logger is not None:
+            return stage_timer(name, logger.logger)
+        return nullcontext()
+
     engine = (engine_factory or OptimizerEngine)(strategy=strategy)
-    optimization_result = engine.optimize(blocks)
+    with _stage("optimize_tsp"):
+        optimization_result = engine.optimize(blocks)
 
     ensemble_benchmarks: Tuple[StrategyBenchmarkResult, ...] = ()
 
@@ -440,7 +462,8 @@ def optimize_and_reassemble(
     sweep_report: Optional[_DirectionSweepReport] = None
 
     if direction_sweep:
-        sweep = sweep_tour_directions(blocks, result_for_reassembly)
+        with _stage("direction_sweep"):
+            sweep = sweep_tour_directions(blocks, result_for_reassembly)
         if sweep.passes > 0:
             # Emitted travel (intra + inter) is what the plotter actually
             # travels; the sweep's own objective covers inter-chunk gaps only.
@@ -474,9 +497,10 @@ def optimize_and_reassemble(
     intra_report: Optional[_IntraSweepReport] = None
     intra_results: Optional[List[Optional[IntraChunkResult]]] = None
     if intra_sweep and glyph_groups_by_block:
-        results, intra_before, intra_after, intra_groups, intra_flips = _run_intra_sweep(
-            blocks, glyph_groups_by_block
-        )
+        with _stage("intra_sweep"):
+            results, intra_before, intra_after, intra_groups, intra_flips = _run_intra_sweep(
+                blocks, glyph_groups_by_block
+            )
         if intra_flips > 0:
             emitted_before_intra = reassembler.reassemble(
                 document, blocks, result_for_reassembly
@@ -499,16 +523,18 @@ def optimize_and_reassemble(
                 f"({intra_flips} flips)"
             )
 
-    optimized_doc = reassembler.reassemble(
-        document, blocks, result_for_reassembly, intra_chunk_results=intra_results
-    )
+    with _stage("reassemble"):
+        optimized_doc = reassembler.reassemble(
+            document, blocks, result_for_reassembly, intra_chunk_results=intra_results
+        )
 
     # Coincident-stroke merge: last stage, so the emitted-travel measurements
     # below (and every consumer of optimized_doc) describe what is written.
     # The merge is metric-neutral, so it never disturbs the sweep metrics.
     merge_report: Optional[MergeResult] = None
     if merge_coincident:
-        merge_report = merge_coincident_paths(optimized_doc.stroke_paths)
+        with _stage("merge"):
+            merge_report = merge_coincident_paths(optimized_doc.stroke_paths)
         if merge_report.merges > 0:
             optimized_doc = PLTDocument(
                 header_commands=optimized_doc.header_commands,

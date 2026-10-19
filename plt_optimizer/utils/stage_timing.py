@@ -1,17 +1,18 @@
-"""Wall-clock stage timing for the generate pipeline.
+"""Wall-clock stage timing for the generate and optimize pipelines.
 
 Import-light (stdlib only: ``time`` + ``logging`` + ``contextlib``), so it
 is safe on the Python 3.8 / Windows 7 import path and can be imported at
-module scope by both the CLI and the heavy generate modules.
+module scope by the CLI, the heavy generate modules, and the core
+optimization pipeline alike.
 
 Each pipeline stage is wrapped in :func:`stage_timer`, which emits one
 machine-parseable INFO line on completion::
 
     stage <name>: <seconds>s
 
-The fixed format is the contract consumed by
-``scripts/profile_generate.py`` (see :data:`STAGE_LINE_PATTERN`); keep the
-two in sync when changing the format. Timers measure wall-clock time
+The fixed format is the contract consumed by ``scripts/profile_generate.py``
+and ``scripts/profile_optimize.py`` (see :data:`STAGE_LINE_PATTERN`); keep
+the two in sync when changing the format. Timers measure wall-clock time
 (``time.perf_counter``) and never alter pipeline behaviour: the stage body
 runs unmodified and exceptions propagate after the timing line is logged.
 """
