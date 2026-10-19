@@ -1,2 +1,2 @@
 # TODO List
-
+- [ ] Specify symbol (non-alphanumeric) PLT font files by a trailing `_sym` or `_symbol`. E.g. `wingdings_0.35_^_S4_sym.plt`. Check for this in @extract_plt_fonts.py and then store `symbol_font` as a bool attribute in the extracted font's json file. All fonts will have `symbol_font` set to either `True` or `False`.
