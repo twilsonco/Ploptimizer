@@ -66,7 +66,7 @@ FONTS_DIR: Path = Path(__file__).resolve().parent.parent.parent / "Fonts"
 
 # The PLT-extracted font catalog produced by fonts/extract_plt_fonts.py:
 # one JSON file per font, keyed by the file's ``font_name`` field.
-PLT_FONT_CATALOG_DIR: Path = FONTS_DIR / "VP-EL-Fonts" / "catalog"
+PLT_FONT_CATALOG_DIR: Path = FONTS_DIR / "VP-EL-fonts" / "catalog"
 
 # Font selected when ``font`` is unset in the YAML spec, the job config, and
 # every label/line. Matches the historical hard-coded ftext default.
@@ -88,7 +88,7 @@ _SMALL_CAPS_SEPARATOR: str = " "
 # :func:`_canonical_map`), from derived-Unicode glyph creation in
 # ``fonts/extract_plt_fonts.py``, and from the Unicode line in
 # ``scripts/font_showcase.py``. A missing file means no exemptions.
-NON_TEXT_FONTS_FILE: Path = FONTS_DIR / "VP-EL-Fonts" / "non_text_fonts.txt"
+NON_TEXT_FONTS_FILE: Path = FONTS_DIR / "VP-EL-fonts" / "non_text_fonts.txt"
 
 
 class FontNotFoundError(ValueError):

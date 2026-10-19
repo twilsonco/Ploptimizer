@@ -90,7 +90,7 @@ def fonts_root(tmp_path: Path) -> Path:
     (tmp_path / "Sub" / "Beta.ttf").write_bytes(b"ttf-b")
     (tmp_path / "ignored.otf").write_bytes(b"otf")
     _write_catalog(
-        tmp_path / "VP-EL-Fonts" / "catalog",
+        tmp_path / "VP-EL-fonts" / "catalog",
         {
             "Dino": _v2_font({"A": "PU0,0;PD1,1;"}),
             "Jhanuni": _v2_font({"A": "PU0,0;"}),
@@ -106,7 +106,7 @@ class TestBundledAssets:
         """The module resolves the real fonts/ directory."""
         assert FONTS_DIR.name == "Fonts"
         assert FONTS_DIR.is_dir()
-        assert PLT_FONT_CATALOG_DIR == FONTS_DIR / "VP-EL-Fonts" / "catalog"
+        assert PLT_FONT_CATALOG_DIR == FONTS_DIR / "VP-EL-fonts" / "catalog"
         assert PLT_FONT_CATALOG_DIR.is_dir()
 
     def test_bundled_library_loads(self) -> None:
@@ -142,7 +142,7 @@ class TestLoadPltFonts:
 
     def test_loads_glyph_maps(self, fonts_root: Path) -> None:
         """A well-formed catalog yields name -> v2 font data."""
-        fonts = load_plt_fonts(fonts_root / "VP-EL-Fonts" / "catalog")
+        fonts = load_plt_fonts(fonts_root / "VP-EL-fonts" / "catalog")
         assert set(fonts) == {"Dino", "Jhanuni"}
         assert fonts["Dino"].characters["A"].glyph == "PU0,0;PD1,1;"
         assert fonts["Dino"].reference_char == "A"
@@ -353,7 +353,7 @@ class TestPltFontStrokeCount:
     def test_ttf_font_is_single_stroke(self, fonts_root: Path) -> None:
         """TTF names are not PLT catalog keys -> single-stroke."""
         assert (
-            font_registry.plt_font_stroke_count("Alpha", fonts_root / "VP-EL-Fonts" / "catalog")
+            font_registry.plt_font_stroke_count("Alpha", fonts_root / "VP-EL-fonts" / "catalog")
             == 1
         )
 
@@ -406,7 +406,7 @@ class TestResolveFont:
     def test_plt_exact(self, fonts_root: Path) -> None:
         """A PLT key resolves without a path."""
         ref = resolve_font(
-            "Dino", library_dir=fonts_root / "VP-EL-Fonts" / "catalog", fonts_dir=fonts_root
+            "Dino", library_dir=fonts_root / "VP-EL-fonts" / "catalog", fonts_dir=fonts_root
         )
         assert (ref.kind, ref.name) == ("plt", "Dino")
         assert ref.path is None
@@ -415,7 +415,7 @@ class TestResolveFont:
     def test_case_insensitive(self, fonts_root: Path, requested: str) -> None:
         """Any casing resolves to the canonical name."""
         ref = resolve_font(
-            requested, library_dir=fonts_root / "VP-EL-Fonts" / "catalog", fonts_dir=fonts_root
+            requested, library_dir=fonts_root / "VP-EL-fonts" / "catalog", fonts_dir=fonts_root
         )
         assert ref.name == "Dino"
 
@@ -435,7 +435,7 @@ class TestResolveFont:
         with pytest.raises(FontNotFoundError) as excinfo:
             resolve_font(
                 "Nope",
-                library_dir=fonts_root / "VP-EL-Fonts" / "catalog",
+                library_dir=fonts_root / "VP-EL-fonts" / "catalog",
                 fonts_dir=fonts_root,
             )
         message = str(excinfo.value)
@@ -454,7 +454,7 @@ class TestResolveFont:
         assert (
             normalize_font_name(
                 "jhanuni",
-                library_dir=fonts_root / "VP-EL-Fonts" / "catalog",
+                library_dir=fonts_root / "VP-EL-fonts" / "catalog",
                 fonts_dir=fonts_root,
             )
             == "Jhanuni"
@@ -467,7 +467,7 @@ class TestSmallCapsVariants:
     def test_plt_variant_resolves_to_base_family(self, fonts_root: Path) -> None:
         """A PLT variant keeps the PLT kind, carries no path, and is flagged."""
         ref = resolve_font(
-            "Dino SC", library_dir=fonts_root / "VP-EL-Fonts" / "catalog", fonts_dir=fonts_root
+            "Dino SC", library_dir=fonts_root / "VP-EL-fonts" / "catalog", fonts_dir=fonts_root
         )
         assert (ref.kind, ref.name, ref.path, ref.small_caps) == ("plt", "Dino SC", None, True)
 
@@ -481,7 +481,7 @@ class TestSmallCapsVariants:
     def test_variant_matching_is_case_insensitive(self, fonts_root: Path, requested: str) -> None:
         """Any casing/whitespace of the variant name resolves canonically."""
         ref = resolve_font(
-            requested, library_dir=fonts_root / "VP-EL-Fonts" / "catalog", fonts_dir=fonts_root
+            requested, library_dir=fonts_root / "VP-EL-fonts" / "catalog", fonts_dir=fonts_root
         )
         assert ref.name == "Dino SC"
         assert ref.small_caps is True
@@ -489,14 +489,14 @@ class TestSmallCapsVariants:
     def test_base_font_is_not_flagged(self, fonts_root: Path) -> None:
         """A base name never reports small_caps."""
         ref = resolve_font(
-            "Dino", library_dir=fonts_root / "VP-EL-Fonts" / "catalog", fonts_dir=fonts_root
+            "Dino", library_dir=fonts_root / "VP-EL-fonts" / "catalog", fonts_dir=fonts_root
         )
         assert ref.small_caps is False
 
     def test_choices_include_variants(self, fonts_root: Path) -> None:
         """Every base contributes a variant to the valid-name list."""
         choices = font_name_choices(
-            library_dir=fonts_root / "VP-EL-Fonts" / "catalog", fonts_dir=fonts_root
+            library_dir=fonts_root / "VP-EL-fonts" / "catalog", fonts_dir=fonts_root
         )
         assert {"Dino SC", "Jhanuni SC", "Alpha SC", "Beta SC"} <= set(choices)
         assert choices == sorted(choices, key=str.lower)
@@ -712,6 +712,6 @@ class TestItalicFaceProbe:
     def test_plt_font_has_no_italic_path(self, fonts_root: Path) -> None:
         """PLT fonts always take the shear path (no TTF file to probe)."""
         ref = resolve_font(
-            "Dino", library_dir=fonts_root / "VP-EL-Fonts" / "catalog", fonts_dir=fonts_root
+            "Dino", library_dir=fonts_root / "VP-EL-fonts" / "catalog", fonts_dir=fonts_root
         )
         assert ref.italic_path is None

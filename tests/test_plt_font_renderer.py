@@ -1510,7 +1510,7 @@ class TestDerivedGlyphRendering:
 
     def test_all_derived_characters_render(self) -> None:
         """Every derived key in the shipped library renders without raising."""
-        catalog_dir = Path(__file__).resolve().parents[1] / "Fonts" / "VP-EL-Fonts" / "catalog"
+        catalog_dir = Path(__file__).resolve().parents[1] / "Fonts" / "VP-EL-fonts" / "catalog"
         dino = json.loads((catalog_dir / "Dino.json").read_text(encoding="utf-8"))
         derived = [char for char in dino["characters"] if ord(char) > 0x7E]
         assert len(derived) == 17

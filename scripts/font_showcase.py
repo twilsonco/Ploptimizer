@@ -767,7 +767,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     fonts = font_name_choices()
     if not fonts:
         logger.error(
-            "No fonts found (VP-EL-Fonts catalog keys + fonts/**.ttf basenames); nothing to do."
+            "No fonts found (VP-EL-fonts catalog keys + fonts/**.ttf basenames); nothing to do."
         )
         return 1
 
