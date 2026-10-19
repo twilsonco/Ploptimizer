@@ -999,7 +999,14 @@ plate tier is schema parity only, like every render-affecting field.
   `label_renderer._glyph_boxes` is `lru_cache(64)` over
   `(block, glyph_groups, text)` — frozen hashable inputs, frozen
   `GlyphBox` values; the wrapper returns a fresh LIST per call (callers
-  own their result) and deep-coerces list-built partitions. Unhashable
+  own their result) and deep-coerces list-built partitions.
+  `label_renderer._shifted_boxes` is `lru_cache(64)` over
+  `(boxes, baseline_y)` — the stacked-frame shift is a pure function of
+  frozen hashable boxes plus the baseline, and the baseline table only
+  moves when a pass grows a spacing, so consecutive passes and the final
+  measurement re-shift byte-identical boxes onto byte-identical
+  baselines; same fresh-LIST wrapper, the `baseline_y == 0.0` identity
+  fast path stays uncached. Unhashable
   ink falls back to a fresh grid (identical behaviour, unmemoized).
   Pinned by `tests/test_relief_memoization.py` (identity hits, key
   isolation, randomized equivalence vs cache-cleared recompute, LRU
