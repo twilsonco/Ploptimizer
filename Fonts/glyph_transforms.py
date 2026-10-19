@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Arc-native HPGL glyph utilities and derived-Unicode glyph generation.
 
-``Fonts/extract_plt_fonts.py`` recovers the *engraved* ASCII characters of a
+``fonts/extract_plt_fonts.py`` recovers the *engraved* ASCII characters of a
 PLT font. This module supplies the two things that extraction cannot produce:
 
 1. **Generic glyph utilities** - :func:`scale_glyph`, :func:`translate_glyph`,
@@ -17,7 +17,7 @@ PLT font. This module supplies the two things that extraction cannot produce:
 
 2. **Derived Unicode glyphs** - :data:`DERIVED_GLYPHS` derives common
    typographic characters that EngraveLab / Vision Pro cannot engrave from
-   ``Fonts/ascii.txt`` by transforming ASCII bases (``-`` -> en dash, ``.`` ->
+   ``fonts/ascii.txt`` by transforming ASCII bases (``-`` -> en dash, ``.`` ->
    bullet, ``8`` -> infinity, ...). :func:`derive_glyph_entries` turns one
    font's ASCII entries into the matching derived entries, complete with
    ``bounding_box`` and ``left_envelope`` / ``right_envelope``, so the
@@ -131,7 +131,7 @@ class GlyphTransformError(Exception):
 
 
 # ---------------------------------------------------------------------------
-# Bounds helpers (shared with Fonts/extract_plt_fonts.py)
+# Bounds helpers (shared with fonts/extract_plt_fonts.py)
 # ---------------------------------------------------------------------------
 
 
@@ -736,7 +736,7 @@ def glyph_bounds(text: str) -> Optional[Bounds]:
 
 
 # ---------------------------------------------------------------------------
-# Horizontal sampling primitives (shared with Fonts/extract_plt_fonts.py)
+# Horizontal sampling primitives (shared with fonts/extract_plt_fonts.py)
 # ---------------------------------------------------------------------------
 
 # A sampled line and arc, as consumed by :func:`band_envelopes`.

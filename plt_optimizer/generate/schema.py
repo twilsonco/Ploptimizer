@@ -396,9 +396,9 @@ class TextAttributes(BaseModel):
         text_height: Optional font height in inches.
         font: Optional font name selecting the glyph outlines used to render
             text. Valid values are the PLT-extracted font keys of the
-            ``Fonts/VP-EL-Fonts/catalog/*.json`` files (rendered arc-native)
+            ``fonts/VP-EL-fonts/catalog/*.json`` files (rendered arc-native)
             and the basenames
-            of ``*.ttf`` files under ``Fonts/`` (extension stripped, rendered
+            of ``*.ttf`` files under ``fonts/`` (extension stripped, rendered
             through ftext); matching is case-insensitive and the value is
             canonicalized at validation time. Cascades line -> label -> job
             (fallback ``"ReliefSingleLineCAD-Regular"``). Unknown names are
@@ -704,9 +704,9 @@ class TextAttributes(BaseModel):
         default=None,
         description=(
             "Font name: a PLT-extracted font key (the font_name fields of "
-            "Fonts/VP-EL-Fonts/catalog/*.json, rendered arc-native with arcs "
+            "fonts/VP-EL-fonts/catalog/*.json, rendered arc-native with arcs "
             "preserved) or a TrueType basename "
-            "(*.ttf under Fonts/, extension stripped); case-insensitive, "
+            "(*.ttf under fonts/, extension stripped); case-insensitive, "
             "canonicalized at validation. Appending ' SC' to any name "
             "selects its synthetic small-caps variant (uppercase glyphs "
             "verbatim, ASCII lowercase a-z downscaled by sc_scale). "

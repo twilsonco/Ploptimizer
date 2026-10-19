@@ -1,7 +1,7 @@
 # Fixture for multi-stroke (bold) PLT font support.
 #
 # Multi-stroke fonts carry N parallel cutter passes per glyph (the `_S<n>`
-# suffix recorded in the font's Fonts/VP-EL-Fonts/catalog/ file). The automatic
+# suffix recorded in the font's fonts/VP-EL-fonts/catalog/ file). The automatic
 # cutter is sized by
 # the boldness ladder: the engraved passes must total
 # `text_height * target_boldness_factor` of width, with

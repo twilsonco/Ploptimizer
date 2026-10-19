@@ -259,7 +259,7 @@ entries that omit it).
   [0.05, 0.30]; `multistroke_overlap_ratio` default 0.25, bounds [0.1, 0.5]):
   a PLT font whose glyphs carry N > 1 parallel cutter passes (the `_S<n>`
   sample-sheet suffix recorded as `stroke_count` in the font's
-  `Fonts/VP-EL-Fonts/catalog/` file)
+  `fonts/VP-EL-fonts/catalog/` file)
   gets its automatic cutter from the boldness ladder: the engraved passes must
   total `text_height * target_boldness_factor` of width, with
   `multistroke_overlap_ratio` as the gap-free floor (the cutter is never

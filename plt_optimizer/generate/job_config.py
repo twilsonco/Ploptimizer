@@ -96,7 +96,7 @@ class JobDefaults(BaseModel):
     Attributes:
         text_height: Default font height in inches.
         font: Default font name selecting the glyph outlines (PLT-extracted
-            catalog ``font_name`` key or ``Fonts/`` TTF basename,
+            catalog ``font_name`` key or ``fonts/`` TTF basename,
             case-insensitive). Unset falls back to the schema default
             (``ReliefSingleLineCAD-Regular``).
         character_spacing: Default extra spacing between characters (in
@@ -205,7 +205,7 @@ class JobDefaults(BaseModel):
         default=None,
         description=(
             "Default font name (job layer): a PLT-extracted font key or a "
-            "Fonts/ TTF basename, case-insensitive. Canonicalized and "
+            "fonts/ TTF basename, case-insensitive. Canonicalized and "
             "validated when the job spec is built; unset falls back to the "
             "schema default font."
         ),

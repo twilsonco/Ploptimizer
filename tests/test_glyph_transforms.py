@@ -1,4 +1,4 @@
-"""Tests for ``Fonts/glyph_transforms.py`` (HPGL glyph utilities + derived glyphs).
+"""Tests for ``fonts/glyph_transforms.py`` (HPGL glyph utilities + derived glyphs).
 
 The module is not part of the installed package, so it is loaded via
 ``importlib`` (mirroring ``tests/test_extract_plt_fonts.py``). All fixtures are
@@ -22,7 +22,7 @@ MODULE_PATH = REPO_ROOT / "Fonts" / "glyph_transforms.py"
 
 
 def _load_module() -> Any:
-    """Import ``Fonts/glyph_transforms.py`` as a module by path.
+    """Import ``fonts/glyph_transforms.py`` as a module by path.
 
     The module is registered in ``sys.modules`` before execution so
     ``@dataclass`` can resolve its own string annotations.

@@ -103,7 +103,7 @@ class TestBundledAssets:
     """The shipped repository assets must be discoverable."""
 
     def test_paths_point_at_repo_fonts_dir(self) -> None:
-        """The module resolves the real Fonts/ directory."""
+        """The module resolves the real fonts/ directory."""
         assert FONTS_DIR.name == "Fonts"
         assert FONTS_DIR.is_dir()
         assert PLT_FONT_CATALOG_DIR == FONTS_DIR / "VP-EL-Fonts" / "catalog"

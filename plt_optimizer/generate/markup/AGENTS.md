@@ -124,7 +124,7 @@ rebuilding raw markup.
   case-insensitive, in the font's own directory) surfaced as
   `FontRef.italic_path` (an SC variant carries its base's face). No schema
   surface: dropping an italic file next to the regular face is all a shop does.
-  Without a face — the shipped state, since `Fonts/` has no italic files — the
+  Without a face — the shipped state, since `fonts/` has no italic files — the
   glyph is sheared, matching the PLT math. A contour-count drift, an unreadable
   face, or a count-sum mismatch degrades to the shear / upright render with a
   WARNING, never a crash. SC + italic always shears the small glyph (splicing a

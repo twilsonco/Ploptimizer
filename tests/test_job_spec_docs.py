@@ -138,7 +138,7 @@ class TestFontDocumentation:
 
     The schema descriptions deliberately do NOT embed the font list (it
     changes whenever a glyph sheet is extracted or a ``*.ttf`` is dropped
-    into ``Fonts/``); they point at ``generate_schema_docs.py --show-fonts``
+    into ``fonts/``); they point at ``generate_schema_docs.py --show-fonts``
     instead. These tests guard that pointer.
     """
 

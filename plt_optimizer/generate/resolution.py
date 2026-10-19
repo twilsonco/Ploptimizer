@@ -131,7 +131,7 @@ class LineContentConfigError(ValueError):
 # ---------------------------------------------------------------------------
 DEFAULT_TEXT_HEIGHT: float = 0.25
 # Font selected when ``font`` is unset at line/label/job level. The value
-# must be a valid registry name (PLT-extracted key or Fonts/ TTF basename);
+# must be a valid registry name (PLT-extracted key or fonts/ TTF basename);
 # see ``plt_optimizer.generate.font_registry``.
 DEFAULT_FONT: str = DEFAULT_FONT_NAME
 DEFAULT_MARGIN: float = 0.125
@@ -883,7 +883,7 @@ class ResolvedTextLine:
         font: Canonical font name selecting the glyph outlines (cascaded
             line -> label -> job, default ``DEFAULT_FONT``). Either a
             PLT-extracted catalog ``font_name`` key (rendered arc-native) or a
-            ``Fonts/`` TTF basename (rendered through ftext); resolve the
+            ``fonts/`` TTF basename (rendered through ftext); resolve the
             kind via ``font_registry.resolve_font``. A trailing `` SC``
             selects the base font's synthetic small-caps variant (see
             :attr:`sc_scale`).

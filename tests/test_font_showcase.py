@@ -135,7 +135,7 @@ class TestMain:
         assert rc == 0
 
         expected = {f"{script.safe_font_filename(f)}.pdf" for f in font_name_choices()}
-        assert expected, "fixture Fonts/ must contain at least one font"
+        assert expected, "fixture fonts/ must contain at least one font"
         assert {p.name for p in out.glob("*.pdf")} == expected
         assert all(p.read_bytes().startswith(b"%PDF") for p in out.glob("*.pdf"))
 
@@ -160,7 +160,7 @@ class TestLoadAsciiCharacters:
     """The mapping walks the shipped printable-ASCII list."""
 
     def test_shipped_file(self) -> None:
-        """The shipped ``Fonts/ascii.txt`` yields the 94 printable chars."""
+        """The shipped ``fonts/ascii.txt`` yields the 94 printable chars."""
         chars = script.load_ascii_characters()
         assert len(chars) == 94
         assert chars[0] == "!"

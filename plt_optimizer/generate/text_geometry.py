@@ -4,9 +4,9 @@ The generate pipeline historically represented rendered text as vpype
 :class:`~vpype.LineCollection` objects: complex vertex arrays that can only
 carry polylines. That is lossy for two important content sources:
 
-- **PLT-extracted fonts** (``Fonts/VP-EL-Fonts/catalog/``): glyphs engraved from
+- **PLT-extracted fonts** (``fonts/VP-EL-fonts/catalog/``): glyphs engraved from
   EngraveLab/Vision Pro fonts and reverse-engineered by
-  ``Fonts/extract_plt_fonts.py``. Those glyphs are *natively* PU/PD/AA --
+  ``fonts/extract_plt_fonts.py``. Those glyphs are *natively* PU/PD/AA --
   many near-straight strokes are huge-radius best-fit arcs, and flattening
   them would both bloat the toolpath and change the cut.
 - **Future TTF arc fitting**: matplotlib glyph outlines can be fitted with

@@ -1,4 +1,4 @@
-"""Arc-native rendering of PLT-extracted fonts (``Fonts/VP-EL-Fonts/catalog/``).
+"""Arc-native rendering of PLT-extracted fonts (``fonts/VP-EL-fonts/catalog/``).
 
 PLT-extracted fonts store every glyph as baseline-normalized HPGL
 (``PU``/``PD``/``AA``) in the **library design frame** (1000 units per design
@@ -178,7 +178,7 @@ FALLBACK_ADVANCE_FRACTION: float = 1.0
 # and the renderer divides back out here before scaling to the requested text
 # height, so the two constants cancel and the emitted geometry lands on the
 # device scale via ``TextBlock.to_hpgl()``. Keep it at 1000 to match
-# ``LIBRARY_UNITS_PER_INCH`` in ``Fonts/extract_plt_fonts.py`` and the stored
+# ``LIBRARY_UNITS_PER_INCH`` in ``fonts/extract_plt_fonts.py`` and the stored
 # catalog files -- changing only one of them rescales every glyph.
 _DESIGN_UNITS_PER_INCH: float = 1000.0
 
@@ -247,7 +247,7 @@ def _glyph_entry(
 
     Args:
         library_dir_key: Cache key for the font catalog directory (``""``
-            selects the default ``Fonts/VP-EL-Fonts/catalog/``).
+            selects the default ``fonts/VP-EL-fonts/catalog/``).
         font_name: Canonical PLT font name.
         character: The single character to render.
 

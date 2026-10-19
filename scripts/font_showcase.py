@@ -2,7 +2,7 @@
 """Generate one font-showcase PDF per available font.
 
 For every font selectable in a job spec -- the PLT-extracted keys of the
-``Fonts/VP-EL-Fonts/catalog/`` files plus every ``*.ttf`` basename under ``Fonts/``
+``fonts/VP-EL-fonts/catalog/`` files plus every ``*.ttf`` basename under ``fonts/``
 (recursively), i.e. exactly :func:`plt_optimizer.generate.font_registry.font_name_choices` --
 this script renders a fixed seven-line sample block and writes one
 "simple"-mode outline PDF (the same black-outline styling the ``generate``
@@ -19,20 +19,20 @@ showcased) followed by::
     – — • ∞ ± ¢ ≠ ≈ ≡ ¿ ¡ † ‡ ↑ ↓ ← →
 
 The last two lines are the **derived-glyph pair** from
-``Fonts/glyph_transforms.py``: the ASCII base set on one line, then the 17
+``fonts/glyph_transforms.py``: the ASCII base set on one line, then the 17
 derived Unicode characters built from those bases, so a showcase PDF shows
 both sides of every recipe side by side. The two lines have different lengths
 because ``-`` and ``|`` each feed several recipes. A TrueType font that lacks a
 derived codepoint renders that font's own ``.notdef`` glyph, which is exactly
 the coverage information a showcase is for.
 
-Fonts listed in ``Fonts/VP-EL-Fonts/non_text_fonts.txt`` (symbol fonts such
+Fonts listed in ``fonts/VP-EL-fonts/non_text_fonts.txt`` (symbol fonts such
 as ``Wingdings``) are **non-text**: they engrave their ASCII slots with
 symbols, so the letter sample block above is meaningless for them (the
 derived-glyph pair is dropped, the small-caps variant is exempted at the
 registry, and those fonts contribute no ``"<base> SC"`` PDF either). Their
 showcase is a **key -> symbol mapping** instead: one cell per character of
-``Fonts/ascii.txt``, each cell engraving the ASCII key (``a:``, ``b:``, ...)
+``fonts/ascii.txt``, each cell engraving the ASCII key (``a:``, ``b:``, ...)
 in :data:`plt_optimizer.generate.ftext_renderer.DEFAULT_FONT_PATH` followed by
 the symbol the showcased font engraves for that key, laid out as a
 :data:`MAPPING_COLUMNS`-column grid under a header naming the mapping. The key
@@ -125,7 +125,7 @@ DEFAULT_OUTPUT_DIR: Path = REPO_ROOT / "test_output" / "font_showcase"
 
 # The fixed sample block rendered under the font-name line. The last two
 # lines are the derived-glyph pair (ASCII bases, then the derived Unicode
-# characters built from them by Fonts/glyph_transforms.py); the bases are in
+# characters built from them by fonts/glyph_transforms.py); the bases are in
 # DERIVED_GLYPHS order and deduplicated (- and | each feed several recipes).
 SHOWCASE_LINES: Tuple[str, ...] = (
     "The quick brown fox jumps over the lazy dog",
@@ -152,7 +152,7 @@ BODY_TEXT_HEIGHT: float = 0.3
 # --- Symbol-font (non-text) key -> symbol mapping layout, in inches ---------
 # The ordered character set the mapping walks: the 94 printable ASCII
 # characters, i.e. exactly the slots an engraved sample sheet is extracted
-# from (see Fonts/extract_plt_fonts.py).
+# from (see fonts/extract_plt_fonts.py).
 ASCII_CHARS_FILE: Path = FONTS_DIR / "ascii.txt"
 
 # The grid: MAPPING_COLUMNS cells per row, one cell per ASCII character. The
@@ -195,10 +195,10 @@ def safe_font_filename(font_name: str) -> str:
 def load_ascii_characters(ascii_file: Path = ASCII_CHARS_FILE) -> List[str]:
     """Return the ordered printable-ASCII characters the mapping walks.
 
-    Mirrors ``Fonts/extract_plt_fonts.py::load_characters``: every whitespace
+    Mirrors ``fonts/extract_plt_fonts.py::load_characters``: every whitespace
     run in the file is a separator and the remaining characters, in file
-    order, are the character set (94 for the shipped ``Fonts/ascii.txt``).
-    The rule is duplicated rather than imported because ``Fonts/`` is a data
+    order, are the character set (94 for the shipped ``fonts/ascii.txt``).
+    The rule is duplicated rather than imported because ``fonts/`` is a data
     directory, not a package, so the showcase stays a plain consumer of the
     same fixture the extractor owns.
 
@@ -224,7 +224,7 @@ def load_ascii_characters(ascii_file: Path = ASCII_CHARS_FILE) -> List[str]:
 def is_non_text_font(font_name: str) -> bool:
     """Return whether ``font_name`` is a listed symbol (non-text) font.
 
-    The single source of truth for the ``Fonts/VP-EL-Fonts/non_text_fonts.txt``
+    The single source of truth for the ``fonts/VP-EL-fonts/non_text_fonts.txt``
     membership test, shared by the sample-line pruning and the mapping-mode
     dispatch. Lookup is case-insensitive (the registry lowercases the list).
 
@@ -300,7 +300,7 @@ def build_showcase_job(font_name: str, width: float = LABEL_WIDTH) -> JobSpec:
 def _covered_showcase_lines(font_name: str) -> Tuple[str, ...]:
     """Return :data:`SHOWCASE_LINES` pruned to the glyphs ``font_name`` has.
 
-    A **non-text** font (listed in ``Fonts/VP-EL-Fonts/non_text_fonts.txt``,
+    A **non-text** font (listed in ``fonts/VP-EL-fonts/non_text_fonts.txt``,
     e.g. Wingdings) engraves its ASCII slots with symbols, so the derived-
     glyph pair is meaningless for it: the derived-glyph line is dropped
     entirely. Other PLT fonts engrave letters but may lack individual derived
@@ -725,7 +725,7 @@ def _build_parser() -> argparse.ArgumentParser:
         description=(
             "Render a font-showcase PDF (font name + pangram + upper/lower "
             "case + digits/symbols) for every PLT and TrueType font. Fonts "
-            "listed in Fonts/VP-EL-Fonts/non_text_fonts.txt get an ASCII key "
+            "listed in fonts/VP-EL-fonts/non_text_fonts.txt get an ASCII key "
             "-> symbol mapping grid instead."
         )
     )
@@ -767,7 +767,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     fonts = font_name_choices()
     if not fonts:
         logger.error(
-            "No fonts found (VP-EL-Fonts catalog keys + Fonts/**.ttf basenames); nothing to do."
+            "No fonts found (VP-EL-Fonts catalog keys + fonts/**.ttf basenames); nothing to do."
         )
         return 1
 

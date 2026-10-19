@@ -1,4 +1,4 @@
-"""Tests for ``Fonts/extract_plt_fonts.py`` (PLT font reverse-engineering).
+"""Tests for ``fonts/extract_plt_fonts.py`` (PLT font reverse-engineering).
 
 The script is not part of the installed package, so it is loaded via
 ``importlib`` (mirroring ``tests/test_job_spec_docs.py``). Most geometry
@@ -10,7 +10,7 @@ numerically.
 Two real-world fixtures pin behaviour end-to-end:
 
 * ``tests_deps/dino_0.5_E.plt`` (a copy of
-  ``Fonts/VP-EL-Fonts/input-plt/dino_0.67_E_S1.plt``'s 0.5in predecessor)
+  ``fonts/VP-EL-fonts/input-plt/dino_0.67_E_S1.plt``'s 0.5in predecessor)
   drives the full multi-row extraction against real EngraveLab output.
 * ``tests_deps/dino_word_sample.plt`` pins the guard rail: a *word* engraving
   (no framing, not the full ASCII set) must be rejected rather than mis-mapped.
@@ -35,13 +35,13 @@ SCRIPT_PATH = REPO_ROOT / "Fonts" / "extract_plt_fonts.py"
 DINO_FRAMED_FIXTURE = REPO_ROOT / "tests_deps" / "dino_0.5_E.plt"
 DINO_WORD_FIXTURE = REPO_ROOT / "tests_deps" / "dino_word_sample.plt"
 
-# Printable ASCII 33..126 - the shipped Fonts/ascii.txt content, inlined so
+# Printable ASCII 33..126 - the shipped fonts/ascii.txt content, inlined so
 # tests never read files outside tests_deps/.
 ASCII_CHARS = "".join(chr(code) for code in range(33, 127))
 
 
 def _load_script() -> Any:
-    """Import ``Fonts/extract_plt_fonts.py`` as a module by path.
+    """Import ``fonts/extract_plt_fonts.py`` as a module by path.
 
     The module is registered in ``sys.modules`` before execution so
     ``@dataclass`` can resolve its own string annotations.
@@ -59,7 +59,7 @@ def _load_script() -> Any:
 
 script = _load_script()
 
-# Loading the script puts Fonts/ on sys.path (its own sibling import), so the
+# Loading the script puts fonts/ on sys.path (its own sibling import), so the
 # shared tuning constants are reachable for ratio assertions.
 import glyph_transforms as gt  # noqa: E402
 

@@ -7,11 +7,11 @@ VisionPro.md`` beside this script) is:
 
 1. In EngraveLab/Vision Pro, use the **Text Compose** tool (never *Frame Text
    Compose*, which compresses to fit the plate) and type the characters of
-   ``Fonts/ascii.txt`` in order, split across as many rows as the plate
+   ``fonts/ascii.txt`` in order, split across as many rows as the plate
    needs. **Every row must start and end with one chosen reference
    character** (e.g. ``E``), which acts as structural framing only.
 2. Engrave the sheet to a PLT file.
-3. Drop the PLT into ``Fonts/VP-EL-Fonts/input-plt/`` named
+3. Drop the PLT into ``fonts/VP-EL-fonts/input-plt/`` named
    ``<font name>_<declared height in>_<reference char>[_S<strokes>].plt``
    (e.g. ``dino_0.5_E.plt``, ``avenge5_0.55_E_S5.plt``). The optional
    ``_S<n>`` suffix declares how many parallel cutter passes each glyph
@@ -20,7 +20,7 @@ VisionPro.md`` beside this script) is:
    the renderer's automatic cutter sizing.
 4. Run this script::
 
-       uv run python Fonts/extract_plt_fonts.py
+       uv run python fonts/extract_plt_fonts.py
 
 Each sheet is parsed with the core :class:`~plt_optimizer.core.parser.PLTParser`
 and verified structurally before any glyph data is trusted:
@@ -29,7 +29,7 @@ and verified structurally before any glyph data is trusted:
   merging of their Y extents, and the split is searched until the layout is
   self-consistent (see :func:`find_layout`).
 * **Count check** - the characters inside the framing must match
-  ``Fonts/ascii.txt`` exactly (``sum(n_row - 2) == len(characters)``).
+  ``fonts/ascii.txt`` exactly (``sum(n_row - 2) == len(characters)``).
 * **Framing check** - the internal copy of the reference character (the one
   that ``ascii.txt`` assigns a real character slot) must coincide with every
   row-framing copy to within :data:`REFERENCE_MATCH_TOLERANCE` units once
@@ -66,13 +66,13 @@ and the cap line (``y = 1000``) - and ``--no-vertical-centering`` disables the
 pass entirely for A/B comparison against the raw engraved positions.
 
 The result is written as **one JSON file per font** into
-``Fonts/VP-EL-Fonts/catalog/`` (file name = the font key with
+``fonts/VP-EL-fonts/catalog/`` (file name = the font key with
 file-name-illegal characters replaced by ``_``, e.g. ``Dino.json``). The
 font key itself is the file's ``font_name`` value, not its name::
 
     {
       "font_name": "Dino",
-      "file_path": "Fonts/VP-EL-Fonts/input-plt/dino_0.5_E.plt",
+      "file_path": "fonts/VP-EL-fonts/input-plt/dino_0.5_E.plt",
       "stroke_count": 1,
       "reference_char": "E",
       "declared_height_in": 0.5,
@@ -103,15 +103,15 @@ file; catalog files of fonts not extracted in this run are preserved, unless
 ``--rebuild`` is given, which clears the catalog directory first.
 
 After extraction, each font gains the **derived Unicode glyphs** of
-``Fonts/glyph_transforms.py``: common typographic characters that cannot be
-engraved from ``Fonts/ascii.txt`` (``-`` -> ``–``/``—``, ``.`` -> ``•``,
+``fonts/glyph_transforms.py``: common typographic characters that cannot be
+engraved from ``fonts/ascii.txt`` (``-`` -> ``–``/``—``, ``.`` -> ``•``,
 ``8`` -> ``∞``, ``+``/``_`` -> ``±``, ...). They are built by transforming the
 just-extracted ASCII bases, with bounding box and envelopes re-sampled from the
 *transformed* geometry, and are merged in alongside the engraved keys. A
 derived key never overwrites an engraved one, and a glyph whose base character
 is missing is skipped with a WARNING.
 
-Fonts listed in ``Fonts/VP-EL-Fonts/non_text_fonts.txt`` (symbol fonts such
+Fonts listed in ``fonts/VP-EL-fonts/non_text_fonts.txt`` (symbol fonts such
 as ``Wingdings``; the same list drives the small-caps exemption in
 ``plt_optimizer/generate/font_registry.py`` and the showcase's Unicode line
 in ``scripts/font_showcase.py``) skip the derivation step entirely: their
@@ -138,7 +138,7 @@ if str(SCRIPT_DIR) not in sys.path:  # sibling module, same reason
     sys.path.insert(0, str(SCRIPT_DIR))
 
 # Shared geometry, formatting, swept-arc sampling and derived-glyph machinery
-# (documented in Fonts/glyph_transforms.py). ``arc_bounds``/``segment_bounds``
+# (documented in fonts/glyph_transforms.py). ``arc_bounds``/``segment_bounds``
 # are re-exported for callers that reach them through this module.
 from glyph_transforms import (  # noqa: E402
     MIDLINE_FRACTION,
@@ -170,7 +170,7 @@ DEFAULT_OUTPUT_DIR = FONTS_DIR / "VP-EL-Fonts" / "catalog"
 DEFAULT_ASCII_FILE = FONTS_DIR / "ascii.txt"
 
 # Library design frame: the units per *design* inch that the catalog files
-# (``Fonts/VP-EL-Fonts/catalog/*.json``) store. This is NOT the device plotter scale -- HPGL's default step is
+# (``fonts/VP-EL-fonts/catalog/*.json``) store. This is NOT the device plotter scale -- HPGL's default step is
 # 0.025 mm = 1/1016 inch (see ``plt_optimizer/core/units.py``), and the sample
 # sheets are engraved at that 1016 scale.
 #
@@ -364,7 +364,7 @@ def load_characters(ascii_file: Path) -> List[str]:
     engraved sheet and are stripped before alignment.
 
     Args:
-        ascii_file: Path to ``Fonts/ascii.txt``.
+        ascii_file: Path to ``fonts/ascii.txt``.
 
     Returns:
         Ordered list of characters (94 for the shipped ``ascii.txt``).
@@ -1507,13 +1507,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         description=(
             "Extract baseline-normalized per-character HPGL glyphs and left/right "
             "profile envelopes from engraved, reference-framed ASCII sample sheets "
-            "into one JSON file per font (Fonts/VP-EL-Fonts/catalog/)."
+            "into one JSON file per font (fonts/VP-EL-fonts/catalog/)."
         ),
         epilog=(
             "Typical usage:\n"
-            "  uv run python Fonts/extract_plt_fonts.py\n"
-            "  uv run python Fonts/extract_plt_fonts.py --font-name Dino "
-            "--input-dir Fonts/VP-EL-Fonts/input-plt -v\n"
+            "  uv run python fonts/extract_plt_fonts.py\n"
+            "  uv run python fonts/extract_plt_fonts.py --font-name Dino "
+            "--input-dir fonts/VP-EL-fonts/input-plt -v\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

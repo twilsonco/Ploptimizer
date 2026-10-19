@@ -2,7 +2,7 @@
 
 EngraveLab and Vision Pro cannot export their vector fonts, but they can
 *engrave* them. This guide turns any installed font into a per-font JSON file
-in `Fonts/VP-EL-Fonts/catalog/`: baseline-normalized HPGL toolpaths plus
+in `fonts/VP-EL-fonts/catalog/`: baseline-normalized HPGL toolpaths plus
 left/right profile envelopes, one per printable ASCII character, ready for
 the label generator to place, scale, and kern.
 
@@ -88,20 +88,20 @@ compresses the output (glyphs come out squashed, or the measured reference
 height logged in Step 4 is far below your chosen height), lower the text
 height and re-engrave.
 
-## Step 3 — Copy the PLT into `Fonts/VP-EL-Fonts/input-plt/`
+## Step 3 — Copy the PLT into `fonts/VP-EL-fonts/input-plt/`
 
 Save/copy the file as:
 
 ```
-Fonts/VP-EL-Fonts/input-plt/<font name>_<declared text height>_<reference char>.plt
+fonts/VP-EL-fonts/input-plt/<font name>_<declared text height>_<reference char>.plt
 ```
 
 where `<declared text height>` is the text height set in Step 1 (inches) and
 `<reference char>` is the framing character chosen in Step 1:
 
 ```
-Fonts/VP-EL-Fonts/input-plt/dino_0.5_E.plt             →  font "Dino",            0.5 in, ref E
-Fonts/VP-EL-Fonts/input-plt/heavy_engraving_0.25_H.plt →  font "Heavy Engraving", 0.25 in, ref H
+fonts/VP-EL-fonts/input-plt/dino_0.5_E.plt             →  font "Dino",            0.5 in, ref E
+fonts/VP-EL-fonts/input-plt/heavy_engraving_0.25_H.plt →  font "Heavy Engraving", 0.25 in, ref H
 ```
 
 The font-name part becomes the JSON key with underscores turned into spaces
@@ -117,16 +117,16 @@ the character list and are rejected with a clear error.
 ## Step 4 — Run the extractor
 
 ```bash
-uv run python Fonts/extract_plt_fonts.py
+uv run python fonts/extract_plt_fonts.py
 ```
 
-The script processes every `Fonts/VP-EL-Fonts/input-plt/*.plt` and, per sheet:
+The script processes every `fonts/VP-EL-fonts/input-plt/*.plt` and, per sheet:
 
 1. **Parses** it with the core PLT parser and **groups the strokes into rows**
    (single-linkage merging of Y extents). The row split and the per-row glyph
    split are auto-searched — nothing about the row pitch or character pitch
    needs to be configured.
-2. **Verifies the layout** against `Fonts/ascii.txt` before trusting any
+2. **Verifies the layout** against `fonts/ascii.txt` before trusting any
    glyph:
    - *Count check:* the payload glyphs inside the framing must total exactly
      the character count (`Σ(row_glyphs − 2) = 94`).
@@ -167,19 +167,19 @@ The script processes every `Fonts/VP-EL-Fonts/input-plt/*.plt` and, per sheet:
    hairline can slip through, giving the typesetter real air-gap profiles for
    tight kerning instead of fixed advance widths.
 5. **Writes** the font as its own JSON file in
-   [`Fonts/VP-EL-Fonts/catalog/`](VP-EL-Fonts/catalog/) (file name = the font
+   [`fonts/VP-EL-fonts/catalog/`](VP-EL-fonts/catalog/) (file name = the font
    key, e.g. `Dino.json`; the key itself is the file's `font_name` field).
    Catalog files of fonts not extracted in this run are preserved; only the
    fonts just extracted are replaced.
 
 ### Output schema
 
-One file per font (`Fonts/VP-EL-Fonts/catalog/Dino.json`):
+One file per font (`fonts/VP-EL-fonts/catalog/Dino.json`):
 
 ```json
 {
   "font_name": "Dino",
-  "file_path": "Fonts/VP-EL-Fonts/input-plt/dino_0.5_E.plt",
+  "file_path": "fonts/VP-EL-fonts/input-plt/dino_0.5_E.plt",
   "reference_char": "E",
   "declared_height_in": 0.5,
   "reference_char_height_in": 0.508017,
@@ -254,7 +254,7 @@ Rules:
   (`reference_char` + its `bounding_box.max_y`), so `--rebuild` and merge
   runs produce identical derived keys.
 - **Non-text (symbol) fonts are exempt.** Every font named in
-  [`VP-EL-Fonts/non_text_fonts.txt`](VP-EL-Fonts/non_text_fonts.txt)
+  [`VP-EL-fonts/non_text_fonts.txt`](VP-EL-fonts/non_text_fonts.txt)
   (one name per line, case-insensitive; `#` comments allowed — currently
   `Wingdings`) engraves its ASCII slots with symbols, so the recipes would
   build nonsense: the extractor skips the derivation step entirely for it.

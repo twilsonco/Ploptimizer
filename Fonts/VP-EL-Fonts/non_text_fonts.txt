@@ -2,7 +2,7 @@
 # Blank lines and '#' comments are ignored.
 #
 # A font listed here engraves symbols rather than letters, so it is exempt
-# from: (a) derived-Unicode glyph creation (Fonts/extract_plt_fonts.py),
+# from: (a) derived-Unicode glyph creation (fonts/extract_plt_fonts.py),
 # (b) the Unicode line in the font showcase (scripts/font_showcase.py),
 # and (c) the synthetic "<base> SC" small-caps variant
 # (plt_optimizer/generate/font_registry.py). The base font itself stays

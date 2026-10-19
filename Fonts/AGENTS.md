@@ -1,4 +1,4 @@
-# AGENTS.md - Font Library & Extraction (`Fonts/`)
+# AGENTS.md - Font Library & Extraction (`fonts/`)
 
 Parent contracts: [`../AGENTS.md`](../AGENTS.md) (global standards; §4's
 device-scale note explains the font-library design frame) and
@@ -11,7 +11,7 @@ font-registry bullets).
 - `extract_plt_fonts.py` - the v2 extractor. Workflow guide:
   "How to extract fonts from EngraveLab or VisionPro.md" (Text Compose, rows
   framed by the reference char, engrave → PLT). Run:
-  `uv run python Fonts/extract_plt_fonts.py`.
+  `uv run python fonts/extract_plt_fonts.py`.
 - `glyph_transforms.py` - arc-native HPGL glyph utilities + the 17 derived
   Unicode glyphs (`–—•∞±¢≠≈≡¿¡†‡↑↓←→`) built from ASCII bases. Operates on the
   catalog's self-contained HPGL command strings at full float precision (the
@@ -20,14 +20,14 @@ font-registry bullets).
 - `ascii.txt` / `ascii_E.txt` / `ascii_2space*.txt` - character-order reference
   sheets the extractor verifies rows against (count + framing geometry ≤ 1e-3
   units).
-- `VP-EL-Fonts/input-plt/` - the engraved sample sheets, named
+- `VP-EL-fonts/input-plt/` - the engraved sample sheets, named
   `<font>_<height in>_<ref char>[_S<n>].plt` (`_S<n>` = multi-stroke/bold pass
   count → `stroke_count` metadata; `_S0` is an error, `_Sx` is not stripped).
-- `VP-EL-Fonts/catalog/*.json` - one file per font (the v2 library the renderer
+- `VP-EL-fonts/catalog/*.json` - one file per font (the v2 library the renderer
   loads via `../plt_optimizer/generate/font_registry.py`).
-- `VP-EL-Fonts/non_text_fonts.txt` - symbol-font exemptions (Wingdings etc.):
+- `VP-EL-fonts/non_text_fonts.txt` - symbol-font exemptions (Wingdings etc.):
   no derived glyphs, no `SC` variant, showcase = key→symbol grid.
-- `Line Fonts/`, `ReliefSingleLine/` - raw font source files (`.VEF`, TTF/OTF).
+- `Line fonts/`, `ReliefSingleLine/` - raw font source files (`.VEF`, TTF/OTF).
 
 ## v2 library contract (the renderer depends on all of it)
 
@@ -53,5 +53,5 @@ font-registry bullets).
 - After a library regen, demo AA-arc counts in
   `tests/test_phase3_export.py` may need re-pinning (kerning/compression
   changes flatten arcs) - re-pin only when counts actually move.
-- `Fonts/` scripts run on the dev interpreter (uv, modern Python); only the
+- `fonts/` scripts run on the dev interpreter (uv, modern Python); only the
   emitted library data crosses to the Win7 runtime.

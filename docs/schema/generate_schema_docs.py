@@ -157,8 +157,8 @@ def format_fonts_list() -> list[str]:
     """List every valid ``font`` value from the live font registry.
 
     PLT-extracted fonts (the ``font_name`` keys of
-    ``Fonts/VP-EL-Fonts/catalog/*.json``, rendered arc-native)
-    and TrueType fonts (``*.ttf`` basenames under ``Fonts/``) are reported
+    ``fonts/VP-EL-fonts/catalog/*.json``, rendered arc-native)
+    and TrueType fonts (``*.ttf`` basenames under ``fonts/``) are reported
     separately, followed by the synthetic ``"<base> SC"`` small-caps variants
     and the combined list the schema accepts.
 
@@ -180,12 +180,12 @@ def format_fonts_list() -> list[str]:
         f"(default when unset: {font_registry.DEFAULT_FONT_NAME}):",
         "",
         f"- PLT-extracted ({len(plt_fonts)}) — rendered arc-native, arcs "
-        "preserved end-to-end (Fonts/VP-EL-Fonts/catalog/):",
+        "preserved end-to-end (fonts/VP-EL-fonts/catalog/):",
     ]
     lines += [f"  - **{name}**" for name in plt_fonts] or ["  - (none found)"]
     lines += [
         f"- TrueType ({len(ttfs)}) — rendered through the ftext path "
-        "(*.ttf basenames under Fonts/):",
+        "(*.ttf basenames under fonts/):",
     ]
     lines += [f"  - **{name}**" for name in ttfs] or ["  - (none found)"]
     lines += [

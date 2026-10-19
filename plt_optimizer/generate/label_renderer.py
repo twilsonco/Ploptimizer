@@ -2961,7 +2961,7 @@ def _small_caps_render_gate(
       has no additional effect there -- the renderers keep the font-level
       whole-line selection (``lowercase_scale`` / ``small_caps_scale`` with
       no flags), bit-identical to the pre-tag behaviour;
-    * a **symbol font** (``Fonts/VP-EL-Fonts/non_text_fonts.txt``) engraves
+    * a **symbol font** (``fonts/VP-EL-fonts/non_text_fonts.txt``) engraves
       symbols in its ASCII slots and is exempt from the `` SC`` variant
       because it has no lowercase to shrink -- the same reasoning applies
       inline, so the tag is a no-op.

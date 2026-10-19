@@ -36,11 +36,11 @@ JobSpec (job-level defaults)
 **TextAttributes** (cascades to TextLine):
 - `text_height`: Font height in inches
 - `font`: Font name selecting the glyph outlines. Either a PLT-extracted
-  `Fonts/VP-EL-Fonts/catalog/*.json` `font_name` key (one JSON file per font,
+  `fonts/VP-EL-fonts/catalog/*.json` `font_name` key (one JSON file per font,
   rendered **arc-native** through
   `plt_font_renderer.py`: PU/PD/AA glyphs keep their native `AA` arcs
   end-to-end — only X-compression may flatten them, with a WARNING) or a
-  `Fonts/**.ttf` basename (extension stripped, rendered through the
+  `fonts/**.ttf` basename (extension stripped, rendered through the
   matplotlib `ftext_renderer` path). Case-insensitive, canonicalized at
   validation (`font_registry.resolve_font`); unknown names are rejected.
   Appending ` SC` to any name selects that font's synthetic **small-caps**
@@ -89,16 +89,16 @@ JobSpec (job-level defaults)
   raises `PltFontRenderError` at render → `LabelRenderError` (CLI
   non-zero). Every v2 library font also carries 17 **derived Unicode
   glyphs** (`–—•∞±¢≠≈≡¿¡†‡↑↓←→`) that `extract_plt_fonts.py` builds from
-  ASCII bases through `Fonts/glyph_transforms.py` (affine transforms with
+  ASCII bases through `fonts/glyph_transforms.py` (affine transforms with
   arc-sweep rules; bounding box and envelopes re-sampled from the
   transformed geometry), so they kern and render like engraved characters.
-  Fonts listed in `Fonts/VP-EL-Fonts/non_text_fonts.txt` (symbol fonts such
+  Fonts listed in `fonts/VP-EL-fonts/non_text_fonts.txt` (symbol fonts such
   as `Wingdings`; the shared list is read by
   `font_registry.non_text_font_names()`) engrave their ASCII slots with
   symbols, so they are exempt from derivation, from the showcase's Unicode
   line, and from the `SC` variant (see Small Caps Fonts below). Their font
   showcase (`scripts/font_showcase.py`) is a **key -> symbol mapping** grid
-  instead of the letter sample block: one cell per `Fonts/ascii.txt`
+  instead of the letter sample block: one cell per `fonts/ascii.txt`
   character, each engraving the ASCII key (`a:`, `b:`, ...) in
   `ftext_renderer.DEFAULT_FONT_PATH` beside the font's symbol, under a
   header naming the mapping (see the showcase's `render_mapping_layout`).
@@ -436,11 +436,11 @@ A PLT sample sheet may be engraved with **N parallel cutter passes per glyph**
 `avenge5_0.55_E_S5.plt`); omitting `_S<n>` means a single-stroke font. The
 extractor stores the engraved passes **verbatim** — the sheet is the source of
 truth for the bold shape — and records the count as the per-font
-`stroke_count` key in its `Fonts/VP-EL-Fonts/catalog/` file. The renderer therefore emits the
+`stroke_count` key in its `fonts/VP-EL-fonts/catalog/` file. The renderer therefore emits the
 stored geometry unchanged (arcs stay native, envelopes/glyph groups untouched);
 the stroke count drives **cutter sizing only**.
 
-- `Fonts/extract_plt_fonts.py::parse_font_file_name` strips the `_S<n>` suffix
+- `fonts/extract_plt_fonts.py::parse_font_file_name` strips the `_S<n>` suffix
   **before** the existing `rsplit("_", 2)` (so font names with underscores and
   symbol reference chars like `^` keep working) and returns
   `(name, height, ref_char, stroke_count)`. `_S0` is a
@@ -1109,7 +1109,7 @@ partitions (the intra-chunk glyph sweep) stay exact.
   `"<base> sc" -> (kind, "<base> SC", base, small_caps=True)` for every PLT
   key and TTF basename (case-insensitive; `setdefault` after all bases, so a
   real font literally named `"Foo SC"` wins its name). Bases listed in
-  `Fonts/VP-EL-Fonts/non_text_fonts.txt` (symbol fonts such as `Wingdings`,
+  `fonts/VP-EL-fonts/non_text_fonts.txt` (symbol fonts such as `Wingdings`,
   read by the `lru_cache`'d `non_text_font_names()` — one name per line,
   case-insensitive, `#` comments and blanks ignored, a missing file means no
   exemptions) contribute **no** `SC` variant: a symbol font has no lowercase

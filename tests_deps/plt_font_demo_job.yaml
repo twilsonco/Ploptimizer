@@ -8,7 +8,7 @@
 #     Glyphs carry native AA arcs that must survive end-to-end (no
 #     flattening), so the rendered label contains AA commands.
 #   - ttf_card: label-level override to ReliefSingleLineCAD-Regular (a
-#     Fonts/ TrueType basename). The ftext path is polyline-only, so the
+#     fonts/ TrueType basename). The ftext path is polyline-only, so the
 #     rendered label contains NO AA commands.
 #   - mixed_tag: two lines with different fonts -- the first overrides at
 #     the TEXT LINE level (Jhanuni, arc-bearing), the second inherits the

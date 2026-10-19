@@ -178,7 +178,7 @@ _FALLBACK_NOTES: dict[str, str] = {
     "explicitly.",
     "DEFAULT_FONT": "Font fallback when unset at line/label/job level (and when job-config "
     "font is unset). Must be a valid font_registry name: a PLT-extracted catalog font_name key "
-    "(arc-native) or a Fonts/ TTF basename; run generate_schema_docs.py --show-fonts.",
+    "(arc-native) or a fonts/ TTF basename; run generate_schema_docs.py --show-fonts.",
     "DEFAULT_FONT_NAME": "Registry-level default font name (font_registry.DEFAULT_FONT_NAME); "
     "resolution.DEFAULT_FONT mirrors it.",
     "DEFAULT_SC_SCALE": "0.7 = a small-caps font (a font name ending in ' SC', a synthetic "

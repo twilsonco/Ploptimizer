@@ -4,8 +4,8 @@ Two font families are selectable from a job spec via the cascading ``font``
 attribute:
 
 1. **PLT-extracted fonts** -- one JSON file per font under
-   ``Fonts/VP-EL-Fonts/catalog/``, produced by
-   ``Fonts/extract_plt_fonts.py`` from engraved EngraveLab / Vision Pro
+   ``fonts/VP-EL-fonts/catalog/``, produced by
+   ``fonts/extract_plt_fonts.py`` from engraved EngraveLab / Vision Pro
    sample sheets. Each file's ``font_name`` field is the font key. Each glyph
    is a baseline-normalized HPGL
    (``PU``/``PD``/``AA``) string in the library **design frame** (1000 units
@@ -18,7 +18,7 @@ attribute:
    box and left/right profile envelopes used for kerning (see
    :class:`PltGlyphEntry`). These render natively with arcs preserved (see
    :mod:`plt_optimizer.generate.plt_font_renderer`).
-2. **TrueType fonts** -- every ``*.ttf`` under ``Fonts/`` (recursively),
+2. **TrueType fonts** -- every ``*.ttf`` under ``fonts/`` (recursively),
    selected by file-name basename without extension (e.g.
    ``"ReliefSingleLineCAD-Regular"``). These render through
    :mod:`plt_optimizer.generate.ftext_renderer`.
@@ -38,10 +38,10 @@ for the per-family transforms). The variant shares the base's kind (PLT
 variants stay arc-native, TTF variants render through ftext).
 
 Fonts that engrave **symbols** rather than letters (e.g. Wingdings) are
-listed in ``Fonts/VP-EL-Fonts/non_text_fonts.txt`` (see
+listed in ``fonts/VP-EL-fonts/non_text_fonts.txt`` (see
 :data:`NON_TEXT_FONTS_FILE` / :func:`non_text_font_names`). A listed base
 font is exempt from the synthetic small-caps variant (no ``"<base> SC"``
-key), from derived-Unicode glyph creation in ``Fonts/extract_plt_fonts.py``,
+key), from derived-Unicode glyph creation in ``fonts/extract_plt_fonts.py``,
 and from the Unicode line in ``scripts/font_showcase.py``; the base font
 itself stays fully selectable.
 
@@ -60,11 +60,11 @@ from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# Repository Fonts/ directory, resolved relative to this module so the
+# Repository fonts/ directory, resolved relative to this module so the
 # lookup works regardless of the current working directory at runtime.
 FONTS_DIR: Path = Path(__file__).resolve().parent.parent.parent / "Fonts"
 
-# The PLT-extracted font catalog produced by Fonts/extract_plt_fonts.py:
+# The PLT-extracted font catalog produced by fonts/extract_plt_fonts.py:
 # one JSON file per font, keyed by the file's ``font_name`` field.
 PLT_FONT_CATALOG_DIR: Path = FONTS_DIR / "VP-EL-Fonts" / "catalog"
 
@@ -86,7 +86,7 @@ _SMALL_CAPS_SEPARATOR: str = " "
 # case-insensitively; blank lines and ``#`` comments are ignored. A listed
 # base font is exempt from the synthetic ``"<base> SC"`` variant (see
 # :func:`_canonical_map`), from derived-Unicode glyph creation in
-# ``Fonts/extract_plt_fonts.py``, and from the Unicode line in
+# ``fonts/extract_plt_fonts.py``, and from the Unicode line in
 # ``scripts/font_showcase.py``. A missing file means no exemptions.
 NON_TEXT_FONTS_FILE: Path = FONTS_DIR / "VP-EL-Fonts" / "non_text_fonts.txt"
 

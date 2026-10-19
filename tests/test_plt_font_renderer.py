@@ -1,6 +1,6 @@
 """Tests for the arc-native PLT-extracted font renderer (v2 schema).
 
-The bundled ``Fonts/VP-EL-Fonts/catalog/`` provides the real glyph library; a
+The bundled ``fonts/VP-EL-fonts/catalog/`` provides the real glyph library; a
 synthetic v2 library (``tmp_path``) pins the exact layout math (baseline
 anchoring, envelope kerning, space advance) with hand-computable glyph
 geometry.
@@ -43,7 +43,7 @@ from plt_optimizer.generate.text_geometry import ArcSeg, LineSeg, Stroke, TextBl
 
 
 def _load_glyph_transforms() -> Any:
-    """Import ``Fonts/glyph_transforms.py`` by path for its tuning constants.
+    """Import ``fonts/glyph_transforms.py`` by path for its tuning constants.
 
     The derived-glyph ratios asserted below follow the shared recipe constants,
     so they stay valid when the shop retunes them.
