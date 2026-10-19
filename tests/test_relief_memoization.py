@@ -4,13 +4,16 @@ The relief re-measures the SAME line ink over and over: every fixpoint pass
 re-indexes the unchanged lines with a fresh :class:`InkGrid`, and every
 collision-sweep step re-renders a label whose non-compressed lines are
 byte-identical (the sweep scales X only, on colliding lines), rebuilding
-every line's per-glyph ink boxes. Both leaves are pure functions of
-hashable inputs and their results are read-only, so both are memoized:
+every line's per-glyph ink boxes. All three leaves are pure functions of
+hashable inputs and their results are read-only, so all are memoized:
 
 - :func:`plt_optimizer.generate.geometry.ink_grid_for` — LRU-memoized grid
   construction (``InkGrid`` is read-only after ``__init__``);
 - ``label_renderer._glyph_boxes`` — LRU-memoized glyph-box tuple, returned
-  as a fresh list per call.
+  as a fresh list per call;
+- ``label_renderer._shifted_boxes`` — LRU-memoized stacked-frame shift (the
+  relief re-shifts unchanged lines onto unchanged baselines every fixpoint
+  pass), returned as a fresh list per call.
 
 Pinned here:
 
@@ -33,6 +36,7 @@ from typing import Any, List, Tuple
 
 import pytest
 
+from plt_optimizer.generate.descender_adjust import GlyphBox
 from plt_optimizer.generate.geometry import (
     _INK_GRID_CACHE_SIZE,
     InkGrid,
@@ -42,8 +46,11 @@ from plt_optimizer.generate.geometry import (
 )
 from plt_optimizer.generate.label_renderer import (
     _GLYPH_BOX_CACHE_SIZE,
+    _SHIFTED_BOX_CACHE_SIZE,
     _cached_glyph_boxes,
+    _cached_shifted_boxes,
     _glyph_boxes,
+    _shifted_boxes,
     render_label_to_plt,
 )
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
@@ -51,9 +58,10 @@ from plt_optimizer.generate.text_geometry import LineSeg, Stroke, TextBlock
 
 
 def _clear_memos() -> None:
-    """Empty both memo caches (the cold-start state)."""
+    """Empty the memo caches (the cold-start state)."""
     _cached_ink_grid.cache_clear()
     _cached_glyph_boxes.cache_clear()
+    _cached_shifted_boxes.cache_clear()
 
 
 def _random_ink(seed: int, region: float, polylines: int, vertices: int) -> Any:
@@ -249,6 +257,119 @@ class TestGlyphBoxMemoization:
         block, groups, text = _random_block(6)
         as_lists = [list(group) for group in groups]
         assert _glyph_boxes(block, as_lists, text) == _glyph_boxes(block, groups, text)  # type: ignore[arg-type]
+
+
+def _plain_shift(box: GlyphBox, baseline_y: float) -> GlyphBox:
+    """Brute-force reference shift of one glyph box (no memo, no helpers)."""
+    return GlyphBox(
+        glyph_index=box.glyph_index,
+        char=box.char,
+        bounds=(
+            box.bounds[0],
+            box.bounds[1] + baseline_y,
+            box.bounds[2],
+            box.bounds[3] + baseline_y,
+        ),
+        descender=box.descender,
+        ink=tuple(tuple((x, y + baseline_y) for x, y in line) for line in box.ink),
+        sub_baseline_ink=tuple(
+            tuple((x, y + baseline_y) for x, y in line) for line in box.sub_baseline_ink
+        ),
+    )
+
+
+class TestShiftedBoxesMemoization:
+    """``_shifted_boxes`` shares stacked-frame boxes without changing geometry."""
+
+    def setup_method(self) -> None:
+        _clear_memos()
+
+    def _boxes(self, seed: int) -> List[GlyphBox]:
+        """Local-frame glyph boxes of a random block."""
+        block, groups, text = _random_block(seed)
+        return _glyph_boxes(block, groups, text)
+
+    def test_repeat_call_returns_equal_boxes_in_a_fresh_list(self) -> None:
+        """A (boxes, baseline_y) hit shares GlyphBox objects, not the list."""
+        boxes = self._boxes(11)
+        first = _shifted_boxes(boxes, 0.75)
+        second = _shifted_boxes(boxes, 0.75)
+        assert first is not second  # callers own their list
+        for a, b in zip(first, second):
+            assert a is b  # memo hit: same immutable GlyphBox
+
+    def test_baseline_is_part_of_the_key(self) -> None:
+        """The same boxes on a different baseline never hit the old entry."""
+        boxes = self._boxes(12)
+        low = _shifted_boxes(boxes, 0.5)
+        high = _shifted_boxes(boxes, 1.25)
+        assert low[0].bounds[1] != high[0].bounds[1]
+        assert low[0].ink[0][0][1] != high[0].ink[0][0][1]
+
+    def test_box_content_is_part_of_the_key(self) -> None:
+        """A changed local box (same baseline) is a fresh entry."""
+        boxes = self._boxes(13)
+        base = _shifted_boxes(boxes, 0.5)
+        moved = [
+            GlyphBox(
+                glyph_index=box.glyph_index,
+                char=box.char,
+                bounds=(box.bounds[0] + 3.0, *box.bounds[1:]),
+                descender=box.descender,
+                ink=box.ink,
+                sub_baseline_ink=box.sub_baseline_ink,
+            )
+            for box in boxes
+        ]
+        shifted = _shifted_boxes(moved, 0.5)
+        assert base[0].bounds[0] != shifted[0].bounds[0]
+
+    def test_zero_baseline_bypasses_the_memo(self) -> None:
+        """The identity shift stays the cheap uncached copy it always was."""
+        boxes = self._boxes(14)
+        result = _shifted_boxes(boxes, 0.0)
+        assert result == list(boxes)
+        assert result is not boxes
+        assert _cached_shifted_boxes.cache_info().misses == 0
+
+    def test_mutating_the_returned_list_never_poisons_the_memo(self) -> None:
+        """Callers can pop/append their list; the cached tuple is untouched."""
+        boxes = self._boxes(15)
+        expected = len(_shifted_boxes(boxes, 0.5))
+        scratch = _shifted_boxes(boxes, 0.5)
+        scratch.clear()
+        assert len(_shifted_boxes(boxes, 0.5)) == expected
+
+    def test_randomized_equivalence_with_a_brute_force_shift(self) -> None:
+        """Warm and cold results equal the plain per-box shift on random ink."""
+        for seed in range(20):
+            boxes = self._boxes(seed)
+            for baseline in (-0.7, 0.001, 0.5, 2.25):
+                warm_a = _shifted_boxes(boxes, baseline)
+                warm_b = _shifted_boxes(boxes, baseline)  # warm
+                _cached_shifted_boxes.cache_clear()
+                cold = _shifted_boxes(boxes, baseline)
+                expected = [_plain_shift(box, baseline) for box in boxes]
+                assert warm_a == warm_b == cold == expected, (seed, baseline)
+                for box, shifted in zip(boxes, cold):
+                    assert shifted.ink == expected[box.glyph_index].ink
+                    assert shifted.sub_baseline_ink == expected[box.glyph_index].sub_baseline_ink
+
+    def test_cache_is_bounded(self) -> None:
+        """One key past the LRU bound evicts the oldest (memory stays bounded)."""
+        boxes = self._boxes(16)
+        baselines = [0.001 * (i + 1) for i in range(_SHIFTED_BOX_CACHE_SIZE + 1)]
+        first = _shifted_boxes(boxes, baselines[0])
+        for baseline in baselines[1:]:
+            _shifted_boxes(boxes, baseline)
+        second = _shifted_boxes(boxes, baselines[0])
+        assert first[0] is not second[0]  # evicted, rebuilt
+        assert first == second  # ...equal by construction
+
+    def test_list_partition_is_accepted(self) -> None:
+        """A list-built box sequence works (coerced into the hashable key)."""
+        boxes = self._boxes(17)
+        assert _shifted_boxes(boxes, 0.5) == _shifted_boxes(tuple(boxes), 0.5)
 
 
 def _make_line(

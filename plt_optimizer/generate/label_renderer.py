@@ -3497,12 +3497,30 @@ def _local_line_extents(
     return geometry
 
 
+#: Bound on :func:`_shifted_boxes`'s memo. The relief rebuilds every line's
+#: stacked-frame boxes on each fixpoint pass, and the baseline table only
+#: moves when a pass actually grows a spacing -- so consecutive passes (and
+#: the final measurement re-reading the last pass's blocks) re-shift byte-
+#: identical local boxes onto byte-identical baselines. The label's working
+#: set of (line boxes, baseline) pairs is small, so a modest LRU absorbs the
+#: repeat pattern while bounding memory to a few lines' translated ink.
+_SHIFTED_BOX_CACHE_SIZE: int = 64
+
+
 def _shifted_boxes(boxes: Sequence[GlyphBox], baseline_y: float) -> List[GlyphBox]:
     """Shift local-frame glyph boxes into the stacked frame.
 
     Pairwise gaps must be measured where the glyphs will actually be engraved,
     i.e. after the line's baseline has been placed at ``baseline_y``. The
     relief itself stays in the local frame, where the scale pivot is ``y = 0``.
+
+    Memoized by ``(boxes, baseline_y)``: the shifted boxes are a pure function
+    of those (frozen, hashable) inputs, and the relief re-shifts the SAME
+    unchanged lines every fixpoint pass (the baseline table only moves when a
+    pass grows a spacing, and the final measurement re-shifts the last pass's
+    blocks onto the same baselines). The memo stores the immutable tuple; a
+    fresh list is returned per call, so callers own their result. See
+    :func:`_cached_shifted_boxes`.
 
     Args:
         boxes: Glyph boxes measured in the local frame.
@@ -3513,7 +3531,13 @@ def _shifted_boxes(boxes: Sequence[GlyphBox], baseline_y: float) -> List[GlyphBo
     """
     if baseline_y == 0.0:
         return list(boxes)
-    return [
+    return list(_cached_shifted_boxes(tuple(boxes), baseline_y))
+
+
+@lru_cache(maxsize=_SHIFTED_BOX_CACHE_SIZE)
+def _cached_shifted_boxes(boxes: Tuple[GlyphBox, ...], baseline_y: float) -> Tuple[GlyphBox, ...]:
+    """Build the memoized stacked-frame box tuple for one ``(boxes, baseline_y)``."""
+    return tuple(
         replace(
             box,
             bounds=(
@@ -3528,7 +3552,7 @@ def _shifted_boxes(boxes: Sequence[GlyphBox], baseline_y: float) -> List[GlyphBo
             ),
         )
         for box in boxes
-    ]
+    )
 
 
 def _apply_glyph_ramps(
