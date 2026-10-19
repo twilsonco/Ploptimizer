@@ -466,37 +466,6 @@ stage seconds = sums of the last timed run. `cpu_s` is process CPU
 | 334X712 RED DANGER (text) | 0.19 | 0.19 | 2.8 MiB | 341.4 → 208.4 | 39.0 | `optimize_tsp` 0.16 (sequential ensemble) |
 | 1x3 half inch letters holes1 (structural) | 0.91 | 0.04 | 2.4 MiB | 554.8 → 134.2 | 75.8 | `optimize_tsp` 0.90 (pooled ensemble) |
 
-### Current #1: ensemble pool-spawn wall on the structural fixture — FIXED 2026-10-18
-
-The original diagnosis was **wrong in its details and right in its
-prescription**: the structural file's 0.90 s `optimize_tsp` was pool wall
-(cpu 0.04 s), but the wall was NOT spawn — a 14-worker noop-pool bench is
-0.12 s. The two **Insertion Heuristic jobs (0.80 s each) set the wall**: the
-cheapest-insertion loop re-scanned every (unvisited block, tour position)
-on every insertion — 1.2M `_calculate_insertion_cost` evaluations, O(n^3).
-The exact per-job win (the prescription) landed:
-
-- **O(n^2) incremental insertion cache** (`InsertionHeuristicStrategy`):
-  inserting after tour position `p` replaces exactly one edge (old pos `p`)
-  with two (positions `p`, `p+1`), so per-block cost rows are cached and
-  only positions `p`/`p+1` are recomputed after each insertion. Rows are
-  built from the same `_calculate_insertion_cost` calls, so costs are
-  bit-identical; the cached per-block best follows the naive scan's
-  strict-< first-minimum tie rule (`_first_min_insertion`). IH job 0.80 s →
-  0.04 s; pinned by randomized seeded equivalence vs the verbatim naive
-  loop + the frozen-fixture distance pin
-  (`tests/test_optimizer.py::TestInsertionHeuristicIncrementalEquivalence`).
-
-Measured re-run (median-of-3, same box, sweeps `87dd88f4` → `487a74b0`):
-
-| File | wall before | wall after | delta |
-|---|---|---|---|
-| 1x3 half inch letters holes1 (structural) | 0.91 | 0.35 | **-62.0%** |
-| 334X712 RED DANGER (text) | 0.20 | 0.17 | -13.9% |
-| TOTAL | 1.11 | 0.51 | **-53.5%** |
-
-Outputs byte-identical (sha256), KPIs unchanged (39.0 / 75.81 imp%).
-
 ### Current #1: Genetic Algorithm job on the structural fixture (a knob)
 
 Post-fix the structural fixture's 0.35 s wall is ~0.12 s pool spawn + the
