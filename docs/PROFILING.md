@@ -229,20 +229,27 @@ is the source). Seeding each strategy job deterministically (e.g. from a
 hash of the serialized blocks + job payload) is the remaining step toward
 the identical-input-identical-output invariant.
 
-## Current bottlenecks (2026-10-18, post-sweep-cache re-profile, full sweep)
+## Current bottlenecks (2026-10-18, post-relief-memo re-profile, full sweep)
 
 Full sweep after the fixes below (`--repeats 3` + cProfile + tracemalloc,
 plots off). Wall = median of 3; profile seconds are cProfile cumulative
 (inflated ~1.5-2.6x on pure-Python hot loops — call counts are the
-reliable signal). Memory is a non-issue everywhere (peak 1.3-30.7 MiB).
+reliable signal). Memory is a non-issue everywhere (peak 1.0-31.7 MiB).
 
-| Spec | wall s (pre-memo) | wall s (pre-cache) | wall s (post-cache) | dominant stage(s) after |
-|---|---|---|---|---|
-| 2026-07-22 sunwest | 11.5 | 11.2 | 11.2 | `optimize_layer` 10.5 (481-block bh layer) |
-| 2026-10-06 seer wb-uv | 5.7 | 4.6 | **3.1** | `cutter_downsize` 1.9 + `layout_render_pack` 0.9 |
-| 2026-10-07 coolsys 1 big label | 3.4 | 2.7 | **2.6** | `reflow` 1.4 |
-| 2026-10-15 coolsys round tags 910+walmart | 2.6 | 2.5 | 2.4 | `optimize_layer` 1.3 / `layout_render_pack` 1.0 |
-| 2026-10-06 seer intrachunk opt TTF | 0.04 | 0.04 | 0.03 | — |
+| Spec | pre-memo | pre-cache | post-cache | post-relief-memo | dominant stage(s) after |
+|---|---|---|---|---|---|
+| 2026-07-22 sunwest | 11.5 | 11.2 | 11.2 | **2.08** | `optimize_layer` 1.3 (481-block layer, post-IH-cache) |
+| 2026-10-06 seer wb-uv | 5.7 | 4.6 | 3.1 | **2.27** | `cutter_downsize` 1.3 + `layout_render_pack` 0.65 |
+| 2026-10-07 coolsys 1 big label | 3.4 | 2.7 | 2.6 | **2.57** | `reflow` 1.65 |
+| 2026-10-15 coolsys round tags 910+walmart | 2.6 | 2.5 | 2.4 | **1.83** | `layout_render_pack` 0.93 |
+| 2026-10-06 seer intrachunk opt TTF | 0.04 | 0.04 | 0.03 | **0.03** | — |
+
+TOTAL (median-of-3, relief-memo sweep `a5d6d429` → `72e2e650`):
+**10.25 → 8.77 s (-14.5 %)**; wb-uv **-32.7 %** (`cutter_downsize`
+2.09 → 1.32), round tags -9.1 %, coolsys -8.0 %. sunwest's 11.2 → 2.08
+across the last two cycles is the optimize-side IH incremental-insertion
+cache (its 481-block layer 10.5 → 1.3 s), not this patch — the relief
+memo is noise-level there (+1.7 %).
 
 ### Bottleneck: `TextBlock.bounds` recompute (the universal render leaf) — FIXED 2026-10-18
 
@@ -321,27 +328,69 @@ WORD-mode, markup, and multi-line labels; zero re-walks across a
 resolving sweep; pre-compression values; key isolation; the defensive
 copy).
 
-### Current #1: the descender relief inside every collision-sequence render (wb-uv)
+### Bottleneck: the relief's per-pass grid builds + per-render glyph-box rebuilds (wb-uv) — FIXED 2026-10-18
 
-wb-uv's remaining 1.9 s `cutter_downsize` is now dominated by
-`_apply_descender_relief` (**183 calls / 5.2 s profiled**, via 2,241
-`measure_glyph_gaps` / 2.4 s): the relief re-runs on every render of
-every probe, and the sweep's 144 steps each re-measure glyph gaps whose
-Y-geometry is unchanged (compression is X-only). The X scale DOES change
-the overlapping-X spans the relief compares, so caching the relief result
-is not exact; the win is per-glyph ink caching between renders (the ink
-boxes depend only on (line, mode, coverage) — `measure_glyph_gaps`
-rebuilds them per render) plus pruning gap pairs beyond the required
-clearance. Same shape as the reflow-probe fix: exact pre-filters, not
-heuristics.
+wb-uv's remaining 1.9 s `cutter_downsize` was dominated by
+`_apply_descender_relief` (**183 calls / 5.5 s profiled**), and the
+profile localized the cost to its two leaves, both pure functions of
+hashable inputs:
+
+- **`InkGrid.__init__`: 2,616 constructions / 2.9 s cumulative** (1.4 M
+  `_cells_covered` + 2.8 M `_segment_span`; the queries — 8,313
+  `min_gap` — cost only 0.3 s). Every fixpoint pass re-indexed the
+  unchanged lines, and every sweep step re-indexed the non-compressed
+  lines (the sweep scales X only, on colliding lines).
+- **`_glyph_boxes`: 2,232 calls / 1.4 s** — 25.8 k `_stroke_polyline`
+  calls rebuilding every per-glyph ink polyline (100 k arc flattenings)
+  for boxes identical between renders of the same line.
+
+**Fix:** two LRU memos, exact by construction — grid construction and
+glyph-box measurement depend on nothing else, and both results are
+read-only (`InkGrid.min_gap` mutates nothing; `GlyphBox` is frozen).
+`geometry.ink_grid_for(ink, cell)` shares one grid per `(ink, cell_size)`
+(`lru_cache(16)`, all seven construction sites converted; unhashable
+hand-built ink falls back to a fresh grid). `label_renderer._glyph_boxes`
+shares the `GlyphBox` tuple per `(block, glyph_groups, text)`
+(`lru_cache(64)`; the partition deep-coerced to nested tuples so
+list-built callers hash; a fresh LIST is returned per call so callers own
+their result and can never poison the memo). `TextBlock`/`Stroke` are
+frozen with value equality, so a re-rendered line hits its old entry.
+
+Measured (same box, full sweep `a5d6d429` → `72e2e650`): wb-uv profiled
+calls 47.1 M → **25.7 M**, 7.8 s → **4.9 s**; grid constructions 2,616 →
+**365** (all memo hits beyond the label's working set), relief 5.5 s →
+**2.2 s** profiled. Wall: wb-uv **3.37 → 2.27 s** (-32.7 %,
+`cutter_downsize` 2.09 → 1.32), round tags 2.01 → 1.83, coolsys 2.79 →
+2.57, TOTAL 10.25 → 8.77 s (-14.5 %). Identity: 10/13 benchmark PLTs
+byte-identical; the 3 diffs (sunwest `bh`/`txt`, round-tags `bh` — the
+unseeded SA/GA layers of the open determinism gap) compare **equal as
+undirected segment + arc multisets** (10,837/800, 15,918/0, 13,197/332 —
+verified against a pre-fix worktree), order-only. Pinned by
+`tests/test_relief_memoization.py` (identity hits, key isolation,
+unhashable fallback, randomized brute-force equivalence vs cache-cleared
+recompute, LRU bounds, full-render bit-identity on relief-firing and
+collision-sweep labels, zero new grid builds on a warm re-render).
+
+### Current #1: the relief's stacked-frame rebuilds (wb-uv, coolsys)
+
+The relief is still the top render cost (wb-uv **2.2 s profiled of the
+4.9 s run**, coolsys ~1.6 s across 11 renders): per fixpoint pass
+`stacked_boxes_of`/`_shifted_boxes` rebuild every line's stacked ink
+(1,674 calls, `dataclasses.replace` + full polyline translation) and
+`_apply_glyph_ramps` rebuilds relieved blocks. The stacked boxes are a
+pure function of `(local boxes, baseline_y)` — the same memo shape as
+this cycle's fix (frozen `GlyphBox` is hashable); the bisection's
+per-candidate `ramp_ink` queries are the other remaining leaf. Same rule:
+exact memoization, not heuristics.
 
 ### Current #2: sunwest's 481-block bh layer (real compute, knob not bug)
 
-Confirmed by the profile: 10.1 s of the 10.5 s stage is the parent
-blocking in `as_completed` on the pooled 481-block layer (the strategies'
-real parallel compute; sequential is ~3.5x worse). `--fast-mode` isolates
-it. Improving THIS means cheaper big-instance strategies (e.g. capping
-2-opt passes by block count), not plumbing.
+The IH incremental-insertion cache (optimize pipeline, 2026-10-18) cut
+this layer's stage from 10.5 s to ~1.3 s wall; what remains is the
+strategies' real parallel compute on the pooled 481-block layer
+(sequential is ~3.5x worse). `--fast-mode` isolates it. Improving THIS
+means cheaper big-instance strategies (e.g. capping 2-opt passes by block
+count), not plumbing.
 
 ### Current #3: coolsys `reflow` residual (no longer pathological)
 

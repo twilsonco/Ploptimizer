@@ -989,7 +989,21 @@ plate tier is schema parity only, like every render-affecting field.
   distances, pinned by randomized brute-force equivalence tests), and the
   reason the relief's gap scan is affordable on long lines. `geometry.py`
   stays dependency-free (no numpy: per-op overhead loses at glyph-sized
-  arrays; the pre-filters are the wholesale win). The border
+  arrays; the pre-filters are the wholesale win).
+- **The relief's memoized leaves (exact, LRU-bounded).** Grid construction
+  goes through `geometry.ink_grid_for(ink, cell)` — `lru_cache(16)` over
+  `InkGrid`; a grid is a pure function of `(ink, cell_size)` and read-only
+  after `__init__` (`min_gap` mutates nothing), so sharing is exact. The
+  relief rebuilds the same line ink's grid every fixpoint pass and every
+  collision-sweep step (the sweep scales X only, on colliding lines).
+  `label_renderer._glyph_boxes` is `lru_cache(64)` over
+  `(block, glyph_groups, text)` — frozen hashable inputs, frozen
+  `GlyphBox` values; the wrapper returns a fresh LIST per call (callers
+  own their result) and deep-coerces list-built partitions. Unhashable
+  ink falls back to a fresh grid (identical behaviour, unmemoized).
+  Pinned by `tests/test_relief_memoization.py` (identity hits, key
+  isolation, randomized equivalence vs cache-cleared recompute, LRU
+  bounds, render bit-identity). The border
   needs no solver changes: `_border_box` / `_border_required` (label_renderer)
   feed the border's centreline into the same `measure_glyph_gaps` /
   `ramp_for_measured` path, and `_BorderShortfall` carries the report.
