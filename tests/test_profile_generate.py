@@ -109,3 +109,23 @@ class TestAppendCsv:
             header = next(csv.reader(f))
         assert header[0] == "run_id"
         assert [r["run_id"] for r in _read(csv_path)] == ["abc12345", "abc12345"]
+
+
+class TestHistoryCsvLocation:
+    """The run-history CSV is the TRACKED record; artifacts stay scratch."""
+
+    def test_default_history_csv_is_the_tracked_profiling_dir(self, harness: Any) -> None:
+        """``profiling/summary.csv`` is committed (``test_output/`` is ignored)."""
+        assert harness.DEFAULT_HISTORY_CSV == REPO_ROOT / "profiling" / "summary.csv"
+
+    def test_parser_defaults(self, harness: Any) -> None:
+        """No flags: history CSV = tracked path, artifacts = ignored scratch."""
+        args = harness.build_parser().parse_args([])
+        assert args.history_csv == harness.DEFAULT_HISTORY_CSV
+        assert args.output_dir == REPO_ROOT / "test_output" / "profiling"
+
+    def test_history_csv_flag_overrides(self, harness: Any, tmp_path: Path) -> None:
+        """``--history-csv`` relocates the history (worktree baseline captures)."""
+        target = tmp_path / "profiling" / "summary.csv"
+        args = harness.build_parser().parse_args(["--history-csv", str(target)])
+        assert args.history_csv == target

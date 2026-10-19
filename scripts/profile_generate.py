@@ -61,8 +61,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 # Repo root (one level above scripts/) so the pipeline imports and every
-# repo-root-relative default (tools.json, job-config.json, test_output/)
-# work regardless of the current working directory.
+# repo-root-relative default (tools.json, job-config.json, test_output/,
+# profiling/) work regardless of the current working directory.
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:  # allow running as a plain script
     sys.path.insert(0, str(REPO_ROOT))
@@ -81,6 +81,10 @@ BENCHMARK_SPECS: tuple[str, ...] = (
 )
 
 DEFAULT_OUTPUT_DIR = "test_output/profiling"
+#: The run-history CSV lives in the TRACKED ``profiling/`` directory (git
+#: commits the perf history; ``test_output/`` is ignored via ``*_output``,
+#: so the per-spec artifacts below stay local scratch).
+DEFAULT_HISTORY_CSV = REPO_ROOT / "profiling" / "summary.csv"
 TOOLS_JSON = "tools.json"
 JOB_CONFIG_JSON = "job-config.json"
 
@@ -513,7 +517,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--output-dir",
         type=Path,
         default=Path(REPO_ROOT / DEFAULT_OUTPUT_DIR),
-        help="Root output directory for profiles, memory reports, and CSVs.",
+        help="Root output directory for profiles, memory reports, and A/B CSVs.",
+    )
+    parser.add_argument(
+        "--history-csv",
+        type=Path,
+        default=DEFAULT_HISTORY_CSV,
+        help="Run-history summary CSV (tracked; sweeps append to its history).",
     )
     parser.add_argument(
         "--repeats", type=int, default=3, help="Timed runs per spec (median reported)."
@@ -557,7 +567,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--fresh",
         action="store_true",
-        help="Reset summary.csv instead of appending this sweep to its history.",
+        help="Reset the history CSV instead of appending this sweep to it.",
     )
     return parser
 
@@ -585,7 +595,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(f"\n=== profiling {spec.relative_to(REPO_ROOT)} ===")
         rows.append(profile_one_spec(spec, out_root, args, run_id))
 
-    csv_path = out_root / "summary.csv"
+    csv_path = Path(args.history_csv)
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
     preserved = _append_csv(csv_path, rows, fresh=args.fresh)
 
     stage_keys = [

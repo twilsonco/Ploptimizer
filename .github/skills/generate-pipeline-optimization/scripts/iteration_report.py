@@ -2,10 +2,11 @@
 """Report the optimization gain between two profiling iterations.
 
 Reads the run-history CSV (``scripts/profile_generate.py`` appends every
-sweep; ``run_id`` groups one sweep) and prints a per-job scoreboard for a
-metric (default ``wall_s``): baseline -> target, delta, percent, plus the
-top-N stage columns that moved. This is the "did the patch pay off?" step
-of the optimization loop — run it after re-profiling.
+sweep to the tracked ``profiling/summary.csv``; ``run_id`` groups one sweep)
+and prints a per-job scoreboard for a metric (default ``wall_s``): baseline
+-> target, delta, percent, plus the top-N stage columns that moved. This is
+the "did the patch pay off?" step of the optimization loop — run it after
+re-profiling.
 
 Usage:
     uv run python .github/skills/generate-generate-pipeline-optimization/scripts/iteration_report.py
@@ -25,7 +26,7 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 if str(REPO_ROOT) not in sys.path:  # allow running as a plain script
     sys.path.insert(0, str(REPO_ROOT))
 
-DEFAULT_CSV = REPO_ROOT / "test_output" / "profiling" / "summary.csv"
+DEFAULT_CSV = REPO_ROOT / "profiling" / "summary.csv"
 KEY_COLUMNS = ("run_id", "run_ts", "spec")
 
 

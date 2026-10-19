@@ -98,8 +98,8 @@ Stop when the remaining cost is real parallel compute (a knob, e.g.
   attributable in the history and in git.
 - **Never ship a speed fix that changes output** without an explicit,
   documented decision + a pin of the new expected output.
-- **The history CSV is the record** (`test_output/profiling/summary.csv`,
-  gitignored scratch, append-mode). The durable prose is
+- **The history CSV is the record** (`profiling/summary.csv`, tracked,
+  append-mode — commit it with each perf cycle). The durable prose is
   `docs/PROFILING.md`. Never delete history rows; `--fresh` is for
   intentional resets only.
 - Determinism byte-checks use `--fast-mode` (SA/GA use the unseeded global

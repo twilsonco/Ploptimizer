@@ -5,7 +5,7 @@ Reads the run-history CSV written by ``scripts/profile_generate.py``
 (every sweep appends rows stamped with ``run_id``/``run_ts``) and renders
 one PNG per numeric metric column: x = sweep iteration (oldest first),
 one line per job spec. Comparing optimization work across iterations
-needs no git — the CSV is the record.
+needs no git — the tracked CSV (``profiling/summary.csv``) is the record.
 
 Usage:
     uv run python scripts/plot_profiling_history.py
@@ -29,7 +29,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:  # allow running as a plain script
     sys.path.insert(0, str(REPO_ROOT))
 
-DEFAULT_CSV = REPO_ROOT / "test_output" / "profiling" / "summary.csv"
+DEFAULT_CSV = REPO_ROOT / "profiling" / "summary.csv"
+#: Charts are scratch (``test_output/`` is ignored via ``*_output``), unlike
+#: the tracked history CSV they are drawn from.
+DEFAULT_PLOT_DIR = REPO_ROOT / "test_output" / "profiling" / "plots"
 
 #: Columns that identify a row rather than measure it.
 KEY_COLUMNS = ("run_id", "run_ts", "spec")
@@ -194,7 +197,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=DEFAULT_CSV.parent / "plots",
+        default=DEFAULT_PLOT_DIR,
         help="Directory for the per-metric PNGs.",
     )
     parser.add_argument("--log-y", action="store_true", help="Logarithmic y axis (wide ranges).")

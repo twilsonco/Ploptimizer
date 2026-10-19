@@ -141,3 +141,14 @@ class TestSeriesForMetric:
         iterations, _ = plotter.build_iterations(rows)
         series = plotter.series_for_metric(rows, iterations, "wall_s")
         assert series["alpha"] == [68.7, 4.0]
+
+
+class TestDefaults:
+    """The tracked history CSV is the input; the PNGs stay ignored scratch."""
+
+    def test_tracked_csv_and_scratch_plot_dir(self, plotter: Any) -> None:
+        assert plotter.DEFAULT_CSV == REPO_ROOT / "profiling" / "summary.csv"
+        assert plotter.DEFAULT_PLOT_DIR == REPO_ROOT / "test_output" / "profiling" / "plots"
+        args = plotter.build_parser().parse_args([])
+        assert args.csv == plotter.DEFAULT_CSV
+        assert args.out_dir == plotter.DEFAULT_PLOT_DIR

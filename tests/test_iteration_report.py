@@ -171,3 +171,11 @@ class TestMain:
             writer.writerows(_rows())
         with pytest.raises(SystemExit, match="unknown metric"):
             report.main(["--csv", str(csv_path), "--metric", "nope_s"])
+
+
+class TestDefaultCsv:
+    """The default history CSV is the tracked ``profiling/summary.csv``."""
+
+    def test_tracked_default(self, report: Any) -> None:
+        assert report.DEFAULT_CSV == REPO_ROOT / "profiling" / "summary.csv"
+        assert report.build_parser().parse_args([]).csv == report.DEFAULT_CSV

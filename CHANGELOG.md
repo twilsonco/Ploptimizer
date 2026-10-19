@@ -56,7 +56,12 @@
   - **Validation**: 119 parser unit tests pass; integration test with ellipse_job.yaml confirms 24 blocks (vs 6519+ before fix) with correct segment distribution {5: 6, 158: 3, ...}
   - **Performance gain**: 40.8% rapid travel reduction in generated toolpath optimization (58,145.7 → 34,442.6 plotter units)
   - **Regression testing**: Full test suite validation completed with 0 failures, 98% coverage maintained
+### Tooling
 
+* **profiling:** run-history CSV moved to the **tracked** `profiling/summary.csv` (was `test_output/profiling/summary.csv`, ignored via `*_output`)
+  - The perf history is now versioned: every sweep's rows commit with the cycle they measure, so gains are diffable in git, not just on disk
+  - `scripts/profile_generate.py`: new `--history-csv` (default the tracked path); per-spec artifacts (`.prof`/`.top.txt`/`.mem.txt`/`run.log`) stay scratch under `test_output/profiling/`; `plot_profiling_history.py` + `iteration_report.py` default to the tracked CSV (plot PNGs stay scratch); `baseline_capture.py` sweeps `--history-csv` inside the worktree and merges into the tracked history
+  - Docs/skills updated (`docs/PROFILING.md`, both pipeline skills, `docs/AGENTS.md`); defaults pinned by `tests/test_profile_generate.py` / `test_plot_profiling_history.py` / `test_iteration_report.py`
 ## [1.8.0](https://github.com/twilsonco/Ploptimizer/compare/v1.7.0...v1.8.0) (2026-09-15)
 
 

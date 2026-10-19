@@ -48,18 +48,22 @@ uv run python scripts/profile_generate.py --fast-mode     # NN2Opt, no parallel 
 uv run python scripts/profile_generate.py --plots         # include matplotlib PDF cost
 ```
 
-Outputs under `test_output/profiling/`:
+Outputs:
 
-- `summary.csv` — per spec: median wall/cpu, peak traced MiB, summed
-  seconds per stage. It is a **run history**: every sweep APPENDS its rows
-  (leading `run_id` groups one sweep, `run_ts` stamps each row), so
-  before/after comparisons need no git archaeology. `--fresh` resets it.
-- `<spec>/<spec>.prof` — cProfile binary; inspect with
-  `python -m pstats "<spec>.prof"` (`cum` sort) or
-  `uv run --with snakeviz snakeviz "<spec>.prof"`.
-- `<spec>/<spec>.top.txt` — top-N cumulative functions (pre-rendered).
-- `<spec>/<spec>.mem.txt` — tracemalloc peak + top allocation sites.
-- `<spec>/run.log` — full pipeline log for the run.
+- `profiling/summary.csv` — **tracked** (commit it with each perf cycle):
+  per spec, median wall/cpu, peak traced MiB, summed seconds per stage. It
+  is a **run history**: every sweep APPENDS its rows (leading `run_id`
+  groups one sweep, `run_ts` stamps each row), so before/after comparisons
+  need no git archaeology — and the history itself is versioned. `--fresh`
+  resets it; `--history-csv` relocates it (the worktree baseline capture
+  uses this).
+- Scratch under `test_output/profiling/` (ignored via `*_output`):
+  - `<spec>/<spec>.prof` — cProfile binary; inspect with
+    `python -m pstats "<spec>.prof"` (`cum` sort) or
+    `uv run --with snakeviz snakeviz "<spec>.prof"`.
+  - `<spec>/<spec>.top.txt` — top-N cumulative functions (pre-rendered).
+  - `<spec>/<spec>.mem.txt` — tracemalloc peak + top allocation sites.
+  - `<spec>/run.log` — full pipeline log for the run.
 
 For sampling-based profiling (flamegraphs, C-level visibility inside
 matplotlib/numpy), compose with external samplers without adding deps:

@@ -33,7 +33,7 @@ per-directory `AGENTS.md` files (root file has the component map).
   patch → re-measure → plot). Two skills carry the procedure:
   [`../.github/skills/generate-pipeline-profiling/SKILL.md`](../.github/skills/generate-pipeline-profiling/SKILL.md)
   owns the mechanics (`scripts/profile_generate.py` appends to the
-  `test_output/profiling/summary.csv` run history with `run_id`/`run_ts`
+  tracked `profiling/summary.csv` run history with `run_id`/`run_ts`
   stamps, `--fresh` resets; `scripts/plot_profiling_history.py` plots every
   metric per job across sweeps; pre-optimization baselines come from a git
   worktree - never a checkout of the main tree - stamped with the baseline

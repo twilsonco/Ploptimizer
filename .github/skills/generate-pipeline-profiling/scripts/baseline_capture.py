@@ -29,7 +29,9 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-HISTORY = REPO_ROOT / "test_output" / "profiling" / "summary.csv"
+#: The tracked run-history CSV (``profiling/`` is committed; ``test_output/``
+#: is ignored via ``*_output``, so the worktree sweep writes its own copy).
+HISTORY = REPO_ROOT / "profiling" / "summary.csv"
 VENV_PYTHON = REPO_ROOT / ".venv" / "bin" / "python"
 
 
@@ -90,6 +92,7 @@ def cmd_capture(args: argparse.Namespace) -> int:
     _run(["git", "worktree", "add", str(wt), commit])
 
     out_dir = wt / "test_output" / "profiling"
+    history_csv = wt / "profiling" / "summary.csv"
     _run(
         [
             str(VENV_PYTHON),
@@ -98,10 +101,12 @@ def cmd_capture(args: argparse.Namespace) -> int:
             str(args.repeats),
             "--output-dir",
             str(out_dir),
+            "--history-csv",
+            str(history_csv),
         ],
         cwd=wt,
     )
-    print(f"\nbaseline sweep done: {out_dir / 'summary.csv'}")
+    print(f"\nbaseline sweep done: {history_csv}")
     print(
         "merge into the history with:\n"
         f"  uv run python {Path(__file__).relative_to(REPO_ROOT)} merge --commit {commit[:8]}"
@@ -113,7 +118,7 @@ def cmd_merge(args: argparse.Namespace) -> int:
     """Stamp + merge the captured baseline rows into the history CSV."""
     commit = _git("rev-parse", args.commit)
     wt = _worktree_path(commit)
-    prefix_csv = Path(args.csv) if args.csv else wt / "test_output" / "profiling" / "summary.csv"
+    prefix_csv = Path(args.csv) if args.csv else wt / "profiling" / "summary.csv"
     if not prefix_csv.is_file():
         raise SystemExit(f"no baseline CSV at {prefix_csv} (run capture first)")
     rows = _read(prefix_csv)

@@ -10,9 +10,9 @@ The end-to-end optimization cycle (one bottleneck per cycle, with the
 gain report) is the sibling skill
 [`../generate-generate-pipeline-optimization/SKILL.md`](../generate-generate-pipeline-optimization/SKILL.md);
 this skill owns the mechanics it calls into.
-The machine-readable record is `test_output/profiling/summary.csv` (gitignored
-scratch, append-mode HISTORY — every sweep adds rows, `run_id` groups one
-sweep, `run_ts` stamps each row). The prose record is
+The machine-readable record is `profiling/summary.csv` (TRACKED — commit it
+with each perf cycle; append-mode HISTORY — every sweep adds rows, `run_id`
+groups one sweep, `run_ts` stamps each row). The prose record is
 [`../../../docs/PROFILING.md`](../../../docs/PROFILING.md). Never delete the
 history CSV; `--fresh` exists for intentional resets.
 
@@ -26,8 +26,9 @@ uv run python scripts/profile_generate.py --specs "examples/job_specs/<spec>.yam
 ```
 
 Flags: `--no-optimize` (render/pack only), `--fast-mode` (NN2Opt, no ensemble),
-`--plots` (matplotlib cost), `--fresh` (reset history). Outputs:
-`test_output/profiling/summary.csv` + per-spec `.prof`/`.top.txt`/`.mem.txt`/`run.log`.
+`--plots` (matplotlib cost), `--fresh` (reset history). Outputs: the tracked
+`profiling/summary.csv` (`--history-csv` relocates it) + per-spec scratch
+`.prof`/`.top.txt`/`.mem.txt`/`run.log` under `test_output/profiling/`.
 Stage timers (`stage <name>: <s>s`, INFO) also land in `logs_generate/generate.log`
 on any production run.
 
@@ -94,8 +95,9 @@ uv run python .github/skills/generate-generate-pipeline-profiling/scripts/baseli
 - The script verifies `pyproject.toml`/`uv.lock` are identical between the
   commits (the repo venv is then valid for the baseline tree; the worktree's
   own code wins the import path), runs the FULL sweep inside the worktree with
-  `--output-dir` INSIDE the worktree (the default `REPO_ROOT/test_output` is
-  shared — a sweep there overwrites the main tree's artifacts), then merges.
+  `--output-dir` AND `--history-csv` INSIDE the worktree (the defaults
+  `REPO_ROOT/test_output` / `REPO_ROOT/profiling` are shared — a sweep there
+  would overwrite the main tree's artifacts/history), then merges.
 - **Iteration order = code state**: merged rows are stamped `run_ts=<commit
   date>`, not the later measurement date, so the baseline plots as the oldest
   iteration.
@@ -109,7 +111,8 @@ uv run python .github/skills/generate-generate-pipeline-profiling/scripts/baseli
   via the serial fallback. Write the harness to a real `.py` file.
 - Pool-mechanics unit tests must pin `sequential_block_threshold=0` (small
   inputs take the in-process ensemble path and bypass mocked pools).
-- `test_output/` is gitignored (`*_output`): the CSV is local scratch; the
-  durable record is docs/PROFILING.md + CHANGELOG.
+- `test_output/` is gitignored (`*_output`): the per-spec artifacts are local
+  scratch; the history CSV is TRACKED in `profiling/` — commit it with each
+  perf cycle (the durable prose is docs/PROFILING.md + CHANGELOG).
 - Determinism: SA/GA use the unseeded global `random` (open gap, see
   docs/PROFILING.md); byte-compare determinism checks use `--fast-mode`.
