@@ -164,7 +164,7 @@ from plt_optimizer.generate.font_registry import non_text_font_names  # noqa: E4
 
 logger = logging.getLogger("extract_plt_fonts")
 
-FONTS_DIR = REPO_ROOT / "Fonts"
+FONTS_DIR = REPO_ROOT / "fonts"
 DEFAULT_INPUT_DIR = FONTS_DIR / "VP-EL-fonts" / "input-plt"
 DEFAULT_OUTPUT_DIR = FONTS_DIR / "VP-EL-fonts" / "catalog"
 DEFAULT_ASCII_FILE = FONTS_DIR / "ascii.txt"

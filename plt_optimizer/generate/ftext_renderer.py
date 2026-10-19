@@ -84,7 +84,7 @@ CHORD_THRESHOLD_INCHES: float = 0.02
 # so it works regardless of the current working directory at runtime.
 DEFAULT_FONT_PATH: Path = (
     Path(__file__).resolve().parent.parent.parent
-    / "Fonts"
+    / "fonts"
     / "ttf"
     / "ReliefSingleLineCAD-Regular.ttf"
 )

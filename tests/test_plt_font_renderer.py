@@ -53,7 +53,7 @@ def _load_glyph_transforms() -> Any:
     """
     import importlib.util
 
-    module_path = Path(__file__).resolve().parents[1] / "Fonts" / "glyph_transforms.py"
+    module_path = Path(__file__).resolve().parents[1] / "fonts" / "glyph_transforms.py"
     spec = importlib.util.spec_from_file_location("glyph_transforms", module_path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -1510,7 +1510,7 @@ class TestDerivedGlyphRendering:
 
     def test_all_derived_characters_render(self) -> None:
         """Every derived key in the shipped library renders without raising."""
-        catalog_dir = Path(__file__).resolve().parents[1] / "Fonts" / "VP-EL-fonts" / "catalog"
+        catalog_dir = Path(__file__).resolve().parents[1] / "fonts" / "VP-EL-fonts" / "catalog"
         dino = json.loads((catalog_dir / "Dino.json").read_text(encoding="utf-8"))
         derived = [char for char in dino["characters"] if ord(char) > 0x7E]
         assert len(derived) == 17

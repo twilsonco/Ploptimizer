@@ -31,7 +31,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SCRIPT_PATH = REPO_ROOT / "Fonts" / "extract_plt_fonts.py"
+SCRIPT_PATH = REPO_ROOT / "fonts" / "extract_plt_fonts.py"
 DINO_FRAMED_FIXTURE = REPO_ROOT / "tests_deps" / "dino_0.5_E.plt"
 DINO_WORD_FIXTURE = REPO_ROOT / "tests_deps" / "dino_word_sample.plt"
 
@@ -705,7 +705,7 @@ class TestBandEnvelopeSampling:
 
     def test_dino_f_middle_bar_reaches_the_stored_envelope(self) -> None:
         """The shipped Dino sheet cannot reproduce the phantom-notch bug."""
-        characters = script.load_characters(REPO_ROOT / "Fonts" / "ascii.txt")
+        characters = script.load_characters(REPO_ROOT / "fonts" / "ascii.txt")
         entry = script.extract_font_file(DINO_FRAMED_FIXTURE, characters).entry
         f_entry = entry["characters"]["F"]
         right = f_entry["right_envelope"]
@@ -1313,7 +1313,7 @@ class TestRealSheetIntegration:
 
     def test_dino_framed_sheet_extracts(self) -> None:
         assert DINO_FRAMED_FIXTURE.exists(), "missing fixture tests_deps/dino_0.5_E.plt"
-        characters = script.load_characters(REPO_ROOT / "Fonts" / "ascii.txt")
+        characters = script.load_characters(REPO_ROOT / "fonts" / "ascii.txt")
         extraction = script.extract_font_file(DINO_FRAMED_FIXTURE, characters)
         entry = extraction.entry
         assert extraction.row_count == 6
@@ -1325,7 +1325,7 @@ class TestRealSheetIntegration:
         assert " " not in entry["characters"]
 
     def test_dino_reference_and_descender_geometry(self) -> None:
-        characters = script.load_characters(REPO_ROOT / "Fonts" / "ascii.txt")
+        characters = script.load_characters(REPO_ROOT / "fonts" / "ascii.txt")
         entry = script.extract_font_file(DINO_FRAMED_FIXTURE, characters).entry
         e_box = entry["characters"]["E"]["bounding_box"]
         assert e_box["min_y"] == pytest.approx(0.0, abs=1e-3)
@@ -1339,7 +1339,7 @@ class TestRealSheetIntegration:
 
     def test_dino_S_is_centred_on_the_midline(self) -> None:
         """The engraved Dino ``S`` hangs low; extraction centres it on the midline."""
-        characters = script.load_characters(REPO_ROOT / "Fonts" / "ascii.txt")
+        characters = script.load_characters(REPO_ROOT / "fonts" / "ascii.txt")
         centered = script.extract_font_file(DINO_FRAMED_FIXTURE, characters).entry["characters"]
         raw = script.extract_font_file(
             DINO_FRAMED_FIXTURE, characters, vertical_centering=False
@@ -1360,7 +1360,7 @@ class TestRealSheetIntegration:
         assert centered["E"]["bounding_box"]["max_y"] == pytest.approx(1000.0, abs=1e-2)
 
     def test_dino_all_glyphs_round_trip(self) -> None:
-        characters = script.load_characters(REPO_ROOT / "Fonts" / "ascii.txt")
+        characters = script.load_characters(REPO_ROOT / "fonts" / "ascii.txt")
         entry = script.extract_font_file(DINO_FRAMED_FIXTURE, characters).entry
         parser = PLTParser()
         for character, char_entry in entry["characters"].items():
@@ -1383,7 +1383,7 @@ class TestDerivedGlyphs:
                 "--input-dir",
                 str(fonts_dir),
                 "--ascii-file",
-                str(REPO_ROOT / "Fonts" / "ascii.txt"),
+                str(REPO_ROOT / "fonts" / "ascii.txt"),
                 "--output-dir",
                 str(out),
             ]
@@ -1423,7 +1423,7 @@ class TestDerivedGlyphs:
             "--input-dir",
             str(fonts_dir),
             "--ascii-file",
-            str(REPO_ROOT / "Fonts" / "ascii.txt"),
+            str(REPO_ROOT / "fonts" / "ascii.txt"),
             "--output-dir",
             str(tmp_path / "catalog"),
         ]
@@ -1512,7 +1512,7 @@ class TestDerivedGlyphs:
             "--input-dir",
             str(fonts_dir),
             "--ascii-file",
-            str(REPO_ROOT / "Fonts" / "ascii.txt"),
+            str(REPO_ROOT / "fonts" / "ascii.txt"),
             "--output-dir",
             str(out),
         ]
@@ -1532,7 +1532,7 @@ class TestDerivedGlyphs:
             "--input-dir",
             str(fonts_dir),
             "--ascii-file",
-            str(REPO_ROOT / "Fonts" / "ascii.txt"),
+            str(REPO_ROOT / "fonts" / "ascii.txt"),
             "--output-dir",
             str(out),
         ]

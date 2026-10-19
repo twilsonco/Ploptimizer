@@ -48,14 +48,20 @@ GENERATE_DEFAULT_PLOTS = True
 from plt_optimizer.core.units import units_to_inches
 from plt_optimizer.generate.job_config import JobConfig, load_job_config
 from plt_optimizer.generate.label_renderer import measure_line_vertical_extents
-from plt_optimizer.generate.packing.layout import generate_layout
+from plt_optimizer.generate.packing.layout import PackedPlate, generate_layout
 from plt_optimizer.generate.layout_report import format_layout_report
 from plt_optimizer.generate.resolution import (
     ResolvedLabel,
     memoize_extents_probe,
     resolve_job_spec,
 )
-from plt_optimizer.generate.schema import DEFAULT_LAYOUT_MODE, LayoutMode, parse_yaml
+from plt_optimizer.generate.schema import (
+    DEFAULT_LAYOUT_MODE,
+    JobSpec,
+    LayoutMode,
+    PlateSpec,
+    parse_yaml,
+)
 from plt_optimizer.generate.substitution import expand_job_spec
 from plt_optimizer.generate.vectorize import (
     PerCutterExport,
@@ -146,16 +152,17 @@ def phase_2_resolution_and_layout(
     boundary_hole_cutter_size: float | None = None,
     job_config_path: Path | None = None,
 ) -> tuple[
-    list,
-    list,
-    list | None,
+    list[ResolvedLabel],
+    list[PackedPlate],
+    list[PlateSpec] | None,
+    str,
     str,
     bool,
     LayoutMode,
     tuple[float, float] | None,
     tuple[float, float] | None,
-    object,
-    object,
+    JobSpec,
+    JobConfig | None,
 ]:
     """Phase 2: Resolution, bin packing, and verification.
 
@@ -286,8 +293,8 @@ def phase_2_resolution_and_layout(
 # PHASE 3: OPTIMIZATION AND VISUALIZATION
 # ============================================================================
 def phase_3_vectorization_and_export(
-    resolved_labels: list,
-    provided_plates: list | None = None,
+    resolved_labels: list[ResolvedLabel],
+    provided_plates: list[PlateSpec] | None = None,
     output_dir: Path | None = None,
     job_id: str = "job",
     job_name: str = "",
@@ -295,8 +302,8 @@ def phase_3_vectorization_and_export(
     layout: LayoutMode = DEFAULT_LAYOUT_MODE,
     default_plate_size: tuple[float, float] | None = None,
     default_plate_clearance: tuple[float, float] | None = None,
-    job_spec: object | None = None,
-    job_config: object | None = None,
+    job_spec: JobSpec | None = None,
+    job_config: JobConfig | None = None,
     available_cutters: list[float] | None = None,
 ) -> PerCutterExport:
     """Phase 3: Export per-cutter PLT files using the clean Phase 3 pipeline.

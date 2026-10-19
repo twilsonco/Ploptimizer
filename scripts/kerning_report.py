@@ -78,7 +78,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TOOLS_PATH: Path = REPO_ROOT / "tools.json"
 DEFAULT_JOB_CONFIG_PATH: Path = REPO_ROOT / "job-config.json"
-DEFAULT_FONTS_PATH: Path = REPO_ROOT / "Fonts" / "VP-EL-fonts" / "catalog"
+DEFAULT_FONTS_PATH: Path = REPO_ROOT / "fonts" / "VP-EL-fonts" / "catalog"
 
 # Design units per rendered inch (the PLT storage frame).
 # Library design frame (matches plt_font_renderer._DESIGN_UNITS_PER_INCH):

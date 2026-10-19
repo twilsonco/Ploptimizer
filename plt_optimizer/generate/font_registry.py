@@ -62,7 +62,7 @@ logger = logging.getLogger(__name__)
 
 # Repository fonts/ directory, resolved relative to this module so the
 # lookup works regardless of the current working directory at runtime.
-FONTS_DIR: Path = Path(__file__).resolve().parent.parent.parent / "Fonts"
+FONTS_DIR: Path = Path(__file__).resolve().parent.parent.parent / "fonts"
 
 # The PLT-extracted font catalog produced by fonts/extract_plt_fonts.py:
 # one JSON file per font, keyed by the file's ``font_name`` field.

@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = REPO_ROOT / "Fonts" / "glyph_transforms.py"
+MODULE_PATH = REPO_ROOT / "fonts" / "glyph_transforms.py"
 
 
 def _load_module() -> Any:
