@@ -13,9 +13,9 @@ CSV:
   backfill rows an earlier partial capture left behind).
 
 Usage:
-    uv run python .github/skills/generate-pipeline-profiling/scripts/baseline_capture.py capture \\
+    uv run python .github/skills/pipeline-profiling/scripts/baseline_capture.py capture \\
         --commit <pre-fix-sha>
-    uv run python .github/skills/generate-pipeline-profiling/scripts/baseline_capture.py merge \\
+    uv run python .github/skills/pipeline-profiling/scripts/baseline_capture.py merge \\
         --commit <pre-fix-sha> [--replace-ts TS ...]
 """
 

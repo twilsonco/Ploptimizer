@@ -10,7 +10,7 @@ and keep the cycle's evidence in the run-history CSV so every iteration is
 comparable. This skill orchestrates the loop; the profiling mechanics
 (sweep flags, history CSV, plotting, worktree baselines, gotchas) live in
 the sibling skill
-[`../generate-pipeline-profiling/SKILL.md`](../generate-pipeline-profiling/SKILL.md)
+[`../pipeline-profiling/SKILL.md`](../pipeline-profiling/SKILL.md)
 — read it for detail.
 
 ## The cycle

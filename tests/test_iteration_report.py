@@ -1,6 +1,6 @@
 """Unit tests for the optimization-loop iteration report.
 
-``.github/skills/generate-pipeline-optimization/scripts/iteration_report.py``
+``.github/skills/pipeline-optimization/scripts/iteration_report.py``
 is a script (not an importable package module), so it is loaded by path with
 ``importlib`` (mirroring ``tests/test_job_spec_docs.py``).
 """
@@ -25,7 +25,7 @@ def report() -> Any:
         REPO_ROOT
         / ".github"
         / "skills"
-        / "generate-pipeline-optimization"
+        / "pipeline-optimization"
         / "scripts"
         / "iteration_report.py"
     )
