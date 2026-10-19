@@ -63,6 +63,33 @@ ENSEMBLE_SEQUENTIAL_BLOCK_THRESHOLD = 48
 _StrategyJob = Tuple[str, Tuple[float, float], Optional[Tuple[float, float]]]
 
 
+def _first_min_insertion(row: List[Tuple[float, bool]]) -> Tuple[int, float, bool]:
+    """Return the first-minimum entry of an insertion-cost row.
+
+    Mirrors the selection rule of
+    :meth:`InsertionHeuristicStrategy._find_best_insertion_position`: scan
+    left to right and keep a candidate only on a strict improvement, so ties
+    resolve to the **lowest** position index. Used by the incremental
+    cheapest-insertion cache, whose winners must match the naive full scan
+    bit-for-bit.
+
+    Args:
+        row: ``(cost, should_reverse)`` per tour position; must be non-empty.
+
+    Returns:
+        Tuple of ``(position, cost, should_reverse)`` for the first minimum.
+    """
+    best_pos = 0
+    best_cost, best_reversed = row[0]
+    for pos in range(1, len(row)):
+        cost, should_reverse = row[pos]
+        if cost < best_cost:
+            best_pos = pos
+            best_cost = cost
+            best_reversed = should_reverse
+    return (best_pos, best_cost, best_reversed)
+
+
 def _is_pool_broken_error(error: BaseException) -> bool:
     """Return True when ``error`` indicates worker processes died abruptly.
 
@@ -1003,26 +1030,98 @@ class InsertionHeuristicStrategy(OptimizationStrategy):
 
         unvisited = set(range(len(blocks))) - {state.block_id for state in tour}
 
+        # Incremental cheapest-insertion (exact, bit-identical to the naive
+        # O(n^3) re-scan; see _calculate_insertion_cost for the cost model).
+        #
+        # The insertion cost of a block at tour position ``pos`` depends only
+        # on the edge (tour[pos].exit -> tour[pos+1].entrance). Inserting the
+        # winner after position ``p`` replaces exactly that one edge with two
+        # new edges (positions ``p`` and ``p+1``); every other edge - and thus
+        # every other cached cost - is unchanged. So we cache one cost row per
+        # unvisited block (values produced by the very same
+        # _calculate_insertion_cost calls, keeping floats bit-identical) plus
+        # each block's best (position, cost, reversed) under the naive scan's
+        # strict-< first-minimum rule, and after each insertion recompute only
+        # the two invalidated positions for every remaining block. Work drops
+        # from O(n^3) cost evaluations to O(n^2) with identical tours.
+        insertion_costs: Dict[int, List[Tuple[float, bool]]] = {
+            block_idx: [
+                self._calculate_insertion_cost(blocks[block_idx], tour, pos, blocks)
+                for pos in range(len(tour))
+            ]
+            for block_idx in unvisited
+        }
+        insertion_bests: Dict[int, Tuple[int, float, bool]] = {
+            block_idx: _first_min_insertion(row) for block_idx, row in insertion_costs.items()
+        }
+
         while unvisited:
-            best_insertion: Optional[tuple[int, BlockTraverseState, float]] = None
             best_block_idx = -1
+            best_cost = float("inf")
 
             for block_idx in unvisited:
-                block = blocks[block_idx]
-                insertion_result = self._find_best_insertion_position(block, tour, blocks)
-
-                if best_insertion is None or insertion_result[2] < best_insertion[2]:
-                    best_insertion = (
-                        insertion_result[0],
-                        insertion_result[1],
-                        insertion_result[2],
-                    )
+                if insertion_bests[block_idx][1] < best_cost:
+                    best_cost = insertion_bests[block_idx][1]
                     best_block_idx = block_idx
 
-            if best_insertion is not None and best_block_idx != -1:  # pragma: no branch
-                insert_pos, new_state, _cost = best_insertion
-                tour.insert(insert_pos + 1, new_state)
+            if best_block_idx != -1:  # pragma: no branch
+                insert_pos, _cost, best_reversed = insertion_bests[best_block_idx]
+                block = blocks[best_block_idx]
+                if best_reversed:
+                    new_state = BlockTraverseState(
+                        block_id=block.block_id,
+                        reversed=True,
+                        entrance=(block.exit.x, block.exit.y),
+                        exit=(block.entrance.x, block.entrance.y),
+                    )
+                else:
+                    new_state = BlockTraverseState(
+                        block_id=block.block_id,
+                        reversed=False,
+                        entrance=(block.entrance.x, block.entrance.y),
+                        exit=(block.exit.x, block.exit.y),
+                    )
+
+                p = insert_pos
+                tour.insert(p + 1, new_state)
                 unvisited.remove(best_block_idx)
+                del insertion_costs[best_block_idx]
+                del insertion_bests[best_block_idx]
+
+                for block_idx in unvisited:
+                    row = insertion_costs[block_idx]
+                    cost_p = self._calculate_insertion_cost(blocks[block_idx], tour, p, blocks)
+                    cost_p1 = self._calculate_insertion_cost(blocks[block_idx], tour, p + 1, blocks)
+                    # Old position p (the replaced edge) becomes the two new
+                    # edges p and p+1; every old position > p keeps its cost
+                    # and shifts index by +1.
+                    row[p : p + 1] = [cost_p, cost_p1]
+
+                    # First minimum of the two new positions: position p wins
+                    # ties (lower index), matching the naive scan's strict-<.
+                    if cost_p1[0] < cost_p[0]:
+                        new_pos, new_cost, new_reversed = p + 1, cost_p1[0], cost_p1[1]
+                    else:
+                        new_pos, new_cost, new_reversed = p, cost_p[0], cost_p[1]
+
+                    best_pos, best_row_cost, best_rev = insertion_bests[block_idx]
+                    if best_pos == p:
+                        # The cached best sat on the replaced edge: rescan.
+                        insertion_bests[block_idx] = _first_min_insertion(row)
+                    elif best_pos < p:
+                        # The cached best survives at index best_pos, below
+                        # both new positions, so a tie keeps the earlier
+                        # (cached) index: only a strict win replaces it.
+                        if new_cost < best_row_cost:
+                            insertion_bests[block_idx] = (new_pos, new_cost, new_reversed)
+                    else:
+                        # The cached best survives at the shifted index
+                        # best_pos + 1, above both new positions, so a tie
+                        # goes to the new (earlier) index: <= replaces.
+                        if new_cost <= best_row_cost:
+                            insertion_bests[block_idx] = (new_pos, new_cost, new_reversed)
+                        else:
+                            insertion_bests[block_idx] = (best_pos + 1, best_row_cost, best_rev)
 
         connections = self._build_connections(blocks, tour, start_pos)
         total_distance = sum(c.travel_distance for c in connections if c.source_block_id >= 0)

@@ -2821,3 +2821,131 @@ class TestParallelEnsemblePoolBreakRetry:
 
         assert mock_exec.call_count == 2
         assert result.winner_name == "NearestNeighbor + 2-Opt (Fallback)"
+
+
+# ---------------------------------------------------------------------------
+# Incremental cheapest-insertion cache (perf: O(n^3) -> O(n^2), bit-identical)
+# ---------------------------------------------------------------------------
+
+
+def _naive_insertion_loop(
+    strategy: InsertionHeuristicStrategy,
+    blocks: List[MacroBlock],
+    start_pos: Tuple[float, float],
+) -> List[BlockTraverseState]:
+    """The pre-cache O(n^3) cheapest-insertion loop, verbatim.
+
+    Full re-scan of every (unvisited block, tour position) on every
+    insertion - the reference the incremental cache must match tour-for-tour.
+    """
+    tour = strategy._build_initial_tour_from_start(blocks, start_pos)
+    unvisited = set(range(len(blocks))) - {state.block_id for state in tour}
+    while unvisited:
+        best_insertion: Optional[Tuple[int, BlockTraverseState, float]] = None
+        best_block_idx = -1
+        for block_idx in unvisited:
+            block = blocks[block_idx]
+            insertion_result = strategy._find_best_insertion_position(block, tour, blocks)
+            if best_insertion is None or insertion_result[2] < best_insertion[2]:
+                best_insertion = insertion_result
+                best_block_idx = block_idx
+        assert best_insertion is not None and best_block_idx != -1
+        insert_pos, new_state, _cost = best_insertion
+        tour.insert(insert_pos + 1, new_state)
+        unvisited.remove(best_block_idx)
+    return tour
+
+
+class TestFirstMinInsertion:
+    """Tests for the _first_min_insertion helper."""
+
+    def test_first_minimum_on_ties(self) -> None:
+        """Ties resolve to the LOWEST position index (naive strict-< scan rule)."""
+        from plt_optimizer.core.optimizer import _first_min_insertion
+
+        row = [(5.0, False), (3.0, True), (3.0, False), (7.0, True)]
+        pos, cost, reversed_flag = _first_min_insertion(row)
+        assert (pos, cost, reversed_flag) == (1, 3.0, True)
+
+    def test_single_entry_row(self) -> None:
+        """A one-position row returns that position."""
+        from plt_optimizer.core.optimizer import _first_min_insertion
+
+        assert _first_min_insertion([(2.5, True)]) == (0, 2.5, True)
+
+
+class TestInsertionHeuristicIncrementalEquivalence:
+    """The incremental cheapest-insertion cache must equal the naive scan."""
+
+    def test_randomized_equivalence_vs_naive_scan(self) -> None:
+        """Seeded random block sets: incremental and naive tours are identical.
+
+        Covers the tie-sensitive cases (integer grid coordinates produce many
+        exact cost ties) and the best_pos < / == / > p cache-update branches.
+        """
+        import random
+
+        rng = random.Random(20261018)
+        strategy = InsertionHeuristicStrategy()
+        for _ in range(40):
+            n = rng.randint(4, 14)
+            grid = rng.choice([True, False])
+            blocks = []
+            for i in range(n):
+                if grid:
+                    x1, y1 = rng.randrange(-30, 30), rng.randrange(-30, 30)
+                    x2, y2 = rng.randrange(-30, 30), rng.randrange(-30, 30)
+                else:
+                    x1, y1, x2, y2 = (rng.uniform(-500, 500) for _ in range(4))
+                blocks.append(_make_simple_block(i, (x1, y1), (x2, y2)))
+            start = (blocks[0].entrance.x, blocks[0].entrance.y)
+
+            naive = _naive_insertion_loop(strategy, blocks, start)
+            result = strategy.optimize(blocks, initial_position=start)
+            incremental = list(result.traverse_order)
+
+            naive_sig = [(s.block_id, s.reversed) for s in naive]
+            incr_sig = [(s.block_id, s.reversed) for s in incremental]
+            assert naive_sig == incr_sig
+            naive_total = sum(
+                c.travel_distance for c in strategy._build_connections(blocks, naive, start)
+                if c.source_block_id >= 0
+            )
+            assert result.total_travel_distance == naive_total
+
+    def test_structural_fixture_distance_pin(self) -> None:
+        """Pin IH on the frozen structural fixture to the pre-cache distance.
+
+        The 194-block structural benchmark is the perf-fixture for this fix;
+        the pinned total (exact float) is the value the naive O(n^3) scan
+        produced, proving the incremental cache is bit-identical on the real
+        benchmark input.
+        """
+        from pathlib import Path
+
+        from plt_optimizer.core.chunker import Chunker
+        from plt_optimizer.core.parser import PLTParser
+        from plt_optimizer.core.pipeline import chunk_document, preprocess_document
+        from plt_optimizer.core.profiler import Profiler
+        from plt_optimizer.core.stroke_simplifier import simplify_overlapping_strokes
+        from plt_optimizer.utils.geometry import fracture_linear_paths
+
+        fixture = Path(__file__).parent.parent / "tests_deps" / "1x3 half inch letters holes1.plt"
+        if not fixture.exists():  # pragma: no cover
+            pytest.skip(f"Fixture not found: {fixture}")
+
+        doc = PLTParser().parse_file(fixture)
+        profile_result = Profiler().profile(doc)
+        doc = preprocess_document(
+            doc,
+            is_structural=profile_result.is_structural,
+            fracture_factory=fracture_linear_paths,
+            dedupe_factory=simplify_overlapping_strokes,
+        )
+        blocks = chunk_document(doc, profile_result, chunker_factory=Chunker)
+        assert len(blocks) == 194
+
+        start = (blocks[0].entrance.x, blocks[0].entrance.y)
+        strategy = InsertionHeuristicStrategy()
+        result = strategy.optimize(blocks, initial_position=start)
+        assert result.total_travel_distance == 137966.52784046388
