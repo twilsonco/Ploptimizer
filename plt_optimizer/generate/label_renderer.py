@@ -17,7 +17,18 @@ import tempfile
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Iterable, List, Mapping, NamedTuple, Optional, Sequence, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    NamedTuple,
+    Optional,
+    Sequence,
+    Tuple,
+)
 
 import numpy as np
 import vpype as vp
@@ -219,6 +230,22 @@ class TextChunkMode(str, Enum):
 
     LINE = "line"
     WORD = "word"
+
+
+#: Cache of the first-pass line renders (raw pre-compression block + word +
+#: glyph groups), keyed by ``(line, chunk_mode, check_glyph_coverage)`` (the
+#: line is a frozen, hashable dataclass, so a content clone never hits a
+#: stale entry). The Phase-3 collision sweep re-renders a label up to 17
+#: times, changing ONLY the label-level ``collision_compress_by_line`` map,
+#: so every step's first-pass glyph walk (``_render_line_block``) is
+#: byte-identical; the cache makes it run once per line per (mode, coverage)
+#: instead of once per render. Values are the raw renders BEFORE
+#: ``_apply_collision_compress`` (frozen ``TextBlock``s, shared safely; the
+#: per-step X scale is applied downstream on every render as before).
+_LineBlockCache = Dict[
+    Tuple[ResolvedTextLine, TextChunkMode, bool],
+    Tuple[TextBlock, Optional[List[Tuple[str, List[int]]]], Tuple[Tuple[int, ...], ...]],
+]
 
 
 @dataclass(frozen=True)
@@ -439,8 +466,18 @@ def render_label_to_plt(
     Raises:
         ValueError: If bounds cannot be extracted from rendered PLT.
     """
+    # One first-pass line-block cache per collision-resolution sequence: the
+    # initial render, the Phase-2 re-render, every Phase-3 sweep step, the
+    # verification render, and the diagnostics render all share the same text
+    # lines (the phases change only label-level fields), so each line's
+    # glyph walk runs once per (chunk mode, coverage) instead of once per
+    # render. See ``_LineBlockCache``.
+    line_block_cache: _LineBlockCache = {}
     rendered, line_entries = _render_label_once(
-        label, pen_map=pen_map, check_glyph_coverage=check_glyph_coverage
+        label,
+        pen_map=pen_map,
+        check_glyph_coverage=check_glyph_coverage,
+        line_block_cache=line_block_cache,
     )
     # The rendered bounds sit in the render frame; the centering step that
     # places them in the label lowers its target by this offset, so every
@@ -466,7 +503,10 @@ def render_label_to_plt(
         if margin_label is not None:
             log_collisions(label, detected_collisions, level=logging.WARNING)
             resolved_rendered, _ = _render_label_once(
-                margin_label, pen_map=pen_map, check_glyph_coverage=check_glyph_coverage
+                margin_label,
+                pen_map=pen_map,
+                check_glyph_coverage=check_glyph_coverage,
+                line_block_cache=line_block_cache,
             )
             return replace(resolved_rendered, collision_detected=True)
         # Margin alone cannot clear the collision; continue from the floor
@@ -493,7 +533,9 @@ def render_label_to_plt(
         compressed_label = resolve_via_compression(
             base_label,
             budget,
-            render=_render_text_local_with_bounds,
+            render=lambda sweep_label: _render_text_local_with_bounds(
+                sweep_label, line_block_cache=line_block_cache
+            ),
             line_desc=line_desc,
             band_center_offset_inches=band_offset,
         )
@@ -506,6 +548,7 @@ def render_label_to_plt(
                 compressed_label,
                 pen_map=pen_map,
                 check_glyph_coverage=check_glyph_coverage,
+                line_block_cache=line_block_cache,
             )
             final_collisions = detect_text_hole_collisions(
                 compressed_label, resolved_line_entries, resolved_rendered.band_center_offset_inches
@@ -539,6 +582,7 @@ def render_label_to_plt(
             final_label,
             check_glyph_coverage=check_glyph_coverage,
             band_center_offset=final_band,
+            line_block_cache=line_block_cache,
         )
         collisions = detect_text_hole_collisions(
             final_label,
@@ -580,6 +624,7 @@ def _render_label_once(
     pen_map: Optional[dict[tuple[float, str], int]] = None,
     *,
     check_glyph_coverage: bool = True,
+    line_block_cache: Optional[_LineBlockCache] = None,
 ) -> Tuple[RenderedLabel, List[_LineEntry]]:
     """Render a single label to PLT without collision resolution.
 
@@ -590,6 +635,9 @@ def _render_label_once(
             all text on the historical text pen (``SP1``).
         check_glyph_coverage: When True (the default), a TrueType font
             missing a glyph fails the render.
+        line_block_cache: Optional first-pass line-block cache shared across
+            the renders of one collision-resolution sequence (see
+            :data:`_LineBlockCache`).
 
     Returns:
         Tuple of the :class:`RenderedLabel` (with ``has_collisions`` left
@@ -608,6 +656,7 @@ def _render_label_once(
         check_glyph_coverage=check_glyph_coverage,
         descender_fixes=descender_fixes,
         band_center_offset=band_center_offset,
+        line_block_cache=line_block_cache,
     )
 
     # Render boundary as native HPGL to keep it as one continuous polyline
@@ -4593,6 +4642,7 @@ def _render_positioned_lines(
     check_glyph_coverage: bool = True,
     descender_fixes: Optional[List[DescenderFix]] = None,
     band_center_offset: Optional[List[float]] = None,
+    line_block_cache: Optional[_LineBlockCache] = None,
 ) -> List[
     Tuple[
         int,
@@ -4645,6 +4695,12 @@ def _render_positioned_lines(
             + raise triggered by a near-miss against the line below). The
             geometry is always applied; the list only collects the records for
             reporting, so a caller that does not report passes ``None``.
+        line_block_cache: Optional cache of the first-pass line renders,
+            shared across the renders of one collision-resolution sequence
+            (see :data:`_LineBlockCache`). The sweep changes only the
+            label-level ``collision_compress_by_line``, so every step's raw
+            line render is identical; the cache removes the repeated glyph
+            walk. ``None`` (the default) renders every line fresh.
 
     Returns:
         One ``(line_index, positioned_block, entry, word_groups,
@@ -4718,15 +4774,36 @@ def _render_positioned_lines(
     for line_index, line in enumerate(label.content):
         # Render at the toolpath_text_height (cutter-compensated) in the
         # line's cascaded font. Both renderers return upright glyphs.
-        try:
-            block, word_groups, glyph_groups = _render_line_block(
-                line, chunk_mode, check_glyph_coverage=check_glyph_coverage
+        # The raw render depends only on (line, chunk_mode, coverage), so a
+        # shared collision-sequence cache serves every sweep step (see
+        # ``_LineBlockCache``). The key carries the line itself (a frozen,
+        # hashable dataclass), so a clone with new typography can never hit a
+        # stale entry. The cached word-group lists are copied on a hit:
+        # downstream code treats them as this render's own.
+        cache_key = (line, chunk_mode, check_glyph_coverage)
+        cached = None if line_block_cache is None else line_block_cache.get(cache_key)
+        if cached is not None:
+            block, cached_words, glyph_groups = cached
+            word_groups = (
+                None if cached_words is None else [(word, list(idx)) for word, idx in cached_words]
             )
-        except (PltFontRenderError, FtextRenderError) as exc:
-            raise LabelRenderError(
-                f"Label {label.id}: text line {line_index} ({line.plain_text!r}) "
-                f"cannot be rendered: {exc}"
-            ) from exc
+        else:
+            try:
+                block, word_groups, glyph_groups = _render_line_block(
+                    line, chunk_mode, check_glyph_coverage=check_glyph_coverage
+                )
+            except (PltFontRenderError, FtextRenderError) as exc:
+                raise LabelRenderError(
+                    f"Label {label.id}: text line {line_index} ({line.plain_text!r}) "
+                    f"cannot be rendered: {exc}"
+                ) from exc
+            if line_block_cache is not None:
+                stored_words = (
+                    None
+                    if word_groups is None
+                    else [(word, list(idx)) for word, idx in word_groups]
+                )
+                line_block_cache[cache_key] = (block, stored_words, glyph_groups)
 
         if block.is_empty():
             continue
@@ -5099,6 +5176,7 @@ def _render_text_local_with_bounds(
     *,
     check_glyph_coverage: bool = True,
     band_center_offset: Optional[List[float]] = None,
+    line_block_cache: Optional[_LineBlockCache] = None,
 ) -> Tuple[vp.LineCollection, List[_LineEntry]]:
     """Render text at local coordinates and report per-line bounds.
 
@@ -5114,6 +5192,9 @@ def _render_text_local_with_bounds(
             renderer applied (inches); left empty when the label centers by
             ink. Collision detection must subtract the same offset the export
             centering applies, so sweeps that re-render collect it here.
+        line_block_cache: Optional first-pass line-block cache shared across
+            the renders of one collision-resolution sequence (see
+            :data:`_LineBlockCache`).
 
     Returns:
         A tuple ``(combined_lc, line_entries)`` where ``combined_lc`` holds
@@ -5126,7 +5207,10 @@ def _render_text_local_with_bounds(
     text_lc = vp.LineCollection()
     line_entries: List[_LineEntry] = []
     for _line_index, positioned_block, entry, _wg, _gg in _render_positioned_lines(
-        label, check_glyph_coverage=check_glyph_coverage, band_center_offset=band_center_offset
+        label,
+        check_glyph_coverage=check_glyph_coverage,
+        band_center_offset=band_center_offset,
+        line_block_cache=line_block_cache,
     ):
         text_lc.extend(positioned_block.to_vpype_polylines())
         line_entries.append(entry)
@@ -5206,6 +5290,7 @@ def _render_text_lines_by_pen(
     check_glyph_coverage: bool = True,
     descender_fixes: Optional[List[DescenderFix]] = None,
     band_center_offset: Optional[List[float]] = None,
+    line_block_cache: Optional[_LineBlockCache] = None,
 ) -> Tuple[dict[int, Tuple[TextBlock, ...]], List[_LineEntry], List[TextChunkRecord]]:
     """Render text lines grouped onto per-cutter pen layers.
 
@@ -5229,6 +5314,9 @@ def _render_text_lines_by_pen(
             baseline-to-capline band; left empty when it centers by ink. The
             authoritative centering step needs the value, so it is collected
             here the same way ``descender_fixes`` is.
+        line_block_cache: Optional first-pass line-block cache shared across
+            the renders of one collision-resolution sequence (see
+            :data:`_LineBlockCache`).
 
     Returns:
         Tuple of ``(pens, line_entries, chunk_records)`` where ``pens`` maps
@@ -5257,6 +5345,7 @@ def _render_text_lines_by_pen(
         check_glyph_coverage=check_glyph_coverage,
         descender_fixes=descender_fixes,
         band_center_offset=band_center_offset,
+        line_block_cache=line_block_cache,
     ):
         line_content = label.content[line_index] if 0 <= line_index < len(label.content) else None
         line_entries.append(entry)
