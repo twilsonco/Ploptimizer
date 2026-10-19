@@ -39,6 +39,13 @@ This package is the shared operational substrate: every `core/` module imports
   env var is how the CLI level propagates into spawned subprocesses
   (`cli/benchmark.py` sets it before spawning workers). `setup_logging()` /
   `get_text_logger()` / `get_metrics_logger()` are process singletons.
+- `stage_timing.py` - the machine-parseable pipeline timing contract:
+  `stage_timer(name, logger)` emits one INFO line `stage <name>: <s>s` per
+  completed stage (`time.perf_counter`, in a `finally`). Stdlib-only, so it
+  is Win7-safe and importable from `core/`, the CLIs, and `generate/`.
+  Consumed by `scripts/profile_generate.py` and
+  `scripts/profile_optimize.py` (`STAGE_LINE_PATTERN`); format pinned by
+  `tests/test_stage_timers.py`.
 - `startup.py` - Windows Startup-folder autostart: creates/removes a
   `PLT-Optimizer.lnk` via `win32com` `WScript.Shell` (WindowStyle 7 =
   minimized). Every entry point no-ops off Windows (`create_shortcut` ->

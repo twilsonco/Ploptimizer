@@ -47,6 +47,13 @@ the `benchmark` tool, and the generate pipeline's plate-space optimization
   pure applier (the merge is NOT inside it).
 - `pipeline.py` - the shared stage sequence
   (`preprocess_document` → `chunk_document` → `optimize_and_reassemble`).
+  `optimize_and_reassemble(stage_timers=True)` (default `False`) emits the
+  `stage <name>: <s>s` INFO timing lines for its inner stages
+  (`optimize_tsp`, `direction_sweep`, `intra_sweep`, `reassemble`, `merge`)
+  via `../utils/stage_timing.py` - log-only, off by default so the watch
+  daemon's and generate's log streams stay byte-identical; the `optimize`
+  CLI and `scripts/profile_optimize.py` turn them on (pinned by
+  `tests/test_pipeline.py::TestStageTimers`).
 
 ## Invariants
 

@@ -825,6 +825,15 @@ memory (cProfile + tracemalloc + per-stage wall-clock timers) over a
 benchmark set of real job specs, and A/B-benchmarks Python optimized mode.
 See [`PROFILING.md`](PROFILING.md).
 
+### Profiling the optimize pipeline
+
+`scripts/profile_optimize.py` measures the `optimize`/`watch` core
+(parse → profile → preprocess → chunk → optimize+reassemble → write) over
+benchmark PLTs (a text sheet + a structural sheet), recording wall/cpu,
+memory, per-stage timers, and the rapid-travel quality KPIs into the
+tracked `profiling/optimization_pipeline_summary.csv`. See
+[`PROFILING.md`](PROFILING.md).
+
 ## HPGL/PLT Format Reference
 
 The parser handles standard HPGL commands from EngraveLab:

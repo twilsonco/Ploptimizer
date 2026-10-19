@@ -29,8 +29,8 @@ per-directory `AGENTS.md` files (root file has the component map).
   (`scripts/run_integration_test.py`).
 - `RECTPACK_KNOBS.md` - packing knob analysis (fill-order contract:
   [`../plt_optimizer/generate/packing/AGENTS.md`](../plt_optimizer/generate/packing/AGENTS.md)).
-- `PROFILING.md` - the generate-pipeline perf loop (measure → identify →
-  patch → re-measure → plot). Two skills carry the procedure:
+- `PROFILING.md` - the perf loop (measure → identify → patch → re-measure →
+  plot) for BOTH pipelines. Two skills carry the generate procedure:
   [`../.github/skills/generate-pipeline-profiling/SKILL.md`](../.github/skills/generate-pipeline-profiling/SKILL.md)
   owns the mechanics (`scripts/profile_generate.py` appends to the
   tracked `profiling/summary.csv` run history with `run_id`/`run_ts`
@@ -43,5 +43,14 @@ per-directory `AGENTS.md` files (root file has the component map).
   patches, then
   `.github/skills/generate-pipeline-optimization/scripts/iteration_report.py`
   prints the per-job before → after → % gain between two iterations).
+  The optimize pipeline (`optimize` CLI / `watch` core) has its own pair:
+  [`../.github/skills/optimize-pipeline-profiling/SKILL.md`](../.github/skills/optimize-pipeline-profiling/SKILL.md)
+  (`scripts/profile_optimize.py` appends to the tracked
+  `profiling/optimization_pipeline_summary.csv` - adjacent to the generate
+  history, never mixed; the harness also records the rapid-travel quality
+  KPIs) and
+  [`../.github/skills/optimize-pipeline-optimization/SKILL.md`](../.github/skills/optimize-pipeline-optimization/SKILL.md)
+  (same cycle; its `scripts/iteration_report.py` defaults to the optimize
+  CSV).
 - Keep prose in sync with the component AGENTS.md files when behavior changes;
   DONE.md tracks per-feature doc updates (historical record - do not rewrite).

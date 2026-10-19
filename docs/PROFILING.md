@@ -1,3 +1,12 @@
+# Profiling
+
+Two pipelines, two harnesses, two tracked run histories:
+
+| Pipeline | Harness | History CSV | Skills |
+|---|---|---|---|
+| `generate` (YAML → per-cutter PLTs) | `scripts/profile_generate.py` | `profiling/summary.csv` | `generate-pipeline-profiling` / `generate-pipeline-optimization` |
+| `optimize` (PLT → optimized PLT; the `optimize` CLI + `watch` core) | `scripts/profile_optimize.py` | `profiling/optimization_pipeline_summary.csv` | `optimize-pipeline-profiling` / `optimize-pipeline-optimization` |
+
 # Generate-Pipeline Profiling
 
 How to measure where the `generate` pipeline spends time and memory, what
@@ -13,7 +22,7 @@ each spec.
 ## Stage timers
 
 The pipeline emits one machine-parseable INFO line per stage
-(`plt_optimizer/generate/stage_timing.py`, format `stage <name>: <s>s`,
+(`plt_optimizer/utils/stage_timing.py`, format `stage <name>: <s>s`,
 contract pinned by `tests/test_stage_timers.py`):
 
 | Stage | Emplaced in | Covers |
@@ -413,3 +422,111 @@ library paths, for zero measured gain. The PyInstaller spec keeps
 `optimize=0`. The A/B harness stays in the repo
 (`scripts/profile_generate.py --ab`) to re-verify on future Python
 upgrades.
+
+# Optimize-Pipeline Profiling
+
+How to measure where the **optimize** pipeline (the `plt-optimizer optimize`
+CLI / `watch` daemon core: parse → profile → preprocess → chunk →
+optimize+reassemble → write) spends time and memory, what its benchmark set
+covers, and its measured baseline. The two skills carry the procedure:
+`.github/skills/optimize-pipeline-profiling/SKILL.md` (mechanics) and
+`.github/skills/optimize-pipeline-optimization/SKILL.md` (the
+measure → identify → patch → re-measure → report-gain cycle).
+
+Harness: [`../scripts/profile_optimize.py`](../scripts/profile_optimize.py)
+(stdlib only: `cProfile` + `tracemalloc` + `time.perf_counter` — no new
+dependencies). It runs the exact production sequence of
+`plt_optimizer.cli.optimize.run` for each PLT, and records the pipeline's
+own quality KPIs per sweep (`rapid_before_in`, `rapid_after_in`,
+`improvement_pct` — emitted rapid travel in inches) so a perf change can
+also be checked for routing-quality drift.
+
+## Stage timers
+
+The same `plt_optimizer/utils/stage_timing.py` contract powers both
+pipelines (it moved from `generate/` to `utils/` — the shared, Win7-safe
+substrate — when the core pipeline adopted it). The `optimize` CLI emits
+`parse`, `profile`, `preprocess`, `chunk`, `optimize`, `write`; the core
+pipeline helper emits its inner stages when called with
+`stage_timers=True` (the CLI and the harness do; the `watch` daemon and
+generate's plate-space path keep the default off so their log streams stay
+byte-identical): `optimize_tsp`, `direction_sweep`, `intra_sweep`,
+`reassemble`, `merge`. `optimize` nests the inner five (the harness sums
+each name independently). Pinned by
+`tests/test_pipeline.py::TestStageTimers` (emission, default-off,
+log-only-identity). The lines land in the normal log stream (INFO), so
+they are visible in `logs_optimize/optimizer.log` for any production
+`optimize` run, not only under the profiler.
+
+## Usage
+
+```sh
+# Full benchmark sweep (2 PLTs x 3 timed repeats + cProfile + tracemalloc)
+uv run python scripts/profile_optimize.py
+
+# Custom inputs (files or directories of *.plt), quick mode
+uv run python scripts/profile_optimize.py --plts "examples/my file.plt" \
+    --repeats 1 --no-profile --no-memory
+
+# Isolate the ensemble pool-spawn cost
+uv run python scripts/profile_optimize.py --fast-mode
+```
+
+Outputs:
+
+- `profiling/optimization_pipeline_summary.csv` — **tracked** (commit it
+  with each perf cycle), adjacent to the generate pipeline's
+  `summary.csv` — one append-mode history per pipeline, never mixed. Same
+  `run_id`/`run_ts` semantics; `--fresh` resets; `--history-csv` relocates
+  (the worktree baseline capture uses this).
+- Scratch under `test_output/optimize_profiling/` (ignored via
+  `*_output`): `<file>/<file>.prof`, `.top.txt`, `.mem.txt`, `run.log`.
+
+Plotting reuses `scripts/plot_profiling_history.py` with the CSV/plot-dir
+pointed at this pipeline:
+
+```sh
+uv run python scripts/plot_profiling_history.py \
+    --csv profiling/optimization_pipeline_summary.csv \
+    --out-dir test_output/optimize_profiling/plots --metrics wall_s,cpu_s --log-y
+```
+
+Pre-optimization baselines:
+`.github/skills/optimize-pipeline-profiling/scripts/baseline_capture.py`
+(worktree capture + commit-date-stamped merge, same recipe as the
+generate side). Gain scoreboard between two sweeps:
+`.github/skills/optimize-pipeline-optimization/scripts/iteration_report.py`.
+
+## Benchmark set
+
+Two files (`BENCHMARK_PLTS` in the script) covering the pipeline's two
+preprocessing branches:
+
+| File | Hot paths exercised |
+|---|---|
+| `examples/334X712 RED DANGER conveyers start and stop2.plt` | text branch: chronological chunking of contiguous glyph paths, ensemble TSP (sequential path on this box), direction sweep |
+| `tests_deps/1x3 half inch letters holes1.plt` | structural branch: fracture + dedupe preprocessing, one-block-per-segment chunking (drill holes + borders), pooled ensemble |
+
+The structural fixture lives in `tests_deps/` (frozen, `tests/AGENTS.md`):
+benchmark input, never a file to edit.
+
+## Measured baseline (2026-10-18, `--repeats 3`, ensemble on)
+
+Machine: macOS dev box (Apple Silicon, Python 3.11). Wall = median of 3;
+stage seconds = sums of the last timed run. `cpu_s` is process CPU
+(wall >> cpu ⇒ subprocess-parallel work, not single-core compute).
+
+| File | wall s | cpu s | peak mem | rapid in→out (in) | imp% | dominant stage(s) |
+|---|---|---|---|---|---|---|
+| 334X712 RED DANGER (text) | 0.19 | 0.19 | 2.8 MiB | 341.4 → 208.4 | 39.0 | `optimize_tsp` 0.16 (sequential ensemble) |
+| 1x3 half inch letters holes1 (structural) | 0.91 | 0.04 | 2.4 MiB | 554.8 → 134.2 | 75.8 | `optimize_tsp` 0.90 (pooled ensemble) |
+
+### Current #1: ensemble pool-spawn wall on the structural fixture
+
+The structural file's 0.90 s `optimize_tsp` is process-pool wall time
+(cpu 0.04 s): its 194 single-segment blocks sit above
+`ENSEMBLE_SEQUENTIAL_BLOCK_THRESHOLD` (48), so every strategy job pays
+pool spawn. It is partly a knob (`--fast-mode`, the threshold), and the
+exact next win is shrinking per-job work inside the pool, not removing
+the pool (the generate side's sunwest misdiagnosis is the cautionary
+tale — big-layer pooled compute is real work).

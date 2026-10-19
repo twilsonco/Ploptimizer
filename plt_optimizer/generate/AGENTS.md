@@ -1499,14 +1499,15 @@ top-most layer:
 - Malformed JSON or unknown config keys fail loudly (`JobConfigError`);
   `description` is an accepted free-form key (mirrors `tools.json`).
 
-## Stage timing contract (`stage_timing.py`)
+## Stage timing contract (`utils/stage_timing.py`)
 
-- `plt_optimizer/generate/stage_timing.py` is the single source of the
+- `plt_optimizer/utils/stage_timing.py` is the single source of the
   pipeline timing-line format: `stage_timer(name, logger)` emits one INFO
   line `stage <name>: <s>s` per completed stage (via `time.perf_counter`,
   in a `finally`, so a raising stage is still timed). Import-light (stdlib
-  only) so it is safe on the Win7 import path; `vectorize`/`cli/generate`
-  import it at module scope.
+  only) and Win7-safe, so it lives in `utils/` (the shared substrate) and
+  is imported at module scope by `vectorize`/`cli/generate`, the
+  `cli/optimize` CLI, and `core/pipeline.py`.
 - Stage names are a stable contract consumed by
   `scripts/profile_generate.py` (`STAGE_LINE_PATTERN`): `parse`, `resolve`
   (cli/generate.py), and `reflow`, `cutter_downsize`, `h_compress`,
@@ -1517,5 +1518,8 @@ top-most layer:
   the regex + harness together.
 - Timers are log-only (zero pipeline behavior change); the module logger is
   named `_LOG` so the `logger: TextLogger` parameter never shadows it.
-  Full profiling workflow: [`../../docs/PROFILING.md`](../../docs/PROFILING.md).
+  The optimize pipeline's own stage names live in
+  [`../core/AGENTS.md`](../core/AGENTS.md) +
+  [`../cli/AGENTS.md`](../cli/AGENTS.md); full profiling workflow for both
+  pipelines: [`../../docs/PROFILING.md`](../../docs/PROFILING.md).
 

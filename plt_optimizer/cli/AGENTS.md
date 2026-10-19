@@ -19,6 +19,13 @@ beside the input), `--fast-mode` (NearestNeighbor2Opt only; default is
 ParallelEnsemble with per-strategy benchmark logging), `-v/--verbose`,
 `--log-dir` (default `./logs_optimize/`; writes `optimizer.log` +
 `job_metrics.csv`). Prints one summary line to stdout unless `-v`.
+Stage timers (`plt_optimizer/utils/stage_timing.py`, INFO) wrap each stage:
+`parse`, `profile`, `preprocess`, `chunk`, `optimize` (the whole
+`optimize_and_reassemble` call, with `stage_timers=True` for the inner
+`optimize_tsp`/`direction_sweep`/`intra_sweep`/`reassemble`/`merge` lines
+from `core/pipeline.py`), `write` — the contract
+`scripts/profile_optimize.py` measures (see
+[`../../docs/PROFILING.md`](../../docs/PROFILING.md)).
 
 ### `generate <spec.yaml>`
 Three-phase pipeline: `parse_yaml` → `expand_job_spec` → `resolve_job_spec` →
