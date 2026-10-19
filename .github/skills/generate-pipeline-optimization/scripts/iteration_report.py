@@ -8,7 +8,7 @@ top-N stage columns that moved. This is the "did the patch pay off?" step
 of the optimization loop — run it after re-profiling.
 
 Usage:
-    uv run python .github/skills/generate-pipeline-optimization/scripts/iteration_report.py
+    uv run python .github/skills/generate-generate-pipeline-optimization/scripts/iteration_report.py
     uv run python .../iteration_report.py --baseline <run_id> --target <run_id>
     uv run .../iteration_report.py --metric stage_reflow_s --top-stages 5
 """

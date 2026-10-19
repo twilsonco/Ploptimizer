@@ -1,5 +1,5 @@
 ---
-name: generate-pipeline-optimization
+name: generate-generate-pipeline-optimization
 description: 'End-to-end performance optimization loop for the generate pipeline: profile, identify the top bottleneck, patch it (exact + pinned), re-profile, and report the measured gain. Use when: optimize the pipeline, find and fix the next bottleneck, make generation faster, squeeze performance, "what should I optimize next", quantify speedup, iterate on bottlenecks. Keywords: optimize, bottleneck, speedup, profiling loop, iteration report, wall time gain.'
 ---
 
@@ -10,7 +10,7 @@ and keep the cycle's evidence in the run-history CSV so every iteration is
 comparable. This skill orchestrates the loop; the profiling mechanics
 (sweep flags, history CSV, plotting, worktree baselines, gotchas) live in
 the sibling skill
-[`../pipeline-profiling/SKILL.md`](../pipeline-profiling/SKILL.md)
+[`../generate-pipeline-profiling/SKILL.md`](../generate-pipeline-profiling/SKILL.md)
 — read it for detail.
 
 ## The cycle
@@ -65,7 +65,7 @@ multisets** (the geometry invariant — see the profiling skill).
 ### 5. Report the gain
 
 ```sh
-uv run python .github/skills/generate-pipeline-optimization/scripts/iteration_report.py
+uv run python .github/skills/generate-generate-pipeline-optimization/scripts/iteration_report.py
 # explicit iterations / metric:
 uv run python .../iteration_report.py --baseline <run_id> --target <run_id> --metric stage_reflow_s
 ```

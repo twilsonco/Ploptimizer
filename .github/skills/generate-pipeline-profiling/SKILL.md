@@ -1,5 +1,5 @@
 ---
-name: pipeline-profiling
+name: generate-generate-pipeline-profiling
 description: 'Measure, optimize, and prove generate-pipeline performance. Use when: profiling the generate pipeline, finding bottlenecks, patching a performance hot spot, measuring wall/stage time, maintaining the summary.csv run history, re-measuring a pre-optimization baseline with a git worktree, plotting performance improvements, deciding whether a perf fix is worth it. Keywords: profiling, bottleneck, performance, wall time, stage timer, summary.csv, profile_generate, plot_profiling_history.'
 ---
 
@@ -8,7 +8,7 @@ description: 'Measure, optimize, and prove generate-pipeline performance. Use wh
 The repo's perf loop: **measure → identify → patch → re-measure → plot**.
 The end-to-end optimization cycle (one bottleneck per cycle, with the
 gain report) is the sibling skill
-[`../generate-pipeline-optimization/SKILL.md`](../generate-pipeline-optimization/SKILL.md);
+[`../generate-generate-pipeline-optimization/SKILL.md`](../generate-generate-pipeline-optimization/SKILL.md);
 this skill owns the mechanics it calls into.
 The machine-readable record is `test_output/profiling/summary.csv` (gitignored
 scratch, append-mode HISTORY — every sweep adds rows, `run_id` groups one
@@ -87,8 +87,8 @@ Use a **git worktree** — never check the main tree out of the user's working
 state. [baseline_capture.py](./scripts/baseline_capture.py) wraps it:
 
 ```sh
-uv run python .github/skills/pipeline-profiling/scripts/baseline_capture.py capture --commit <pre-fix-sha>
-uv run python .github/skills/pipeline-profiling/scripts/baseline_capture.py merge   --commit <pre-fix-sha> --replace-ts <thin-row-ts> --remove-worktree
+uv run python .github/skills/generate-generate-pipeline-profiling/scripts/baseline_capture.py capture --commit <pre-fix-sha>
+uv run python .github/skills/generate-generate-pipeline-profiling/scripts/baseline_capture.py merge   --commit <pre-fix-sha> --replace-ts <thin-row-ts> --remove-worktree
 ```
 
 - The script verifies `pyproject.toml`/`uv.lock` are identical between the
