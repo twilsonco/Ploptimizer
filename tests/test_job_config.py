@@ -1061,7 +1061,9 @@ class TestParseYamlWithJobConfig:
         assert job.supersubscript_downscale == 0.6
         assert job.html_brackets == "<>"
         assert job.italic_angle == 12.0
-        assert job.underline_offset == 0.05
+        # Shop-tuned in 3caa21b (0.05 -> 0.02): the underline rides closer to
+        # the baseline; tests/AGENTS.md stale-pin pattern - re-pin, keep config.
+        assert job.underline_offset == 0.02
         assert job.underline_break_clearance == 0.1
         assert job.underline_break_spaces is False
         # The shop ships the mid-cap strike (null) and a continuous stroke.
