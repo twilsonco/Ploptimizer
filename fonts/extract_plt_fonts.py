@@ -1,0 +1,1705 @@
+#!/usr/bin/env python3
+"""Reverse-engineer PLT fonts from engraved, reference-framed ASCII sample sheets.
+
+EngraveLab / Vision Pro cannot export their vector fonts, but they can
+*engrave* them. The workflow (see ``How to extract fonts from EngraveLab or
+VisionPro.md`` beside this script) is:
+
+1. In EngraveLab/Vision Pro, use the **Text Compose** tool (never *Frame Text
+   Compose*, which compresses to fit the plate) and type the characters of
+   ``fonts/ascii.txt`` in order, split across as many rows as the plate
+   needs. **Every row must start and end with one chosen reference
+   character** (e.g. ``E``), which acts as structural framing only.
+2. Engrave the sheet to a PLT file.
+3. Drop the PLT into ``fonts/VP-EL-fonts/input-plt/`` named
+   ``<font name>_<declared height in>_<reference char>[_S<strokes>].plt``
+   (e.g. ``dino_0.5_E.plt``, ``avenge5_0.55_E_S5.plt``). The optional
+   ``_S<n>`` suffix declares how many parallel cutter passes each glyph
+   carries (a multi-stroke/bold font); omitted means a single-stroke font.
+   The count is stored as the font's ``stroke_count`` metadata and drives
+   the renderer's automatic cutter sizing.
+4. Run this script::
+
+       uv run python fonts/extract_plt_fonts.py
+
+Each sheet is parsed with the core :class:`~plt_optimizer.core.parser.PLTParser`
+and verified structurally before any glyph data is trusted:
+
+* **Row detection** - stroke paths are grouped into rows by single-linkage
+  merging of their Y extents, and the split is searched until the layout is
+  self-consistent (see :func:`find_layout`).
+* **Count check** - the characters inside the framing must match
+  ``fonts/ascii.txt`` exactly (``sum(n_row - 2) == len(characters)``).
+* **Framing check** - the internal copy of the reference character (the one
+  that ``ascii.txt`` assigns a real character slot) must coincide with every
+  row-framing copy to within :data:`REFERENCE_MATCH_TOLERANCE` units once
+  both are translated to a common origin. This proves the row split and the
+  character alignment are correct, not merely plausible.
+
+Each glyph is then normalized with one global similarity transform derived
+from the *measured* reference character:
+
+``X_norm = S * (X_raw - X_min_glyph)`` and ``Y_norm = S * (Y_baseline_row - Y_raw)``
+with ``S = LIBRARY_UNITS_PER_INCH / H_ref_raw``
+
+so stored values stay in the library design frame (1000 units = 1 design
+inch), the reference
+character stands exactly 1000 units tall, every glyph sits on ``y = 0`` with
+its left edge at ``x = 0``, and Y grows upward (descending characters get
+negative ``y``). The raw sheets are engraved in the device convention (+Y
+down), so this transform mirrors Y and therefore negates every ``AA`` sweep
+angle. ``H_ref_raw`` is the median measured height across all framing copies;
+the file-name height is *never* used to correct it (see
+:func:`check_height_drift`).
+
+One exception: a character listed in :data:`VERTICALLY_CENTERED_CHARS` is
+additionally *translated* (never scaled, X is never touched) so the centre of
+its own bounding box lands on the **midline** ``MIDLINE_FRACTION * LIBRARY_UNITS_PER_INCH``
+(half the cap height) instead of sitting on the baseline. Round-symmetric
+glyphs such as ``S`` are engraved by EngraveLab hanging slightly below the
+baseline and short of the cap line, which reads as a low-sitting letter next
+to ``H``/``O``/``C``; centring them fixes that at the source, so the stored
+``glyph``, ``bounding_box`` and both envelopes all describe the centred
+position and the typesetter kerns and places the glyph accordingly. The
+reference character is never centred - it *defines* the baseline (``y = 0``)
+and the cap line (``y = 1000``) - and ``--no-vertical-centering`` disables the
+pass entirely for A/B comparison against the raw engraved positions.
+
+The result is written as **one JSON file per font** into
+``fonts/VP-EL-fonts/catalog/`` (file name = the font key with
+file-name-illegal characters replaced by ``_``, e.g. ``Dino.json``). The
+font key itself is the file's ``font_name`` value, not its name::
+
+    {
+      "font_name": "Dino",
+      "file_path": "fonts/VP-EL-fonts/input-plt/dino_0.5_E.plt",
+      "stroke_count": 1,
+      "reference_char": "E",
+      "declared_height_in": 0.5,
+      "reference_char_height_in": 0.508017,
+      "normalized_ref_height": 1.0,
+      "characters": {
+        "E": {
+          "bounding_box": {"min_x": 0.0, "max_x": ..., "min_y": 0.0, "max_y": 1000.0},
+          "left_envelope": [[x, y], ...],
+          "right_envelope": [[x, y], ...],
+          "glyph": "PU0.0000,0.0000;PD...;"
+        }, ...
+      }
+    }
+
+``left_envelope`` / ``right_envelope`` are the profile of the glyph aggregated
+over :data:`ENVELOPE_SAMPLES` uniform vertical *bands*, which lets the
+typesetter kern tightly by measuring real air gaps instead of fixed advance
+widths. Each band spans half a sampling step above and below its height and
+records the extreme X of *any* stroke meeting it: a zero-thickness sample line
+would systematically miss the single-stroke hairlines EngraveLab uses for
+horizontal bars (the Dino ``F`` middle bar sits at y = 500.2923 while a 30-band
+grid steps by 34.482759), storing a phantom notch. Font keys are the file-name
+font part with underscores turned into spaces and title-cased
+(``heavy_engraving_0.5_E.plt`` -> ``"Heavy Engraving"``); use ``--font-name`` to
+override for a single file. Each extracted font replaces its own catalog
+file; catalog files of fonts not extracted in this run are preserved, unless
+``--rebuild`` is given, which clears the catalog directory first.
+
+After extraction, each font gains the **derived Unicode glyphs** of
+``fonts/glyph_transforms.py``: common typographic characters that cannot be
+engraved from ``fonts/ascii.txt`` (``-`` -> ``–``/``—``, ``.`` -> ``•``,
+``8`` -> ``∞``, ``+``/``_`` -> ``±``, ...). They are built by transforming the
+just-extracted ASCII bases, with bounding box and envelopes re-sampled from the
+*transformed* geometry, and are merged in alongside the engraved keys. A
+derived key never overwrites an engraved one, and a glyph whose base character
+is missing is skipped with a WARNING.
+
+Fonts listed in ``fonts/VP-EL-fonts/non_text_fonts.txt`` (symbol fonts such
+as ``Wingdings``; the same list drives the small-caps exemption in
+``plt_optimizer/generate/font_registry.py`` and the showcase's Unicode line
+in ``scripts/font_showcase.py``) skip the derivation step entirely: their
+ASCII slots carry symbols, so the recipes would engrave nonsense.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import math
+import re
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:  # allow running as a plain script
+    sys.path.insert(0, str(REPO_ROOT))
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:  # sibling module, same reason
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+# Shared geometry, formatting, swept-arc sampling and derived-glyph machinery
+# (documented in fonts/glyph_transforms.py). ``arc_bounds``/``segment_bounds``
+# are re-exported for callers that reach them through this module.
+from glyph_transforms import (  # noqa: E402
+    MIDLINE_FRACTION,
+    Bounds,
+    angle_in_sweep,
+    arc_band_xs,
+    arc_bounds,  # noqa: F401
+    arc_xs_at,
+    band_envelopes,
+    derive_glyph_entries,
+    format_number,
+    interpolate_gaps,
+    line_band_xs,
+    path_bounds,
+    round_unit,
+    segment_bounds,  # noqa: F401
+    union_bounds,
+)
+
+from plt_optimizer.core.models import ArcSegment, PLTDocument, StrokePath  # noqa: E402
+from plt_optimizer.core.parser import ParseError, PLTParser  # noqa: E402
+from plt_optimizer.generate.font_registry import non_text_font_names  # noqa: E402
+
+logger = logging.getLogger("extract_plt_fonts")
+
+FONTS_DIR = REPO_ROOT / "Fonts"
+DEFAULT_INPUT_DIR = FONTS_DIR / "VP-EL-fonts" / "input-plt"
+DEFAULT_OUTPUT_DIR = FONTS_DIR / "VP-EL-fonts" / "catalog"
+DEFAULT_ASCII_FILE = FONTS_DIR / "ascii.txt"
+
+# Library design frame: the units per *design* inch that the catalog files
+# (``fonts/VP-EL-fonts/catalog/*.json``) store. This is NOT the device plotter scale -- HPGL's default step is
+# 0.025 mm = 1/1016 inch (see ``plt_optimizer/core/units.py``), and the sample
+# sheets are engraved at that 1016 scale.
+#
+# The value is a free choice because the normalization below is
+# *self-cancelling*: glyphs are stored as ``raw * (LIBRARY_UNITS_PER_INCH /
+# H_ref_raw)``, and the renderer converts back to inches by dividing by the
+# matching ``_DESIGN_UNITS_PER_INCH`` before scaling to the requested text
+# height. The two constants cancel, so any value works -- as long as both
+# sides agree. 1000 keeps the stored JSON readable (the reference character is
+# exactly 1000 units tall).
+LIBRARY_UNITS_PER_INCH = 1000.0
+
+# Vertical bands per left/right profile envelope; each band aggregates the
+# geometry within half a sampling step of its height. Overridable with
+# --envelope-samples.
+ENVELOPE_SAMPLES = 30
+
+# Declared-vs-measured height drift above which a WARNING is logged. The
+# measured height is always stored unadjusted; this only flags likely
+# EngraveLab setup mistakes (wrong reference char, mis-sized framing).
+DRIFT_WARN_THRESHOLD = 0.05
+
+# Maximum nearest-neighbour point gap, in raw plotter units, between the
+# internal reference glyph and a row-framing copy for the sheet to be
+# accepted. The core parser rounds every :class:`~plt_optimizer.core.models.Coordinate`
+# to 3 decimals, and the framing comparison works in *left-bottom-relative*
+# coordinates, so a point and its cluster origin are each rounded - two
+# identical engraved copies therefore measure up to ~0.003 units apart. The
+# comparison accepts this bound (plus a tiny float slack); a genuine geometry
+# difference (a wider framing glyph, a mis-split row) measures tens to
+# hundreds of units, four orders of magnitude larger.
+REFERENCE_MATCH_TOLERANCE = 5e-3
+
+# Characters whose stored geometry is *translated* so the centre of their own
+# bounding box sits on the midline (``MIDLINE_FRACTION * LIBRARY_UNITS_PER_INCH``,
+# i.e.
+# half the cap height) instead of on the baseline. EngraveLab engraves
+# round-symmetric glyphs like ``S`` hanging below the baseline and short of the
+# cap line, which reads as a low-sitting letter beside ``H``/``O``/``C``; the
+# shift is pure translation (height and X are untouched) and lands on the
+# emitted ``glyph``, the ``bounding_box`` and both envelopes together, so the
+# typesetter sees one consistent centred silhouette. Add characters here as
+# fonts reveal the same engraving bias. The reference character is always
+# exempt (it defines the baseline and cap line); --no-vertical-centering
+# disables the pass entirely.
+VERTICALLY_CENTERED_CHARS: Tuple[str, ...] = ("S",)
+
+# Numerical slack (plotter units) for the geometric predicates (row/cluster
+# merging, envelope sampling).
+_EPS = 1e-9
+
+# One JSON entry per character, and per font.
+CharacterEntry = Dict[str, Any]
+FontEntry = Dict[str, Any]
+
+
+class FontExtractionError(Exception):
+    """Raised when a PLT sample sheet cannot be extracted into a font."""
+
+
+@dataclass(frozen=True)
+class Interval:
+    """A closed interval ``[x_min, x_max]`` on one axis.
+
+    Attributes:
+        x_min: Lower bound (plotter units).
+        x_max: Upper bound (plotter units).
+    """
+
+    x_min: float
+    x_max: float
+
+    def gap_to(self, other: Interval) -> float:
+        """Return the (possibly negative) gap from this interval's end to ``other``."""
+        return other.x_min - self.x_max
+
+
+@dataclass(frozen=True)
+class Cluster:
+    """A set of stroke paths belonging to one glyph.
+
+    Attributes:
+        paths: Member stroke paths in chronological (file) order.
+        bounds: Union bounding box of the members, in plotter units.
+    """
+
+    paths: Tuple[StrokePath, ...]
+    bounds: Bounds
+
+    @property
+    def center_x(self) -> float:
+        """Return the X center of the cluster bounding box."""
+        return (self.bounds[0] + self.bounds[2]) / 2.0
+
+
+@dataclass(frozen=True)
+class SheetRow:
+    """One engraved row of a sample sheet.
+
+    Attributes:
+        clusters: The row's glyph clusters, sorted left-to-right. The first
+            and last entries are the reference-character framing; everything
+            between them is ``ascii.txt`` payload.
+        baseline: The row's text baseline in raw plotter units. Engraved
+            sheets use the device convention (+Y down), so this is the
+            *maximum* Y of the framing glyph.
+        reference_height: The measured height of the framing reference
+            glyph, in raw plotter units.
+    """
+
+    clusters: Tuple[Cluster, ...]
+    baseline: float
+    reference_height: float
+
+    @property
+    def content(self) -> Tuple[Cluster, ...]:
+        """Return the payload clusters (framing stripped)."""
+        return self.clusters[1:-1]
+
+
+@dataclass(frozen=True)
+class GlyphTransform:
+    """The normalization applied to one glyph's raw coordinates.
+
+    ``X_norm = scale * (X_raw - origin_x)`` and
+    ``Y_norm = scale * (baseline - Y_raw)``. Because Y is reflected, the
+    transform has a negative determinant and every arc sweep angle must be
+    negated to preserve the cut direction.
+
+    Attributes:
+        scale: Uniform scale factor ``S = LIBRARY_UNITS_PER_INCH / H_ref_raw``.
+        origin_x: The glyph's raw left edge, mapped to ``x = 0``.
+        baseline: The row's raw baseline Y, mapped to ``y = 0``.
+    """
+
+    scale: float
+    origin_x: float
+    baseline: float
+
+    def apply(self, x: float, y: float) -> Tuple[float, float]:
+        """Map one raw point to normalized plotter units (+Y up).
+
+        Args:
+            x: Raw X coordinate.
+            y: Raw Y coordinate.
+
+        Returns:
+            The ``(x, y)`` pair in the stored glyph frame.
+        """
+        return self.scale * (x - self.origin_x), self.scale * (self.baseline - y)
+
+    def map_bounds(self, bounds: Bounds) -> Bounds:
+        """Map a raw bounding box, accounting for the Y reflection.
+
+        Args:
+            bounds: ``(x_min, y_min, x_max, y_max)`` in raw plotter units.
+
+        Returns:
+            The mapped ``(x_min, y_min, x_max, y_max)``.
+        """
+        low_x, low_y = self.apply(bounds[0], bounds[3])
+        high_x, high_y = self.apply(bounds[2], bounds[1])
+        return (min(low_x, high_x), min(low_y, high_y), max(low_x, high_x), max(low_y, high_y))
+
+
+@dataclass(frozen=True)
+class FontExtraction:
+    """The result of extracting one PLT sample sheet.
+
+    Attributes:
+        font_name: Font key stored as the catalog file's ``font_name``.
+        entry: The font's JSON entry (metadata plus ``characters``).
+        row_count: Number of engraved rows detected on the sheet.
+        row_threshold: Y-gap row-splitting threshold actually used.
+        cluster_threshold: X-gap clustering threshold actually used.
+    """
+
+    font_name: str
+    entry: FontEntry
+    row_count: int
+    row_threshold: float
+    cluster_threshold: float
+
+
+def load_characters(ascii_file: Path) -> List[str]:
+    """Load the ordered printable-ASCII character list.
+
+    Every whitespace run in the file is a separator; the remaining
+    characters, in file order, are the expected glyph sequence. The framing
+    reference characters are *not* part of this file - they exist only in the
+    engraved sheet and are stripped before alignment.
+
+    Args:
+        ascii_file: Path to ``fonts/ascii.txt``.
+
+    Returns:
+        Ordered list of characters (94 for the shipped ``ascii.txt``).
+
+    Raises:
+        FontExtractionError: If the file is missing or contains no characters.
+    """
+    try:
+        content = ascii_file.read_text(encoding="utf-8")
+    except OSError as e:
+        raise FontExtractionError(f"Failed to read character file {ascii_file}: {e}") from e
+    characters = "".join(content.split())
+    if not characters:
+        raise FontExtractionError(f"Character file {ascii_file} contains no characters")
+    return list(characters)
+
+
+_STROKE_SUFFIX_RE = re.compile(r"^(.*)_S(\d+)$")
+
+# Font-name characters that are unsafe in file names on at least one
+# supported platform (Windows reserves ``<>:"/\\|?*``); catalog file names
+# replace them with underscores (see :func:`catalog_file_name`).
+_FILE_UNSAFE_RE = re.compile(r"[^A-Za-z0-9 _-]")
+
+
+def parse_font_file_name(plt_path: Path) -> Tuple[str, float, str, int]:
+    """Split an engraved sample file name into name, height, reference, strokes.
+
+    The convention is
+    ``<font name>_<declared height in>_<ref char>[_S<strokes>].plt``
+    (e.g. ``dino_0.5_E.plt``, ``avenge5_0.55_E_S5.plt``). The declared height
+    is the text height typed into EngraveLab/Vision Pro; it is stored as
+    metadata only - the actual normalization scale comes from the *measured*
+    reference character. The font name may contain underscores, which become
+    spaces. The optional ``_S<n>`` suffix (parsed *before* the name split) is
+    the number of parallel cutter passes each glyph carries; omitted means a
+    single-stroke font (``stroke_count = 1``).
+
+    Args:
+        plt_path: Path to the engraved sample PLT.
+
+    Returns:
+        Tuple of ``(font_name, declared_height_inches, reference_char,
+        stroke_count)``.
+
+    Raises:
+        FontExtractionError: If the file name is malformed, carries a
+            non-positive/non-finite height, a reference character that is
+            not a single character, or a stroke suffix below one.
+    """
+    stem = plt_path.stem
+    stroke_count = 1
+    suffix = _STROKE_SUFFIX_RE.match(stem)
+    if suffix is not None:
+        stem = suffix.group(1)
+        stroke_count = int(suffix.group(2))
+        if stroke_count < 1:
+            raise FontExtractionError(
+                f"{plt_path.name}: stroke count suffix must be >= 1 "
+                f"(got S{suffix.group(2)}); omit the suffix for a single-stroke font"
+            )
+    parts = stem.rsplit("_", 2)
+    usage = (
+        f"{plt_path.name}: file name must be "
+        f"'<font name>_<declared height in>_<ref char>[_S<strokes>].plt' "
+        f"(e.g. 'dino_0.5_E.plt' or 'avenge5_0.55_E_S5.plt')"
+    )
+    if len(parts) != 3:
+        raise FontExtractionError(f"{usage}; expected three '_' separated parts")
+    name_part, height_part, reference_char = parts
+    if not name_part:
+        raise FontExtractionError(f"{usage}; font name is empty")
+    try:
+        declared_height = float(height_part)
+    except ValueError as e:
+        raise FontExtractionError(
+            f"{usage}; {height_part!r} is not a declared text height in inches"
+        ) from e
+    if not math.isfinite(declared_height) or declared_height <= 0.0:
+        raise FontExtractionError(f"{usage}; declared text height must be positive and finite")
+    if len(reference_char) != 1:
+        raise FontExtractionError(f"{usage}; reference character must be exactly one character")
+    return name_part.replace("_", " ").title(), declared_height, reference_char, stroke_count
+
+
+def merge_intervals(intervals: Sequence[Interval], threshold: float) -> List[Interval]:
+    """Merge intervals whose gap is at most ``threshold``.
+
+    Single-linkage merge: sorted intervals are fused whenever the next one
+    starts within ``threshold`` of the running right edge. The result is a
+    disjoint, sorted list. Used for both row banding (Y) and glyph
+    separation (X).
+
+    Args:
+        intervals: Arbitrary-order intervals.
+        threshold: Maximum gap to merge, in plotter units.
+
+    Returns:
+        Disjoint sorted intervals covering the same spans.
+    """
+    if not intervals:
+        return []
+    ordered = sorted(intervals, key=lambda iv: (iv.x_min, iv.x_max))
+    merged: List[Interval] = [ordered[0]]
+    for current in ordered[1:]:
+        last = merged[-1]
+        if last.gap_to(current) <= threshold:
+            merged[-1] = Interval(last.x_min, max(last.x_max, current.x_max))
+        else:
+            merged.append(current)
+    return merged
+
+
+def candidate_thresholds(gaps: Sequence[float]) -> List[float]:
+    """Return ascending cut candidates bracketing every observed gap.
+
+    Merging with a threshold ``t`` cuts exactly the gaps strictly greater than
+    ``t``. To be able to cut any subset of the distinct positive gaps, the
+    candidates are the midpoints between consecutive distinct gaps (plus
+    ``0.0``, which cuts every positive gap).
+
+    Args:
+        gaps: Observed gaps between merged intervals, any order.
+
+    Returns:
+        Ascending candidate thresholds, starting with ``0.0``.
+    """
+    ordered = sorted({g for g in gaps if g > 0.0})
+    candidates = [0.0]
+    for index, gap in enumerate(ordered):
+        lower = ordered[index - 1] if index else 0.0
+        candidates.append((lower + gap) / 2.0)
+    return candidates
+
+
+def cluster_paths(paths: Sequence[StrokePath], threshold: float) -> List[Cluster]:
+    """Group stroke paths into glyph clusters along X.
+
+    Paths are sorted by left edge and single-linkage merged: a path joins the
+    current cluster while its ``x_min`` is within ``threshold`` of the running
+    right edge. EngraveLab emits strokes in a scrambled order, so spatial
+    clustering - not the chronological
+    :class:`~plt_optimizer.core.chunker.Chunker` - is the reliable split here.
+
+    Args:
+        paths: Stroke paths of one row (order-independent).
+        threshold: Maximum intra-glyph X gap, in plotter units.
+
+    Returns:
+        Clusters sorted left-to-right by bounding-box center X. Paths without
+        segments are skipped.
+
+    Raises:
+        ValueError: If no path carries segments.
+    """
+    entries: List[Tuple[Interval, StrokePath]] = []
+    for path in paths:
+        if not path.segments:
+            continue
+        bounds = path_bounds(path)
+        entries.append((Interval(bounds[0], bounds[2]), path))
+    if not entries:
+        raise ValueError("Cannot cluster an empty sequence of stroke paths")
+
+    entries.sort(key=lambda item: (item[0].x_min, item[0].x_max))
+    clusters: List[Cluster] = []
+    group_paths: List[StrokePath] = [entries[0][1]]
+    group_max = entries[0][0].x_max
+
+    def _seal() -> None:
+        boxes = [path_bounds(p) for p in group_paths]
+        clusters.append(Cluster(paths=tuple(group_paths), bounds=union_bounds(boxes)))
+
+    for interval, path in entries[1:]:
+        if interval.x_min - group_max <= threshold:
+            group_paths.append(path)
+            group_max = max(group_max, interval.x_max)
+        else:
+            _seal()
+            group_paths = [path]
+            group_max = interval.x_max
+    _seal()
+
+    clusters.sort(key=lambda c: c.center_x)
+    return clusters
+
+
+def group_rows(paths: Sequence[StrokePath], threshold: float) -> List[List[StrokePath]]:
+    """Group stroke paths into engraved rows along Y.
+
+    Single-linkage merge of the paths' Y extents: the rows come back in
+    reading order because the sheets are engraved in the device convention
+    (+Y down), so the smallest Y is the topmost row.
+
+    Args:
+        paths: Stroke paths of one document (order-independent).
+        threshold: Maximum intra-row Y gap, in plotter units.
+
+    Returns:
+        Rows of paths, top row first. Paths without segments are skipped.
+    """
+    entries: List[Tuple[Interval, StrokePath]] = []
+    for path in paths:
+        if not path.segments:
+            continue
+        bounds = path_bounds(path)
+        entries.append((Interval(bounds[1], bounds[3]), path))
+    if not entries:
+        return []
+
+    entries.sort(key=lambda item: (item[0].x_min, item[0].x_max))
+    rows: List[List[StrokePath]] = []
+    group_paths: List[StrokePath] = [entries[0][1]]
+    group_max = entries[0][0].x_max
+    for interval, path in entries[1:]:
+        if interval.x_min - group_max <= threshold:
+            group_paths.append(path)
+            group_max = max(group_max, interval.x_max)
+        else:
+            rows.append(group_paths)
+            group_paths = [path]
+            group_max = interval.x_max
+    rows.append(group_paths)
+    return rows
+
+
+def glyph_points(cluster: Cluster) -> List[Tuple[float, float]]:
+    """Return every recorded point of a cluster, translated to its left-bottom.
+
+    Used by the framing verification: two copies of the same glyph coincide
+    once both are moved to a common origin, regardless of where they sit on
+    the sheet. Stroke order is scrambled by EngraveLab, so the caller compares
+    *sorted* point lists.
+
+    Args:
+        cluster: The glyph cluster to sample.
+
+    Returns:
+        Segment endpoints (arc endpoints are their swept endpoints) sorted
+        lexicographically, relative to the cluster's bounding-box corner.
+    """
+    x_min, y_min = cluster.bounds[0], cluster.bounds[1]
+    points: List[Tuple[float, float]] = []
+    for path in cluster.paths:
+        for segment in path.segments:
+            points.append((segment.start.x - x_min, segment.start.y - y_min))
+            points.append((segment.end.x - x_min, segment.end.y - y_min))
+    return sorted(points)
+
+
+# Grid size (plotter units) for the jitter-tolerant framing comparison.
+# Engraved copies of one glyph differ by sub-unit jitter, which reorders
+# *lexicographically tied* points (multi-stroke glyphs stack several passes
+# at the same X, so a 1e-4 jitter swaps their sort order and a positional
+# comparison reports a phantom deviation of hundreds of units). Matching each
+# point to its nearest neighbour on a grid this coarse - far above the jitter,
+# far below any glyph feature - is order-independent while keeping real
+# geometry shifts (tens of units) fully visible.
+_FRAMING_MATCH_GRID = 1.0
+
+
+def framing_points_match(
+    reference: List[Tuple[float, float]],
+    framing: List[Tuple[float, float]],
+    tolerance: float,
+) -> float:
+    """Return the worst nearest-neighbour gap between two glyph point sets.
+
+    Each reference point is matched to its closest framing point (and the
+    reverse, so a stray framing point counts too) via a spatial hash of cell
+    :data:`_FRAMING_MATCH_GRID`; the returned maximum is the largest such gap.
+    Two engraved copies of one glyph differ only by sub-unit jitter, so the
+    gap stays within ``tolerance``; a genuinely different glyph (a wider
+    framing, a mis-split row) leaves a point with no near partner, so the gap
+    jumps to the size of the geometry difference.
+
+    Args:
+        reference: The internal reference glyph's left-bottom-relative points.
+        framing: A row-framing copy's points in the same frame.
+        tolerance: The accepted per-point gap, in plotter units.
+
+    Returns:
+        The worst nearest-neighbour gap in plotter units (0.0 when both sets
+        are empty).
+    """
+    if not reference or not framing:
+        return 0.0
+
+    def _index(points: Sequence[Tuple[float, float]]) -> Dict[Tuple[int, int], List[Tuple[float, float]]]:
+        grid: Dict[Tuple[int, int], List[Tuple[float, float]]] = {}
+        for x, y in points:
+            grid.setdefault((math.floor(x / _FRAMING_MATCH_GRID), math.floor(y / _FRAMING_MATCH_GRID)), []).append((x, y))
+        return grid
+
+    def _worst(
+        sources: Sequence[Tuple[float, float]],
+        grid: Dict[Tuple[int, int], List[Tuple[float, float]]],
+    ) -> float:
+        worst = 0.0
+        for x, y in sources:
+            cx = math.floor(x / _FRAMING_MATCH_GRID)
+            cy = math.floor(y / _FRAMING_MATCH_GRID)
+            best = math.inf
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for px, py in grid.get((cx + dx, cy + dy), ()):
+                        gap = max(abs(x - px), abs(y - py))
+                        if gap < best:
+                            best = gap
+            if best == math.inf:
+                # No framing point within one grid cell: the gap is at least a
+                # cell wide, already far past the tolerance.
+                return _FRAMING_MATCH_GRID
+            worst = max(worst, best)
+            if worst > tolerance:
+                return worst
+        return worst
+
+    return max(_worst(reference, _index(framing)), _worst(framing, _index(reference)))
+
+
+def build_rows(
+    paths: Sequence[StrokePath],
+    row_threshold: float,
+    cluster_threshold: float,
+) -> List[SheetRow]:
+    """Split paths into framed rows of glyph clusters.
+
+    Args:
+        paths: Stroke paths with at least one segment each.
+        row_threshold: Y-gap threshold separating rows.
+        cluster_threshold: X-gap threshold separating glyphs.
+
+    Returns:
+        Rows in reading order, each with at least three clusters and its
+        baseline/reference height measured from the framing copies.
+
+    Raises:
+        ValueError: If a row yields fewer than three clusters (framing needs
+            both ends plus payload) or clustering is impossible.
+    """
+    rows: List[SheetRow] = []
+    for row_paths in group_rows(paths, row_threshold):
+        clusters = cluster_paths(row_paths, cluster_threshold)
+        if len(clusters) < 3:
+            raise ValueError(
+                f"a row yielded only {len(clusters)} glyph groups; every row needs a "
+                f"reference character at both ends plus payload"
+            )
+        framing = union_bounds([clusters[0].bounds, clusters[-1].bounds])
+        rows.append(
+            SheetRow(
+                clusters=tuple(clusters),
+                baseline=framing[3],
+                reference_height=framing[3] - framing[1],
+            )
+        )
+    return rows
+
+
+def verify_layout(rows: Sequence[SheetRow], characters: Sequence[str], reference_char: str) -> None:
+    """Verify that a candidate layout is the sheet's true structure.
+
+    Two independent checks run, in order:
+
+    1. **Count** - ``sum(len(row.clusters) - 2)`` must equal the number of
+       characters in ``ascii.txt``.
+    2. **Framing geometry** - the internal copy of ``reference_char`` (the one
+       occupying a real character slot) must match every framing copy to
+       within :data:`REFERENCE_MATCH_TOLERANCE` units at a common origin.
+
+    Args:
+        rows: Candidate rows in reading order.
+        characters: Expected characters, in order.
+        reference_char: The reference character parsed from the file name.
+
+    Raises:
+        FontExtractionError: If either check fails; the message names the
+            offending count or row so the operator can fix the sheet.
+    """
+    found = sum(len(row.clusters) - 2 for row in rows)
+    if found != len(characters):
+        direction = "missing" if found < len(characters) else "extra"
+        raise FontExtractionError(
+            f"Sheet carries {found} payload glyphs but the character list has "
+            f"{len(characters)} ({abs(len(characters) - found)} {direction}): "
+            f"{[len(row.clusters) - 2 for row in rows]} payload glyphs across "
+            f"{len(rows)} rows. Check that every row starts and ends with the "
+            f"reference character and that the rows follow the character file order."
+        )
+
+    content = [cluster for row in rows for cluster in row.content]
+    reference_index = characters.index(reference_char)
+    internal = glyph_points(content[reference_index])
+    for row_index, row in enumerate(rows):
+        for side, framing in (("first", row.clusters[0]), ("last", row.clusters[-1])):
+            points = glyph_points(framing)
+            if len(points) != len(internal):
+                raise FontExtractionError(
+                    f"Row {row_index + 1} {side} framing character {reference_char!r} has "
+                    f"{len(points)} points but the internal copy has {len(internal)}; "
+                    f"the row split does not match the engraved layout."
+                )
+            # Jitter-tolerant nearest-neighbour comparison (not positional):
+            # multi-stroke glyphs stack passes at tied coordinates, so a
+            # sub-unit engraving jitter reorders the lexicographic sort and a
+            # positional zip reports a phantom deviation. A real geometry
+            # difference (wider framing glyph, mis-split row) leaves a point
+            # with no near partner and is caught.
+            deviation = framing_points_match(internal, points, REFERENCE_MATCH_TOLERANCE)
+            # The float slack absorbs representation noise at the tolerance
+            # boundary (identical glyphs measure 0.001 +/- 1e-9 here); any
+            # real misalignment is orders of magnitude larger.
+            if deviation > REFERENCE_MATCH_TOLERANCE + 1e-6:
+                raise FontExtractionError(
+                    f"Row {row_index + 1} {side} framing character {reference_char!r} differs "
+                    f"from the internal copy by {deviation:.6f} units "
+                    f"(tolerance {REFERENCE_MATCH_TOLERANCE:g}); the row boundaries or the "
+                    f"character alignment are wrong."
+                )
+
+
+def find_layout(
+    paths: Sequence[StrokePath],
+    characters: Sequence[str],
+    reference_char: str,
+    row_threshold: Optional[float] = None,
+    cluster_threshold: Optional[float] = None,
+) -> Tuple[List[SheetRow], float, float]:
+    """Search for the row/X split that reproduces the character list exactly.
+
+    The sheet's row pitch and character pitch are not recorded anywhere, so
+    both thresholds are recovered from the data. Candidate thresholds are the
+    midpoints between consecutive observed gaps (:func:`candidate_thresholds`),
+    which guarantees every possible grouping is tried. Rows are searched
+    finest-first (smallest row threshold, i.e. most rows) and, within a row
+    split, glyph thresholds ascending (least merging); the first candidate that
+    passes :func:`verify_layout` wins. Requiring the framing geometry to match
+    makes a wrong split self-reporting rather than silently mislabeling glyphs.
+
+    Args:
+        paths: Stroke paths with at least one segment each.
+        characters: Expected characters, in order.
+        reference_char: Reference character from the file name.
+        row_threshold: Force a specific Y-gap threshold instead of searching.
+        cluster_threshold: Force a specific X-gap threshold instead of searching.
+
+    Returns:
+        ``(rows, row_threshold, cluster_threshold)`` of the accepted layout.
+
+    Raises:
+        FontExtractionError: If no candidate layout reproduces the character
+            list and the framing geometry.
+    """
+    if not paths:
+        raise FontExtractionError("Document contains no stroke geometry")
+    if reference_char not in characters:
+        raise FontExtractionError(
+            f"Reference character {reference_char!r} is not part of the character file; "
+            f"framing verification requires it to be engraved as payload too."
+        )
+
+    y_intervals = [Interval(path_bounds(p)[1], path_bounds(p)[3]) for p in paths]
+    y_bands = merge_intervals(y_intervals, 0.0)
+    row_candidates: Sequence[float] = (
+        [row_threshold]
+        if row_threshold is not None
+        else candidate_thresholds([b.gap_to(n) for b, n in zip(y_bands, y_bands[1:])])
+    )
+
+    last_error: Optional[FontExtractionError] = None
+    for row_candidate in row_candidates:
+        grouped = group_rows(paths, row_candidate)
+        if any(len(row_paths) < 3 for row_paths in grouped):
+            continue
+        # X-gap candidates are per-row: rows overlap in X, so a global X band
+        # merge would hide the intra-row gaps that matter here.
+        x_gaps: List[float] = []
+        for row_paths in grouped:
+            row_bands = merge_intervals(
+                [Interval(path_bounds(p)[0], path_bounds(p)[2]) for p in row_paths], 0.0
+            )
+            x_gaps.extend(b.gap_to(n) for b, n in zip(row_bands, row_bands[1:]))
+        x_candidates: Sequence[float] = (
+            [cluster_threshold] if cluster_threshold is not None else candidate_thresholds(x_gaps)
+        )
+        for x_candidate in x_candidates:
+            try:
+                rows = build_rows(paths, row_candidate, x_candidate)
+                verify_layout(rows, characters, reference_char)
+            except (ValueError, FontExtractionError) as e:
+                last_error = (
+                    e if isinstance(e, FontExtractionError) else FontExtractionError(str(e))
+                )
+                continue
+            return rows, row_candidate, x_candidate
+
+    detail = f" Last failure: {last_error}" if last_error else ""
+    raise FontExtractionError(
+        f"Could not split the sheet into {len(characters)} payload glyphs framed by "
+        f"{reference_char!r} on every row.{detail} Pass --row-threshold / "
+        f"--cluster-threshold (plotter units, 1000 = 1 inch) if the sheet uses an "
+        f"unusual spacing."
+    )
+
+
+def median(values: Sequence[float]) -> float:
+    """Return the median of ``values`` (mean of the middle pair when even).
+
+    Args:
+        values: Non-empty sequence of finite numbers.
+
+    Returns:
+        The median value.
+
+    Raises:
+        ValueError: If ``values`` is empty.
+    """
+    if not values:
+        raise ValueError("Cannot take the median of an empty sequence")
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[middle]
+    return (ordered[middle - 1] + ordered[middle]) / 2.0
+
+
+def check_height_drift(
+    font_name: str,
+    plt_path: Path,
+    declared_height: float,
+    reference_char: str,
+    reference_height: float,
+) -> float:
+    """Warn when the declared and measured heights disagree.
+
+    The measured height is ground truth and is stored unadjusted - the raw
+    geometry legitimately differs from the typed text height because of
+    stroke-width compensation and CAD arc fitting. A large drift, however,
+    usually means the file name's reference character is not the one actually
+    framing the rows, or the framing was engraved at another size, so the
+    operator is told about it. Execution is never halted: the vector math
+    stays internally consistent either way.
+
+    Args:
+        font_name: Font key being extracted.
+        plt_path: Source sheet (for the message).
+        declared_height: Height parsed from the file name, in inches.
+        reference_char: Reference character used for the measurement.
+        reference_height: Measured reference height, in inches.
+
+    Returns:
+        The relative drift between declared and measured heights.
+    """
+    drift = abs(reference_height - declared_height) / declared_height
+    if drift <= DRIFT_WARN_THRESHOLD:
+        return drift
+    logger.warning(
+        "Font %r (%s):\n"
+        "  Declared Height:  %.3f in\n"
+        "  Computed Height:  %.3f in (Reference Char: %r)\n"
+        "  Drift Detected:   %.1f%% (Exceeds %.1f%% threshold)\n"
+        "  Action: Stored measured height without corrective adjustment.\n"
+        "  Check: Verify that the correct reference character was specified in the file "
+        "name and that framing characters in the PLT file are sized correctly.",
+        font_name,
+        plt_path.name,
+        declared_height,
+        reference_height,
+        reference_char,
+        drift * 100.0,
+        DRIFT_WARN_THRESHOLD * 100.0,
+    )
+    return drift
+
+
+def _format_number(value: float) -> str:
+    """Format one normalized coordinate with 4-decimal precision.
+
+    Args:
+        value: Numeric value in normalized plotter units.
+
+    Returns:
+        Fixed-point string, e.g. ``"1234.5678"``. Negative zero is normalized
+        to ``"0.0000"`` so the JSON stays free of ``-0.0000`` noise.
+    """
+    return format_number(value)
+
+
+def emit_glyph(paths: Sequence[StrokePath], transform: GlyphTransform) -> str:
+    """Emit one glyph as a self-contained normalized HPGL command string.
+
+    Raw coordinates are mapped through ``transform`` as they are written, so
+    no intermediate :class:`~plt_optimizer.core.models.Coordinate` is built
+    (that type rounds to 3 decimals, which would silently truncate the
+    4-decimal output). Segments are written tip-to-tail, but the parser records
+    paths whose segments do not always chain (a mid-path ``PU`` re-positions
+    the pen before an arc without opening a new path), so a fresh ``PU`` is
+    emitted whenever a segment starts away from the current pen position -
+    mirroring how EngraveLab precedes each ``PD;AA`` arc with its own ``PU``.
+    The transform reflects Y, so every arc sweep angle is negated to keep the
+    cut direction. The string ends with a semicolon and re-parses cleanly with
+    :class:`~plt_optimizer.core.parser.PLTParser`.
+
+    Args:
+        paths: The glyph's raw stroke paths.
+        transform: Normalization to apply while writing.
+
+    Returns:
+        HPGL text such as ``"PU0.0000,0.0000;PD10.0000,0.0000;"``, or ``""``
+        when the glyph carries no geometry.
+    """
+    parts: List[str] = []
+    for path in paths:
+        if not path.segments:
+            continue
+        current = (
+            path.pen_up_position if path.pen_up_position is not None else path.segments[0].start
+        )
+        start_x, start_y = transform.apply(current.x, current.y)
+        parts.append(f"PU{_format_number(start_x)},{_format_number(start_y)}")
+        for segment in path.segments:
+            if not (
+                math.isclose(segment.start.x, current.x, abs_tol=1e-3)
+                and math.isclose(segment.start.y, current.y, abs_tol=1e-3)
+            ):
+                break_x, break_y = transform.apply(segment.start.x, segment.start.y)
+                parts.append(f"PU{_format_number(break_x)},{_format_number(break_y)}")
+            end_x, end_y = transform.apply(segment.end.x, segment.end.y)
+            cmd = "PD" if segment.is_cutting else "PU"
+            if isinstance(segment, ArcSegment):
+                center_x, center_y = transform.apply(segment.center.x, segment.center.y)
+                parts.append(
+                    f"{cmd};AA{_format_number(center_x)},{_format_number(center_y)},"
+                    f"{_format_number(-segment.sweep_angle)}"
+                )
+            else:
+                parts.append(f"{cmd}{_format_number(end_x)},{_format_number(end_y)}")
+            current = segment.end
+    if not parts:
+        return ""
+    return ";".join(parts) + ";"
+
+
+# The geometry, formatting and swept-arc sampling primitives live in
+# ``glyph_transforms`` so engraved and derived glyphs share one implementation;
+# these aliases preserve the historic private names used throughout this module
+# (and its tests).
+_angle_in_sweep = angle_in_sweep
+_arc_xs_at = arc_xs_at
+_line_band_xs = line_band_xs
+_arc_band_xs = arc_band_xs
+_interpolate_gaps = interpolate_gaps
+_round_unit = round_unit
+
+
+def _normalized_geometry(
+    paths: Sequence[StrokePath],
+    transform: GlyphTransform,
+) -> Tuple[
+    List[Tuple[float, float, float, float]],
+    List[Tuple[float, float, float, float, float]],
+]:
+    """Map raw paths into float primitives usable for horizontal sampling.
+
+    Args:
+        paths: The glyph's raw stroke paths.
+        transform: Normalization to apply.
+
+    Returns:
+        ``(lines, arcs)`` where lines are ``(x0, y0, x1, y1)`` and arcs are
+        ``(center_x, center_y, radius, theta_start, theta_end)``. Arc radii
+        scale uniformly and the sweep interval is re-derived from the mapped
+        endpoints (with the Y reflection's negated sweep), exactly as a
+        consumer parsing the emitted glyph would.
+    """
+    lines: List[Tuple[float, float, float, float]] = []
+    arcs: List[Tuple[float, float, float, float, float]] = []
+    for path in paths:
+        for segment in path.segments:
+            start_x, start_y = transform.apply(segment.start.x, segment.start.y)
+            end_x, end_y = transform.apply(segment.end.x, segment.end.y)
+            if isinstance(segment, ArcSegment):
+                center_x, center_y = transform.apply(segment.center.x, segment.center.y)
+                radius = transform.scale * segment.radius
+                theta_start = math.atan2(start_y - center_y, start_x - center_x)
+                theta_end = theta_start + math.radians(-segment.sweep_angle)
+                arcs.append((center_x, center_y, radius, theta_start, theta_end))
+            else:
+                lines.append((start_x, start_y, end_x, end_y))
+    return lines, arcs
+
+
+def sample_envelopes(
+    paths: Sequence[StrokePath],
+    transform: GlyphTransform,
+    bounds: Bounds,
+    samples: int,
+) -> Tuple[List[List[float]], List[List[float]]]:
+    """Extract the left and right profile envelopes of one glyph.
+
+    Thin wrapper mapping the extractor's raw paths through ``transform`` and
+    handing them to the shared band-aggregated sampler
+    (:func:`glyph_transforms.band_envelopes`), which is documented in full.
+    Banding is what makes the profile robust against EngraveLab's zero-width
+    horizontal bars, and the extremes are analytic (swept arc extents only, no
+    chord flattening).
+
+    Args:
+        paths: The glyph's raw stroke paths.
+        transform: Normalization to apply.
+        bounds: The glyph's normalized bounding box.
+        samples: Number of sample heights (``>= 2``).
+
+    Returns:
+        ``(left_envelope, right_envelope)``, each a list of ``[x, y]`` pairs in
+        normalized plotter units (6-decimal rounded), or ``([], [])`` when the
+        glyph has no geometry.
+
+    Raises:
+        ValueError: If ``samples`` is less than 2.
+    """
+    lines, arcs = _normalized_geometry(paths, transform)
+    return band_envelopes(lines, arcs, bounds, samples)
+
+
+def _should_vertically_center(character: str, reference_char: str, enabled: bool) -> bool:
+    """Return whether ``character``'s glyph is to be centred on the midline.
+
+    The reference character is always exempt: it *defines* the baseline
+    (``y = 0``) and the cap line (``y = 1000``) for the whole font and is the
+    glyph the framing verification measures, so translating it would break the
+    normalization contract every other glyph relies on.
+
+    Args:
+        character: The character the cluster maps to.
+        reference_char: The sheet's framing reference character.
+        enabled: ``False`` disables the pass entirely
+            (``--no-vertical-centering``).
+
+    Returns:
+        ``True`` when the glyph's stored geometry is to be centred.
+    """
+    return enabled and character in VERTICALLY_CENTERED_CHARS and character != reference_char
+
+
+def _midline_centered(
+    transform: GlyphTransform,
+    bounds: Bounds,
+) -> Tuple[GlyphTransform, Bounds]:
+    """Shift ``transform`` so the glyph's box centre lands on the midline.
+
+    The shift is a pure vertical translation in the stored frame: the glyph
+    height, its width and its left edge (``x = 0``) are all preserved, and the
+    emitted geometry, bounding box and envelopes move together because all
+    three are derived from the returned transform.
+
+    Args:
+        transform: The glyph's baseline normalization.
+        bounds: ``transform``'s mapped bounding box.
+
+    Returns:
+        ``(transform, bounds)`` unchanged when the glyph is already centred
+        (within :data:`_EPS`), otherwise the shifted transform and its shifted
+        bounding box.
+    """
+    centre = (bounds[1] + bounds[3]) / 2.0
+    shift = MIDLINE_FRACTION * LIBRARY_UNITS_PER_INCH - centre
+    if abs(shift) <= _EPS:
+        return transform, bounds
+    # Y_norm = scale * (baseline - Y_raw), so raising the stored glyph by
+    # `shift` units means raising the raw baseline by shift / scale.
+    shifted = GlyphTransform(
+        scale=transform.scale,
+        origin_x=transform.origin_x,
+        baseline=transform.baseline + shift / transform.scale,
+    )
+    return shifted, (bounds[0], bounds[1] + shift, bounds[2], bounds[3] + shift)
+
+
+def build_character_entry(
+    cluster: Cluster,
+    baseline: float,
+    scale: float,
+    samples: int,
+    vertical_center: bool = False,
+) -> CharacterEntry:
+    """Build the JSON entry for one character.
+
+    Args:
+        cluster: The glyph's raw cluster.
+        baseline: The row's raw baseline Y, in plotter units.
+        scale: Global scale factor ``S``.
+        samples: Envelope sample count.
+        vertical_center: Translate the glyph so its box centre sits on the
+            midline (see :data:`VERTICALLY_CENTERED_CHARS`).
+
+    Returns:
+        A ``{"bounding_box", "left_envelope", "right_envelope", "glyph"}``
+        mapping in normalized plotter units (+Y up, baseline ``y = 0``, left
+        edge ``x = 0``; a midline-centred glyph straddles the baseline instead
+        of sitting on it).
+    """
+    raw_bounds = cluster.bounds
+    transform = GlyphTransform(scale=scale, origin_x=raw_bounds[0], baseline=baseline)
+    bounds = transform.map_bounds(raw_bounds)
+    if vertical_center:
+        transform, bounds = _midline_centered(transform, bounds)
+    left_envelope, right_envelope = sample_envelopes(cluster.paths, transform, bounds, samples)
+    glyph = emit_glyph(cluster.paths, transform)
+    if not glyph:
+        logger.warning("Character produced no geometry at raw bounds %s", raw_bounds)
+    elif (bounds[2] - bounds[0]) < 1e-9 and (bounds[3] - bounds[1]) < 1e-9:
+        logger.warning("Character is a degenerate point at raw bounds %s", raw_bounds)
+    return {
+        "bounding_box": {
+            "min_x": _round_unit(bounds[0]),
+            "max_x": _round_unit(bounds[2]),
+            "min_y": _round_unit(bounds[1]),
+            "max_y": _round_unit(bounds[3]),
+        },
+        "left_envelope": left_envelope,
+        "right_envelope": right_envelope,
+        "glyph": glyph,
+    }
+
+
+def extract_font_from_document(
+    document: PLTDocument,
+    characters: Sequence[str],
+    reference_char: str,
+    declared_height: float,
+    row_threshold: Optional[float] = None,
+    cluster_threshold: Optional[float] = None,
+    envelope_samples: int = ENVELOPE_SAMPLES,
+    vertical_centering: bool = True,
+) -> Tuple[FontEntry, int, float, float]:
+    """Split one engraved sheet into a font entry.
+
+    Args:
+        document: The parsed sample sheet.
+        characters: Expected payload characters, in reading order.
+        reference_char: Row-framing reference character from the file name.
+        declared_height: Height parsed from the file name (metadata only).
+        row_threshold: Manual Y-gap row threshold; ``None`` searches.
+        cluster_threshold: Manual X-gap glyph threshold; ``None`` searches.
+        envelope_samples: Envelope sample count per glyph.
+        vertical_centering: Apply :data:`VERTICALLY_CENTERED_CHARS` midline
+            centring (``False`` = ``--no-vertical-centering``, store the raw
+            engraved positions).
+
+    Returns:
+        ``(font_entry, row_count, row_threshold, cluster_threshold)`` where
+        ``font_entry`` is the JSON-ready font mapping (without ``font_name``
+        and ``file_path``).
+
+    Raises:
+        FontExtractionError: If the layout cannot be verified or the reference
+            height cannot be measured.
+    """
+    paths = [p for p in document.stroke_paths if p.segments]
+    rows, used_row_threshold, used_cluster_threshold = find_layout(
+        paths, characters, reference_char, row_threshold, cluster_threshold
+    )
+
+    reference_height_raw = median([row.reference_height for row in rows])
+    if reference_height_raw <= _EPS:
+        raise FontExtractionError(
+            f"Reference character {reference_char!r} measures {reference_height_raw:.6f} units "
+            f"tall; it cannot define the normalization scale. Choose a reference character "
+            f"with real height."
+        )
+    scale = LIBRARY_UNITS_PER_INCH / reference_height_raw
+    # NOTE: the measured height is expressed in the *library design frame*
+    # (raw / LIBRARY_UNITS_PER_INCH), not in true inches: the sheet is engraved
+    # at the device scale of 1016 units/inch, so this reading runs ~1.6% above
+    # the physical height. It is informational metadata only -- it feeds
+    # :func:`check_height_drift` (5% threshold) and the stored
+    # ``reference_char_height_in`` -- and the glyph geometry itself is
+    # unaffected, because the normalization is self-cancelling.
+    reference_height_in = reference_height_raw / LIBRARY_UNITS_PER_INCH
+
+    characters_out: Dict[str, CharacterEntry] = {}
+    centered: List[str] = []
+    index = 0
+    for row in rows:
+        for cluster in row.content:
+            character = characters[index]
+            index += 1
+            center_this = _should_vertically_center(character, reference_char, vertical_centering)
+            characters_out[character] = build_character_entry(
+                cluster, row.baseline, scale, envelope_samples, center_this
+            )
+            if center_this:
+                centered.append(character)
+    if centered:
+        logger.info(
+            "Vertically centred %d glyph(s) about the midline: %s",
+            len(centered),
+            " ".join(centered),
+        )
+
+    entry: FontEntry = {
+        "reference_char": reference_char,
+        "declared_height_in": declared_height,
+        "reference_char_height_in": _round_unit(reference_height_in),
+        "normalized_ref_height": 1.0,
+        "characters": characters_out,
+    }
+    logger.info(
+        "Median glyph height above baseline %.3f in after scaling "
+        "(reference char %r measures %.4f in, design ref height is 1.000 in)",
+        median(
+            [
+                (row.baseline - cluster.bounds[1]) * scale / LIBRARY_UNITS_PER_INCH
+                for row in rows
+                for cluster in row.content
+            ]
+        ),
+        reference_char,
+        reference_height_in,
+    )
+    return entry, len(rows), used_row_threshold, used_cluster_threshold
+
+
+def _repo_relative(path: Path) -> str:
+    """Return ``path`` as a POSIX string relative to the repository root.
+
+    Args:
+        path: Any path, absolute or relative.
+
+    Returns:
+        The repo-relative POSIX path when ``path`` lives under the repository,
+        otherwise the given path in POSIX form.
+    """
+    resolved = path.resolve()
+    try:
+        return resolved.relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return resolved.as_posix()
+
+
+def extract_font_file(
+    plt_path: Path,
+    characters: Sequence[str],
+    font_name: Optional[str] = None,
+    row_threshold: Optional[float] = None,
+    cluster_threshold: Optional[float] = None,
+    envelope_samples: int = ENVELOPE_SAMPLES,
+    vertical_centering: bool = True,
+) -> FontExtraction:
+    """Extract one ``<font>_<height>_<ref>.plt`` sample sheet into a font entry.
+
+    Args:
+        plt_path: Path to the engraved sample PLT.
+        characters: Expected payload characters, in reading order.
+        font_name: Explicit font key; defaults to the file-name font part.
+        row_threshold: Manual Y-gap row threshold (see
+            :func:`extract_font_from_document`).
+        cluster_threshold: Manual X-gap glyph threshold.
+        envelope_samples: Envelope sample count per glyph.
+        vertical_centering: Apply :data:`VERTICALLY_CENTERED_CHARS` midline
+            centring to the extracted glyphs.
+
+    Returns:
+        The extraction result.
+
+    Raises:
+        FontExtractionError: If the file name is malformed, the PLT cannot be
+            parsed, or the sheet's layout fails verification.
+    """
+    default_name, declared_height, reference_char, stroke_count = parse_font_file_name(plt_path)
+    name = font_name or default_name
+    parser = PLTParser()
+    try:
+        document = parser.parse_file(plt_path)
+    except ParseError as e:
+        raise FontExtractionError(f"Failed to parse {plt_path}: {e}") from e
+
+    entry, row_count, used_row, used_cluster = extract_font_from_document(
+        document,
+        characters,
+        reference_char,
+        declared_height,
+        row_threshold,
+        cluster_threshold,
+        envelope_samples,
+        vertical_centering,
+    )
+    check_height_drift(
+        name,
+        plt_path,
+        declared_height,
+        reference_char,
+        entry["reference_char_height_in"],
+    )
+    full_entry: FontEntry = {
+        "font_name": name,
+        "file_path": _repo_relative(plt_path),
+        "stroke_count": stroke_count,
+        **entry,
+    }
+    logger.info(
+        "Extracted font %r from %s: %d glyphs across %d rows, %d stroke(s), "
+        "row_threshold=%.1f units, cluster_threshold=%.1f units, "
+        "declared height=%.4g in, measured reference height=%.6g in",
+        name,
+        plt_path.name,
+        len(entry["characters"]),
+        row_count,
+        stroke_count,
+        used_row,
+        used_cluster,
+        declared_height,
+        entry["reference_char_height_in"],
+    )
+    return FontExtraction(
+        font_name=name,
+        entry=full_entry,
+        row_count=row_count,
+        row_threshold=used_row,
+        cluster_threshold=used_cluster,
+    )
+
+
+def catalog_file_name(font_name: str) -> str:
+    """Return the catalog file name for ``font_name``.
+
+    Characters unsafe in file names across platforms (Windows reserves
+    ``<>:"/\\|?*``) become underscores; spaces are kept. The name is
+    cosmetic - the font key is the file's ``font_name`` field - so the
+    sanitisation never loses information for the loader.
+
+    Args:
+        font_name: Canonical font key (e.g. ``"Heavy Engraving"``).
+
+    Returns:
+        File name ending in ``.json`` (e.g. ``"Heavy Engraving.json"``).
+    """
+    return _FILE_UNSAFE_RE.sub("_", font_name) + ".json"
+
+
+def _ordered_characters(entry: FontEntry, characters: Sequence[str]) -> Optional[Dict[str, Any]]:
+    """Return ``entry``'s glyphs in canonical order, or ``None`` when absent.
+
+    Characters follow the ``ascii.txt`` order; any other keys (the derived
+    Unicode glyphs) are appended sorted, keeping the file deterministic.
+
+    Args:
+        entry: Font entry with an optional ``characters`` mapping.
+        characters: Canonical character order.
+
+    Returns:
+        The ordered mapping, or ``None`` when the entry carries no
+        ``characters`` dict.
+    """
+    glyphs = entry.get("characters")
+    if not isinstance(glyphs, dict):
+        return None
+    merged: Dict[str, Any] = {c: glyphs[c] for c in characters if c in glyphs}
+    for key in sorted(set(glyphs) - set(merged)):
+        merged[key] = glyphs[key]
+    return merged
+
+
+def write_font_file(output_dir: Path, entry: FontEntry, characters: Sequence[str]) -> Path:
+    """Write one font as its own catalog JSON file, deterministically.
+
+    The JSON is indented, keeps non-ASCII glyphs unescaped, and ends with a
+    newline, so re-extracting an unchanged sheet reproduces the file
+    byte-for-byte.
+
+    Args:
+        output_dir: Catalog directory (parents are created).
+        entry: The font entry; its ``font_name`` keys the file.
+        characters: Canonical character order.
+
+    Returns:
+        The path written.
+
+    Raises:
+        FontExtractionError: If the entry carries no usable ``font_name``
+            or the file cannot be written.
+    """
+    font_name = entry.get("font_name")
+    if not isinstance(font_name, str) or not font_name.strip():
+        raise FontExtractionError(f"Font entry has no usable font_name: {font_name!r}")
+    ordered: FontEntry = dict(entry)
+    merged = _ordered_characters(entry, characters)
+    if merged is not None:
+        ordered["characters"] = merged
+    path = output_dir / catalog_file_name(font_name)
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(ordered, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+    except OSError as e:
+        raise FontExtractionError(f"Failed to write font file {path}: {e}") from e
+    logger.info("Wrote font %r to %s", font_name, path)
+    return path
+
+
+def clear_catalog(output_dir: Path) -> int:
+    """Delete every ``*.json`` file in ``output_dir`` (``--rebuild``).
+
+    Args:
+        output_dir: Catalog directory; an absent directory is a no-op.
+
+    Returns:
+        Number of files removed.
+
+    Raises:
+        FontExtractionError: If a file cannot be removed.
+    """
+    if not output_dir.is_dir():
+        return 0
+    removed = 0
+    for path in sorted(output_dir.glob("*.json")):
+        try:
+            path.unlink()
+        except OSError as e:
+            raise FontExtractionError(f"Failed to remove stale catalog file {path}: {e}") from e
+        removed += 1
+    return removed
+
+
+def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+    """Parse command-line arguments.
+
+    Args:
+        argv: Argument list (defaults to ``sys.argv[1:]``).
+
+    Returns:
+        Parsed arguments namespace.
+    """
+    parser = argparse.ArgumentParser(
+        prog="extract_plt_fonts",
+        description=(
+            "Extract baseline-normalized per-character HPGL glyphs and left/right "
+            "profile envelopes from engraved, reference-framed ASCII sample sheets "
+            "into one JSON file per font (fonts/VP-EL-fonts/catalog/)."
+        ),
+        epilog=(
+            "Typical usage:\n"
+            "  uv run python fonts/extract_plt_fonts.py\n"
+            "  uv run python fonts/extract_plt_fonts.py --font-name Dino "
+            "--input-dir fonts/VP-EL-fonts/input-plt -v\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--input-dir",
+        type=Path,
+        default=DEFAULT_INPUT_DIR,
+        help="Directory containing '<font>_<height in>_<ref char>.plt' sample "
+        "sheets (default: %(default)s relative to the repo root).",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=DEFAULT_OUTPUT_DIR,
+        help="Directory of per-font JSON catalog files to create/update "
+        "(default: %(default)s).",
+    )
+    parser.add_argument(
+        "--ascii-file",
+        type=Path,
+        default=DEFAULT_ASCII_FILE,
+        help="Ordered character list (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--row-threshold",
+        type=float,
+        default=None,
+        help="Manual Y-gap row-splitting threshold in plotter units "
+        "(1000 units = 1 inch). Default: auto-searched so the rows reproduce "
+        "the character list and the framing geometry matches.",
+    )
+    parser.add_argument(
+        "--cluster-threshold",
+        type=float,
+        default=None,
+        help="Manual X-gap clustering threshold in plotter units "
+        "(1000 units = 1 inch). Default: auto-searched so the rows reproduce "
+        "the character list and the framing geometry matches.",
+    )
+    parser.add_argument(
+        "--envelope-samples",
+        type=int,
+        default=ENVELOPE_SAMPLES,
+        help="Number of vertical bands per left/right profile envelope; each "
+        "band aggregates the geometry within half a sampling step of its "
+        "height, so single-stroke hairlines are never missed "
+        "(default: %(default)s).",
+    )
+    parser.add_argument(
+        "--no-vertical-centering",
+        action="store_true",
+        help="Store every glyph exactly where it was engraved, disabling the "
+        "midline centring of the characters listed in VERTICALLY_CENTERED_CHARS "
+        "(currently: " + " ".join(sorted(VERTICALLY_CENTERED_CHARS)) + ").",
+    )
+    parser.add_argument(
+        "--font-name",
+        default=None,
+        help="Explicit font key; only valid with a single input file. "
+        "Default: the file-name font part with underscores as spaces, "
+        "title-cased ('dino_0.5_E.plt' -> 'Dino').",
+    )
+    parser.add_argument(
+        "--rebuild",
+        action="store_true",
+        help="Delete every *.json in the catalog directory before writing, "
+        "dropping fonts not present in the input directory. Default: write "
+        "only the extracted fonts, leaving other catalog files untouched.",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable debug logging.",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    """Run the font extraction CLI.
+
+    Args:
+        argv: Argument list (defaults to ``sys.argv[1:]``).
+
+    Returns:
+        Process exit code: 0 on full success, 1 when any step failed.
+    """
+    args = parse_args(argv)
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(levelname)-8s | %(message)s",
+    )
+
+    if args.envelope_samples < 2:
+        logger.error("--envelope-samples must be at least 2")
+        return 1
+
+    try:
+        characters = load_characters(args.ascii_file)
+    except FontExtractionError as e:
+        logger.error("%s", e)
+        return 1
+    logger.debug("Expected characters (%d): %s", len(characters), "".join(characters))
+
+    if not args.input_dir.is_dir():
+        logger.error("Input directory not found: %s", args.input_dir)
+        return 1
+    plt_files = sorted(p for p in args.input_dir.iterdir() if p.suffix.lower() == ".plt")
+    if not plt_files:
+        logger.error("No .plt sample sheets found in %s", args.input_dir)
+        return 1
+    if args.font_name and len(plt_files) != 1:
+        logger.error("--font-name requires exactly one input file (found %d)", len(plt_files))
+        return 1
+
+    extractions: List[FontExtraction] = []
+    failed = False
+    for plt_path in plt_files:
+        try:
+            extraction = extract_font_file(
+                plt_path,
+                characters,
+                font_name=args.font_name,
+                row_threshold=args.row_threshold,
+                cluster_threshold=args.cluster_threshold,
+                envelope_samples=args.envelope_samples,
+                vertical_centering=not args.no_vertical_centering,
+            )
+        except FontExtractionError as e:
+            logger.error("%s", e)
+            failed = True
+            continue
+        extractions.append(extraction)
+
+    if not extractions:
+        logger.error("No fonts extracted; %s left unchanged", args.output_dir)
+        return 1
+
+    targets: Dict[str, str] = {}
+    for extraction in extractions:
+        file_name = catalog_file_name(extraction.font_name)
+        owner = targets.get(file_name)
+        if owner is not None and owner != extraction.font_name:
+            logger.error(
+                "Font names %r and %r map to the same catalog file %r; "
+                "use --font-name to disambiguate",
+                owner,
+                extraction.font_name,
+                file_name,
+            )
+            return 1
+        targets[file_name] = extraction.font_name
+
+    try:
+        if args.rebuild:
+            removed = clear_catalog(args.output_dir)
+            logger.info(
+                "--rebuild: removed %d existing catalog file(s) from %s",
+                removed,
+                args.output_dir,
+            )
+        for extraction in extractions:
+            entry = extraction.entry
+            if extraction.font_name.lower() in non_text_font_names():
+                logger.info(
+                    "Skipping derived Unicode glyphs for non-text font %r "
+                    "(listed in non_text_fonts.txt)",
+                    extraction.font_name,
+                )
+            else:
+                derived = derive_glyph_entries(
+                    entry["characters"],
+                    reference_char=entry["reference_char"],
+                    envelope_samples=args.envelope_samples,
+                    log=logger,
+                )
+                entry["characters"].update(derived)
+                logger.info(
+                    "Derived %d Unicode glyph(s) for %r", len(derived), extraction.font_name
+                )
+            write_font_file(args.output_dir, entry, characters)
+    except FontExtractionError as e:
+        logger.error("%s", e)
+        return 1
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
