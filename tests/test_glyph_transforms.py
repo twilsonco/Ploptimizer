@@ -417,8 +417,13 @@ class TestRecipes:
         assert max(max(seg.start.x, seg.end.x) for seg in bars) == pytest.approx(bar_tip)
 
     def test_almost_equal_stacks_tildas(self, derived: Dict[str, Any]) -> None:
-        # Tilda 200 tall; copies centred at 600 and 400 -> union 300..700.
-        assert _bbox(derived["\u2248"]) == pytest.approx((0.0, 300.0, 700.0, 700.0))
+        # Tilda 200 tall; copies centred at midline +/- (height / divisor) ->
+        # each copy spans target +/- 100, so the union is
+        # 500 - separation - 100 .. 500 + separation + 100.
+        separation = 200.0 / gt.ALMOST_EQUAL_SEPARATION_DIVISOR
+        assert _bbox(derived["\u2248"]) == pytest.approx(
+            (0.0, 500.0 - separation - 100.0, 700.0, 500.0 + separation + 100.0)
+        )
 
     def test_identical_bars_at_quarter_cap(self, derived: Dict[str, Any]) -> None:
         # Three en dashes (EN_DASH_SCALE x hyphen) stacked at
