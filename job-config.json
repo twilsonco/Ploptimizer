@@ -17,7 +17,7 @@
   "supersubscript_downscale": 0.6,
   "html_brackets": "<>",
   "italic_angle": 12.0,
-  "underline_offset_fraction": 0.1,
+  "underline_offset_fraction": 0.15,
   "underline_break_clearance_fraction": 0.2,
   "underline_break_spaces": false,
   "strikethrough_offset_fraction": 0.4,
