@@ -19,7 +19,7 @@ class TestStrikethroughRenderDispatch:
         from plt_optimizer.generate.resolution import resolve_job_spec
 
     def test_explicit_offset_places_the_stroke(self) -> None:
-        """``strikethrough_offset`` is the height above the baseline, 0.0 included."""
+        """``strikethrough_offset_fraction`` is the height above the baseline, 0.0 included."""
         from plt_optimizer.generate.resolution import resolve_job_spec
 
     def test_stroke_is_never_broken_by_descenders(self) -> None:

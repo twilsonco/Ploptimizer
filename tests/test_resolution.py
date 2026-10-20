@@ -34,7 +34,7 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_HOLE_TEXT_COLLISION_DISTANCE,
     DEFAULT_HTML_BRACKETS,
     DEFAULT_ITALIC_ANGLE,
-    DEFAULT_KERNING_MIN_GAP,
+    DEFAULT_KERNING_MIN_GAP_FRACTION,
     DEFAULT_KERNING_PENETRATION_SCALE,
     DEFAULT_KERNING_RECESSION_SCALE,
     DEFAULT_KERNING_WINDOW_FRACTION,
@@ -45,7 +45,7 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_MARGIN,
     DEFAULT_MAX_CUTTER_DOWNSIZES,
     DEFAULT_MAX_H_COMPRESS,
-    DEFAULT_MIN_GLYPH_WIDTH,
+    DEFAULT_MIN_GLYPH_WIDTH_FRACTION,
     DEFAULT_MIN_HOLE_MARGIN,
     DEFAULT_MULTISTROKE_OVERLAP_RATIO,
     DEFAULT_OPTIMIZE_LINE_CONTENT,
@@ -53,15 +53,15 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_SC_SCALE,
     DEFAULT_SPACE_WIDTH_FRACTION,
     DEFAULT_STRIKETHROUGH_BREAK_SPACES,
-    DEFAULT_STRIKETHROUGH_OFFSET,
+    DEFAULT_STRIKETHROUGH_OFFSET_FRACTION,
     DEFAULT_SUPERSUBSCRIPT_DOWNSCALE,
     DEFAULT_TARGET_BOLDNESS_FACTOR,
     DEFAULT_TEXT_COLOR,
     DEFAULT_TEXT_H_ALIGNMENT,
     DEFAULT_TEXT_HEIGHT,
-    DEFAULT_UNDERLINE_BREAK_CLEARANCE,
+    DEFAULT_UNDERLINE_BREAK_CLEARANCE_FRACTION,
     DEFAULT_UNDERLINE_BREAK_SPACES,
-    DEFAULT_UNDERLINE_OFFSET,
+    DEFAULT_UNDERLINE_OFFSET_FRACTION,
     DEFAULT_USE_BASELINE_SPACING,
     DEFAULT_V_CENTER_BY_CONTENT,
     DESIGN_MULTISTROKE_OVERLAP,
@@ -1984,7 +1984,7 @@ class TestSpaceWidthFractionCascade:
 
 
 class TestMinGlyphWidthCascade:
-    """min_glyph_width must cascade line -> label -> job -> default."""
+    """min_glyph_width_fraction must cascade line -> label -> job -> default."""
 
     def test_default_when_all_omit(self) -> None:
         """All levels omitting yields the pure-envelope default (0.0)."""
@@ -2000,14 +2000,16 @@ class TestMinGlyphWidthCascade:
             ],
         )
         label = resolve_job_spec(job)[0]
-        assert math.isclose(label.content[0].min_glyph_width, DEFAULT_MIN_GLYPH_WIDTH)
-        assert DEFAULT_MIN_GLYPH_WIDTH == 0.0
+        assert math.isclose(
+            label.content[0].min_glyph_width_fraction, DEFAULT_MIN_GLYPH_WIDTH_FRACTION
+        )
+        assert DEFAULT_MIN_GLYPH_WIDTH_FRACTION == 0.0
 
     def test_job_value_used_when_label_omits(self) -> None:
         """Job-level value cascades to the line."""
         job = JobSpec(
             job_name="J",
-            min_glyph_width=0.1,
+            min_glyph_width_fraction=0.1,
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -2018,61 +2020,61 @@ class TestMinGlyphWidthCascade:
             ],
         )
         label = resolve_job_spec(job)[0]
-        assert math.isclose(label.content[0].min_glyph_width, 0.1)
+        assert math.isclose(label.content[0].min_glyph_width_fraction, 0.1)
 
     def test_label_overrides_job(self) -> None:
         """Label-level value overrides the job-level value."""
         job = JobSpec(
             job_name="J",
-            min_glyph_width=0.1,
+            min_glyph_width_fraction=0.1,
             labels=[
                 LabelSpec(
                     id="lbl",
                     width=2.0,
                     height=1.0,
-                    min_glyph_width=0.2,
+                    min_glyph_width_fraction=0.2,
                     content=[TextLine(text="X")],
                 )
             ],
         )
         label = resolve_job_spec(job)[0]
-        assert math.isclose(label.content[0].min_glyph_width, 0.2)
+        assert math.isclose(label.content[0].min_glyph_width_fraction, 0.2)
 
     def test_line_overrides_label(self) -> None:
         """Line-level value overrides the label-level value."""
         job = JobSpec(
             job_name="J",
-            min_glyph_width=0.1,
+            min_glyph_width_fraction=0.1,
             labels=[
                 LabelSpec(
                     id="lbl",
                     width=2.0,
                     height=1.0,
-                    min_glyph_width=0.2,
-                    content=[TextLine(text="X", min_glyph_width=0.05)],
+                    min_glyph_width_fraction=0.2,
+                    content=[TextLine(text="X", min_glyph_width_fraction=0.05)],
                 )
             ],
         )
         label = resolve_job_spec(job)[0]
-        assert math.isclose(label.content[0].min_glyph_width, 0.05)
+        assert math.isclose(label.content[0].min_glyph_width_fraction, 0.05)
 
     def test_explicit_zero_at_line_beats_parents(self) -> None:
         """An explicit 0.0 must win over a parent value, not fall through."""
         job = JobSpec(
             job_name="J",
-            min_glyph_width=0.1,
+            min_glyph_width_fraction=0.1,
             labels=[
                 LabelSpec(
                     id="lbl",
                     width=2.0,
                     height=1.0,
-                    min_glyph_width=0.2,
-                    content=[TextLine(text="X", min_glyph_width=0.0)],
+                    min_glyph_width_fraction=0.2,
+                    content=[TextLine(text="X", min_glyph_width_fraction=0.0)],
                 )
             ],
         )
         label = resolve_job_spec(job)[0]
-        assert math.isclose(label.content[0].min_glyph_width, 0.0)
+        assert math.isclose(label.content[0].min_glyph_width_fraction, 0.0)
 
 
 class TestKerningWindowFractionCascade:
@@ -2299,7 +2301,7 @@ class TestKerningSpacingKnobCascades:
         """The shipped defaults leave the kerning math unchanged."""
         assert DEFAULT_KERNING_PENETRATION_SCALE == 1.0
         assert DEFAULT_KERNING_RECESSION_SCALE == 1.0
-        assert DEFAULT_KERNING_MIN_GAP == 0.0
+        assert DEFAULT_KERNING_MIN_GAP_FRACTION == 0.0
         assert DEFAULT_FALLBACK_ADVANCE_FRACTION == 1.0
 
     @pytest.mark.parametrize(
@@ -2307,7 +2309,7 @@ class TestKerningSpacingKnobCascades:
         [
             "kerning_penetration_scale",
             "kerning_recession_scale",
-            "kerning_min_gap",
+            "kerning_min_gap_fraction",
             "fallback_advance_fraction",
         ],
     )
@@ -2347,7 +2349,7 @@ class TestKerningSpacingKnobCascades:
         defaults = {
             "kerning_penetration_scale": DEFAULT_KERNING_PENETRATION_SCALE,
             "kerning_recession_scale": DEFAULT_KERNING_RECESSION_SCALE,
-            "kerning_min_gap": DEFAULT_KERNING_MIN_GAP,
+            "kerning_min_gap_fraction": DEFAULT_KERNING_MIN_GAP_FRACTION,
             "fallback_advance_fraction": DEFAULT_FALLBACK_ADVANCE_FRACTION,
         }
         assert math.isclose(getattr(resolve_job_spec(job)[0].content[0], field), defaults[field])
@@ -2362,7 +2364,7 @@ class TestKerningSpacingKnobCascades:
         [
             "kerning_penetration_scale",
             "kerning_recession_scale",
-            "kerning_min_gap",
+            "kerning_min_gap_fraction",
             "fallback_advance_fraction",
         ],
     )
@@ -2711,9 +2713,7 @@ class TestMultiStrokeCutterResolution:
     def test_multi_stroke_thin_target_clamps(self, caplog: pytest.LogCaptureFixture) -> None:
         """A light factor clamps to the gap-free floor with a WARNING."""
         with caplog.at_level("WARNING"):
-            line = resolve_job_spec(
-                self._job("Avenge5", target_boldness_factor=0.08)
-            )[0].content[0]
+            line = resolve_job_spec(self._job("Avenge5", target_boldness_factor=0.08))[0].content[0]
         assert math.isclose(line.cutter_diameter, 0.0175, rel_tol=1e-9)
         assert "gap-free floor" in caplog.text
 
@@ -2736,9 +2736,7 @@ class TestMultiStrokeCutterResolution:
         net rather than a reachable abort - pinned so a future widening of
         the schema bounds notices.
         """
-        line = resolve_job_spec(
-            self._job("Avenge5", target_boldness_factor=0.30)
-        )[0].content[0]
+        line = resolve_job_spec(self._job("Avenge5", target_boldness_factor=0.30))[0].content[0]
         assert line.toolpath_text_height > 0.0
 
     def test_multi_stroke_cutter_is_frozen_dataclass(self) -> None:
@@ -4247,7 +4245,7 @@ class TestMarkupResolution:
 
 
 class TestUnderlineOffsetCascade:
-    """underline_offset must cascade line -> label -> job -> default."""
+    """underline_offset_fraction must cascade line -> label -> job -> default."""
 
     def test_default_when_all_omit(self) -> None:
         """All levels omitting yields the 0.0 default."""
@@ -4263,30 +4261,30 @@ class TestUnderlineOffsetCascade:
             ],
         )
         line = resolve_job_spec(job)[0].content[0]
-        assert math.isclose(line.underline_offset, DEFAULT_UNDERLINE_OFFSET)
-        assert DEFAULT_UNDERLINE_OFFSET == 0.0
+        assert math.isclose(line.underline_offset_fraction, DEFAULT_UNDERLINE_OFFSET_FRACTION)
+        assert DEFAULT_UNDERLINE_OFFSET_FRACTION == 0.0
 
     def test_explicit_zero_is_honored(self) -> None:
         """An intentional 0.0 (strokes touch) is not treated as unset."""
         job = JobSpec(
             job_name="J",
-            underline_offset=0.25,
+            underline_offset_fraction=0.25,
             labels=[
                 LabelSpec(
                     id="lbl",
                     width=2.0,
                     height=1.0,
-                    content=[TextLine(text="X", underline_offset=0.0)],
+                    content=[TextLine(text="X", underline_offset_fraction=0.0)],
                 )
             ],
         )
-        assert resolve_job_spec(job)[0].content[0].underline_offset == 0.0
+        assert resolve_job_spec(job)[0].content[0].underline_offset_fraction == 0.0
 
     def test_job_value_used_when_label_omits(self) -> None:
         """Job-level value cascades to the line."""
         job = JobSpec(
             job_name="J",
-            underline_offset=0.2,
+            underline_offset_fraction=0.2,
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -4296,50 +4294,50 @@ class TestUnderlineOffsetCascade:
                 )
             ],
         )
-        assert resolve_job_spec(job)[0].content[0].underline_offset == 0.2
+        assert resolve_job_spec(job)[0].content[0].underline_offset_fraction == 0.2
 
     def test_label_overrides_job(self) -> None:
         """Label-level value overrides the job-level value."""
         job = JobSpec(
             job_name="J",
-            underline_offset=0.2,
+            underline_offset_fraction=0.2,
             labels=[
                 LabelSpec(
                     id="lbl",
                     width=2.0,
                     height=1.0,
-                    underline_offset=0.3,
+                    underline_offset_fraction=0.3,
                     content=[TextLine(text="X")],
                 )
             ],
         )
-        assert resolve_job_spec(job)[0].content[0].underline_offset == 0.3
+        assert resolve_job_spec(job)[0].content[0].underline_offset_fraction == 0.3
 
     def test_line_overrides_label(self) -> None:
         """Text-line value wins over label and job."""
         job = JobSpec(
             job_name="J",
-            underline_offset=0.2,
+            underline_offset_fraction=0.2,
             labels=[
                 LabelSpec(
                     id="lbl",
                     width=2.0,
                     height=1.0,
-                    underline_offset=0.3,
-                    content=[TextLine(text="X", underline_offset=0.05)],
+                    underline_offset_fraction=0.3,
+                    content=[TextLine(text="X", underline_offset_fraction=0.05)],
                 )
             ],
         )
-        assert resolve_job_spec(job)[0].content[0].underline_offset == 0.05
+        assert resolve_job_spec(job)[0].content[0].underline_offset_fraction == 0.05
 
     def test_negative_is_a_validation_error(self) -> None:
         """The schema rejects a negative offset."""
         with pytest.raises(ValidationError):
-            TextLine(text="X", underline_offset=-0.1)
+            TextLine(text="X", underline_offset_fraction=-0.1)
 
 
 class TestUnderlineBreakClearanceCascade:
-    """underline_break_clearance must cascade line -> label -> job -> default."""
+    """underline_break_clearance_fraction must cascade line -> label -> job -> default."""
 
     def test_default_when_all_omit(self) -> None:
         """All levels omitting yields the 0.0 default."""
@@ -4355,30 +4353,32 @@ class TestUnderlineBreakClearanceCascade:
             ],
         )
         line = resolve_job_spec(job)[0].content[0]
-        assert math.isclose(line.underline_break_clearance, DEFAULT_UNDERLINE_BREAK_CLEARANCE)
-        assert DEFAULT_UNDERLINE_BREAK_CLEARANCE == 0.0
+        assert math.isclose(
+            line.underline_break_clearance_fraction, DEFAULT_UNDERLINE_BREAK_CLEARANCE_FRACTION
+        )
+        assert DEFAULT_UNDERLINE_BREAK_CLEARANCE_FRACTION == 0.0
 
     def test_explicit_zero_is_honored(self) -> None:
         """An intentional 0.0 (tangency) is not treated as unset."""
         job = JobSpec(
             job_name="J",
-            underline_break_clearance=0.25,
+            underline_break_clearance_fraction=0.25,
             labels=[
                 LabelSpec(
                     id="lbl",
                     width=2.0,
                     height=1.0,
-                    content=[TextLine(text="X", underline_break_clearance=0.0)],
+                    content=[TextLine(text="X", underline_break_clearance_fraction=0.0)],
                 )
             ],
         )
-        assert resolve_job_spec(job)[0].content[0].underline_break_clearance == 0.0
+        assert resolve_job_spec(job)[0].content[0].underline_break_clearance_fraction == 0.0
 
     def test_job_value_used_when_label_omits(self) -> None:
         """Job-level value cascades to the line."""
         job = JobSpec(
             job_name="J",
-            underline_break_clearance=0.2,
+            underline_break_clearance_fraction=0.2,
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -4388,46 +4388,46 @@ class TestUnderlineBreakClearanceCascade:
                 )
             ],
         )
-        assert resolve_job_spec(job)[0].content[0].underline_break_clearance == 0.2
+        assert resolve_job_spec(job)[0].content[0].underline_break_clearance_fraction == 0.2
 
     def test_label_overrides_job(self) -> None:
         """Label-level value wins over job."""
         job = JobSpec(
             job_name="J",
-            underline_break_clearance=0.2,
+            underline_break_clearance_fraction=0.2,
             labels=[
                 LabelSpec(
                     id="lbl",
                     width=2.0,
                     height=1.0,
-                    underline_break_clearance=0.3,
+                    underline_break_clearance_fraction=0.3,
                     content=[TextLine(text="X")],
                 )
             ],
         )
-        assert resolve_job_spec(job)[0].content[0].underline_break_clearance == 0.3
+        assert resolve_job_spec(job)[0].content[0].underline_break_clearance_fraction == 0.3
 
     def test_line_overrides_label(self) -> None:
         """Text-line value wins over label and job."""
         job = JobSpec(
             job_name="J",
-            underline_break_clearance=0.2,
+            underline_break_clearance_fraction=0.2,
             labels=[
                 LabelSpec(
                     id="lbl",
                     width=2.0,
                     height=1.0,
-                    underline_break_clearance=0.3,
-                    content=[TextLine(text="X", underline_break_clearance=0.05)],
+                    underline_break_clearance_fraction=0.3,
+                    content=[TextLine(text="X", underline_break_clearance_fraction=0.05)],
                 )
             ],
         )
-        assert resolve_job_spec(job)[0].content[0].underline_break_clearance == 0.05
+        assert resolve_job_spec(job)[0].content[0].underline_break_clearance_fraction == 0.05
 
     def test_negative_is_a_validation_error(self) -> None:
         """The schema rejects a negative clearance."""
         with pytest.raises(ValidationError):
-            TextLine(text="X", underline_break_clearance=-0.1)
+            TextLine(text="X", underline_break_clearance_fraction=-0.1)
 
 
 class TestUnderlineBreakSpacesCascade:
@@ -4518,80 +4518,76 @@ class TestUnderlineBreakSpacesCascade:
 
 
 class TestStrikethroughOffsetCascade:
-    """strikethrough_offset must cascade line -> label -> job -> default (None)."""
+    """strikethrough_offset_fraction must cascade line -> label -> job -> default (None)."""
 
     def test_default_when_all_omit(self) -> None:
         """All levels omitting yields the None default (mid-cap centering)."""
         job = JobSpec(
             job_name="J",
-            labels=[
-                LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])
-            ],
+            labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])],
         )
         line = resolve_job_spec(job)[0].content[0]
-        assert line.strikethrough_offset is DEFAULT_STRIKETHROUGH_OFFSET
-        assert DEFAULT_STRIKETHROUGH_OFFSET is None
+        assert line.strikethrough_offset_fraction is DEFAULT_STRIKETHROUGH_OFFSET_FRACTION
+        assert DEFAULT_STRIKETHROUGH_OFFSET_FRACTION is None
 
     def test_explicit_zero_is_honored(self) -> None:
         """An intentional 0.0 (stroke on the baseline) is not treated as unset."""
         job = JobSpec(
             job_name="J",
-            strikethrough_offset=0.2,
+            strikethrough_offset_fraction=0.2,
             labels=[
                 LabelSpec(
                     id="lbl",
                     width=2.0,
                     height=1.0,
-                    content=[TextLine(text="X", strikethrough_offset=0.0)],
+                    content=[TextLine(text="X", strikethrough_offset_fraction=0.0)],
                 )
             ],
         )
-        assert resolve_job_spec(job)[0].content[0].strikethrough_offset == 0.0
+        assert resolve_job_spec(job)[0].content[0].strikethrough_offset_fraction == 0.0
 
     def test_job_value_used_when_label_omits(self) -> None:
         """Job-level value cascades to the line."""
         job = JobSpec(
             job_name="J",
-            strikethrough_offset=0.2,
-            labels=[
-                LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])
-            ],
+            strikethrough_offset_fraction=0.2,
+            labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])],
         )
-        assert resolve_job_spec(job)[0].content[0].strikethrough_offset == 0.2
+        assert resolve_job_spec(job)[0].content[0].strikethrough_offset_fraction == 0.2
 
     def test_label_overrides_job(self) -> None:
         """Label-level value wins over job."""
         job = JobSpec(
             job_name="J",
-            strikethrough_offset=0.2,
+            strikethrough_offset_fraction=0.2,
             labels=[
                 LabelSpec(
                     id="lbl",
                     width=2.0,
                     height=1.0,
-                    strikethrough_offset=0.3,
+                    strikethrough_offset_fraction=0.3,
                     content=[TextLine(text="X")],
                 )
             ],
         )
-        assert resolve_job_spec(job)[0].content[0].strikethrough_offset == 0.3
+        assert resolve_job_spec(job)[0].content[0].strikethrough_offset_fraction == 0.3
 
     def test_line_overrides_label(self) -> None:
         """Text-line value wins over label and job."""
         job = JobSpec(
             job_name="J",
-            strikethrough_offset=0.2,
+            strikethrough_offset_fraction=0.2,
             labels=[
                 LabelSpec(
                     id="lbl",
                     width=2.0,
                     height=1.0,
-                    strikethrough_offset=0.3,
-                    content=[TextLine(text="X", strikethrough_offset=0.4)],
+                    strikethrough_offset_fraction=0.3,
+                    content=[TextLine(text="X", strikethrough_offset_fraction=0.4)],
                 )
             ],
         )
-        assert resolve_job_spec(job)[0].content[0].strikethrough_offset == 0.4
+        assert resolve_job_spec(job)[0].content[0].strikethrough_offset_fraction == 0.4
 
 
 class TestStrikethroughCapRule:
@@ -4607,7 +4603,7 @@ class TestStrikethroughCapRule:
             character_spacing=0.0,
             line_spacing=0.0,
         )
-        assert line.strikethrough_offset is None
+        assert line.strikethrough_offset_fraction is None
         assert math.isclose(line.strikethrough_cap, 0.22)
 
     def test_explicit_offset_is_used_verbatim(self) -> None:
@@ -4619,9 +4615,50 @@ class TestStrikethroughCapRule:
             cutter_diameter=0.06,
             character_spacing=0.0,
             line_spacing=0.0,
-            strikethrough_offset=0.0,
+            strikethrough_offset_fraction=0.0,
         )
         assert line.strikethrough_cap == 0.0
+
+    def test_offset_fraction_multiplies_the_cap_height(self) -> None:
+        """The explicit fraction scales with the line's cap height."""
+        line = ResolvedTextLine(
+            text="X",
+            nominal_text_height=0.5,
+            toolpath_text_height=0.44,
+            cutter_diameter=0.06,
+            character_spacing=0.0,
+            line_spacing=0.0,
+            strikethrough_offset_fraction=2.0,
+        )
+        assert math.isclose(line.strikethrough_cap, 2.0 * 0.44)
+
+    def test_decoration_inch_properties_multiply_the_cap_height(self) -> None:
+        """The underline/kerning inch properties resolve fraction x cap height.
+
+        The conversion happens at consumption (on the resolved line), so a
+        cutter downsize that grows ``toolpath_text_height`` after resolution
+        moves the derived inches with it -- the decoration geometry never
+        goes stale.
+        """
+        line = ResolvedTextLine(
+            text="X",
+            nominal_text_height=0.5,
+            toolpath_text_height=0.44,
+            cutter_diameter=0.06,
+            character_spacing=0.0,
+            line_spacing=0.0,
+            underline_offset_fraction=0.25,
+            underline_break_clearance_fraction=0.1,
+            kerning_min_gap_fraction=0.05,
+        )
+        assert math.isclose(line.underline_offset_inches, 0.11)
+        assert math.isclose(line.underline_break_clearance_inches, 0.044)
+        assert math.isclose(line.kerning_min_gap_inches, 0.022)
+        downsized = replace(line, toolpath_text_height=0.455)
+        assert math.isclose(downsized.underline_offset_inches, 0.25 * 0.455)
+        assert math.isclose(downsized.underline_break_clearance_inches, 0.1 * 0.455)
+        assert math.isclose(downsized.kerning_min_gap_inches, 0.05 * 0.455)
+        assert math.isclose(downsized.strikethrough_cap, 0.5 * 0.455)
 
     def test_has_strikethrough_reads_the_runs(self) -> None:
         """The gate's fast-path flag sees a struck run and nothing else."""
@@ -4646,9 +4683,7 @@ class TestStrikethroughBreakSpacesCascade:
         """All levels omitting yields the False default."""
         job = JobSpec(
             job_name="J",
-            labels=[
-                LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])
-            ],
+            labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])],
         )
         line = resolve_job_spec(job)[0].content[0]
         assert line.strikethrough_break_spaces is DEFAULT_STRIKETHROUGH_BREAK_SPACES
@@ -4675,9 +4710,7 @@ class TestStrikethroughBreakSpacesCascade:
         job = JobSpec(
             job_name="J",
             strikethrough_break_spaces=True,
-            labels=[
-                LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])
-            ],
+            labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])],
         )
         assert resolve_job_spec(job)[0].content[0].strikethrough_break_spaces is True
 
@@ -4726,9 +4759,7 @@ class TestBoldBoldnessMultiplierCascade:
         """All levels omitting yields the 1.5 default."""
         job = JobSpec(
             job_name="J",
-            labels=[
-                LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])
-            ],
+            labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])],
         )
         line = resolve_job_spec(job)[0].content[0]
         assert math.isclose(line.bold_boldness_multiplier, DEFAULT_BOLD_BOLDNESS_MULTIPLIER)
@@ -4755,9 +4786,7 @@ class TestBoldBoldnessMultiplierCascade:
         job = JobSpec(
             job_name="J",
             bold_boldness_multiplier=2.5,
-            labels=[
-                LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])
-            ],
+            labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])],
         )
         assert resolve_job_spec(job)[0].content[0].bold_boldness_multiplier == 2.5
 
@@ -4796,9 +4825,9 @@ class TestBoldCutterResolution:
 
     def _line(self, *lines: TextLine, **job_kwargs: object) -> ResolvedTextLine:
         """Resolve the job's first line against the test inventory."""
-        return resolve_job_spec(
-            self._job(*lines, **job_kwargs), available_cutters=_INVENTORY
-        )[0].content[0]
+        return resolve_job_spec(self._job(*lines, **job_kwargs), available_cutters=_INVENTORY)[
+            0
+        ].content[0]
 
     def test_no_markup_has_no_bold_cutter(self) -> None:
         """A markup-free line carries no bold cutter."""
@@ -4971,9 +5000,9 @@ class TestScaleResolution:
 
     def _line(self, *lines: TextLine, **job_kwargs: object) -> ResolvedTextLine:
         """Resolve the job's first line against the test inventory."""
-        return resolve_job_spec(
-            self._job(*lines, **job_kwargs), available_cutters=_INVENTORY
-        )[0].content[0]
+        return resolve_job_spec(self._job(*lines, **job_kwargs), available_cutters=_INVENTORY)[
+            0
+        ].content[0]
 
     def test_no_markup_has_no_scale_values(self) -> None:
         """A markup-free line has no scale run (all-unity factors, fast path)."""
@@ -5079,8 +5108,7 @@ class TestScaleResolution:
         )
         scaled_line = line.with_markup("<scale:0.5>bb</scale>")
         assert all(
-            math.isclose(raise_in, (0.06 - 0.125) / 2)
-            for raise_in in scaled_line.baseline_raises
+            math.isclose(raise_in, (0.06 - 0.125) / 2) for raise_in in scaled_line.baseline_raises
         )
         plain_line = line.with_markup("AA CC")
         assert all(math.isclose(raise_in, 0.0) for raise_in in plain_line.baseline_raises)
@@ -5188,9 +5216,7 @@ class TestGlyphRenderPlan:
         assert diameters == (0.045,)
         assert scales[0] == pytest.approx((0.5 * 0.5 - 0.045) / (0.5 - 0.06))
 
-    def test_degenerate_factor_clamps_with_warning(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_degenerate_factor_clamps_with_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         """A run taller than every inventory rung clamps (WARNING).
 
         The per-run ladder normally guarantees a cutter that fits the run's own
@@ -5234,9 +5260,7 @@ class TestSupersubscriptDownscaleCascade:
     @staticmethod
     def _resolved(**kwargs: object) -> ResolvedTextLine:
         """Resolve a one-line job with ``kwargs`` spread over the tiers."""
-        line_kwargs = {
-            k[len("line_") :]: v for k, v in kwargs.items() if k.startswith("line_")
-        }
+        line_kwargs = {k[len("line_") :]: v for k, v in kwargs.items() if k.startswith("line_")}
         label_kwargs = {k[len("label_") :]: v for k, v in kwargs.items() if k.startswith("label_")}
         job_kwargs = {k[len("job_") :]: v for k, v in kwargs.items() if k.startswith("job_")}
         job = JobSpec(
@@ -5312,9 +5336,9 @@ class TestSupSubResolution:
 
     def _line(self, *lines: TextLine, **job_kwargs: object) -> ResolvedTextLine:
         """Resolve the job's first line against the test inventory."""
-        return resolve_job_spec(
-            self._job(*lines, **job_kwargs), available_cutters=_INVENTORY
-        )[0].content[0]
+        return resolve_job_spec(self._job(*lines, **job_kwargs), available_cutters=_INVENTORY)[
+            0
+        ].content[0]
 
     def test_no_markup_has_no_sup_sub(self) -> None:
         """A markup-free line has no shift (the renderers' fast path)."""
@@ -5403,9 +5427,7 @@ class TestSupSubResolution:
         downscaled run its neighbour's (larger) tool. The cutters derive from
         each character's style, so they follow the moved words.
         """
-        line = self._line(
-            TextLine(text="AA<sup>b</sup>", font="Dino"), text_height=1.0
-        )
+        line = self._line(TextLine(text="AA<sup>b</sup>", font="Dino"), text_height=1.0)
         swapped = line.with_markup("AA<sup>b</sup> CC")
         assert swapped.plain_text == "AAb CC"
         # The scaled run (index 2) keeps the downscaled-height tool; the plain
@@ -5426,9 +5448,7 @@ class TestSupSubResolution:
 
     def test_sup_with_bold_takes_the_bold_rung(self) -> None:
         """A bold + bare-sup character takes the bold rung at the effective height."""
-        line = self._line(
-            TextLine(text="A<b><sup>b</sup></b>", font="Dino"), text_height=1.0
-        )
+        line = self._line(TextLine(text="A<b><sup>b</sup></b>", font="Dino"), text_height=1.0)
         assert line.bold_cutter_diameter is not None
         # 0.5in of text: plain ladder 0.06, bold rung 0.09. The bold+sup
         # character is plain_text index 1 (the tags engrave nothing).
@@ -6198,9 +6218,7 @@ class TestConditionalHoleAwareCentering:
             content=[],
             adjust_h_center_for_single_side_hole=False,  # Disabled
         )
-        v_shift_disabled, h_shift_disabled = _compute_hole_aware_shifts(
-            resolved_disabled
-        )
+        v_shift_disabled, h_shift_disabled = _compute_hole_aware_shifts(resolved_disabled)
 
         # Test with flag enabled
         resolved_enabled = ResolvedLabel(

@@ -121,9 +121,11 @@ class JobDefaults(BaseModel):
         space_width_fraction: Default space advance fraction for
             PLT-extracted fonts (space = fraction * text_height +
             character_spacing). Unset falls back to 0.3.
-        min_glyph_width: Default global minimum glyph advance width in
-            inches for PLT-extracted fonts. The profile-envelope kerning
-            floors each pair's advance at this value, capped by the left
+        min_glyph_width_fraction: Default global minimum glyph advance
+            width as a fraction of the rendered cap height for
+            PLT-extracted fonts. The profile-envelope kerning
+            floors each pair's advance at this fraction of the cap height,
+            capped by the left
             glyph's own width, so zero-width glyphs still reserve real air.
             Unset falls back to 0.0
             (pure profile-envelope kerning).
@@ -137,9 +139,11 @@ class JobDefaults(BaseModel):
         kerning_recession_scale: Default multiplier on a *recessed*
             (negative) detected penetration for PLT-extracted fonts.
             Unset falls back to 1.0 (geometric); 0.0 makes a recessed
-            pair advance by nothing beyond the min_glyph_width floor.
-        kerning_min_gap: Default extra air in inches added to every
-            kerned pair advance for PLT-extracted fonts. Unset falls back
+            pair advance by nothing beyond the min_glyph_width_fraction
+            floor.
+        kerning_min_gap_fraction: Default extra air added to every
+            kerned pair advance for PLT-extracted fonts, as a fraction of
+            the rendered cap height. Unset falls back
             to 0.0.
         fallback_advance_fraction: Default multiplier on the
             bounding-box-width fallback advance for PLT-extracted pairs
@@ -285,11 +289,12 @@ class JobDefaults(BaseModel):
             "character_spacing. Unset falls back to 0.3."
         ),
     )
-    min_glyph_width: Optional[float] = Field(
+    min_glyph_width_fraction: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Default global minimum glyph advance width in inches for "
+            "Default global minimum glyph advance width as a fraction of "
+            "the rendered cap height (capline - baseline) for "
             "PLT-extracted fonts (job layer); clamps the profile-envelope "
             "kerning for zero-width glyphs. Unset falls back to 0.0."
         ),
@@ -321,16 +326,18 @@ class JobDefaults(BaseModel):
             "Default kerning recession multiplier for PLT-extracted fonts "
             "(job layer); scales a negative (recessed) detected "
             "penetration. Unset falls back to 1.0; 0.0 makes a recessed "
-            "pair advance by nothing beyond the min_glyph_width floor."
+            "pair advance by nothing beyond the min_glyph_width_fraction "
+            "floor."
         ),
     )
-    kerning_min_gap: Optional[float] = Field(
+    kerning_min_gap_fraction: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Default extra kerning air in inches added to every kerned "
-            "pair advance for PLT-extracted fonts (job layer). Unset "
-            "falls back to 0.0."
+            "Default extra kerning air added to every kerned "
+            "pair advance for PLT-extracted fonts (job layer), as a "
+            "fraction of the rendered cap height (capline - baseline). "
+            "Unset falls back to 0.0."
         ),
     )
     fallback_advance_fraction: Optional[float] = Field(
@@ -387,14 +394,16 @@ class JobDefaults(BaseModel):
             "upright. Unset falls back to 12."
         ),
     )
-    underline_offset: Optional[float] = Field(
+    underline_offset_fraction: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Default underline (<u>) extra air in inches (job layer): the "
-            "underline centerline sits cutter diameter + this offset below "
+            "Default underline (<u>) extra air as a fraction of the "
+            "rendered cap height (capline - baseline; job layer): the "
+            "underline centerline sits cutter diameter + fraction * cap "
+            "height below "
             "the baseline (the engraved underline's top edge floats exactly "
-            "this offset below the engraved baseline stroke). The break test "
+            "that air below the engraved baseline stroke). The break test "
             "is strictly horizontal, so a glyph breaks the underline where its "
             "ink crosses the underline's centerline; raising it "
             "lifts the underline clear of a glyph and stops it breaking. "
@@ -402,13 +411,14 @@ class JobDefaults(BaseModel):
             "falls back to 0.0."
         ),
     )
-    underline_break_clearance: Optional[float] = Field(
+    underline_break_clearance_fraction: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Default underline (<u>) break clearance in inches (job layer): "
-            "each cut is padded horizontally by 0.5 * cutter + this "
-            "clearance (the half cutter is the glyph stroke's own "
+            "Default underline (<u>) break clearance as a fraction of the "
+            "rendered cap height (capline - baseline; job layer): "
+            "each cut is padded horizontally by 0.5 * cutter + fraction * "
+            "cap height (the half cutter is the glyph stroke's own "
             "half-width), so the engraved air between a descending glyph's "
             "stroke and the underline's cut edge is exactly this value. 0.0 "
             "= the cut sits at the ink. Unset falls back to 0.0."
@@ -425,14 +435,16 @@ class JobDefaults(BaseModel):
             "Unset falls back to false."
         ),
     )
-    strikethrough_offset: Optional[float] = Field(
+    strikethrough_offset_fraction: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Default strikethrough (<s>) height in inches above the baseline "
-            "(job layer): the stroke (cut with the line's own text cutter) "
-            "sits this many inches above the baseline, so 0.0 puts it on the "
-            "baseline. Unlike the underline the stroke is never broken -- a "
+            "Default strikethrough (<s>) height as a fraction of the "
+            "rendered cap height (capline - baseline; job layer): the "
+            "stroke (cut with the line's own text cutter) "
+            "sits fraction * cap height above the baseline, so 0.0 puts it "
+            "on the baseline and 1.0 on the capline. Unlike the underline "
+            "the stroke is never broken -- a "
             "descender punches through it. Unset (null) centres the stroke on "
             "the cap-band midline (half the rendered cap height)."
         ),
@@ -782,20 +794,20 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "max_h_compress",
     "text_h_alignment",
     "space_width_fraction",
-    "min_glyph_width",
+    "min_glyph_width_fraction",
     "kerning_window_fraction",
     "kerning_penetration_scale",
     "kerning_recession_scale",
-    "kerning_min_gap",
+    "kerning_min_gap_fraction",
     "fallback_advance_fraction",
     "sc_scale",
     "supersubscript_downscale",
     "html_brackets",
     "italic_angle",
-    "underline_offset",
-    "underline_break_clearance",
+    "underline_offset_fraction",
+    "underline_break_clearance_fraction",
     "underline_break_spaces",
-    "strikethrough_offset",
+    "strikethrough_offset_fraction",
     "strikethrough_break_spaces",
     "target_boldness_factor",
     "multistroke_overlap_ratio",

@@ -458,9 +458,11 @@ class TextAttributes(BaseModel):
             ``0.0`` collapses the space to bare ``character_spacing``).
             Cascades line -> label -> job (and is accepted on plates for
             schema parity, where it is not applied at that level).
-        min_glyph_width: Optional global minimum glyph advance width in
-            inches for PLT-extracted fonts. The profile-envelope kerning
-            floors each pair's advance at this value, capped by the left
+        min_glyph_width_fraction: Optional global minimum glyph advance
+            width as a **fraction of the rendered cap height**
+            (capline - baseline) for PLT-extracted fonts. The
+            profile-envelope kerning floors each pair's advance at
+            ``min_glyph_width_fraction * cap height``, capped by the left
             glyph's own bounding-box width, so zero-width glyphs (``!``,
             ``|``) still reserve real air without inflating thin-glyph
             pairs past their own silhouette.
@@ -493,14 +495,16 @@ class TextAttributes(BaseModel):
             (the historical linear behaviour, where lowering
             ``kerning_penetration_scale`` also pulled gapped pairs
             closer); ``0.0`` makes a recessed pair advance by nothing
-            beyond the ``min_glyph_width`` floor, so the penetration dial
+            beyond the ``min_glyph_width_fraction`` floor, so the
+            penetration dial
             only tightens pairs whose silhouettes overlap. Defaults to
             ``1.0``; only ``None`` means unset. Cascades line -> label ->
             job (and is accepted on plates for schema parity, where it is
             not applied at that level).
-        kerning_min_gap: Optional extra air in inches added to every
-            kerned character pair advance for PLT-extracted fonts, on top
-            of the cutter-diameter + character-spacing clearance.
+        kerning_min_gap_fraction: Optional extra air added to every kerned
+            character pair advance for PLT-extracted fonts, as a
+            **fraction of the rendered cap height** (capline - baseline),
+            on top of the cutter-diameter + character-spacing clearance.
             Defaults to ``0.0`` (no extra gap); only ``None`` means unset.
             Cascades line -> label -> job (and is accepted on plates for
             schema parity, where it is not applied at that level).
@@ -562,16 +566,18 @@ class TextAttributes(BaseModel):
             ``12``; only ``None`` means unset. Cascades line -> label -> job
             (and is accepted on plates for schema parity, where it is not
             applied at that level).
-        underline_offset: Optional extra air in **inches** for underline
+        underline_offset_fraction: Optional extra air as a **fraction of
+            the rendered cap height** (capline - baseline) for underline
             markup (``<u>``). The underline is a centerline stroke cut with
             the line's own text cutter, positioned
-            ``cutter diameter + underline_offset`` below the baseline, so
+            ``cutter diameter + underline_offset_fraction * cap height``
+            below the baseline, so
             the engraved underline's top edge floats exactly
-            ``underline_offset`` below the engraved baseline stroke. The break
+            ``fraction * cap height`` below the engraved baseline stroke. The break
             test is strictly horizontal: a glyph breaks the underline where its
             ink crosses the underline's centerline (dipping past ``cutter
-            diameter + underline_offset`` below the baseline), so the offset
-            alone decides *which* glyphs break and raising it lifts the
+            diameter + fraction * cap height`` below the baseline), so the
+            offset alone decides *which* glyphs break and raising it lifts the
             underline clear of a glyph. ``0.0`` (the default) makes the
             underline's
             top edge touch the baseline stroke and gaps only where the
@@ -579,13 +585,15 @@ class TextAttributes(BaseModel):
             means unset.
             Cascades line -> label -> job (and is accepted on plates
             for schema parity, where it is not applied at that level).
-        underline_break_clearance: Extra air in **inches** at each underline
-            break. Each cut is padded horizontally by ``0.5 * cutter +
-            underline_break_clearance`` (the half cutter is the glyph stroke's
+        underline_break_clearance_fraction: Extra air at each underline
+            break as a **fraction of the rendered cap height** (capline -
+            baseline). Each cut is padded horizontally by ``0.5 * cutter +
+            fraction * cap height`` (the half cutter is the glyph stroke's
             own half-width -- the ink is a centerline), so the engraved air
             between a descending glyph's stroke and the underline's cut edge
             is exactly this clearance (``0.0`` = the cut sits at the ink).
-            Independent of ``underline_offset`` (which decides *which* glyphs
+            Independent of ``underline_offset_fraction`` (which decides
+            *which* glyphs
             break); this field adds air at the break itself and never causes a
             break the offset prevents.
             Must be ``>= 0``; only ``None`` means unset.
@@ -600,11 +608,14 @@ class TextAttributes(BaseModel):
             stays bare. Cascades line -> label -> job (and is accepted on
             plates for schema parity, where it is not applied at that level);
             explicit ``False`` is honored.
-        strikethrough_offset: Optional strikethrough height in **inches** for
-            strikethrough markup (``<s>``). The strikethrough is a centerline
-            stroke cut with the line's own text cutter, positioned
-            ``strikethrough_offset`` **above** the baseline (``0.0`` = the
-            stroke sits on the baseline). Unlike the underline, the stroke is
+        strikethrough_offset_fraction: Optional strikethrough height as a
+            **fraction of the rendered cap height** (capline - baseline)
+            for strikethrough markup (``<s>``). The strikethrough is a
+            centerline stroke cut with the line's own text cutter,
+            positioned ``strikethrough_offset_fraction * cap height``
+            **above** the baseline (``0.0`` = the
+            stroke sits on the baseline, ``1.0`` = on the capline). Unlike
+            the underline, the stroke is
             **never broken**: a descender punches through it, so there is no
             clearance and no break test. ``None`` (the default) centres the
             stroke on the **cap-band midline** (half the rendered cap height),
@@ -774,12 +785,13 @@ class TextAttributes(BaseModel):
             "is honored."
         ),
     )
-    min_glyph_width: Optional[float] = Field(
+    min_glyph_width_fraction: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Global minimum glyph advance width in inches (PLT-extracted "
-            "fonts): clamps the profile-envelope kerning so zero-width "
+            "Global minimum glyph advance width as a fraction of the "
+            "rendered cap height (capline - baseline) for PLT-extracted "
+            "fonts: clamps the profile-envelope kerning so zero-width "
             "glyphs still reserve real air. Cascades line -> label -> job "
             "(fallback 0.0 = pure envelope kerning); explicit 0.0 is honored."
         ),
@@ -819,17 +831,18 @@ class TextAttributes(BaseModel):
             "recession (the historical linear behaviour, where lowering "
             "kerning_penetration_scale also pulled gapped pairs closer), "
             "0.0 makes a recessed pair advance by nothing beyond the "
-            "min_glyph_width floor. Cascades line -> label -> job "
+            "min_glyph_width_fraction floor. Cascades line -> label -> job "
             "(fallback 1.0); explicit 0.0 is honored."
         ),
     )
-    kerning_min_gap: Optional[float] = Field(
+    kerning_min_gap_fraction: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Extra air in inches added to every kerned character pair "
-            "advance (PLT-extracted fonts), on top of the cutter diameter "
-            "and character_spacing clearance. Cascades line -> label -> job "
+            "Extra air added to every kerned character pair advance "
+            "(PLT-extracted fonts) as a fraction of the rendered cap height "
+            "(capline - baseline), on top of the cutter diameter and "
+            "character_spacing clearance. Cascades line -> label -> job "
             "(fallback 0.0 = no extra gap); explicit 0.0 is honored."
         ),
     )
@@ -908,14 +921,15 @@ class TextAttributes(BaseModel):
             "job (fallback 12); explicit 0.0/45.0 are honored."
         ),
     )
-    underline_offset: Optional[float] = Field(
+    underline_offset_fraction: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Extra air in inches for underline markup (<u>): the underline "
+            "Extra air for underline markup (<u>) as a fraction of the "
+            "rendered cap height (capline - baseline): the underline "
             "centerline (cut with the line's own text cutter) sits cutter "
-            "diameter + this offset below the baseline, so the engraved "
-            "underline's top edge floats exactly this offset below the "
+            "diameter + fraction * cap height below the baseline, so the "
+            "engraved underline's top edge floats exactly that air below the "
             "engraved baseline stroke. The break test is strictly horizontal: "
             "a glyph breaks the underline where its ink crosses the underline's "
             "centerline, so raising it lifts the underline "
@@ -926,17 +940,18 @@ class TextAttributes(BaseModel):
             "explicit 0.0 is honored."
         ),
     )
-    underline_break_clearance: Optional[float] = Field(
+    underline_break_clearance_fraction: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Extra air in inches at each underline (<u>) break: each cut is "
-            "padded horizontally by 0.5 * cutter + this clearance (the half "
+            "Extra air at each underline (<u>) break as a fraction of the "
+            "rendered cap height (capline - baseline): each cut is "
+            "padded horizontally by 0.5 * cutter + fraction * cap height (the half "
             "cutter is the glyph stroke's own half-width), so the "
             "engraved air between a descending glyph's stroke and the "
             "underline's cut edge is exactly this value. 0.0 = the cut sits "
             "at the ink. Independent of "
-            "underline_offset (which decides which glyphs break). Must be >= 0. "
+            "underline_offset_fraction (which decides which glyphs break). Must be >= 0. "
             "Cascades line -> label -> job (fallback 0.0); explicit 0.0 "
             "is honored."
         ),
@@ -953,13 +968,15 @@ class TextAttributes(BaseModel):
             "is honored."
         ),
     )
-    strikethrough_offset: Optional[float] = Field(
+    strikethrough_offset_fraction: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Strikethrough (<s>) height in inches ABOVE the baseline: the "
-            "stroke (cut with the line's own text cutter) sits this many "
-            "inches above the baseline, so 0.0 puts it on the baseline. "
+            "Strikethrough (<s>) height ABOVE the baseline as a fraction of "
+            "the rendered cap height (capline - baseline): the stroke (cut "
+            "with the line's own text cutter) sits fraction * cap height "
+            "above the baseline, so 0.0 puts it on the baseline and 1.0 puts "
+            "it on the capline. "
             "Unlike the underline the stroke is never broken -- a descender "
             "punches through it. null (default) centres the stroke on the "
             "cap-band midline (half the rendered cap height). Must be >= 0. "
@@ -1908,10 +1925,11 @@ class PlateSpec(BaseModel):
             bin-packing, so a per-plate value is not currently applied
             during rendering; the effective value is resolved from the
             line -> label -> job -> default cascade.
-        min_glyph_width: Optional global minimum glyph advance width in
-            inches. Accepted for schema parity with the job/label
-            ``min_glyph_width`` cascade. NOTE: labels are rendered once
-            and cached before bin-packing, so a per-plate value is not
+        min_glyph_width_fraction: Optional global minimum glyph advance
+            width as a fraction of the rendered cap height. Accepted for
+            schema parity with the job/label
+            ``min_glyph_width_fraction`` cascade. NOTE: labels are rendered
+            once and cached before bin-packing, so a per-plate value is not
             currently applied during rendering; the effective value is
             resolved from the line -> label -> job -> default cascade.
         kerning_window_fraction: Optional kerning window fraction in
@@ -1928,8 +1946,9 @@ class PlateSpec(BaseModel):
             for schema parity with the job/label
             ``kerning_recession_scale`` cascade (not applied at plate
             level).
-        kerning_min_gap: Optional extra kerning air in inches. Accepted
-            for schema parity with the job/label ``kerning_min_gap``
+        kerning_min_gap_fraction: Optional extra kerning air as a fraction
+            of the rendered cap height. Accepted
+            for schema parity with the job/label ``kerning_min_gap_fraction``
             cascade (not applied at plate level).
         fallback_advance_fraction: Optional fallback-advance multiplier.
             Accepted for schema parity with the job/label
@@ -1949,19 +1968,23 @@ class PlateSpec(BaseModel):
         italic_angle: Optional italic slant angle in degrees. Accepted for
             schema parity with the job/label ``italic_angle`` cascade (not
             applied at plate level).
-        underline_offset: Optional underline air in inches. Accepted for
-            schema parity with the job/label ``underline_offset`` cascade
-            (not applied at plate level).
-        underline_break_clearance: Optional air in inches at each underline
-            break. Accepted for schema parity with the job/label
-            ``underline_break_clearance`` cascade (not applied at plate
-            level).
+        underline_offset_fraction: Optional underline air as a fraction of
+            the rendered cap height. Accepted for
+            schema parity with the job/label ``underline_offset_fraction``
+            cascade (not applied at plate level).
+        underline_break_clearance_fraction: Optional air at each underline
+            break as a fraction of the rendered cap height. Accepted for
+            schema parity with the job/label
+            ``underline_break_clearance_fraction`` cascade (not applied at
+            plate level).
         underline_break_spaces: Optional break-at-spaces flag. Accepted for
             schema parity with the job/label ``underline_break_spaces``
             cascade (not applied at plate level).
-        strikethrough_offset: Optional strikethrough height in inches above
+        strikethrough_offset_fraction: Optional strikethrough height as a
+            fraction of the rendered cap height, above
             the baseline. Accepted for schema parity with the job/label
-            ``strikethrough_offset`` cascade (not applied at plate level).
+            ``strikethrough_offset_fraction`` cascade (not applied at plate
+            level).
         strikethrough_break_spaces: Optional break-at-spaces flag. Accepted
             for schema parity with the job/label
             ``strikethrough_break_spaces`` cascade (not applied at plate
@@ -2110,11 +2133,12 @@ class PlateSpec(BaseModel):
         ge=0.0,
         description=("Space advance fraction (schema parity; not applied at plate level)."),
     )
-    min_glyph_width: Optional[float] = Field(
+    min_glyph_width_fraction: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Global minimum glyph advance width in inches (schema parity; "
+            "Global minimum glyph advance width as a fraction of the "
+            "rendered cap height (schema parity; "
             "not applied at plate level)."
         ),
     )
@@ -2143,11 +2167,12 @@ class PlateSpec(BaseModel):
             "detected penetration (schema parity; not applied at plate level)."
         ),
     )
-    kerning_min_gap: Optional[float] = Field(
+    kerning_min_gap_fraction: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Extra kerning air in inches added to every kerned pair advance "
+            "Extra kerning air added to every kerned pair advance as a "
+            "fraction of the rendered cap height "
             "(schema parity; not applied at plate level)."
         ),
     )
@@ -2193,19 +2218,21 @@ class PlateSpec(BaseModel):
             "not applied at plate level)."
         ),
     )
-    underline_offset: Optional[float] = Field(
+    underline_offset_fraction: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Underline (<u>) extra air in inches below the baseline stroke "
+            "Underline (<u>) extra air below the baseline stroke as a "
+            "fraction of the rendered cap height "
             "(schema parity; not applied at plate level)."
         ),
     )
-    underline_break_clearance: Optional[float] = Field(
+    underline_break_clearance_fraction: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Underline (<u>) extra air in inches at each break (schema "
+            "Underline (<u>) extra air at each break as a fraction of the "
+            "rendered cap height (schema "
             "parity; not applied at plate level)."
         ),
     )
@@ -2215,11 +2242,12 @@ class PlateSpec(BaseModel):
             "Underline (<u>) break-at-spaces flag (schema parity; not applied at plate level)."
         ),
     )
-    strikethrough_offset: Optional[float] = Field(
+    strikethrough_offset_fraction: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Strikethrough (<s>) height in inches above the baseline "
+            "Strikethrough (<s>) height above the baseline as a fraction of "
+            "the rendered cap height "
             "(schema parity; not applied at plate level)."
         ),
     )

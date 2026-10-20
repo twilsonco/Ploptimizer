@@ -26,7 +26,7 @@ from plt_optimizer.generate.label_renderer import (
 )
 from plt_optimizer.generate.plt_font_renderer import (
     KERNING_WINDOW_FRACTION,
-    MIN_GLYPH_WIDTH,
+    MIN_GLYPH_WIDTH_FRACTION,
     SPACE_HEIGHT_FRACTION,
     PltFontRenderError,
     _capline_geometry,
@@ -335,7 +335,7 @@ class TestLayoutMath:
         assert bounds[2] == pytest.approx(1.0 + 0.3 + 0.02 + 1.0, abs=1e-9)
 
     def test_min_glyph_width_floors_advance_capped_by_glyph_width(self, synth_lib: Path) -> None:
-        """``min_glyph_width`` floors the advance, capped by the left width.
+        """``min_glyph_width_fraction`` floors the advance, capped by the left width.
 
         ``T`` is a thin 0.1-wide bar; a 0.25 floor is capped by T's own
         width so the pair advances by 0.1 (not 0.25), and a 0.0 floor lets
@@ -345,7 +345,12 @@ class TestLayoutMath:
         """
         tight = _render("TR", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0)
         floored = _render(
-            "TR", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0, min_glyph_width=0.25
+            "TR",
+            1.0,
+            synth_lib,
+            cutter_diameter=0.0,
+            character_spacing=0.0,
+            min_glyph_width_fraction=0.25,
         )
         assert tight.bounds() is not None and floored.bounds() is not None
         # R spans [0.95, 1.0] from its origin; T sits at 0.
@@ -362,29 +367,47 @@ class TestLayoutMath:
         the floor.
         """
         floored = _render(
-            "BB", 1.0, synth_lib, cutter_diameter=0.02, character_spacing=0.0, min_glyph_width=0.25
+            "BB",
+            1.0,
+            synth_lib,
+            cutter_diameter=0.02,
+            character_spacing=0.0,
+            min_glyph_width_fraction=0.25,
         )
         assert floored.bounds() is not None
         # Advance 0.0 + clearance 0.02; the second B is zero-width.
         assert floored.bounds()[2] == pytest.approx(0.02, abs=1e-9)
 
-    def test_min_glyph_width_is_absolute_inches(self, synth_lib: Path) -> None:
-        """The floor is an absolute inch value when the glyph is wide enough.
+    def test_min_glyph_width_scales_with_height(self, synth_lib: Path) -> None:
+        """The floor is a cap-height fraction: it scales with the height.
 
-        ``A`` (1.0 wide) is wider than the 0.25 floor at both heights, so
-        the floor binds and the advance is 0.25in independent of height.
+        ``A`` (1.0 wide at height 1.0, 2.0 wide at height 2.0) is wider than
+        the 0.25 floor at both heights, so the floor binds at
+        ``0.25 * height`` -- 0.25in at height 1.0 and 0.5in at height 2.0.
+        This is the unitless-fraction contract: the engraved air is
+        proportional to the text size.
         """
         low = _render(
-            "AR", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0, min_glyph_width=0.25
+            "AR",
+            1.0,
+            synth_lib,
+            cutter_diameter=0.0,
+            character_spacing=0.0,
+            min_glyph_width_fraction=0.25,
         )
         high = _render(
-            "AR", 2.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0, min_glyph_width=0.25
+            "AR",
+            2.0,
+            synth_lib,
+            cutter_diameter=0.0,
+            character_spacing=0.0,
+            min_glyph_width_fraction=0.25,
         )
         assert low.bounds() is not None and high.bounds() is not None
-        # The floor advance is 0.25in at BOTH heights (absolute); R's own
-        # extent scales with the height, so the right edge is advance + extent.
+        # The floor advance is 0.25 * height; R's own extent scales with the
+        # height too, so the right edge is advance + extent.
         assert low.bounds()[2] == pytest.approx(0.25 + 1.0, abs=1e-9)
-        assert high.bounds()[2] == pytest.approx(0.25 + 2.0, abs=1e-9)
+        assert high.bounds()[2] == pytest.approx(0.5 + 2.0, abs=1e-9)
 
     def test_kerning_window_fraction_threads_through(self, synth_lib: Path) -> None:
         """The fraction reaches the kerning math and can widen the advance.
@@ -424,7 +447,7 @@ class TestLayoutMath:
         assert wide.bounds()[2] == pytest.approx(2.0, abs=1e-9)
 
     def test_kerning_min_gap_threads_through(self, synth_lib: Path) -> None:
-        """``kerning_min_gap`` adds uniform air to every kerned pair."""
+        """``kerning_min_gap_fraction`` adds uniform air to every kerned pair."""
         # Baseline CA: penetration 0.5, zero clearance -> total width 1.5.
         baseline = _render("CA", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0)
         gapped = _render(
@@ -433,7 +456,7 @@ class TestLayoutMath:
             synth_lib,
             cutter_diameter=0.0,
             character_spacing=0.0,
-            kerning_min_gap=0.25,
+            kerning_min_gap_fraction=0.25,
         )
         assert baseline.bounds() is not None and gapped.bounds() is not None
         assert baseline.bounds()[2] == pytest.approx(1.5, abs=1e-9)
@@ -940,10 +963,10 @@ class TestModuleHygiene:
     def test_module_exposes_new_defaults(self) -> None:
         """The v2 layout defaults are the module's documented contract."""
         assert SPACE_HEIGHT_FRACTION == pytest.approx(0.3)
-        assert MIN_GLYPH_WIDTH == pytest.approx(0.0)
+        assert MIN_GLYPH_WIDTH_FRACTION == pytest.approx(0.0)
         assert KERNING_WINDOW_FRACTION == pytest.approx(0.05)
         assert plt_font_renderer.KERNING_PENETRATION_SCALE == pytest.approx(1.0)
-        assert plt_font_renderer.KERNING_MIN_GAP == pytest.approx(0.0)
+        assert plt_font_renderer.KERNING_MIN_GAP_FRACTION == pytest.approx(0.0)
         assert plt_font_renderer.FALLBACK_ADVANCE_FRACTION == pytest.approx(1.0)
 
 
@@ -1287,10 +1310,10 @@ class TestLabelRendererDispatch:
         assert calls["character_spacing"] == pytest.approx(0.02)
         # ResolvedTextLine defaults for the v2 typesetting fields.
         assert calls["space_width_fraction"] == pytest.approx(0.3)
-        assert calls["min_glyph_width"] == pytest.approx(0.0)
+        assert calls["min_glyph_width_fraction"] == pytest.approx(0.0)
         assert calls["kerning_window_fraction"] == pytest.approx(0.05)
         assert calls["kerning_penetration_scale"] == pytest.approx(1.0)
-        assert calls["kerning_min_gap"] == pytest.approx(0.0)
+        assert calls["kerning_min_gap_fraction"] == pytest.approx(0.0)
         assert calls["fallback_advance_fraction"] == pytest.approx(1.0)
         assert block.strokes == _triangle_block().strokes
         assert groups is None  # line mode never requests word groups
@@ -1838,7 +1861,7 @@ class TestBaselineShiftMarkup:
 
         ``A`` shifted 1.5 puts the second box entirely above the first (no
         Y-overlap), so the pair falls to the bounding-box-width fallback
-        ``max(left_width, min_glyph_width) * fallback_fraction`` = the left
+        ``max(left_width, min_glyph_width_fraction) * fallback_fraction`` = the left
         glyph's full width (1.0 at the default fallback fraction).
         """
         raised = _render("AA", 1.0, synth_lib, baseline_shifts=(0.0, 1.5)).bounds()

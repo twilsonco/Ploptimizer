@@ -39,15 +39,17 @@ Layout contract:
   the clearance::
 
       advance = max(penetration * kerning_penetration_scale,
-                    min(left_glyph_width, min_glyph_width))
-              + cutter_diameter + character_spacing + kerning_min_gap
+                    min(left_glyph_width, min_glyph_width_fraction * height))
+              + cutter_diameter + character_spacing
+              + kerning_min_gap_fraction * height
 
   so a fully-close pair keeps exactly that much air at its tightest
   sampled height. A *recessed* (negative) penetration -- the silhouettes
   never meet at any sampled height -- is multiplied by
   ``kerning_recession_scale`` (default ``1.0``) instead, so lowering
   ``kerning_penetration_scale`` tightens the overlapping pairs without
-  pulling the gapped pairs closer. The ``min_glyph_width`` floor clamps
+  pulling the gapped pairs closer. The ``min_glyph_width_fraction * height``
+  floor clamps
   the advance from below, capped by the left glyph's own width, which also
   keeps the advance non-negative.
   Sampling spans the pair's overlapping height range
@@ -55,18 +57,19 @@ Layout contract:
   bounding boxes), so a poke just outside the overlap is compared against
   the opposing silhouette's nearest material instead of being missed.
   ``kerning_penetration_scale`` (default ``1.0``) over- or under-weights
-  detected closeness; ``kerning_min_gap`` (an absolute inch floor,
+  detected closeness; ``kerning_min_gap_fraction`` (a cap-height fraction,
   default ``0.0``) adds uniform extra air to every kerned pair.
   ``kerning_window_fraction = 0.0`` reproduces the historical same-height
   maximum-penetration kerning exactly (with the other two at their
-  defaults). A global minimum glyph width (``min_glyph_width``, an
-  absolute inch floor, default ``0.0``) floors the advance, capped by the
+  defaults). A global minimum glyph width (``min_glyph_width_fraction``, a
+  cap-height fraction, default ``0.0``) floors the advance, capped by the
   left glyph's own bounding-box width, so a thin glyph's floor can never
   inflate a pair past its own silhouette; a zero-width glyph (``!``, ``|``)
   therefore floors at ``0.0`` and relies on the clearance term for its
   stroke-to-stroke air.
   Glyph pairs without overlapping height (or lacking envelopes) fall back
-  to the left glyph's bounding-box width, floored by ``min_glyph_width``
+  to the left glyph's bounding-box width, floored by
+  ``min_glyph_width_fraction * height``
   and scaled by ``fallback_advance_fraction`` (default ``1.0``).
 - A space character carries no glyph::
 
@@ -131,10 +134,11 @@ _ASCII_LOWER: frozenset[str] = frozenset("abcdefghijklmnopqrstuvwxyz")
 # ``space_width_fraction``. A space carries no glyph and no kerning.
 SPACE_HEIGHT_FRACTION: float = 0.3
 
-# Fallback global minimum glyph width in inches, used when the caller does
-# not cascade an explicit ``min_glyph_width``. ``0.0`` = pure profile
+# Fallback global minimum glyph width as a fraction of the rendered cap
+# height, used when the caller does
+# not cascade an explicit ``min_glyph_width_fraction``. ``0.0`` = pure profile
 # envelope kerning.
-MIN_GLYPH_WIDTH: float = 0.0
+MIN_GLYPH_WIDTH_FRACTION: float = 0.0
 
 # Fallback kerning window as a fraction of the rendered text height,
 # used when the caller does not cascade an explicit
@@ -159,10 +163,11 @@ KERNING_PENETRATION_SCALE: float = 1.0
 # penetration dial only ever tightens pairs whose silhouettes overlap.
 KERNING_RECESSION_SCALE: float = 1.0
 
-# Fallback extra air in inches added to every kerned pair advance (on top
-# of the cutter + character-spacing clearance), used when the caller does
-# not cascade an explicit ``kerning_min_gap``. ``0.0`` = no extra gap.
-KERNING_MIN_GAP: float = 0.0
+# Fallback extra air added to every kerned pair advance (on top
+# of the cutter + character-spacing clearance), as a fraction of the
+# rendered cap height, used when the caller does
+# not cascade an explicit ``kerning_min_gap_fraction``. ``0.0`` = no extra gap.
+KERNING_MIN_GAP_FRACTION: float = 0.0
 
 # Fallback multiplier on the bounding-box-width fallback advance (pairs
 # without overlapping height, or lacking envelopes), used when the caller
@@ -730,11 +735,11 @@ def _walk_line(
     cutter_diameter: float = 0.0,
     character_spacing: float = 0.0,
     space_width_fraction: Optional[float] = None,
-    min_glyph_width: Optional[float] = None,
+    min_glyph_width_fraction: Optional[float] = None,
     kerning_window_fraction: Optional[float] = None,
     kerning_penetration_scale: Optional[float] = None,
     kerning_recession_scale: Optional[float] = None,
-    kerning_min_gap: Optional[float] = None,
+    kerning_min_gap_fraction: Optional[float] = None,
     fallback_advance_fraction: Optional[float] = None,
     library_dir: Optional[Path] = None,
     fonts_dir: Optional[Path] = None,
@@ -770,9 +775,10 @@ def _walk_line(
         space_width_fraction: Space advance as a fraction of
             ``target_height_inches`` (``None`` falls back to
             :data:`SPACE_HEIGHT_FRACTION`).
-        min_glyph_width: Global minimum glyph advance width in inches
-            flooring the kerning advance, capped by the left glyph's own
-            width (``None`` falls back to :data:`MIN_GLYPH_WIDTH`;
+        min_glyph_width_fraction: Global minimum glyph advance width as a
+            fraction of ``target_height_inches``, flooring the kerning
+            advance, capped by the left glyph's own
+            width (``None`` falls back to :data:`MIN_GLYPH_WIDTH_FRACTION`;
             ``0.0`` = pure envelope kerning).
         kerning_window_fraction: Kerning window as a fraction of the
             rendered text height in ``[0, 1]`` (``None`` falls back to
@@ -785,9 +791,10 @@ def _walk_line(
             detected penetration (``None`` falls back to
             :data:`KERNING_RECESSION_SCALE`; ``1.0`` = geometric, ``0.0``
             = a recessed pair advances by nothing beyond the floor).
-        kerning_min_gap: Extra air in inches added to every kerned pair
-            advance on top of the clearance (``None`` falls back to
-            :data:`KERNING_MIN_GAP`).
+        kerning_min_gap_fraction: Extra air added to every kerned pair
+            advance on top of the clearance, as a fraction of
+            ``target_height_inches`` (``None`` falls back to
+            :data:`KERNING_MIN_GAP_FRACTION`).
         fallback_advance_fraction: Multiplier on the bounding-box-width
             fallback for pairs without overlapping height (``None`` falls
             back to :data:`FALLBACK_ADVANCE_FRACTION`).
@@ -830,7 +837,8 @@ def _walk_line(
             ``text`` (spaces included -- a space carries no ink, so its
             entry only feeds the pair clearances). Each kerned pair's
             clearance becomes ``0.5 * (diameter_left + diameter_right) +
-            character_spacing + kerning_min_gap`` -- the exact engraved-
+            character_spacing + kerning_min_gap_fraction * height`` -- the
+            exact engraved-
             stroke floor of the two strokes, matching the ``0.5 * (a + b)``
             collision floors elsewhere. ``None`` (the default) keeps the
             line-level :attr:`cutter_diameter` clearance for every pair, so
@@ -944,12 +952,20 @@ def _walk_line(
     fonts = load_plt_fonts(library_dir)
     font_data = fonts[library_name]  # resolved above; presence guaranteed
     scale = target_height_inches / font_data.normalized_ref_height
-    min_gap_inches = KERNING_MIN_GAP if kerning_min_gap is None else kerning_min_gap
+    min_gap_fraction = (
+        KERNING_MIN_GAP_FRACTION if kerning_min_gap_fraction is None else kerning_min_gap_fraction
+    )
+    # The kerning gap is a fraction of the rendered cap height; it converts
+    # to inches exactly like the space advance below.
+    min_gap_inches = min_gap_fraction * target_height_inches
     space_fraction = SPACE_HEIGHT_FRACTION if space_width_fraction is None else space_width_fraction
     space_advance = space_fraction * target_height_inches + character_spacing
-    min_width_inches = MIN_GLYPH_WIDTH if min_glyph_width is None else min_glyph_width
+    min_width_fraction = (
+        MIN_GLYPH_WIDTH_FRACTION if min_glyph_width_fraction is None else min_glyph_width_fraction
+    )
+    min_width_inches = min_width_fraction * target_height_inches
     # The kerning math runs in design units (output = design * scale), so
-    # the absolute inch floor converts by dividing through the scale.
+    # the inch floor converts by dividing through the scale.
     min_width_design = min_width_inches / scale if scale > 0 else 0.0
     window_fraction = (
         KERNING_WINDOW_FRACTION if kerning_window_fraction is None else kerning_window_fraction
@@ -1140,11 +1156,11 @@ def render_text_line_plt_font_with_words(
     cutter_diameter: float = 0.0,
     character_spacing: float = 0.0,
     space_width_fraction: Optional[float] = None,
-    min_glyph_width: Optional[float] = None,
+    min_glyph_width_fraction: Optional[float] = None,
     kerning_window_fraction: Optional[float] = None,
     kerning_penetration_scale: Optional[float] = None,
     kerning_recession_scale: Optional[float] = None,
-    kerning_min_gap: Optional[float] = None,
+    kerning_min_gap_fraction: Optional[float] = None,
     fallback_advance_fraction: Optional[float] = None,
     library_dir: Optional[Path] = None,
     fonts_dir: Optional[Path] = None,
@@ -1175,9 +1191,10 @@ def render_text_line_plt_font_with_words(
         space_width_fraction: Space advance as a fraction of
             ``target_height_inches`` (``None`` falls back to
             :data:`SPACE_HEIGHT_FRACTION`).
-        min_glyph_width: Global minimum glyph advance width in inches
-            flooring the kerning advance, capped by the left glyph's own
-            width (``None`` falls back to :data:`MIN_GLYPH_WIDTH`;
+        min_glyph_width_fraction: Global minimum glyph advance width as a
+            fraction of ``target_height_inches``, flooring the kerning
+            advance, capped by the left glyph's own
+            width (``None`` falls back to :data:`MIN_GLYPH_WIDTH_FRACTION`;
             ``0.0`` = pure envelope kerning).
         kerning_window_fraction: Kerning window as a fraction of the
             rendered text height in ``[0, 1]`` (``None`` falls back to
@@ -1190,9 +1207,10 @@ def render_text_line_plt_font_with_words(
             detected penetration (``None`` falls back to
             :data:`KERNING_RECESSION_SCALE`; ``1.0`` = geometric, ``0.0``
             = a recessed pair advances by nothing beyond the floor).
-        kerning_min_gap: Extra air in inches added to every kerned pair
-            advance on top of the clearance (``None`` falls back to
-            :data:`KERNING_MIN_GAP`).
+        kerning_min_gap_fraction: Extra air added to every kerned pair
+            advance on top of the clearance, as a fraction of
+            ``target_height_inches`` (``None`` falls back to
+            :data:`KERNING_MIN_GAP_FRACTION`).
         fallback_advance_fraction: Multiplier on the bounding-box-width
             fallback for pairs without overlapping height (``None`` falls
             back to :data:`FALLBACK_ADVANCE_FRACTION`).
@@ -1233,11 +1251,11 @@ def render_text_line_plt_font_with_words(
         cutter_diameter,
         character_spacing,
         space_width_fraction,
-        min_glyph_width,
+        min_glyph_width_fraction,
         kerning_window_fraction,
         kerning_penetration_scale,
         kerning_recession_scale,
-        kerning_min_gap,
+        kerning_min_gap_fraction,
         fallback_advance_fraction,
         library_dir,
         fonts_dir,
@@ -1261,11 +1279,11 @@ def render_text_line_plt_font_with_glyphs(
     cutter_diameter: float = 0.0,
     character_spacing: float = 0.0,
     space_width_fraction: Optional[float] = None,
-    min_glyph_width: Optional[float] = None,
+    min_glyph_width_fraction: Optional[float] = None,
     kerning_window_fraction: Optional[float] = None,
     kerning_penetration_scale: Optional[float] = None,
     kerning_recession_scale: Optional[float] = None,
-    kerning_min_gap: Optional[float] = None,
+    kerning_min_gap_fraction: Optional[float] = None,
     fallback_advance_fraction: Optional[float] = None,
     library_dir: Optional[Path] = None,
     fonts_dir: Optional[Path] = None,
@@ -1300,15 +1318,15 @@ def render_text_line_plt_font_with_glyphs(
         cutter_diameter: Resolved text cutter diameter in inches.
         character_spacing: Extra user spacing between characters in inches.
         space_width_fraction: Space advance fraction (``None`` = default).
-        min_glyph_width: Minimum glyph advance width in inches
-            (``None`` = default).
+        min_glyph_width_fraction: Minimum glyph advance width as a fraction
+            of ``target_height_inches`` (``None`` = default).
         kerning_window_fraction: Kerning window fraction
             (``None`` = default).
         kerning_penetration_scale: Penetration multiplier
             (``None`` = default).
         kerning_recession_scale: Recession multiplier (``None`` = default).
-        kerning_min_gap: Extra kerned-pair air in inches
-            (``None`` = default).
+        kerning_min_gap_fraction: Extra kerned-pair air as a fraction of
+            ``target_height_inches`` (``None`` = default).
         fallback_advance_fraction: No-overlap fallback multiplier
             (``None`` = default).
         library_dir: Optional PLT font catalog directory override (tests).
@@ -1348,11 +1366,11 @@ def render_text_line_plt_font_with_glyphs(
         cutter_diameter,
         character_spacing,
         space_width_fraction,
-        min_glyph_width,
+        min_glyph_width_fraction,
         kerning_window_fraction,
         kerning_penetration_scale,
         kerning_recession_scale,
-        kerning_min_gap,
+        kerning_min_gap_fraction,
         fallback_advance_fraction,
         library_dir,
         fonts_dir,
@@ -1375,11 +1393,11 @@ def render_text_line_plt_font(
     cutter_diameter: float = 0.0,
     character_spacing: float = 0.0,
     space_width_fraction: Optional[float] = None,
-    min_glyph_width: Optional[float] = None,
+    min_glyph_width_fraction: Optional[float] = None,
     kerning_window_fraction: Optional[float] = None,
     kerning_penetration_scale: Optional[float] = None,
     kerning_recession_scale: Optional[float] = None,
-    kerning_min_gap: Optional[float] = None,
+    kerning_min_gap_fraction: Optional[float] = None,
     fallback_advance_fraction: Optional[float] = None,
     library_dir: Optional[Path] = None,
     fonts_dir: Optional[Path] = None,
@@ -1409,9 +1427,9 @@ def render_text_line_plt_font(
         space_width_fraction: Space advance as a fraction of
             ``target_height_inches`` (``None`` falls back to
             :data:`SPACE_HEIGHT_FRACTION`).
-        min_glyph_width: Global minimum glyph advance width in inches
+        min_glyph_width_fraction: Global minimum glyph advance width in inches
             flooring the kerning advance, capped by the left glyph's own
-            width (``None`` falls back to :data:`MIN_GLYPH_WIDTH`).
+            width (``None`` falls back to :data:`MIN_GLYPH_WIDTH_FRACTION`).
         kerning_window_fraction: Kerning window as a fraction of the
             rendered text height in ``[0, 1]`` (``None`` falls back to
             :data:`KERNING_WINDOW_FRACTION`).
@@ -1421,8 +1439,9 @@ def render_text_line_plt_font(
         kerning_recession_scale: Multiplier on a *recessed* (negative)
             detected penetration (``None`` falls back to
             :data:`KERNING_RECESSION_SCALE`).
-        kerning_min_gap: Extra air in inches added to every kerned pair
-            advance (``None`` falls back to :data:`KERNING_MIN_GAP`).
+        kerning_min_gap_fraction: Extra air added to every kerned pair
+            advance, as a fraction of ``target_height_inches``
+            (``None`` falls back to :data:`KERNING_MIN_GAP_FRACTION`).
         fallback_advance_fraction: Multiplier on the bounding-box-width
             fallback (``None`` falls back to
             :data:`FALLBACK_ADVANCE_FRACTION`).
@@ -1461,11 +1480,11 @@ def render_text_line_plt_font(
         cutter_diameter=cutter_diameter,
         character_spacing=character_spacing,
         space_width_fraction=space_width_fraction,
-        min_glyph_width=min_glyph_width,
+        min_glyph_width_fraction=min_glyph_width_fraction,
         kerning_window_fraction=kerning_window_fraction,
         kerning_penetration_scale=kerning_penetration_scale,
         kerning_recession_scale=kerning_recession_scale,
-        kerning_min_gap=kerning_min_gap,
+        kerning_min_gap_fraction=kerning_min_gap_fraction,
         fallback_advance_fraction=fallback_advance_fraction,
         library_dir=library_dir,
         fonts_dir=fonts_dir,

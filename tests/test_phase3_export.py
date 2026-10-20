@@ -239,7 +239,9 @@ class TestExportAndOptimizePhase3:
                 (layer.width_inches, layer.alpha) for layer in layers
             ]
 
-        with patch("plt_optimizer.diagnostics.plotter.plot_physical_strokes", side_effect=_fake_plot):
+        with patch(
+            "plt_optimizer.diagnostics.plotter.plot_physical_strokes", side_effect=_fake_plot
+        ):
             result = export_per_cutter_plts(
                 resolved_labels,
                 output_dir=tmp_path,
@@ -2724,10 +2726,12 @@ class TestItalicDemoExample:
 class TestUnderlineDemoExample:
     """Regression tests for tests_deps/underline_job.yaml.
 
-    The fixture pins inline underline markup (``<u>``, ``underline_offset``)
-    and nested markup (``<i>`` wrapping ``<u>``). ``<u>`` draws a centerline
-    underline with the line's own text cutter, ``cutter + underline_offset``
-    below the baseline, spanning each underlined run's ink; the line's own
+        The fixture pins inline underline markup (``<u>``,
+        ``underline_offset_fraction``)
+        and nested markup (``<i>`` wrapping ``<u>``). ``<u>`` draws a centerline
+        underline with the line's own text cutter,
+        ``cutter + underline_offset_fraction * cap height``
+        below the baseline, spanning each underlined run's ink; the line's own
     glyph ink punches minimal gaps into it (descenders break the underline,
     caps touch it tangentially).
     """
@@ -2815,17 +2819,19 @@ class TestUnderlineDemoExample:
         )
 
     def test_offset_pushes_the_underline_deeper(self, tmp_path: Path) -> None:
-        """A larger ``underline_offset`` lowers the centerline below the descender."""
+        """A larger ``underline_offset_fraction`` lowers the centerline below
+        the descender."""
         result = self._export(tmp_path)
         offset = self._line_bounds(result.rendered_labels["plt_offset"].source_label)
         default = self._line_bounds(result.rendered_labels["plt_underline"].source_label)
-        # At 0.1in the centerline (-(cutter + 0.1)) sits below the `p`/`g`
+        # At 0.25 * cap (0.11in at the 0.44in cap) the centerline
+        # (-(cutter + 0.11)) sits below the `p`/`g`
         # descenders, so the block grows; the width is unchanged.
         assert offset[3] - offset[1] > default[3] - default[1]
         assert offset[2] - offset[0] == pytest.approx(default[2] - default[0], rel=1e-6)
 
     def test_break_clearance_widens_the_breaks(self, tmp_path: Path) -> None:
-        """``underline_break_clearance`` adds air at each break, not depth.
+        """``underline_break_clearance_fraction`` adds air at each break, not depth.
 
         The centerline stays at the default offset (one cutter below the
         baseline), so the block's depth matches the clearance-0.0 control. The
@@ -2858,7 +2864,8 @@ class TestUnderlineDemoExample:
             assert len(spans) == 2  # the `p`/`y` stems cross: one break
             return spans[1][0] - spans[0][1]
 
-        # Clearance 0.05 leaves air on each side of the cut (and reaches a
+        # Clearance 0.1 * cap (0.044in at the 0.44in cap) leaves air on each
+        # side of the cut (and reaches a
         # little further up/down the stem), so the gap is strictly wider than
         # the clearance-0.0 control (which cuts at the ink).
         assert gap(wide) > gap(tight)
@@ -3129,9 +3136,10 @@ class TestBoldDemoExample:
         block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
         strokes = _underline_strokes(line, block, glyphs, _underline_render_gate(line))
         # The whole run is bold, so every underline stroke sits at
-        # -(bold_cutter + offset), deeper than the plain centerline.
-        plain_y = -(line.cutter_diameter + line.underline_offset)
-        bold_y = -(line.bold_cutter_diameter + line.underline_offset)
+        # -(bold_cutter + offset), deeper than the plain centerline. The
+        # offset term is the cap-height fraction resolved to inches.
+        plain_y = -(line.cutter_diameter + line.underline_offset_inches)
+        bold_y = -(line.bold_cutter_diameter + line.underline_offset_inches)
         assert strokes
         for stroke in strokes:
             y = stroke.segments[0].start.imag
@@ -3503,11 +3511,11 @@ class TestSupSubDemoExample:
                 cutter_diameter=line.cutter_diameter,
                 character_spacing=line.character_spacing,
                 space_width_fraction=line.space_width_fraction,
-                min_glyph_width=line.min_glyph_width,
+                min_glyph_width_fraction=line.min_glyph_width_fraction,
                 kerning_window_fraction=line.kerning_window_fraction,
                 kerning_penetration_scale=line.kerning_penetration_scale,
                 kerning_recession_scale=line.kerning_recession_scale,
-                kerning_min_gap=line.kerning_min_gap,
+                kerning_min_gap_fraction=line.kerning_min_gap_fraction,
                 fallback_advance_fraction=line.fallback_advance_fraction,
                 **k,
             )
@@ -3654,7 +3662,7 @@ class TestStrikethroughDemoExample:
     """Regression tests for tests_deps/strikethrough_job.yaml.
 
     The fixture pins inline strikethrough markup (``<s>``,
-    ``strikethrough_offset``, ``strikethrough_break_spaces``): ONE continuous
+    ``strikethrough_offset_fraction``, ``strikethrough_break_spaces``): ONE continuous
     centerline stroke per struck run at the line's strikethrough height (the
     explicit offset above the baseline, or the cap-band midline when unset),
     with the underline's break model deliberately removed -- a descender
@@ -3769,12 +3777,12 @@ class TestStrikethroughDemoExample:
         result = self._export(tmp_path)
         label = result.rendered_labels["plt_strike"].source_label
         line = label.content[0]
-        assert line.strikethrough_offset is None
+        assert line.strikethrough_offset_fraction is None
         (y, _x_min, _x_max) = self._strike_spans(label)[0]
         assert y == pytest.approx(0.5 * line.toolpath_text_height, abs=1e-12)
 
     def test_explicit_offset_places_the_stroke(self, tmp_path: Path) -> None:
-        """``strikethrough_offset`` is the height above the baseline, 0.0 included."""
+        """``strikethrough_offset_fraction`` is the height above the baseline, 0.0 included."""
         result = self._export(tmp_path)
         by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
 
@@ -3787,7 +3795,9 @@ class TestStrikethroughDemoExample:
         )
 
         high = self._strike_spans(by_id["plt_offset_high"])[0]
-        assert high[0] == pytest.approx(0.9, abs=1e-12)
+        assert high[0] == pytest.approx(
+            2.0 * by_id["plt_offset_high"].content[0].toolpath_text_height, abs=1e-12
+        )
         # Above the capline the stroke is ink: the block's top rises. (The
         # render frame centres the block, so the growth shows at the top edge.)
         high_bounds = self._line_bounds(by_id["plt_offset_high"])

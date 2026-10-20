@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+* **generate:** five cascading typography knobs are now **unitless factors of the rendered cap height** (capline − baseline = `toolpath_text_height`) instead of absolute inches, and every field is renamed with a `_fraction` suffix
+  - `min_glyph_width` → `min_glyph_width_fraction`, `kerning_min_gap` → `kerning_min_gap_fraction`, `underline_offset` → `underline_offset_fraction`, `underline_break_clearance` → `underline_break_clearance_fraction`, `strikethrough_offset` → `strikethrough_offset_fraction` (all cascade line → label → job, plate parity, `job-config.json` shop defaults; `ge=0.0`, unbounded above — a strike above the capline stays legal)
+  - **Existing YAML/JSON must be migrated**: the old keys are unknown fields and are rejected. Divide the old inch value by the line's cap height to keep the engraved result (e.g. a 0.5in label with the 0.06in cutter has a 0.44in cap, so `underline_offset: 0.08` becomes `underline_offset_fraction: 0.18`)
+  - The fraction is stored on `ResolvedTextLine` and multiplied by the **current** cap height at consumption (the `space_width_fraction` pattern, via the new derived `underline_offset_inches` / `underline_break_clearance_inches` / `kerning_min_gap_inches` properties and `strikethrough_cap`), so the decoration geometry stays correct through the compression-driven cutter downsize, `<b>`/`<scale:N>`/`<f:>` run clones, and the line-content reflow; the underline/strike offset term is a line-level constant, uniform for every run (never word to word)
+  - Shop defaults re-pinned to the old values at the typical 0.44in cap: `min_glyph_width_fraction: 0.14`, `kerning_min_gap_fraction: 0.045`, `underline_offset_fraction: 0.18`, `underline_break_clearance_fraction: 0.45`, `strikethrough_offset_fraction: null` (mid-cap)
+  - Renderer APIs keep their inch contracts: `plt_font_renderer` params rename to `*_fraction` and convert once via `target_height_inches`; `underline.py` and `kerning_offset()` keep their inch/design-unit parameters
+  - Pins: `tests_deps/underline_job.yaml` (`underline_offset_fraction: 0.25`, `underline_break_clearance_fraction: 0.1`), `tests_deps/strikethrough_job.yaml` (`strikethrough_offset_fraction: 0.0` / `2.0`); `test_min_glyph_width_is_absolute_inches` becomes `test_min_glyph_width_scales_with_height` (the floor now scales with the render height — the point of the change); new `TestStrikethroughCapRule` pins prove the fraction × cap-height multiplication and its tracking of a post-resolution cutter downsize
+
 ### Features
 
 * **fonts:** `font_showcase.py` moved from `scripts/` to `fonts/`; showcases are now chrome-free **JPGs** in the git-tracked `fonts/showcases/` directory

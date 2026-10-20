@@ -176,10 +176,12 @@ DEFAULT_MAX_H_COMPRESS: float = 0.0
 # height: a space advances ``DEFAULT_SPACE_WIDTH_FRACTION * text_height +
 # character_spacing``.
 DEFAULT_SPACE_WIDTH_FRACTION: float = 0.3
-# Global minimum glyph advance width (inches) for PLT-extracted fonts.
-# The profile-envelope kerning floors each pair's advance at this value,
-# capped by the left glyph's own width; 0.0 means pure envelope kerning.
-DEFAULT_MIN_GLYPH_WIDTH: float = 0.0
+# Global minimum glyph advance width (as a fraction of the rendered cap
+# height, capline - baseline) for PLT-extracted fonts.
+# The profile-envelope kerning floors each pair's advance at this fraction
+# of the cap height, capped by the left glyph's own width; 0.0 means pure
+# envelope kerning.
+DEFAULT_MIN_GLYPH_WIDTH_FRACTION: float = 0.0
 # Kerning window (fraction of the rendered text height, in [0.0, 1.0])
 # for PLT-extracted fonts. Each envelope sample compares against the
 # opposite silhouette within +/- (half of this fraction) of the text
@@ -193,12 +195,14 @@ DEFAULT_KERNING_PENETRATION_SCALE: float = 1.0
 # Multiplier on a *recessed* (negative) detected penetration (PLT-extracted
 # fonts). 1.0 keeps the geometric recession (the historical linear
 # behaviour); 0.0 makes a recessed pair advance by nothing beyond the
-# min_glyph_width floor, so the penetration dial only tightens pairs whose
+# min_glyph_width_fraction floor, so the penetration dial only tightens
+# pairs whose
 # silhouettes overlap.
 DEFAULT_KERNING_RECESSION_SCALE: float = 1.0
-# Extra air (inches) added to every kerned pair advance on top of the
-# cutter + character-spacing clearance. 0.0 = no extra gap.
-DEFAULT_KERNING_MIN_GAP: float = 0.0
+# Extra air added to every kerned pair advance on top of the
+# cutter + character-spacing clearance, as a fraction of the rendered cap
+# height (capline - baseline). 0.0 = no extra gap.
+DEFAULT_KERNING_MIN_GAP_FRACTION: float = 0.0
 # Multiplier on the bounding-box-width fallback advance (no y-overlap or
 # missing envelopes). 1.0 = the left glyph's own width.
 DEFAULT_FALLBACK_ADVANCE_FRACTION: float = 1.0
@@ -234,28 +238,32 @@ DEFAULT_HTML_BRACKETS: str = "<>"
 # ``x' = x + y * tan(angle)``, so the baseline stays fixed and the glyph
 # leans right. Bound to [0, 45] by the schema; 0 = upright (shear skipped).
 DEFAULT_ITALIC_ANGLE: float = 12.0
-# Extra air (inches) for underline markup (``<u>``). The underline is a
+# Extra air for underline markup (``<u>``) as a fraction of the rendered
+# cap height (capline - baseline). The underline is a
 # centerline stroke cut with the line's own text cutter, positioned
-# ``cutter diameter + underline_offset`` below the baseline, so the engraved
-# underline's top edge floats exactly ``underline_offset`` below the engraved
+# ``cutter diameter + fraction * cap height`` below the baseline, so the
+# engraved
+# underline's top edge floats exactly ``fraction * cap height`` below the
+# engraved
 # baseline stroke. The break test is strictly horizontal: a glyph breaks the
 # underline where its ink crosses the underline's centerline (dipping past
-# ``cutter diameter + underline_offset`` below the baseline), so the offset
-# alone decides which glyphs break.
+# ``cutter diameter + fraction * cap height`` below the baseline), so the
+# offset alone decides which glyphs break.
 # 0.0 = the underline's top edge touches the baseline stroke and gaps only
 # where strokes truly cross.
 # See ``plt_optimizer.generate.underline``.
-DEFAULT_UNDERLINE_OFFSET: float = 0.0
-# Extra air (inches) at each underline break. Each cut is padded horizontally
-# by ``0.5 * cutter + underline_break_clearance`` (the half cutter is the glyph
+DEFAULT_UNDERLINE_OFFSET_FRACTION: float = 0.0
+# Extra air at each underline break, as a fraction of the rendered cap
+# height (capline - baseline). Each cut is padded horizontally
+# by ``0.5 * cutter + fraction * cap height`` (the half cutter is the glyph
 # stroke's own half-width -- the ink is a centerline), so the engraved air
 # between a descending glyph's stroke and the underline's cut edge is exactly
 # this clearance (0.0 = the cut sits at the ink). Independent of the offset
 # (which decides which glyphs break); this adds air at the break itself. The
 # code fallback is 0.0 (the historical cut); job-config.json supplies the shop
-# default (0.1).
+# default.
 # See ``plt_optimizer.generate.underline``.
-DEFAULT_UNDERLINE_BREAK_CLEARANCE: float = 0.0
+DEFAULT_UNDERLINE_BREAK_CLEARANCE_FRACTION: float = 0.0
 # Whether an underline (``<u>``) breaks at the spaces between words. ``False``
 # (the default) draws one continuous underline across the whole underlined run
 # (spaces included, broken only by descending glyphs); ``True`` ends the
@@ -265,15 +273,17 @@ DEFAULT_UNDERLINE_BREAK_CLEARANCE: float = 0.0
 # default.
 # See ``plt_optimizer.generate.label_renderer._underline_render_gate``.
 DEFAULT_UNDERLINE_BREAK_SPACES: bool = False
-# Strikethrough (``<s>``) height in inches ABOVE the baseline. The stroke is a
+# Strikethrough (``<s>``) height ABOVE the baseline as a fraction of the
+# rendered cap height (capline - baseline). The stroke is a
 # centerline cut with the line's own text cutter, so ``0.0`` puts it on the
-# baseline. ``None`` (the default) centres the stroke on the **cap-band
+# baseline and ``1.0`` on the capline. ``None`` (the default) centres the
+# stroke on the **cap-band
 # midline** -- half the line's rendered cap height (``toolpath_text_height``),
 # the classic mid-height strike. Unlike the underline the stroke is NEVER
 # broken: a descender punches through it, so there is no clearance and no break
 # test. Resolved by ``ResolvedTextLine.strikethrough_cap``.
 # See ``plt_optimizer.generate.label_renderer._strikethrough_strokes``.
-DEFAULT_STRIKETHROUGH_OFFSET: Optional[float] = None
+DEFAULT_STRIKETHROUGH_OFFSET_FRACTION: Optional[float] = None
 # Whether a strikethrough (``<s>``) breaks at the spaces between words.
 # ``False`` (the default) draws one continuous stroke across the whole struck
 # run (spaces included); ``True`` ends the stroke at each space, so every word
@@ -893,13 +903,16 @@ class ResolvedTextLine:
             Cascaded line -> label -> job, default
             ``DEFAULT_SPACE_WIDTH_FRACTION`` (0.3). Explicit ``0.0`` is
             honored; only ``None`` means unset.
-        min_glyph_width: Global minimum glyph advance width in inches
+        min_glyph_width_fraction: Global minimum glyph advance width as a
+            fraction of the rendered cap height (capline - baseline)
             (PLT-extracted fonts): the profile-envelope kerning floors
-            each pair's advance at this value, capped by the left glyph's
+            each pair's advance at this fraction of the cap height, capped
+            by the left glyph's
             own width, so zero-width glyphs still reserve real air without
             thin-glyph pairs being inflated past their own silhouette.
             Cascaded line ->
-            label -> job, default ``DEFAULT_MIN_GLYPH_WIDTH`` (0.0 = pure
+            label -> job, default ``DEFAULT_MIN_GLYPH_WIDTH_FRACTION``
+            (0.0 = pure
             envelope kerning). Explicit ``0.0`` is honored; only ``None``
             means unset.
         kerning_window_fraction: Kerning window as a fraction of the
@@ -919,13 +932,16 @@ class ResolvedTextLine:
         kerning_recession_scale: Multiplier on a *recessed* (negative)
             detected penetration (PLT-extracted fonts): 1.0 keeps the
             geometric recession, 0.0 makes a recessed pair advance by
-            nothing beyond the ``min_glyph_width`` floor. Cascaded line ->
+            nothing beyond the ``min_glyph_width_fraction`` floor. Cascaded
+            line ->
             label -> job, default ``DEFAULT_KERNING_RECESSION_SCALE``
             (1.0). Explicit ``0.0`` is honored; only ``None`` means unset.
-        kerning_min_gap: Extra air in inches added to every kerned pair
-            advance on top of the clearance (PLT-extracted fonts).
-            Cascaded line -> label -> job, default
-            ``DEFAULT_KERNING_MIN_GAP`` (0.0). Explicit ``0.0`` is honored;
+        kerning_min_gap_fraction: Extra air added to every kerned pair
+            advance on top of the clearance, as a fraction of the rendered
+            cap height (capline - baseline) (PLT-extracted fonts).
+            Cascaded line -> label -> job,
+            default ``DEFAULT_KERNING_MIN_GAP_FRACTION`` (0.0). Explicit
+            ``0.0`` is honored;
             only ``None`` means unset.
         fallback_advance_fraction: Multiplier on the bounding-box-width
             fallback advance for pairs without overlapping height (or
@@ -1046,24 +1062,30 @@ class ResolvedTextLine:
             are sheared about the baseline, ``x' = x + y * tan(angle)``;
             ``0.0`` is upright (the shear is skipped). Bound to [0, 45] by
             the schema.
-        underline_offset: Extra air in inches for ``<u>`` markup (cascaded
-            line -> label -> job, default ``DEFAULT_UNDERLINE_OFFSET``
+        underline_offset_fraction: Extra air for ``<u>`` markup as a
+            fraction of the rendered cap height (capline - baseline)
+            (cascaded
+            line -> label -> job, default
+            ``DEFAULT_UNDERLINE_OFFSET_FRACTION``
             (0.0)). The underline centerline (cut with the line's own text
-            cutter) sits ``cutter diameter + underline_offset`` below the
-            baseline; the break test is strictly horizontal, so a glyph breaks
+            cutter) sits ``cutter diameter + fraction * cap height`` below
+            the baseline; the break test is strictly horizontal, so a glyph
+            breaks
             the underline where its ink crosses the underline's centerline
-            (dipping past ``cutter diameter + underline_offset`` below the
-            baseline). Raising it lifts the underline clear of a glyph and
+            (dipping past ``cutter diameter + fraction * cap height`` below
+            the baseline). Raising it lifts the underline clear of a glyph and
             stops it breaking. Bound to
             ``[0, inf)`` by the schema; an explicit ``0.0`` is honored.
-        underline_break_clearance: Extra air in inches at each ``<u>`` break
+        underline_break_clearance_fraction: Extra air at each ``<u>`` break
+            as a fraction of the rendered cap height (capline - baseline)
             (cascaded line -> label -> job, default
-            ``DEFAULT_UNDERLINE_BREAK_CLEARANCE`` (0.0)). Each cut is padded
-            horizontally by ``0.5 * cutter + underline_break_clearance`` (the
+            ``DEFAULT_UNDERLINE_BREAK_CLEARANCE_FRACTION`` (0.0)). Each cut
+            is padded
+            horizontally by ``0.5 * cutter + fraction * cap height`` (the
             half cutter is the glyph stroke's own half-width), so the engraved
             air between a descending glyph's stroke and the underline's cut
             edge is exactly this clearance (0.0 = the cut sits at the ink).
-            Independent of :attr:`underline_offset`
+            Independent of :attr:`underline_offset_fraction`
             (which decides which glyphs break); this adds air at the break
             itself.
             Bound to ``[0, inf)`` by the schema; an explicit ``0.0`` is
@@ -1076,13 +1098,16 @@ class ResolvedTextLine:
             underline at each space, so every word gets its own underline
             spanning its own ink and the inter-word space stays bare. An
             explicit ``False`` is honored.
-        strikethrough_offset: Strikethrough (``<s>``) height in inches ABOVE
-            the baseline (cascaded line -> label -> job, default
-            ``DEFAULT_STRIKETHROUGH_OFFSET`` (``None``)). ``None`` means
+        strikethrough_offset_fraction: Strikethrough (``<s>``) height ABOVE
+            the baseline as a fraction of the rendered cap height (capline
+            - baseline) (cascaded line -> label -> job, default
+            ``DEFAULT_STRIKETHROUGH_OFFSET_FRACTION`` (``None``)). ``None``
+            means
             unset -- the stroke centres on the cap-band midline (see
             :attr:`strikethrough_cap`); an explicit value (``0.0`` included)
-            places the centerline exactly that many inches above the
-            baseline. The stroke is never broken (no clearance, no break
+            places the centerline ``fraction * cap height`` above the
+            baseline (``1.0`` = on the capline). The stroke is never broken
+            (no clearance, no break
             test -- the underline's minimal-break model deliberately does
             not apply).
         strikethrough_break_spaces: Whether a ``<s>`` strikethrough breaks at
@@ -1150,20 +1175,20 @@ class ResolvedTextLine:
     text_color: str = DEFAULT_TEXT_COLOR
     font: str = DEFAULT_FONT
     space_width_fraction: float = DEFAULT_SPACE_WIDTH_FRACTION
-    min_glyph_width: float = DEFAULT_MIN_GLYPH_WIDTH
+    min_glyph_width_fraction: float = DEFAULT_MIN_GLYPH_WIDTH_FRACTION
     kerning_window_fraction: float = DEFAULT_KERNING_WINDOW_FRACTION
     kerning_penetration_scale: float = DEFAULT_KERNING_PENETRATION_SCALE
     kerning_recession_scale: float = DEFAULT_KERNING_RECESSION_SCALE
-    kerning_min_gap: float = DEFAULT_KERNING_MIN_GAP
+    kerning_min_gap_fraction: float = DEFAULT_KERNING_MIN_GAP_FRACTION
     fallback_advance_fraction: float = DEFAULT_FALLBACK_ADVANCE_FRACTION
     sc_scale: float = DEFAULT_SC_SCALE
     supersubscript_downscale: float = DEFAULT_SUPERSUBSCRIPT_DOWNSCALE
     html_brackets: str = DEFAULT_HTML_BRACKETS
     italic_angle: float = DEFAULT_ITALIC_ANGLE
-    underline_offset: float = DEFAULT_UNDERLINE_OFFSET
-    underline_break_clearance: float = DEFAULT_UNDERLINE_BREAK_CLEARANCE
+    underline_offset_fraction: float = DEFAULT_UNDERLINE_OFFSET_FRACTION
+    underline_break_clearance_fraction: float = DEFAULT_UNDERLINE_BREAK_CLEARANCE_FRACTION
     underline_break_spaces: bool = DEFAULT_UNDERLINE_BREAK_SPACES
-    strikethrough_offset: Optional[float] = DEFAULT_STRIKETHROUGH_OFFSET
+    strikethrough_offset_fraction: Optional[float] = DEFAULT_STRIKETHROUGH_OFFSET_FRACTION
     strikethrough_break_spaces: bool = DEFAULT_STRIKETHROUGH_BREAK_SPACES
     bold_boldness_multiplier: float = DEFAULT_BOLD_BOLDNESS_MULTIPLIER
     bold_cutter_diameter: Optional[float] = None
@@ -1334,16 +1359,59 @@ class ResolvedTextLine:
         """The ``<s>`` strikethrough centerline height in inches above the baseline.
 
         The single Y rule the renderer draws with (and the per-cutter pen
-        split compares against when identifying a strike stroke): the explicit
-        cascaded :attr:`strikethrough_offset` when set (``0.0`` = the stroke
-        sits on the baseline), else the **cap-band midline** -- half of
+        split compares against when identifying a strike stroke): the
+        cascaded :attr:`strikethrough_offset_fraction` times
+        :attr:`toolpath_text_height` (the per-font cap height) when set
+        (``0.0`` = the stroke sits on the baseline, ``1.0`` = on the
+        capline), else the **cap-band midline** -- half of
         :attr:`toolpath_text_height` (the per-font cap height, the same cap
         basis the ``<sup>``/``<sub>`` shift conversion uses) -- the classic
-        mid-height strike.
+        mid-height strike. The multiplication happens here (not at
+        resolution time) so the height always tracks the line's CURRENT cap
+        height, including after a compression-driven cutter downsize grows
+        :attr:`toolpath_text_height`.
         """
-        if self.strikethrough_offset is not None:
-            return self.strikethrough_offset
+        if self.strikethrough_offset_fraction is not None:
+            return self.strikethrough_offset_fraction * self.toolpath_text_height
         return 0.5 * self.toolpath_text_height
+
+    @property
+    def underline_offset_inches(self) -> float:
+        """The ``<u>`` underline offset in inches (fraction x cap height).
+
+        :attr:`underline_offset_fraction` resolved against this line's
+        :attr:`toolpath_text_height` (the capline - baseline distance). The
+        underline centerline sits ``cutter + this`` inches below the
+        baseline; the offset term is a **line-level** constant (uniform for
+        every run of the line, never word to word) -- only the cutter term
+        varies per run. Resolved at consumption (not at resolution time) so
+        it tracks the CURRENT cap height across a cutter downsize.
+        """
+        return self.underline_offset_fraction * self.toolpath_text_height
+
+    @property
+    def underline_break_clearance_inches(self) -> float:
+        """The ``<u>`` break clearance in inches (fraction x cap height).
+
+        :attr:`underline_break_clearance_fraction` resolved against this
+        line's :attr:`toolpath_text_height`; each break cut is padded
+        horizontally by ``0.5 * cutter + this``. See
+        :attr:`underline_offset_inches` for why the conversion happens here.
+        """
+        return self.underline_break_clearance_fraction * self.toolpath_text_height
+
+    @property
+    def kerning_min_gap_inches(self) -> float:
+        """The per-pair kerning air in inches (fraction x cap height).
+
+        :attr:`kerning_min_gap_fraction` resolved against this line's
+        :attr:`toolpath_text_height`; added to every kerned pair advance on
+        top of the stroke-floor clearance. The same multiplication the
+        space advance already does
+        (``space_width_fraction * toolpath_text_height``). See
+        :attr:`underline_offset_inches` for why the conversion happens here.
+        """
+        return self.kerning_min_gap_fraction * self.toolpath_text_height
 
     @property
     def sup_sub_scales(self) -> Tuple[float, ...]:
@@ -3576,16 +3644,16 @@ def _resolve_content(
         else:
             line_space_width_fraction = DEFAULT_SPACE_WIDTH_FRACTION
 
-        # Resolve the PLT-font global minimum glyph width with the same
-        # explicit-None precedence (line -> label -> job -> default).
-        if line.min_glyph_width is not None:
-            line_min_glyph_width: float = line.min_glyph_width
-        elif label_input.min_glyph_width is not None:
-            line_min_glyph_width = label_input.min_glyph_width
-        elif job.min_glyph_width is not None:
-            line_min_glyph_width = job.min_glyph_width
+        # Resolve the PLT-font global minimum glyph width fraction with the
+        # same explicit-None precedence (line -> label -> job -> default).
+        if line.min_glyph_width_fraction is not None:
+            line_min_glyph_width_fraction: float = line.min_glyph_width_fraction
+        elif label_input.min_glyph_width_fraction is not None:
+            line_min_glyph_width_fraction = label_input.min_glyph_width_fraction
+        elif job.min_glyph_width_fraction is not None:
+            line_min_glyph_width_fraction = job.min_glyph_width_fraction
         else:
-            line_min_glyph_width = DEFAULT_MIN_GLYPH_WIDTH
+            line_min_glyph_width_fraction = DEFAULT_MIN_GLYPH_WIDTH_FRACTION
 
         # Resolve the PLT-font kerning window fraction with the same
         # explicit-None precedence (line -> label -> job -> default).
@@ -3618,14 +3686,14 @@ def _resolve_content(
         else:
             line_kerning_recession_scale = DEFAULT_KERNING_RECESSION_SCALE
 
-        if line.kerning_min_gap is not None:
-            line_kerning_min_gap: float = line.kerning_min_gap
-        elif label_input.kerning_min_gap is not None:
-            line_kerning_min_gap = label_input.kerning_min_gap
-        elif job.kerning_min_gap is not None:
-            line_kerning_min_gap = job.kerning_min_gap
+        if line.kerning_min_gap_fraction is not None:
+            line_kerning_min_gap_fraction: float = line.kerning_min_gap_fraction
+        elif label_input.kerning_min_gap_fraction is not None:
+            line_kerning_min_gap_fraction = label_input.kerning_min_gap_fraction
+        elif job.kerning_min_gap_fraction is not None:
+            line_kerning_min_gap_fraction = job.kerning_min_gap_fraction
         else:
-            line_kerning_min_gap = DEFAULT_KERNING_MIN_GAP
+            line_kerning_min_gap_fraction = DEFAULT_KERNING_MIN_GAP_FRACTION
 
         if line.fallback_advance_fraction is not None:
             line_fallback_advance_fraction: float = line.fallback_advance_fraction
@@ -3682,28 +3750,29 @@ def _resolve_content(
         else:
             line_italic_angle = DEFAULT_ITALIC_ANGLE
 
-        # Resolve the underline extra air with the same precedence; an
-        # intentional 0.0 (strokes may touch, gaps only on true overlap) is
-        # honored.
-        if line.underline_offset is not None:
-            line_underline_offset: float = line.underline_offset
-        elif label_input.underline_offset is not None:
-            line_underline_offset = label_input.underline_offset
-        elif job.underline_offset is not None:
-            line_underline_offset = job.underline_offset
+        # Resolve the underline extra-air fraction with the same precedence;
+        # an intentional 0.0 (strokes may touch, gaps only on true overlap)
+        # is honored.
+        if line.underline_offset_fraction is not None:
+            line_underline_offset_fraction: float = line.underline_offset_fraction
+        elif label_input.underline_offset_fraction is not None:
+            line_underline_offset_fraction = label_input.underline_offset_fraction
+        elif job.underline_offset_fraction is not None:
+            line_underline_offset_fraction = job.underline_offset_fraction
         else:
-            line_underline_offset = DEFAULT_UNDERLINE_OFFSET
+            line_underline_offset_fraction = DEFAULT_UNDERLINE_OFFSET_FRACTION
 
-        # Resolve the underline break clearance with the same precedence; an
-        # intentional 0.0 (the cut sits at stroke tangency) is honored.
-        if line.underline_break_clearance is not None:
-            line_underline_break_clearance: float = line.underline_break_clearance
-        elif label_input.underline_break_clearance is not None:
-            line_underline_break_clearance = label_input.underline_break_clearance
-        elif job.underline_break_clearance is not None:
-            line_underline_break_clearance = job.underline_break_clearance
+        # Resolve the underline break-clearance fraction with the same
+        # precedence; an intentional 0.0 (the cut sits at stroke tangency) is
+        # honored.
+        if line.underline_break_clearance_fraction is not None:
+            line_underline_break_clearance_fraction: float = line.underline_break_clearance_fraction
+        elif label_input.underline_break_clearance_fraction is not None:
+            line_underline_break_clearance_fraction = label_input.underline_break_clearance_fraction
+        elif job.underline_break_clearance_fraction is not None:
+            line_underline_break_clearance_fraction = job.underline_break_clearance_fraction
         else:
-            line_underline_break_clearance = DEFAULT_UNDERLINE_BREAK_CLEARANCE
+            line_underline_break_clearance_fraction = DEFAULT_UNDERLINE_BREAK_CLEARANCE_FRACTION
 
         # Resolve the underline break-at-spaces permission with the same
         # explicit-None precedence (line -> label -> job -> default) so an
@@ -3717,20 +3786,20 @@ def _resolve_content(
         else:
             line_underline_break_spaces = DEFAULT_UNDERLINE_BREAK_SPACES
 
-        # Resolve the strikethrough height with the same explicit-None
-        # precedence (line -> label -> job -> default); an intentional 0.0
-        # (the stroke sits on the baseline) is honored, and the default
-        # ``None`` keeps the cap-band-midline centering (the value stays
-        # ``None`` all the way to ResolvedTextLine, whose
+        # Resolve the strikethrough height fraction with the same
+        # explicit-None precedence (line -> label -> job -> default); an
+        # intentional 0.0 (the stroke sits on the baseline) is honored, and
+        # the default ``None`` keeps the cap-band-midline centering (the
+        # value stays ``None`` all the way to ResolvedTextLine, whose
         # ``strikethrough_cap`` property resolves the midline).
-        if line.strikethrough_offset is not None:
-            line_strikethrough_offset: Optional[float] = line.strikethrough_offset
-        elif label_input.strikethrough_offset is not None:
-            line_strikethrough_offset = label_input.strikethrough_offset
-        elif job.strikethrough_offset is not None:
-            line_strikethrough_offset = job.strikethrough_offset
+        if line.strikethrough_offset_fraction is not None:
+            line_strikethrough_offset_fraction: Optional[float] = line.strikethrough_offset_fraction
+        elif label_input.strikethrough_offset_fraction is not None:
+            line_strikethrough_offset_fraction = label_input.strikethrough_offset_fraction
+        elif job.strikethrough_offset_fraction is not None:
+            line_strikethrough_offset_fraction = job.strikethrough_offset_fraction
         else:
-            line_strikethrough_offset = DEFAULT_STRIKETHROUGH_OFFSET
+            line_strikethrough_offset_fraction = DEFAULT_STRIKETHROUGH_OFFSET_FRACTION
 
         # Resolve the strikethrough break-at-spaces permission with the same
         # explicit-None precedence (line -> label -> job -> default) so an
@@ -3905,20 +3974,20 @@ def _resolve_content(
                 text_color=line_text_color,
                 font=line_font,
                 space_width_fraction=line_space_width_fraction,
-                min_glyph_width=line_min_glyph_width,
+                min_glyph_width_fraction=line_min_glyph_width_fraction,
                 kerning_window_fraction=line_kerning_window_fraction,
                 kerning_penetration_scale=line_kerning_penetration_scale,
                 kerning_recession_scale=line_kerning_recession_scale,
-                kerning_min_gap=line_kerning_min_gap,
+                kerning_min_gap_fraction=line_kerning_min_gap_fraction,
                 fallback_advance_fraction=line_fallback_advance_fraction,
                 sc_scale=line_sc_scale,
                 supersubscript_downscale=line_supersubscript_downscale,
                 html_brackets=line_html_brackets,
                 italic_angle=line_italic_angle,
-                underline_offset=line_underline_offset,
-                underline_break_clearance=line_underline_break_clearance,
+                underline_offset_fraction=line_underline_offset_fraction,
+                underline_break_clearance_fraction=line_underline_break_clearance_fraction,
                 underline_break_spaces=line_underline_break_spaces,
-                strikethrough_offset=line_strikethrough_offset,
+                strikethrough_offset_fraction=line_strikethrough_offset_fraction,
                 strikethrough_break_spaces=line_strikethrough_break_spaces,
                 bold_boldness_multiplier=line_bold_boldness_multiplier,
                 bold_cutter_diameter=bold_cutter,

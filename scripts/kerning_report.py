@@ -7,20 +7,23 @@ lays them out, and prints the *decomposed* origin-to-origin advance of every
 adjacent glyph pair::
 
     advance = penetration * kerning_penetration_scale * toolpath_height
-            + cutter_diameter + character_spacing + kerning_min_gap
+            + cutter_diameter + character_spacing
+            + kerning_min_gap_fraction * toolpath_height
 
 so a pair that stays wide while ``kerning_penetration_scale`` drops is
 immediately explained: its penetration term is ~0 (or is manufactured by the
-``min_glyph_width`` floor) and the spacing is pure additive clearance.
+``min_glyph_width_fraction`` floor) and the spacing is pure additive clearance.
 
 Columns of the report (design units = 1/1000 of the reference character):
 
 - ``pair``  - the two characters, left then right;
 - ``lw``    - the left glyph's bounding-box width;
 - ``p``     - the geometric maximum silhouette penetration (no floor);
-- ``p*``    - the penetration after the ``min_glyph_width`` floor, i.e. the
+- ``p*``    - the penetration after the ``min_glyph_width_fraction`` floor,
+              i.e. the
               value the renderer multiplies by the scale;
-- ``floor`` - the ``min(left_width, min_glyph_width)`` advance floor;
+- ``floor`` - the ``min(left_width, min_glyph_width_fraction * height)``
+              advance floor;
 - ``p*s``   - the scaled penetration (what the advance spends on closeness);
 - ``adv``   - the final origin-to-origin advance in inches;
 - ``gap``   - engraved stroke-to-stroke air at the tightest sampled height;
@@ -101,17 +104,19 @@ class KerningOverrides:
     Attributes:
         penetration_scale: Override for ``kerning_penetration_scale``.
         recession_scale: Override for ``kerning_recession_scale``.
-        min_glyph_width: Override for ``min_glyph_width`` (inches).
+        min_glyph_width_fraction: Override for
+            ``min_glyph_width_fraction`` (cap-height fraction).
         window_fraction: Override for ``kerning_window_fraction``.
-        kerning_min_gap: Override for ``kerning_min_gap`` (inches).
+        kerning_min_gap_fraction: Override for
+            ``kerning_min_gap_fraction`` (cap-height fraction).
         fallback_fraction: Override for ``fallback_advance_fraction``.
     """
 
     penetration_scale: Optional[float] = None
     recession_scale: Optional[float] = None
-    min_glyph_width: Optional[float] = None
+    min_glyph_width_fraction: Optional[float] = None
     window_fraction: Optional[float] = None
-    kerning_min_gap: Optional[float] = None
+    kerning_min_gap_fraction: Optional[float] = None
     fallback_fraction: Optional[float] = None
 
 
@@ -122,11 +127,14 @@ class LineFrame:
     Attributes:
         scale: Output inches per design unit (``toolpath_height / ref_height``).
         toolpath_height: Rendered reference-character height in inches.
-        clearance: ``cutter + character_spacing + kerning_min_gap`` (inches).
+        clearance: ``cutter + character_spacing + kerning_min_gap_inches``
+            (inches).
         cutter_diameter: Resolved text cutter diameter in inches.
         character_spacing: Resolved extra character spacing in inches.
-        kerning_min_gap: Resolved extra kerning gap in inches.
-        min_width_design: ``min_glyph_width`` converted to design units.
+        kerning_min_gap_inches: Resolved extra kerning gap in inches
+            (``kerning_min_gap_fraction * toolpath_height``).
+        min_width_design: ``min_glyph_width_fraction`` resolved to inches
+            and converted to design units.
         window_design: Kerning half-window in design units.
         penetration_scale: Resolved penetration multiplier.
         recession_scale: Resolved recession (negative penetration) multiplier.
@@ -139,7 +147,7 @@ class LineFrame:
     clearance: float
     cutter_diameter: float
     character_spacing: float
-    kerning_min_gap: float
+    kerning_min_gap_inches: float
     min_width_design: float
     window_design: float
     penetration_scale: float
@@ -180,9 +188,11 @@ class PairMetrics:
         left_width: Left glyph bbox width (design units).
         right_width: Right glyph bbox width (design units).
         penetration: Geometric maximum penetration, no floor (design units).
-        effective: Penetration after the ``min_glyph_width`` floor - the value
+        effective: Penetration after the ``min_glyph_width_fraction`` floor
+            - the value
             the renderer multiplies by the scale (design units).
-        floor: The ``min(left_width, min_glyph_width)`` advance floor
+        floor: The ``min(left_width, min_glyph_width_fraction * height)``
+            advance floor
             (design units).
         scaled: ``effective`` after the penetration/recession multipliers
             (design units).
@@ -321,17 +331,25 @@ def build_frame(
     font_data = load_plt_fonts(library_dir)[library_name]
     scale = line.toolpath_text_height / font_data.normalized_ref_height
 
-    min_glyph_width = _pick(overrides.min_glyph_width, line.min_glyph_width)
-    kerning_min_gap = _pick(overrides.kerning_min_gap, line.kerning_min_gap)
+    min_glyph_width_fraction = _pick(
+        overrides.min_glyph_width_fraction, line.min_glyph_width_fraction
+    )
+    kerning_min_gap_fraction = _pick(
+        overrides.kerning_min_gap_fraction, line.kerning_min_gap_fraction
+    )
+    # Both knobs are fractions of the rendered cap height; the frame works
+    # in inches (and design units for the floor).
+    kerning_min_gap_inches = kerning_min_gap_fraction * line.toolpath_text_height
+    min_width_inches = min_glyph_width_fraction * line.toolpath_text_height
 
     return LineFrame(
         scale=scale,
         toolpath_height=line.toolpath_text_height,
-        clearance=line.cutter_diameter + line.character_spacing + kerning_min_gap,
+        clearance=line.cutter_diameter + line.character_spacing + kerning_min_gap_inches,
         cutter_diameter=line.cutter_diameter,
         character_spacing=line.character_spacing,
-        kerning_min_gap=kerning_min_gap,
-        min_width_design=min_glyph_width / scale if scale > 0 else 0.0,
+        kerning_min_gap_inches=kerning_min_gap_inches,
+        min_width_design=min_width_inches / scale if scale > 0 else 0.0,
         window_design=0.5
         * _pick(overrides.window_fraction, line.kerning_window_fraction)
         * font_data.normalized_ref_height,
@@ -361,7 +379,8 @@ def pair_metrics(
 
     Reimplements :func:`plt_optimizer.generate.plt_font_renderer.kerning_offset`
     while keeping every intermediate term, so the report can attribute the
-    advance to penetration, the ``min_glyph_width`` floor, or clearance.
+    advance to penetration, the ``min_glyph_width_fraction`` floor, or
+    clearance.
 
     Args:
         left: The earlier (left) glyph geometry.
@@ -371,7 +390,8 @@ def pair_metrics(
         right_char: Right character (reporting only).
         line_index: Text line index (reporting only).
         position: Index of the left character in that line (reporting only).
-        legacy_floor: When True, apply ``min_glyph_width`` as a per-sample
+        legacy_floor: When True, apply ``min_glyph_width_fraction`` as a
+            per-sample
             clamp of the left glyph's right silhouette (the semantics in place
             before the advance-floor fix). When False, apply it as a floor on
             the advance, capped by the left glyph's own width.
@@ -532,9 +552,9 @@ def report_lines(
                     f"cutter={frame.cutter_diameter:.4f}in "
                     f"toolpath={frame.toolpath_height:.4f}in "
                     f"char_spacing={frame.character_spacing:.4f}in "
-                    f"min_gap={frame.kerning_min_gap:.4f}in "
+                    f"min_gap={frame.kerning_min_gap_inches:.4f}in "
                     f"clearance={frame.clearance:.4f}in "
-                    f"min_glyph_width={frame.min_width_design * _DESIGN_UNITS_PER_INCH:.1f}u "
+                    f"min_glyph_width_fraction={frame.min_width_design * _DESIGN_UNITS_PER_INCH:.1f}u "
                     f"window={frame.window_design * _DESIGN_UNITS_PER_INCH:.1f}u "
                     f"scale={frame.penetration_scale:g} "
                     f"recession={frame.recession_scale:g}"
@@ -693,7 +713,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--min-glyph-width-override",
         type=float,
         default=None,
-        help="Override min_glyph_width (inches)",
+        help="Override min_glyph_width_fraction (cap-height fraction)",
     )
     parser.add_argument(
         "--window-override",
@@ -705,12 +725,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--min-gap-override",
         type=float,
         default=None,
-        help="Override kerning_min_gap (inches)",
+        help="Override kerning_min_gap_fraction (cap-height fraction)",
     )
     parser.add_argument(
         "--advance-floor",
         action="store_true",
-        help="Report the advance-floor min_glyph_width semantics instead of the "
+        help="Report the advance-floor min_glyph_width_fraction semantics "
+        "instead of the "
         "legacy silhouette clamp",
     )
     parser.add_argument(
@@ -760,9 +781,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     overrides = KerningOverrides(
         penetration_scale=args.scale_override,
         recession_scale=args.recession_override,
-        min_glyph_width=args.min_glyph_width_override,
+        min_glyph_width_fraction=args.min_glyph_width_override,
         window_fraction=args.window_override,
-        kerning_min_gap=args.min_gap_override,
+        kerning_min_gap_fraction=args.min_gap_override,
     )
     legacy_floor = not args.advance_floor
 

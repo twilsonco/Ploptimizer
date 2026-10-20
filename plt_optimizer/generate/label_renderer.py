@@ -1631,11 +1631,11 @@ def _render_line_core(
         "cutter_diameter": line.cutter_diameter,
         "character_spacing": line.character_spacing,
         "space_width_fraction": line.space_width_fraction,
-        "min_glyph_width": line.min_glyph_width,
+        "min_glyph_width_fraction": line.min_glyph_width_fraction,
         "kerning_window_fraction": line.kerning_window_fraction,
         "kerning_penetration_scale": line.kerning_penetration_scale,
         "kerning_recession_scale": line.kerning_recession_scale,
-        "kerning_min_gap": line.kerning_min_gap,
+        "kerning_min_gap_fraction": line.kerning_min_gap_fraction,
         "fallback_advance_fraction": line.fallback_advance_fraction,
     }
     # Small caps is a font-variant property: the cascaded sc_scale reaches the
@@ -1932,7 +1932,8 @@ def _render_line_block_composed(
     The boundary advance is the **bounding-box rule**: the next segment's
     left edge sits at the previous ink's right edge plus the engraved-stroke
     floor ``0.5 * (cutter_left + cutter_right) + character_spacing +
-    kerning_min_gap`` -- the same clearance the PLT walk adds per pair, with
+    kerning_min_gap_inches`` -- the same clearance the PLT walk adds per pair,
+    with
     the envelope offset replaced by the bbox gap. A TTF glyph carries no
     profile envelopes, so an exact silhouette kern across a TTF boundary is
     not computable; the bbox rule is conservative (never tighter than the
@@ -1990,7 +1991,7 @@ def _render_line_block_composed(
                 previous_right
                 + 0.5 * (previous_cutter + first_cutter)
                 + line.character_spacing
-                + line.kerning_min_gap
+                + line.kerning_min_gap_inches
             )
         offset = len(strokes)
         # The clone's baseline_shifts carry its own engraved-baseline raise
@@ -2099,7 +2100,8 @@ def _underline_render_gate(line: ResolvedTextLine) -> Tuple[Tuple[int, int], ...
 
     A run is additionally split at every ``<b>`` boundary: the underline is cut
     with the run's own cutter, and a bold run's centerline sits deeper below
-    the baseline (``bold_cutter + underline_offset``), so one underline cannot
+    the baseline (``bold_cutter + underline_offset_fraction * cap height``),
+    so one underline cannot
     span both tools. A line with no bold run is never split here.
 
     Args:
@@ -2280,12 +2282,13 @@ def _underline_strokes(
 
     Each maximal underlined run draws one centerline underline spanning its
     first glyph's bounding-box left edge to its last glyph's right edge, at
-    ``cutter_diameter + underline_offset`` inches below the baseline (so the
-    engraved underline's top edge floats exactly ``underline_offset`` below
+    ``cutter_diameter + underline_offset_inches`` below the baseline (so the
+    engraved underline's top edge floats exactly
+    ``underline_offset_fraction * cap height`` below
     the engraved baseline stroke). The break test is **strictly horizontal**
     and keyed to the underline's **centerline**: a glyph cuts a gap only where
     its ink crosses the centerline (inside a thin band of ``0.2 *
-    underline_break_clearance`` around it), so a descender's stem punches
+    underline_break_clearance_inches`` around it), so a descender's stem punches
     through the underline, a ``g``'s bowl that dips below without crossing the
     centerline keeps its underline, and a glyph merely standing beside it (a
     cap, a neighbour) never breaks it (see
@@ -2294,14 +2297,15 @@ def _underline_strokes(
     The centerline **position** and the **break band** are two distinct
     quantities. The position is ``cutter + offset`` below the baseline (the
     offset is the edge-to-edge air the user asked for). The band is a thin
-    strip on the centerline, reaching ``0.2 * underline_break_clearance``
+    strip on the centerline, reaching ``0.2 * underline_break_clearance_inches``
     above and below it, and each cut is padded horizontally by ``0.5 * cutter
-    + underline_break_clearance`` (the half cutter is the glyph stroke's own
+    + underline_break_clearance_inches`` (the half cutter is the glyph stroke's own
     half-width, the clearance the engraved air left at each edge). The offset
     must stay out of the trigger: were the band keyed off ``cutter + offset``,
     the offset would cancel out of the test (a glyph breaks the underline iff
     its ink dips below the baseline, at *any* offset), so raising
-    ``underline_offset`` could never prevent a break -- the reported bug where
+    ``underline_offset_fraction`` could never prevent a break -- the reported
+    bug where
     caps punched gaps no matter how deep the underline was set.
 
     Args:
@@ -2313,7 +2317,8 @@ def _underline_strokes(
     Returns:
         The underline strokes, in run order (empty when nothing is
         underlined, the run has no geometry, or gaps consume the whole span).
-        A bold run's centerline sits ``bold_cutter + underline_offset`` below
+        A bold run's centerline sits
+        ``bold_cutter + underline_offset_fraction * cap height`` below
         the baseline -- deeper, because the thicker tool's stroke starts lower
         (the runs are split at bold boundaries by the gate, so each run's
         strokes share one centerline Y).
@@ -2350,14 +2355,14 @@ def _underline_strokes(
         # scaled run's one effective-height cutter below it (the runs are split
         # at cutter boundaries by the gate).
         cutter = _run_cutter(line, first)
-        line_y = -(cutter + line.underline_offset)
+        line_y = -(cutter + line.underline_offset_inches)
         min_y_seen = line_y if min_y_seen is None else min(min_y_seen, line_y)
         segments = underline_segments(
             line_ink,
             span,
             line_y,
             cutter,
-            line.underline_break_clearance,
+            line.underline_break_clearance_inches,
             min_length=_INK_EMISSION_FLOOR,
         )
         for x_min, x_max in segments:
@@ -2374,7 +2379,7 @@ def _underline_strokes(
             len(strokes),
             line.plain_text,
             min_y_seen if min_y_seen is not None else 0.0,
-            line.underline_break_clearance,
+            line.underline_break_clearance_inches,
         )
     return strokes
 
@@ -2390,7 +2395,8 @@ def _strikethrough_strokes(
     Each maximal struck run draws **one continuous** centerline stroke
     spanning its first glyph's bounding-box left edge to its last glyph's
     right edge, at :attr:`~plt_optimizer.generate.resolution.ResolvedTextLine.strikethrough_cap`
-    inches **above** the baseline (the explicit ``strikethrough_offset``, or
+    inches **above** the baseline (``strikethrough_offset_fraction`` times
+    the cap height, or
     the cap-band midline when unset).
 
     This is the underline's geometry with the break model deliberately
@@ -2580,7 +2586,8 @@ def _strikethrough_run_cutters(
     The pen split needs each strike stroke's tool, and -- unlike the underline
     -- a strike centerline's Y encodes none: the height is a typography
     property (``strikethrough_cap``), identical for every run, so the depth
-    cannot be inverted into a cutter the way ``-y - underline_offset`` does
+    cannot be inverted into a cutter the way
+    ``-y - underline_offset_inches`` does
     for the underline. The stroke's **span** identifies its run instead, and
     the gate splits runs at cutter boundaries, so the run's first character
     owns the tool (see :func:`_run_cutter`).
@@ -2632,8 +2639,9 @@ def _stroke_cutter_map(
     partition (spaces own no group, mirroring :func:`_glyph_chars`). The
     ``<u>`` underline strokes are appended **after** that partition, so they
     are identified by their centerline depth: a run's centerline sits exactly
-    ``cutter + underline_offset`` below the baseline, and the gate splits runs
-    at cutter boundaries, so ``-y - underline_offset`` recovers the tool
+    ``cutter + underline_offset_inches`` below the baseline, and the gate splits
+    runs
+    at cutter boundaries, so ``-y - underline_offset_inches`` recovers the tool
     exactly (no sampling, no tolerance guessing). The ``<s>`` strikethrough
     strokes (appended last) sit at a cutter-independent height, so they are
     identified by their span instead -- see
@@ -2696,7 +2704,7 @@ def _stroke_cutter_map(
         # round trip is not float-exact (0.06 + 0.05 back to 0.06 can land one
         # ulp off), which would key a spurious pen layer, so snap to the
         # closest cutter the line actually engraves with.
-        recovered = -y - line.underline_offset
+        recovered = -y - line.underline_offset_inches
         mapping[index] = min(known, key=lambda cutter: abs(cutter - recovered))
     resolved = tuple(cutter if cutter is not None else line.cutter_diameter for cutter in mapping)
     if len(set(resolved)) <= 1:

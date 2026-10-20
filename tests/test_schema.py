@@ -2496,59 +2496,64 @@ class TestItalicAngleField:
 
 
 class TestUnderlineOffsetField:
-    """The cascading ``underline_offset`` field (line -> label -> job + plate)."""
+    """The cascading ``underline_offset_fraction`` field (line -> label -> job + plate)."""
 
     def test_defaults_to_none_everywhere(self) -> None:
-        """Every tier defaults underline_offset to None (unset)."""
+        """Every tier defaults underline_offset_fraction to None (unset)."""
         job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
-        assert job.underline_offset is None
-        assert TextLine(text="X").underline_offset is None
-        assert PlateSpec(id="p", width=24.0, height=16.0).underline_offset is None
+        assert job.underline_offset_fraction is None
+        assert TextLine(text="X").underline_offset_fraction is None
+        assert PlateSpec(id="p", width=24.0, height=16.0).underline_offset_fraction is None
 
     @pytest.mark.parametrize("value", [0.0, 0.1, 2.5])
     def test_non_negative_accepted(self, value: float) -> None:
         """Any non-negative offset is accepted, 0.0 included."""
-        assert TextLine(text="X", underline_offset=value).underline_offset == value
+        assert (
+            TextLine(text="X", underline_offset_fraction=value).underline_offset_fraction == value
+        )
 
     @pytest.mark.parametrize("value", [-0.1, -1.0])
     def test_negative_rejected(self, value: float) -> None:
         """A negative offset is a validation error."""
         with pytest.raises(ValidationError):
-            TextLine(text="X", underline_offset=value)
+            TextLine(text="X", underline_offset_fraction=value)
 
     def test_plate_parity_accepts_the_field(self) -> None:
         """The plate tier carries the field for schema parity."""
-        plate = PlateSpec(id="p", width=24.0, height=16.0, underline_offset=0.1)
-        assert plate.underline_offset == 0.1
+        plate = PlateSpec(id="p", width=24.0, height=16.0, underline_offset_fraction=0.1)
+        assert plate.underline_offset_fraction == 0.1
 
 
 class TestUnderlineBreakClearanceField:
-    """The cascading ``underline_break_clearance`` field (line -> label -> job + plate)."""
+    """The cascading ``underline_break_clearance_fraction`` field (line -> label -> job + plate)."""
 
     def test_defaults_to_none_everywhere(self) -> None:
-        """Every tier defaults underline_break_clearance to None (unset)."""
+        """Every tier defaults underline_break_clearance_fraction to None (unset)."""
         job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
-        assert job.underline_break_clearance is None
-        assert TextLine(text="X").underline_break_clearance is None
-        assert PlateSpec(id="p", width=24.0, height=16.0).underline_break_clearance is None
+        assert job.underline_break_clearance_fraction is None
+        assert TextLine(text="X").underline_break_clearance_fraction is None
+        assert PlateSpec(id="p", width=24.0, height=16.0).underline_break_clearance_fraction is None
 
     @pytest.mark.parametrize("value", [0.0, 0.1, 2.5])
     def test_non_negative_accepted(self, value: float) -> None:
         """Any non-negative clearance is accepted, 0.0 included."""
         assert (
-            TextLine(text="X", underline_break_clearance=value).underline_break_clearance == value
+            TextLine(
+                text="X", underline_break_clearance_fraction=value
+            ).underline_break_clearance_fraction
+            == value
         )
 
     @pytest.mark.parametrize("value", [-0.1, -1.0])
     def test_negative_rejected(self, value: float) -> None:
         """A negative clearance is a validation error."""
         with pytest.raises(ValidationError):
-            TextLine(text="X", underline_break_clearance=value)
+            TextLine(text="X", underline_break_clearance_fraction=value)
 
     def test_plate_parity_accepts_the_field(self) -> None:
         """The plate tier carries the field for schema parity."""
-        plate = PlateSpec(id="p", width=24.0, height=16.0, underline_break_clearance=0.1)
-        assert plate.underline_break_clearance == 0.1
+        plate = PlateSpec(id="p", width=24.0, height=16.0, underline_break_clearance_fraction=0.1)
+        assert plate.underline_break_clearance_fraction == 0.1
 
 
 class TestUnderlineBreakSpacesField:
@@ -2573,30 +2578,33 @@ class TestUnderlineBreakSpacesField:
 
 
 class TestStrikethroughOffsetField:
-    """The cascading ``strikethrough_offset`` field (line -> label -> job + plate)."""
+    """The cascading ``strikethrough_offset_fraction`` field (line -> label -> job + plate)."""
 
     def test_defaults_to_none_everywhere(self) -> None:
-        """Every tier defaults strikethrough_offset to None (unset = mid-cap)."""
+        """Every tier defaults strikethrough_offset_fraction to None (unset = mid-cap)."""
         job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
-        assert job.strikethrough_offset is None
-        assert TextLine(text="X").strikethrough_offset is None
-        assert PlateSpec(id="p", width=24.0, height=16.0).strikethrough_offset is None
+        assert job.strikethrough_offset_fraction is None
+        assert TextLine(text="X").strikethrough_offset_fraction is None
+        assert PlateSpec(id="p", width=24.0, height=16.0).strikethrough_offset_fraction is None
 
     @pytest.mark.parametrize("value", [0.0, 0.1, 2.5])
     def test_non_negative_accepted(self, value: float) -> None:
         """Any non-negative height is accepted, 0.0 (on the baseline) included."""
-        assert TextLine(text="X", strikethrough_offset=value).strikethrough_offset == value
+        assert (
+            TextLine(text="X", strikethrough_offset_fraction=value).strikethrough_offset_fraction
+            == value
+        )
 
     @pytest.mark.parametrize("value", [-0.1, -1.0])
     def test_negative_rejected(self, value: float) -> None:
         """A negative height is a validation error."""
         with pytest.raises(ValidationError):
-            TextLine(text="X", strikethrough_offset=value)
+            TextLine(text="X", strikethrough_offset_fraction=value)
 
     def test_plate_parity_accepts_the_field(self) -> None:
         """The plate tier carries the field for schema parity."""
-        plate = PlateSpec(id="p", width=24.0, height=16.0, strikethrough_offset=0.1)
-        assert plate.strikethrough_offset == 0.1
+        plate = PlateSpec(id="p", width=24.0, height=16.0, strikethrough_offset_fraction=0.1)
+        assert plate.strikethrough_offset_fraction == 0.1
 
 
 class TestStrikethroughBreakSpacesField:
@@ -2613,8 +2621,7 @@ class TestStrikethroughBreakSpacesField:
     def test_bool_accepted(self, value: bool) -> None:
         """Both True and False are accepted (explicit False honored)."""
         assert (
-            TextLine(text="X", strikethrough_break_spaces=value).strikethrough_break_spaces
-            is value
+            TextLine(text="X", strikethrough_break_spaces=value).strikethrough_break_spaces is value
         )
 
     def test_plate_parity_accepts_the_field(self) -> None:
@@ -2684,7 +2691,9 @@ class TestMultistrokeOverlapRatioField:
     @pytest.mark.parametrize("value", [0.1, 0.25, 0.5])
     def test_in_range_accepted(self, value: float) -> None:
         """Any ratio in [0.1, 0.5] is accepted, bounds included."""
-        assert TextLine(text="X", multistroke_overlap_ratio=value).multistroke_overlap_ratio == value
+        assert (
+            TextLine(text="X", multistroke_overlap_ratio=value).multistroke_overlap_ratio == value
+        )
 
     @pytest.mark.parametrize("value", [0.0, 0.05, 0.55, 1.0, -0.1])
     def test_out_of_range_rejected(self, value: float) -> None:
@@ -2774,7 +2783,9 @@ class TestLabelShapeField:
     def test_accepts_rect_and_round(self) -> None:
         """Both enum values parse from their string form."""
         assert (
-            LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")], type="round").type
+            LabelSpec(
+                id="l", width=2.0, height=1.0, content=[TextLine(text="X")], type="round"
+            ).type
             is LabelShape.ROUND
         )
         assert (

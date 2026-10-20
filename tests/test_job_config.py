@@ -41,20 +41,20 @@ _FULL_CONFIG: dict[str, Any] = {
     "min_hole_margin": 0.05,
     "hole_text_collision_distance": 0.1,
     "space_width_fraction": 0.35,
-    "min_glyph_width": 0.02,
+    "min_glyph_width_fraction": 0.02,
     "kerning_window_fraction": 0.15,
     "kerning_penetration_scale": 1.5,
     "kerning_recession_scale": 0.0,
-    "kerning_min_gap": 0.05,
+    "kerning_min_gap_fraction": 0.05,
     "fallback_advance_fraction": 0.9,
     "sc_scale": 0.45,
     "supersubscript_downscale": 0.6,
     "html_brackets": "\u00ab\u00bb",
     "italic_angle": 20.0,
-    "underline_offset": 0.08,
-    "underline_break_clearance": 0.12,
+    "underline_offset_fraction": 0.08,
+    "underline_break_clearance_fraction": 0.12,
     "underline_break_spaces": True,
-    "strikethrough_offset": 0.22,
+    "strikethrough_offset_fraction": 0.22,
     "strikethrough_break_spaces": True,
     "target_boldness_factor": 0.18,
     "multistroke_overlap_ratio": 0.35,
@@ -272,13 +272,13 @@ class TestJobDefaultsModel:
         assert "font" not in REQUIRED_WHEN_UNCONFIGURED
 
     def test_plt_typesetting_fields_not_required(self) -> None:
-        """space_width_fraction/min_glyph_width keep renderer-level fallbacks."""
+        """space_width_fraction/min_glyph_width_fraction keep renderer-level fallbacks."""
         assert "space_width_fraction" not in REQUIRED_WHEN_UNCONFIGURED
-        assert "min_glyph_width" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "min_glyph_width_fraction" not in REQUIRED_WHEN_UNCONFIGURED
         assert "kerning_window_fraction" not in REQUIRED_WHEN_UNCONFIGURED
         assert "kerning_penetration_scale" not in REQUIRED_WHEN_UNCONFIGURED
         assert "kerning_recession_scale" not in REQUIRED_WHEN_UNCONFIGURED
-        assert "kerning_min_gap" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "kerning_min_gap_fraction" not in REQUIRED_WHEN_UNCONFIGURED
         assert "fallback_advance_fraction" not in REQUIRED_WHEN_UNCONFIGURED
         assert "sc_scale" not in REQUIRED_WHEN_UNCONFIGURED
         assert "supersubscript_downscale" not in REQUIRED_WHEN_UNCONFIGURED
@@ -302,17 +302,17 @@ class TestJobDefaultsModel:
         assert "hole_adjust_for_cutter" not in REQUIRED_WHEN_UNCONFIGURED
         assert "descending_character_clearance" not in REQUIRED_WHEN_UNCONFIGURED
         assert "descending_character_reciprocal_scale" not in REQUIRED_WHEN_UNCONFIGURED
-        assert "underline_offset" not in REQUIRED_WHEN_UNCONFIGURED
-        assert "underline_break_clearance" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "underline_offset_fraction" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "underline_break_clearance_fraction" not in REQUIRED_WHEN_UNCONFIGURED
         assert "underline_break_spaces" not in REQUIRED_WHEN_UNCONFIGURED
-        assert "strikethrough_offset" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "strikethrough_offset_fraction" not in REQUIRED_WHEN_UNCONFIGURED
         assert "strikethrough_break_spaces" not in REQUIRED_WHEN_UNCONFIGURED
         assert JobDefaults().space_width_fraction is None
-        assert JobDefaults().min_glyph_width is None
+        assert JobDefaults().min_glyph_width_fraction is None
         assert JobDefaults().kerning_window_fraction is None
         assert JobDefaults().kerning_penetration_scale is None
         assert JobDefaults().kerning_recession_scale is None
-        assert JobDefaults().kerning_min_gap is None
+        assert JobDefaults().kerning_min_gap_fraction is None
         assert JobDefaults().fallback_advance_fraction is None
         assert JobDefaults().sc_scale is None
         assert JobDefaults(sc_scale=0.4).sc_scale == pytest.approx(0.4)
@@ -336,28 +336,35 @@ class TestJobDefaultsModel:
             JobDefaults(italic_angle=-1.0)
         with pytest.raises(Exception):
             JobDefaults(italic_angle=46.0)
-        assert JobDefaults().underline_offset is None
-        assert JobDefaults(underline_offset=0.08).underline_offset == pytest.approx(0.08)
-        assert JobDefaults(underline_offset=0.0).underline_offset == 0.0
-        with pytest.raises(Exception):
-            JobDefaults(underline_offset=-0.1)
-        assert JobDefaults().underline_break_clearance is None
+        assert JobDefaults().underline_offset_fraction is None
         assert JobDefaults(
-            underline_break_clearance=0.12
-        ).underline_break_clearance == pytest.approx(0.12)
-        assert JobDefaults(underline_break_clearance=0.0).underline_break_clearance == 0.0
+            underline_offset_fraction=0.08
+        ).underline_offset_fraction == pytest.approx(0.08)
+        assert JobDefaults(underline_offset_fraction=0.0).underline_offset_fraction == 0.0
         with pytest.raises(Exception):
-            JobDefaults(underline_break_clearance=-0.1)
+            JobDefaults(underline_offset_fraction=-0.1)
+        assert JobDefaults().underline_break_clearance_fraction is None
+        assert JobDefaults(
+            underline_break_clearance_fraction=0.12
+        ).underline_break_clearance_fraction == pytest.approx(0.12)
+        assert (
+            JobDefaults(underline_break_clearance_fraction=0.0).underline_break_clearance_fraction
+            == 0.0
+        )
+        with pytest.raises(Exception):
+            JobDefaults(underline_break_clearance_fraction=-0.1)
         assert JobDefaults().underline_break_spaces is None
         assert JobDefaults(underline_break_spaces=True).underline_break_spaces is True
         assert JobDefaults(underline_break_spaces=False).underline_break_spaces is False
-        # Unset strikethrough_offset means the cap-band midline, so None is a
+        # Unset strikethrough_offset_fraction means the cap-band midline, so None is a
         # meaningful value: only the bound (>= 0) is enforced.
-        assert JobDefaults().strikethrough_offset is None
-        assert JobDefaults(strikethrough_offset=0.22).strikethrough_offset == pytest.approx(0.22)
-        assert JobDefaults(strikethrough_offset=0.0).strikethrough_offset == 0.0
+        assert JobDefaults().strikethrough_offset_fraction is None
+        assert JobDefaults(
+            strikethrough_offset_fraction=0.22
+        ).strikethrough_offset_fraction == pytest.approx(0.22)
+        assert JobDefaults(strikethrough_offset_fraction=0.0).strikethrough_offset_fraction == 0.0
         with pytest.raises(Exception):
-            JobDefaults(strikethrough_offset=-0.1)
+            JobDefaults(strikethrough_offset_fraction=-0.1)
         assert JobDefaults().strikethrough_break_spaces is None
         assert JobDefaults(strikethrough_break_spaces=True).strikethrough_break_spaces is True
         assert JobDefaults(strikethrough_break_spaces=False).strikethrough_break_spaces is False
@@ -382,10 +389,9 @@ class TestJobDefaultsModel:
         with pytest.raises(Exception):
             JobDefaults(target_boldness_factor=0.31)
         assert JobDefaults().multistroke_overlap_ratio is None
-        assert (
-            JobDefaults(multistroke_overlap_ratio=0.35).multistroke_overlap_ratio
-            == pytest.approx(0.35)
-        )
+        assert JobDefaults(
+            multistroke_overlap_ratio=0.35
+        ).multistroke_overlap_ratio == pytest.approx(0.35)
         assert JobDefaults(multistroke_overlap_ratio=0.1).multistroke_overlap_ratio == 0.1
         assert JobDefaults(multistroke_overlap_ratio=0.5).multistroke_overlap_ratio == 0.5
         with pytest.raises(Exception):
@@ -484,20 +490,20 @@ class TestApplyJobConfigDefaults:
         assert filled["min_hole_margin"] == 0.05
         assert filled["hole_text_collision_distance"] == 0.1
         assert filled["space_width_fraction"] == 0.35
-        assert filled["min_glyph_width"] == 0.02
+        assert filled["min_glyph_width_fraction"] == 0.02
         assert filled["kerning_window_fraction"] == 0.15
         assert filled["kerning_penetration_scale"] == 1.5
         assert filled["kerning_recession_scale"] == 0.0
-        assert filled["kerning_min_gap"] == 0.05
+        assert filled["kerning_min_gap_fraction"] == 0.05
         assert filled["fallback_advance_fraction"] == 0.9
         assert filled["sc_scale"] == 0.45
         assert filled["supersubscript_downscale"] == 0.6
         assert filled["html_brackets"] == "\u00ab\u00bb"
         assert filled["italic_angle"] == 20.0
-        assert filled["underline_offset"] == 0.08
-        assert filled["underline_break_clearance"] == 0.12
+        assert filled["underline_offset_fraction"] == 0.08
+        assert filled["underline_break_clearance_fraction"] == 0.12
         assert filled["underline_break_spaces"] is True
-        assert filled["strikethrough_offset"] == 0.22
+        assert filled["strikethrough_offset_fraction"] == 0.22
         assert filled["strikethrough_break_spaces"] is True
         assert filled["target_boldness_factor"] == 0.18
         assert filled["multistroke_overlap_ratio"] == 0.35
@@ -1051,23 +1057,24 @@ class TestParseYamlWithJobConfig:
         assert job.min_hole_margin == 0.1875
         assert job.hole_text_collision_distance == 0.1
         assert job.space_width_fraction == 0.6
-        assert job.min_glyph_width == 0.06
+        assert job.min_glyph_width_fraction == 0.14
         assert job.kerning_window_fraction == 0.01
         assert job.kerning_penetration_scale == 1.0
         assert job.kerning_recession_scale == 0.0
-        assert job.kerning_min_gap == 0.02
+        assert job.kerning_min_gap_fraction == 0.045
         assert job.fallback_advance_fraction == 1.0
         assert job.sc_scale == 0.8
         assert job.supersubscript_downscale == 0.6
         assert job.html_brackets == "<>"
         assert job.italic_angle == 12.0
-        # Shop-tuned in 3caa21b (0.05 -> 0.02): the underline rides closer to
-        # the baseline; tests/AGENTS.md stale-pin pattern - re-pin, keep config.
-        assert job.underline_offset == 0.02
-        assert job.underline_break_clearance == 0.1
+        # Cap-height fractions (the unitless migration): 0.18/0.45 are the
+        # old 0.08in/0.2in shop values divided by the typical 0.44in cap,
+        # rounded. tests/AGENTS.md stale-pin pattern - re-pin, keep config.
+        assert job.underline_offset_fraction == 0.18
+        assert job.underline_break_clearance_fraction == 0.45
         assert job.underline_break_spaces is False
         # The shop ships the mid-cap strike (null) and a continuous stroke.
-        assert job.strikethrough_offset is None
+        assert job.strikethrough_offset_fraction is None
         assert job.strikethrough_break_spaces is False
         assert job.target_boldness_factor == 0.14
         assert job.multistroke_overlap_ratio == 0.25

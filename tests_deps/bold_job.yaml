@@ -15,7 +15,8 @@
 # to keep the engraved silhouette inside the box the plain glyph occupies. The
 # nominal text height (and therefore the cutter-independent vertical fit math)
 # is untouched, and the kerning clearance becomes per-pair
-# `0.5 * (cutter_left + cutter_right) + character_spacing + kerning_min_gap`,
+# `0.5 * (cutter_left + cutter_right) + character_spacing +
+# kerning_min_gap_fraction * cap height`,
 # the exact engraved-stroke floor of the two strokes.
 #
 # Against the test inventory

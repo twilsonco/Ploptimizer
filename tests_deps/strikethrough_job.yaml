@@ -1,4 +1,4 @@
-# Fixture for inline strikethrough markup (`strikethrough_offset`,
+# Fixture for inline strikethrough markup (`strikethrough_offset_fraction`,
 # `strikethrough_break_spaces`, the `<s>` tag).
 #
 # `<s>` draws ONE continuous centerline stroke with the line's own text cutter,
@@ -9,8 +9,11 @@
 # the line stays whole ("like underline, except no breaks in the line").
 #
 # The height is a typography property, uniform for the whole line:
-# `strikethrough_offset` is the height in inches ABOVE the baseline (0.0 = the
-# stroke sits on the baseline), and `null`/unset centres the stroke on the
+# `strikethrough_offset_fraction` is the height as a fraction of the rendered
+# cap height (`toolpath_text_height` = capline - baseline) ABOVE the baseline
+# (0.0 = the
+# stroke sits on the baseline, 1.0 = on the capline), and `null`/unset centres
+# the stroke on the
 # **cap-band midline** -- half the rendered cap height (`toolpath_text_height`).
 # At text_height 0.5 with the default cutter the toolpath height is 0.44, so
 # the unset strike engraves at y = +0.22, inside the cap band: the line's ink
@@ -80,12 +83,13 @@ job:
       content:
         - text: "<s>AVX</s>"
 
-    # 5. strikethrough_offset 0.0 puts the stroke ON the baseline: the caps sit
+    # 5. strikethrough_offset_fraction 0.0 puts the stroke ON the baseline:
+    #    the caps sit
     #    on the baseline too, so the block's floor stays at y = 0 (the stroke
     #    coincides with the baseline, it never hangs below it).
     - id: plt_offset_zero
       font: Dino
-      strikethrough_offset: 0.0
+      strikethrough_offset_fraction: 0.0
       content:
         - text: "<s>AVX</s>"
 
@@ -95,11 +99,13 @@ job:
       content:
         - text: "AVX"
 
-    # 6. strikethrough_offset 0.9 lifts the stroke ABOVE the capline, so the
-    #    block grows upward (the stroke is ink, and it counts for the margins).
+    # 6. strikethrough_offset_fraction 2.0 lifts the stroke to twice the cap
+    #    height (0.88in at the fixture's 0.44in cap), ABOVE the capline, so
+    #    the block grows upward (the stroke is ink, and it counts for the
+    #    margins).
     - id: plt_offset_high
       font: Dino
-      strikethrough_offset: 0.9
+      strikethrough_offset_fraction: 2.0
       content:
         - text: "<s>AVX</s>"
 

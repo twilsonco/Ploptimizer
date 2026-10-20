@@ -7,9 +7,12 @@ every line decoration -- the underline and the ``<s>`` strikethrough (which
 needs the runs alone: it engraves them unbroken, so none of the gap-cutting
 geometry below applies to it).
 An underline is a **centerline stroke cut with the line's own text cutter**:
-its centerline sits ``cutter_diameter + underline_offset`` inches below the
-baseline (so the engraved underline's top edge floats exactly
-``underline_offset`` below the engraved baseline stroke -- the two strokes
+its centerline sits ``cutter_diameter + underline_offset_inches`` below the
+baseline (``underline_offset_inches`` is the cascaded
+``underline_offset_fraction`` times the line's cap height, resolved by the
+caller; so the engraved underline's top edge floats exactly
+``underline_offset_inches`` below the engraved baseline stroke -- the two
+strokes
 touch at ``0.0``), and it spans each maximal underlined run's ink width
 (the first glyph's bounding-box left edge to the last glyph's right edge).
 
@@ -17,7 +20,8 @@ The TODO contract is *minimal breaking*: a **descending** glyph cuts a gap
 into the underline where it crosses *through* it. The test is **strictly
 horizontal** and keyed to the underline's **centerline**: a glyph breaks the
 underline only where its ink crosses the centerline ``line_y``, inside a thin
-band of ``+/- BAND_TOLERANCE_FRACTION * underline_break_clearance`` around it
+band of ``+/- BAND_TOLERANCE_FRACTION * underline_break_clearance_inches``
+around it
 (so a glyph whose ink stops a hair short of the centerline still cuts, while
 ink above it never does). Ink beside the underline (a cap's stem, a neighbour)
 and ink that dips *below* the underline without crossing its centerline (a
@@ -30,7 +34,8 @@ whole bowl below the underline, so the break swallows the glyph's full width
 instead of just the stem that crosses through.
 
 The break interval is the X-extent of the ink inside the centerline band,
-padded by ``0.5 * cutter + underline_break_clearance`` on each side: the half
+padded by ``0.5 * cutter + underline_break_clearance_inches`` on each side:
+the half
 cutter is the glyph stroke's own half-width (the ink is a CENTERLINE, so a
 vertical descender engraves a stroke one cutter wide and the underline must
 break by that much), and the clearance is the engraved air left at each cut
@@ -38,7 +43,8 @@ edge. A hook that crosses the centerline twice (a ``g``) cuts one gap per
 crossing, so the underline shows the stem, not the whole glyph.
 
 The resulting rule is intuitive: a glyph breaks the underline where its ink
-crosses the centerline (``line_y = -(cutter + underline_offset)``), so the
+crosses the centerline (``line_y = -(cutter + underline_offset_inches)``),
+so the
 **offset** alone decides *which* glyphs break (the deeper the underline, the
 fewer), and the **clearance** alone decides the air at each break. Neither knob
 can cause a break the other one prevents.
@@ -47,7 +53,8 @@ The **offset** is *air* (edge-to-edge) and lives in the centerline
 **position** only -- it must stay out of the trigger. Were the trigger
 ``cutter + offset`` too, the offset cancelled out of the collision test (a
 glyph collides iff its ink dips below the baseline, at *any* offset), so
-raising ``underline_offset`` could never prevent a break -- the reported bug
+raising ``underline_offset_fraction`` could never prevent a break -- the
+reported bug
 where caps punched gaps no matter how deep the underline was set.
 
 Design guarantees (mirroring ``markup.py`` / ``descender_adjust.py``):
@@ -77,7 +84,8 @@ __all__ = [
 _INTERVAL_MERGE_TOLERANCE: float = 0.5 / 1016.0
 
 # How far ABOVE and BELOW the underline's centerline the trigger band reaches,
-# as a fraction of ``underline_break_clearance``. The breaks exist for glyphs
+# as a fraction of ``underline_break_clearance_inches``. The breaks exist
+# for glyphs
 # that cross the underline, so the band is a thin strip on the centerline; the
 # small reach lets a glyph whose ink stops a hair short of the centerline cut
 # too, while a shallow graze of the underline's lower half (a ``g`` bowl

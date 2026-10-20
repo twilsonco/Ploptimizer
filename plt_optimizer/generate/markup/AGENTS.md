@@ -168,12 +168,15 @@ rebuilding raw markup.
   (`tests/test_resolution.py`) and `TestHtmlBracketsField` /
   `TestItalicAngleField` (`tests/test_schema.py`).
 
-### Inline Underline (`underline_offset`, `underline_break_clearance`, `underline_break_spaces`, `<u>`)
+### Inline Underline (`underline_offset_fraction`, `underline_break_clearance_fraction`, `underline_break_spaces`, `<u>`)
 
 `<u>...</u>` is the second shipped markup tag: it draws an underline with the
 line's **own text cutter** as a centerline stroke. The centerline sits
-`cutter_diameter + underline_offset` inches below the baseline, so the engraved
-underline's **top edge floats exactly `underline_offset`** below the engraved
+`cutter_diameter + underline_offset_fraction * cap height` below the baseline
+(cap height = `toolpath_text_height` = capline − baseline; the fraction
+resolves to inches through the derived
+`ResolvedTextLine.underline_offset_inches`), so the engraved
+underline's **top edge floats exactly `fraction * cap height`** below the engraved
 baseline stroke (`0.0` = the two strokes touch, the classic underline). The
 font's own underline metrics are deliberately never consulted — the PLT-style
 geometry is the single contract for both families (TTF parity by construction).
@@ -188,37 +191,49 @@ geometry is the single contract for both families (TTF parity by construction).
   underline's top edge) is *also wrong*: a `g`'s open J-hook dips its whole
   bowl below the underline, so the break swallows the glyph's full width
   instead of just the stem that crosses through. The trigger is a thin band on
-  the centerline `line_y`, reaching `0.2 * underline_break_clearance` above
+  the centerline `line_y`, reaching `0.2 * underline_break_clearance_inches`
+  above
   and below it (`BAND_TOLERANCE_FRACTION`) so a glyph stopping a hair short of
   the centerline still cuts. **A glyph breaks the underline where its ink
-  crosses the centerline — i.e. dips more than `cutter + underline_offset`
+  crosses the centerline — i.e. dips more than `cutter +
+  underline_offset_fraction * cap height`
   below the baseline** — so the **offset** alone decides *which* glyphs break,
   and the **clearance** alone decides the air at each break. Folding the offset
   into the trigger cancels it out of the test (a glyph breaks iff its ink dips
-  below the baseline at *any* offset), so raising `underline_offset` could
+  below the baseline at *any* offset), so raising `underline_offset_fraction`
+  could
   never stop a break — the earlier bug where caps punched gaps no matter how
   deep the underline was set.
-- **`underline_offset`** (`ge=0.0`, default `None` → **0.0**; explicit `0.0`
+- **`underline_offset_fraction`** (`ge=0.0`, default `None` → **0.0**; explicit
+  `0.0`
   honored, only `None` means unset) cascades line → label → job (plate parity,
   `job-config.json` shop default, `JobDefaults` key, not
-  `REQUIRED_WHEN_UNCONFIGURED`). It sets the centerline depth
-  `cutter_diameter + underline_offset` (the offset is edge-to-edge air) and so
+  `REQUIRED_WHEN_UNCONFIGURED`). The value is a **unitless factor of the
+  rendered cap height** (capline − baseline): it sets the centerline depth
+  `cutter_diameter + fraction * cap height` (the offset is edge-to-edge air,
+  uniform for every run of the line — never word to word) and so
   the break threshold: glyphs crossing the centerline (dipping past
-  `cutter + underline_offset` below the baseline) break the underline,
+  `cutter + fraction * cap height` below the baseline) break the underline,
   everything above stays whole. `0.0` = the underline's top edge
   touches the baseline stroke.
-- **`underline_break_clearance`** (`ge=0.0`, default `None` → **0.0**; explicit
+- **`underline_break_clearance_fraction`** (`ge=0.0`, default `None` →
+  **0.0**; explicit
   `0.0` honored, only `None` means unset) cascades line → label → job (plate
-  parity, `job-config.json` shop default **0.1**, `JobDefaults` key, not
-  `REQUIRED_WHEN_UNCONFIGURED`). It is the **air at each break**: every cut is
-  padded horizontally by `0.5 * cutter + clearance` (the half cutter is the
+  parity, `job-config.json` shop default, `JobDefaults` key, not
+  `REQUIRED_WHEN_UNCONFIGURED`). The value is a **unitless factor of the
+  rendered cap height** (capline − baseline, resolved through the derived
+  `ResolvedTextLine.underline_break_clearance_inches`): it is the **air at
+  each break**: every cut is
+  padded horizontally by `0.5 * cutter + fraction * cap height` (the half
+  cutter is the
   glyph stroke's own half-width — the ink is a centerline — so a vertical
   descender engraves a one-cutter-wide stroke and the gap is `cutter +
   2 * clearance`), so the engraved air between a descending glyph's stroke and
   the underline's cut edge equals the clearance (`0.0` = the cut sits at the
-  ink). The **code** fallback is `0.0` (`DEFAULT_UNDERLINE_BREAK_CLEARANCE`,
+  ink). The **code** fallback is `0.0`
+  (`DEFAULT_UNDERLINE_BREAK_CLEARANCE_FRACTION`,
   keeping bare-API/test callers bit-identical); `job-config.json` ships the
-  shop default **0.1**. It is a *trigger*, never a position: it never moves
+  shop default. It is a *trigger*, never a position: it never moves
   the centerline, the block's floor, the cutter, the pen map, or the file
   names, and it cannot cause a break the offset prevents.
 - **`underline_break_spaces`** (`bool`, default `None` → **false**; explicit
@@ -280,8 +295,9 @@ geometry is the single contract for both families (TTF parity by construction).
 - Fixture: `tests_deps/underline_job.yaml` (pinned by
   `tests/test_phase3_export.py::TestUnderlineDemoExample`) — PLT underline
   (`p`/`g` punch gaps, block unchanged) vs its plain twin, caps (tangent, one
-  segment, block grows), `underline_offset: 0.1` (deeper centerline),
-  `underline_break_clearance: 0.05` (`pay`) vs its clearance-0.0 control,
+  segment, block grows), `underline_offset_fraction: 0.25` (deeper centerline),
+  `underline_break_clearance_fraction: 0.1` (`pay`) vs its clearance-0.0
+  control,
   nested `<i>nested <u>markup</u> tail</i>` (shears all, underlines the run) vs
   its italic-only control, two runs, a partial run, the TTF pair, small caps,
   and a multi-word run (`<u>hello world</u>`) continuous vs
@@ -350,7 +366,8 @@ precedent). No tag args ship: the parser's reserved `name:args` form keeps
 - **Per-pair kerning floor.** `_walk_line` gained keyword-only
   `cutter_diameters` (per character, spaces included) + `glyph_scales`; each
   kerned pair's clearance becomes `0.5 * (diameter_left + diameter_right) +
-  character_spacing + kerning_min_gap` -- the exact engraved-stroke floor of
+  character_spacing + kerning_min_gap_fraction * cap height` -- the exact
+  engraved-stroke floor of
   the two strokes, parity with the `0.5 * (a + b)` collision floors elsewhere
   (a bold neighbour widens the pair). The scaled silhouette is what kerns
   (applied before `kerning_offset`, the SC/italic contract). `None` kwargs
@@ -391,7 +408,8 @@ precedent). No tag args ship: the parser's reserved `name:args` form keeps
   strictly needs, which can never engrave a collision.
 - **Underline runs split at cutter boundaries** (`_split_runs_at_cutter`): the
   underline is cut with the RUN's own tool, so a bold run's centerline sits
-  `bold_cutter + underline_offset` below the baseline (deeper, because the
+  `bold_cutter + underline_offset_fraction * cap height` below the baseline
+  (deeper, because the
   thicker tool's stroke starts lower) and its strokes join that tool's pen. One
   underline cannot span two tools, hence the split (the general form of the
   old bold-only split; a scaled run's centerline sits one effective-height
@@ -678,7 +696,7 @@ current baseline, `1` = the capline, `-1` = one cap height below) and applies
   argumented reflow round-trips (`tests/test_line_content.py`), and the
   `supersubscript_downscale` job-config key tests (`tests/test_job_config.py`).
 
-### Inline Strikethrough (`strikethrough_offset`, `strikethrough_break_spaces`, `<s>`)
+### Inline Strikethrough (`strikethrough_offset_fraction`, `strikethrough_break_spaces`, `<s>`)
 
 `<s>...</s>` is the seventh shipped markup tag: the wrapped characters get a
 **horizontal centerline stroke through the middle of the text**, cut with the
@@ -688,17 +706,23 @@ punches *through* it instead of breaking it (the TODO's "like underline, except
 no breaks in the line"). No `underline.py` geometry is reused: no gap cutting,
 no clearance, no trigger band.
 
-- **The height is a typography property, uniform per line.** The new cascading
-  `strikethrough_offset` (`ge=0.0`) is the stroke's height in inches **above**
-  the baseline (`0.0` = the stroke sits on the baseline, honored); **`None`
+- **The height is a typography property, uniform per line.** The cascading
+  `strikethrough_offset_fraction` (`ge=0.0`) is the stroke's height as a
+  **unitless factor of the rendered cap height** (capline − baseline)
+  **above**
+  the baseline (`0.0` = the stroke sits on the baseline, `1.0` = on the
+  capline, honored); **`None`
   (the default) centres the stroke on the cap-band midline** — half the line's
   `toolpath_text_height` (the per-font cap height, the same cap basis as the
   `<sup>`/`<sub>` shift) — the classic mid-height strike.
   `ResolvedTextLine.strikethrough_cap` is the single Y rule the renderer draws
-  with. Cascades line → label → job (plate parity, `job-config.json` shop
+  with (it multiplies the fraction by `toolpath_text_height` at consumption,
+  so the height tracks the CURRENT cap height across a cutter downsize).
+  Cascades line → label → job (plate parity, `job-config.json` shop
   default, `JobDefaults` key, not `REQUIRED_WHEN_UNCONFIGURED`). This is the
   opposite shape from the underline, whose depth is *per run* cutter-driven
-  (`-(cutter + underline_offset)`) — the strike's height encodes no cutter.
+  (`-(cutter + underline_offset_inches)`) — the strike's height encodes no
+  cutter.
 - **At mid-cap the ink box is unchanged.** The stroke spans the run's own glyph
   bounding boxes at a height the caps already reach, so a mid-cap strike leaves
   the line's rendered bounds (and `measure_line_natural_width`) **identical**
@@ -741,7 +765,8 @@ no clearance, no trigger band.
   strike never introduces a tool of its own.
 - **The pen split identifies a strike stroke by its SPAN, not its depth.**
   `_stroke_cutter_map` recovers an underline stroke's cutter from its centerline
-  Y (`-y - underline_offset`), which works precisely because the underline's
+  Y (`-y - underline_offset_inches`), which works precisely because the
+  underline's
   depth encodes its tool. A strike stroke's Y is cutter-independent, so the
   depth heuristic would recover garbage and key a spurious pen layer; instead
   `_strikethrough_run_cutters` recomputes each run's `(x_min, x_max, cutter)`
@@ -762,7 +787,8 @@ no clearance, no trigger band.
   `TestStrikethroughDemoExample`) — the mid-cap strike vs its plain twin (the
   ink box identical) and vs its **underline twin** on the same `Depth` glyphs
   (the underline breaks into ≥2 segments, the strike stays one), caps,
-  `strikethrough_offset: 0.0` (on the baseline) vs `0.9` (above the capline,
+  `strikethrough_offset_fraction: 0.0` (on the baseline) vs `2.0` (above the
+  capline,
   the block grows), a continuous multi-word run vs `strikethrough_break_spaces:
   true` (the space stays bare), nested `<i>nested <s>markup</s> tail</i>` vs its
   italic-only control, two runs, the idempotent `<s>a<s>b</s>c</s>`, the `<b>`
@@ -944,7 +970,8 @@ authored on its own (the `<scale:N>` contract), so it lands on its own pen /
   stripped, the run's ladder cutter / toolpath height / bold rung applied) and
   is placed on a running cursor. The boundary advance is the **bounding-box
   rule** (previous ink's right edge + `0.5*(d_L + d_R) + character_spacing +
-  kerning_min_gap`) — a TTF glyph carries no envelopes, so an exact silhouette
+  kerning_min_gap_fraction`) — a TTF glyph carries no envelopes, so an exact
+  silhouette
   kern across a TTF boundary is not computable; the rule is conservative
   (accepted, documented). A run of spaces is its own segment: it advances by
   the walk's space width and breaks kerning. Word groups concatenate with

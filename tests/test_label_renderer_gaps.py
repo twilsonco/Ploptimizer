@@ -1075,7 +1075,7 @@ class TestFontSegmentComposition:
 
         A PLT base with a TTF run: the fake renders return fixed-width blocks,
         so the composed bounds pin the bbox + stroke-floor boundary advance
-        (0.5 * (cutter_L + cutter_R) + character_spacing + kerning_min_gap).
+        (0.5 * (cutter_L + cutter_R) + character_spacing + kerning_min_gap_fraction).
         """
         blocks = {"plt": _stroke_block(0.0, 1.0), "ttf": _stroke_block(0.0, 0.5)}
 
@@ -1112,7 +1112,7 @@ class TestFontSegmentComposition:
         # Segment 1: the Dino 'a' at x = 0..1. Segment 2 (the TTF run) lands at
         # the previous ink's right edge + the engraved-stroke floor
         # 0.5 * (0.06 + 0.06) = 0.06 (no space between the segments, and
-        # character_spacing / kerning_min_gap are 0 on this line).
+        # character_spacing / kerning_min_gap_fraction are 0 on this line).
         expected_x = 1.0 + 0.06
         assert bounds[0] == pytest.approx(0.0)
         assert bounds[2] == pytest.approx(expected_x + 0.5, abs=1e-9)
