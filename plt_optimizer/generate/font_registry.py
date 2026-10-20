@@ -38,12 +38,13 @@ for the per-family transforms). The variant shares the base's kind (PLT
 variants stay arc-native, TTF variants render through ftext).
 
 Fonts that engrave **symbols** rather than letters (e.g. Wingdings) are
-listed in ``fonts/VP-EL-fonts/non_text_fonts.txt`` (see
-:data:`NON_TEXT_FONTS_FILE` / :func:`non_text_font_names`). A listed base
-font is exempt from the synthetic small-caps variant (no ``"<base> SC"``
-key), from derived-Unicode glyph creation in ``fonts/extract_plt_fonts.py``,
-and from the Unicode line in ``scripts/font_showcase.py``; the base font
-itself stays fully selectable.
+extracted from a sample sheet whose file name carries a trailing ``_sym``
+(or ``_symbol``) suffix, which ``fonts/extract_plt_fonts.py`` stores as the
+catalog file's ``symbol_font`` boolean (see :func:`plt_font_is_symbol`). A
+symbol font is exempt from the synthetic small-caps variant (no
+``"<base> SC"`` key), from derived-Unicode glyph creation in
+``fonts/extract_plt_fonts.py``, and from the Unicode line in
+``scripts/font_showcase.py``; the base font itself stays fully selectable.
 
 Matching is case-insensitive and resolves to the canonical stored name, so
 ``"dino"`` and ``"DINO"`` both yield ``"Dino"``.
@@ -56,7 +57,7 @@ import logging
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -81,14 +82,6 @@ SMALL_CAPS_SUFFIX: str = "SC"
 
 # Canonical separator between a base font name and :data:`SMALL_CAPS_SUFFIX`.
 _SMALL_CAPS_SEPARATOR: str = " "
-
-# "Non-text" (symbol) fonts -- one font name per line, matched
-# case-insensitively; blank lines and ``#`` comments are ignored. A listed
-# base font is exempt from the synthetic ``"<base> SC"`` variant (see
-# :func:`_canonical_map`), from derived-Unicode glyph creation in
-# ``fonts/extract_plt_fonts.py``, and from the Unicode line in
-# ``scripts/font_showcase.py``. A missing file means no exemptions.
-NON_TEXT_FONTS_FILE: Path = FONTS_DIR / "VP-EL-fonts" / "non_text_fonts.txt"
 
 
 class FontNotFoundError(ValueError):
@@ -197,6 +190,12 @@ class PltFontData:
             stored glyphs already contain all N engraved passes, so the
             renderer emits them verbatim and the count drives automatic
             cutter sizing only.
+        symbol_font: True when the sample sheet's file name carried a
+            trailing ``_sym``/``_symbol`` suffix (Wingdings etc.): the ASCII
+            slots engrave **symbols**, so the font is exempt from the
+            synthetic ``"<base> SC"`` variant, from derived-Unicode glyph
+            recipes, and from the showcase's Unicode line. Libraries written
+            before the suffix convention carry no key and read as ``False``.
     """
 
     characters: Dict[str, PltGlyphEntry]
@@ -205,6 +204,7 @@ class PltFontData:
     reference_char_height_in: Optional[float] = None
     normalized_ref_height: float = 1.0
     stroke_count: int = 1
+    symbol_font: bool = False
 
 
 def _parse_bounding_box(raw: object) -> Optional[Tuple[float, float, float, float]]:
@@ -337,6 +337,7 @@ def _parse_font_data(name: str, raw: object, path: Path) -> Optional[PltFontData
         reference_char_height_in=_opt_float("reference_char_height_in"),
         normalized_ref_height=normalized_ref_height,
         stroke_count=_parse_stroke_count(name, path, raw.get("stroke_count")),
+        symbol_font=_parse_symbol_font(name, path, raw.get("symbol_font")),
     )
 
 
@@ -369,6 +370,29 @@ def _parse_stroke_count(name: str, path: Path, raw: Any) -> int:
         logger.warning("PLT font %r in %s has stroke_count %r below 1; using 1", name, path, raw)
         return 1
     return count
+
+
+def _parse_symbol_font(name: str, path: Path, raw: Any) -> bool:
+    """Parse a font's ``symbol_font`` metadata leniently.
+
+    Args:
+        name: The font key (for logging).
+        path: Library path (for logging).
+        raw: The raw JSON value for the ``symbol_font`` key.
+
+    Returns:
+        True only for a JSON ``true``; False when absent, malformed, or
+        non-boolean - libraries written before the ``_sym`` file-name
+        convention simply carry no key.
+    """
+    if raw is None:
+        return False
+    if not isinstance(raw, bool):
+        logger.warning(
+            "PLT font %r in %s has non-boolean symbol_font %r; using False", name, path, raw
+        )
+        return False
+    return raw
 
 
 @lru_cache(maxsize=8)
@@ -451,38 +475,6 @@ def _small_caps_canonical(name: str) -> str:
     return f"{name}{_SMALL_CAPS_SEPARATOR}{SMALL_CAPS_SUFFIX}"
 
 
-@lru_cache(maxsize=8)
-def non_text_font_names(non_text_file: Optional[Path] = None) -> frozenset[str]:
-    """Read the "non-text" (symbol) font exemption list.
-
-    Symbol fonts engrave their ASCII slots with symbols, so the derived-
-    Unicode recipes, the showcase's Unicode line, and the small-caps
-    transform make no sense for them. The list lives in
-    :data:`NON_TEXT_FONTS_FILE`: one font name per line, matched
-    case-insensitively; blank lines and ``#`` comments (full-line or
-    trailing) are ignored.
-
-    Args:
-        non_text_file: Optional override for the list file (used by tests).
-
-    Returns:
-        Lowercased font names. Empty when the file is missing (no
-        exemptions); an unreadable file logs a WARNING and yields no
-        exemptions.
-    """
-    path = non_text_file if non_text_file is not None else NON_TEXT_FONTS_FILE
-    if not path.is_file():
-        return frozenset()
-    try:
-        raw = path.read_text(encoding="utf-8")
-    except OSError as exc:
-        logger.warning("Non-text font list %s could not be read (%s); ignoring it", path, exc)
-        return frozenset()
-    names = {line.split("#", 1)[0].strip().lower() for line in raw.splitlines()}
-    names.discard("")
-    return frozenset(names)
-
-
 # Filename stems probed (case-insensitively) next to a TTF for its native
 # italic face. ``<stem>-Italic``/``<stem>Italic`` are the family naming
 # convention (``Foo-Italic.ttf`` next to ``Foo.ttf``); ``Oblique`` is the
@@ -553,7 +545,6 @@ def base_font_name(name: str) -> str:
 def _canonical_map(
     plt_fonts: Dict[str, PltFontData],
     ttfs: Dict[str, Path],
-    non_text: frozenset[str] = frozenset(),
 ) -> Dict[str, tuple[FontKind, str, str, bool]]:
     """Build the case-insensitive index of base and small-caps font names.
 
@@ -562,37 +553,30 @@ def _canonical_map(
     cross-family collision (the historical default family is TTF). Every
     base font contributes a synthetic ``"<base> SC"`` variant of the same
     kind; variants are inserted with ``setdefault`` after all bases, so a
-    real font literally named ``"Foo SC"`` always wins its name. Bases
-    listed in ``non_text" (lowercased, see
-    :func:`non_text_font_names`) contribute **no** small-caps variant --
-    symbol fonts have no lowercase to shrink.
+    real font literally named ``"Foo SC"`` always wins its name. PLT bases
+    whose catalog entry sets ``symbol_font`` contribute **no** small-caps
+    variant -- symbol fonts have no lowercase to shrink.
 
     Args:
         plt_fonts: Loaded PLT catalog (name -> data).
         ttfs: Discovered TrueType fonts (basename -> path).
-        non_text: Lowercased names of exempt symbol fonts; their names are
-            logged at DEBUG when they match no base (a typo costs nothing
-            but deserves a trace).
     """
     index: Dict[str, tuple[FontKind, str, str, bool]] = {}
     for name in plt_fonts:
         index[name.lower()] = ("plt", name, name, False)
     for name in ttfs:
         index[name.lower()] = ("ttf", name, name, False)
-    families: tuple[tuple[FontKind, Iterable[str]], ...] = (("plt", plt_fonts), ("ttf", ttfs))
-    for kind, names in families:
-        for name in names:
-            if name.lower() in non_text:
-                continue
-            index.setdefault(
-                f"{name.lower()}{_SMALL_CAPS_SEPARATOR}{SMALL_CAPS_SUFFIX.lower()}",
-                (kind, _small_caps_canonical(name), name, True),
-            )
-    known = {name.lower() for name in plt_fonts} | {name.lower() for name in ttfs}
-    for listed in sorted(non_text - known):
-        logger.debug(
-            "Non-text font list entry %r matches no catalog font; it has no effect",
-            listed,
+    for name, data in plt_fonts.items():
+        if data.symbol_font:
+            continue
+        index.setdefault(
+            f"{name.lower()}{_SMALL_CAPS_SEPARATOR}{SMALL_CAPS_SUFFIX.lower()}",
+            ("plt", _small_caps_canonical(name), name, True),
+        )
+    for name in ttfs:
+        index.setdefault(
+            f"{name.lower()}{_SMALL_CAPS_SEPARATOR}{SMALL_CAPS_SUFFIX.lower()}",
+            ("ttf", _small_caps_canonical(name), name, True),
         )
     return index
 
@@ -600,25 +584,21 @@ def _canonical_map(
 def font_name_choices(
     library_dir: Optional[Path] = None,
     fonts_dir: Optional[Path] = None,
-    non_text_file: Optional[Path] = None,
 ) -> List[str]:
     """Return every valid ``font`` value, sorted case-insensitively.
 
     Args:
         library_dir: Optional PLT font catalog directory override.
         fonts_dir: Optional Fonts root override.
-        non_text_file: Optional non-text font list override (fonts listed
-            there get no ``"<base> SC"`` variant).
 
     Returns:
         Canonical font names (catalog ``font_name`` keys + TTF basenames,
         plus the synthetic ``"<base> SC"`` small-caps variants of every
-        non-exempt base), deduplicated and sorted.
+        non-symbol base), deduplicated and sorted.
     """
     index = _canonical_map(
         load_plt_fonts(library_dir),
         available_ttf_fonts(fonts_dir),
-        non_text_font_names(non_text_file),
     )
     return sorted({canonical for _kind, canonical, _base, _sc in index.values()}, key=str.lower)
 
@@ -627,7 +607,6 @@ def resolve_font(
     name: str,
     library_dir: Optional[Path] = None,
     fonts_dir: Optional[Path] = None,
-    non_text_file: Optional[Path] = None,
 ) -> FontRef:
     """Resolve a user-supplied font name to a :class:`FontRef`.
 
@@ -635,16 +614,14 @@ def resolve_font(
     the canonical stored name. A ``"<base> SC"`` request resolves to the
     base font's kind/path with :attr:`FontRef.small_caps` set -- the
     variant is a render-time transform of the base, never a stored font.
-    A ``"<base> SC"`` request for a base on the non-text font list is
-    unknown (no variant is synthesized for symbol fonts).
+    A ``"<base> SC"`` request for a ``symbol_font`` base is unknown (no
+    variant is synthesized for symbol fonts).
 
     Args:
         name: Requested font name (e.g. ``"dino"``, ``"Dino SC"`` or
             ``"ReliefSingleLineCAD-Regular"``).
         library_dir: Optional PLT font catalog directory override.
         fonts_dir: Optional Fonts root override.
-        non_text_file: Optional non-text font list override (fonts listed
-            there get no ``"<base> SC"`` variant).
 
     Returns:
         The resolved reference.
@@ -653,15 +630,14 @@ def resolve_font(
         FontNotFoundError: If no font matches ``name``.
     """
     if not name or not name.strip():
-        raise FontNotFoundError(name, font_name_choices(library_dir, fonts_dir, non_text_file))
+        raise FontNotFoundError(name, font_name_choices(library_dir, fonts_dir))
     index = _canonical_map(
         load_plt_fonts(library_dir),
         available_ttf_fonts(fonts_dir),
-        non_text_font_names(non_text_file),
     )
     entry = index.get(name.strip().lower())
     if entry is None:
-        raise FontNotFoundError(name, font_name_choices(library_dir, fonts_dir, non_text_file))
+        raise FontNotFoundError(name, font_name_choices(library_dir, fonts_dir))
     kind, canonical, base, small_caps = entry
     path = available_ttf_fonts(fonts_dir)[base] if kind == "ttf" else None
     return FontRef(
@@ -677,7 +653,6 @@ def normalize_font_name(
     name: str,
     library_dir: Optional[Path] = None,
     fonts_dir: Optional[Path] = None,
-    non_text_file: Optional[Path] = None,
 ) -> str:
     """Return the canonical form of ``name`` (case-insensitive lookup).
 
@@ -685,8 +660,6 @@ def normalize_font_name(
         name: Requested font name.
         library_dir: Optional PLT font catalog directory override.
         fonts_dir: Optional Fonts root override.
-        non_text_file: Optional non-text font list override (fonts listed
-            there get no ``"<base> SC"`` variant).
 
     Returns:
         The canonical font name.
@@ -694,7 +667,7 @@ def normalize_font_name(
     Raises:
         FontNotFoundError: If no font matches ``name``.
     """
-    return resolve_font(name, library_dir, fonts_dir, non_text_file).name
+    return resolve_font(name, library_dir, fonts_dir).name
 
 
 def plt_font_stroke_count(name: str, library_dir: Optional[Path] = None) -> int:
@@ -723,6 +696,36 @@ def plt_font_stroke_count(name: str, library_dir: Optional[Path] = None) -> int:
         if font_name.lower() == base:
             return data.stroke_count
     return 1
+
+
+def plt_font_is_symbol(name: str, library_dir: Optional[Path] = None) -> bool:
+    """Return whether a PLT-extracted font is a **symbol** font.
+
+    Symbol fonts (e.g. Wingdings) engrave their ASCII slots with symbols, so
+    consumers exempt them from the derived-glyph recipes, the showcase's
+    Unicode line, and the `` SC`` small-caps transform. The flag comes from
+    the catalog's ``symbol_font`` metadata, which
+    ``fonts/extract_plt_fonts.py`` derives from the sample sheet's trailing
+    ``_sym``/``_symbol`` file-name suffix. Lookup is case-insensitive and
+    strips a trailing `` SC`` small-caps suffix (the variant renders from
+    the base library). Anything that is not a PLT library font - a TTF name,
+    an unknown name, a missing library - is a letter font (False): the symbol
+    convention is a PLT-extraction feature.
+
+    Args:
+        name: Font name (canonical, lowercase, or a ``"<base> SC"`` variant).
+        library_dir: Optional PLT font catalog directory override.
+
+    Returns:
+        True when the font's catalog entry sets ``symbol_font``.
+    """
+    if not name or not name.strip():
+        return False
+    base = base_font_name(name.strip()).lower()
+    for font_name, data in load_plt_fonts(library_dir).items():
+        if font_name.lower() == base:
+            return data.symbol_font
+    return False
 
 
 def plt_font_has_glyph(

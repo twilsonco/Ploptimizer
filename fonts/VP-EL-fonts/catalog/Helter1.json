@@ -2,6 +2,7 @@
   "font_name": "Helter1",
   "file_path": "fonts/VP-EL-fonts/input-plt/helter1_0.5_E_S1.plt",
   "stroke_count": 1,
+  "symbol_font": false,
   "reference_char": "E",
   "declared_height_in": 0.5,
   "reference_char_height_in": 0.507968,

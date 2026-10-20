@@ -2,6 +2,7 @@
   "font_name": "Gotland",
   "file_path": "fonts/VP-EL-fonts/input-plt/gotland_0.53_E_S1.plt",
   "stroke_count": 1,
+  "symbol_font": false,
   "reference_char": "E",
   "declared_height_in": 0.53,
   "reference_char_height_in": 0.53851,

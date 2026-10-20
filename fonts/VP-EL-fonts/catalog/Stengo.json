@@ -2,6 +2,7 @@
   "font_name": "Stengo",
   "file_path": "fonts/VP-EL-fonts/input-plt/stengo_0.52_E_S1.plt",
   "stroke_count": 1,
+  "symbol_font": false,
   "reference_char": "E",
   "declared_height_in": 0.52,
   "reference_char_height_in": 0.528363,

@@ -2,6 +2,7 @@
   "font_name": "Jhanuni",
   "file_path": "fonts/VP-EL-fonts/input-plt/jhanuni_0.6_E_S1.plt",
   "stroke_count": 1,
+  "symbol_font": false,
   "reference_char": "E",
   "declared_height_in": 0.6,
   "reference_char_height_in": 0.510013,

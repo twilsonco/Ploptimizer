@@ -2,6 +2,7 @@
   "font_name": "Claret4",
   "file_path": "fonts/VP-EL-fonts/input-plt/claret4_0.48_E_S4.plt",
   "stroke_count": 4,
+  "symbol_font": false,
   "reference_char": "E",
   "declared_height_in": 0.48,
   "reference_char_height_in": 0.48772,

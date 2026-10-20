@@ -69,8 +69,7 @@ from plt_optimizer.generate.descender_adjust import (
 from plt_optimizer.generate.font_registry import (
     FontNotFoundError,
     FontRef,
-    base_font_name,
-    non_text_font_names,
+    plt_font_is_symbol,
     resolve_font,
 )
 from plt_optimizer.generate.ftext_renderer import (
@@ -2828,10 +2827,11 @@ def _walk_small_caps_kwargs(
       ``lowercase_scale``/``lowercase_flags`` in that case).
 
     A character whose ``<f:...>`` font is a **symbol** font
-    (``non_text_fonts.txt``) is always excluded: a symbol font engraves
-    symbols in its ASCII slots and has no lowercase to shrink, so the
-    transform is inert there -- the same exemption the line-level gate applies
-    (the gate is per-line, so the per-character exclusion is applied here).
+    (``symbol_font`` in its catalog entry) is always excluded: a symbol font
+    engraves symbols in its ASCII slots and has no lowercase to shrink, so
+    the transform is inert there -- the same exemption the line-level gate
+    applies (the gate is per-line, so the per-character exclusion is applied
+    here).
 
     Empty dict when the line carries no font run, the base font is TTF (the
     segment composer handles that family), no run font is an SC variant, or
@@ -2856,7 +2856,6 @@ def _walk_small_caps_kwargs(
             return {}
     except FontNotFoundError:  # pragma: no cover - render surfaces the error
         return {}
-    non_text = non_text_font_names()
     gate_flags = small_caps_gate[1] if small_caps_gate is not None else ()
     flags: List[bool] = []
     changed = False
@@ -2870,7 +2869,7 @@ def _walk_small_caps_kwargs(
                 run_ref = None
             if run_ref is not None:
                 variant = run_ref.small_caps
-                symbol = base_font_name(run_ref.name).lower() in non_text
+                symbol = plt_font_is_symbol(run_ref.name)
         gate_flag = gate_flags[index] if index < len(gate_flags) else False
         flag = (variant or gate_flag) and not symbol
         flags.append(flag)
@@ -2961,10 +2960,11 @@ def _small_caps_render_gate(
       has no additional effect there -- the renderers keep the font-level
       whole-line selection (``lowercase_scale`` / ``small_caps_scale`` with
       no flags), bit-identical to the pre-tag behaviour;
-    * a **symbol font** (``fonts/VP-EL-fonts/non_text_fonts.txt``) engraves
-      symbols in its ASCII slots and is exempt from the `` SC`` variant
-      because it has no lowercase to shrink -- the same reasoning applies
-      inline, so the tag is a no-op.
+    * a **symbol font** (``symbol_font`` in its catalog entry, from the
+      sample sheet's ``_sym`` file-name suffix) engraves symbols in its
+      ASCII slots and is exempt from the `` SC`` variant because it has no
+      lowercase to shrink -- the same reasoning applies inline, so the tag
+      is a no-op.
 
     Args:
         line: The resolved text line.
@@ -2978,7 +2978,7 @@ def _small_caps_render_gate(
         return None
     if ref.small_caps:
         return None
-    if base_font_name(ref.name).lower() in non_text_font_names():
+    if plt_font_is_symbol(ref.name):
         return None
     return line.sc_scale, line.small_caps_flags
 

@@ -92,9 +92,10 @@ JobSpec (job-level defaults)
   ASCII bases through `fonts/glyph_transforms.py` (affine transforms with
   arc-sweep rules; bounding box and envelopes re-sampled from the
   transformed geometry), so they kern and render like engraved characters.
-  Fonts listed in `fonts/VP-EL-fonts/non_text_fonts.txt` (symbol fonts such
-  as `Wingdings`; the shared list is read by
-  `font_registry.non_text_font_names()`) engrave their ASCII slots with
+  Fonts extracted from a sample sheet whose name carries a trailing `_sym`/
+  `_symbol` suffix (symbol fonts such as `Wingdings`; the flag is stored as
+  the catalog's `symbol_font` bool, read by
+  `font_registry.plt_font_is_symbol()`) engrave their ASCII slots with
   symbols, so they are exempt from derivation, from the showcase's Unicode
   line, and from the `SC` variant (see Small Caps Fonts below). Their font
   showcase (`scripts/font_showcase.py`) is a **key -> symbol mapping** grid
@@ -440,13 +441,15 @@ truth for the bold shape — and records the count as the per-font
 stored geometry unchanged (arcs stay native, envelopes/glyph groups untouched);
 the stroke count drives **cutter sizing only**.
 
-- `fonts/extract_plt_fonts.py::parse_font_file_name` strips the `_S<n>` suffix
-  **before** the existing `rsplit("_", 2)` (so font names with underscores and
+- `fonts/extract_plt_fonts.py::parse_font_file_name` strips the trailing
+  `_sym`/`_symbol` (case-insensitive) and `_S<n>` suffixes (in a loop, so
+  either order parses; canonical is `_S<n>_sym`) **before** the existing
+  `rsplit("_", 2)` (so font names with underscores and
   symbol reference chars like `^` keep working) and returns
-  `(name, height, ref_char, stroke_count)`. `_S0` is a
+  `(name, height, ref_char, stroke_count, symbol_font)`. `_S0` is a
   `FontExtractionError`; a non-numeric suffix (`_Sx`) is not stripped and
   fails the normal name parse. `extract_font_file` writes
-  `"stroke_count": n` into the font entry.
+  `"stroke_count": n` and `"symbol_font": bool` into the font entry.
 - `font_registry.PltFontData.stroke_count: int = 1` (lenient parse: missing /
   garbage / `< 1` → 1 with a WARNING, so pre-convention libraries keep
   loading). `font_registry.plt_font_stroke_count(name)` is the
@@ -1108,12 +1111,12 @@ partitions (the intra-chunk glyph sweep) stay exact.
 - **Registry** (`font_registry.py`): `_canonical_map` synthesizes
   `"<base> sc" -> (kind, "<base> SC", base, small_caps=True)` for every PLT
   key and TTF basename (case-insensitive; `setdefault` after all bases, so a
-  real font literally named `"Foo SC"` wins its name). Bases listed in
-  `fonts/VP-EL-fonts/non_text_fonts.txt` (symbol fonts such as `Wingdings`,
-  read by the `lru_cache`'d `non_text_font_names()` — one name per line,
-  case-insensitive, `#` comments and blanks ignored, a missing file means no
-  exemptions) contribute **no** `SC` variant: a symbol font has no lowercase
-  to shrink, so `"Wingdings SC"` is unknown to the schema validator, the
+  real font literally named `"Foo SC"` wins its name). PLT bases whose catalog
+  entry sets `symbol_font` (symbol fonts such as `Wingdings`, extracted from a
+  `_sym`-suffixed sheet; read by `plt_font_is_symbol()` /
+  `PltFontData.symbol_font`) contribute **no** `SC` variant: a symbol font has
+  no lowercase to shrink, so `"Wingdings SC"` is unknown to the schema
+  validator, the
   `--show-fonts` docs and the showcase (the base `Wingdings` stays fully
   selectable). `FontRef` carries
   `small_caps: bool` and the **base** font's `path`. `font_name_choices()`

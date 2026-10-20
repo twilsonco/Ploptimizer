@@ -262,36 +262,47 @@ class TestParseFontFileName:
     """Tests for parse_font_file_name() (new underscore format)."""
 
     def test_parses_name_height_reference(self) -> None:
-        name, height, ref, strokes = script.parse_font_file_name(Path("dino_0.5_E.plt"))
+        name, height, ref, strokes, symbol = script.parse_font_file_name(Path("dino_0.5_E.plt"))
         assert name == "Dino"
         assert height == pytest.approx(0.5)
         assert ref == "E"
         assert strokes == 1
+        assert symbol is False
 
     def test_underscores_in_font_name_become_spaces(self) -> None:
-        name, height, ref, strokes = script.parse_font_file_name(Path("heavy_engraving_0.75_H.plt"))
+        name, height, ref, strokes, symbol = script.parse_font_file_name(
+            Path("heavy_engraving_0.75_H.plt")
+        )
         assert name == "Heavy Engraving"
         assert height == pytest.approx(0.75)
         assert ref == "H"
         assert strokes == 1
+        assert symbol is False
 
     def test_stroke_suffix_parsed(self) -> None:
-        name, height, ref, strokes = script.parse_font_file_name(Path("avenge5_0.55_E_S5.plt"))
+        name, height, ref, strokes, symbol = script.parse_font_file_name(
+            Path("avenge5_0.55_E_S5.plt")
+        )
         assert name == "Avenge5"
         assert height == pytest.approx(0.55)
         assert ref == "E"
         assert strokes == 5
+        assert symbol is False
 
     def test_stroke_suffix_single_digit_one(self) -> None:
-        _name, _height, _ref, strokes = script.parse_font_file_name(Path("dino_0.67_E_S1.plt"))
+        _name, _height, _ref, strokes, _symbol = script.parse_font_file_name(
+            Path("dino_0.67_E_S1.plt")
+        )
         assert strokes == 1
 
     def test_stroke_suffix_multi_digit(self) -> None:
-        _name, _height, _ref, strokes = script.parse_font_file_name(Path("fat_font_1.25_X_S12.plt"))
+        _name, _height, _ref, strokes, _symbol = script.parse_font_file_name(
+            Path("fat_font_1.25_X_S12.plt")
+        )
         assert strokes == 12
 
     def test_stroke_suffix_with_underscored_font_name(self) -> None:
-        name, height, ref, strokes = script.parse_font_file_name(
+        name, height, ref, strokes, _symbol = script.parse_font_file_name(
             Path("heavy_engraving_0.75_H_S3.plt")
         )
         assert name == "Heavy Engraving"
@@ -300,10 +311,80 @@ class TestParseFontFileName:
         assert strokes == 3
 
     def test_stroke_suffix_with_symbol_reference(self) -> None:
-        name, _height, ref, strokes = script.parse_font_file_name(Path("wingdings_0.35_^_S4.plt"))
+        name, _height, ref, strokes, symbol = script.parse_font_file_name(
+            Path("wingdings_0.35_^_S4.plt")
+        )
         assert name == "Wingdings"
         assert ref == "^"
         assert strokes == 4
+        assert symbol is False
+
+    def test_symbol_suffix_after_stroke_suffix(self) -> None:
+        """The canonical order: ``..._S4_sym`` (the TODO example)."""
+        name, height, ref, strokes, symbol = script.parse_font_file_name(
+            Path("wingdings_0.35_^_S4_sym.plt")
+        )
+        assert name == "Wingdings"
+        assert height == pytest.approx(0.35)
+        assert ref == "^"
+        assert strokes == 4
+        assert symbol is True
+
+    def test_symbol_suffix_without_stroke_suffix(self) -> None:
+        name, _height, ref, strokes, symbol = script.parse_font_file_name(
+            Path("symbols_0.5_E_sym.plt")
+        )
+        assert name == "Symbols"
+        assert ref == "E"
+        assert strokes == 1
+        assert symbol is True
+
+    def test_symbol_suffix_before_stroke_suffix(self) -> None:
+        """``_sym`` on either side of ``_S<n>`` parses (canonical is after)."""
+        name, _height, ref, strokes, symbol = script.parse_font_file_name(
+            Path("wingdings_0.35_^_sym_S4.plt")
+        )
+        assert name == "Wingdings"
+        assert ref == "^"
+        assert strokes == 4
+        assert symbol is True
+
+    def test_symbol_suffix_long_form(self) -> None:
+        _name, _height, _ref, strokes, symbol = script.parse_font_file_name(
+            Path("wingdings_0.35_^_S4_symbol.plt")
+        )
+        assert strokes == 4
+        assert symbol is True
+
+    def test_symbol_suffix_is_case_insensitive(self) -> None:
+        for stem in ("sym", "Sym", "SYM", "symbol", "Symbol", "SYMBOL"):
+            _name, _height, _ref, _strokes, symbol = script.parse_font_file_name(
+                Path(f"dino_0.5_E_{stem}.plt")
+            )
+            assert symbol is True, stem
+
+    def test_sym_in_font_name_is_not_the_suffix(self) -> None:
+        """A font *named* 'sym ...' keeps its name; the suffix is trailing-only."""
+        name, height, ref, strokes, symbol = script.parse_font_file_name(
+            Path("sym_phony_0.5_E.plt")
+        )
+        assert name == "Sym Phony"
+        assert height == pytest.approx(0.5)
+        assert ref == "E"
+        assert strokes == 1
+        assert symbol is False
+
+    def test_symbol_suffix_without_reference_raises(self) -> None:
+        """``dino_0.5_sym`` strips to two parts - the reference slot is missing."""
+        with pytest.raises(script.FontExtractionError, match="three '_' separated parts"):
+            script.parse_font_file_name(Path("dino_0.5_sym.plt"))
+
+    def test_symx_like_suffix_is_not_stripped(self) -> None:
+        # 'symx' is not a symbol suffix, so the stem is split as-is: the
+        # reference slot keeps 'symx' and the height slot lands on 'E',
+        # which fails the height parse (the suffix never silently vanishes).
+        with pytest.raises(script.FontExtractionError, match="not a declared text height"):
+            script.parse_font_file_name(Path("dino_0.5_E_symx.plt"))
 
     def test_zero_stroke_suffix_raises(self) -> None:
         with pytest.raises(script.FontExtractionError, match="stroke count suffix must be >= 1"):
@@ -1006,6 +1087,16 @@ class TestExtractFontFile:
         assert extraction.entry["declared_height_in"] == pytest.approx(0.75)
         assert extraction.entry["reference_char"] == "E"
         assert extraction.entry["file_path"].endswith("heavy_engraving_0.75_E.plt")
+        assert extraction.entry["symbol_font"] is False
+
+    def test_symbol_font_metadata_from_sym_suffix(self, tmp_path: Path) -> None:
+        """A ``_sym`` sheet stores ``symbol_font: True`` in the entry."""
+        plt_path = tmp_path / "wingdings_0.35_^_S4_sym.plt"
+        plt_path.write_text(make_framed_sheet([["^", "A"]], reference_char="^"), encoding="utf-8")
+        extraction = script.extract_font_file(plt_path, ["^", "A"])
+        assert extraction.font_name == "Wingdings"
+        assert extraction.entry["symbol_font"] is True
+        assert extraction.entry["stroke_count"] == 4
 
     def test_font_name_override(self, tmp_path: Path) -> None:
         plt_path = tmp_path / "whatever_2_E.plt"
@@ -1463,24 +1554,22 @@ class TestDerivedGlyphs:
         warnings = [record.getMessage() for record in caplog.records]
         assert any("Skipping derived character" in message for message in warnings)
 
-    def test_main_skips_derivation_for_non_text_font(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: Any
+    def test_main_skips_derivation_for_symbol_font(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """A font on the non-text list keeps its ASCII keys and derives nothing.
+        """A ``_sym`` sheet keeps its ASCII keys and derives nothing.
 
-        The full character set is engraved (every recipe base exists), so the
-        only reason for the derived keys to be absent is the exemption list.
-        The shipped list is monkeypatched - tests never depend on the real
-        ``non_text_fonts.txt`` content.
+        The full character set is engraved (every recipe base exists), so
+        the only reason for the derived keys to be absent is the ``_sym``
+        file-name suffix.
         """
         fonts_dir = tmp_path / "fonts"
         fonts_dir.mkdir()
-        (fonts_dir / "tiny_1_E.plt").write_text(
+        (fonts_dir / "tiny_1_E_sym.plt").write_text(
             make_framed_sheet([[chr(code) for code in range(33, 127)]]), encoding="utf-8"
         )
         ascii_file = tmp_path / "ascii.txt"
         ascii_file.write_text(ASCII_CHARS, encoding="utf-8")
-        monkeypatch.setattr(script, "non_text_font_names", lambda: frozenset({"tiny"}))
         out = tmp_path / "catalog"
         with caplog.at_level(logging.INFO, logger="extract_plt_fonts"):
             rc = script.main(
@@ -1494,7 +1583,9 @@ class TestDerivedGlyphs:
                 ]
             )
         assert rc == 0
-        characters = json.loads((out / "Tiny.json").read_text(encoding="utf-8"))["characters"]
+        data = json.loads((out / "Tiny.json").read_text(encoding="utf-8"))
+        assert data["symbol_font"] is True
+        characters = data["characters"]
         assert all(char in characters for char in ASCII_CHARS)
         assert "\u2013" not in characters  # en dash: derived from '-', never engraved
         assert "\u221e" not in characters

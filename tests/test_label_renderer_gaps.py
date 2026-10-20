@@ -175,9 +175,7 @@ class TestRenderLabelOnceLayerGuards:
 
     def test_empty_boundary_layer_is_not_added(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """An empty boundary must not create an SP2 section."""
-        monkeypatch.setattr(
-            label_renderer, "_render_boundary_hpgl", lambda label: ""
-        )
+        monkeypatch.setattr(label_renderer, "_render_boundary_hpgl", lambda label: "")
         rendered = render_label_to_plt(_label())
 
         assert "SP2" not in rendered.plt_content
@@ -438,9 +436,7 @@ class TestRenderLineBlockWordFallback:
 class TestSmallCapsDispatch:
     """``_render_line_block`` forwards the small-caps scale only for ``SC`` fonts."""
 
-    def test_ttf_variant_forwards_small_caps_scale(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_ttf_variant_forwards_small_caps_scale(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A TTF ``SC`` line passes ``small_caps_scale`` to the ftext path."""
         calls: dict[str, object] = {}
 
@@ -464,9 +460,7 @@ class TestSmallCapsDispatch:
         _render_line_block(line, label_renderer.TextChunkMode.LINE)
         assert calls["small_caps_scale"] == pytest.approx(0.45)
 
-    def test_ttf_base_font_omits_small_caps_scale(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_ttf_base_font_omits_small_caps_scale(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A plain TTF line never receives the parameter (legacy call shape)."""
         calls: dict[str, object] = {}
 
@@ -504,9 +498,7 @@ def _markup_line(text: str, **kwargs: object) -> ResolvedTextLine:
         line_spacing=0.0,
         **kwargs,  # type: ignore[arg-type]
     )
-    return dataclasses.replace(
-        line, plain_text=styled.plain_text, styled_runs=styled.runs
-    )
+    return dataclasses.replace(line, plain_text=styled.plain_text, styled_runs=styled.runs)
 
 
 class TestInlineSmallCapsGate:
@@ -541,10 +533,12 @@ class TestInlineSmallCapsGate:
         assert label_renderer._small_caps_render_gate(line, ref) is None
 
     def test_inert_on_a_symbol_font(self) -> None:
-        """A non-text (symbol) font has no lowercase to shrink: the tag is a no-op."""
-        symbol = sorted(font_registry.non_text_font_names())
-        if not symbol:  # pragma: no cover - the shipped list is non-empty
-            pytest.skip("no non-text fonts configured")
+        """A symbol font (catalog symbol_font) has no lowercase: the tag is a no-op."""
+        symbol = sorted(
+            name for name, data in font_registry.load_plt_fonts().items() if data.symbol_font
+        )
+        if not symbol:  # pragma: no cover - the shipped catalog has Wingdings
+            pytest.skip("no symbol fonts in the catalog")
         name = symbol[0].capitalize()
         line = _markup_line("<sc>abc</sc>", font=name)
         ref = font_registry.resolve_font(name)
@@ -643,16 +637,12 @@ class TestInlineSmallCapsDispatch:
             return lc
 
         monkeypatch.setattr(label_renderer, "render_text_line_ftext", fake_ftext)
-        line = _markup_line(
-            "a<sc>b</sc>", font=font_registry.DEFAULT_FONT_NAME, sc_scale=0.5
-        )
+        line = _markup_line("a<sc>b</sc>", font=font_registry.DEFAULT_FONT_NAME, sc_scale=0.5)
         _render_line_block(line, label_renderer.TextChunkMode.LINE)
         assert calls["small_caps_scale"] == pytest.approx(0.5)
         assert calls["small_caps_flags"] == (False, True)
 
-    def test_sc_font_keeps_the_font_level_kwargs(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_sc_font_keeps_the_font_level_kwargs(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """On a `` SC`` font the tag adds no flags (bit-identical to the variant)."""
         calls: dict[str, object] = {}
 
@@ -856,9 +846,7 @@ def _stroke_block(x_min: float, x_max: float, y_top: float = 0.4) -> TextBlock:
         complex(x_min, y_top),
         complex(x_min, y_bottom),
     ]
-    segments = [
-        LineSeg(points[i], points[i + 1]) for i in range(len(points) - 1)
-    ]
+    segments = [LineSeg(points[i], points[i + 1]) for i in range(len(points) - 1)]
     return TextBlock(strokes=(Stroke(pen_up=points[0], segments=tuple(segments)),))
 
 
@@ -877,16 +865,12 @@ class TestFontNamesGate:
 
     def test_ttf_base_line_is_inert(self) -> None:
         """A TTF base font composes segments instead (the walk renders PLT only)."""
-        line = _markup_line(
-            "a<f:Wingdings>b</f>", font=font_registry.DEFAULT_FONT_NAME
-        )
+        line = _markup_line("a<f:Wingdings>b</f>", font=font_registry.DEFAULT_FONT_NAME)
         assert label_renderer._font_names_kwargs(line) == {}
 
     def test_ttf_run_font_is_inert(self) -> None:
         """A TTF run font composes segments (the walk cannot render TTF)."""
-        line = _markup_line(
-            "a<f:" + font_registry.DEFAULT_FONT_NAME + ">b</f>", font="Dino"
-        )
+        line = _markup_line("a<f:" + font_registry.DEFAULT_FONT_NAME + ">b</f>", font="Dino")
         assert label_renderer._font_names_kwargs(line) == {}
 
     def test_unknown_font_is_inert_for_the_gate(self) -> None:
@@ -1028,12 +1012,8 @@ class TestEnforceCapLineDispatch:
             return lc
 
         monkeypatch.setattr(label_renderer, "render_text_line_ftext", fake_ftext)
-        monkeypatch.setattr(
-            label_renderer, "glyph_groups_for_line", lambda *a, **k: [("x", [0])]
-        )
-        line = _markup_line(
-            "abc", font=font_registry.DEFAULT_FONT_NAME, enforce_cap_line=True
-        )
+        monkeypatch.setattr(label_renderer, "glyph_groups_for_line", lambda *a, **k: [("x", [0])])
+        line = _markup_line("abc", font=font_registry.DEFAULT_FONT_NAME, enforce_cap_line=True)
         _render_line_block(line, label_renderer.TextChunkMode.LINE)
         assert calls["cap_line_enforced"] is True
 
@@ -1050,12 +1030,8 @@ class TestEnforceCapLineDispatch:
             return lc
 
         monkeypatch.setattr(label_renderer, "render_text_line_ftext", fake_ftext)
-        monkeypatch.setattr(
-            label_renderer, "glyph_groups_for_line", lambda *a, **k: [("x", [0])]
-        )
-        line = _markup_line(
-            "abc", font=font_registry.DEFAULT_FONT_NAME, enforce_cap_line=False
-        )
+        monkeypatch.setattr(label_renderer, "glyph_groups_for_line", lambda *a, **k: [("x", [0])])
+        line = _markup_line("abc", font=font_registry.DEFAULT_FONT_NAME, enforce_cap_line=False)
         _render_line_block(line, label_renderer.TextChunkMode.LINE)
         assert "cap_line_enforced" not in calls
 
@@ -1080,9 +1056,7 @@ class TestEnforceCapLineDispatch:
             "render_text_line_plt_font_with_glyphs",
             lambda *a, **k: (_stroke_block(0.0, 1.0), [], [("x", [0])]),
         )
-        monkeypatch.setattr(
-            label_renderer, "glyph_groups_for_line", lambda *a, **k: [("x", [0])]
-        )
+        monkeypatch.setattr(label_renderer, "glyph_groups_for_line", lambda *a, **k: [("x", [0])])
         line = _markup_line(
             "a <f:" + font_registry.DEFAULT_FONT_NAME + ">b</f>",
             font="Dino",
@@ -1112,11 +1086,7 @@ class TestFontSegmentComposition:
             lc = vp.LineCollection()
             # The TTF block adapts from the LineCollection; reuse the PLT box
             # via the adapted path by emitting the same rectangle.
-            lc.append(
-                np.array(
-                    [0 + 0j, 0.5 + 0j, 0.5 + 0.4j, 0 + 0.4j, 0 + 0j], dtype=complex
-                )
-            )
+            lc.append(np.array([0 + 0j, 0.5 + 0j, 0.5 + 0.4j, 0 + 0.4j, 0 + 0j], dtype=complex))
             return lc
 
         monkeypatch.setattr(label_renderer, "render_text_line_plt_font", fake_plt)
@@ -1174,9 +1144,7 @@ class TestFontSegmentComposition:
             "render_text_line_plt_font_with_glyphs",
             lambda *a, **k: (_stroke_block(0.0, 1.0), [], [("x", [0])]),
         )
-        monkeypatch.setattr(
-            label_renderer, "glyph_groups_for_line", lambda *a, **k: [("x", [0])]
-        )
+        monkeypatch.setattr(label_renderer, "glyph_groups_for_line", lambda *a, **k: [("x", [0])])
         line = _markup_line(
             "a <f:" + font_registry.DEFAULT_FONT_NAME + ">b</f>",
             font="Dino",

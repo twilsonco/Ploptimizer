@@ -21,12 +21,15 @@ font-registry bullets).
   sheets the extractor verifies rows against (count + framing geometry ≤ 1e-3
   units).
 - `VP-EL-fonts/input-plt/` - the engraved sample sheets, named
-  `<font>_<height in>_<ref char>[_S<n>].plt` (`_S<n>` = multi-stroke/bold pass
-  count → `stroke_count` metadata; `_S0` is an error, `_Sx` is not stripped).
+  `<font>_<height in>_<ref char>[_S<n>][_sym].plt` (`_S<n>` = multi-stroke/bold
+  pass count → `stroke_count` metadata; `_S0` is an error, `_Sx` is not
+  stripped; a trailing `_sym`/`_symbol`, case-insensitive, marks a symbol
+  font → `symbol_font` metadata; canonical order is `_S<n>_sym`).
 - `VP-EL-fonts/catalog/*.json` - one file per font (the v2 library the renderer
-  loads via `../plt_optimizer/generate/font_registry.py`).
-- `VP-EL-fonts/non_text_fonts.txt` - symbol-font exemptions (Wingdings etc.):
-  no derived glyphs, no `SC` variant, showcase = key→symbol grid.
+  loads via `../plt_optimizer/generate/font_registry.py`). Every file carries
+  the `symbol_font` bool (from the sheet's `_sym` suffix): symbol-font
+  exemptions (Wingdings etc.) skip derived glyphs, the `SC` variant, and the
+  showcase's Unicode line; the showcase renders those as a key→symbol grid.
 - `Line fonts/`, `ttf/` - raw font source files (`.VEF`, TTF/OTF).
 
 ## v2 library contract (the renderer depends on all of it)

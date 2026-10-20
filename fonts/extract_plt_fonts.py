@@ -12,12 +12,18 @@ VisionPro.md`` beside this script) is:
    character** (e.g. ``E``), which acts as structural framing only.
 2. Engrave the sheet to a PLT file.
 3. Drop the PLT into ``fonts/VP-EL-fonts/input-plt/`` named
-   ``<font name>_<declared height in>_<reference char>[_S<strokes>].plt``
-   (e.g. ``dino_0.5_E.plt``, ``avenge5_0.55_E_S5.plt``). The optional
-   ``_S<n>`` suffix declares how many parallel cutter passes each glyph
-   carries (a multi-stroke/bold font); omitted means a single-stroke font.
-   The count is stored as the font's ``stroke_count`` metadata and drives
-   the renderer's automatic cutter sizing.
+   ``<font name>_<declared height in>_<reference char>[_S<strokes>][_sym].plt``
+   (e.g. ``dino_0.5_E.plt``, ``avenge5_0.55_E_S5.plt``,
+   ``wingdings_0.35_^_S4_sym.plt``). The optional ``_S<n>`` suffix declares
+   how many parallel cutter passes each glyph carries (a multi-stroke/bold
+   font); omitted means a single-stroke font. The count is stored as the
+   font's ``stroke_count`` metadata and drives the renderer's automatic
+   cutter sizing. The optional trailing ``_sym`` (or ``_symbol``,
+   case-insensitive) marks a **symbol font** (Wingdings etc.) whose ASCII
+   slots engrave symbols rather than letters; it is stored as the font's
+   ``symbol_font`` metadata (every catalog file carries the key, true or
+   false) and exempts the font from derived-Unicode glyph creation, the
+   showcase's Unicode line, and the synthetic ``"<base> SC"`` variant.
 4. Run this script::
 
        uv run python fonts/extract_plt_fonts.py
@@ -74,6 +80,7 @@ font key itself is the file's ``font_name`` value, not its name::
       "font_name": "Dino",
       "file_path": "fonts/VP-EL-fonts/input-plt/dino_0.5_E.plt",
       "stroke_count": 1,
+      "symbol_font": false,
       "reference_char": "E",
       "declared_height_in": 0.5,
       "reference_char_height_in": 0.508017,
@@ -111,11 +118,12 @@ just-extracted ASCII bases, with bounding box and envelopes re-sampled from the
 derived key never overwrites an engraved one, and a glyph whose base character
 is missing is skipped with a WARNING.
 
-Fonts listed in ``fonts/VP-EL-fonts/non_text_fonts.txt`` (symbol fonts such
-as ``Wingdings``; the same list drives the small-caps exemption in
-``plt_optimizer/generate/font_registry.py`` and the showcase's Unicode line
-in ``scripts/font_showcase.py``) skip the derivation step entirely: their
-ASCII slots carry symbols, so the recipes would engrave nonsense.
+Fonts extracted from a ``_sym``-suffixed sheet (symbol fonts such as
+``Wingdings``; the ``symbol_font`` flag stored in the catalog file drives
+the small-caps exemption in ``plt_optimizer/generate/font_registry.py`` and
+the showcase's Unicode line in ``scripts/font_showcase.py``) skip the
+derivation step entirely: their ASCII slots carry symbols, so the recipes
+would engrave nonsense.
 """
 
 from __future__ import annotations
@@ -160,7 +168,6 @@ from glyph_transforms import (  # noqa: E402
 
 from plt_optimizer.core.models import ArcSegment, PLTDocument, StrokePath  # noqa: E402
 from plt_optimizer.core.parser import ParseError, PLTParser  # noqa: E402
-from plt_optimizer.generate.font_registry import non_text_font_names  # noqa: E402
 
 logger = logging.getLogger("extract_plt_fonts")
 
@@ -384,31 +391,44 @@ def load_characters(ascii_file: Path) -> List[str]:
 
 _STROKE_SUFFIX_RE = re.compile(r"^(.*)_S(\d+)$")
 
+# A trailing ``_sym``/``_symbol`` (case-insensitive) on the sample-sheet stem
+# marks a **symbol font** (Wingdings etc.) whose ASCII slots engrave symbols
+# rather than letters. The suffix sits at the very end of the stem (after the
+# reference-char slot, before or after the ``_S<n>`` stroke suffix), so a font
+# whose *name* contains "sym" (``sym_phony_0.5_E.plt``) is never mangled.
+_SYMBOL_SUFFIX_RE = re.compile(r"^(.*)_sym(bol)?$", re.IGNORECASE)
+
 # Font-name characters that are unsafe in file names on at least one
 # supported platform (Windows reserves ``<>:"/\\|?*``); catalog file names
 # replace them with underscores (see :func:`catalog_file_name`).
 _FILE_UNSAFE_RE = re.compile(r"[^A-Za-z0-9 _-]")
 
 
-def parse_font_file_name(plt_path: Path) -> Tuple[str, float, str, int]:
-    """Split an engraved sample file name into name, height, reference, strokes.
+def parse_font_file_name(plt_path: Path) -> Tuple[str, float, str, int, bool]:
+    """Split an engraved sample file name into name, height, reference, strokes, symbol.
 
     The convention is
-    ``<font name>_<declared height in>_<ref char>[_S<strokes>].plt``
-    (e.g. ``dino_0.5_E.plt``, ``avenge5_0.55_E_S5.plt``). The declared height
-    is the text height typed into EngraveLab/Vision Pro; it is stored as
-    metadata only - the actual normalization scale comes from the *measured*
-    reference character. The font name may contain underscores, which become
-    spaces. The optional ``_S<n>`` suffix (parsed *before* the name split) is
-    the number of parallel cutter passes each glyph carries; omitted means a
-    single-stroke font (``stroke_count = 1``).
+    ``<font name>_<declared height in>_<ref char>[_S<strokes>][_sym].plt``
+    (e.g. ``dino_0.5_E.plt``, ``avenge5_0.55_E_S5.plt``,
+    ``wingdings_0.35_^_S4_sym.plt``). The declared height is the text height
+    typed into EngraveLab/Vision Pro; it is stored as metadata only - the
+    actual normalization scale comes from the *measured* reference character.
+    The font name may contain underscores, which become spaces. The optional
+    ``_S<n>`` suffix (parsed *before* the name split) is the number of
+    parallel cutter passes each glyph carries; omitted means a single-stroke
+    font (``stroke_count = 1``). The optional trailing ``_sym`` (or
+    ``_symbol``, case-insensitive) marks a **symbol font** whose ASCII slots
+    engrave symbols (``symbol_font = True``); it is stripped before the name
+    split, and accepted on either side of the stroke suffix (the canonical
+    order is ``_S<n>_sym``). Omitted means a letter font
+    (``symbol_font = False``).
 
     Args:
         plt_path: Path to the engraved sample PLT.
 
     Returns:
         Tuple of ``(font_name, declared_height_inches, reference_char,
-        stroke_count)``.
+        stroke_count, symbol_font)``.
 
     Raises:
         FontExtractionError: If the file name is malformed, carries a
@@ -417,20 +437,30 @@ def parse_font_file_name(plt_path: Path) -> Tuple[str, float, str, int]:
     """
     stem = plt_path.stem
     stroke_count = 1
-    suffix = _STROKE_SUFFIX_RE.match(stem)
-    if suffix is not None:
-        stem = suffix.group(1)
-        stroke_count = int(suffix.group(2))
-        if stroke_count < 1:
-            raise FontExtractionError(
-                f"{plt_path.name}: stroke count suffix must be >= 1 "
-                f"(got S{suffix.group(2)}); omit the suffix for a single-stroke font"
-            )
+    symbol_font = False
+    while True:
+        symbol = _SYMBOL_SUFFIX_RE.match(stem)
+        if symbol is not None:
+            stem = symbol.group(1)
+            symbol_font = True
+            continue
+        suffix = _STROKE_SUFFIX_RE.match(stem)
+        if suffix is not None:
+            stem = suffix.group(1)
+            stroke_count = int(suffix.group(2))
+            if stroke_count < 1:
+                raise FontExtractionError(
+                    f"{plt_path.name}: stroke count suffix must be >= 1 "
+                    f"(got S{suffix.group(2)}); omit the suffix for a single-stroke font"
+                )
+            continue
+        break
     parts = stem.rsplit("_", 2)
     usage = (
         f"{plt_path.name}: file name must be "
-        f"'<font name>_<declared height in>_<ref char>[_S<strokes>].plt' "
-        f"(e.g. 'dino_0.5_E.plt' or 'avenge5_0.55_E_S5.plt')"
+        f"'<font name>_<declared height in>_<ref char>[_S<strokes>][_sym].plt' "
+        f"(e.g. 'dino_0.5_E.plt', 'avenge5_0.55_E_S5.plt' or "
+        f"'wingdings_0.35_^_S4_sym.plt')"
     )
     if len(parts) != 3:
         raise FontExtractionError(f"{usage}; expected three '_' separated parts")
@@ -447,7 +477,13 @@ def parse_font_file_name(plt_path: Path) -> Tuple[str, float, str, int]:
         raise FontExtractionError(f"{usage}; declared text height must be positive and finite")
     if len(reference_char) != 1:
         raise FontExtractionError(f"{usage}; reference character must be exactly one character")
-    return name_part.replace("_", " ").title(), declared_height, reference_char, stroke_count
+    return (
+        name_part.replace("_", " ").title(),
+        declared_height,
+        reference_char,
+        stroke_count,
+        symbol_font,
+    )
 
 
 def merge_intervals(intervals: Sequence[Interval], threshold: float) -> List[Interval]:
@@ -653,10 +689,14 @@ def framing_points_match(
     if not reference or not framing:
         return 0.0
 
-    def _index(points: Sequence[Tuple[float, float]]) -> Dict[Tuple[int, int], List[Tuple[float, float]]]:
+    def _index(
+        points: Sequence[Tuple[float, float]],
+    ) -> Dict[Tuple[int, int], List[Tuple[float, float]]]:
         grid: Dict[Tuple[int, int], List[Tuple[float, float]]] = {}
         for x, y in points:
-            grid.setdefault((math.floor(x / _FRAMING_MATCH_GRID), math.floor(y / _FRAMING_MATCH_GRID)), []).append((x, y))
+            grid.setdefault(
+                (math.floor(x / _FRAMING_MATCH_GRID), math.floor(y / _FRAMING_MATCH_GRID)), []
+            ).append((x, y))
         return grid
 
     def _worst(
@@ -1336,7 +1376,9 @@ def extract_font_file(
         FontExtractionError: If the file name is malformed, the PLT cannot be
             parsed, or the sheet's layout fails verification.
     """
-    default_name, declared_height, reference_char, stroke_count = parse_font_file_name(plt_path)
+    default_name, declared_height, reference_char, stroke_count, symbol_font = parse_font_file_name(
+        plt_path
+    )
     name = font_name or default_name
     parser = PLTParser()
     try:
@@ -1365,17 +1407,19 @@ def extract_font_file(
         "font_name": name,
         "file_path": _repo_relative(plt_path),
         "stroke_count": stroke_count,
+        "symbol_font": symbol_font,
         **entry,
     }
     logger.info(
         "Extracted font %r from %s: %d glyphs across %d rows, %d stroke(s), "
-        "row_threshold=%.1f units, cluster_threshold=%.1f units, "
+        "%s, row_threshold=%.1f units, cluster_threshold=%.1f units, "
         "declared height=%.4g in, measured reference height=%.6g in",
         name,
         plt_path.name,
         len(entry["characters"]),
         row_count,
         stroke_count,
+        "symbol font" if symbol_font else "letter font",
         used_row,
         used_cluster,
         declared_height,
@@ -1528,8 +1572,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--output-dir",
         type=Path,
         default=DEFAULT_OUTPUT_DIR,
-        help="Directory of per-font JSON catalog files to create/update "
-        "(default: %(default)s).",
+        help="Directory of per-font JSON catalog files to create/update (default: %(default)s).",
     )
     parser.add_argument(
         "--ascii-file",
@@ -1677,10 +1720,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
         for extraction in extractions:
             entry = extraction.entry
-            if extraction.font_name.lower() in non_text_font_names():
+            if entry["symbol_font"]:
                 logger.info(
-                    "Skipping derived Unicode glyphs for non-text font %r "
-                    "(listed in non_text_fonts.txt)",
+                    "Skipping derived Unicode glyphs for symbol font %r "
+                    "(sheet name carries the _sym suffix)",
                     extraction.font_name,
                 )
             else:

@@ -26,11 +26,12 @@ because ``-`` and ``|`` each feed several recipes. A TrueType font that lacks a
 derived codepoint renders that font's own ``.notdef`` glyph, which is exactly
 the coverage information a showcase is for.
 
-Fonts listed in ``fonts/VP-EL-fonts/non_text_fonts.txt`` (symbol fonts such
-as ``Wingdings``) are **non-text**: they engrave their ASCII slots with
-symbols, so the letter sample block above is meaningless for them (the
-derived-glyph pair is dropped, the small-caps variant is exempted at the
-registry, and those fonts contribute no ``"<base> SC"`` PDF either). Their
+Fonts whose catalog entry sets ``symbol_font`` (extracted from a ``_sym``-
+suffixed sheet; symbol fonts such as ``Wingdings``) are **non-text**: they
+engrave their ASCII slots with symbols, so the letter sample block above is
+meaningless for them (the derived-glyph pair is dropped, the small-caps
+variant is exempted at the registry, and those fonts contribute no
+``"<base> SC"`` PDF either). Their
 showcase is a **key -> symbol mapping** instead: one cell per character of
 ``fonts/ascii.txt``, each cell engraving the ASCII key (``a:``, ``b:``, ...)
 in :data:`plt_optimizer.generate.ftext_renderer.DEFAULT_FONT_PATH` followed by
@@ -94,8 +95,8 @@ from plt_optimizer.diagnostics.plotter import plot_plt_document  # noqa: E402
 from plt_optimizer.generate.font_registry import (  # noqa: E402
     FONTS_DIR,
     font_name_choices,
-    non_text_font_names,
     plt_font_has_glyph,
+    plt_font_is_symbol,
     resolve_font,
 )
 from plt_optimizer.generate.ftext_renderer import (  # noqa: E402
@@ -222,11 +223,13 @@ def load_ascii_characters(ascii_file: Path = ASCII_CHARS_FILE) -> List[str]:
 
 
 def is_non_text_font(font_name: str) -> bool:
-    """Return whether ``font_name`` is a listed symbol (non-text) font.
+    """Return whether ``font_name`` is a symbol (non-text) font.
 
-    The single source of truth for the ``fonts/VP-EL-fonts/non_text_fonts.txt``
-    membership test, shared by the sample-line pruning and the mapping-mode
-    dispatch. Lookup is case-insensitive (the registry lowercases the list).
+    The single source of truth for the sample-line pruning and the
+    mapping-mode dispatch: the catalog's ``symbol_font`` flag, which
+    ``fonts/extract_plt_fonts.py`` derives from the sample sheet's trailing
+    ``_sym``/``_symbol`` file-name suffix. Lookup is case-insensitive
+    (the registry lowercases the catalog keys).
 
     Args:
         font_name: Canonical font name.
@@ -234,7 +237,7 @@ def is_non_text_font(font_name: str) -> bool:
     Returns:
         ``True`` when the font engraves symbols in its ASCII slots.
     """
-    return font_name.lower() in non_text_font_names()
+    return plt_font_is_symbol(font_name)
 
 
 def showcase_pdf_title(font_name: str) -> str:
@@ -300,8 +303,8 @@ def build_showcase_job(font_name: str, width: float = LABEL_WIDTH) -> JobSpec:
 def _covered_showcase_lines(font_name: str) -> Tuple[str, ...]:
     """Return :data:`SHOWCASE_LINES` pruned to the glyphs ``font_name`` has.
 
-    A **non-text** font (listed in ``fonts/VP-EL-fonts/non_text_fonts.txt``,
-    e.g. Wingdings) engraves its ASCII slots with symbols, so the derived-
+    A **non-text** font (``symbol_font`` in its catalog entry, e.g.
+    Wingdings) engraves its ASCII slots with symbols, so the derived-
     glyph pair is meaningless for it: the derived-glyph line is dropped
     entirely. Other PLT fonts engrave letters but may lack individual derived
     characters, so the line is pruned to the characters the font carries -
@@ -725,7 +728,7 @@ def _build_parser() -> argparse.ArgumentParser:
         description=(
             "Render a font-showcase PDF (font name + pangram + upper/lower "
             "case + digits/symbols) for every PLT and TrueType font. Fonts "
-            "listed in fonts/VP-EL-fonts/non_text_fonts.txt get an ASCII key "
+            "whose catalog entry sets symbol_font get an ASCII key "
             "-> symbol mapping grid instead."
         )
     )

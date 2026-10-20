@@ -4,6 +4,13 @@
 
 ### Features
 
+* **fonts:** symbol (non-alphanumeric) PLT fonts declared by a trailing `_sym`/`_symbol` sample-sheet suffix, stored as the catalog's `symbol_font` bool — this **replaces** `fonts/VP-EL-fonts/non_text_fonts.txt` (deleted) as the sole symbol-font source of truth
+  - `wingdings_0.35_^_S4_sym.plt` → `"symbol_font": true`; **every** catalog file carries the key (`false` for a letter font), so the flag is self-describing with the font
+  - `parse_font_file_name` strips the suffix in a loop with `_S<n>` (either order parses, canonical `_S<n>_sym`) before the name split, so a font *named* "sym ..." is never mangled; matching is case-insensitive
+  - The flag drives every exemption the txt list used to: derived-Unicode glyph creation, the synthetic `<base> SC` small-caps variant, the showcase's Unicode line, and the inline `<sc>` tag's inertness on symbol fonts (`font_registry.plt_font_is_symbol` is the single lookup)
+  - Lenient parse mirrors `stroke_count`: a missing key loads as `false`, a non-boolean logs a WARNING; the `non_text_file` test-override kwargs are gone from `font_name_choices`/`resolve_font`/`normalize_font_name`
+  - `wingdings_0.35_^_S4.plt` renamed to `..._S4_sym.plt` and the catalog regenerated — all 14 fonts' `characters` blocks verified byte-identical, only Wingdings' `file_path` moves
+
 * **generate:** rounded-rectangle label borders (`rounded_rectangle_fraction` + `rounded_rectangle_proportional`)
   - Two cascading fields (label → job, plate parity, `job-config.json` keys; defaults `0.0` / `false`) round the rectangular border's corners; `0.0` keeps the sharp rectangle bit-identically
   - Corners are **superellipse-quadrant patches** with exponent `n = 2 / fraction`, so the curvature varies **continuously** along the whole boundary (G2) — no circular-fillet curvature jump where the rounding begins/ends

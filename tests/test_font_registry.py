@@ -12,7 +12,6 @@ from plt_optimizer.generate import font_registry
 from plt_optimizer.generate.font_registry import (
     DEFAULT_FONT_NAME,
     FONTS_DIR,
-    NON_TEXT_FONTS_FILE,
     PLT_FONT_CATALOG_DIR,
     FontNotFoundError,
     PltFontData,
@@ -20,7 +19,6 @@ from plt_optimizer.generate.font_registry import (
     find_italic_face_path,
     font_name_choices,
     load_plt_fonts,
-    non_text_font_names,
     normalize_font_name,
     resolve_font,
 )
@@ -74,12 +72,10 @@ def _clear_caches() -> object:
     load_plt_fonts.cache_clear()
     available_ttf_fonts.cache_clear()
     find_italic_face_path.cache_clear()
-    non_text_font_names.cache_clear()
     yield
     load_plt_fonts.cache_clear()
     available_ttf_fonts.cache_clear()
     find_italic_face_path.cache_clear()
-    non_text_font_names.cache_clear()
 
 
 @pytest.fixture
@@ -525,8 +521,8 @@ class TestSmallCapsVariants:
         assert font_registry.base_font_name(requested) == expected
 
     def test_bundled_variants_resolve(self) -> None:
-        """The shipped non-exempt fonts each expose a working ``SC`` variant."""
-        exempt = non_text_font_names()
+        """The shipped non-symbol fonts each expose a working ``SC`` variant."""
+        exempt = {name.lower() for name, data in load_plt_fonts().items() if data.symbol_font}
         for base in font_name_choices():
             if base.lower().endswith(" sc") or base.lower() in exempt:
                 continue
@@ -535,104 +531,134 @@ class TestSmallCapsVariants:
             assert ref.kind == resolve_font(base).kind
             assert ref.path == resolve_font(base).path
 
-    def test_bundled_non_text_font_has_no_variant(self) -> None:
-        """The shipped non-text list exempts Wingdings from its SC variant."""
+    def test_bundled_symbol_font_has_no_variant(self) -> None:
+        """The shipped catalog's symbol_font flag exempts Wingdings from its SC variant."""
+        assert load_plt_fonts()["Wingdings"].symbol_font is True
         assert "Wingdings" in font_name_choices()
         assert "Wingdings SC" not in font_name_choices()
         with pytest.raises(FontNotFoundError):
             resolve_font("Wingdings SC")
 
 
-class TestNonTextFonts:
-    """The ``non_text_fonts.txt`` exemption list (symbol fonts, e.g. Wingdings)."""
+class TestSymbolFontMetadata:
+    """The catalog's ``symbol_font`` flag (from the sheet's ``_sym`` suffix)."""
 
-    def _list_file(self, tmp_path: Path, body: str) -> Path:
-        """Write a non-text font list file and return its path.
+    def test_absent_key_defaults_to_false(self, tmp_path: Path) -> None:
+        """A catalog written before the _sym convention loads as a letter font."""
+        catalog = _write_catalog(tmp_path / "catalog", {"Test": _v2_font({"A": "PU0,0;"})})
+        assert load_plt_fonts(catalog)["Test"].symbol_font is False
 
-        Args:
-            tmp_path: Directory to write into.
-            body: Raw file contents.
-
-        Returns:
-            The written file's path.
-        """
-        path = tmp_path / "non_text_fonts.txt"
-        path.write_text(body, encoding="utf-8")
-        return path
-
-    def test_bundled_file_lists_wingdings(self) -> None:
-        """The shipped list exists and exempts Wingdings (case-insensitively)."""
-        assert NON_TEXT_FONTS_FILE.is_file()
-        assert "wingdings" in non_text_font_names()
-
-    def test_missing_file_yields_no_exemptions(self, tmp_path: Path) -> None:
-        """A missing list file is not an error - every SC variant survives."""
-        catalog = _write_catalog(tmp_path / "catalog", {"Wingdings": _v2_font({"A": "x"})})
-        assert non_text_font_names(tmp_path / "absent.txt") == frozenset()
-        choices = font_name_choices(
-            library_dir=catalog, fonts_dir=tmp_path, non_text_file=tmp_path / "absent.txt"
+    def test_true_lands_on_font_data(self, tmp_path: Path) -> None:
+        """The extractor's symbol_font metadata lands on the font data."""
+        catalog = _write_catalog(
+            tmp_path / "catalog", {"Test": _v2_font({"A": "PU0,0;"}, symbol_font=True)}
         )
-        assert "Wingdings SC" in choices
+        assert load_plt_fonts(catalog)["Test"].symbol_font is True
 
-    def test_comments_and_blank_lines_ignored(self, tmp_path: Path) -> None:
-        """Full-line and trailing '#' comments plus blanks are skipped."""
-        path = self._list_file(
-            tmp_path,
-            "# comment only\n\nWingdings\n  Dino  # trailing\n\n#end\n",
+    @pytest.mark.parametrize("raw", ["yes", 1, 0, ["sym"]])
+    def test_non_boolean_value_falls_back_to_false(
+        self, tmp_path: Path, raw: object, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A malformed symbol_font logs a WARNING and loads as a letter font."""
+        catalog = _write_catalog(
+            tmp_path / "catalog", {"Test": _v2_font({"A": "PU0,0;"}, symbol_font=raw)}
         )
-        assert non_text_font_names(path) == frozenset({"wingdings", "dino"})
+        with caplog.at_level("WARNING"):
+            fonts = load_plt_fonts(catalog)
+        assert fonts["Test"].symbol_font is False
+        assert "symbol_font" in caplog.text
 
-    def test_listed_font_loses_only_the_variant(self, tmp_path: Path) -> None:
-        """A listed base stays selectable; only its SC variant disappears."""
+    def test_symbol_font_loses_only_the_variant(self, tmp_path: Path) -> None:
+        """A symbol base stays selectable; only its SC variant disappears."""
         catalog = _write_catalog(
             tmp_path / "catalog",
-            {"Wingdings": _v2_font({"A": "x"}), "Dino": _v2_font({"A": "x"})},
+            {
+                "Wingdings": _v2_font({"A": "x"}, symbol_font=True),
+                "Dino": _v2_font({"A": "x"}),
+            },
         )
-        path = self._list_file(tmp_path, "Wingdings\n")
-        choices = font_name_choices(library_dir=catalog, fonts_dir=tmp_path, non_text_file=path)
+        choices = font_name_choices(library_dir=catalog, fonts_dir=tmp_path)
         assert "Wingdings" in choices
         assert "Wingdings SC" not in choices
         assert "Dino SC" in choices
-        ref = resolve_font("Wingdings", library_dir=catalog, fonts_dir=tmp_path, non_text_file=path)
+        ref = resolve_font("Wingdings", library_dir=catalog, fonts_dir=tmp_path)
         assert (ref.kind, ref.name, ref.small_caps) == ("plt", "Wingdings", False)
         with pytest.raises(FontNotFoundError):
-            resolve_font(
-                "Wingdings SC", library_dir=catalog, fonts_dir=tmp_path, non_text_file=path
-            )
+            resolve_font("Wingdings SC", library_dir=catalog, fonts_dir=tmp_path)
 
-    def test_real_sc_named_font_survives_its_base_being_listed(self, tmp_path: Path) -> None:
+    def test_real_sc_named_font_survives_its_symbol_base(self, tmp_path: Path) -> None:
         """A real font literally named ``Foo SC`` keeps its name when its
-        lookalike base ``Foo`` is listed (the exemption only skips the
+        lookalike base ``Foo`` is a symbol font (the exemption only skips the
         synthetic variant, never a real font)."""
-        catalog = _write_catalog(tmp_path / "catalog", {"Foo": _v2_font({"A": "x"})})
+        catalog = _write_catalog(
+            tmp_path / "catalog", {"Foo": _v2_font({"A": "x"}, symbol_font=True)}
+        )
         (tmp_path / "Foo SC.ttf").write_bytes(b"t")
-        path = self._list_file(tmp_path, "Foo\n")
-        choices = font_name_choices(library_dir=catalog, fonts_dir=tmp_path, non_text_file=path)
+        choices = font_name_choices(library_dir=catalog, fonts_dir=tmp_path)
         assert "Foo SC" in choices
-        ref = resolve_font("Foo SC", library_dir=catalog, fonts_dir=tmp_path, non_text_file=path)
+        ref = resolve_font("Foo SC", library_dir=catalog, fonts_dir=tmp_path)
         assert ref.kind == "ttf"
         assert ref.small_caps is False
 
-    def test_normalize_font_name_threads_the_override(self, tmp_path: Path) -> None:
-        """The schema-facing helper honours the exemption list too."""
-        catalog = _write_catalog(tmp_path / "catalog", {"Wingdings": _v2_font({"A": "x"})})
-        path = self._list_file(tmp_path, "Wingdings\n")
+    def test_normalize_font_name_honours_the_flag(self, tmp_path: Path) -> None:
+        """The schema-facing helper honours the symbol-font exemption too."""
+        catalog = _write_catalog(
+            tmp_path / "catalog", {"Wingdings": _v2_font({"A": "x"}, symbol_font=True)}
+        )
         assert (
-            normalize_font_name(
-                "Wingdings",
-                library_dir=catalog,
-                fonts_dir=tmp_path,
-                non_text_file=path,
-            )
-            == "Wingdings"
+            normalize_font_name("Wingdings", library_dir=catalog, fonts_dir=tmp_path) == "Wingdings"
         )
         with pytest.raises(FontNotFoundError):
-            normalize_font_name(
-                "Wingdings SC",
-                library_dir=catalog,
-                fonts_dir=tmp_path,
-                non_text_file=path,
-            )
+            normalize_font_name("Wingdings SC", library_dir=catalog, fonts_dir=tmp_path)
+
+
+class TestPltFontIsSymbol:
+    """The catalog-driven symbol-font lookup."""
+
+    @pytest.fixture
+    def symbol_lib(self, tmp_path: Path) -> Path:
+        """A catalog with a letter font and a symbol font."""
+        return _write_catalog(
+            tmp_path / "catalog",
+            {
+                "Dino": _v2_font({"A": "PU0,0;"}),
+                "Wingdings": _v2_font({"A": "PU0,0;"}, symbol_font=True),
+            },
+        )
+
+    def test_symbol_font_found(self, symbol_lib: Path) -> None:
+        assert font_registry.plt_font_is_symbol("Wingdings", symbol_lib) is True
+
+    def test_letter_font_is_not_symbol(self, symbol_lib: Path) -> None:
+        assert font_registry.plt_font_is_symbol("Dino", symbol_lib) is False
+
+    def test_lookup_is_case_insensitive(self, symbol_lib: Path) -> None:
+        assert font_registry.plt_font_is_symbol("wingdings", symbol_lib) is True
+
+    def test_small_caps_variant_strips_suffix(self, symbol_lib: Path) -> None:
+        # The SC variant of a symbol font never resolves, but the lookup
+        # itself strips the suffix to the base's flag.
+        assert font_registry.plt_font_is_symbol("Wingdings SC", symbol_lib) is True
+
+    def test_unknown_font_is_not_symbol(self, symbol_lib: Path) -> None:
+        assert font_registry.plt_font_is_symbol("Nope", symbol_lib) is False
+
+    def test_ttf_font_is_not_symbol(self, fonts_root: Path) -> None:
+        """TTF names are not PLT catalog keys -> letter fonts."""
+        assert (
+            font_registry.plt_font_is_symbol("Alpha", fonts_root / "VP-EL-fonts" / "catalog")
+            is False
+        )
+
+    def test_blank_name_is_not_symbol(self, symbol_lib: Path) -> None:
+        assert font_registry.plt_font_is_symbol("  ", symbol_lib) is False
+
+    def test_missing_library_is_not_symbol(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A missing catalog degrades (WARNING from the loader) to False."""
+        with caplog.at_level("WARNING"):
+            assert font_registry.plt_font_is_symbol("Wingdings", tmp_path / "nope") is False
 
 
 class TestItalicFaceProbe:

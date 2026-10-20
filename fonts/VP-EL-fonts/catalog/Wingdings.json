@@ -1,7 +1,8 @@
 {
   "font_name": "Wingdings",
-  "file_path": "fonts/VP-EL-fonts/input-plt/wingdings_0.35_^_S4.plt",
+  "file_path": "fonts/VP-EL-fonts/input-plt/wingdings_0.35_^_S4_sym.plt",
   "stroke_count": 4,
+  "symbol_font": true,
   "reference_char": "^",
   "declared_height_in": 0.35,
   "reference_char_height_in": 0.430821,

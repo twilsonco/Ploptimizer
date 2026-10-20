@@ -841,7 +841,8 @@ caps has no additional effect.
   call shape) on: no parsed markup, no small-caps run, a font that is **already**
   a small-caps variant (the line is already small caps — the TODO's "no
   additional effect", and the font-level render stays bit-identical), or a
-  **symbol font** (`base_font_name(ref.name)` in `non_text_font_names()`),
+  **symbol font** (`plt_font_is_symbol(ref.name)`, the catalog's
+  `symbol_font` flag),
   which is exempt from the ` SC` variant because it has no lowercase to shrink.
   The flags are DERIVED from `styled_runs` (`ResolvedTextLine.small_caps_flags`
   / `has_small_caps`), never stored positionally — the reflow's `with_markup`

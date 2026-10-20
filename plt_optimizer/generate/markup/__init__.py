@@ -179,7 +179,7 @@ class Style:
             is untouched (no cutter change). Inert on a line whose font is
             already a small-caps variant (the run is *already* in small caps,
             so the tag has no additional effect) and on a symbol font
-            (``non_text_fonts.txt``), which has no lowercase to shrink.
+            (the catalog's ``symbol_font`` flag), which has no lowercase to shrink.
         font: The ``<f:font name>`` font selection active on the run
             (``None`` = the line's own cascaded ``font``). The run's
             characters engrave with the named font -- the same names the

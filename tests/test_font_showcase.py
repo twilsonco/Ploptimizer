@@ -87,7 +87,7 @@ class TestBuildShowcaseJob:
 
 
 class TestCoveredShowcaseLines:
-    """The derived-glyph (Unicode) line follows the non-text font list."""
+    """The derived-glyph (Unicode) line follows the catalog's symbol_font flag."""
 
     def test_plt_font_keeps_the_unicode_line(self) -> None:
         """A letter font carries the derived glyphs, so the line stays."""
@@ -100,7 +100,7 @@ class TestCoveredShowcaseLines:
         assert any(line.startswith("Unicode: ") for line in lines)
 
     def test_non_text_font_drops_the_unicode_line(self) -> None:
-        """Wingdings (shipped non-text list) engraves no Unicode line."""
+        """Wingdings (shipped symbol_font catalog entry) engraves no Unicode line."""
         lines = script._covered_showcase_lines("Wingdings")
         assert not any(line.startswith("Unicode: ") for line in lines)
         # The remaining sample lines are untouched.
@@ -188,14 +188,14 @@ class TestLoadAsciiCharacters:
 
 
 class TestIsNonTextFont:
-    """The non-text membership test is the shared, case-insensitive gate."""
+    """The symbol-font membership test is the shared, case-insensitive gate."""
 
     def test_bundled_symbol_font(self) -> None:
-        """Wingdings (shipped non-text list) is a symbol font."""
+        """Wingdings (shipped symbol_font catalog entry) is a symbol font."""
         assert script.is_non_text_font("Wingdings")
 
     def test_case_insensitive(self) -> None:
-        """Lookup matches the registry's lowercased list."""
+        """Lookup matches the registry's lowercased catalog keys."""
         assert script.is_non_text_font("wingdings")
         assert script.is_non_text_font("WINGDINGS")
 
@@ -272,9 +272,9 @@ class TestRenderMappingLayout:
             script.render_mapping_layout("Wingdings", [])
 
     def test_ttf_symbol_font_branch(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A TrueType name on the non-text list renders through ftext."""
+        """A TrueType name flagged as a symbol font renders through ftext."""
         ttf = "ReliefSingleLineCAD-Regular"
-        monkeypatch.setattr(script, "non_text_font_names", lambda *a, **k: frozenset({ttf.lower()}))
+        monkeypatch.setattr(script, "plt_font_is_symbol", lambda name, *a, **k: name == ttf)
         assert script.is_non_text_font(ttf)
         hpgl = script.render_mapping_layout(ttf, ["a", "b"])
         assert hpgl.startswith(script.PLT_HEADER)

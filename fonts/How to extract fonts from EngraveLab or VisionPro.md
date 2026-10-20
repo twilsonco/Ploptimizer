@@ -93,16 +93,25 @@ height and re-engrave.
 Save/copy the file as:
 
 ```
-fonts/VP-EL-fonts/input-plt/<font name>_<declared text height>_<reference char>.plt
+fonts/VP-EL-fonts/input-plt/<font name>_<declared text height>_<reference char>[_S<strokes>][_sym].plt
 ```
 
 where `<declared text height>` is the text height set in Step 1 (inches) and
 `<reference char>` is the framing character chosen in Step 1:
 
 ```
-fonts/VP-EL-fonts/input-plt/dino_0.5_E.plt             →  font "Dino",            0.5 in, ref E
-fonts/VP-EL-fonts/input-plt/heavy_engraving_0.25_H.plt →  font "Heavy Engraving", 0.25 in, ref H
+fonts/VP-EL-fonts/input-plt/dino_0.5_E.plt              →  font "Dino",            0.5 in, ref E
+fonts/VP-EL-fonts/input-plt/heavy_engraving_0.25_H.plt  →  font "Heavy Engraving", 0.25 in, ref H
+fonts/VP-EL-fonts/input-plt/avenge5_0.55_E_S5.plt       →  font "Avenge5",         0.55 in, ref E, 5 strokes
+fonts/VP-EL-fonts/input-plt/wingdings_0.35_^_S4_sym.plt →  font "Wingdings",       0.35 in, ref ^, 4 strokes, symbol
 ```
+
+The optional `_S<n>` suffix declares how many parallel cutter passes each
+glyph carries (a multi-stroke/bold font) and is stored as `stroke_count`
+metadata. The optional trailing `_sym` (or `_symbol`, case-insensitive)
+marks a **symbol font** whose ASCII slots engrave symbols rather than
+letters (see [Derived Unicode glyphs](#derived-unicode-glyphs)); it is
+stored as the `symbol_font` flag. The canonical order is `_S<n>_sym`.
 
 The font-name part becomes the JSON key with underscores turned into spaces
 and title-cased (`heavy_engraving_0.25_H.plt` → `"Heavy Engraving"`). One
@@ -180,6 +189,8 @@ One file per font (`fonts/VP-EL-fonts/catalog/Dino.json`):
 {
   "font_name": "Dino",
   "file_path": "fonts/VP-EL-fonts/input-plt/dino_0.5_E.plt",
+  "stroke_count": 1,
+  "symbol_font": false,
   "reference_char": "E",
   "declared_height_in": 0.5,
   "reference_char_height_in": 0.508017,
@@ -253,14 +264,15 @@ Rules:
 - The midline/cap reference lives in the font entry itself
   (`reference_char` + its `bounding_box.max_y`), so `--rebuild` and merge
   runs produce identical derived keys.
-- **Non-text (symbol) fonts are exempt.** Every font named in
-  [`VP-EL-fonts/non_text_fonts.txt`](VP-EL-fonts/non_text_fonts.txt)
-  (one name per line, case-insensitive; `#` comments allowed — currently
-  `Wingdings`) engraves its ASCII slots with symbols, so the recipes would
-  build nonsense: the extractor skips the derivation step entirely for it.
-  The same list exempts the font from the Unicode line in
-  `scripts/font_showcase.py` and from the synthetic `<base> SC` small-caps
-  variant (`plt_optimizer/generate/font_registry.py`). Such a font's showcase
+- **Symbol fonts are exempt.** A sheet whose name ends in `_sym` (or
+  `_symbol`, case-insensitive — e.g. `wingdings_0.35_^_S4_sym.plt`)
+  engraves its ASCII slots with symbols, so the recipes would
+  build nonsense: the extractor skips the derivation step entirely and
+  stores `"symbol_font": true` in the catalog file (every font carries the
+  key — `true` for a `_sym` sheet, `false` for a letter font). The same flag
+  exempts the font from the Unicode line in `scripts/font_showcase.py` and
+  from the synthetic `<base> SC` small-caps variant
+  (`plt_optimizer/generate/font_registry.py`). Such a font's showcase
   is a **key -> symbol mapping** grid instead of the letter sample block: one
   cell per `ascii.txt` character, engraving the ASCII key (`a:`, `b:`, ...) in
   the readable default face beside the symbol the font produces for it. The

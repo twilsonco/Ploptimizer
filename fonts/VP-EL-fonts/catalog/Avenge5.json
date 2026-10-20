@@ -2,6 +2,7 @@
   "font_name": "Avenge5",
   "file_path": "fonts/VP-EL-fonts/input-plt/avenge5_0.55_E_S5.plt",
   "stroke_count": 5,
+  "symbol_font": false,
   "reference_char": "E",
   "declared_height_in": 0.55,
   "reference_char_height_in": 0.60958,

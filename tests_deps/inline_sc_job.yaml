@@ -18,7 +18,8 @@
 #     additional effect there (the TODO's "applied to text that is already in
 #     small caps"); the renderers keep the font-level whole-line selection and
 #     the render stays bit-identical to the pre-tag behaviour;
-#   * a symbol font (`Wingdings`, listed in `fonts/VP-EL-fonts/non_text_fonts.txt`)
+#   * a symbol font (`Wingdings`, whose catalog entry sets `symbol_font` from
+#     the sample sheet's `_sym` file-name suffix)
 #     is exempt from the ` SC` variant because it has no lowercase to shrink --
 #     the same reasoning applies inline, so the tag is a no-op.
 #
