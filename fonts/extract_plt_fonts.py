@@ -28,6 +28,15 @@ VisionPro.md`` beside this script) is:
 
        uv run python fonts/extract_plt_fonts.py
 
+   A successful run finishes by regenerating the per-font **showcase JPGs**
+   (step 5 below); ``--no-showcase`` skips that step.
+5. ``fonts/font_showcase.py`` renders one chrome-free JPG per font into the
+   git-tracked ``fonts/showcases/`` (see its module docstring). The step is
+   skipped with an informational log when ``--output-dir`` is not the default
+   catalog directory (the showcase always renders the default library), and a
+   showcase failure is logged at ERROR without changing the extraction exit
+   code: the catalog JSON is the deliverable, the JPGs are derived artifacts.
+
 Each sheet is parsed with the core :class:`~plt_optimizer.core.parser.PLTParser`
 and verified structurally before any glyph data is trusted:
 
@@ -129,6 +138,7 @@ would engrave nonsense.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import logging
 import math
@@ -169,10 +179,20 @@ from glyph_transforms import (  # noqa: E402
 from plt_optimizer.core.models import ArcSegment, PLTDocument, StrokePath  # noqa: E402
 from plt_optimizer.core.parser import ParseError, PLTParser  # noqa: E402
 
+# The renderer-side source of truth for the default catalog location; the
+# post-extraction showcase (fonts/font_showcase.py) renders exactly this
+# library, so the showcase step is guarded on --output-dir matching it.
+from plt_optimizer.generate.font_registry import PLT_FONT_CATALOG_DIR  # noqa: E402
+
 logger = logging.getLogger("extract_plt_fonts")
 
 FONTS_DIR = REPO_ROOT / "fonts"
 DEFAULT_INPUT_DIR = FONTS_DIR / "VP-EL-fonts" / "input-plt"
+
+# The showcase utility run after a successful catalog write (see
+# :func:`run_font_showcase`); it lives beside this script in the (data)
+# ``fonts/`` directory, so it is loaded by path, not imported.
+FONT_SHOWCASE_SCRIPT = SCRIPT_DIR / "font_showcase.py"
 DEFAULT_OUTPUT_DIR = FONTS_DIR / "VP-EL-fonts" / "catalog"
 DEFAULT_ASCII_FILE = FONTS_DIR / "ascii.txt"
 
@@ -1537,6 +1557,62 @@ def clear_catalog(output_dir: Path) -> int:
     return removed
 
 
+def _load_font_showcase_module() -> Any:
+    """Import ``fonts/font_showcase.py`` as a module by path.
+
+    ``fonts/`` is a data directory, not a package, so the showcase utility is
+    loaded with :mod:`importlib` - the same idiom the test suite uses for the
+    ``fonts/`` scripts. The module is registered in :data:`sys.modules` before
+    execution: the showcase's mapping-mode dataclass resolves its annotations
+    through ``sys.modules[cls.__module__]``, which fails for a module loaded
+    by path and left unregistered.
+
+    Returns:
+        The loaded showcase module (exposes ``main``).
+
+    Raises:
+        FontExtractionError: If the script cannot be found or loaded.
+    """
+    spec = importlib.util.spec_from_file_location("font_showcase", FONT_SHOWCASE_SCRIPT)
+    if spec is None or spec.loader is None:
+        raise FontExtractionError(f"Failed to load font showcase script {FONT_SHOWCASE_SCRIPT}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["font_showcase"] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception as e:
+        raise FontExtractionError(f"Failed to import {FONT_SHOWCASE_SCRIPT}: {e}") from e
+    return module
+
+
+def run_font_showcase(output_dir: Optional[Path] = None) -> int:
+    """Regenerate the per-font showcase JPGs via ``fonts/font_showcase.py``.
+
+    Runs the showcase's own CLI entry point in-process, so its logging joins
+    this script's logging configuration. With ``output_dir`` omitted the
+    showcase writes to its own default (the git-tracked ``fonts/showcases/``).
+
+    Args:
+        output_dir: Showcase JPG directory override (``--showcase-output``).
+
+    Returns:
+        The showcase's exit code (0 when at least one JPG was written).
+
+    Raises:
+        FontExtractionError: If the showcase script cannot be loaded.
+        Exception: Propagates rendering/plotting failures from the showcase
+            CLI (handled by the caller in :func:`main`).
+    """
+    module = _load_font_showcase_module()
+    argv: List[str] = ["--output", str(output_dir)] if output_dir is not None else []
+    rc = int(module.main(argv))
+    if rc != 0:
+        logger.error("Font showcase exited with code %d (see its ERROR lines above)", rc)
+    else:
+        logger.info("Font showcase regenerated (fonts/font_showcase.py)")
+    return rc
+
+
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     """Parse command-line arguments.
 
@@ -1627,6 +1703,22 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "only the extracted fonts, leaving other catalog files untouched.",
     )
     parser.add_argument(
+        "--showcase",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Run fonts/font_showcase.py after a successful extraction, "
+        "regenerating the per-font showcase JPGs (default: on). Skipped when "
+        "--output-dir is not the default catalog directory (the showcase "
+        "renders the default library). --no-showcase skips the step.",
+    )
+    parser.add_argument(
+        "--showcase-output",
+        type=Path,
+        default=None,
+        help="Directory for the showcase JPGs, forwarded to font_showcase.py "
+        "--output (default: its own fonts/showcases/).",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -1638,11 +1730,19 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     """Run the font extraction CLI.
 
+    A successful catalog write is followed by the font-showcase step
+    (:func:`run_font_showcase`) unless ``--no-showcase`` was given or
+    ``--output-dir`` points at a non-default catalog (the showcase always
+    renders the default library). A showcase failure is logged at ERROR and
+    never changes the extraction exit code: the catalog JSON is the
+    deliverable, the showcase JPGs are derived artifacts.
+
     Args:
         argv: Argument list (defaults to ``sys.argv[1:]``).
 
     Returns:
-        Process exit code: 0 on full success, 1 when any step failed.
+        Process exit code: 0 on full success, 1 when any extraction step
+        failed (showcase failures excluded).
     """
     args = parse_args(argv)
     logging.basicConfig(
@@ -1741,6 +1841,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     except FontExtractionError as e:
         logger.error("%s", e)
         return 1
+
+    if args.showcase:
+        if args.output_dir.resolve() == PLT_FONT_CATALOG_DIR.resolve():
+            try:
+                run_font_showcase(args.showcase_output)
+            except Exception as e:  # derived artifacts never revert a good run
+                logger.error("Font showcase failed: %s", e, exc_info=True)
+        else:
+            logger.info(
+                "Skipping the font showcase: --output-dir %s is not the default catalog %s "
+                "(font_showcase.py always renders the default library); run "
+                "'uv run python fonts/font_showcase.py' manually to refresh the JPGs",
+                args.output_dir,
+                PLT_FONT_CATALOG_DIR,
+            )
     return 1 if failed else 0
 
 

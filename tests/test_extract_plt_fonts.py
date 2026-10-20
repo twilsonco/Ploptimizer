@@ -1208,6 +1208,21 @@ class TestCatalogWriters:
 class TestMainCli:
     """End-to-end tests for the CLI entry point."""
 
+    @pytest.fixture(autouse=True)
+    def _stub_showcase(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Never render showcases in the CLI tests (matplotlib, all fonts).
+
+        The guard in :func:`main` already skips the showcase for these tests'
+        temporary ``--output-dir``; the stub makes that hermetic by
+        construction and pins it against a future default-catalog change.
+        :class:`TestShowcaseWiring` covers the wiring itself.
+        """
+        monkeypatch.setattr(
+            script,
+            "run_font_showcase",
+            lambda output_dir=None: 0,
+        )
+
     def _make_fonts_dir(self, tmp_path: Path) -> Path:
         fonts_dir = tmp_path / "fonts"
         fonts_dir.mkdir()
@@ -1397,6 +1412,167 @@ class TestMainCli:
             ]
         )
         assert rc == 1
+
+
+class TestShowcaseWiring:
+    """The post-extraction showcase step: default on, ``--no-showcase`` off."""
+
+    @pytest.fixture
+    def calls(self, monkeypatch: pytest.MonkeyPatch) -> List[Optional[Path]]:
+        """Record :func:`run_font_showcase` invocations instead of rendering."""
+        recorded: List[Optional[Path]] = []
+
+        def _stub(output_dir: Optional[Path] = None) -> int:
+            recorded.append(output_dir)
+            return 0
+
+        monkeypatch.setattr(script, "run_font_showcase", _stub)
+        return recorded
+
+    def _args(self, tmp_path: Path, out: Path) -> List[str]:
+        fonts_dir = tmp_path / "fonts"
+        fonts_dir.mkdir(exist_ok=True)
+        (fonts_dir / "myfont_1_E.plt").write_text(
+            make_framed_sheet([["E", "A", "_"], ["E", "T", "g"]]), encoding="utf-8"
+        )
+        ascii_file = tmp_path / "ascii.txt"
+        ascii_file.write_text("E A _ E T g", encoding="utf-8")
+        return [
+            "--input-dir",
+            str(fonts_dir),
+            "--ascii-file",
+            str(ascii_file),
+            "--output-dir",
+            str(out),
+        ]
+
+    def test_showcase_runs_by_default_for_the_default_catalog(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, calls: List[Optional[Path]]
+    ) -> None:
+        """A run writing the default catalog regenerates the showcases."""
+        out = tmp_path / "catalog"
+        monkeypatch.setattr(script, "PLT_FONT_CATALOG_DIR", out)
+        assert script.main(self._args(tmp_path, out)) == 0
+        assert calls == [None]
+
+    def test_no_showcase_flag_skips_the_step(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, calls: List[Optional[Path]]
+    ) -> None:
+        out = tmp_path / "catalog"
+        monkeypatch.setattr(script, "PLT_FONT_CATALOG_DIR", out)
+        assert script.main(self._args(tmp_path, out) + ["--no-showcase"]) == 0
+        assert calls == []
+
+    def test_explicit_showcase_flag_is_a_no_op_flag(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, calls: List[Optional[Path]]
+    ) -> None:
+        """``--showcase`` is accepted and matches the default behaviour."""
+        out = tmp_path / "catalog"
+        monkeypatch.setattr(script, "PLT_FONT_CATALOG_DIR", out)
+        assert script.main(self._args(tmp_path, out) + ["--showcase"]) == 0
+        assert calls == [None]
+
+    def test_showcase_output_is_forwarded(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, calls: List[Optional[Path]]
+    ) -> None:
+        out = tmp_path / "catalog"
+        monkeypatch.setattr(script, "PLT_FONT_CATALOG_DIR", out)
+        jpgs = tmp_path / "jpgs"
+        assert script.main(self._args(tmp_path, out) + ["--showcase-output", str(jpgs)]) == 0
+        assert calls == [jpgs]
+
+    def test_non_default_catalog_skips_with_a_log(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        calls: List[Optional[Path]],
+    ) -> None:
+        """A custom catalog is not what the showcase renders: skip, don't lie."""
+        caplog.set_level(logging.INFO, logger="extract_plt_fonts")
+        out = tmp_path / "catalog"
+        assert script.main(self._args(tmp_path, out)) == 0
+        assert calls == []
+        assert any("Skipping the font showcase" in record.getMessage() for record in caplog.records)
+
+    def test_showcase_crash_keeps_the_extraction_rc(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """The catalog JSON is the deliverable: a showcase crash never fails it."""
+        caplog.set_level(logging.ERROR, logger="extract_plt_fonts")
+        out = tmp_path / "catalog"
+        monkeypatch.setattr(script, "PLT_FONT_CATALOG_DIR", out)
+
+        def _boom(output_dir: Optional[Path] = None) -> int:
+            raise RuntimeError("plotter exploded")
+
+        monkeypatch.setattr(script, "run_font_showcase", _boom)
+        assert script.main(self._args(tmp_path, out)) == 0
+        assert (out / "Myfont.json").exists()
+        assert any("Font showcase failed" in record.getMessage() for record in caplog.records)
+
+    def test_showcase_nonzero_rc_keeps_the_extraction_rc(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        out = tmp_path / "catalog"
+        monkeypatch.setattr(script, "PLT_FONT_CATALOG_DIR", out)
+        monkeypatch.setattr(script, "run_font_showcase", lambda output_dir=None: 1)
+        assert script.main(self._args(tmp_path, out)) == 0
+
+    def test_catalog_is_written_before_the_showcase(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The showcase must see the fresh catalog, so it runs after the writes."""
+        out = tmp_path / "catalog"
+        monkeypatch.setattr(script, "PLT_FONT_CATALOG_DIR", out)
+
+        def _assert_fresh(output_dir: Optional[Path] = None) -> int:
+            assert (out / "Myfont.json").exists()
+            return 0
+
+        monkeypatch.setattr(script, "run_font_showcase", _assert_fresh)
+        assert script.main(self._args(tmp_path, out)) == 0
+
+    def test_no_extractions_never_reach_the_showcase(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, calls: List[Optional[Path]]
+    ) -> None:
+        monkeypatch.setattr(script, "PLT_FONT_CATALOG_DIR", tmp_path / "catalog")
+        empty = tmp_path / "fonts"
+        empty.mkdir()
+        ascii_file = tmp_path / "ascii.txt"
+        ascii_file.write_text("E A _ E T g", encoding="utf-8")
+        rc = script.main(
+            [
+                "--input-dir",
+                str(empty),
+                "--ascii-file",
+                str(ascii_file),
+                "--output-dir",
+                str(tmp_path / "catalog"),
+            ]
+        )
+        assert rc == 1
+        assert calls == []
+
+
+class TestFontShowcaseLoader:
+    """The by-path loader for the sibling showcase script."""
+
+    def test_loads_the_sibling_script(self) -> None:
+        module = script._load_font_showcase_module()
+        assert callable(module.main)
+
+    def test_missing_script_raises_extraction_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(script, "FONT_SHOWCASE_SCRIPT", tmp_path / "nope.py")
+        # A missing .py path still produces a spec (spec creation never touches
+        # the disk), so the failure surfaces at exec_module as an OSError
+        # wrapped into FontExtractionError.
+        with pytest.raises(script.FontExtractionError, match="Failed to import"):
+            script._load_font_showcase_module()
 
 
 class TestRealSheetIntegration:
