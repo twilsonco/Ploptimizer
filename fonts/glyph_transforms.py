@@ -125,6 +125,10 @@ DAGGER_CROSS_FRACTION: float = 2.0 / 3.0
 DOUBLE_DAGGER_CROSS_FRACTIONS: Tuple[float, ...] = (1.0 / 3.0, 2.0 / 3.0)
 DAGGER_SCALE: float = 0.4
 
+# Almost-equal: separation divisor for the vertical distance between the two tilde bars.
+# Increase value to decrease the separation between the bars.
+ALMOST_EQUAL_SEPARATION_DIVISOR: float = 1.0
+
 
 class GlyphTransformError(Exception):
     """Raised when a glyph cannot be transformed (bad input, arcs vs shear)."""
@@ -1455,9 +1459,10 @@ def _almost_equal(context: DerivedContext) -> Sequence[GlyphElement]:
     """Almost equal: two tildas stacked, the pair centred on the midline."""
     tilde = context.b("~")
     height = tilde[3] - tilde[1]
+    separation = height / ALMOST_EQUAL_SEPARATION_DIVISOR
     return [
         GlyphElement(context.g("~"), Affine.translation(0.0, target - center_y(tilde)))
-        for target in (context.midline + height / 2.0, context.midline - height / 2.0)
+        for target in (context.midline + separation, context.midline - separation)
     ]
 
 
