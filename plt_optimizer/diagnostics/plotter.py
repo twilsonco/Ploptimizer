@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 import sys
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
@@ -23,6 +24,7 @@ if getattr(sys, "frozen", False) or sys.platform == "win32":
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
+from matplotlib.patches import PathPatch
 from matplotlib.ticker import FormatStrFormatter, MultipleLocator
 
 from plt_optimizer.core.models import (
@@ -33,6 +35,7 @@ from plt_optimizer.core.models import (
     StrokePath,
 )
 from plt_optimizer.core.units import HPGL_UNITS_PER_INCH
+from plt_optimizer.diagnostics.stroke_geometry import StrokePolygon, expand_cutting_polygons
 from plt_optimizer.utils.geometry import calculate_cumulative_distances
 
 # One plotter unit is HPGL's default 0.025 mm step, i.e. 1/1016 inch (see
@@ -107,6 +110,58 @@ SIMPLE_STRUCTURAL_LINEWIDTH = 2.0
 SIMPLE_STRUCTURAL_ALPHA = 0.3
 SIMPLE_LINEWIDTH = 0.4
 SIMPLE_ALPHA = 1.0
+
+# Physical-stroke rendering: structural (border/hole) layers keep the
+# semi-transparent underlay look of simple mode's structural strokes so they
+# stay visually distinct from the text ink drawn at full opacity.
+PHYSICAL_STRUCTURAL_ALPHA = SIMPLE_STRUCTURAL_ALPHA
+
+
+def _polygon_exterior_bounds(
+    polygons: Sequence[StrokePolygon],
+) -> Tuple[float, float, float, float]:
+    """Compute the (min_x, min_y, max_x, max_y) bounds of StrokePolygon rings.
+
+    Args:
+        polygons: StrokePolygon objects (inch-coordinate rings) from
+            :func:`~plt_optimizer.diagnostics.stroke_geometry.expand_cutting_polygons`.
+
+    Returns:
+        The inclusive bounds in inches.
+
+    Raises:
+        PlotterError: If ``polygons`` is empty.
+    """
+    xs: List[float] = []
+    ys: List[float] = []
+    for polygon in polygons:
+        for x, y in polygon.exterior:
+            xs.append(x)
+            ys.append(y)
+    if not xs:
+        raise PlotterError("Cannot compute bounds of an empty polygon set")
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+@dataclass(frozen=True)
+class PhysicalStrokeLayer:
+    """One width-tagged stroke layer for :func:`plot_physical_strokes`.
+
+    Attributes:
+        segments: Ordered segments in plotter units (the layer's toolpath;
+            rapid/pen-up segments are ignored by the expansion).
+        width_inches: Physical stroke (cutter) diameter in inches.
+        alpha: Fill opacity for the layer's polygons (1.0 = text ink, the
+            semi-transparent :data:`PHYSICAL_STRUCTURAL_ALPHA` for border
+            and hole underlays).
+        label: Caller-facing layer description (e.g. ``"0.030 txt"``).
+            Metadata only -- the clean physical render draws no legend.
+    """
+
+    segments: Sequence[Segment]
+    width_inches: float
+    alpha: float = 1.0
+    label: str = ""
 
 
 def _apply_inch_tick_layout(ax: Axes) -> None:
@@ -475,6 +530,141 @@ def plot_stroke_path(
         title=title,
         show_plot=show_plot,
     )
+
+
+def plot_physical_strokes(
+    layers: Sequence[PhysicalStrokeLayer],
+    output_path: Optional[Path] = None,
+    title: str = "Physical Stroke Widths",
+    show_plot: bool = False,
+    figure_size: Tuple[float, float] = DEFAULT_FIGURE_SIZE,
+    gridlines: bool = True,
+    show_axes: bool = True,
+    show_title: bool = True,
+) -> Figure:
+    """Plot toolpath strokes at their true engraved (cutter) widths.
+
+    Every layer's cutting segments are expanded into constant-width
+    polygons -- the physical ink corridor a cutter of ``width_inches``
+    engraves -- and filled in black, so each stroke measures its real
+    cutter diameter on the inch axes at any zoom or export scale (unlike
+    ``simple_mode`` centerline strokes, whose linewidth in points is
+    display-only). Rapid travel, colorbar, start/end markers, and the
+    summary box are omitted; the axes keep the fixed inch drafting grid.
+
+    Args:
+        layers: Width-tagged stroke layers to render (see
+            :class:`PhysicalStrokeLayer`). Layers with no cutting geometry
+            or a non-positive width contribute nothing.
+        output_path: Optional path to save the figure (format inferred
+            from the extension, see :func:`save_figure`).
+        title: Title for the plot window/figure.
+        show_plot: If True, call plt.show() to display interactively.
+        figure_size: Figure dimensions in inches as (width, height).
+        gridlines: If True (the default), draw the major (1 in) and minor
+            (0.5 in) drafting gridlines.
+        show_axes: If True (the default), draw the axis chrome (inch axis
+            labels, fixed inch-based ticks, frame). If False, hide all
+            ticks, labels, and spines -- the clean-render mode.
+        show_title: If True (the default), set ``title`` as the plot title.
+
+    Returns:
+        The matplotlib Figure object.
+
+    Raises:
+        PlotterError: If plotting fails.
+    """
+    try:
+        fig, ax = plt.subplots(figsize=figure_size)
+
+        rendered: List[Tuple[PhysicalStrokeLayer, List[StrokePolygon]]] = []
+        for layer in layers:
+            polygons = expand_cutting_polygons(layer.segments, layer.width_inches)
+            if polygons:
+                rendered.append((layer, polygons))
+
+        if not rendered:
+            ax.text(
+                0.5,
+                0.5,
+                "No strokes to plot",
+                ha="center",
+                va="center",
+                transform=ax.transAxes,
+                fontsize=14,
+            )
+            return fig
+
+        # Fill each layer's expanded polygons as true-width ink silhouettes.
+        # Each ring becomes a MOVETO/LINETO subpath; the compound path's
+        # even-odd fill renders interior rings as holes.
+        for layer, polygons in rendered:
+            for polygon in polygons:
+                rings = (polygon.exterior, *polygon.interiors)
+                path = matplotlib.path.Path.make_compound_path(
+                    *(
+                        matplotlib.path.Path(
+                            ring,
+                            [matplotlib.path.Path.MOVETO]
+                            + [matplotlib.path.Path.LINETO] * (len(ring) - 1),
+                        )
+                        for ring in rings
+                    )
+                )
+                ax.add_patch(
+                    PathPatch(
+                        path,
+                        facecolor="black",
+                        edgecolor="none",
+                        alpha=layer.alpha,
+                    )
+                )
+
+        # Axis limits from the polygon bounds (the ink envelope, half the
+        # cutter width wider than the centerlines) with 10% padding, y
+        # inverted to the device convention (+y down) like plot_plt_document.
+        all_x: List[float] = []
+        all_y: List[float] = []
+        for _, polygons in rendered:
+            min_x, min_y, max_x, max_y = _polygon_exterior_bounds(polygons)
+            all_x.extend([min_x, max_x])
+            all_y.extend([min_y, max_y])
+        x_min, x_max = min(all_x), max(all_x)
+        y_min, y_max = min(all_y), max(all_y)
+        padding_x = _safe_range(x_min, x_max) * 0.1
+        padding_y = _safe_range(y_min, y_max) * 0.1
+        ax.set_xlim(x_min - padding_x, x_max + padding_x)
+        ax.set_ylim(y_max + padding_y, y_min - padding_y)
+
+        if show_title:
+            ax.set_title(title)
+        if show_axes:
+            ax.set_xlabel("X (inches)")
+            ax.set_ylabel("Y (inches)")
+            _apply_inch_tick_layout(ax)
+        else:
+            ax.get_xaxis().set_visible(False)
+            ax.get_yaxis().set_visible(False)
+            for spine in ax.spines.values():
+                spine.set_visible(False)
+        if gridlines:
+            ax.grid(True, alpha=0.3)
+            ax.grid(which="minor", alpha=0.15)
+
+        ax.set_aspect("equal", adjustable="box")
+
+        plt.tight_layout()
+
+        if output_path is not None:
+            save_figure(fig, output_path)
+
+        if show_plot:
+            plt.show()
+
+        return fig
+
+    except Exception as e:
+        raise PlotterError(f"Plotting failed: {e}") from e
 
 
 def save_figure(fig: Figure, path: Path) -> None:

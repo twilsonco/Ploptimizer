@@ -220,20 +220,26 @@ class TestExportAndOptimizePhase3:
         pdf_dir = tmp_path / "pdf"
         assert not any("_all_" in p.name for p in pdf_dir.iterdir())
 
-    def test_export_simple_plots_structural_styling_wiring(self, tmp_path: Path) -> None:
-        """Simple plots: bh files render structural, text/all plots do not."""
+    def test_export_simple_plots_physical_width_wiring(self, tmp_path: Path) -> None:
+        """Simple plots render true cutter widths: bh translucent, text opaque.
+
+        The per-file width comes from the file-name cutter token; the
+        combined per-plate plot splits the assembly by pen and draws each
+        pen at its own cutter width (structural pens translucent).
+        """
         from unittest.mock import patch
 
         job = parse_yaml("tests_deps/test123_spec.yaml")
         resolved_labels = resolve_job_spec(job)
 
-        captured: list[tuple[str, bool]] = []
+        captured: dict[str, list[tuple[float, float]]] = {}
 
-        def _fake_plot(document, output_path=None, show_plot=False, simple_mode=False, **kwargs):
-            assert simple_mode is True
-            captured.append((Path(output_path).name, bool(kwargs.get("is_structural", False))))
+        def _fake_plot(layers, output_path=None, show_plot=False, **kwargs):
+            captured[Path(output_path).name] = [
+                (layer.width_inches, layer.alpha) for layer in layers
+            ]
 
-        with patch("plt_optimizer.diagnostics.plotter.plot_plt_document", side_effect=_fake_plot):
+        with patch("plt_optimizer.diagnostics.plotter.plot_physical_strokes", side_effect=_fake_plot):
             result = export_per_cutter_plts(
                 resolved_labels,
                 output_dir=tmp_path,
@@ -243,17 +249,68 @@ class TestExportAndOptimizePhase3:
             )
 
         assert captured
-        by_name = dict(captured)
-        # Borders+holes files are structural; text files are not.
-        assert any("_bh_" in name and flag for name, flag in by_name.items())
-        assert any("_txt_" in name and not flag for name, flag in by_name.items())
-        # Combined per-plate plots mix layers and stay non-structural. The
-        # combined name is `[<plate>_][<material>_]all_<job_id>.pdf`, so it
-        # leads with the `all_` token (no plate prefix for a single plate).
-        all_plots = [flag for name, flag in by_name.items() if name.startswith("all_")]
-        assert all_plots and not any(all_plots)
+        # test123: 0.5in text -> 0.060 cutter, 0.015 boundary/hole cutter.
+        bh_plots = {n: v for n, v in captured.items() if "_bh_" in n}
+        txt_plots = {n: v for n, v in captured.items() if "_txt_" in n}
+        assert bh_plots and txt_plots
+        for layers in bh_plots.values():
+            assert [(w, a) for w, a in layers] == [(0.015, pytest.approx(0.3))]
+        for layers in txt_plots.values():
+            assert [(w, a) for w, a in layers] == [(0.060, 1.0)]
+        # Combined per-plate plot: one layer per pen with content, each at
+        # its own cutter width; pens 2/3 (borders/holes) stay translucent.
+        all_plots = {n: v for n, v in captured.items() if n.startswith("all_")}
+        assert all_plots
+        for layers in all_plots.values():
+            widths = {round(w, 3) for w, _a in layers}
+            assert widths == {0.060, 0.015}
+            assert any(w == 0.015 and a == pytest.approx(0.3) for w, a in layers)
+            assert any(w == 0.060 and a == 1.0 for w, a in layers)
         # The fake never saves; PDFs are tracked as usual.
         assert result.pdf_paths
+
+    def test_export_simple_plots_fall_back_without_pen_widths(self, tmp_path: Path) -> None:
+        """A synthetic export (no pen widths) keeps the thin centerline preview."""
+        from unittest.mock import patch
+
+        from plt_optimizer.generate.vectorize import _write_simple_plots
+
+        job = parse_yaml("tests_deps/test123_spec.yaml")
+        resolved_labels = resolve_job_spec(job)
+        result = export_per_cutter_plts(
+            resolved_labels,
+            output_dir=tmp_path,
+            job_id="fb",
+            optimize=False,
+            plots=False,
+        )
+        assert result.combined_by_plate
+
+        simple_calls: list[str] = []
+        physical_calls: list[str] = []
+
+        def _fake_simple(document, output_path=None, show_plot=False, simple_mode=False, **kwargs):
+            assert simple_mode is True
+            simple_calls.append(Path(output_path).name)
+
+        def _fake_physical(layers, output_path=None, show_plot=False, **kwargs):
+            physical_calls.append(Path(output_path).name)
+
+        with (
+            patch("plt_optimizer.diagnostics.plotter.plot_plt_document", side_effect=_fake_simple),
+            patch(
+                "plt_optimizer.diagnostics.plotter.plot_physical_strokes",
+                side_effect=_fake_physical,
+            ),
+        ):
+            pdf_paths = _write_simple_plots(tmp_path, "fb", result)
+
+        names = {p.name for p in pdf_paths}
+        # Per-cutter files keep the stem cutter token, so they render physical.
+        assert any("_txt_" in n for n in physical_calls)
+        # The combined plot has no pen-width map -> thin centerline fallback.
+        assert [n for n in simple_calls if n.startswith("all_")]
+        assert not any(n.startswith("all_") for n in physical_calls)
 
     def test_export_per_cutter_skips_empty_groups(self, tmp_path: Path) -> None:
         """A job without holes still gets a borders file; no empty text files."""

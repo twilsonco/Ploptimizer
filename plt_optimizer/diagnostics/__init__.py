@@ -10,8 +10,10 @@ try:
 
     from plt_optimizer.diagnostics.plotter import (
         DEFAULT_FIGURE_SIZE,
+        PhysicalStrokeLayer,
         PlotterError,
         create_path_diagram,
+        plot_physical_strokes,
         plot_plt_document,
         plot_stroke_path,
         save_figure,
@@ -19,8 +21,10 @@ try:
 
     __all__ = [
         "DEFAULT_FIGURE_SIZE",
+        "PhysicalStrokeLayer",
         "PlotterError",
         "create_path_diagram",
+        "plot_physical_strokes",
         "plot_plt_document",
         "plot_stroke_path",
         "save_figure",

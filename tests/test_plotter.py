@@ -26,14 +26,17 @@ from plt_optimizer.core.units import HPGL_UNITS_PER_INCH
 from plt_optimizer.diagnostics.plotter import (
     DEFAULT_FIGURE_SIZE,
     MINOR_TICK_INTERVAL_INCHES,
+    PHYSICAL_STRUCTURAL_ALPHA,
     SIMPLE_ALPHA,
     SIMPLE_LINEWIDTH,
     SIMPLE_STRUCTURAL_ALPHA,
     SIMPLE_STRUCTURAL_LINEWIDTH,
     TICK_INTERVAL_INCHES,
+    PhysicalStrokeLayer,
     PlotterError,
     _safe_range,
     create_path_diagram,
+    plot_physical_strokes,
     plot_plt_document,
     plot_stroke_path,
     save_figure,
@@ -2191,3 +2194,222 @@ class TestSaveFigureRootedLookingPaths:
         ), patch.object(Path, "mkdir"):
             save_figure(fig, Path("/looks/rooted/figure.png"))
         fig.savefig.assert_called_once()
+
+
+def _phys_segment(x0: int, y0: int, x1: int, y1: int, cutting: bool = True) -> StrokeSegment:
+    """Build a stroke segment in plotter units for physical-width tests."""
+    return StrokeSegment(
+        start=Coordinate(x0, y0),
+        end=Coordinate(x1, y1),
+        is_cutting=cutting,
+    )
+
+
+class TestPlotPhysicalStrokes:
+    """Tests for plot_physical_strokes (true cutter-width rendering)."""
+
+    def test_patches_span_true_cutter_width(self) -> None:
+        """A 2in centerline at a 0.1in cutter fills a 2.1 x 0.1in patch."""
+        layer = PhysicalStrokeLayer(
+            segments=[_phys_segment(0, 0, 2 * U, 0)],
+            width_inches=0.1,
+        )
+        fig = plot_physical_strokes([layer])
+        ax = fig.axes[0]
+        assert len(ax.patches) == 1
+        # The patch path is in data (inch) coordinates: the ink envelope is
+        # the centerline plus half the cutter width on every side.
+        verts = ax.patches[0].get_path().vertices
+        assert verts[:, 0].min() == pytest.approx(-0.05, abs=1e-9)
+        assert verts[:, 0].max() == pytest.approx(2.05, abs=1e-9)
+        assert verts[:, 1].min() == pytest.approx(-0.05, abs=1e-9)
+        assert verts[:, 1].max() == pytest.approx(0.05, abs=1e-9)
+        plt.close(fig)
+
+    def test_layer_alpha_is_applied(self) -> None:
+        """Each layer's alpha lands on its patches."""
+        layers = [
+            PhysicalStrokeLayer(
+                segments=[_phys_segment(0, 0, U, 0)],
+                width_inches=0.1,
+                alpha=1.0,
+            ),
+            PhysicalStrokeLayer(
+                segments=[_phys_segment(0, 2 * U, U, 2 * U)],
+                width_inches=0.1,
+                alpha=PHYSICAL_STRUCTURAL_ALPHA,
+            ),
+        ]
+        fig = plot_physical_strokes(layers)
+        ax = fig.axes[0]
+        alphas = sorted(patch.get_alpha() for patch in ax.patches)
+        assert alphas == pytest.approx([PHYSICAL_STRUCTURAL_ALPHA, 1.0])
+        plt.close(fig)
+
+    def test_rapid_only_layers_show_placeholder_text(self) -> None:
+        """Layers without cutting geometry render the empty-plot notice."""
+        layer = PhysicalStrokeLayer(
+            segments=[_phys_segment(0, 0, U, 0, cutting=False)],
+            width_inches=0.1,
+        )
+        fig = plot_physical_strokes([layer])
+        ax = fig.axes[0]
+        assert not ax.patches
+        texts = [child for child in ax.get_children() if hasattr(child, "get_text")]
+        assert any("No strokes" in t.get_text() for t in texts)
+        plt.close(fig)
+
+    def test_empty_layers_list_shows_placeholder_text(self) -> None:
+        """An empty layer sequence renders the empty-plot notice."""
+        fig = plot_physical_strokes([])
+        ax = fig.axes[0]
+        assert not ax.patches
+        texts = [child for child in ax.get_children() if hasattr(child, "get_text")]
+        assert any("No strokes" in t.get_text() for t in texts)
+        plt.close(fig)
+
+    def test_zero_width_layer_contributes_nothing(self) -> None:
+        """A non-positive width layer is skipped entirely."""
+        layers = [
+            PhysicalStrokeLayer(
+                segments=[_phys_segment(0, 0, U, 0)],
+                width_inches=0.0,
+            ),
+            PhysicalStrokeLayer(
+                segments=[_phys_segment(0, 4 * U, U, 4 * U)],
+                width_inches=0.1,
+            ),
+        ]
+        fig = plot_physical_strokes(layers)
+        assert len(fig.axes[0].patches) == 1
+        plt.close(fig)
+
+    def test_limits_include_half_width_beyond_centerlines(self) -> None:
+        """Axis limits wrap the ink envelope (centerline + half width) padded."""
+        layer = PhysicalStrokeLayer(
+            segments=[_phys_segment(0, 0, 10 * U, 0)],
+            width_inches=0.2,
+        )
+        fig = plot_physical_strokes([layer])
+        ax = fig.axes[0]
+        x_lo, x_hi = sorted(ax.get_xlim())
+        # Ink spans -0.1 .. 10.1 in; 10% padding widens both sides further.
+        assert x_lo < -0.1
+        assert x_hi > 10.1
+        plt.close(fig)
+
+    def test_y_axis_inverted_like_plot_plt_document(self) -> None:
+        """The y-axis keeps the device convention (+y down): top < bottom."""
+        layer = PhysicalStrokeLayer(
+            segments=[_phys_segment(0, 0, U, 4 * U)],
+            width_inches=0.1,
+        )
+        fig = plot_physical_strokes([layer])
+        ax = fig.axes[0]
+        assert ax.get_ylim()[0] > ax.get_ylim()[1]
+        plt.close(fig)
+
+    def test_default_chrome_keeps_inch_labels_and_title(self) -> None:
+        """The default call keeps inch axis labels, ticks, and the title."""
+        layer = PhysicalStrokeLayer(
+            segments=[_phys_segment(0, 0, 12 * U, 8 * U)],
+            width_inches=0.1,
+        )
+        fig = plot_physical_strokes([layer], title="Physical check")
+        ax = fig.axes[0]
+        assert ax.get_xlabel() == "X (inches)"
+        assert ax.get_ylabel() == "Y (inches)"
+        assert ax.get_title() == "Physical check"
+        assert all(spine.get_visible() for spine in ax.spines.values())
+        for locs in (ax.xaxis.get_majorticklocs(), ax.yaxis.get_majorticklocs()):
+            assert len(locs) > 0
+            assert all(math.isclose(loc % 1.0, 0.0, abs_tol=1e-9) for loc in locs)
+        plt.close(fig)
+
+    def test_clean_mode_hides_chrome_keeps_limits(self) -> None:
+        """show_axes/show_title/gridlines off leaves only the filled strokes."""
+        layer = PhysicalStrokeLayer(
+            segments=[_phys_segment(0, 0, 12 * U, 8 * U)],
+            width_inches=0.1,
+        )
+        fig = plot_physical_strokes(
+            [layer],
+            title="Nope",
+            gridlines=False,
+            show_axes=False,
+            show_title=False,
+        )
+        ax = fig.axes[0]
+        assert ax.get_title() == ""
+        assert ax.get_xlabel() == ""
+        assert not ax.get_xaxis().get_visible()
+        assert not ax.get_yaxis().get_visible()
+        assert not any(spine.get_visible() for spine in ax.spines.values())
+        assert ax.get_legend() is None
+        assert len(ax.patches) == 1
+        x_lo, x_hi = sorted(ax.get_xlim())
+        assert x_lo < 0.0 and x_hi > 12.0
+        plt.close(fig)
+
+    def test_no_rapid_lines_markers_or_summary(self) -> None:
+        """Physical mode draws filled patches only: no lines, markers, summary."""
+        layer = PhysicalStrokeLayer(
+            segments=[
+                _phys_segment(0, 0, 2 * U, 0),
+                _phys_segment(2 * U, 0, 4 * U, 0, cutting=False),
+            ],
+            width_inches=0.1,
+        )
+        fig = plot_physical_strokes([layer])
+        ax = fig.axes[0]
+        # No rapid visualization, start/end markers, or colorbar axes.
+        assert not ax.get_lines()
+        assert len(fig.axes) == 1
+        texts = [child for child in ax.get_children() if hasattr(child, "get_text")]
+        assert not any("Cutting Distance" in t.get_text() for t in texts)
+        plt.close(fig)
+
+    def test_saves_figure_to_output_path(self, tmp_path: Path) -> None:
+        """output_path writes the figure through save_figure."""
+        layer = PhysicalStrokeLayer(
+            segments=[_phys_segment(0, 0, U, 0)],
+            width_inches=0.1,
+        )
+        out = tmp_path / "physical.pdf"
+        fig = plot_physical_strokes([layer], output_path=out)
+        assert out.exists() and out.stat().st_size > 0
+        plt.close(fig)
+
+    def test_custom_figure_size(self) -> None:
+        """figure_size is honored."""
+        layer = PhysicalStrokeLayer(
+            segments=[_phys_segment(0, 0, U, 0)],
+            width_inches=0.1,
+        )
+        fig = plot_physical_strokes([layer], figure_size=(10, 10))
+        assert fig.get_figwidth() == 10
+        assert fig.get_figheight() == 10
+        plt.close(fig)
+
+    def test_wraps_failures_in_plotter_error(self) -> None:
+        """Internal failures surface as PlotterError."""
+        # Resolve the plotter module at call time: test_diagnostics's
+        # matplotlib-fallback test re-imports the diagnostics package, so
+        # patching by module PATH must target the same (current) module
+        # object whose globals the called function reads.
+        from plt_optimizer.diagnostics import plotter as plotter_module
+
+        layer = PhysicalStrokeLayer(
+            segments=[_phys_segment(0, 0, U, 0)],
+            width_inches=0.1,
+        )
+        with patch.object(
+            plotter_module,
+            "expand_cutting_polygons",
+            side_effect=RuntimeError("boom"),
+        ):
+            # The exception class comes from the same live module: after a
+            # diagnostics re-import, the top-level PlotterError import is a
+            # different class object and would never match.
+            with pytest.raises(plotter_module.PlotterError, match="boom"):
+                plotter_module.plot_physical_strokes([layer])

@@ -29,12 +29,13 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Mapping, Optional, Sequence
+from typing import TYPE_CHECKING, List, Mapping, Optional, Sequence
 
 if TYPE_CHECKING:
     from plt_optimizer.generate.job_config import JobConfig
     from plt_optimizer.generate.schema import JobSpec
 
+from plt_optimizer.core.models import PLTDocument, Segment
 from plt_optimizer.core.optimizer import OptimizationStrategy
 from plt_optimizer.core.units import inches_to_units
 from plt_optimizer.generate.label_renderer import (
@@ -862,6 +863,15 @@ def export_per_cutter_plts(
         default=DEFAULT_BOUNDARY_HOLE_CUTTER,
     )
 
+    # Pen -> physical cutter diameter (inches): the true stroke width each
+    # pen engraves with. Text pens come from the (cutter, color) pen map;
+    # the structural pens (borders, holes) all share the job hole cutter.
+    # The simple physical-width plots consume this to split the in-memory
+    # combined plate by pen and draw every stroke at its real width.
+    pen_widths: dict[int, float] = {pen: cutter for pen, (cutter, _color) in layer_by_pen.items()}
+    pen_widths[LAYER_BOUNDARY] = hole_cutter
+    pen_widths[LAYER_HOLES] = hole_cutter
+
     # Phase 2: Generate layout with rendered bounds (labels rendered onto
     # their cutter pens).
     with stage_timer("layout_render_pack", _LOG):
@@ -1039,7 +1049,12 @@ def export_per_cutter_plts(
     if plots:
         with stage_timer("plots", _LOG):
             result.pdf_paths = _write_simple_plots(
-                output_dir, job_id, result, job_name=job_name, text_height=text_height
+                output_dir,
+                job_id,
+                result,
+                job_name=job_name,
+                text_height=text_height,
+                pen_widths=pen_widths,
             )
     if default_plots:
         with stage_timer("default_plots", _LOG):
@@ -1056,19 +1071,30 @@ def _write_simple_plots(
     result: PerCutterExport,
     job_name: str = "",
     text_height: float | None = None,
+    pen_widths: Optional[Mapping[int, float]] = None,
 ) -> list[Path]:
-    """Write simple-outline PDF previews for a per-cutter export.
+    """Write true-stroke-width PDF previews for a per-cutter export.
 
-    Parses every written PLT and renders a simple-mode (black cutting
-    lines only) PDF into ``output_dir/pdf/`` mirroring the PLT file names.
+    Parses every written PLT and renders a physical-width PDF into
+    ``output_dir/pdf/`` mirroring the PLT file names: every cutting stroke
+    is expanded into the ink corridor its cutter engraves (see
+    :func:`~plt_optimizer.diagnostics.plotter.plot_physical_strokes`), so
+    each stroke measures its real cutter diameter on the inch grid. The
+    per-file width comes from the cutter token of the file-name stem; the
+    structural (``bh`` = borders + holes) layers keep the semi-transparent
+    underlay look while text ink renders fully opaque.
+
     Additionally renders one combined ``[<plate>_][<material>_]all_<job_id>.pdf``
     per plate from the in-memory combined content (text + borders + holes
-    together).
+    together). When ``pen_widths`` is provided, the combined content is
+    split per pen (the assembly keeps its ``SP`` sections) and every pen
+    draws at its own cutter width; without it the combined plot falls back
+    to the thin centerline preview.
 
-    Stroke styling follows the toolpath kind: purely structural files
-    (``bh`` = borders + holes) plot thick and semi-transparent, while text
-    files and the mixed combined plots render thin and fully opaque (see
-    :func:`~plt_optimizer.diagnostics.plotter.plot_plt_document`).
+    Fallbacks keep the historical thin-line
+    :func:`~plt_optimizer.diagnostics.plotter.plot_plt_document`
+    (``simple_mode=True``) render for stems whose cutter cannot be parsed
+    and for synthetic exports without ``pen_widths``.
 
     matplotlib is imported lazily through the plotter module so headless
     optimizer-only environments never pay the import cost.
@@ -1080,12 +1106,21 @@ def _write_simple_plots(
             ``combined_by_plate`` drive the plots.
         job_name: Human-readable job name for plot titles (optional).
         text_height: Text height in inches for text plot titles (optional).
+        pen_widths: Physical cutter diameter (inches) per HPGL pen number
+            of the assembled plate (text pens from the pen map, structural
+            pens 2/3 at the job hole cutter). Enables per-stroke widths in
+            the combined plots. ``None`` renders combined plots thin.
 
     Returns:
         List of written PDF paths.
     """
     from plt_optimizer.core.parser import PLTParser
-    from plt_optimizer.diagnostics.plotter import plot_plt_document
+    from plt_optimizer.diagnostics.plotter import (
+        PHYSICAL_STRUCTURAL_ALPHA,
+        PhysicalStrokeLayer,
+        plot_physical_strokes,
+        plot_plt_document,
+    )
 
     pdf_dir = output_dir / "pdf"
     pdf_dir.mkdir(parents=True, exist_ok=True)
@@ -1093,6 +1128,21 @@ def _write_simple_plots(
     parser = PLTParser()
     pdf_paths: list[Path] = []
     combined_counts = _material_plate_counts(result.material_by_plate)
+
+    def _segments_of(document: PLTDocument) -> List[Segment]:
+        """Flatten every stroke path's segments of a parsed document."""
+        return [seg for path in document.stroke_paths for seg in path.segments]
+
+    def _stem_cutter_inches(stem: str) -> Optional[float]:
+        """Parse the cutter-diameter token of a PLT stem, if present."""
+        cutter_token = _parse_plt_stem(stem).cutter
+        if cutter_token is None:
+            return None
+        try:
+            width = float(cutter_token)
+        except ValueError:
+            return None
+        return width if width > 0.0 else None
 
     for plt_path in result.plt_paths:
         document = parser.parse_file(plt_path)
@@ -1106,38 +1156,86 @@ def _write_simple_plots(
             if job_name
             else "PLT Toolpath Visualization"
         )
-        plot_plt_document(
-            document,
-            output_path=pdf_path,
-            title=title,
-            show_plot=False,
-            simple_mode=True,
-            is_structural=is_structural,
-        )
+        width_inches = _stem_cutter_inches(plt_path.stem)
+        if width_inches is not None:
+            # Single-tool file: every stroke engraves at the file's cutter.
+            plot_physical_strokes(
+                [
+                    PhysicalStrokeLayer(
+                        segments=_segments_of(document),
+                        width_inches=width_inches,
+                        alpha=PHYSICAL_STRUCTURAL_ALPHA if is_structural else 1.0,
+                        label=plt_path.stem,
+                    )
+                ],
+                output_path=pdf_path,
+                title=title,
+                show_plot=False,
+            )
+        else:
+            plot_plt_document(
+                document,
+                output_path=pdf_path,
+                title=title,
+                show_plot=False,
+                simple_mode=True,
+                is_structural=is_structural,
+            )
         pdf_paths.append(pdf_path)
 
     for plate_no, combined in result.combined_by_plate.items():
-        document = parser.parse_string(combined)
         prefix = _format_plate_prefix(
             plate_no,
             combined_counts.get(plate_no, len(result.combined_by_plate)),
             result.material_by_plate.get(plate_no),
         )
         pdf_path = pdf_dir / f"{prefix}all_{job_id}.pdf"
-        # Combined plots mix text + borders + holes: thin opaque strokes.
         title = (
             f"{job_name} combined view (plate {plate_no})"
             if job_name
             else "PLT Toolpath Visualization"
         )
-        plot_plt_document(
-            document,
-            output_path=pdf_path,
-            title=title,
-            show_plot=False,
-            simple_mode=True,
-            gridlines=False,
-        )
+        layers: list[PhysicalStrokeLayer] = []
+        if pen_widths:
+            # The assembly keeps its SP pen sections, so each pen's strokes
+            # can be extracted and drawn at its own cutter width.
+            for pen_id in sorted(pen_widths):
+                pen_content = extract_pens_from_plt_text(combined, [pen_id])
+                if not plt_has_geometry(pen_content):
+                    continue
+                pen_document = parser.parse_string(pen_content)
+                layers.append(
+                    PhysicalStrokeLayer(
+                        segments=_segments_of(pen_document),
+                        width_inches=pen_widths[pen_id],
+                        alpha=(
+                            PHYSICAL_STRUCTURAL_ALPHA
+                            if pen_id in (LAYER_BOUNDARY, LAYER_HOLES)
+                            else 1.0
+                        ),
+                        label=f"pen {pen_id}",
+                    )
+                )
+        if layers:
+            plot_physical_strokes(
+                layers,
+                output_path=pdf_path,
+                title=title,
+                show_plot=False,
+                gridlines=False,
+            )
+        else:
+            # No pen widths (synthetic export) or no per-pen geometry:
+            # historical thin centerline preview.
+            document = parser.parse_string(combined)
+            plot_plt_document(
+                document,
+                output_path=pdf_path,
+                title=title,
+                show_plot=False,
+                simple_mode=True,
+                gridlines=False,
+            )
         pdf_paths.append(pdf_path)
 
     return pdf_paths

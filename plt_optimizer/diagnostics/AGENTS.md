@@ -43,7 +43,38 @@ never raises on matplotlib-free machines. Therefore:
 - `_safe_range` keeps degenerate spans from collapsing axes, using
   `math.isclose` per root §1.
 
+## `stroke_geometry.py` + `plot_physical_strokes` (true cutter widths)
+
+`plot_physical_strokes(layers, ...)` renders the **physical ink** of a
+toolpath: every cutting stroke is expanded into a constant-width polygon
+(the cutter's corridor) and filled, so each stroke measures its real cutter
+diameter on the inch axes at any zoom/export scale - unlike `simple_mode`
+centerline strokes whose linewidth in points is display-only. This is the
+`pdf/` preview renderer of the generate pipeline
+(`generate/vectorize.py::_write_simple_plots`); `simple_mode` stays for the
+font showcases (`fonts/font_showcase.py`) and thin-line fallbacks.
+
+- `PhysicalStrokeLayer(segments, width_inches, alpha=1.0, label="")` - one
+  width-tagged layer (plotter-unit segments, cutter diameter in inches).
+  Text ink: `alpha=1.0`; border/hole underlays: `PHYSICAL_STRUCTURAL_ALPHA`
+  (= `SIMPLE_STRUCTURAL_ALPHA`, 0.3) keeps them visually distinct.
+- `stroke_geometry.expand_cutting_polygons(segments, width_inches)` is the
+  pure-geometry core (shapely `buffer`, round caps/joins, `unary_union`):
+  contiguous pen-down runs join into ribbons, arcs flatten via the same
+  32-segment sampling, lone points engrave round dots, rapids/zero-width
+  yield nothing. It converts plotter units -> inches itself and imports NO
+  matplotlib (Win7-safe module; usable from headless code).
+- Stroke-width provenance lives OUTSIDE this package: per-cutter file names
+  carry the cutter (`_parse_plt_stem(...).cutter`), the assembled plate
+  splits by pen, and `export_per_cutter_plts` builds the pen -> cutter
+  `pen_widths` map. `PLTDocument` itself carries no pen/tool metadata.
+- No rapids, colorbar, markers, legend, or summary box - just the filled
+  ink over the fixed inch drafting grid (`gridlines`/`show_axes`/
+  `show_title` behave as in `plot_plt_document`).
+
 ## Tests
 
-`tests/test_diagnostics.py`. Output examples land in `examples_diag_output/`
+`tests/test_diagnostics.py` (re-export surface), `tests/test_plotter.py`
+(`TestPlotPhysicalStrokes`), `tests/test_stroke_geometry.py` (expansion
+geometry). Output examples land in `examples_diag_output/`
 via `examples/run_diagnostics.py` (user-facing demo).

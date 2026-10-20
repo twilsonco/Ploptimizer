@@ -14,8 +14,10 @@ import pytest
 # Test that all re-exported names are accessible from the package
 from plt_optimizer.diagnostics import (
     DEFAULT_FIGURE_SIZE,
+    PhysicalStrokeLayer,
     PlotterError,
     create_path_diagram,
+    plot_physical_strokes,
     plot_plt_document,
     plot_stroke_path,
     save_figure,
@@ -61,6 +63,17 @@ class TestReexports:
         """Test create_path_diagram is a callable function."""
         assert callable(create_path_diagram)
 
+    def test_plot_physical_strokes_is_callable(self) -> None:
+        """Test plot_physical_strokes is a callable function."""
+        assert callable(plot_physical_strokes)
+
+    def test_physical_stroke_layer_is_constructible(self) -> None:
+        """Test PhysicalStrokeLayer carries width-tagged segments."""
+        layer = PhysicalStrokeLayer(segments=(), width_inches=0.03)
+        assert layer.width_inches == 0.03
+        assert layer.alpha == 1.0
+        assert layer.label == ""
+
     def test_no_missing_reexports(self) -> None:
         """Test that all names in __all__ are actually accessible."""
         import plt_optimizer.diagnostics as diag
@@ -75,8 +88,10 @@ class TestReexports:
 
         expected = {
             "DEFAULT_FIGURE_SIZE",
+            "PhysicalStrokeLayer",
             "PlotterError",
             "create_path_diagram",
+            "plot_physical_strokes",
             "plot_plt_document",
             "plot_stroke_path",
             "save_figure",
