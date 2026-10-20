@@ -12,6 +12,11 @@ font-registry bullets).
   "How to extract fonts from EngraveLab or VisionPro.md" (Text Compose, rows
   framed by the reference char, engrave → PLT). Run:
   `uv run python fonts/extract_plt_fonts.py`.
+- `font_showcase.py` - per-font showcase JPGs (letter sample block; key→symbol
+  grid with an alpha-face header for `symbol_font` fonts), written to the
+  **git-tracked** `showcases/` directory. Chrome-free renders (no axes/grid/
+  title - the font name is engraved in the body). Run after any library
+  change: `uv run python fonts/font_showcase.py`.
 - `glyph_transforms.py` - arc-native HPGL glyph utilities + the 17 derived
   Unicode glyphs (`–—•∞±¢≠≈≡¿¡†‡↑↓←→`) built from ASCII bases. Operates on the
   catalog's self-contained HPGL command strings at full float precision (the

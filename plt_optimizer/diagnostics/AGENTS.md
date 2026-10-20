@@ -26,9 +26,14 @@ never raises on matplotlib-free machines. Therefore:
   dashed lines, summary text box (accepts a pre-calculated
   `rapid_travel_inches` so the plot matches the caller's metric).
   `simple_mode` = tool-down strokes only (thick black, no rapids);
-  `is_structural` styles borders/holes as faint underlays.
+  `is_structural` styles borders/holes as faint underlays;
+  `gridlines=False` suppresses both grid layers (ticks kept);
+  `show_axes=False` hides all axis chrome (ticks, tick/axis labels, legend,
+  spines) and `show_title=False` drops the title - the pair the font
+  showcases (`fonts/font_showcase.py`) use for chrome-free JPGs.
   `plot_stroke_path` / `create_path_diagram` are the smaller helpers;
-  `save_figure` infers format from the extension; `PlotterError` wraps bad
+  `save_figure` infers format from the extension (.pdf, .svg/.svgz, .jpg/
+  .jpeg flattened onto white, everything else PNG); `PlotterError` wraps bad
   input.
 - **Inch display**: `PLT_UNITS_TO_INCHES = 1 / HPGL_UNITS_PER_INCH` - the
   device scale comes from `core/units.py` (root §4, 1016 units/inch), axes and

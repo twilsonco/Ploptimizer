@@ -534,6 +534,22 @@ class TestSaveFigure:
         save_figure(fig, output_path)
         assert output_path.exists()
 
+    def test_save_as_jpg(self, tmp_path: Path) -> None:
+        """A .jpg suffix saves a real JPEG (magic bytes, non-empty)."""
+        fig = self._make_test_figure()
+        output_path = tmp_path / "test.jpg"
+        save_figure(fig, output_path)
+        assert output_path.exists()
+        assert output_path.read_bytes().startswith(b"\xff\xd8\xff")
+        assert output_path.stat().st_size > 100
+
+    def test_save_as_jpeg_extension(self, tmp_path: Path) -> None:
+        """The .jpeg extension takes the same JPEG branch."""
+        fig = self._make_test_figure()
+        output_path = tmp_path / "test.jpeg"
+        save_figure(fig, output_path)
+        assert output_path.read_bytes().startswith(b"\xff\xd8\xff")
+
     def test_save_with_invalid_extension_defaults_to_png(self, tmp_path: Path) -> None:
         """Test saving with unrecognized extension defaults to PNG."""
         fig = self._make_test_figure()
@@ -2019,6 +2035,65 @@ class TestInchTickLayout:
             assert all(math.isclose(loc % 1.0, 0.0, abs_tol=1e-9) for loc in locs)
         for locs in (ax.xaxis.get_minorticklocs(), ax.yaxis.get_minorticklocs()):
             assert all(math.isclose(loc % 0.5, 0.0, abs_tol=1e-9) for loc in locs)
+        plt.close(fig)
+
+
+class TestShowAxesAndTitle:
+    """The show_axes/show_title chrome flags (clean-render showcase mode)."""
+
+    def _make_doc(self) -> PLTDocument:
+        """Document spanning 0-12in x 0-8in (12000 x 8000 plotter units)."""
+        seg = StrokeSegment(
+            start=Coordinate(0, 0),
+            end=Coordinate(12000, 8000),
+            is_cutting=True,
+        )
+        return PLTDocument(stroke_paths=[StrokePath(segments=(seg,))])
+
+    def test_defaults_keep_all_chrome(self) -> None:
+        """The default call keeps spines, axis labels, legend, and title."""
+        fig = plot_plt_document(self._make_doc(), title="Chrome check")
+        ax = fig.axes[0]
+        assert all(spine.get_visible() for spine in ax.spines.values())
+        assert ax.get_xlabel() == "X (inches)"
+        assert ax.get_ylabel() == "Y (inches)"
+        assert ax.get_legend() is not None
+        assert ax.get_title() == "Chrome check"
+        plt.close(fig)
+
+    def test_show_axes_false_hides_everything_but_the_drawing(self) -> None:
+        """show_axes=False: no spines, no tick labels, no axis labels, no legend."""
+        fig = plot_plt_document(self._make_doc(), show_axes=False)
+        ax = fig.axes[0]
+        assert not any(spine.get_visible() for spine in ax.spines.values())
+        assert not ax.get_xaxis().get_visible()
+        assert not ax.get_yaxis().get_visible()
+        assert ax.get_xlabel() == ""
+        assert ax.get_ylabel() == ""
+        assert ax.get_legend() is None
+        plt.close(fig)
+
+    def test_show_title_false_drops_the_title(self) -> None:
+        """show_title=False leaves ax.get_title() empty; axes stay untouched."""
+        fig = plot_plt_document(self._make_doc(), title="Nope", show_title=False)
+        ax = fig.axes[0]
+        assert ax.get_title() == ""
+        assert ax.get_xlabel() == "X (inches)"
+        assert ax.get_legend() is not None
+        plt.close(fig)
+
+    def test_clean_mode_keeps_geometry_limits(self) -> None:
+        """With both flags off the padded data limits are preserved."""
+        fig = plot_plt_document(
+            self._make_doc(), show_axes=False, show_title=False, gridlines=False
+        )
+        ax = fig.axes[0]
+        x_lo, x_hi = sorted(ax.get_xlim())
+        y_lo, y_hi = sorted(ax.get_ylim())
+        # The 0-12in x 0-8in span fits inside the padded limits (sorted so the
+        # inverted y-axis convention never leaks into the assertion).
+        assert x_lo < 0.0 and x_hi > 12.0
+        assert y_lo < 0.0 and y_hi > 8.0
         plt.close(fig)
 
 

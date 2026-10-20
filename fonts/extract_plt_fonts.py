@@ -121,7 +121,7 @@ is missing is skipped with a WARNING.
 Fonts extracted from a ``_sym``-suffixed sheet (symbol fonts such as
 ``Wingdings``; the ``symbol_font`` flag stored in the catalog file drives
 the small-caps exemption in ``plt_optimizer/generate/font_registry.py`` and
-the showcase's Unicode line in ``scripts/font_showcase.py``) skip the
+the showcase's Unicode line in ``fonts/font_showcase.py``) skip the
 derivation step entirely: their ASCII slots carry symbols, so the recipes
 would engrave nonsense.
 """

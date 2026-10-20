@@ -1,4 +1,4 @@
-"""Tests for the font-showcase utility script (``scripts/font_showcase.py``).
+"""Tests for the font-showcase utility script (``fonts/font_showcase.py``).
 
 The script is not part of the installed package, so it is loaded via
 ``importlib`` (mirroring ``tests/test_job_spec_docs.py``; its own
@@ -18,11 +18,11 @@ from plt_optimizer.generate.font_registry import font_name_choices
 from plt_optimizer.generate.schema import JobSpec
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SCRIPT_PATH = REPO_ROOT / "scripts" / "font_showcase.py"
+SCRIPT_PATH = REPO_ROOT / "fonts" / "font_showcase.py"
 
 
 def _load_script() -> Any:
-    """Import ``scripts/font_showcase.py`` as a module by path.
+    """Import ``fonts/font_showcase.py`` as a module by path.
 
     The module is registered in :data:`sys.modules` before execution: the
     mapping-mode :class:`~dataclasses.dataclass` resolves its annotations
@@ -117,31 +117,31 @@ class TestCoveredShowcaseLines:
 
 
 class TestMain:
-    """End-to-end run writes one simple-outline PDF per available font."""
+    """End-to-end run writes one chrome-free showcase JPG per available font."""
 
     @pytest.mark.parametrize("font", ["Dino", "ReliefSingleLineCAD-Regular"])
-    def test_write_showcase_pdf(self, tmp_path: Path, font: str) -> None:
-        """One PLT font and one TTF font each produce a non-empty PDF."""
-        path = script.write_showcase_pdf(font, tmp_path)
-        assert path == tmp_path / f"{font}.pdf"
+    def test_write_showcase_image(self, tmp_path: Path, font: str) -> None:
+        """One PLT font and one TTF font each produce a non-empty JPG."""
+        path = script.write_showcase_image(font, tmp_path)
+        assert path == tmp_path / f"{font}.jpg"
         assert path.exists()
-        assert path.read_bytes().startswith(b"%PDF")
+        assert path.read_bytes().startswith(b"\xff\xd8\xff")
         assert path.stat().st_size > 1000
 
-    def test_main_writes_one_pdf_per_font(self, tmp_path: Path) -> None:
+    def test_main_writes_one_image_per_font(self, tmp_path: Path) -> None:
         """main() exits 0 and covers every font_name_choices() entry."""
         out = tmp_path / "showcase"
         rc = script.main(["--output", str(out)])
         assert rc == 0
 
-        expected = {f"{script.safe_font_filename(f)}.pdf" for f in font_name_choices()}
+        expected = {f"{script.safe_font_filename(f)}.jpg" for f in font_name_choices()}
         assert expected, "fixture fonts/ must contain at least one font"
-        assert {p.name for p in out.glob("*.pdf")} == expected
-        assert all(p.read_bytes().startswith(b"%PDF") for p in out.glob("*.pdf"))
+        assert {p.name for p in out.glob("*.jpg")} == expected
+        assert all(p.read_bytes().startswith(b"\xff\xd8\xff") for p in out.glob("*.jpg"))
 
     def test_main_survives_bad_font(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A font whose render raises is logged and skipped, others still write."""
-        real_writer = script.write_showcase_pdf
+        real_writer = script.write_showcase_image
 
         def flaky(font_name: str, output_dir: Path) -> Path:
             if font_name == font_name_choices()[0]:
@@ -149,11 +149,11 @@ class TestMain:
             written: Path = real_writer(font_name, output_dir)
             return written
 
-        monkeypatch.setattr(script, "write_showcase_pdf", flaky)
+        monkeypatch.setattr(script, "write_showcase_image", flaky)
         out = tmp_path / "partial"
         rc = script.main(["--output", str(out)])
         assert rc == 0
-        assert len(list(out.glob("*.pdf"))) == len(font_name_choices()) - 1
+        assert len(list(out.glob("*.jpg"))) == len(font_name_choices()) - 1
 
 
 class TestLoadAsciiCharacters:
@@ -204,19 +204,36 @@ class TestIsNonTextFont:
         assert not script.is_non_text_font("Dino")
 
 
-class TestShowcaseTitles:
-    """Letter fonts keep their title; symbol fonts name the mapping mode."""
+class TestMappingHeaderBlocks:
+    """The in-showcase header names the font in the readable alpha face."""
 
-    def test_letter_title_unchanged(self) -> None:
-        """The letter-font title is the historical string."""
-        assert script.showcase_pdf_title("Dino") == "Font showcase - Dino"
+    def test_name_block_uses_the_default_face(self) -> None:
+        """The font-name block is the default-face render, not the symbol face."""
+        name_block, subtitle_block = script.mapping_header_blocks("Wingdings")
+        alpha = script._render_default_font_block(
+            "Wingdings", script.MAPPING_HEADER_NAME_HEIGHT
+        )
+        symbol = script._render_in_showcase_font(
+            "Wingdings", "Wingdings", script.MAPPING_HEADER_NAME_HEIGHT
+        )
+        assert name_block.bounds() == alpha.bounds()
+        assert name_block.bounds() != symbol.bounds()
+        assert not subtitle_block.is_empty()
 
-    def test_mapping_title_names_the_mode(self) -> None:
-        """The symbol-font title says the page maps chars to symbols."""
-        title = script.mapping_pdf_title("Wingdings")
-        assert "Wingdings" in title
-        assert "mapping" in title.lower()
-        assert title.startswith("Font showcase - ")
+    def test_layout_uses_the_alpha_header(self) -> None:
+        """The composed layout contains the alpha header's ink (parses clean)."""
+        from plt_optimizer.core.parser import PLTParser
+
+        hpgl = script.render_mapping_layout("Wingdings", ["a"])
+        assert PLTParser().parse_string(hpgl) is not None
+
+
+class TestDefaultOutputDir:
+    """Showcases land in the git-tracked fonts/showcases directory."""
+
+    def test_points_at_fonts_showcases(self) -> None:
+        """The default output is <repo>/fonts/showcases (CWD-independent)."""
+        assert script.DEFAULT_OUTPUT_DIR == REPO_ROOT / "fonts" / "showcases"
 
 
 class TestBuildMappingCells:
@@ -281,19 +298,19 @@ class TestRenderMappingLayout:
         assert hpgl.endswith(script.PLT_FOOTER)
 
 
-class TestMappingPdfDispatch:
-    """Symbol fonts write a mapping PDF; letter fonts keep the sample block."""
+class TestMappingImageDispatch:
+    """Symbol fonts write a mapping JPG; letter fonts keep the sample block."""
 
-    def test_write_showcase_pdf_dispatches_symbol_font(self, tmp_path: Path) -> None:
-        """The symbol font's PDF is the mapping grid, named ``<font>.pdf``."""
-        path = script.write_showcase_pdf("Wingdings", tmp_path)
-        assert path == tmp_path / "Wingdings.pdf"
+    def test_write_showcase_image_dispatches_symbol_font(self, tmp_path: Path) -> None:
+        """The symbol font's JPG is the mapping grid, named ``<font>.jpg``."""
+        path = script.write_showcase_image("Wingdings", tmp_path)
+        assert path == tmp_path / "Wingdings.jpg"
         assert path.exists()
-        assert path.read_bytes().startswith(b"%PDF")
+        assert path.read_bytes().startswith(b"\xff\xd8\xff")
         assert path.stat().st_size > 1000
 
-    def test_write_mapping_pdf_matches_dispatch(self, tmp_path: Path) -> None:
+    def test_write_mapping_image_matches_dispatch(self, tmp_path: Path) -> None:
         """Direct and dispatched calls produce the same path."""
-        direct = script.write_mapping_pdf("Wingdings", tmp_path)
-        dispatched = script.write_showcase_pdf("Wingdings", tmp_path)
+        direct = script.write_mapping_image("Wingdings", tmp_path)
+        dispatched = script.write_showcase_image("Wingdings", tmp_path)
         assert direct == dispatched

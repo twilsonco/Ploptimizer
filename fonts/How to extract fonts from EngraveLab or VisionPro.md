@@ -270,7 +270,7 @@ Rules:
   build nonsense: the extractor skips the derivation step entirely and
   stores `"symbol_font": true` in the catalog file (every font carries the
   key — `true` for a `_sym` sheet, `false` for a letter font). The same flag
-  exempts the font from the Unicode line in `scripts/font_showcase.py` and
+  exempts the font from the Unicode line in `fonts/font_showcase.py` and
   from the synthetic `<base> SC` small-caps variant
   (`plt_optimizer/generate/font_registry.py`). Such a font's showcase
   is a **key -> symbol mapping** grid instead of the letter sample block: one

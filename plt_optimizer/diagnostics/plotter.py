@@ -151,6 +151,8 @@ def plot_plt_document(
     simple_mode: bool = False,
     is_structural: bool = False,
     gridlines: bool = True,
+    show_axes: bool = True,
+    show_title: bool = True,
 ) -> Figure:
     """Plot a complete PLT document with color-coded path segments.
 
@@ -185,6 +187,15 @@ def plot_plt_document(
             (0.5 in) drafting gridlines. If False, the fixed inch-based tick
             layout is kept (ticks and labels are unchanged) while both grid
             layers are suppressed, giving a clean background for exports.
+        show_axes: If True (the default), draw the axis chrome: inch axis
+            labels, the fixed inch-based tick layout, the legend, and the
+            frame spines. If False, both axes are hidden (no ticks, tick
+            labels, or axis labels) and all four spines are removed, leaving
+            only the drawing (plus title/gridlines per their own flags) --
+            the clean-render mode the font showcases use.
+        show_title: If True (the default), set ``title`` as the figure title.
+            If False, no title is drawn (the chrome-free showcase mode wants
+            nothing but the engraved geometry).
 
     Returns:
         The matplotlib Figure object.
@@ -377,12 +388,21 @@ def plot_plt_document(
             )
 
         # Configure axes
-        ax.set_xlabel("X (inches)")
-        ax.set_ylabel("Y (inches)")
-        ax.set_title(title)
-        # Fixed drafting grid: major ticks/gridlines every inch, minor every 0.5in
-        _apply_inch_tick_layout(ax)
-        ax.legend(loc="upper right")
+        if show_title:
+            ax.set_title(title)
+        if show_axes:
+            ax.set_xlabel("X (inches)")
+            ax.set_ylabel("Y (inches)")
+            # Fixed drafting grid: major ticks/gridlines every inch, minor every 0.5in
+            _apply_inch_tick_layout(ax)
+            ax.legend(loc="upper right")
+        else:
+            # Clean-render mode: no ticks, tick labels, axis labels, legend,
+            # or frame -- just the drawing inside its padded limits.
+            ax.get_xaxis().set_visible(False)
+            ax.get_yaxis().set_visible(False)
+            for spine in ax.spines.values():
+                spine.set_visible(False)
         if gridlines:
             ax.grid(True, alpha=0.3)
             ax.grid(which="minor", alpha=0.15)
@@ -462,7 +482,8 @@ def save_figure(fig: Figure, path: Path) -> None:
 
     Args:
         fig: The figure to save.
-        path: Destination path. Format inferred from extension (.png, .pdf, .svg).
+        path: Destination path. Format inferred from extension (.png, .pdf,
+            .svg/.svgz, .jpg/.jpeg).
 
     Raises:
         PlotterError: If saving fails.
@@ -493,6 +514,17 @@ def save_figure(fig: Figure, path: Path) -> None:
             fig.savefig(path, format="pdf", bbox_inches="tight")
         elif ext in (".svg", ".svgz"):
             fig.savefig(path, format="svg", bbox_inches="tight")
+        elif ext in (".jpg", ".jpeg"):
+            # JPEG has no alpha channel: flatten onto white so the raster is
+            # never a black-filled surprise on dark-mode viewers.
+            fig.savefig(
+                path,
+                format="jpg",
+                dpi=200,
+                facecolor="white",
+                bbox_inches="tight",
+                pil_kwargs={"quality": 92},
+            )
         else:
             # Default to PNG with high DPI
             fig.savefig(path, format="png", dpi=150, bbox_inches="tight")

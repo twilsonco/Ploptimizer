@@ -47,8 +47,14 @@ PLT-Optimizer/
 │       └── plotter.py      # Matplotlib-based path visualization
 ├── run_tray.py             # GUI entry point (system tray application)
 ├── scripts/                # Developer-facing helper scripts
-│   ├── run_integration_test.py # End-to-end generate-pipeline test runner
-│   └── font_showcase.py    # Per-font showcase PDF (letter sample block; key->symbol grid for non-text fonts)
+│   └── run_integration_test.py # End-to-end generate-pipeline test runner
+├── fonts/                  # Font library + extraction tooling
+│   ├── extract_plt_fonts.py # v2 PLT sample-sheet extractor
+│   ├── glyph_transforms.py # Arc-native glyph utilities + 17 derived Unicode glyphs
+│   ├── font_showcase.py    # Per-font showcase JPG (letter sample block; key->symbol grid for symbol fonts)
+│   ├── showcases/          # Generated per-font showcase JPGs (git-tracked, regenerate via font_showcase.py)
+│   ├── VP-EL-fonts/        # Engraved sample sheets + v2 catalog JSON
+│   └── ttf/                # TrueType font sources
 ├── tools.json              # Cutter inventory + boundary/hole cutter size
 ├── tests/                  # Test suite (pytest)
 ├── tests_deps/             # Frozen fixtures used by unit tests (do not move/edit)

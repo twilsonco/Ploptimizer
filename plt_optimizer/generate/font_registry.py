@@ -44,7 +44,7 @@ catalog file's ``symbol_font`` boolean (see :func:`plt_font_is_symbol`). A
 symbol font is exempt from the synthetic small-caps variant (no
 ``"<base> SC"`` key), from derived-Unicode glyph creation in
 ``fonts/extract_plt_fonts.py``, and from the Unicode line in
-``scripts/font_showcase.py``; the base font itself stays fully selectable.
+``fonts/font_showcase.py``; the base font itself stays fully selectable.
 
 Matching is case-insensitive and resolves to the canonical stored name, so
 ``"dino"`` and ``"DINO"`` both yield ``"Dino"``.

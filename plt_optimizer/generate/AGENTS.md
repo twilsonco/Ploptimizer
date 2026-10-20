@@ -55,7 +55,7 @@ JobSpec (job-level defaults)
   punctuation, so identical `text_height` values engraved at visibly
   different sizes across lines. A TTF lacking a glyph raises
   `FtextRenderError` → `LabelRenderError` (parity with the PLT
-  `PltFontRenderError`); `scripts/font_showcase.py` opts out of that probe
+  `PltFontRenderError`); `fonts/font_showcase.py` opts out of that probe
   (`check_glyph_coverage=False`) to render `.notdef` boxes as coverage info.
   Cascades line → label → job (default `ReliefSingleLineCAD-Regular`;
   accepted on plates for schema parity only). PLT fonts render from the v2
@@ -98,7 +98,7 @@ JobSpec (job-level defaults)
   `font_registry.plt_font_is_symbol()`) engrave their ASCII slots with
   symbols, so they are exempt from derivation, from the showcase's Unicode
   line, and from the `SC` variant (see Small Caps Fonts below). Their font
-  showcase (`scripts/font_showcase.py`) is a **key -> symbol mapping** grid
+  showcase (`fonts/font_showcase.py`) is a **key -> symbol mapping** grid
   instead of the letter sample block: one cell per `fonts/ascii.txt`
   character, each engraving the ASCII key (`a:`, `b:`, ...) in
   `ftext_renderer.DEFAULT_FONT_PATH` beside the font's symbol, under a

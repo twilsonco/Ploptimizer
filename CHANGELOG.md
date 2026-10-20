@@ -4,6 +4,12 @@
 
 ### Features
 
+* **fonts:** `font_showcase.py` moved from `scripts/` to `fonts/`; showcases are now chrome-free **JPGs** in the git-tracked `fonts/showcases/` directory
+  - `plot_plt_document` gained `show_axes` / `show_title` flags (both default `True`, every existing caller unchanged); the showcase passes `show_axes=False, show_title=False, gridlines=False`, so each image carries only the engraved geometry - the font name is engraved in the body, so the matplotlib plot title (and the `showcase_pdf_title`/`mapping_pdf_title` helpers) is gone
+  - `save_figure` learned `.jpg`/`.jpeg` (200 dpi, flattened onto white, quality 92); the writers are `write_showcase_image` / `write_mapping_image`
+  - Symbol-font mapping showcases render their font-name header in the readable default (alpha) face via the new `mapping_header_blocks` - previously the name was engraved in the symbol font and read as gibberish; the grid's symbol slots still sample the font itself
+  - The generated JPGs are committed (regenerate after any font-library change with `uv run python fonts/font_showcase.py`); the old `test_output/font_showcase/` PDFs are removed
+
 * **fonts:** symbol (non-alphanumeric) PLT fonts declared by a trailing `_sym`/`_symbol` sample-sheet suffix, stored as the catalog's `symbol_font` bool — this **replaces** `fonts/VP-EL-fonts/non_text_fonts.txt` (deleted) as the sole symbol-font source of truth
   - `wingdings_0.35_^_S4_sym.plt` → `"symbol_font": true`; **every** catalog file carries the key (`false` for a letter font), so the flag is self-describing with the font
   - `parse_font_file_name` strips the suffix in a loop with `_S<n>` (either order parses, canonical `_S<n>_sym`) before the name split, so a font *named* "sym ..." is never mangled; matching is case-insensitive

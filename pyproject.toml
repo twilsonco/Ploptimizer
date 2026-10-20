@@ -133,7 +133,7 @@ lint.ignore = [
 # trailing '# noqa: E402' that kerning_report.py uses on its multi-line
 # imports gets relocated to the closing paren by the formatter, where it no
 # longer anchors the diagnostic, so E402 is suppressed for this file here.
-"scripts/font_showcase.py" = ["E402"]
+"fonts/font_showcase.py" = ["E402"]
 
 [dependency-groups]
 dev = [
