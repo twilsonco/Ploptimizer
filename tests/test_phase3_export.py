@@ -1443,11 +1443,12 @@ class TestHCompressGlobalDemoExample:
     """
 
     _SPEC = Path("tests_deps/h_compress_global_job.yaml")
+    _INVENTORY = [0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.09, 0.125]
 
-    def _export(self, tmp_path: Path) -> PerCutterExport:
+    def _export(self, tmp_path: Path, inventory: Optional[list[float]] = None) -> PerCutterExport:
         """Export the demo job with plotting disabled."""
         job = parse_yaml(self._SPEC)
-        labels = resolve_job_spec(job)
+        labels = resolve_job_spec(job, available_cutters=inventory)
         return export_per_cutter_plts(
             labels,
             job.plates,
@@ -1455,6 +1456,7 @@ class TestHCompressGlobalDemoExample:
             job_id="hcg",
             optimize=False,
             plots=False,
+            available_cutters=inventory,
         )
 
     def test_fitting_sibling_receives_the_shared_scale(self, tmp_path: Path) -> None:
@@ -1494,6 +1496,35 @@ class TestHCompressGlobalDemoExample:
         result = self._export(tmp_path)
         assert sorted(p.name for p in result.plt_paths) == [
             "0.015_bh_hcg.plt",
+            "0.060_txt_hcg.plt",
+        ]
+
+    def test_shared_compression_feeds_the_cutter_downsize_trigger(self, tmp_path: Path) -> None:
+        """The shared scale drives the cutter reduction (the pre-pass order).
+
+        The shared compression pre-pass runs BEFORE the compression-driven
+        cutter reduction, so the midpoint trigger measures the shared scale
+        (0.8576) rather than the trigger line's natural scale. 0.8576 is
+        below the midpoint of the 0.060 -> 0.045 rung (0.875), so both lines
+        of the shared label drop to 0.045 -- one nominal height, one
+        compression, one tool.
+        """
+        result = self._export(tmp_path, self._INVENTORY)
+        shared = result.rendered_labels["shared"].source_label
+        assert sorted(shared.global_compress_by_line) == [0, 1]
+        assert sorted(shared.cutter_downsize_by_line) == [0, 1]
+        for index in (0, 1):
+            original, final = shared.cutter_downsize_by_line[index]
+            assert math.isclose(original, 0.06)
+            assert math.isclose(final, 0.045)
+        for line in shared.content:
+            assert math.isclose(line.cutter_diameter, 0.045)
+
+        # The downsized tool gets its own file; the untouched labels keep the
+        # 0.060 tool.
+        assert sorted(p.name for p in result.plt_paths) == [
+            "0.015_bh_hcg.plt",
+            "0.045_txt_hcg.plt",
             "0.060_txt_hcg.plt",
         ]
 

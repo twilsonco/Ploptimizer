@@ -30,11 +30,20 @@ zero ``max_h_compress`` budget is never touched (no compression mechanism can
 ever fire on it). Sharing is always per-label -- the job level only enables
 the option for its labels.
 
-Accepted staleness: this pre-pass runs *after* the compression-driven cutter
-reduction (see :mod:`plt_optimizer.generate.cutter_downsize`). A shared
-compression can deepen a line's compression and would, in principle, justify a
-further cutter downsize the cutter pre-pass (which ran first) does not see.
-The two pre-passes are deliberately not looped to a joint fixpoint.
+The grouping scope is ``h_compress_global_same_height_only`` (default
+``True``): the compression is shared between the lines of the SAME nominal
+text height (one text size, one glyph density). Set it to ``False`` to share
+the compression across EVERY eligible line of the label, whatever their
+height, so one label engraves at one glyph density throughout.
+
+This pre-pass runs **before** the compression-driven cutter reduction (see
+:mod:`plt_optimizer.generate.cutter_downsize`), so the cutter reduction's
+midpoint trigger measures the SHARED scale -- the scale the label is actually
+engraved at. The same nominal height therefore receives the same horizontal
+compression AND the same cutter, which is the point of the shared
+compression: one text size, one density, one tool. (The reverse order left
+the reduction blind to the shared scale, so a label could be engraved at one
+density with two tools.)
 
 Scope guards (the pass is a no-op, and costs nothing, when any of these
 apply):
@@ -132,16 +141,50 @@ def _with_global_compress(label: ResolvedLabel, shared: Dict[int, float]) -> Res
     return dataclasses.replace(label, global_compress_by_line=dict(shared))
 
 
+def _label_groups(label: ResolvedLabel) -> List[List[int]]:
+    """Bucket a label's line indices into sharing groups.
+
+    The grouping scope is the label's ``h_compress_global_same_height_only``
+    flag (cascaded line -> label -> job -> ``job-config.json``):
+
+    - ``True`` (the default): one group per ``nominal_text_height``, so a
+      label's text of the same height shares its compression and text of a
+      different height keeps its own density;
+    - ``False``: ONE group for the whole label, so every eligible line
+      shares the label's most-compressed scale whatever its height (one
+      label, one glyph density).
+
+    The flag is uniform across a label (it cascades from the same source to
+    every line), so the first eligible member's value decides the scope.
+
+    Args:
+        label: The label whose lines are grouped.
+
+    Returns:
+        Lists of line indices per group, in content order.
+    """
+    eligible = [index for index in range(len(label.content)) if _is_eligible(label.content[index])]
+    if not eligible:
+        return []
+    same_height_only = label.content[eligible[0]].h_compress_global_same_height_only
+    if not same_height_only:
+        return [eligible]
+    return _height_groups(label.content)
+
+
 def _share_label(
     label: ResolvedLabel,
     scales: Dict[int, float],
 ) -> Optional[ResolvedLabel]:
     """Compute one label's shared-compression clone from its measured scales.
 
-    Every same-height group containing at least one triggering eligible line
-    (measured scale below ``1.0``) and two or more eligible lines receives the
-    group's minimum scale, clamped to each line's own budget floor. Groups
-    without a trigger, and groups with a single eligible line, are left alone.
+    Every group containing at least one triggering eligible line (measured
+    scale below ``1.0``) and two or more eligible lines receives the group's
+    minimum scale, clamped to each line's own budget floor. Groups without a
+    trigger, and groups with a single eligible line, are left alone. The
+    groups are the same-height groups, or one label-wide group when
+    ``h_compress_global_same_height_only`` is ``False`` (see
+    :func:`_label_groups`).
 
     Args:
         label: The label to measure-share.
@@ -152,7 +195,7 @@ def _share_label(
         shares, otherwise ``None`` (the label is left untouched).
     """
     shared: Dict[int, float] = {}
-    for members in _height_groups(label.content):
+    for members in _label_groups(label):
         eligible = [index for index in members if _is_eligible(label.content[index])]
         if len(eligible) < 2:
             continue

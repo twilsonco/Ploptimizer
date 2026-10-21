@@ -133,6 +133,11 @@ _FALLBACK_NOTES: dict[str, str] = {
     "text_height in the same label is compressed to the group's most-compressed (minimum) "
     "scale, clamped to each line's own 1 - max_h_compress budget floor. max_h_compress 0.0 "
     "lines are never touched. Cascades line/label/job; job-config supplies the shop default.",
+    "DEFAULT_H_COMPRESS_GLOBAL_SAME_HEIGHT_ONLY": "True = the shared compression is scoped to "
+    "the lines of the same text_height (one text size, one glyph density). False = the "
+    "compression is shared across EVERY eligible line of the label, whatever its text_height, "
+    "so one label engraves at one glyph density throughout. Cascades line/label/job; job-config "
+    "supplies the shop default.",
     "DEFAULT_MAX_H_COMPRESS": "0.0 = horizontal compression disabled. Required from config-or-"
     "spec when a job-config is in play.",
     "DEFAULT_OPTIMIZE_LINE_CONTENT": "False = every text line keeps its authored words. True = "
@@ -485,9 +490,9 @@ def _scrape_constants() -> dict[str, str]:
         if name.startswith("DEFAULT_")
     }
     constants["DEFAULT_HOLE_DIAMETER"] = repr(DEFAULT_HOLE_DIAMETER)
-    layout_source = (
-        REPO_ROOT / "plt_optimizer" / "generate" / "packing" / "layout.py"
-    ).read_text(encoding="utf-8")
+    layout_source = (REPO_ROOT / "plt_optimizer" / "generate" / "packing" / "layout.py").read_text(
+        encoding="utf-8"
+    )
     for match in re.finditer(r"^(DEFAULT_PLATE_\w+): [^=]+= (.+)$", layout_source, re.MULTILINE):
         constants[match.group(1)] = match.group(2).strip()
     return constants

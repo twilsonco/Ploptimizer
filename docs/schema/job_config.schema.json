@@ -612,6 +612,19 @@
       "description": "Default per-label sharing of horizontal compression (job layer; a trigger line's compression scale applies to every eligible line of the same text_height in the same label).",
       "title": "H Compress Global"
     },
+    "h_compress_global_same_height_only": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default grouping scope of the shared horizontal compression (job layer; true shares the compression only between the lines of the same text_height, false shares it across every eligible line of the label). Unset falls back to True.",
+      "title": "H Compress Global Same Height Only"
+    },
     "optimize_line_content": {
       "anyOf": [
         {

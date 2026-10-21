@@ -542,6 +542,15 @@ class JobDefaults(BaseModel):
             "of the same text_height in the same label)."
         ),
     )
+    h_compress_global_same_height_only: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Default grouping scope of the shared horizontal compression (job "
+            "layer; true shares the compression only between the lines of the "
+            "same text_height, false shares it across every eligible line of "
+            "the label). Unset falls back to True."
+        ),
+    )
     optimize_line_content: Optional[bool] = Field(
         default=None,
         description=(
@@ -816,6 +825,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "max_cutter_downsizes",
     "cutter_downsize_global",
     "h_compress_global",
+    "h_compress_global_same_height_only",
     "optimize_line_content",
     "optimize_line_content_max_lines",
     "enforce_cap_line",

@@ -1861,9 +1861,13 @@ def _font_segment_line(
     font's multi-stroke boldness ladder included), ``toolpath_text_height``
     becomes ``nominal - run_cutter`` (so the run's cap renders at the same
     engraved height as the plain run), and ``bold_cutter_diameter`` becomes
-    the run ladder's bold rung. The clone's derived per-character cutters
-    then equal the parent's :attr:`ResolvedTextLine.per_char_cutters` at the
-    same indices (single-stroke run fonts exactly; a multi-stroke run font
+    the run ladder's bold rung. The run's plain ladder cutter is CLAMPED to
+    the line's own tool (the run changes only the font, so it never engraves
+    wider than the text around it, and it follows the line through a
+    compression-driven downsize) -- exactly like the parent's
+    :attr:`ResolvedTextLine.per_char_cutters` derivation. The clone's derived
+    per-character cutters then equal the parent's at the same indices
+    (single-stroke run fonts exactly; a multi-stroke run font
     combined with ``<scale:N>``/``<sup>`` resolves the run's scaled cutter on
     the plain height ladder -- one-rung staleness, documented).
 
@@ -1891,6 +1895,7 @@ def _font_segment_line(
         need_bold=any(run.style.bold for run in stripped),
         font=font,
         run_ladder=True,
+        line_cutter=line.cutter_diameter,
     )
     return replace(
         clone,

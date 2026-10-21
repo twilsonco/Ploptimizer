@@ -29,6 +29,7 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_FALLBACK_ADVANCE_FRACTION,
     DEFAULT_FONT,
     DEFAULT_H_COMPRESS_GLOBAL,
+    DEFAULT_H_COMPRESS_GLOBAL_SAME_HEIGHT_ONLY,
     DEFAULT_HOLE_ADJUST_FOR_CUTTER,
     DEFAULT_HOLE_MARGIN,
     DEFAULT_HOLE_TEXT_COLLISION_DISTANCE,
@@ -2970,6 +2971,61 @@ class TestHCompressGlobalCascade:
         """Line-level True beats the label-level False."""
         line = resolve_job_spec(self._job(job=False, label=False, line=True))[0].content[0]
         assert line.h_compress_global is True
+
+
+class TestHCompressGlobalSameHeightOnlyCascade:
+    """h_compress_global_same_height_only cascades line -> label -> job -> True."""
+
+    @staticmethod
+    def _job(**levels: bool | None) -> JobSpec:
+        """Build a single-line job applying the scope flag at the given levels."""
+        job_kwargs: dict[str, bool | None] = {}
+        label_kwargs: dict[str, bool | None] = {}
+        line_kwargs: dict[str, bool | None] = {}
+        if "job" in levels:
+            job_kwargs["h_compress_global_same_height_only"] = levels["job"]
+        if "label" in levels:
+            label_kwargs["h_compress_global_same_height_only"] = levels["label"]
+        if "line" in levels:
+            line_kwargs["h_compress_global_same_height_only"] = levels["line"]
+        return JobSpec(
+            job_name="J",
+            text_height=0.5,
+            **job_kwargs,  # type: ignore[arg-type]
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    **label_kwargs,  # type: ignore[arg-type]
+                    content=[TextLine(text="X", **line_kwargs)],  # type: ignore[arg-type]
+                )
+            ],
+        )
+
+    def test_default_module_constant_is_true(self) -> None:
+        """The shipped default scopes the sharing to one nominal text height."""
+        assert DEFAULT_H_COMPRESS_GLOBAL_SAME_HEIGHT_ONLY is True
+
+    def test_default_resolves_true(self) -> None:
+        """All levels omitting resolves to the True fallback."""
+        line = resolve_job_spec(self._job())[0].content[0]
+        assert line.h_compress_global_same_height_only is True
+
+    def test_job_false_used_when_label_omits(self) -> None:
+        """Job-level False cascades to labels and lines that omit the field."""
+        line = resolve_job_spec(self._job(job=False))[0].content[0]
+        assert line.h_compress_global_same_height_only is False
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level True beats the job-level False."""
+        line = resolve_job_spec(self._job(job=False, label=True))[0].content[0]
+        assert line.h_compress_global_same_height_only is True
+
+    def test_line_overrides_label(self) -> None:
+        """Line-level False beats the label-level True."""
+        line = resolve_job_spec(self._job(job=True, label=True, line=False))[0].content[0]
+        assert line.h_compress_global_same_height_only is False
 
 
 class TestEnforceCapLineCascade:
@@ -6403,6 +6459,139 @@ class TestRunLadderCutter:
         line = self._line(font="Dino")
         plain, _ = scale_cutter_ladder(line, 1.0, need_bold=False)
         assert plain == pytest.approx(0.06)
+
+
+class TestRunCutterLineClamp:
+    """An unscaled ``<f:...>`` run never engraves wider than its line.
+
+    A font-only run keeps the line's nominal height, so its cutter is capped
+    at the line's own resolved tool -- the tool the compression-driven
+    downsize moves. One nominal height therefore engraves one label with one
+    tool, whatever font a run switches to.
+    """
+
+    @staticmethod
+    def _job(text: str, height: float = 1.0) -> JobSpec:
+        """Build a one-label job carrying a single text line."""
+        return JobSpec(
+            job_name="clamp",
+            width=24.0,
+            height=16.0,
+            text_height=height,
+            font="dino",
+            labels=[LabelSpec(id="a", content=[TextLine(text=text)])],
+        )
+
+    def test_font_run_follows_the_line_downsized_cutter(self) -> None:
+        """The run's cutter tracks the line's cutter after a downsize."""
+        job = self._job("<f:Stengo>charging station</f>")
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        assert line.cutter_diameter == pytest.approx(0.125)
+        assert line.per_char_cutters[0] == pytest.approx(0.125)
+
+        # The compression-driven downsize clone: the line's tool moves down.
+        for target in (0.09, 0.06, 0.045):
+            clone = replace(
+                line,
+                cutter_diameter=target,
+                toolpath_text_height=line.nominal_text_height - target,
+            )
+            assert clone.per_char_cutters[0] == pytest.approx(target)
+            assert clone.used_cutters == (target,)
+
+    def test_font_run_keeps_its_own_tool_when_narrower(self) -> None:
+        """A run whose own ladder is narrower than the line keeps its tool."""
+        job = self._job("A<f:Wingdings>B</f>", height=0.5)
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        # Dino auto 0.060; the Wingdings S4 ladder 0.030 is narrower.
+        assert line.cutter_diameter == pytest.approx(0.06)
+        assert line.per_char_cutters[1] == pytest.approx(0.03)
+        assert line.used_cutters == (0.03, 0.06)
+
+    def test_scaled_run_keeps_its_own_ladder(self) -> None:
+        """A ``<scale:N>`` run has a height of its own: no clamp.
+
+        A 2x run's effective height (2in) ladders to the 0.25in tool, wider
+        than the line's own 0.125in tool -- and it stays there through a
+        downsize, because the clamp covers unscaled font runs only.
+        """
+        job = self._job("<scale:2>charging</scale>")
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        assert line.cutter_diameter == pytest.approx(0.125)
+        assert line.per_char_cutters[0] == pytest.approx(0.25)
+
+        clone = replace(line, cutter_diameter=0.09, toolpath_text_height=0.91)
+        assert clone.per_char_cutters[0] == pytest.approx(0.25)
+
+    def test_sup_run_keeps_its_own_ladder(self) -> None:
+        """A ``<sup>`` run has a height of its own: no clamp."""
+        job = self._job("2<sup>nd</sup>ary")
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        # The bare <sup> downscales to 0.6 -> its own (narrower) ladder.
+        assert line.per_char_cutters[1] < line.cutter_diameter
+
+    def test_no_clamp_without_an_inventory(self) -> None:
+        """Without a shop inventory there is no rung to clamp to."""
+        job = self._job("<f:Stengo>charging station</f>")
+        line = resolve_job_spec(job, available_cutters=None)[0].content[0]
+        # No inventory: the ideal-cutter ladder, unchanged by the clamp.
+        assert line.cutter_diameter == pytest.approx(0.125)
+        assert line.per_char_cutters[0] == pytest.approx(0.125)
+
+    def test_multi_stroke_floor_wins_over_the_clamp(self) -> None:
+        """A symbol run font keeps its gap-free floor through the clamp.
+
+        Clamping a 4-pass font below its floor would reopen an unengraved
+        stripe between the passes, so the floor pulls the cutter back up to
+        the smallest inventory rung at or above it.
+        """
+        job = self._job("A<f:Wingdings>B</f>", height=0.5)
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        # A line tool far below the run font's floor (0.0215 at 0.5in).
+        clone = replace(line, cutter_diameter=0.01, toolpath_text_height=0.49)
+        assert clone.per_char_cutters[1] == pytest.approx(0.03)
+        assert clone.used_cutters == (0.01, 0.03)
+
+    def test_clamp_ceiling_is_the_line_cutter(self) -> None:
+        """The ladder's clamp ceiling is the line's own resolved tool."""
+        line = ResolvedTextLine(
+            text="x",
+            nominal_text_height=1.0,
+            toolpath_text_height=0.875,
+            cutter_diameter=0.09,
+            character_spacing=0.0,
+            line_spacing=0.0,
+            font="Dino",
+            scale_cutter_inventory=tuple(_INVENTORY),
+        )
+        plain, _ = scale_cutter_ladder(
+            line, 1.0, need_bold=False, font="Dino", run_ladder=True, line_cutter=0.09
+        )
+        # Dino's own ladder at 1in is 0.125 -- clamped down to the line's 0.09.
+        assert plain == pytest.approx(0.09)
+
+    def test_clamp_is_inert_for_a_scaled_ladder_call(self) -> None:
+        """A scaled ladder call ignores the clamp ceiling."""
+        line = ResolvedTextLine(
+            text="x",
+            nominal_text_height=1.0,
+            toolpath_text_height=0.875,
+            cutter_diameter=0.09,
+            character_spacing=0.0,
+            line_spacing=0.0,
+            font="Dino",
+            scale_cutter_inventory=tuple(_INVENTORY),
+        )
+        plain, _ = scale_cutter_ladder(
+            line, 1.0, need_bold=False, font="Dino", run_ladder=True, line_cutter=0.09
+        )
+        assert plain == pytest.approx(0.09)
+        # The SAME call at a different scale keeps the scaled ladder's tool
+        # (the clamp never applies to a scaled run).
+        scaled, _ = scale_cutter_ladder(
+            line, 0.5, need_bold=False, font="Dino", run_ladder=True, line_cutter=0.09
+        )
+        assert scaled == pytest.approx(0.06)
 
 
 class TestHoleEngravedRadius:

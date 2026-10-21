@@ -1067,14 +1067,16 @@ class TestParseYamlWithJobConfig:
         assert job.supersubscript_downscale == 0.6
         assert job.html_brackets == "<>"
         assert job.italic_angle == 12.0
-        # Cap-height fractions (the unitless migration): 0.18/0.45 are the
-        # old 0.08in/0.2in shop values divided by the typical 0.44in cap,
-        # rounded. tests/AGENTS.md stale-pin pattern - re-pin, keep config.
-        assert job.underline_offset_fraction == 0.18
-        assert job.underline_break_clearance_fraction == 0.45
+        # Cap-height fractions (the unitless migration): the shop-tuned
+        # values, re-pinned after commit 05889c6 ("chore: update underline
+        # and strikethrough defaults"). tests/AGENTS.md stale-pin pattern -
+        # re-pin, keep config.
+        assert job.underline_offset_fraction == 0.15
+        assert job.underline_break_clearance_fraction == 0.2
         assert job.underline_break_spaces is False
-        # The shop ships the mid-cap strike (null) and a continuous stroke.
-        assert job.strikethrough_offset_fraction is None
+        # The shop ships the mid-cap strike (0.4 cap heights) and a continuous
+        # stroke.
+        assert job.strikethrough_offset_fraction == 0.4
         assert job.strikethrough_break_spaces is False
         assert job.target_boldness_factor == 0.14
         assert job.multistroke_overlap_ratio == 0.25
@@ -1083,6 +1085,7 @@ class TestParseYamlWithJobConfig:
         assert job.max_cutter_downsizes == 1
         assert job.cutter_downsize_global is True
         assert job.h_compress_global is False
+        assert job.h_compress_global_same_height_only is True
         assert job.optimize_line_content is False
         assert job.optimize_line_content_max_lines is None
         assert job.enforce_cap_line is True

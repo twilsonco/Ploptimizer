@@ -1114,6 +1114,18 @@ class TextAttributes(BaseModel):
             "(fallback false); explicit true is honored."
         ),
     )
+    h_compress_global_same_height_only: Optional[bool] = Field(
+        default=None,
+        description=(
+            "The grouping scope of the shared horizontal compression: true "
+            "(the default) shares the compression only between the lines of "
+            "the same text_height in the label (one text size, one glyph "
+            "density); false shares it across EVERY eligible line of the "
+            "label, whatever their text_height, so one label engraves at one "
+            "glyph density throughout. Cascades line -> label -> job "
+            "(fallback true); explicit false is honored."
+        ),
+    )
     optimize_line_content: Optional[bool] = Field(
         default=None,
         description=(
@@ -2317,6 +2329,13 @@ class PlateSpec(BaseModel):
         description=(
             "Per-label sharing of horizontal compression (schema parity; "
             "not applied at plate level)."
+        ),
+    )
+    h_compress_global_same_height_only: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Grouping scope of the shared horizontal compression (schema "
+            "parity; not applied at plate level)."
         ),
     )
     optimize_line_content: Optional[bool] = Field(

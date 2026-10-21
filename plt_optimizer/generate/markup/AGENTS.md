@@ -939,6 +939,23 @@ authored on its own (the `<scale:N>` contract), so it lands on its own pen /
   runs only (the scaled-run precedent); the run font keeps its own ladder.
   `used_cutters` → `build_cutter_pen_map` → the N-way `_split_block_by_cutters`
   → per-cutter `<cutter>_txt_` files: all free.
+- **The run cutter is CLAMPED to the line's tool (an unscaled run).** A
+  `<f:>` run changes only the FONT, so it keeps the line's nominal height and
+  must never engrave with a *wider* tool than the line it sits in: the
+  ladder's plain rung is capped at the line's own resolved cutter
+  (`scale_cutter_ladder(..., line_cutter=...)`, applied only at
+  `scale == 1.0`). The clamp makes a font run **follow the line through the
+  compression-driven downsize** (the downsize moves the line's tool; the run
+  follows it), so one nominal height engraves one label with one tool — a
+  `<f:>` run is never left on the pre-downsize tool while the text around it
+  moved down. A multi-stroke run font keeps its **gap-free floor** through
+  the clamp (the floor pulls the cutter back up to the smallest inventory
+  rung at or above it, so a symbol run never reopens an unengraved stripe).
+  A `<scale:N>`/`<sup>`/`<sub>` run has a height of its own and keeps its own
+  ladder (the clamp does not apply to it). Both `per_char_cutters` and
+  `label_renderer._font_segment_line` pass the line's cutter, so the
+  cross-family composer and the pen map agree on the run's tool. Pinned by
+  `TestRunCutterLineClamp` (`tests/test_resolution.py`).
 - **All-PLT lines kern EXACTLY inside the walk.** `plt_font_renderer._walk_line`
   (and the three public wrappers) gained keyword-only `font_names`: each named
   character fetches its geometry from that font's catalog entry (`_glyph_entry`

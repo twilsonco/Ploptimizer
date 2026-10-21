@@ -373,6 +373,13 @@ DEFAULT_CUTTER_DOWNSIZE_GLOBAL: bool = True
 # most-compressed (minimum) scale, clamped to each receiver's own
 # ``1 - max_h_compress`` budget floor.
 DEFAULT_H_COMPRESS_GLOBAL: bool = False
+# The grouping scope of the shared horizontal compression (see
+# ``plt_optimizer.generate.h_compress``). ``True`` (the default) shares the
+# compression only between the lines of the SAME nominal text height within
+# a label (one text size, one glyph density). ``False`` shares it across
+# EVERY eligible line of the label, whatever their nominal height, so one
+# label engraves at one glyph density throughout.
+DEFAULT_H_COMPRESS_GLOBAL_SAME_HEIGHT_ONLY: bool = True
 # Word-level line-content reflow (see ``plt_optimizer.generate.line_content``).
 # ``False`` (the default) keeps the historical per-line text: lines never
 # exchange words. ``True`` lets consecutive enabled lines redistribute their
@@ -1016,6 +1023,16 @@ class ResolvedTextLine:
             budget is never touched. Consumed by
             :mod:`plt_optimizer.generate.h_compress`. Explicit ``True`` is
             honored; only ``None`` means unset.
+        h_compress_global_same_height_only: The grouping scope of the shared
+            horizontal compression (cascaded line -> label -> job, default
+            ``DEFAULT_H_COMPRESS_GLOBAL_SAME_HEIGHT_ONLY`` (``True``)).
+            ``True`` shares the compression only between the lines of the
+            same ``nominal_text_height`` in the label (one text size, one
+            glyph density); ``False`` shares it across EVERY eligible line
+            of the label, whatever their nominal height, so one label
+            engraves at one glyph density throughout. Consumed by
+            :mod:`plt_optimizer.generate.h_compress`. Explicit ``False`` is
+            honored; only ``None`` means unset.
         optimize_line_content: Whether this line's words may be
             redistributed across the consecutive lines that also enable the
             option (cascaded line -> label -> job, default
@@ -1204,6 +1221,7 @@ class ResolvedTextLine:
     max_cutter_downsizes: int = DEFAULT_MAX_CUTTER_DOWNSIZES
     cutter_downsize_global: bool = DEFAULT_CUTTER_DOWNSIZE_GLOBAL
     h_compress_global: bool = DEFAULT_H_COMPRESS_GLOBAL
+    h_compress_global_same_height_only: bool = DEFAULT_H_COMPRESS_GLOBAL_SAME_HEIGHT_ONLY
     optimize_line_content: bool = DEFAULT_OPTIMIZE_LINE_CONTENT
     optimize_line_content_max_lines: Optional[int] = DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES
     enforce_cap_line: bool = DEFAULT_ENFORCE_CAP_LINE
@@ -1542,6 +1560,13 @@ class ResolvedTextLine:
                 # font. Keyed on (scale, font) so each distinct pair pays one
                 # ladder lookup; the ladder is derived from the style, never
                 # stored positionally (the reflow staleness rule).
+                #
+                # An UNSCALED font run keeps the line's nominal height, so it
+                # is clamped to the line's own tool (the ladder's ceiling):
+                # a run that only changes the font never engraves wider than
+                # the text around it, and it follows the line through a
+                # compression-driven downsize. A scaled run has a height of
+                # its own and keeps its own ladder tool.
                 key = (scale, run_font)
                 if key not in ladder:
                     ladder[key] = scale_cutter_ladder(
@@ -1550,6 +1575,7 @@ class ResolvedTextLine:
                         need_bold=scaled_bold,
                         font=run_font,
                         run_ladder=run_font is not None,
+                        line_cutter=self.cutter_diameter if run_font is not None else None,
                     )
                 plain_cutter, scaled_bold_cutter = ladder[key]
                 cutters.append(scaled_bold_cutter if is_bold else plain_cutter)
@@ -3111,6 +3137,7 @@ def _scale_cutter_ladder_cached(
     bold_boldness_multiplier: float,
     need_bold: bool,
     run_ladder: bool = False,
+    line_cutter: Optional[float] = None,
 ) -> Tuple[float, float]:
     """Cached ladder body -- see :func:`scale_cutter_ladder`.
 
@@ -3130,6 +3157,14 @@ def _scale_cutter_ladder_cached(
     like the line-level cutter block), a single-stroke/TTF run font takes the
     height ladder. Without it the plain cutter is the plain height ladder
     (the shipped ``<scale:N>`` behaviour on the line's own font).
+
+    ``line_cutter`` is the line's OWN resolved cutter, and it clamps the
+    plain rung of an **unscaled** run (see :func:`scale_cutter_ladder`): a
+    run that changes only the FONT never engraves with a wider tool than the
+    line it sits in, so the compression-driven downsize (which moves the
+    line's cutter) moves the run's cutter with it. The clamp is floor-guarded
+    (a multi-stroke run font keeps its gap-free floor), so it can never
+    reopen an unengraved stripe between the run's passes.
     """
     effective = scale * nominal_height
     cutters = list(inventory) if inventory else None
@@ -3146,8 +3181,36 @@ def _scale_cutter_ladder_cached(
             bumped = next_larger_cutter(plain, cutters)
             if bumped is not None:
                 plain = bumped
+        if line_cutter is not None and plain > line_cutter + 1e-12:
+            # The line's own tool is narrower than the run font's ladder:
+            # step down to the widest inventory rung that still fits under
+            # the line's tool, then re-apply the gap-free floor (the run's
+            # passes must keep overlapping, so the floor may pull the cutter
+            # back up -- never below the floor, never above the line's tool
+            # unless the floor demands it).
+            clamped = max((c for c in (cutters or ()) if c <= line_cutter + 1e-12), default=None)
+            if clamped is not None:
+                plain = clamped
+                if cutters and plain < ladder.floor - 1e-12:
+                    # The floor needs a rung AT OR ABOVE it (a single step-up
+                    # is not enough: the clamp can land many rungs below the
+                    # floor), so take the smallest such rung.
+                    floor_rung = min(
+                        (c for c in cutters if c >= ladder.floor - 1e-12),
+                        default=None,
+                    )
+                    if floor_rung is not None:
+                        plain = floor_rung
     else:
         plain = get_cutter_diameter(effective, cutters, tolerance)
+        if line_cutter is not None and plain > line_cutter + 1e-12:
+            # A single-stroke run font has no gap-free floor, so the clamp is
+            # a plain snap-down to the widest rung that fits under the line's
+            # tool (the line's own tool itself when the inventory has no
+            # smaller rung).
+            clamped = max((c for c in (cutters or ()) if c <= line_cutter + 1e-12), default=None)
+            if clamped is not None:
+                plain = clamped
     if not need_bold:
         return plain, plain
     rung = _bold_cutter_diameter(
@@ -3173,6 +3236,7 @@ def scale_cutter_ladder(
     need_bold: bool = True,
     font: Optional[str] = None,
     run_ladder: bool = False,
+    line_cutter: Optional[float] = None,
 ) -> Tuple[float, float]:
     """Return the ``(plain, bold)`` cutters a ``<scale:N>``/``<f:...>`` run uses.
 
@@ -3195,6 +3259,18 @@ def scale_cutter_ladder(
     next larger rung, or the boosted multi-stroke ladder re-run at that
     height), mirroring ``<b>`` at the run's own size.
 
+    **The line-cutter clamp (an unscaled font run).** A ``<f:...>`` run that
+    changes only the FONT keeps the line's nominal height, so it must not
+    engrave with a *wider* tool than the line it sits in: the clamp caps the
+    run's plain rung at ``line_cutter`` (the line's own resolved tool, which
+    the compression-driven downsize may have moved). The clamp is applied
+    only to a run at ``scale == 1.0`` -- a ``<scale:N>``/``<sup>``/``<sub>``
+    run has a height of its own and keeps its own ladder. A multi-stroke run
+    font keeps its gap-free floor through the clamp (the floor may pull the
+    cutter back above the line's tool, never below it). The clamp makes the
+    run follow the line's tool through a compression-driven downsize, so one
+    nominal height engraves one label with one tool.
+
     Derived from the line's *scale factor* and its stored ladder inputs, never
     from a positional array, so a pre-pass that rewrites the line's text
     (:meth:`ResolvedTextLine.with_markup`, the line-content reflow) keeps every
@@ -3209,6 +3285,9 @@ def scale_cutter_ladder(
         font: The font the ladder resolves against (``None`` = the line's).
         run_ladder: Use the run font's own plain-cutter ladder (multi-stroke
             aware) instead of the plain height ladder.
+        line_cutter: The line's own resolved cutter diameter, used as the
+            clamp ceiling for an unscaled (``scale == 1.0``) run. ``None``
+            disables the clamp (the run keeps its own ladder tool).
 
     Returns:
         ``(plain_cutter, bold_cutter)`` at ``scale * nominal_text_height``;
@@ -3226,6 +3305,7 @@ def scale_cutter_ladder(
         line.bold_boldness_multiplier,
         need_bold,
         run_ladder,
+        line_cutter if scale == 1.0 else None,
     )
 
 
@@ -3928,6 +4008,18 @@ def _resolve_content(
         else:
             line_h_compress_global = DEFAULT_H_COMPRESS_GLOBAL
 
+        # Resolve the grouping scope of the shared compression with the same
+        # precedence; an intentional ``False`` (label-wide sharing) is
+        # honored.
+        if line.h_compress_global_same_height_only is not None:
+            line_h_compress_global_same_height_only: bool = line.h_compress_global_same_height_only
+        elif label_input.h_compress_global_same_height_only is not None:
+            line_h_compress_global_same_height_only = label_input.h_compress_global_same_height_only
+        elif job.h_compress_global_same_height_only is not None:
+            line_h_compress_global_same_height_only = job.h_compress_global_same_height_only
+        else:
+            line_h_compress_global_same_height_only = DEFAULT_H_COMPRESS_GLOBAL_SAME_HEIGHT_ONLY
+
         # Resolve the word-level line-content reflow permission with the same
         # precedence; an intentional ``True`` (opt-in) is honored.
         if line.optimize_line_content is not None:
@@ -4003,6 +4095,7 @@ def _resolve_content(
                 max_cutter_downsizes=line_max_cutter_downsizes,
                 cutter_downsize_global=line_cutter_downsize_global,
                 h_compress_global=line_h_compress_global,
+                h_compress_global_same_height_only=line_h_compress_global_same_height_only,
                 optimize_line_content=line_optimize_line_content,
                 optimize_line_content_max_lines=line_max_lines,
                 enforce_cap_line=line_enforce_cap_line,

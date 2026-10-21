@@ -25,6 +25,12 @@ deepen the compression and justify a further step. The number of steps is
 capped by ``max_cutter_downsizes``; the cutter strictly decreases every step,
 so the loop always terminates.
 
+This pre-pass runs **after** the per-label shared horizontal compression (see
+:mod:`plt_optimizer.generate.h_compress`), so the midpoint trigger measures
+the SHARED scale -- the scale the label is actually engraved at. The same
+nominal height therefore receives the same horizontal compression AND the
+same cutter.
+
 Per-label sharing (``cutter_downsize_global``, on by default): when a line's
 compression triggers a swap, every other *eligible* line of the same nominal
 text height **within the same label** receives the same swap, so one label

@@ -22,6 +22,7 @@ from plt_optimizer.generate.h_compress import (
 )
 from plt_optimizer.generate.resolution import (
     DEFAULT_H_COMPRESS_GLOBAL,
+    DEFAULT_H_COMPRESS_GLOBAL_SAME_HEIGHT_ONLY,
     ResolvedLabel,
     ResolvedTextLine,
 )
@@ -34,6 +35,7 @@ def _line(
     cutter: float = 0.06,
     max_h_compress: float = 0.5,
     h_compress_global: bool = True,
+    same_height_only: bool = True,
 ) -> ResolvedTextLine:
     """Build a resolved line with a compression budget and sharing permission."""
     return ResolvedTextLine(
@@ -45,6 +47,7 @@ def _line(
         line_spacing=0.0,
         max_h_compress=max_h_compress,
         h_compress_global=h_compress_global,
+        h_compress_global_same_height_only=same_height_only,
     )
 
 
@@ -99,9 +102,7 @@ class TestEligibility:
     def test_label_candidate_scan(self) -> None:
         """A label has candidates only when one of its lines is eligible."""
         assert _label_has_candidates(_label("a", _line())) is True
-        assert (
-            _label_has_candidates(_label("a", _line(h_compress_global=False))) is False
-        )
+        assert _label_has_candidates(_label("a", _line(h_compress_global=False))) is False
 
 
 class TestSharedScaleClamp:
@@ -289,6 +290,82 @@ class TestSharing:
 
         out = apply_global_h_compress(labels, probe=probe)
         assert out[0] is labels[0]
+
+
+class TestGroupingScope:
+    """``h_compress_global_same_height_only`` picks the sharing groups."""
+
+    def test_default_module_constant_is_true(self) -> None:
+        """The shipped default keeps the sharing scoped to one text height."""
+        assert DEFAULT_H_COMPRESS_GLOBAL_SAME_HEIGHT_ONLY is True
+
+    def test_same_height_only_keeps_the_height_groups(self) -> None:
+        """The default: a line of another height is not a sibling."""
+        label = _label(
+            "g",
+            _line("WIDE", nominal=0.5),
+            _line("OK", nominal=0.5),
+            _line("SMALL", nominal=0.25),
+            _line("SMALL2", nominal=0.25),
+        )
+
+        out = apply_global_h_compress([label], probe=_probe({0: 0.8, 2: 0.6}))
+
+        shared = out[0].global_compress_by_line
+        assert sorted(shared) == [0, 1, 2, 3]
+        assert shared[0] == pytest.approx(0.8)
+        assert shared[1] == pytest.approx(0.8)
+        # The 0.25in group keeps its own scale.
+        assert shared[2] == pytest.approx(0.6)
+        assert shared[3] == pytest.approx(0.6)
+
+    def test_label_wide_sharing_spans_every_height(self) -> None:
+        """``same_height_only`` false: one group for the whole label."""
+        label = _label(
+            "g",
+            _line("WIDE", nominal=0.5, same_height_only=False),
+            _line("OK", nominal=0.5, same_height_only=False),
+            _line("SMALL", nominal=0.25, same_height_only=False),
+            _line("SMALL2", nominal=0.25, same_height_only=False),
+        )
+
+        out = apply_global_h_compress([label], probe=_probe({0: 0.8, 2: 0.6}))
+
+        shared = out[0].global_compress_by_line
+        # Every eligible line converges on the label's most-compressed scale.
+        assert sorted(shared) == [0, 1, 2, 3]
+        assert all(scale == pytest.approx(0.6) for scale in shared.values())
+
+    def test_label_wide_sharing_respects_the_budget_floor(self) -> None:
+        """A receiver's own budget floor still wins in the label-wide group."""
+        label = _label(
+            "g",
+            _line("WIDE", nominal=0.5, same_height_only=False),
+            _line("OK", nominal=0.5, max_h_compress=0.1, same_height_only=False),
+            _line("SMALL", nominal=0.25, same_height_only=False),
+        )
+
+        out = apply_global_h_compress([label], probe=_probe({0: 0.5}))
+
+        shared = out[0].global_compress_by_line
+        assert shared[0] == pytest.approx(0.5)
+        # The tight receiver keeps its own floor (0.9), never squeezed deeper.
+        assert shared[1] == pytest.approx(0.9)
+        assert shared[2] == pytest.approx(0.5)
+
+    def test_label_wide_sharing_skips_ineligible_lines(self) -> None:
+        """A zero-budget line neither triggers nor receives the shared scale."""
+        label = _label(
+            "g",
+            _line("WIDE", nominal=0.5, same_height_only=False),
+            _line("OK", nominal=0.5, same_height_only=False),
+            _line("BUDGETLESS", nominal=0.25, max_h_compress=0.0, same_height_only=False),
+        )
+
+        out = apply_global_h_compress([label], probe=_probe({0: 0.8}))
+
+        shared = out[0].global_compress_by_line
+        assert sorted(shared) == [0, 1]
 
 
 class TestProbeCaching:

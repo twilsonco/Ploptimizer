@@ -498,6 +498,19 @@
           "description": "Share horizontal compression across the text lines of one label: when a line's width forces horizontal compression, every other eligible line of the same text_height in the same label is compressed to the same scale (the most-compressed scale among the triggering lines, clamped to each line's own max_h_compress budget floor). Lines with a zero max_h_compress budget are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades line -> label -> job (fallback false); explicit true is honored.",
           "title": "H Compress Global"
         },
+        "h_compress_global_same_height_only": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The grouping scope of the shared horizontal compression: true (the default) shares the compression only between the lines of the same text_height in the label (one text size, one glyph density); false shares it across EVERY eligible line of the label, whatever their text_height, so one label engraves at one glyph density throughout. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "title": "H Compress Global Same Height Only"
+        },
         "optimize_line_content": {
           "anyOf": [
             {
@@ -1417,6 +1430,19 @@
           "description": "Per-label sharing of horizontal compression (schema parity; not applied at plate level).",
           "title": "H Compress Global"
         },
+        "h_compress_global_same_height_only": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Grouping scope of the shared horizontal compression (schema parity; not applied at plate level).",
+          "title": "H Compress Global Same Height Only"
+        },
         "optimize_line_content": {
           "anyOf": [
             {
@@ -2122,6 +2148,19 @@
           "description": "Share horizontal compression across the text lines of one label: when a line's width forces horizontal compression, every other eligible line of the same text_height in the same label is compressed to the same scale (the most-compressed scale among the triggering lines, clamped to each line's own max_h_compress budget floor). Lines with a zero max_h_compress budget are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades line -> label -> job (fallback false); explicit true is honored.",
           "title": "H Compress Global"
         },
+        "h_compress_global_same_height_only": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The grouping scope of the shared horizontal compression: true (the default) shares the compression only between the lines of the same text_height in the label (one text size, one glyph density); false shares it across EVERY eligible line of the label, whatever their text_height, so one label engraves at one glyph density throughout. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "title": "H Compress Global Same Height Only"
+        },
         "optimize_line_content": {
           "anyOf": [
             {
@@ -2642,6 +2681,19 @@
       "default": null,
       "description": "Share horizontal compression across the text lines of one label: when a line's width forces horizontal compression, every other eligible line of the same text_height in the same label is compressed to the same scale (the most-compressed scale among the triggering lines, clamped to each line's own max_h_compress budget floor). Lines with a zero max_h_compress budget are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades line -> label -> job (fallback false); explicit true is honored.",
       "title": "H Compress Global"
+    },
+    "h_compress_global_same_height_only": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The grouping scope of the shared horizontal compression: true (the default) shares the compression only between the lines of the same text_height in the label (one text size, one glyph density); false shares it across EVERY eligible line of the label, whatever their text_height, so one label engraves at one glyph density throughout. Cascades line -> label -> job (fallback true); explicit false is honored.",
+      "title": "H Compress Global Same Height Only"
     },
     "optimize_line_content": {
       "anyOf": [

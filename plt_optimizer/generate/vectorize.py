@@ -828,27 +828,29 @@ def export_per_cutter_plts(
     with stage_timer("reflow", _LOG):
         resolved_labels = apply_line_content_reflow(resolved_labels)
 
-    # Compression-driven cutter reduction (pre-pass): render-measure the
-    # labels once and downsize the *automatic* cutters of compressed lines
-    # BEFORE the pen map / packing / rendering consume them, so the per-cutter
-    # layers, PLT file names, kerning clearance and collision stroke floor all
-    # see the final tools. No-op (same list) without an inventory.
-    from plt_optimizer.generate.cutter_downsize import apply_compression_cutter_downsize
-
-    with stage_timer("cutter_downsize", _LOG):
-        resolved_labels = apply_compression_cutter_downsize(resolved_labels, available_cutters)
-
     # Per-label shared horizontal compression (pre-pass): when a label enables
     # ``h_compress_global``, a line's compression is measured and the group's
     # most-compressed scale is applied to its same-height siblings BEFORE the
     # pen map / packing / rendering run. No-op (same list) when no label
-    # enables it. Runs after the cutter reduction, so a shared compression can
-    # deepen a line's squeeze without re-triggering a cutter swap (accepted
-    # staleness -- the two pre-passes are deliberately not looped together).
+    # enables it. Runs BEFORE the cutter reduction, so the cutter trigger
+    # measures the SHARED scale (the scale the label is actually engraved
+    # at) and the same nominal height therefore gets the same compression AND
+    # the same tool.
     from plt_optimizer.generate.h_compress import apply_global_h_compress
 
     with stage_timer("h_compress", _LOG):
         resolved_labels = apply_global_h_compress(resolved_labels)
+
+    # Compression-driven cutter reduction (pre-pass): render-measure the
+    # labels once and downsize the *automatic* cutters of compressed lines
+    # BEFORE the pen map / packing / rendering consume them, so the per-cutter
+    # layers, PLT file names, kerning clearance and collision stroke floor all
+    # see the final tools. No-op (same list) without an inventory. Runs after
+    # the shared compression, so the midpoint trigger sees the shared scale.
+    from plt_optimizer.generate.cutter_downsize import apply_compression_cutter_downsize
+
+    with stage_timer("cutter_downsize", _LOG):
+        resolved_labels = apply_compression_cutter_downsize(resolved_labels, available_cutters)
 
     # Pen == (cutter, color): assign one HPGL pen per distinct text
     # cutter/color layer so the assembled plate can be split into

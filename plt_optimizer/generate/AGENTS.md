@@ -284,6 +284,15 @@ JobSpec (job-level defaults)
   identity does not exist when the export pre-pass runs). Cascades line →
   label → job → default (plate parity only); `job-config.json` supplies the
   shop default.
+- `h_compress_global_same_height_only`: Boolean gate for the **grouping scope**
+  of the shared compression (`default None` → **true**). `true` shares the
+  compression only between the lines of the same `text_height` (one text size,
+  one glyph density — the historical behavior); `false` shares it across
+  **every** eligible line of the label, whatever their `text_height`, so one
+  label engraves at one glyph density throughout. The group scale is still the
+  label's most-compressed (minimum) scale, clamped to each receiver's own
+  `1 - max_h_compress` budget floor. Cascades line → label → job → default
+  (plate parity only); `job-config.json` supplies the shop default (`true`).
 - `optimize_line_content`: Boolean gate for **word-level line-content reflow**
   (`default None` → **false**). When true, the text of the enabled lines may be
   redistributed across the consecutive lines that also enable it so the group's
@@ -526,7 +535,8 @@ parity only); `max_cutter_downsizes: 0` disables the mechanism.
 
 - `plt_optimizer/generate/cutter_downsize.py` runs as an **export pre-pass**
   (`apply_compression_cutter_downsize`) inside
-  `vectorize.export_per_cutter_plts`, *before* `build_cutter_pen_map`: it
+  `vectorize.export_per_cutter_plts`, *after* `apply_global_h_compress` and
+  *before* `build_cutter_pen_map`: it
   renders each label once through an injectable `ScaleProbe` (default:
   lazy-imported `render_label_to_plt`, reading
   `RenderedLabel.compression_by_line`), and emits adjusted `ResolvedLabel`
@@ -535,6 +545,22 @@ parity only); `max_cutter_downsizes: 0` disables the mechanism.
   `ResolvedLabel.cutter_downsize_by_line` (line index → (original, final)).
   The pen map, per-cutter layers and PLT file names therefore all see the
   tool actually used (the downsized line lands in its own file).
+- **The pre-pass order matters:** the shared compression runs FIRST, so the
+  midpoint trigger measures the **shared** scale (the scale the label is
+  actually engraved at), not the trigger line's natural scale. The same
+  nominal height therefore gets the same compression AND the same tool.
+- **The run-cutter clamp (a `<f:...>` run follows its line).** A font-only
+  run keeps the line's nominal height, so its cutter is capped at the line's
+  own resolved tool — the tool the downsize moves. The clamp lives in
+  `resolution.scale_cutter_ladder` / `_scale_cutter_ladder_cached` (a
+  `line_cutter` ceiling, applied only at `scale == 1.0`), and
+  `ResolvedTextLine.per_char_cutters` + `label_renderer._font_segment_line`
+  both pass the line's cutter, so the pen map, the kerning floors, the
+  underline split and the cross-family composer all see the same tool. A
+  multi-stroke run font keeps its **gap-free floor** through the clamp (the
+  floor may pull the cutter back up to the smallest rung at or above it, so a
+  symbol run never reopens an unengraved stripe). A `<scale:N>`/`<sup>`/
+  `<sub>` run has a height of its own and keeps its own ladder (unchanged).
 - **Monotone step loop:** each step swaps one rung and re-measures the
   re-rendered line (a smaller cutter renders *wider* — bigger toolpath
   height and wider kerning clearance — which can deepen the compression and
@@ -591,12 +617,19 @@ receives a sibling's).
 
 - `plt_optimizer/generate/h_compress.py` runs as an **export pre-pass**
   (`apply_global_h_compress`) inside `vectorize.export_per_cutter_plts`,
-  *after* `apply_compression_cutter_downsize` and *before*
+  *before* `apply_compression_cutter_downsize` and *before*
   `build_cutter_pen_map`: it renders each label once through the shared
   `ScaleProbe` (lazy-imported `render_label_to_plt`, reading
   `RenderedLabel.compression_by_line`) and emits `ResolvedLabel` clones
   (`dataclasses.replace`) carrying `global_compress_by_line` (line index →
   shared scale).
+- **The pre-pass order matters:** the shared compression runs FIRST, so the
+  cutter reduction's midpoint trigger measures the **shared** scale — the
+  scale the label is actually engraved at. The same nominal height therefore
+  receives the same horizontal compression **and** the same tool (one text
+  size, one density, one tool). (The reverse order left the reduction blind
+  to the shared scale, so a label could be engraved at one density with two
+  tools.)
 - **Group scale:** the group's *most-compressed* (minimum) effective scale
   among its triggering eligible lines, clamped to each receiver's own
   `1 - max_h_compress` budget floor (`_shared_scale`). A line whose natural
@@ -604,6 +637,13 @@ receives a sibling's).
   pass converges — the group minimum is fixed by the triggering lines' natural
   scales, so applying it to a fitting sibling never deepens any line's natural
   compression (no fixpoint loop, unlike `_share_downsizes`).
+- **Grouping scope:** `h_compress_global_same_height_only` (default **true**)
+  picks the groups — `_label_groups` returns one group per
+  `nominal_text_height` (the default) or ONE label-wide group when the flag
+  is **false** (every eligible line of the label shares the label's
+  most-compressed scale, whatever its height). The flag is uniform across a
+  label (it cascades from one source to every line), so the first eligible
+  member's value decides the scope.
 - **Eligibility:** `h_compress_global AND max_h_compress > 0.0` (no compression
   mechanism can fire on a zero-budget line, so it can neither trigger nor
   receive). A group needs ≥2 eligible lines to share; a lone eligible line's
@@ -614,9 +654,13 @@ receives a sibling's).
 - **Scope guards (free no-ops):** no label has an eligible line; no triggering
   line in a same-height group with two eligible lines. The flag rides resolved
   lines, so no export/CLI threading is needed (unlike `available_cutters`).
-- Accepted staleness: this pre-pass runs *after* the cutter reduction, so a
-  shared compression can deepen a line's squeeze without re-triggering a cutter
-  swap. The two pre-passes are deliberately **not** looped to a joint fixpoint.
+- Each propagated line logs a WARNING naming the label id, line index, text and
+  scale; the layout report prints it as an ordinary compressed line
+  (`scale 0.858 (14.2% compressed)`) — the shared scale lands in
+  `RenderedLabel.compression_by_line` for free.
+- Example fixture: `tests_deps/h_compress_global_job.yaml` (pinned by
+  `tests/test_phase3_export.py::TestHCompressGlobalDemoExample`) — a shared
+  label, a per-label boundary, and an opted-out label.
 - Each propagated line logs a WARNING naming the label id, line index, text and
   scale; the layout report prints it as an ordinary compressed line
   (`scale 0.858 (14.2% compressed)`) — the shared scale lands in
