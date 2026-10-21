@@ -3415,6 +3415,149 @@ class TestScaleDemoExample:
         assert "AA" in text_file.read_text()
 
 
+class TestCutterDemoExample:
+    """Regression tests for tests_deps/cutter_job.yaml.
+
+    The fixture pins inline cutter markup (``<c:D>``): the wrapped characters
+    engrave with the EXPLICIT cutter diameter they declare, overriding every
+    other cutter setting for the segment (the line's own tool, the ``<b>``
+    bold rung, the ``<scale:N>`` height ladder). The run's silhouette is
+    exactly ``nominal - D`` tall (the ``<b>`` centerline contract generalized),
+    the engraved baseline aligns with the plain run's, and the run's strokes
+    land on their own tool's pen and per-cutter PLT file.
+    """
+
+    _SPEC = Path("tests_deps/cutter_job.yaml")
+    _INVENTORY = [0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.09, 0.125, 0.25]
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled (against the inventory)."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job, available_cutters=self._INVENTORY)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="cu",
+            optimize=False,
+            plots=False,
+            available_cutters=self._INVENTORY,
+        )
+
+    def test_markup_parses_to_plain_text_and_cutter(self, tmp_path: Path) -> None:
+        """Tags never engrave: plain_text strips them, the run carries D."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+
+        cut = by_id["plt_cut"].content[0]
+        assert cut.text == "plain <c:0.03>CUT</c> plain"
+        assert cut.plain_text == "plain CUT plain"
+        assert cut.has_cutter_runs is True
+        # The 6 plain chars are unmarked, the 3 'CUT' chars carry 0.03.
+        assert cut.cutter_overrides == (None,) * 6 + (0.03,) * 3 + (None,) * 6
+
+        plain = by_id["plt_plain"].content[0]
+        assert plain.plain_text == "plain CUT plain"
+        assert plain.has_cutter_runs is False
+
+    def test_the_explicit_tool_overrides_the_line_cutter(self, tmp_path: Path) -> None:
+        """The run's characters engrave with the declared tool."""
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_cut"].source_label.content[0]
+        # The line's own tool is untouched (a segment override).
+        assert math.isclose(line.cutter_diameter, 0.06)
+        assert math.isclose(line.per_char_cutters[6], 0.03)  # the 'C' of 'CUT'
+        assert math.isclose(line.per_char_cutters[0], 0.06)  # the plain 'p'
+        assert line.used_cutters == (0.03, 0.06)
+
+    def test_the_run_silhouette_is_nominal_minus_cutter(self, tmp_path: Path) -> None:
+        """The run's engraved box is ``nominal - D`` (the <b> centerline rule).
+
+        A lighter tool engraves a FINER stroke, so the run's centerlines grow
+        and its silhouette is slightly TALLER than the plain twin's -- the
+        same relation the ``<b>`` run has (in the other direction).
+        """
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+        from plt_optimizer.generate.text_geometry import TextBlock
+
+        result = self._export(tmp_path)
+
+        def run_glyph_top(label_id: str, index: int) -> float:
+            label = result.rendered_labels[label_id].source_label
+            block, _words, glyphs = _render_line_block(label.content[0], TextChunkMode.LINE)
+            bounds = TextBlock(strokes=tuple(block.strokes[i] for i in glyphs[index])).bounds()
+            assert bounds is not None
+            return bounds[3]
+
+        # The 'C' of 'CUT' is glyph index 6 (the space owns no group).
+        cut_top = run_glyph_top("plt_cut", 6)
+        plain_top = run_glyph_top("plt_plain", 6)
+        # The explicit tool is lighter than the line's, so the run is taller.
+        assert cut_top > plain_top
+
+    def test_the_explicit_tool_beats_the_bold_rung(self, tmp_path: Path) -> None:
+        """``<c:D>`` wins over the ``<b>`` bold rung for the characters it covers."""
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_vs_bold"].source_label.content[0]
+        assert line.bold_cutter_diameter is not None
+        assert math.isclose(line.bold_cutter_diameter, 0.09)
+        # The 'C' of 'CUT' takes its explicit tool, NOT the bold rung.
+        assert math.isclose(line.per_char_cutters[6], 0.03)
+        # The bold 'plain' characters keep the bold rung.
+        assert math.isclose(line.per_char_cutters[0], 0.09)
+
+    def test_the_explicit_tool_beats_the_scale_ladder(self, tmp_path: Path) -> None:
+        """``<c:D>`` wins over the ``<scale:N>`` height ladder."""
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_vs_scale"].source_label.content[0]
+        assert line.has_scale is True
+        # The 'C' of 'CUT' takes its explicit tool.
+        assert math.isclose(line.per_char_cutters[6], 0.03)
+
+    def test_an_unowned_diameter_snaps_down(self, tmp_path: Path) -> None:
+        """0.05in is not in the inventory: it snaps to the next size down."""
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_snap"].source_label.content[0]
+        assert math.isclose(line.per_char_cutters[6], 0.045)
+
+    def test_a_per_glyph_selection_moves_only_that_glyph(self, tmp_path: Path) -> None:
+        """Only the tagged glyph takes the explicit tool."""
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_partial"].source_label.content[0]
+        assert line.per_char_cutters == pytest.approx((0.06, 0.03, 0.06))
+
+    def test_a_nested_override_restores_the_outer_value(self, tmp_path: Path) -> None:
+        """The inner ``<c:D>`` wins for its span; the outer one is restored."""
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_nested"].source_label.content[0]
+        assert line.per_char_cutters == pytest.approx((0.03, 0.09, 0.03))
+
+    def test_the_explicit_tool_gets_its_own_file(self, tmp_path: Path) -> None:
+        """A run engraving with its own tool lands in its own per-cutter file."""
+        result = self._export(tmp_path)
+        assert sorted(p.name for p in result.plt_paths) == [
+            "0.015_bh_cu.plt",
+            "0.030_txt_cu.plt",  # the <c:0.03> runs
+            "0.045_txt_cu.plt",  # the <c:0.05> run (snapped down to 0.045)
+            "0.060_txt_cu.plt",  # the plain runs (0.5in text -> 0.060)
+            "0.090_txt_cu.plt",  # the <c:0.09> run + the <b> bold rung
+        ]
+
+    def test_the_arcs_stay_native(self, tmp_path: Path) -> None:
+        """The run's uniform scale keeps the PLT ``AA`` arcs native."""
+        result = self._export(tmp_path)
+        text_file = next(p for p in result.plt_paths if p.name.endswith("0.030_txt_cu.plt"))
+        assert "AA" in text_file.read_text()
+
+    def test_the_ttf_pair_splits_onto_two_pens(self, tmp_path: Path) -> None:
+        """The TTF family gets the same per-cutter file split."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+        line = by_id["plt_ttf"].content[0]
+        assert math.isclose(line.per_char_cutters[6], 0.03)
+        assert line.used_cutters == (0.03, 0.06)
+
+
 class TestSupSubDemoExample:
     """Regression tests for tests_deps/sup_sub_job.yaml.
 

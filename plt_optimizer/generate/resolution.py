@@ -708,6 +708,35 @@ def next_larger_cutter(
     return min(strictly_larger) if strictly_larger else None
 
 
+@lru_cache(maxsize=None)
+def snapped_cutter(requested: float, inventory: Optional[Tuple[float, ...]]) -> float:
+    """Snap a requested cutter diameter to the shop inventory (cached).
+
+    The ``<c:D>`` markup's snap: the same rule the line-level
+    ``cutter_size`` field uses (:func:`snap_boundary_hole_cutter` -- an exact
+    match is kept, otherwise the next size *down* is preferred, and only when
+    no smaller tool exists the next size *up*).
+
+    Pure and cached so the resolution-time validation and the per-character
+    derivation (:attr:`ResolvedTextLine.per_char_cutters`) always agree on
+    the tool, and so the derivation never re-snaps. The inventory is the
+    sorted, de-duplicated tuple the line stores
+    (:attr:`ResolvedTextLine.scale_cutter_inventory`), so the cache key is
+    stable across the pre-passes that clone a line.
+
+    Args:
+        requested: The requested cutter diameter in inches.
+        inventory: The shop cutter inventory in inches (``None`` or empty
+            = no inventory, so the requested tool is used verbatim).
+
+    Returns:
+        The snapped cutter diameter in inches.
+    """
+    if not inventory:
+        return requested
+    return snap_boundary_hole_cutter(requested, list(inventory))
+
+
 def should_downsize_cutter(
     effective_scale: float,
     current_cutter: float,
@@ -1373,6 +1402,33 @@ class ResolvedTextLine:
         return any(run.style.font is not None for run in self.styled_runs)
 
     @property
+    def cutter_overrides(self) -> Tuple[Optional[float], ...]:
+        """Per-character ``<c:...>`` cutter diameters, aligned with :attr:`plain_text`.
+
+        ``None`` at every position the line's own :attr:`cutter_diameter`
+        engraves; the **requested** cutter diameter in inches inside a
+        ``<c:...>`` span. Mirrors :attr:`font_runs`: DERIVED from
+        :attr:`styled_runs` (never a stored positional array), so a pre-pass
+        that rewrites the line's text (:meth:`with_markup`, the line-content
+        reflow) keeps every run on its own tool.
+
+        The values are the **requested** diameters; the inventory snap is
+        applied on demand by :func:`snapped_cutter` (the same pure function
+        the resolution-time validation uses), so the value set survives the
+        reflow unchanged.
+        """
+        if not self.styled_runs:
+            return ()
+        return tuple(
+            style.cutter for run in self.styled_runs for style in (run.style,) * len(run.text)
+        )
+
+    @property
+    def has_cutter_runs(self) -> bool:
+        """True when any markup run of this line carries a ``<c:...>`` cutter tag."""
+        return any(run.style.cutter is not None for run in self.styled_runs)
+
+    @property
     def strikethrough_cap(self) -> float:
         """The ``<s>`` strikethrough centerline height in inches above the baseline.
 
@@ -1499,11 +1555,15 @@ class ResolvedTextLine:
     def per_char_cutters(self) -> Tuple[float, ...]:
         """Per-character cutter diameters aligned with :attr:`plain_text`.
 
-        Each character's engraving tool: a ``<scale:N>`` character takes the
-        ladder cutter for its effective height (``N * nominal_text_height``)
-        -- the tool that size of text gets authored on its own, so a downscaled
-        run engraves *lighter*, not heavier -- a bare ``<sup>``/``<sub>``
-        character takes the same ladder at its downscaled height
+        Each character's engraving tool: a ``<c:D>`` character takes the
+        **explicit** diameter ``D`` it declares (snapped to the shop
+        inventory) -- overriding every other cutter setting for the segment
+        (the line's own tool, the ``<b>`` bold rung, the ``<scale:N>`` height
+        ladder) -- a ``<scale:N>`` character takes the ladder cutter for its
+        effective height (``N * nominal_text_height``) -- the tool that size
+        of text gets authored on its own, so a downscaled run engraves
+        *lighter*, not heavier -- a bare ``<sup>``/``<sub>`` character takes
+        the same ladder at its downscaled height
         (``supersubscript_downscale * nominal_text_height``, the composition
         ``scale_values * sup_sub_scales``), a ``<b>`` character takes
         :attr:`bold_cutter_diameter` (when one resolved), and every other
@@ -1513,8 +1573,8 @@ class ResolvedTextLine:
         This is the array the kerning per-pair floor, the underline's per-run
         cutter, the per-cutter pen split and the layout report all read; the
         underline gate splits a run wherever this array changes (one underline
-        cannot span two tools). Derived from each character's *scale factor*
-        (never a stored positional array), so it stays correct when a pre-pass
+        cannot span two tools). Derived from each character's *style* (never a
+        stored positional array), so it stays correct when a pre-pass
         rewrites the line's text. Empty tuple on a markup-free line (no
         per-character variation -- the renderers' fast path).
         """
@@ -1533,13 +1593,22 @@ class ResolvedTextLine:
         bolds = self.bold_flags
         bold_cutter = self.bold_cutter_diameter
         font_runs = self.font_runs
+        # The <c:D> explicit cutters (snapped to the shop inventory). A
+        # character covered by one takes THAT tool, overriding the bold rung
+        # and the scale ladder (the tag's contract: it overrides any other
+        # cutter setting for the segment).
+        overrides = self.cutter_overrides
+        inventory = self.scale_cutter_inventory
         # A bold rung at the effective height is only needed when some
         # character is BOTH bold and scaled/font-selected; asking for it
         # otherwise would log a meaningless "no larger rung" warning on a
-        # line with no such run.
+        # line with no such run. A <c:D> character never takes the ladder
+        # (its explicit tool wins), so it is excluded here too -- otherwise
+        # a bold <c:D> run would request a rung it never uses.
         scaled_bold = bold_cutter is not None and any(
             index < len(bolds)
             and bolds[index]
+            and not (index < len(overrides) and overrides[index] is not None)
             and (
                 (scale := (scales[index] if index < len(scales) else 1.0)) != 1.0
                 or (font_runs[index] if index < len(font_runs) else None) is not None
@@ -1552,7 +1621,14 @@ class ResolvedTextLine:
             scale = scales[index] if index < len(scales) else 1.0
             is_bold = bold_cutter is not None and index < len(bolds) and bolds[index]
             run_font = font_runs[index] if index < len(font_runs) else None
-            if scale != 1.0 or run_font is not None:
+            override = overrides[index] if index < len(overrides) else None
+            if override is not None:
+                # The <c:D> explicit tool wins over every other cutter
+                # setting for this character (the line's own tool, the bold
+                # rung, the scale ladder). It is snapped to the shop
+                # inventory exactly like the line-level cutter_size.
+                cutters.append(snapped_cutter(override, inventory))
+            elif scale != 1.0 or run_font is not None:
                 # A <f:...> run engraves with the ladder for its OWN font at
                 # its effective height (the <scale:N> contract): the tool
                 # that size of text in that font gets authored on its own,
@@ -3073,9 +3149,13 @@ def glyph_render_plan(
     and ``d = bold_cutter`` this is exactly
     :meth:`ResolvedTextLine._bold_glyph_scale`, so ``<b>`` is the plan's
     special case; at ``s = N`` and ``d = cutter`` it is the pure markup
-    scale. The resolution-time cutter step guarantees a positive numerator
-    for every run, except on an explicit-``cutter_size`` line, where a
-    degenerate factor clamps to :data:`MIN_SCALED_GLYPH_FACTOR` (WARNING).
+    scale; at ``s = 1`` and ``d = D`` (the ``<c:D>`` explicit tool) it is
+    the explicit-tool scale, so a ``<c:D>`` run's engraved silhouette is
+    exactly ``nominal - D`` tall -- the same invariant the plain and bold
+    runs uphold. The resolution-time cutter step guarantees a positive
+    numerator for every run, except on an explicit-``cutter_size`` line,
+    where a degenerate factor clamps to :data:`MIN_SCALED_GLYPH_FACTOR`
+    (WARNING).
 
     Args:
         line: The resolved text line (flags, cutters, nominal height).
@@ -3090,7 +3170,13 @@ def glyph_render_plan(
     """
     bold_cutter = line.bold_cutter_diameter
     has_bold = line.has_bold and bold_cutter is not None
-    if not has_bold and not line.has_scale and not line.has_sup_sub and not line.has_font_runs:
+    if (
+        not has_bold
+        and not line.has_scale
+        and not line.has_sup_sub
+        and not line.has_font_runs
+        and not line.has_cutter_runs
+    ):
         return None
     scale_flags = line.scale_values
     # The <sup>/<sub> downscale composes multiplicatively with <scale:N>:
@@ -3447,6 +3533,76 @@ def _bold_cutter_diameter(
         bold,
     )
     return bold
+
+
+def _validate_cutter_markup(
+    *,
+    label_id: str,
+    line_index: int,
+    line_text: str,
+    nominal_height: float,
+    styled_runs: Sequence[Run],
+    available_cutters: Optional[list[float]],
+) -> None:
+    """Validate the ``<c:D>`` cutter markup of one text line.
+
+    Every distinct diameter the line declares is checked once:
+
+    - **Snap**: the requested diameter is snapped to the shop inventory with
+      the same rule the line-level ``cutter_size`` uses
+      (:func:`snap_boundary_hole_cutter` -- an exact match is kept, else the
+      next size down, else the next size up), with a WARNING naming the line
+      when the snap moves it (a tool the shop does not own cannot be
+      engraved).
+    - **Material**: a tool at or above the line's nominal text height leaves
+      no material to engrave, so the job aborts with a
+      :class:`CutterSizeError` (the same fail-loud contract an out-of-range
+      line-level ``cutter_size`` obeys).
+
+    The snapped value is NOT stored here: the per-character derivation
+    (:attr:`ResolvedTextLine.per_char_cutters`) re-derives it from the same
+    cached helper (:func:`snapped_cutter`), so the validation and the
+    renderers can never disagree, and the value survives the line-content
+    reflow (which rewrites the text and re-parses the markup).
+
+    Args:
+        label_id: Identifier used in the WARNING/ERROR messages.
+        line_index: Index of the line (for messages).
+        line_text: The line's raw text (for messages).
+        nominal_height: The line's nominal text height in inches.
+        styled_runs: The line's parsed markup runs.
+        available_cutters: Optional shop inventory in inches.
+
+    Raises:
+        CutterSizeError: If a declared diameter leaves no material to
+            engrave at the line's nominal text height.
+    """
+    inventory = tuple(sorted(set(available_cutters))) if available_cutters else None
+    seen: List[float] = []
+    for run in styled_runs:
+        requested = run.style.cutter
+        if requested is None:
+            continue
+        if any(math.isclose(requested, known, rel_tol=1e-9, abs_tol=1e-9) for known in seen):
+            continue
+        seen.append(requested)
+        snapped = snapped_cutter(requested, inventory)
+        if not math.isclose(snapped, requested, rel_tol=1e-9, abs_tol=1e-9):
+            logger.warning(
+                "Label %s line %d (%r): <c:%.4f> is not in the shop inventory; snapped to %.4fin.",
+                label_id,
+                line_index,
+                line_text,
+                requested,
+                snapped,
+            )
+        if nominal_height - snapped <= 0.0:
+            raise CutterSizeError(
+                f"label {label_id!r} line {line_index} ({line_text!r}): "
+                f"<c:> cutter {snapped:g}in leaves no material to engrave "
+                f"(text_height {nominal_height:g}in); the cutter must be "
+                f"smaller than text_height"
+            )
 
 
 def _resolve_content(
@@ -3922,6 +4078,27 @@ def _resolve_content(
         # The ladder runs on demand from each character's scale factor (see
         # :func:`scale_cutter_ladder`), so nothing is resolved here -- the line
         # only stores the ladder's inputs (the inventory + tolerance) below.
+
+        # Cutter markup: a ``<c:D>`` run engraves with the EXPLICIT diameter
+        # it declares, overriding every other cutter setting for the segment
+        # (the line's own tool, the ``<b>`` bold rung, the ``<scale:N>``
+        # ladder). The diameter is snapped to the shop inventory here (the
+        # same rule the line-level ``cutter_size`` uses) and validated
+        # against the line's nominal height: a tool at or above the text
+        # height leaves no material to engrave, so the job aborts (the
+        # ``CutterSizeError`` contract, fail-loud). The per-character
+        # derivation (:attr:`ResolvedTextLine.per_char_cutters`) re-derives
+        # the same snapped value from the same cached helper, so the two can
+        # never disagree.
+        if any(run.style.cutter is not None for run in styled.runs):
+            _validate_cutter_markup(
+                label_id=label_id,
+                line_index=line_index,
+                line_text=line.text,
+                nominal_height=nominal_height,
+                styled_runs=styled.runs,
+                available_cutters=available_cutters,
+            )
 
         # Bold markup: the ``<b>`` runs engrave with a thicker cutter (see
         # ``generate/markup/AGENTS.md`` "Inline Bold (``<b>``)"). Single-stroke

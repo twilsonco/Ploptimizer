@@ -760,3 +760,68 @@ class TestBoldLockstep:
         assert math.isclose(line.bold_cutter_diameter, 0.09)
         # (0.09 - 0.06) / 2 = 0.015 on the stepped pair (was 0.0175).
         assert line.baseline_raises == (0.0, 0.015, 0.0)
+
+
+class TestCutterMarkupPin:
+    """A ``<c:D>`` run keeps its tool through a compression-driven downsize."""
+
+    @staticmethod
+    def _cutter_line(
+        text: str = "WIDE",
+        *,
+        nominal: float = 0.5,
+        cutter: float = 0.09,
+        override: float = 0.06,
+        max_cutter_downsizes: int = 1,
+    ) -> ResolvedTextLine:
+        """A resolved line carrying an explicit ``<c:D>`` run."""
+        from plt_optimizer.generate.markup import PLAIN, Run, Style
+
+        styled_runs = (Run("WIDE ", PLAIN), Run("CUT", Style(cutter=override)))
+        return ResolvedTextLine(
+            text=text,
+            nominal_text_height=nominal,
+            toolpath_text_height=nominal - cutter,
+            cutter_diameter=cutter,
+            character_spacing=0.0,
+            line_spacing=0.0,
+            max_h_compress=0.5,
+            max_cutter_downsizes=max_cutter_downsizes,
+            plain_text="WIDE CUT",
+            styled_runs=styled_runs,
+            scale_cutter_inventory=tuple(_INVENTORY),
+        )
+
+    def test_the_override_keeps_its_tool(self) -> None:
+        """The explicit tool survives the downsize; the plain characters step."""
+        labels = [_label("l1", self._cutter_line(cutter=0.09, override=0.03))]
+        out = apply_compression_cutter_downsize(
+            labels, _INVENTORY, probe=_probe({0.09: 0.80})
+        )
+        line = out[0].content[0]
+        # The plain characters took the smaller tool...
+        assert math.isclose(line.cutter_diameter, 0.06)
+        # ...but the <c:0.03> run keeps its explicit tool, so the line still
+        # engraves with both (two per-cutter layers).
+        assert line.cutter_overrides == (None,) * 5 + (0.03,) * 3
+        assert math.isclose(line.per_char_cutters[5], 0.03)
+        assert math.isclose(line.per_char_cutters[0], 0.06)
+        assert line.used_cutters == (0.03, 0.06)
+
+    def test_the_override_is_never_the_downsize_target(self) -> None:
+        """A downsize never touches the explicit tool (a human decision)."""
+        labels = [
+            _label(
+                "l1",
+                self._cutter_line(cutter=0.125, override=0.03, max_cutter_downsizes=2),
+            )
+        ]
+        out = apply_compression_cutter_downsize(
+            labels, _INVENTORY, probe=_probe({0.125: 0.80, 0.09: 0.80})
+        )
+        line = out[0].content[0]
+        assert math.isclose(line.cutter_diameter, 0.06)
+        # The explicit 0.03 run is still on 0.03 -- never swapped for a
+        # smaller tool.
+        assert math.isclose(line.per_char_cutters[5], 0.03)
+        assert math.isclose(line.per_char_cutters[0], 0.06)

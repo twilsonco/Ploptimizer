@@ -68,7 +68,7 @@ rebuilding raw markup.
   round-trips). `<u>` (see Inline Underline below) is the second shipped tag:
   `Style.underline` + `register_tag("u", ...)`, and nested `<i>...<u>...</u>
   ...</i>` composes (every transformation applies to its runs, in stack order).
-  The registry order is `i, u, b, scale, sup, sub, s, sc, f` (each tag registers
+  The registry order is `i, u, b, scale, sup, sub, s, sc, f, c` (each tag registers
   last so every earlier tag's serialization stays bit-identical). The font tag
   (`<f:font name>`, see Inline Font Selection below) is the one tag whose
   argument needs pipeline knowledge (the font catalog): `parse_markup` accepts
@@ -1028,3 +1028,97 @@ authored on its own (the `<scale:N>` contract), so it lands on its own pen /
   `TestFontMarkupFindings` (`tests/test_layout_report.py`), and the `<f>`
   reflow round-trips (`tests/test_line_content.py`).
 
+
+### Inline Cutter Selection (`<c:D>`)
+
+`<c:D>...</c>` is the tenth shipped markup tag: the wrapped characters engrave
+with the **explicit cutter diameter `D`** (inches) the tag declares, overriding
+every other cutter setting for that segment — the line's own tool, the `<b>`
+bold rung, the `<scale:N>` height ladder. The motivating case: one text line
+that needs a heavier tool on a word (a deep-engraved serial number) and a
+lighter one on the rest, without splitting the line into two YAML entries.
+
+- **The argument is mandatory and in INCHES** (like every other cutter value
+  in the repo: `cutter_size`, the `tools.json` `available_cutters`). A bare
+  `<c>` is literal text (the `<scale:N>` rule) and `<c:abc>` / `<c:0>` /
+  `<c:1.5>` are `MarkupError` → CLI non-zero (the fail-loud contract). The
+  syntactic range is `0 < D <= 1.0` inch (`MIN_CUTTER_ARG` / `MAX_CUTTER_ARG`
+  in the markup package); the real limit is the line's own `text_height`.
+- **The value snaps to the shop inventory** with the same rule the line-level
+  `cutter_size` uses (`snap_boundary_hole_cutter`: an exact match is kept,
+  otherwise the next size **down** is preferred, and only when no smaller tool
+  exists the next size **up**), with a WARNING naming the line — a tool the
+  shop does not own cannot be engraved. The snap happens ONCE at resolution
+  time (`resolution._validate_cutter_markup`), and the per-character
+  derivation re-derives the same value from the same cached helper
+  (`resolution.snapped_cutter`), so the validation and the renderers can never
+  disagree.
+- **No material ⇒ the job aborts.** A tool at or above the line's nominal
+  `text_height` leaves nothing to engrave, so resolution raises
+  `CutterSizeError` (a `ValueError` → CLI non-zero) — exactly the contract an
+  out-of-range line-level `cutter_size` obeys. The check runs on the
+  **snapped** diameter (the tool that would actually engrave).
+- **The centerline contract (the `<b>` rule, generalized).** A glyph's stored
+  geometry is the *design* cutter's path, so the run scales it uniformly about
+  its own baseline by `g = (nominal - D) / (nominal - line_cutter)` — the
+  `<b>` formula at `s = 1`, `d = D`. The run's **engraved silhouette is
+  therefore exactly `nominal - D` tall**, the same invariant the plain and
+  bold runs uphold: a lighter tool engraves a finer stroke (the run is
+  slightly TALLER), a heavier tool a fatter one (shorter). The nominal
+  `text_height` and the line's own `cutter_diameter` / `toolpath_text_height`
+  **never move** — a segment override, not a line-level change.
+- **The engraved-baseline alignment raise** rides along unchanged: a run
+  engraving with tool `D` rises by `(D - line_cutter) / 2` inches (the
+  `<b>` rule, derived from `per_char_cutters`), so its **engraved baseline and
+  capline** match the plain run's.
+- **Precedence: the explicit tool wins.** `per_char_cutters` takes the
+  override **before** the `<b>` rung and the `<scale:N>` ladder branches, so
+  `<c:D>` beats both. The bold rung is not even looked up for an overridden
+  character (`scaled_bold` excludes them), so a bold `<c:D>` run never logs a
+  meaningless "no larger rung" warning.
+- **Everything downstream is free.** `used_cutters` (the line, bold, and
+  derived per-char cutters) → `build_cutter_pen_map` → the N-way
+  `_split_block_by_cutters` → the per-cutter `<cutter>_txt_` files: the run's
+  strokes land on their own tool's pen and file. `_stroke_cutter_map` (the
+  per-stroke array) reads `per_char_cutters`, so the split is exact. The
+  underline / strikethrough runs split at the override boundary (one
+  underline cannot span two tools — `_split_runs_at_cutter`). The descender
+  relief's and the collision detection's stroke floors use
+  `max(used_cutters)` (conservative, never a collision).
+- **The compression-driven downsize moves the PLAIN characters only.** An
+  explicit tool is a human decision, never overridden automatically (the
+  line-level `cutter_size` contract), so the downsize steps the line's
+  `cutter_diameter` while the `<c:D>` run keeps its pinned tool — the line
+  then engraves across **two** tools (its reduced plain tool + the pinned
+  one). The pin survives the clone because the override is **derived from the
+  style** (`cutter_overrides`, never a stored positional array — the
+  `<scale:N>` staleness rule), so a text-rewriting pre-pass (`with_markup`,
+  the line-content reflow) keeps every run on its own tool.
+- **The TTF caveat.** The TTF renderer draws outlines; a glyph's *stroke
+  width* is the pen's, not the glyph's. A `<c:D>` TTF run's visible weight
+  comes from the **pen assignment** (the per-cutter file split), while its
+  geometry factor still applies (the run's silhouette is `nominal - D` tall).
+  The PLT path carries the weight in the geometry itself, so the two families
+  differ here by construction (the same caveat as the `<b>` tag).
+- **No schema field, no `job-config.json` key, no cascade** — the value rides
+  the tag (the `<scale:N>` precedent). No new `DEFAULT_*` constant ⇒ no
+  `docs/schema/generate_ai_docs.py` `_FALLBACK_NOTES` row.
+- **Reporting**: `layout_report.py` prints a per-line finding
+  `Line N: '<text>' cutter 0.030in (engraved cutter 0.030in, line cutter
+  0.060in)` — the requested diameter and the tool that actually runs (they
+  differ when the value snapped), so a shop can see the swap the markup
+  caused, which the YAML spec never states (the 12th slot of the findings
+  tuple; reads `plain_text`, compact-mode finding).
+- Fixture: `tests_deps/cutter_job.yaml` (9 labels) pinned by
+  `TestCutterDemoExample` — the `<c:0.03>` run vs its plain twin (the run's
+  engraved box at `nominal - D`), a heavier explicit tool, the unowned 0.05
+  diameter (snaps down to 0.045), `<c:D>` vs `<b>` and vs `<scale:N>` (the
+  explicit tool wins), a per-glyph selection, a nested override (the close
+  restores the outer value), the TTF pair, and the per-cutter file set
+  (0.030 / 0.045 / 0.060 / 0.090). Unit tests: `TestCutterRegistry` /
+  `TestCutterParse` / `TestCutterSerialize` / `TestCutterWords`
+  (`tests/test_markup.py`), `TestCutterMarkupResolution`
+  (`tests/test_resolution.py`), `TestInlineCutterDispatch`
+  (`tests/test_label_renderer_gaps.py`), `TestCutterMarkupFindings`
+  (`tests/test_layout_report.py`), and `TestCutterMarkupPin`
+  (`tests/test_cutter_downsize.py`).

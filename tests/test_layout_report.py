@@ -459,6 +459,68 @@ class TestBoldCutterFindings:
         assert has_layout_findings([resolved], {"l1": rendered}) is False
 
 
+class TestCutterMarkupFindings:
+    """A ``<c:D>`` run's explicit tool is a report finding."""
+
+    @staticmethod
+    def _cutter_line(text: str, plain: float = 0.06) -> ResolvedTextLine:
+        """A resolved line carrying an explicit ``<c:D>`` run."""
+        from plt_optimizer.generate.markup import PLAIN, Run, Style
+
+        return ResolvedTextLine(
+            text=text,
+            nominal_text_height=0.5,
+            toolpath_text_height=0.5 - plain,
+            cutter_diameter=plain,
+            character_spacing=0.0,
+            line_spacing=0.0,
+            max_h_compress=0.0,
+            text_h_alignment="center",
+            plain_text="plain CUT",
+            styled_runs=(Run("plain ", PLAIN), Run("CUT", Style(cutter=0.03))),
+            scale_cutter_inventory=(0.03, 0.06),
+        )
+
+    def test_cutter_is_a_compact_finding(self) -> None:
+        """A line with a <c:D> run prints its tool alongside the line's."""
+        resolved, rendered = _label("l1", [self._cutter_line("plain <c:0.03>CUT</c>")])
+
+        lines = format_layout_report([resolved], {"l1": rendered})
+        text = "\n".join(lines)
+
+        assert "cutter 0.030in (engraved cutter 0.030in, line cutter 0.060in)" in text
+        assert has_layout_findings([resolved], {"l1": rendered}) is True
+
+    def test_cutter_finding_strips_markup(self) -> None:
+        """The cutter finding reports the plain text, never the tags."""
+        resolved, rendered = _label("l1", [self._cutter_line("plain CUT")])
+
+        text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
+
+        assert "'plain CUT' cutter 0.030in" in text
+        assert "<c:" not in text
+
+    def test_cutter_prints_alongside_compression(self) -> None:
+        """One line can report compression and its explicit tool."""
+        resolved, rendered = _label(
+            "l1",
+            [self._cutter_line("WIDE")],
+            compression={0: 0.85},
+        )
+
+        text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
+
+        assert "scale 0.850 (15.0% compressed)" in text
+        assert "cutter 0.030in" in text
+
+    def test_no_cutter_run_is_not_a_finding(self) -> None:
+        """A markup-free line produces no cutter finding."""
+        resolved, rendered = _label("l1", [_line("PLAIN")])
+
+        assert format_layout_report([resolved], {"l1": rendered}) == []
+        assert has_layout_findings([resolved], {"l1": rendered}) is False
+
+
 
 class TestScaleMarkupFindings:
     """A ``<scale:N>`` run's factor range is a report finding."""

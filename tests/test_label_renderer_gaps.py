@@ -1153,3 +1153,62 @@ class TestFontSegmentComposition:
         _render_line_block(line, label_renderer.TextChunkMode.LINE)
         # The space is its own (skipped) segment: the renderers see 'a' and 'b'.
         assert calls == ["a", "b"]
+
+
+class TestInlineCutterDispatch:
+    """``<c:D>`` routes the run's strokes onto its own tool's pen."""
+
+    def test_cutter_run_forwards_its_diameter(self) -> None:
+        """The PLT path receives the run's explicit tool in ``cutter_diameters``."""
+        line = _markup_line("a<c:0.03>b</c>c", scale_cutter_inventory=(0.03, 0.06))
+        kwargs = label_renderer._glyph_render_kwargs(line, plt=True)
+        assert kwargs["cutter_diameters"] == (0.06, 0.03, 0.06)
+
+    def test_cutter_run_forwards_its_geometry_scale(self) -> None:
+        """The run's silhouette is ``nominal - D`` (the <b> centerline rule)."""
+        line = _markup_line("a<c:0.03>b</c>c", scale_cutter_inventory=(0.03, 0.06))
+        kwargs = label_renderer._glyph_render_kwargs(line, plt=True)
+        expected = (0.5 - 0.03) / (0.5 - 0.06)
+        assert kwargs["glyph_scales"][1] == pytest.approx(expected)
+        assert kwargs["glyph_scales"][0] == pytest.approx(1.0)
+
+    def test_cutter_run_carries_the_baseline_raise(self) -> None:
+        """The run rides the engraved-baseline raise (d - cutter) / 2."""
+        line = _markup_line("a<c:0.03>b</c>c", scale_cutter_inventory=(0.03, 0.06))
+        shifts = label_renderer._baseline_shift_inches(line)
+        assert shifts is not None
+        assert shifts[1] == pytest.approx((0.03 - 0.06) / 2)
+        assert shifts[0] == pytest.approx(0.0)
+
+    def test_ttf_path_forwards_the_geometry_scale(self) -> None:
+        """The TTF path receives the run's scale (PLT parity, no diameters)."""
+        line = _markup_line("a<c:0.03>b</c>c", scale_cutter_inventory=(0.03, 0.06))
+        kwargs = label_renderer._glyph_render_kwargs(line, plt=False)
+        assert "cutter_diameters" not in kwargs
+        expected = (0.5 - 0.03) / (0.5 - 0.06)
+        assert kwargs["glyph_scales"][1] == pytest.approx(expected)
+
+    def test_stroke_cutter_map_splits_the_line(self) -> None:
+        """The per-stroke cutter array splits the line across two tools."""
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+            _stroke_cutter_map,
+        )
+
+        line = _markup_line("a<c:0.03>b</c>c", scale_cutter_inventory=(0.03, 0.06))
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        cutters = _stroke_cutter_map(line, block, glyphs)
+        # Two tools engrave the line, so the array is not empty and carries
+        # both diameters.
+        assert set(cutters) == {0.03, 0.06}
+
+    def test_underline_run_splits_at_the_cutter_boundary(self) -> None:
+        """One underline cannot span two tools: the run splits at the boundary."""
+        from plt_optimizer.generate.label_renderer import _underline_render_gate
+
+        line = _markup_line("a<u>b<c:0.03>c</c></u>", scale_cutter_inventory=(0.03, 0.06))
+        runs = _underline_render_gate(line)
+        # The underlined span covers the plain 'b' (0.06) and the overridden
+        # 'c' (0.03), so it splits into two runs.
+        assert len(runs) == 2

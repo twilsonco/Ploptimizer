@@ -655,6 +655,7 @@ class TestUnderlineRegistry:
             "s",
             "sc",
             "f",
+            "c",
         ]
 
 
@@ -754,6 +755,7 @@ class TestScaleRegistry:
             "s",
             "sc",
             "f",
+            "c",
         ]
         assert spec.apply(PLAIN, "0.5") == SCALED_HALF
         # Set-to-value: re-applying with the same argument is idempotent.
@@ -908,6 +910,7 @@ class TestSupSubRegistry:
             "s",
             "sc",
             "f",
+            "c",
         ]
         for name in ("sup", "sub"):
             spec = TAG_REGISTRY[name]
@@ -1214,6 +1217,7 @@ class TestStrikethroughRegistry:
             "s",
             "sc",
             "f",
+            "c",
         ]
 
     def test_nested_strike_serializes_flat(self) -> None:
@@ -1326,6 +1330,7 @@ class TestSmallCapsRegistry:
             "s",
             "sc",
             "f",
+            "c",
         ]
 
     def test_small_caps_and_scale_are_distinct_tags(self) -> None:
@@ -1355,11 +1360,10 @@ class TestFontRegistry:
     """The <f> registry entry (the font-selection value tag)."""
 
     def test_font_is_registered_with_args(self) -> None:
-        """The tag accepts a mandatory arg and is registered last."""
+        """The tag accepts a mandatory arg (the <c:D> tag registers after it)."""
         spec = TAG_REGISTRY["f"]
         assert spec.accepts_args is True
         assert spec.args_optional is False
-        assert list(TAG_REGISTRY)[-1] == "f"
         assert spec.apply(PLAIN, "Wingdings") == FONTS
         # Set-to-value: re-applying with the same argument is idempotent.
         assert spec.apply(FONTS, "Wingdings") == FONTS
@@ -1508,3 +1512,149 @@ class TestFontSerialize:
         words, separators = split_styled_words_with_separators(styled)
         assert [word.text for word in words] == ["foo", "bar"]
         assert all(sep.font == "Wingdings" for sep in separators)
+
+
+CUTTER = Style(cutter=0.06)
+
+
+class TestCutterRegistry:
+    """The <c:D> registry entry (the explicit-cutter value tag)."""
+
+    def test_cutter_is_registered_with_args(self) -> None:
+        """The tag accepts a mandatory arg and is registered last."""
+        spec = TAG_REGISTRY["c"]
+        assert spec.accepts_args is True
+        assert spec.args_optional is False
+        assert list(TAG_REGISTRY)[-1] == "c"
+        assert spec.apply(PLAIN, "0.06") == CUTTER
+        # Set-to-value: re-applying with the same argument is idempotent.
+        assert spec.apply(CUTTER, "0.06") == CUTTER
+        # A new argument replaces the active cutter.
+        assert spec.apply(CUTTER, "0.09") == Style(cutter=0.09)
+        # Applying <c> inside <i> composes.
+        assert spec.apply(ITALIC, "0.06") == Style(italic=True, cutter=0.06)
+
+    def test_is_active_predicate(self) -> None:
+        """The tag is active exactly when a cutter is selected."""
+        spec = TAG_REGISTRY["c"]
+        assert spec.is_active(PLAIN) is False
+        assert spec.is_active(CUTTER) is True
+
+    def test_arg_serializer_round_trip(self) -> None:
+        """The arg serializer emits the canonical argument the parser accepts."""
+        spec = TAG_REGISTRY["c"]
+        assert spec.arg is not None
+        assert spec.arg(CUTTER) == "0.06"
+        assert spec.apply(PLAIN, spec.arg(CUTTER)) == CUTTER
+
+    def test_registry_order_is_stable(self) -> None:
+        """The tag is registered after every shipped tag (the serialization order)."""
+        assert list(TAG_REGISTRY) == [
+            "i",
+            "u",
+            "b",
+            "scale",
+            "sup",
+            "sub",
+            "s",
+            "sc",
+            "f",
+            "c",
+        ]
+
+
+class TestCutterParse:
+    """Parsing the <c:D> tag (the explicit cutter diameter)."""
+
+    def test_cutter_run_and_values(self) -> None:
+        """The run carries the diameter and the per-char values align."""
+        styled = parse_markup("A<c:0.06>B</c>C")
+        assert styled.plain_text == "ABC"
+        assert styled.cutter_values == (None, 0.06, None)
+
+    def test_bare_cutter_is_literal_text(self) -> None:
+        """The diameter is mandatory, so a bare <c> is not markup (the <scale> rule).
+
+        A bare open tag is literal text; the matching close then has no open
+        to close, which is the framework's hard error for a mandatory-arg tag
+        (exactly the ``<scale>`` / ``<f>`` behaviour).
+        """
+        styled = parse_markup("a <c> b")
+        assert styled.plain_text == "a <c> b"
+        assert styled.has_markup is False
+        with pytest.raises(MarkupError, match="Unexpected closing tag"):
+            parse_markup("<c>text</c>")
+
+    def test_non_numeric_argument_is_an_error(self) -> None:
+        """A non-numeric diameter is broken markup (fail-loud)."""
+        with pytest.raises(MarkupError) as excinfo:
+            parse_markup("<c:abc>x</c>")
+        assert "not a number" in str(excinfo.value)
+
+    def test_empty_argument_is_an_error(self) -> None:
+        """An empty diameter is broken markup (fail-loud)."""
+        with pytest.raises(MarkupError) as excinfo:
+            parse_markup("<c:>x</c>")
+        assert "not a number" in str(excinfo.value)
+
+    def test_non_positive_argument_is_an_error(self) -> None:
+        """A zero or negative diameter is out of the supported range."""
+        for bad in ("0", "-0.06"):
+            with pytest.raises(MarkupError) as excinfo:
+                parse_markup(f"<c:{bad}>x</c>")
+            assert "outside the supported range" in str(excinfo.value)
+
+    def test_oversized_argument_is_an_error(self) -> None:
+        """A diameter above the ceiling is out of the supported range."""
+        with pytest.raises(MarkupError) as excinfo:
+            parse_markup("<c:1.5>x</c>")
+        assert "outside the supported range" in str(excinfo.value)
+
+    def test_the_cutter_is_independent_of_the_other_tags(self) -> None:
+        """<c:D> is its own field (never confused with <scale:N> or <f:>)."""
+        styled = parse_markup("<c:0.06><scale:0.5>x</scale></c>")
+        assert styled.cutter_values == (0.06,)
+        assert styled.scale_values == (0.5,)
+        assert styled.font_values == (None,)
+
+
+class TestCutterSerialize:
+    """The <c:D> serialization round-trip (the reflow depends on it)."""
+
+    def test_serialized_form_reparses_identically(self) -> None:
+        """serialize_runs -> parse_markup reproduces the same per-char values."""
+        styled = parse_markup("A<c:0.06>B</c>C")
+        raw = serialize_runs(styled.runs)
+        assert raw == "A<c:0.06>B</c>C"
+        assert parse_markup(raw).cutter_values == styled.cutter_values
+
+    def test_nested_cutter_restores_the_outer_value(self) -> None:
+        """A nested <c:D> restores the outer diameter for the trailing text."""
+        styled = parse_markup("<c:0.06>a<c:0.09>b</c>c</c>")
+        assert styled.cutter_values == (0.06, 0.09, 0.06)
+        raw = serialize_runs(styled.runs)
+        assert parse_markup(raw).cutter_values == styled.cutter_values
+
+    def test_style_boundaries_see_the_cutter_change(self) -> None:
+        """A cutter span's edges are style boundaries (the reflow's guard)."""
+        styled = parse_markup("ab<c:0.06>cd</c>ef")
+        assert style_boundaries(styled) == (2, 4)
+
+
+class TestCutterWords:
+    """The <c:D> reflow tokens (the line-content reflow round-trip)."""
+
+    def test_styled_word_keeps_the_cutter_argument(self) -> None:
+        """A styled word token round-trips with its cutter."""
+        styled = parse_markup("big <c:0.06>cut</c>")
+        words = split_styled_words(styled)
+        assert [word.text for word in words] == ["big", "cut"]
+        assert serialize_word(words[1]) == "<c:0.06>cut</c>"
+        assert serialize_word(words[0]) == "big"
+
+    def test_space_spanning_cutter_run_keeps_the_separator(self) -> None:
+        """<c:X>foo bar</c> tokenizes with the cutter separator (underline rule)."""
+        styled = parse_markup("<c:0.06>foo bar</c>")
+        words, separators = split_styled_words_with_separators(styled)
+        assert [word.text for word in words] == ["foo", "bar"]
+        assert all(sep.cutter == 0.06 for sep in separators)

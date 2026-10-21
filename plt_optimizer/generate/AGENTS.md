@@ -8,8 +8,8 @@ old root AGENTS.md section 6.
 
 Sub-contracts in this directory tree - read them when touching those modules:
 
-- [`markup/AGENTS.md`](markup/AGENTS.md) - the inline markup framework + all 9
-  tags (`<i> <u> <b> <scale:N> <sup> <sub> <s> <sc> <f:>`). Sections in this
+- [`markup/AGENTS.md`](markup/AGENTS.md) - the inline markup framework + all 10
+  tags (`<i> <u> <b> <scale:N> <sup> <sub> <s> <sc> <f:> <c:>`). Sections in this
   file that reference an "Inline ..." contract point there.
 - [`collision/AGENTS.md`](collision/AGENTS.md) - text-hole collision avoidance +
   cutter-compensated drill holes.

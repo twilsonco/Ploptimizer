@@ -14,6 +14,16 @@
 
 ### Features
 
+* **generate:** `<c:D>...</c>` inline cutter markup - the tenth shipped tag. The wrapped characters engrave with the **explicit cutter diameter `D`** (inches), overriding every other cutter setting for that segment (the line's own tool, the `<b>` bold rung, the `<scale:N>` height ladder)
+  - The argument is mandatory (a bare `<c>` is literal text, the `<scale:N>` rule) and in inches; a non-numeric, zero, or out-of-range value is a `MarkupError` -> CLI non-zero (the fail-loud contract)
+  - `D` **snaps to the shop inventory** with the same rule the line-level `cutter_size` uses (exact match kept, else the next size down, else the next size up) with a WARNING naming the line; a tool at or above the line's `text_height` leaves no material and aborts the job (`CutterSizeError`)
+  - The run's **engraved silhouette is exactly `nominal - D` tall** (the `<b>` centerline contract generalized: `g = (nominal - D) / (nominal - line_cutter)`), and the engraved-baseline raise `(D - line_cutter) / 2` aligns its baseline and capline with the plain run's
+  - The line's own `cutter_diameter` / `toolpath_text_height` never move (a segment override, not a line-level change); the run's strokes land on their own tool's pen and per-cutter `<cutter>_txt_` PLT file (the `<b>`/`<scale:N>` pen-split machinery, unchanged)
+  - The explicit tool **wins** over the `<b>` rung and the `<scale:N>` ladder; the compression-driven downsize moves the line's *plain* characters only, so the explicit tool is never overridden automatically (the line-level `cutter_size` contract)
+  - No schema field, no `job-config.json` key, no cascade - the value rides the tag (the `<scale:N>` precedent)
+  - The layout report prints a per-line finding `Line N: '<text>' cutter 0.030in (engraved cutter 0.030in, line cutter 0.060in)`
+  - Pins: `tests_deps/cutter_job.yaml` (`TestCutterDemoExample`, 9 labels: the run vs its plain twin, a heavier tool, the unowned-diameter snap, `<c:D>` vs `<b>` / `<scale:N>`, a per-glyph selection, a nested override, the TTF pair, the per-cutter file set), `TestCutterRegistry` / `TestCutterParse` / `TestCutterSerialize` / `TestCutterWords` (`test_markup.py`), `TestCutterMarkupResolution` (`test_resolution.py`), `TestInlineCutterDispatch` (`test_label_renderer_gaps.py`), `TestCutterMarkupFindings` (`test_layout_report.py`), `TestCutterMarkupPin` (`test_cutter_downsize.py`)
+
 * **fonts:** `font_showcase.py` moved from `scripts/` to `fonts/`; showcases are now chrome-free **JPGs** in the git-tracked `fonts/showcases/` directory
   - `plot_plt_document` gained `show_axes` / `show_title` flags (both default `True`, every existing caller unchanged); the showcase passes `show_axes=False, show_title=False, gridlines=False`, so each image carries only the engraved geometry - the font name is engraved in the body, so the matplotlib plot title (and the `showcase_pdf_title`/`mapping_pdf_title` helpers) is gone
   - `save_figure` learned `.jpg`/`.jpeg` (200 dpi, flattened onto white, quality 92); the writers are `write_showcase_image` / `write_mapping_image`

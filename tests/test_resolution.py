@@ -6421,6 +6421,126 @@ class TestFontRunResolution:
         assert line.per_char_cutters == (0.06,) * 5
 
 
+class TestCutterMarkupResolution:
+    """The <c:D> markup resolves an explicit per-segment cutter diameter."""
+
+    @staticmethod
+    def _job(*lines: TextLine, **job_kwargs: object) -> JobSpec:
+        """Build a single-label Dino job over ``lines`` (inventory wired)."""
+        job_kwargs.setdefault("font", "Dino")
+        job_kwargs.setdefault("text_height", 0.5)
+        return JobSpec(
+            job_name="J",
+            labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=list(lines))],
+            **job_kwargs,
+        )
+
+    def test_cutter_run_overrides_the_line_cutter(self) -> None:
+        """The run's characters engrave with the declared tool."""
+        job = self._job(TextLine(text="A<c:0.03>B</c>C"))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        assert line.plain_text == "ABC"
+        assert line.has_cutter_runs is True
+        assert line.cutter_overrides == (None, 0.03, None)
+        # The line's own tool is untouched (a segment override, not a line change).
+        assert line.cutter_diameter == pytest.approx(0.06)
+        assert line.per_char_cutters == (0.06, 0.03, 0.06)
+        assert line.used_cutters == (0.03, 0.06)
+
+    def test_cutter_run_baseline_raise_follows_the_cutter(self) -> None:
+        """The run's engraved-baseline raise is (run_cutter - line_cutter)/2."""
+        job = self._job(TextLine(text="A<c:0.03>B</c>C"))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        assert line.baseline_raises[0] == pytest.approx(0.0)
+        assert line.baseline_raises[1] == pytest.approx((0.03 - 0.06) / 2)
+
+    def test_cutter_run_silhouette_is_nominal_minus_cutter(self) -> None:
+        """The run's engraved box is ``nominal - D`` (the <b> centerline rule)."""
+        job = self._job(TextLine(text="A<c:0.03>B</c>C"))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        plan = glyph_render_plan(line)
+        assert plan is not None
+        diameters, scales = plan
+        assert diameters == (0.06, 0.03, 0.06)
+        # g = (s*nominal - d) / (nominal - cutter) with s = 1 (the <b> case).
+        assert scales[1] == pytest.approx((0.5 - 0.03) / (0.5 - 0.06))
+        assert scales[0] == pytest.approx(1.0)
+
+    def test_cutter_overrides_the_bold_rung(self) -> None:
+        """<c:D> wins over the <b> bold rung for the characters it covers."""
+        job = self._job(TextLine(text="<b>A<c:0.03>B</c></b>"))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        assert line.bold_cutter_diameter == pytest.approx(0.09)
+        # The <c:0.03> character takes its explicit tool, not the bold rung.
+        assert line.per_char_cutters == (0.09, 0.03)
+
+    def test_cutter_overrides_the_scale_ladder(self) -> None:
+        """<c:D> wins over the <scale:N> height ladder."""
+        job = self._job(TextLine(text="<scale:0.5>A<c:0.03>B</c></scale>"))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        # The scaled run would take the 0.25in ladder (0.03); the <c:0.03>
+        # character takes its explicit tool instead.
+        assert line.per_char_cutters == (0.03, 0.03)
+
+    def test_cutter_snaps_to_the_shop_inventory(self) -> None:
+        """A diameter the shop does not own snaps (next size down preferred)."""
+        job = self._job(TextLine(text="<c:0.05>x</c>"))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        # 0.05 is not in the inventory: the next size down (0.045) wins.
+        assert line.per_char_cutters == (pytest.approx(0.045),)
+
+    def test_cutter_snaps_up_when_no_smaller_tool_exists(self) -> None:
+        """With no smaller tool, the snap takes the next size up."""
+        job = self._job(TextLine(text="<c:0.005>x</c>"))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        assert line.per_char_cutters == (pytest.approx(0.01),)
+
+    def test_cutter_without_inventory_is_used_verbatim(self) -> None:
+        """No inventory means no snap: the requested tool is used verbatim."""
+        job = self._job(TextLine(text="<c:0.05>x</c>"))
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.per_char_cutters == (pytest.approx(0.05),)
+
+    def test_cutter_leaving_no_material_aborts_resolution(self) -> None:
+        """A tool at/above the text height leaves nothing to engrave (fail-loud).
+
+        The check runs on the **snapped** diameter (the tool that would
+        actually engrave), so a request that snaps down to a usable tool is
+        fine and only a request that leaves no material aborts.
+        """
+        from plt_optimizer.generate.resolution import CutterSizeError
+
+        job = self._job(TextLine(text="<c:0.5>x</c>"), text_height=0.25)
+        with pytest.raises(CutterSizeError, match="leaves no material"):
+            resolve_job_spec(job, available_cutters=list(_INVENTORY))
+
+    def test_cutter_snap_that_leaves_material_is_accepted(self) -> None:
+        """A request that snaps DOWN to a usable tool is accepted (0.5 -> 0.25)."""
+        job = self._job(TextLine(text="<c:0.5>x</c>"), text_height=0.5)
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        # 0.5 is not in the inventory and nothing is smaller-but-usable at
+        # 0.5in of text, so the snap takes the next size up (0.25).
+        assert line.per_char_cutters == (pytest.approx(0.25),)
+
+    def test_cutter_survives_the_with_markup_text_swap(self) -> None:
+        """The run cutter DERIVES from the style, so a text swap keeps it."""
+        job = self._job(TextLine(text="plain"))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        swapped = line.with_markup("A<c:0.03>B</c>")
+        assert swapped.cutter_overrides == (None, 0.03)
+        assert swapped.per_char_cutters[0] == pytest.approx(0.06)
+        assert swapped.per_char_cutters[1] == pytest.approx(0.03)
+
+    def test_markup_free_line_has_no_cutter_runs(self) -> None:
+        """A tag-free line keeps the fast path (no override, no plan)."""
+        job = self._job(TextLine(text="plain"))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        assert line.has_cutter_runs is False
+        assert line.cutter_overrides == (None,) * 5
+        assert glyph_render_plan(line) is None
+        assert line.per_char_cutters == (0.06,) * 5
+
+
 class TestRunLadderCutter:
     """scale_cutter_ladder resolves a run font's own ladder (multi-stroke aware)."""
 

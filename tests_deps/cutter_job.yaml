@@ -1,0 +1,117 @@
+# Fixture for inline cutter markup (`<c:D>`).
+#
+# `<c:D>...</c>` engraves the wrapped characters with the EXPLICIT cutter
+# diameter D (inches), overriding every other cutter setting for the segment
+# (the line's own tool, the `<b>` bold rung, the `<scale:N>` height ladder).
+# The value is snapped to the shop inventory with the same rule the line-level
+# `cutter_size` uses (exact match kept, else the next size down, else the next
+# size up) and validated against the line's text height -- a tool at or above
+# the text height leaves no material to engrave and aborts the job
+# (`CutterSizeError`).
+#
+# The run's glyphs scale UNIFORMLY about their own baseline by
+# `(nominal - D) / (nominal - line_cutter)` -- the `<b>` centerline contract
+# generalized: a thicker tool engraves a fatter stroke, so the centerlines
+# shrink to keep the engraved silhouette inside the box the plain glyph
+# occupies. The run's engraved box is therefore exactly `nominal - D` tall,
+# the same invariant the plain and bold runs uphold. The line's own
+# `cutter_diameter` / `toolpath_text_height` never move (a segment override,
+# not a line-level change).
+#
+# The engraved-baseline alignment raise rides along: a run engraving with tool
+# D rises by `(D - line_cutter) / 2` so its ENGRAVED baseline (and capline)
+# match the plain run's -- the same rule `<b>` obeys.
+#
+# Against the test inventory
+# [0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.09, 0.125, 0.25] at text_height 0.5:
+#   - Dino (S1, auto) ................. plain 0.060
+#   - `<c:0.03>` ..................... explicit 0.030 (a second per-cutter file)
+#   - `<c:0.09>` ..................... explicit 0.090 (a second per-cutter file)
+#   - `<c:0.05>` ..................... snaps to 0.045 (the next size down)
+#   - `<c:0.09>` + `<b>` ............. the explicit tool WINS over the bold rung
+#   - `<c:0.09>` + `<scale:0.5>` ...... the explicit tool WINS over the ladder
+#
+# The compression-driven `cutter_downsize` moves the line's PLAIN characters
+# only; an explicit tool is a human decision and is never overridden
+# automatically (the line-level `cutter_size` contract).
+#
+# No plate declares a material and the job packs onto one sheet, so emitted
+# names carry no plate/material prefix.
+job:
+  job_name: Cutter Demo
+
+  width: 3.0
+  height: 1.0
+  margin: 0.1
+  text_height: 0.5
+  line_spacing: 0.15
+  auto_descending_character_adjustment: false
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. The headline case: an explicit-tool run inside a plain line. `CUT`
+    #    engraves with the 0.030in tool, `plain` with 0.060in, so the label
+    #    contributes two per-cutter text files.
+    - id: plt_cut
+      font: Dino
+      content:
+        - text: "plain <c:0.03>CUT</c> plain"
+
+    # 2. The plain control for label 1 (same text, no markup): one cutter, and
+    #    the reference the explicit run's silhouette is measured against.
+    - id: plt_plain
+      font: Dino
+      content:
+        - text: "plain CUT plain"
+
+    # 3. A heavier explicit tool (0.090in) inside a plain line: the run
+    #    engraves with a WIDER tool than the line's own 0.060in.
+    - id: plt_heavy
+      font: Dino
+      content:
+        - text: "plain <c:0.09>CUT</c> plain"
+
+    # 4. A diameter the shop does not own (0.050in): it snaps DOWN to the
+    #    next size in the inventory (0.045in) with a WARNING.
+    - id: plt_snap
+      font: Dino
+      content:
+        - text: "plain <c:0.05>CUT</c> plain"
+
+    # 5. The explicit tool WINS over the `<b>` bold rung: the run engraves
+    #    with 0.030in, not the bold rung's 0.090in.
+    - id: plt_vs_bold
+      font: Dino
+      content:
+        - text: "<b>plain <c:0.03>CUT</c></b>"
+
+    # 6. The explicit tool WINS over the `<scale:N>` height ladder: the run
+    #    engraves with 0.030in, not the 0.25in-height ladder's cutter.
+    - id: plt_vs_scale
+      font: Dino
+      content:
+        - text: "<scale:0.5>plain <c:0.03>CUT</c></scale>"
+
+    # 7. A per-glyph selection: only `B` takes the explicit tool, `A`/`C`
+    #    stay on the line's own cutter.
+    - id: plt_partial
+      font: Dino
+      content:
+        - text: "A<c:0.03>B</c>C"
+
+    # 8. The TTF family: the same override, the same per-cutter file split.
+    - id: plt_ttf
+      font: ReliefSingleLineCAD-Regular
+      content:
+        - text: "plain <c:0.03>CUT</c> plain"
+
+    # 9. A nested override: the inner `<c:0.09>` wins for its span, and the
+    #    outer `<c:0.03>` is restored for the trailing text.
+    - id: plt_nested
+      font: Dino
+      content:
+        - text: "<c:0.03>A<c:0.09>B</c>C</c>"

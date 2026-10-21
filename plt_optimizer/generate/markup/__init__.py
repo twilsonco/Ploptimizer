@@ -55,6 +55,10 @@ serializer returns ``""`` for the bare form so serialization stays
 round-trip exact. Adding a markup type (``<b>``, ``<u>``, ...) is a
 one-line registry entry plus the render-side handling of the new
 :class:`Style` field; the parser, cascade, and serialization need no change.
+
+The shipped tags are ``<i> <u> <b> <scale:N> <sup> <sub> <s> <sc> <f:name>``
+and ``<c:D>`` (the explicit cutter diameter in inches for the wrapped
+segment).
 """
 
 from __future__ import annotations
@@ -64,8 +68,10 @@ from dataclasses import dataclass, replace
 from typing import Callable, Dict, List, Optional, Pattern, Sequence, Tuple
 
 __all__ = [
+    "MAX_CUTTER_ARG",
     "MAX_SCALE_ARG",
     "MAX_SHIFT_ARG",
+    "MIN_CUTTER_ARG",
     "MIN_SCALE_ARG",
     "MIN_SHIFT_ARG",
     "MarkupError",
@@ -191,6 +197,14 @@ class Style:
             argument regex is ``\\S*`` (no whitespace), so ``+`` is the
             canonical space in a multi-word name (``<f:Foo+Bar>``); ``_``
             stays literal. PLT and TTF families mix freely inside one line.
+        cutter: The ``<c:0.06>`` explicit cutter diameter (inches) active
+            on the run (``None`` = the line's own cascaded cutter). The
+            wrapped characters engrave with THIS tool, overriding every
+            other cutter setting for the segment (the line's own tool, the
+            ``<b>`` bold rung, the ``<scale:N>`` height ladder). The
+            argument is in inches (like every other cutter value in the
+            repo) and must be positive; the pipeline snaps it to the shop
+            inventory and validates it against the line's text height.
     """
 
     italic: bool = False
@@ -201,6 +215,7 @@ class Style:
     strikethrough: bool = False
     small_caps: bool = False
     font: Optional[str] = None
+    cutter: Optional[float] = None
 
 
 #: The style of unmarked text (every field at its default).
@@ -229,6 +244,15 @@ SUP_DIRECTION: int = 1
 
 #: :attr:`SupSub.direction` for a subscript run (``<sub>``).
 SUB_DIRECTION: int = -1
+
+#: Lower bound of the ``<c:D>`` argument (exclusive -- a cutter must be
+#: positive). The real limit is the line's own text height, which the
+#: pipeline checks at resolution time (a ``CutterSizeError``).
+MIN_CUTTER_ARG: float = 0.0
+
+#: Upper bound of the ``<c:D>`` argument (inches). Generous: the largest
+#: tool in the shop inventory is 0.25in, so 1.0in only bounds a typo.
+MAX_CUTTER_ARG: float = 1.0
 
 
 def _parse_scale_arg(arg: str) -> float:
@@ -343,6 +367,46 @@ def _format_font_arg(font: Optional[str]) -> str:
     (serialize -> raw text -> re-parse) is exact.
     """
     return "" if font is None else font.replace(" ", "+")
+
+
+def _parse_cutter_arg(arg: str) -> float:
+    """Parse and validate a ``<c:D>`` argument (the cutter diameter, inches).
+
+    The value is in inches, like every other cutter value in the repo
+    (``cutter_size``, the ``tools.json`` ``available_cutters`` inventory).
+    The syntactic bounds are deliberately loose (a positive diameter up to
+    :data:`MAX_CUTTER_ARG`); the real limit is the line's own text height,
+    which the pipeline checks at resolution time (a ``CutterSizeError``,
+    the same contract an out-of-range line-level ``cutter_size`` obeys).
+
+    Args:
+        arg: The raw ``name:args`` argument text.
+
+    Returns:
+        The cutter diameter in inches.
+
+    Raises:
+        MarkupError: If the argument is not a float in
+            ``(MIN_CUTTER_ARG, MAX_CUTTER_ARG]`` (fail-loud, like an
+            unclosed tag).
+    """
+    try:
+        cutter = float(arg)
+    except ValueError:
+        raise MarkupError(
+            f"cutter tag argument {arg!r} is not a number (expected e.g. <c:0.06>)."
+        ) from None
+    if not MIN_CUTTER_ARG < cutter <= MAX_CUTTER_ARG:
+        raise MarkupError(
+            f"cutter tag argument {arg!r} is outside the supported range "
+            f"({MIN_CUTTER_ARG}, {MAX_CUTTER_ARG}]."
+        )
+    return cutter
+
+
+def _format_cutter_arg(cutter: Optional[float]) -> str:
+    """Format :attr:`Style.cutter` back into the canonical tag argument."""
+    return "" if cutter is None else f"{cutter:g}"
 
 
 @dataclass(frozen=True)
@@ -512,6 +576,23 @@ register_tag(
     arg=lambda style: _format_font_arg(style.font),
     is_active=lambda style: style.font is not None,
 )
+# Registered LAST so every existing serialization order stays bit-identical.
+# The cutter-selection tag: a value tag (like <scale:N>) whose argument is
+# the cutter diameter in inches. A bare <c> is literal text (the diameter is
+# mandatory, the <scale> rule). apply is set-to-value (idempotent), so a
+# nested <c:0.06> inside <c:0.09> restores 0.09 for the trailing text for
+# free (the close pops the pre-open Style), and serialize_runs re-emits
+# name:arg via _format_cutter_arg (the reflow round-trip depends on it).
+# The argument is validated here (a bad value raises MarkupError -> the CLI
+# aborts); the pipeline snaps the value to the shop inventory and checks it
+# against the line's text height at resolution time.
+register_tag(
+    "c",
+    lambda style, arg: replace(style, cutter=_parse_cutter_arg(arg)),
+    accepts_args=True,
+    arg=lambda style: _format_cutter_arg(style.cutter),
+    is_active=lambda style: style.cutter is not None,
+)
 
 
 @dataclass(frozen=True)
@@ -605,6 +686,19 @@ class StyledText:
         run on its own font.
         """
         return tuple(style.font for style in _per_char_styles(self))
+
+    @property
+    def cutter_values(self) -> Tuple[Optional[float], ...]:
+        """Per-character ``<c:...>`` cutter diameters, aligned with :attr:`plain_text`.
+
+        ``None`` at every position the line's own cascaded cutter engraves
+        (every character outside an ``<c:...>`` span); the requested cutter
+        diameter in inches inside one. The per-character sibling of
+        :attr:`font_values`, derived from the runs like every other flag
+        array, so a pre-pass that rewrites the line's text (``with_markup``,
+        the line-content reflow) keeps every run on its own tool.
+        """
+        return tuple(style.cutter for style in _per_char_styles(self))
 
 
 @dataclass(frozen=True)

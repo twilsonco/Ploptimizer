@@ -42,6 +42,11 @@ what is engraved without appearing in the YAML spec:
   the fonts a line's ``<f:...>`` runs engrave with, alongside the cutters
   those runs stepped to (each run font's own ladder) -- the font/tool swap
   the markup caused, which the YAML spec never states.
+- **Cutter markup**
+  (:attr:`plt_optimizer.generate.resolution.ResolvedTextLine.cutter_overrides`):
+  the cutter diameters a line's ``<c:...>`` runs declare, alongside the
+  diameters they actually engrave with (snapped to the shop inventory) --
+  the tool override the markup caused, which the YAML spec never states.
 - **Cutter-compensated drill holes**
   (:attr:`plt_optimizer.generate.resolution.ResolvedLabel.hole_adjust_for_cutter`):
   the emitted hole diameters the cutter compensation produced (specified ->
@@ -138,6 +143,26 @@ def _font_run_info(line: ResolvedTextLine) -> tuple[tuple[str, ...], tuple[float
     return tuple(sorted(names)), tuple(sorted(used))
 
 
+def _cutter_run_info(line: ResolvedTextLine) -> tuple[tuple[float, ...], tuple[float, ...]]:
+    """Return the ``(requested, engraved)`` cutters a line's ``<c:...>`` runs use.
+
+    Both ascending and de-duplicated, read from the derived per-character
+    arrays: the diameters the tag REQUESTED and the diameters those
+    characters actually engrave with (snapped to the shop inventory, so a
+    request the shop does not own is visible next to the tool that runs).
+    """
+    overrides = line.cutter_overrides
+    cutters = line.per_char_cutters
+    requested: set[float] = set()
+    engraved: set[float] = set()
+    for index, diameter in enumerate(overrides):
+        if diameter is None:
+            continue
+        requested.add(diameter)
+        engraved.add(cutters[index] if index < len(cutters) else line.cutter_diameter)
+    return tuple(sorted(requested)), tuple(sorted(engraved))
+
+
 def _hole_adjust_lines(label: ResolvedLabel) -> list[str]:
     """Return the cutter-compensated drill-hole finding lines for a label.
 
@@ -184,9 +209,10 @@ def _label_findings(
         tuple[float, float] | None,
         tuple[float, float] | None,
         tuple[tuple[str, ...], tuple[float, ...]] | None,
+        tuple[tuple[float, ...], tuple[float, ...]] | None,
     ]
 ]:
-    """Collect the per-line findings (compression / spacing / downsize / relief / bold / scale / sup-sub / font).
+    """Collect the per-line findings (compression / spacing / downsize / relief / bold / scale / sup-sub / font / cutter).
 
     Args:
         rendered: The rendered label carrying the render-time maps plus the
@@ -195,10 +221,10 @@ def _label_findings(
 
     Returns:
         One ``(line_index, line_text, scale, requested, effective, downsize,
-        relief_count, bold, markup_scale, sup_sub, font_runs)`` tuple per
-        finding, in content order. ``scale`` is set (below ``1.0``) only for
-        compressed lines; ``requested``/``effective`` are set only for spacing
-        gaps (always in full mode, or when deviating in compact mode);
+        relief_count, bold, markup_scale, sup_sub, font_runs, cutter_runs)``
+        tuple per finding, in content order. ``scale`` is set (below ``1.0``)
+        only for compressed lines; ``requested``/``effective`` are set only for
+        spacing gaps (always in full mode, or when deviating in compact mode);
         ``downsize`` is the ``(original, final)`` cutter pair only for lines
         whose automatic cutter was reduced; ``relief_count`` is how many
         descending glyphs the automatic descending-character adjustment
@@ -208,7 +234,9 @@ def _label_findings(
         only for lines carrying a ``<scale:N>`` run; ``sup_sub`` is the
         ``(min, max)`` baseline-shift range (cap-height units) only for lines
         carrying a ``<sup>``/``<sub>`` run; ``font_runs`` is the ``(fonts,
-        cutters)`` pair only for lines carrying a ``<f:...>`` run.
+        cutters)`` pair only for lines carrying a ``<f:...>`` run;
+        ``cutter_runs`` is the ``(requested, engraved)`` cutter pairs only for
+        lines carrying a ``<c:...>`` run.
     """
     content = rendered.source_label.content
     downsizes = rendered.source_label.cutter_downsize_by_line
@@ -226,6 +254,7 @@ def _label_findings(
             tuple[float, float] | None,
             tuple[float, float] | None,
             tuple[tuple[str, ...], tuple[float, ...]] | None,
+            tuple[tuple[float, ...], tuple[float, ...]] | None,
         ]
     ] = []
     for line_index in sorted(
@@ -237,6 +266,7 @@ def _label_findings(
         | {index for index, line in enumerate(content) if line.has_scale}
         | {index for index, line in enumerate(content) if line.has_sup_sub}
         | {index for index, line in enumerate(content) if line.has_font_runs}
+        | {index for index, line in enumerate(content) if line.has_cutter_runs}
     ):
         if line_index >= len(content):  # pragma: no cover - defensive
             continue
@@ -264,6 +294,9 @@ def _label_findings(
         font_runs: tuple[tuple[str, ...], tuple[float, ...]] | None = None
         if line.has_font_runs:
             font_runs = _font_run_info(line)
+        cutter_runs: tuple[tuple[float, ...], tuple[float, ...]] | None = None
+        if line.has_cutter_runs:
+            cutter_runs = _cutter_run_info(line)
         if (
             not compressed
             and not deviates
@@ -273,6 +306,7 @@ def _label_findings(
             and markup_scale is None
             and sup_sub is None
             and font_runs is None
+            and cutter_runs is None
         ):
             continue
         findings.append(
@@ -288,6 +322,7 @@ def _label_findings(
                 markup_scale,
                 sup_sub,
                 font_runs,
+                cutter_runs,
             )
         )
     return findings
@@ -325,6 +360,7 @@ def _label_lines(
             tuple[float, float] | None,
             tuple[float, float] | None,
             tuple[tuple[str, ...], tuple[float, ...]] | None,
+            tuple[tuple[float, ...], tuple[float, ...]] | None,
         ],
     ] = {
         index: (
@@ -337,8 +373,9 @@ def _label_lines(
             markup_scale,
             sup_sub,
             font_runs,
+            cutter_runs,
         )
-        for index, _t, scale, requested, effective, downsize, relief_count, bold, markup_scale, sup_sub, font_runs in findings
+        for index, _t, scale, requested, effective, downsize, relief_count, bold, markup_scale, sup_sub, font_runs, cutter_runs in findings
     }
 
     if not full and not findings and not _hole_adjust_lines(rendered.source_label):
@@ -455,6 +492,28 @@ def _label_lines(
                 lines.append(
                     f"    Line {line_index}: {line.plain_text!r} "
                     f"font {', '.join(names)} (run cutter {cutter_text}, "
+                    f"line cutter {line.cutter_diameter:.3f}in)"
+                )
+            cutter_runs = entry[9]
+            if cutter_runs is not None:
+                requested_cutters, engraved_cutters = cutter_runs
+                # The <c:D> tool is invisible in the YAML (it rides the tag)
+                # and each declared diameter is snapped to the shop
+                # inventory, so name both what was asked for and the tool
+                # that actually runs.
+                requested_text = (
+                    f"{requested_cutters[0]:.3f}in"
+                    if len(requested_cutters) == 1
+                    else "-".join(f"{cutter:.3f}" for cutter in requested_cutters) + "in"
+                )
+                engraved_text = (
+                    f"{engraved_cutters[0]:.3f}in"
+                    if len(engraved_cutters) == 1
+                    else "-".join(f"{cutter:.3f}" for cutter in engraved_cutters) + "in"
+                )
+                lines.append(
+                    f"    Line {line_index}: {line.plain_text!r} "
+                    f"cutter {requested_text} (engraved cutter {engraved_text}, "
                     f"line cutter {line.cutter_diameter:.3f}in)"
                 )
             if entry[4]:
