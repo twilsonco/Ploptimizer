@@ -1,2 +1,3 @@
 # TODO List
 - [ ] Revisit the stdout output when using the generation pipeline. We want to streamline it so that when an agent uses it, it isn't flooded with verbose or unnecessary messages. It should output the bare minimum, with only WARNING/ERROR messages displayed. Then, a report txt file should be made with each generation and put adjacent to the created pdf/plt directories.
+- [ ] Add new html markup for cutter specification, e.g. `<c:0.06>like this</c>`, where the required float argument specifies the cutter diameter. This overrides any other cutter settings for the specified text segment.
